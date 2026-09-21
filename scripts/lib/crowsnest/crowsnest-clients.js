@@ -43,16 +43,16 @@ function getCrowsnestClients() {
       status: 'Live',
       environments: [
         {
-          label: 'Staff production',
-          kind: 'staff_portal',
-          url: 'https://sunset.lunafrontdesk.com',
-          state: 'linked',
-        },
-        {
           label: 'Staff staging',
           kind: 'staff_portal',
           url: 'https://sunset-staging.lunafrontdesk.com',
           state: 'staging',
+        },
+        {
+          label: 'Staff production',
+          kind: 'staff_portal',
+          url: 'https://sunset.lunafrontdesk.com',
+          state: 'linked',
         },
       ],
     },

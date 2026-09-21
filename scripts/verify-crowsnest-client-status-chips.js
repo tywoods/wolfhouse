@@ -197,6 +197,68 @@ async function main() {
   assert.ok(!/Calendar|Microsoft Graph/.test(html));
   assert.ok(!/Create client|Onboard client|Client template/.test(html));
 
+  function clientCard(page, name) {
+    const cards = page.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+    return cards.find((card) => card.includes(name)) || '';
+  }
+  function envRow(card, label) {
+    const rows = card.match(/<li class="env-row[^"]*">[\s\S]*?<\/li>/g) || [];
+    return rows.find((row) => row.includes(`>${label}<`)) || '';
+  }
+  function connectionLabels(card) {
+    const start = card.indexOf('connection-chips');
+    const end = card.indexOf('env-section', start);
+    const slice = card.slice(start, end > start ? end : start + 800);
+    return [...slice.matchAll(/connection-chip-label">([^<]+)</g)].map((m) => m[1]);
+  }
+
+  for (const name of ['Wolfhouse Somo', 'Sunset Somo', 'Sunset Sardinero']) {
+    assert.deepEqual(connectionLabels(clientCard(html, name)), ['Luna', 'WhatsApp', 'Email', 'Stripe'], name);
+  }
+  assert.match(html, /\.connection-chips\{[^}]*flex-direction:\s*column/);
+  assert.ok(html.indexOf('>Staff staging<') < html.indexOf('>Staff production<'));
+
+  const evidenced = renderCrowsnestPage({
+    view: 'clients',
+    portalEvidence: {
+      'sunset-somo': { 'https://sunset-staging.lunafrontdesk.com': 'live' },
+      'wolfhouse-somo': { 'https://wolfhouse.lunafrontdesk.com': 'live' },
+    },
+  });
+  const sunsetStaging = envRow(clientCard(evidenced, 'Sunset Somo'), 'Staff staging');
+  const sunsetProduction = envRow(clientCard(evidenced, 'Sunset Somo'), 'Staff production');
+  const wolfhouseStaging = envRow(clientCard(evidenced, 'Wolfhouse Somo'), 'Staff staging');
+  const wolfhouseProduction = envRow(clientCard(evidenced, 'Wolfhouse Somo'), 'Staff production');
+  assert.match(sunsetStaging, /pill--success/);
+  assert.match(sunsetStaging, />Live</);
+  assert.match(sunsetStaging, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(sunsetProduction, />Unknown</);
+  assert.doesNotMatch(sunsetProduction, /pill--success/);
+  assert.match(wolfhouseProduction, /pill--success/);
+  assert.match(wolfhouseProduction, />Live</);
+  assert.match(wolfhouseStaging, />Unknown</);
+  assert.doesNotMatch(wolfhouseStaging, />Live</);
+  assert.match(sunsetStaging, />Staff staging</);
+  assert.match(wolfhouseProduction, />Staff production</);
+
+  const ignored = renderCrowsnestPage({
+    view: 'clients',
+    portalEvidence: {
+      'sunset-somo': { 'https://sunset-staging.lunafrontdesk.com': 'healthy-looking' },
+    },
+  });
+  const ignoredRow = envRow(clientCard(ignored, 'Sunset Somo'), 'Staff staging');
+  assert.match(ignoredRow, />Unknown</);
+  assert.doesNotMatch(ignoredRow, />Live</);
+  assert.doesNotMatch(ignoredRow, /healthy-looking/);
+
+  const pageOwner = fs.readFileSync(require.resolve('./lib/crowsnest/crowsnest-page'), 'utf8');
+  const availabilityOwner = pageOwner.slice(
+    pageOwner.indexOf('function renderEnvironmentRow'),
+    pageOwner.indexOf('function renderConnectionGroup'),
+  );
+  assert.doesNotMatch(availabilityOwner, /\bfetch\s*\(|requestJson|http\.request/);
+
   console.log('verify:crowsnest-client-status-chips OK');
 }
 
