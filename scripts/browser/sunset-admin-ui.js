@@ -2578,7 +2578,9 @@ function adminRefreshOnLocaleChange(){
   if (typeof paintSunsetLunaRuntimeStatus === 'function') {
     paintSunsetLunaRuntimeStatus();
   }
-  if (typeof paintSunsetAdminLunaCardsCombine === 'function') {
+  if (typeof paintAdminLunaStaffCardsRegroup === 'function') {
+    paintAdminLunaStaffCardsRegroup();
+  } else if (typeof paintSunsetAdminLunaCardsCombine === 'function') {
     paintSunsetAdminLunaCardsCombine();
   }
 }
@@ -3592,7 +3594,8 @@ function adminSelectSubTab(key, opts){
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
   if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
   if (next === 'luna-staff' && typeof paintSunsetLunaRuntimeStatus === 'function') paintSunsetLunaRuntimeStatus();
-  if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
+  if (next === 'luna-staff' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
+  else if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
   if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
   // Match Wolfhouse Admin: selecting Finanzas must refetch — otherwise a Pricing
   // save (adminReloadConfig → renderAdminFinanceShell) leaves the unavailable

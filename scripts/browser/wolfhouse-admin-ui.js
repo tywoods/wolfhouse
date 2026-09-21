@@ -122,6 +122,9 @@
     if (next === 'finance' && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
     if (next === 'pricing' && typeof loadWolfhouseAdminPricing === 'function') loadWolfhouseAdminPricing();
     if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
+    if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
+    if (next === 'luna-staff' && typeof paintAdminLunaStaffCardsRegroup === 'function') paintAdminLunaStaffCardsRegroup();
+    else if (next === 'luna-staff' && typeof paintSunsetAdminLunaCardsCombine === 'function') paintSunsetAdminLunaCardsCombine();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (next === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
     if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
