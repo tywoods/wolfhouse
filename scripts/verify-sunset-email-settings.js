@@ -691,7 +691,7 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(!verifySrc.includes("ADMIN_NAV_SEL = 'button[data-tab=\"admin\"]'"));
     assert.ok(!verifySrc.includes('ADMIN_NAV_SEL = "button[data-tab=\\"admin\\"]"'));
 
-    // actions.prepare=true → exactly one mailbox input + Connect; safety note; no unavailable; no auto POST
+    // actions.prepare=true → Connect only (click-first); no address field above Connect
     calls.length = 0;
     sandbox.renderAdminEmailSettingsState('disconnected', {
       actions: { prepare: true, connect: false, disconnect: false, reauthorize: false },
@@ -699,14 +699,14 @@ function futureExpires(msFromNow = 600000) {
     });
     assert.strictEqual(calls.length, 0, 'no auto POST before click');
     const htmlPrep = body.innerHTML;
-    assert.ok(htmlPrep.includes('data-email-prepare-address'));
+    assert.ok(!htmlPrep.includes('data-email-prepare-address'));
     assert.ok(htmlPrep.includes('data-email-connect="prepare"'));
     assert.ok(htmlPrep.includes('data-email-prepare-group'));
     assert.ok(htmlPrep.includes('data-email-connect-safety'));
     assert.ok(htmlPrep.includes(i18nKeys['admin.email.connectSafetyNote']));
     assert.ok(!htmlPrep.includes('data-email-actions-unavailable'));
     assert.ok(!htmlPrep.includes(i18nKeys['admin.email.actionsUnavailable']));
-    assert.strictEqual((htmlPrep.match(/data-email-prepare-address/g) || []).length, 1);
+    assert.strictEqual((htmlPrep.match(/data-email-prepare-address/g) || []).length, 0);
     assert.strictEqual((htmlPrep.match(/data-email-connect="prepare"/g) || []).length, 1);
     assert.ok(htmlPrep.indexOf('data-email-prepare-group') < htmlPrep.indexOf('<dl'));
     assert.ok(htmlPrep.includes(i18nKeys['admin.email.endpointActive']));

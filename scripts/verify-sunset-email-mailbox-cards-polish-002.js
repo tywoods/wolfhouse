@@ -209,11 +209,12 @@ console.log('\n── painted cards ──');
     /data-email-disconnect="1"/.test(ms) && /Disconnect Microsoft/.test(ms));
   ok('Gmail Remove is the danger action',
     /Remove Gmail/.test(gmail) && /is-danger/.test(gmail));
-  ok('IMAP Register stays primary, not red',
-    /Register mailbox/.test(imap) && /data-email-connect="prepare"/.test(imap)
+  ok('IMAP Connect stays primary, not red',
+    /Connect IMAP \/ SMTP/.test(imap) && /data-email-connect="prepare"/.test(imap)
     && !/is-danger/.test(imap));
-  ok('IMAP Mailbox address field still present',
-    /Mailbox address/.test(imap) && /data-email-prepare-address/.test(imap));
+  ok('IMAP empty card has no fields above Connect',
+    !/data-email-prepare-address/.test(imap) && !/mailbox-password/.test(imap)
+    && /Click Connect to enter your mailbox email and password/.test(imap));
   ok('capability rows still use dt+dd pairs',
     /<dl data-email-capabilities>/.test(ms)
     && /<dt>Mailbox connection<\/dt><dd data-email-cap="endpoint_active">Off<\/dd>/.test(ms)

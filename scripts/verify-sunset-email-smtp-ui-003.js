@@ -117,9 +117,11 @@ function baseActions(imapPrepare) {
   });
   const html = body.innerHTML;
   const imap = cardHtml(html, 'imap_smtp');
-  assert.match(imap, /Register mailbox/);
+  assert.match(imap, /Connect IMAP \/ SMTP/);
   assert.match(imap, /data-email-connect="prepare"/);
-  assert.match(imap, /data-email-prepare-address/);
+  assert.doesNotMatch(imap, /data-email-prepare-address/);
+  assert.doesNotMatch(imap, /mailbox-password/);
+  assert.match(imap, /Click Connect to enter your mailbox email and password/);
   assert.doesNotMatch(imap, /type="password"/);
   assert.doesNotMatch(imap, /Coming soon/);
   assert.doesNotMatch(imap, /data-email-registered-as/);
@@ -161,7 +163,7 @@ function baseActions(imapPrepare) {
   assert.match(imap, /Off/);
   assert.doesNotMatch(imap, /data-email-prepare-address/);
   assert.doesNotMatch(imap, /data-email-connect=/);
-  assert.doesNotMatch(imap, /Register mailbox/);
+  assert.doesNotMatch(imap, /Register mailbox|Connect IMAP \/ SMTP/);
   assert.doesNotMatch(imap, /type="password"/);
   assert.doesNotMatch(imap, /Coming soon/);
   assert.doesNotMatch(html.replace(/data-email-endpoint-id="[^"]+"/g, ''), new RegExp(SMTP_ID));

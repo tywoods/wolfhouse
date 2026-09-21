@@ -109,7 +109,10 @@ function boot() {
   const imap = cardHtml(html, 'imap_smtp');
   assert.match(imap, /IMAP \/ SMTP/);
   assert.match(imap, /data-email-connect="prepare"/);
-  assert.match(imap, /data-email-prepare-address/);
+  assert.match(imap, /Connect IMAP \/ SMTP/);
+  assert.doesNotMatch(imap, /data-email-prepare-address/);
+  assert.doesNotMatch(imap, /mailbox-password/);
+  assert.match(imap, /Click Connect to enter your mailbox email and password/);
   assert.match(imap, /inbound, outbound and automation remain off/);
   assert.doesNotMatch(imap, /Coming soon/);
   assert.doesNotMatch(imap, /type="password"/);
@@ -240,7 +243,7 @@ function boot() {
   sandbox.renderAdminEmailConnectFailed('imap_smtp');
   const html = body.innerHTML;
   const imap = cardHtml(html, 'imap_smtp');
-  assert.match(imap, /Couldn’t register IMAP \/ SMTP|Couldn't register IMAP \/ SMTP/);
+  assert.match(imap, /Couldn’t connect IMAP \/ SMTP|Couldn't connect IMAP \/ SMTP/);
   assert.doesNotMatch(html, /Couldn’t connect Microsoft|Couldn't connect Microsoft/);
   assert.doesNotMatch(cardHtml(html, 'gmail_api'), /IMAP \/ SMTP/);
 }
