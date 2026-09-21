@@ -182,9 +182,10 @@ test('returns only a fixed-endpoint deterministic ordered Google URL and canonic
     ['scope', SCOPE], ['state', STATE], ['nonce', NONCE], ['code_challenge', CHALLENGE],
     ['code_challenge_method', 'S256'], ['prompt', 'consent'],
   ]);
-  assert.deepEqual(GOOGLE_PHASE_A_SCOPES, ['openid', 'email', 'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.compose']);
-  assert.equal(url.searchParams.has('gmail.send'), false); assert.equal(result.authorizationUrl.includes('gmail.send'), false);
+  assert.deepEqual(GOOGLE_PHASE_A_SCOPES, ['openid', 'email', 'https://www.googleapis.com/auth/gmail.readonly']);
+  for (const forbiddenScope of ['gmail.compose', 'gmail.send', 'gmail.modify']) {
+    assert.equal(result.authorizationUrl.includes(forbiddenScope), false);
+  }
   for (const key of ['nonce', 'state', 'codeVerifier', 'stateHash', 'operationId', 'clientId', 'endpointId']) assert.equal(key in result, false);
 });
 

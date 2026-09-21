@@ -41,7 +41,6 @@ const SCOPE = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
 ].join(' ');
 
 function config(patch = {}) {
@@ -145,7 +144,6 @@ test('exports the smallest frozen Google custody API', async () => {
   assert.equal(ERROR_MESSAGE, 'Google verified grant custody failed.');
   assert.deepEqual([...GOOGLE_PHASE_A_SCOPES], [
     'openid', 'email', 'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.compose',
   ]);
   assert.deepEqual([...SELECTED_KEYS], [
     'accessToken', 'refreshToken', 'tokenType', 'expiresIn', 'scope', 'idToken',
@@ -359,7 +357,7 @@ test('sanitizes hostile dependency failures and emits no logs', async () => {
 test('Google wrapper contains no provider verification, network, credentials, DB, routes, or logs', async () => {
   const source = fs.readFileSync(require.resolve('./lib/email-google-verified-grant-custody'), 'utf8');
   assert.equal(source.includes("'https://www.googleapis.com/auth/gmail.readonly'"), true);
-  assert.equal(source.includes("'https://www.googleapis.com/auth/gmail.compose'"), true);
+  assert.equal(source.includes('gmail.compose'), false);
   for (const forbidden of [
     /require\s*\(\s*['"]googleapis['"]\s*\)/,
     /require\s*\(\s*['"]@googleapis\//,

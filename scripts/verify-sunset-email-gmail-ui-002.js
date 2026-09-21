@@ -40,7 +40,7 @@ function validGoogleUrl() {
     ['response_type', 'code'],
     ['redirect_uri', 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback'],
     ['response_mode', 'query'],
-    ['scope', 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'],
+    ['scope', 'openid email https://www.googleapis.com/auth/gmail.readonly'],
     ['state', 'a'.repeat(43)],
     ['nonce', 'b'.repeat(43)],
     ['code_challenge', 'c'.repeat(43)],

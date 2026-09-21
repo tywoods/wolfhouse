@@ -26,7 +26,6 @@ const VALID = Object.freeze({
   oidc_scopes: Object.freeze(['openid', 'email']),
   gmail_scopes: Object.freeze([
     'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.compose',
   ]),
   access_type: 'offline',
   include_granted_scopes: false,
@@ -61,7 +60,6 @@ assert.equal(GOOGLE_EMAIL_CONNECTOR_MODE, 'google_delegated_oauth');
 assert.deepEqual(GOOGLE_EMAIL_OIDC_SCOPES, ['openid', 'email']);
 assert.deepEqual(GOOGLE_EMAIL_GMAIL_SCOPES, [
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
 ]);
 assert.equal(Object.isFrozen(GOOGLE_EMAIL_OIDC_SCOPES), true);
 assert.equal(Object.isFrozen(GOOGLE_EMAIL_GMAIL_SCOPES), true);

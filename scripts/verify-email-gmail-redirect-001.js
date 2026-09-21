@@ -45,7 +45,7 @@ function authorizationUrl(redirectUri) {
   for (const [key, value] of [
     ['client_id', '9876543210-web.apps.googleusercontent.com'], ['response_type', 'code'],
     ['redirect_uri', redirectUri], ['response_mode', 'query'],
-    ['scope', 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'],
+    ['scope', 'openid email https://www.googleapis.com/auth/gmail.readonly'],
     ['state', 'a'.repeat(43)], ['nonce', 'b'.repeat(43)], ['code_challenge', 'c'.repeat(43)],
     ['code_challenge_method', 'S256'], ['prompt', 'consent'],
   ]) url.searchParams.append(key, value);

@@ -68,7 +68,7 @@ function adminEmailMsRedirectUri(){
 function adminEmailGoogleRedirectUri(){
   return adminEmailSettingsClient() === 'wolfhouse-somo' ? WH_GOOGLE_UI_REDIRECT_URI : GOOGLE_UI_REDIRECT_URI;
 }
-var GOOGLE_UI_SCOPES = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
+var GOOGLE_UI_SCOPES = 'openid email https://www.googleapis.com/auth/gmail.readonly';
 var GOOGLE_UI_QUERY_KEYS = ['client_id','response_type','redirect_uri','response_mode','scope','state','nonce','code_challenge','code_challenge_method','prompt'];
 var GOOGLE_UI_CLIENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
 function validateGoogleAuthorizationUrl(raw){
