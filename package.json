@@ -103,6 +103,7 @@
     "verify:owner-lab-crowsnest": "node scripts/verify-owner-lab-crowsnest.js",
     "verify:inbox-owner-lab-chip": "node scripts/verify-inbox-owner-lab-chip.js",
     "verify:owner-lab-saved-view-list": "node scripts/verify-owner-lab-saved-view-list.js",
+    "verify:wolfhouse-sim-lab-001": "node scripts/verify-wolfhouse-sim-lab-001.js",
     "verify:crowsnest-ai-usage-contract": "node scripts/verify-crowsnest-ai-usage-contract.js",
     "verify:crowsnest-ai-usage-adapter": "node scripts/verify-crowsnest-ai-usage-adapter.js",
     "verify:crowsnest-ai-usage-store": "node scripts/verify-crowsnest-ai-usage-store.js",

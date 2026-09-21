@@ -112,6 +112,37 @@ function isAuthorizedSunsetStagingSyntheticConfirmation(input, env) {
     && nodeEnv === 'staging';
 }
 
+const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
+
+/**
+ * Lab classification for verified Wolfhouse-staging simulator provenance.
+ * Distinct from Sunset's confirmation-persistence permission: this only
+ * admits conversation labels (open_phone_testing / guest_tester_class).
+ * Payload flags remain claims; owner must establish staging + Wolfhouse tenant.
+ *
+ * Wolfhouse staging leaves DEFAULT_CLIENT_SLUG unset and identifies the tenant
+ * with STAFF_API_INGRESS_TENANT_SLUG=wolfhouse-somo (RADAR 16AN).
+ */
+function isVerifiedWolfhouseStagingSimulatorProvenance(input, env) {
+  const i = input || {};
+  const e = env && typeof env === 'object' ? env : process.env;
+  const nodeEnv = trimStr(e.NODE_ENV).toLowerCase();
+  const defaultSlug = trimStr(e.DEFAULT_CLIENT_SLUG);
+  const ingressSlug = trimStr(e.STAFF_API_INGRESS_TENANT_SLUG);
+  const deployment = trimStr(e.LUNA_DEPLOYMENT).toLowerCase();
+  if (defaultSlug && defaultSlug !== WOLFHOUSE_CLIENT_SLUG) return false;
+  if (ingressSlug && ingressSlug !== WOLFHOUSE_CLIENT_SLUG) return false;
+  const ownerTenant = defaultSlug === WOLFHOUSE_CLIENT_SLUG
+    || ingressSlug === WOLFHOUSE_CLIENT_SLUG;
+  return i.simulator_synthetic === true
+    && trimStr(i.source_owner) === 'crowsnest-guest-door'
+    && trimStr(i.client_slug) === WOLFHOUSE_CLIENT_SLUG
+    && ownerTenant
+    && nodeEnv === 'staging'
+    && deployment !== 'sunset-staging'
+    && !deployment.includes('production');
+}
+
 /** WhatsApp does not render markdown links — flatten before mirror persist. */
 function normalizeWhatsAppMessageText(text) {
   const raw = trimStr(text);
@@ -419,6 +450,8 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   const env = (opts && opts.env) || process.env;
   const notifyContext = (opts && opts.notify_context) || {};
   const authorizedSynthetic = isAuthorizedSunsetStagingSyntheticConfirmation(i, env);
+  const classifySimulator = authorizedSynthetic
+    || isVerifiedWolfhouseStagingSimulatorProvenance(i, env);
   const ensured = await ensureConversationForGuestPhone(
     pg,
     i.client_slug,
@@ -431,9 +464,9 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       location_id: i.location_id,
       // Public request flags are claims; only owner-established authority may
       // decorate durable conversation state as simulator-synthetic.
-      simulator_synthetic: authorizedSynthetic,
-      source_owner: authorizedSynthetic ? i.source_owner : null,
-      simulator_source_phone: authorizedSynthetic ? i.simulator_source_phone : null,
+      simulator_synthetic: classifySimulator,
+      source_owner: classifySimulator ? i.source_owner : null,
+      simulator_source_phone: classifySimulator ? i.simulator_source_phone : null,
     },
   );
   if (!ensured || !ensured.conversation_id) {
@@ -602,6 +635,7 @@ module.exports = {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
   isAuthorizedSunsetStagingSyntheticConfirmation,
+  isVerifiedWolfhouseStagingSimulatorProvenance,
   ensureConversationForGuestPhone,
   mirrorHermesWhatsAppThreadMessage,
   loadClientWhatsAppChannelMode,
