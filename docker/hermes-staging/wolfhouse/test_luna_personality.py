@@ -32,9 +32,39 @@ class LunaPersonalityTests(unittest.TestCase):
 
     def test_closed_ids_and_default(self) -> None:
         self.assertEqual(lp.DEFAULT_PERSONALITY_ID, "sunny")
-        self.assertEqual(lp.CLOSED_PERSONALITY_IDS, ("sunny", "calm", "concise", "extra"))
+        self.assertEqual(lp.CLOSED_PERSONALITY_IDS, ("sunny", "calm", "concise", "extra", "conversationalist"))
         self.assertEqual(lp.normalize_stored_id("cami")["id"], "sunny")
         self.assertEqual(lp.normalize_stored_id("cami")["source"], "invalid_fallback")
+
+    def test_conversationalist_ordinary_turn_binding_and_frozen_truth(self) -> None:
+        for slug, role in (("sunset", "sunset-luna"), ("wolfhouse-somo", "luna")):
+            for platform in ("whatsapp", "whatsapp_cloud"):
+                with self.subTest(tenant=slug, platform=platform), mock.patch.dict(
+                    os.environ, {"LUNA_CLIENT_SLUG": slug, "HERMES_ROLE": role}
+                ):
+                    calls = []
+                    def fetch(tid):
+                        calls.append(tid)
+                        return {"personality_id": "conversationalist", "instruction": "UNTRUSTED_STYLE"}
+                    source = SimpleNamespace(platform=SimpleNamespace(value=platform))
+                    turn = lp.bind_whatsapp_turn_personality(source, fetch_setting=fetch)
+                    self.assertEqual(turn["pack"]["id"], "conversationalist")
+                    self.assertEqual(turn["observability"]["source"], "stored")
+                    prompt = lp.apply_personality_to_soul_text("Existing tenant facts and language rules.")
+                    self.assertIn("Luna Personality this turn: conversationalist.", prompt)
+                    self.assertNotIn("UNTRUSTED_STYLE", prompt)
+                    self.assertEqual(lp.apply_personality_to_soul_text(prompt), prompt)
+                    self.assertEqual(calls, [slug])
+                    for state in lp.COMPOSER_OWNED_STATES:
+                        frozen = lp.inject_personality_pack_once("Exact protected truth.", turn["pack"], composer_state=state)
+                        self.assertFalse(frozen["injected"])
+                        self.assertEqual(frozen["system_prompt"], "Exact protected truth.")
+                    changed = lp.bind_whatsapp_turn_personality(source, fetch_setting=lambda _: {"personality_id": "calm"})
+                    self.assertEqual(changed["pack"]["id"], "calm")
+                    self.assertNotIn("conversationalist", lp.apply_personality_to_soul_text("Existing rules."))
+        other = lp.bind_whatsapp_turn_personality(SimpleNamespace(platform="email"), fetch_setting=lambda _: self.fail("email must not fetch"))
+        self.assertFalse(other["applied"])
+        self.assertEqual(lp.apply_personality_to_soul_text("Email rules."), "Email rules.")
 
     def test_extra_explicitly_outpaces_concise_and_calm_for_en_es_warmth_dates(self) -> None:
         instruction = lp.get_personality_pack("extra")["instruction"].lower()

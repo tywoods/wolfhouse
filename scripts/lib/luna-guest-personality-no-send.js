@@ -211,7 +211,7 @@ async function runNoSendAcceptance(opts) {
   for (const scenario of corpus.cases.filter((c) => c.kind === 'warmth_eligible')) {
     const replies = CLOSED_PERSONALITY_IDS.map((id) => scenario.replies[id]);
     const unique = new Set(replies);
-    warmthDistinct.push(unique.size === 4
+    warmthDistinct.push(unique.size === CLOSED_PERSONALITY_IDS.length
       && emojiOrBang(scenario.replies.extra) > emojiOrBang(scenario.replies.calm)
       && scenario.replies.concise.length < scenario.replies.extra.length);
   }

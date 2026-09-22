@@ -230,12 +230,62 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
   ok('Cami system prompt does not take guest style text',
     !/guest_style_prompt/.test(camiSrc));
 
+  console.log('\n[3b] Conversationalist through real reply pipeline + admission (model boundary stubbed)');
+  const { applyGuestReplyPipeline } = require('./lib/luna-guest-reply-pipeline');
+  for (const client_slug of ['sunset', 'wolfhouse-somo']) {
+    for (const example of [
+      { guest: 'Long trip, I am tired! We want to visit in August.', fallback: 'Which dates in August?', reply: 'A long trip takes it out of you. Which August dates did you have in mind?' },
+      { guest: 'Qué viaje más largo, estamos cansados. Queremos ir en agosto.', fallback: '¿Qué fechas de agosto?', reply: 'Después de tanto viaje, apetece descansar. ¿Qué fechas de agosto tenéis en mente?' },
+    ]) {
+      let authorCalls = 0;
+      const args = {
+        client_slug, channel: 'whatsapp', message_text: example.guest,
+        candidate_reply: example.fallback, candidate_source: 'router',
+        composed: { composer_state: 'ask_dates' }, payload: {},
+        env: { NODE_ENV: 'test', LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'true' },
+        fetchPersonalitySetting: async () => ({ personality_id: 'conversationalist' }),
+        authorCaller: async ({ system }) => {
+          authorCalls += 1;
+          ok(`${client_slug}: actual author receives one Conversationalist pack`,
+            system.includes(getPersonalityPack('conversationalist').instruction)
+            && system.split('Luna Personality this turn:').length === 2);
+          return JSON.stringify({ reply: example.reply });
+        },
+      };
+      const result = await applyGuestReplyPipeline(args);
+      ok(`${client_slug}: natural small-talk/date candidate admitted`, authorCalls === 1
+        && result.reply === example.reply && result.reply_source === 'cami_reply_author');
+      for (const falseClaim of ['Your booking is confirmed.', 'Your payment received.', 'We have beds available.']) {
+        const denied = await applyGuestReplyPipeline({ ...args,
+          authorCaller: async () => JSON.stringify({ reply: falseClaim }),
+        });
+        ok(`${client_slug}: rejects unsupported ${falseClaim}`, denied.reply === example.fallback
+          && denied.reply_source !== 'cami_reply_author');
+      }
+      const truth = 'Deposit €100: https://pay.example/exact';
+      const frozen = await applyGuestReplyPipeline({ ...args,
+        candidate_reply: truth, composed: { composer_state: 'payment_link_sent' },
+        authorCaller: async () => { throw new Error('Frozen composer must not invoke author'); },
+      });
+      ok(`${client_slug}: payment truth remains byte-identical`, frozen.reply === truth
+        && frozen.reply_pipeline.cami_skipped === true);
+    }
+  }
+
   console.log('\n[4] Hermes guest-turn boundary (same Luna)');
   ok('python runtime module exists', fs.existsSync(PY_PATH));
   const pySrc = fs.readFileSync(PY_PATH, 'utf8');
   ok('python closed ids match JS',
     /sunny/.test(pySrc) && /calm/.test(pySrc) && /concise/.test(pySrc) && /extra/.test(pySrc)
     && /DEFAULT_PERSONALITY_ID\s*=\s*"sunny"/.test(pySrc));
+  const pyPacks = spawnSync('python3', ['-c',
+    'import json; from wolfhouse.luna_personality import PACKS; print(json.dumps(PACKS))'],
+    { cwd: path.join(ROOT, 'docker/hermes-staging'), encoding: 'utf8' });
+  const pythonPacks = pyPacks.status === 0 ? JSON.parse(pyPacks.stdout) : {};
+  ok('JS/Python closed IDs and Conversationalist instructions match byte-for-byte',
+    pyPacks.status === 0 && Object.keys(pythonPacks).sort().join(',') ===
+      require('./lib/luna-guest-personality-packs').CLOSED_PERSONALITY_IDS.slice().sort().join(',')
+    && pythonPacks.conversationalist.instruction === getPersonalityPack('conversationalist').instruction);
   ok('python bind once per WhatsApp turn',
     /def bind_whatsapp_turn_personality/.test(pySrc)
     && /def inject_personality_pack_once/.test(pySrc));

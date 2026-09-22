@@ -23650,6 +23650,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <button type="button" class="luna-header-mode-btn" data-personality-id="calm" data-i18n="lunaStaff.personality.calm" aria-pressed="false">Calm</button>
         <button type="button" class="luna-header-mode-btn" data-personality-id="concise" data-i18n="lunaStaff.personality.concise" aria-pressed="false">Concise</button>
         <button type="button" class="luna-header-mode-btn" data-personality-id="extra" data-i18n="lunaStaff.personality.extra" aria-pressed="false">Extra</button>
+        <button type="button" class="luna-header-mode-btn" data-personality-id="conversationalist" data-i18n="lunaStaff.personality.conversationalist" aria-pressed="false">Conversationalist</button>
       </div>
     </div>
     <div id="staff-luna-personality-status" class="al-hint" role="status"></div>
@@ -33053,7 +33054,7 @@ function isLunaStaffTabActive(){
 }
 
 function lunaPersonalityApplyUi(id){
-  var closed = ['sunny', 'calm', 'concise', 'extra'];
+  var closed = ['sunny', 'calm', 'concise', 'extra', 'conversationalist'];
   var raw = String(id || '').toLowerCase();
   var next = closed.indexOf(raw) >= 0 ? raw : 'sunny';
   var row = el('staff-luna-personality-radios');
@@ -33076,7 +33077,7 @@ function lunaPersonalityWireOnce(){
     var btn = t.closest('[data-personality-id]');
     if (!btn || (row.contains && !row.contains(btn))) return;
     var id = btn.getAttribute('data-personality-id');
-    if (['sunny', 'calm', 'concise', 'extra'].indexOf(id) < 0) return;
+    if (['sunny', 'calm', 'concise', 'extra', 'conversationalist'].indexOf(id) < 0) return;
     lunaPersonalityApplyUi(id);
     fetch('/staff/luna-personality', {
       method: 'PUT',

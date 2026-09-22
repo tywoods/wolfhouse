@@ -64,7 +64,7 @@ function extractFn(src, name) {
 
 console.log('\nverify:luna-personality-radios — Staff Sunny/Calm/Concise/Extra radios\n');
 
-const apiSrc = fs.readFileSync(API_PATH, 'utf8');
+const apiSrc = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 const i18nSrc = fs.readFileSync(I18N_PATH, 'utf8');
 const i18nEsSrc = fs.readFileSync(I18N_ES_PATH, 'utf8');
 const packsSrc = fs.readFileSync(PACKS_PATH, 'utf8');
@@ -74,7 +74,7 @@ const it = STAFF_PORTAL_STRINGS.it || {};
 
 console.log('[1] Closed IDs + Style-matching radios in Luna Staff');
 ok('closed ids are sunny/calm/concise/extra',
-  CLOSED_PERSONALITY_IDS.join(',') === 'sunny,calm,concise,extra');
+  CLOSED_PERSONALITY_IDS.join(',') === 'sunny,calm,concise,extra,conversationalist');
 ok('default personality is sunny', DEFAULT_PERSONALITY_ID === 'sunny');
 
 const cardStart = apiSrc.indexOf('id="staff-luna-personality-card"');
@@ -85,7 +85,7 @@ ok('card lives inside #tab-ask-luna after Style',
   askLuna > 0 && styleCard > askLuna && cardStart > styleCard);
 
 const cardSlice = cardStart > 0
-  ? apiSrc.slice(cardStart - 80, cardStart + 1800)
+  ? apiSrc.slice(cardStart - 80, apiSrc.indexOf('</section>', cardStart))
   : '';
 ok('card reuses staff-style-card luna-header-mode-card chrome',
   /class="staff-style-card luna-header-mode-card"/.test(cardSlice)
@@ -100,7 +100,7 @@ for (const id of CLOSED_PERSONALITY_IDS) {
 }
 
 ok('no extra personality ids in the card',
-  !/data-personality-id="(?!sunny|calm|concise|extra)[^"]+"/.test(cardSlice));
+  !/data-personality-id="(?!(?:sunny|calm|concise|extra|conversationalist)")[^"]+"/.test(cardSlice));
 ok('no free-form textarea / prompt editor',
   !/<textarea/.test(cardSlice)
   && !/contenteditable/.test(cardSlice)
@@ -116,6 +116,7 @@ const I18N_KEYS = [
   'lunaStaff.personality.calm',
   'lunaStaff.personality.concise',
   'lunaStaff.personality.extra',
+  'lunaStaff.personality.conversationalist',
 ];
 for (const key of I18N_KEYS) {
   ok('EN ' + key, !!(en[key] && en[key] !== key));
@@ -181,10 +182,7 @@ ok('did not edit email-settings routes',
   fs.existsSync(EMAIL_ROUTES)
     ? !/luna_personality|data-personality-id/.test(fs.readFileSync(EMAIL_ROUTES, 'utf8'))
     : true);
-ok('did not edit Hermes gateway / personality py',
-  !packsSrc.includes('speechSynthesis')
-  && (!fs.existsSync(path.join(HERMES_DIR, 'wolfhouse/luna_personality.py'))
-    || true));
+ok('style packs do not introduce speech synthesis', !packsSrc.includes('speechSynthesis'));
 
 console.log('\n[5] Runtime: click PUT + paint closed IDs');
 const loadFn = extractFn(apiSrc, 'lunaPersonalityLoad');
@@ -243,11 +241,13 @@ radios.children = CLOSED_PERSONALITY_IDS.map((id) => {
 makeEl('staff-luna-personality-card');
 makeEl('staff-luna-personality-status');
 
+let storedPersonality = 'calm';
 const sandbox = {
   el(id) { return nodes[id] || null; },
   fetch(url, opts) {
     fetches.push({ url: String(url), opts: opts || {} });
-    const body = { success: true, personality_id: 'calm', closed_ids: CLOSED_PERSONALITY_IDS.slice() };
+    if (opts && opts.method === 'PUT') storedPersonality = JSON.parse(opts.body).personality_id;
+    const body = { success: true, personality_id: storedPersonality, closed_ids: CLOSED_PERSONALITY_IDS.slice() };
     return Promise.resolve({
       status: 200,
       ok: true,
@@ -306,6 +306,18 @@ try {
   for (const key of CALLER_STYLE_KEYS) {
     ok('PUT omits ' + key, !Object.prototype.hasOwnProperty.call(putBody, key));
   }
+
+  fetches.length = 0;
+  const conversationalist = radios.children.find((b) => b['data-personality-id'] === 'conversationalist');
+  if (clickFn && conversationalist) clickFn({ target: conversationalist, preventDefault() {} });
+  await new Promise((r) => setTimeout(r, 20));
+  ok('Conversationalist click persists closed ID only', fetches.some((f) =>
+    f.opts.method === 'PUT' && f.opts.body === JSON.stringify({ personality_id: 'conversationalist' })));
+  sandbox.lunaPersonalityLoad();
+  await new Promise((r) => setTimeout(r, 20));
+  ok('Conversationalist remains active after reload', conversationalist
+    && conversationalist.classList.contains('is-active') && conversationalist['aria-pressed'] === 'true'
+    && !sunnyBtn.classList.contains('is-active'));
 
   console.log(`\nverify:luna-personality-radios: ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

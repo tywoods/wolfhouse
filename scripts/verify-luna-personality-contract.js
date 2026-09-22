@@ -18,7 +18,7 @@ const PACKS_PATH = path.join(ROOT, 'scripts/lib/luna-guest-personality-packs.js'
 const CORPUS_PATH = path.join(ROOT, 'fixtures/luna-personality-corpus.json');
 const SPEC_PATH = path.join(ROOT, 'docs/LUNA-GUEST-BEHAVIOR-SPEC.md');
 
-const CLOSED_IDS = ['sunny', 'calm', 'concise', 'extra'];
+const CLOSED_IDS = ['sunny', 'calm', 'concise', 'extra', 'conversationalist'];
 const LATAM_MARKERS = /\b(celular|ustedes|vos sos|\bche\b|okis|okey|computadora)\b/i;
 
 
@@ -67,7 +67,7 @@ ok('settings JSONB key is luna_personality', packs.SETTINGS_KEY === 'luna_person
 ok('default id is sunny', packs.DEFAULT_PERSONALITY_ID === 'sunny');
 ok('closed ids are sunny/calm/concise/extra',
   Array.isArray(packs.CLOSED_PERSONALITY_IDS)
-  && packs.CLOSED_PERSONALITY_IDS.length === 4
+  && packs.CLOSED_PERSONALITY_IDS.length === CLOSED_IDS.length
   && CLOSED_IDS.every((id) => packs.CLOSED_PERSONALITY_IDS.includes(id)));
 
 ok('isClosedPersonalityId exported', typeof packs.isClosedPersonalityId === 'function');
@@ -177,9 +177,9 @@ ok('corpus has warmth + frozen cases', cases.length >= 8, `${cases.length} cases
 const warmthEn = cases.filter((c) => c.kind === 'warmth_eligible' && c.lang === 'en');
 const warmthEs = cases.filter((c) => c.kind === 'warmth_eligible' && c.lang === 'es');
 const frozen = cases.filter((c) => c.kind === 'truth_frozen' || c.kind === 'invariant');
-ok('EN warmth cases cover all 4 packs', warmthEn.length >= 2
+ok('EN warmth cases cover all closed packs', warmthEn.length >= 2
   && warmthEn.every((c) => CLOSED_IDS.every((id) => c.replies && typeof c.replies[id] === 'string' && c.replies[id].trim())));
-ok('ES warmth cases cover all 4 packs', warmthEs.length >= 2
+ok('ES warmth cases cover all closed packs', warmthEs.length >= 2
   && warmthEs.every((c) => CLOSED_IDS.every((id) => c.replies && typeof c.replies[id] === 'string' && c.replies[id].trim())));
 ok('truth-frozen / invariant cases exist', frozen.length >= 2);
 
@@ -202,7 +202,7 @@ for (const c of cases) {
 for (const c of warmthEn.concat(warmthEs)) {
   const replies = CLOSED_IDS.map((id) => c.replies[id]);
   const unique = new Set(replies);
-  ok(`${c.id} stylistic difference across packs (not identical copy)`, unique.size === 4);
+  ok(`${c.id} stylistic difference across packs (not identical copy)`, unique.size === CLOSED_IDS.length);
   ok(`${c.id} extra is brighter than calm (emoji or bangs)`,
     emojiCount(c.replies.extra) + bangCount(c.replies.extra)
     > emojiCount(c.replies.calm) + bangCount(c.replies.calm));

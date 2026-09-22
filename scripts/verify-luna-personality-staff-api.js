@@ -285,6 +285,60 @@ const viewerA = { staff_user_id: 'u-v', client_id: 'client-a', client_slug: 'sun
     foreign.out.statusCode === 403
     && /client_access_denied/.test(String(foreign.out.body)));
 
+  console.log('\n[4b] Conversationalist: Staff save → bot read → authoring pack');
+  const runtime = require('./lib/luna-guest-personality-runtime');
+  const { getPersonalityPack } = require('./lib/luna-guest-personality-packs');
+  const { COMPOSER_OWNED_STATES } = require('./lib/luna-guest-composer-ownership');
+  for (const user of [userA, userB]) {
+    const other = user === userA ? userB : userA;
+    const beforeOther = JSON.stringify(store[other.client_id].settings);
+    const beforeOwn = { ...store[user.client_id].settings };
+    const saved = await staffPut(user, { personality_id: 'conversationalist' });
+    ok(`${user.client_slug}: Conversationalist saves`, saved.status === 200
+      && saved.body.personality_id === 'conversationalist' && saved.body.persisted === true);
+    ok(`${user.client_slug}: other tenant untouched`,
+      JSON.stringify(store[other.client_id].settings) === beforeOther);
+    ok(`${user.client_slug}: sibling settings unchanged`, Object.entries(beforeOwn)
+      .filter(([k]) => k !== SETTINGS_KEY).every(([k, v]) =>
+        JSON.stringify(store[user.client_id].settings[k]) === JSON.stringify(v)));
+    const read = await staffGet(user);
+    ok(`${user.client_slug}: Staff reload retains selection`, read.body.personality_id === 'conversationalist');
+    let fetches = 0;
+    const turn = await runtime.resolveWhatsAppPersonalityOnce({
+      tenant_id: user.client_slug,
+      channel: 'whatsapp',
+      fetchSetting: async () => {
+        fetches += 1;
+        return (await botGet({ client_slug: user.client_slug, auth_mode: 'bot_token' })).body;
+      },
+    });
+    ok(`${user.client_slug}: bot reads server-owned pack once`, fetches === 1
+      && turn.pack.id === 'conversationalist' && turn.observability.source === 'stored'
+      && turn.pack === getPersonalityPack('conversationalist'));
+    const injection = runtime.injectPersonalityPackOnce({
+      system_prompt: 'Existing Luna truth and language rules.', pack: turn.pack, composer_state: 'ask_dates',
+    });
+    ok(`${user.client_slug}: author prompt contains selected pack`, injection.injected
+      && injection.system_prompt.includes('Luna Personality this turn: conversationalist.'));
+    const again = runtime.injectPersonalityPackOnce({ system_prompt: injection.system_prompt, pack: turn.pack });
+    ok(`${user.client_slug}: no duplicate injection`, !again.injected
+      && again.system_prompt === injection.system_prompt);
+    for (const composer_state of COMPOSER_OWNED_STATES) {
+      const frozen = runtime.injectPersonalityPackOnce({
+        system_prompt: 'Exact protected truth.', pack: turn.pack, composer_state,
+      });
+      ok(`${user.client_slug}: ${composer_state} remains frozen`, !frozen.injected
+        && frozen.system_prompt === 'Exact protected truth.');
+    }
+    await staffPut(user, { personality_id: 'calm' });
+    const switched = await runtime.resolveWhatsAppPersonalityOnce({
+      tenant_id: user.client_slug,
+      fetchSetting: async () => (await botGet({ client_slug: user.client_slug })).body,
+    });
+    ok(`${user.client_slug}: switch back takes effect next turn`, switched.pack.id === 'calm');
+    store[user.client_id].settings = beforeOwn;
+  }
+
   console.log('\n[5] staff-query-api wiring + no UI');
   const apiSrc = fs.readFileSync(API_PATH, 'utf8');
   ok('API imports createLunaPersonalityRoutes', /createLunaPersonalityRoutes/.test(apiSrc));
@@ -302,6 +356,10 @@ const viewerA = { staff_user_id: 'u-v', client_id: 'client-a', client_slug: 'sun
     : [];
   const uiHits = browserFiles.filter((f) => {
     const src = fs.readFileSync(path.join(BROWSER_DIR, f), 'utf8');
+    // Existing Admin regroup moves the card only; it must not own selection or requests.
+    if (f === 'sunset-admin-luna-cards-combine.js') {
+      return /data-personality-id|lunaPersonality|\/staff\/luna-personality/.test(src);
+    }
     return /luna-personality|Luna Personality/.test(src);
   });
   ok('no Staff radio UI/browser module in this slice', uiHits.length === 0, uiHits.join(', '));

@@ -20,7 +20,7 @@ const CORPUS_PATH = path.join(ROOT, 'fixtures/luna-personality-corpus.json');
 const SEND_FLAGS = path.join(ROOT, 'scripts/lib/luna-send-flags.js');
 const SEND_FLAGS_ALT = path.join(ROOT, 'docker/hermes-staging/wolfhouse/send_flags.py');
 
-const CLOSED_IDS = ['sunny', 'calm', 'concise', 'extra'];
+const CLOSED_IDS = ['sunny', 'calm', 'concise', 'extra', 'conversationalist'];
 
 let pass = 0;
 let fail = 0;
@@ -60,7 +60,7 @@ const corpus = JSON.parse(fs.readFileSync(CORPUS_PATH, 'utf8'));
 (async () => {
   const report = await sim.runNoSendAcceptance({ corpus });
   ok('acceptance ran', report && report.ok === true, report && report.error);
-  ok('covers all four closed IDs', Array.isArray(report.ids) && CLOSED_IDS.every((id) => report.ids.includes(id)));
+  ok('covers all five closed IDs', Array.isArray(report.ids) && CLOSED_IDS.every((id) => report.ids.includes(id)));
   ok('covers EN and ES', report.langs && report.langs.includes('en') && report.langs.includes('es'));
   ok('no outbound sends', report.sends === 0 && report.whatsapp_suppressed === true);
   ok('sunset tenant exercised', report.tenants && report.tenants.includes('sunset'));

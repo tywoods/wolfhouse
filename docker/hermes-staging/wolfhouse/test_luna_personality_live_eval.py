@@ -865,7 +865,7 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertEqual(set(warmth_ids + truth_ids), set(ALLOWED_CASE_IDS))
 
         with mock.patch.dict(os.environ, env, clear=False):
-            for pid in ("sunny", "calm", "concise", "extra"):
+            for pid in ("sunny", "calm", "concise", "extra", "conversationalist"):
                 stored["id"] = pid
                 for case_id in sorted(ALLOWED_CASE_IDS):
                     result = _run(
@@ -4331,7 +4331,7 @@ class CorpusImagePackagingTests(unittest.TestCase):
         self.assertEqual(packaged, canonical)
         ids = {item.get("id") for item in packaged.get("cases") or []}
         self.assertEqual(ids, set(ALLOWED_CASE_IDS))
-        self.assertEqual(packaged.get("closed_ids"), ["sunny", "calm", "concise", "extra"])
+        self.assertEqual(packaged.get("closed_ids"), ["sunny", "calm", "concise", "extra", "conversationalist"])
 
     def test_installed_loader_resolves_image_path_not_repo_checkout(self) -> None:
         self.assertEqual(
