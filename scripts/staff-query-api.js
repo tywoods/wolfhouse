@@ -20775,6 +20775,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-count{display:none}
 .bc-guest-names{display:block;margin-top:0;font-size:14px;font-weight:600;text-decoration:none!important;white-space:normal;line-height:1.4}
 .bc-guest-name-line{display:block}
+.bc-guest-name-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.bc-guest-name-row .bc-guest-name-line{display:inline}
+.bc-guest-bed{font-weight:500;color:var(--text-2)}
+.bc-guest-services{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2)}
 #bc-side-drawer .ctx-field-edit{display:none!important}
 #bc-side-drawer .bc-inline-input{
   width:100%;max-width:100%;min-width:0;height:28px;font-size:13px;padding:3px 8px;
@@ -37728,10 +37732,13 @@ function bcFormatRentalPeopleDaysLine(label, days, people, totalCents, freeNote)
   var p = Math.max(1, Number(people) || 1);
   var dayWord = bcPluralUnit(d, 'day', 'days');
   var peopleWord = bcPluralUnit(p, 'person', 'people');
-  var base = label + ' \\u2014 ' + d + ' rental ' + dayWord + ' \\u00d7 ' + p + ' ' + peopleWord;
-  if (freeNote) return base + ' \\u2014 ' + freeNote;
+  var base = label + ' \u2014 ' + d + ' rental ' + dayWord + ' \u00d7 ' + p + ' ' + peopleWord;
+  if (freeNote) {
+    var note = String(freeNote).replace(/\uD83E\uDD19/g, '').replace(/ {2,}/g, ' ').trim();
+    return note ? (base + ' \u2014 ' + note) : base;
+  }
   if (totalCents == null || isNaN(Number(totalCents))) return base;
-  return base + ' = \\u20ac' + (Number(totalCents) / 100).toFixed(2);
+  return base + ' = \u20ac' + (Number(totalCents) / 100).toFixed(2);
 }
 
 /* Phase 10.6b — payment ledger helpers (paid truth from payment rows only) */
@@ -38002,7 +38009,7 @@ function bcRunningInvoiceSvcLineText(sr){
     && rentalPeople != null && rentalPeople > 0
   ) {
     if (totalCents === 0 && meta.combo_part === 'wetsuit') {
-      return bcFormatRentalPeopleDaysLine(label, rentalDays, rentalPeople, 0, 'free with board 🤙');
+      return bcFormatRentalPeopleDaysLine(label, rentalDays, rentalPeople, 0, 'free with board');
     }
     return bcFormatRentalPeopleDaysLine(label, rentalDays, rentalPeople, totalCents, null);
   }
@@ -39565,6 +39572,58 @@ function bcFieldEditFormatContactLine(obj){
   return parts.join(' \u00b7 ');
 }
 
+function bcGuestNameBedDisplayHtml(guests, leadName){
+  var rows = [];
+  (guests || []).forEach(function(g){
+    if (!g) return;
+    var name = String(g.guest_name || '').trim();
+    if (!name) return;
+    rows.push(g);
+  });
+  var lead = String(leadName || '').trim().toLowerCase();
+  rows.sort(function(a, b){
+    var aLead = lead && String(a.guest_name || '').trim().toLowerCase() === lead ? 0 : 1;
+    var bLead = lead && String(b.guest_name || '').trim().toLowerCase() === lead ? 0 : 1;
+    if (aLead !== bLead) return aLead - bLead;
+    return (Number(a.guest_number) || 0) - (Number(b.guest_number) || 0);
+  });
+  return rows.map(function(g){
+    var name = String(g.guest_name || '').trim();
+    var bed = String(g.assigned_bed_code || g.bed_code || '').trim();
+    if (!bed) bed = String(g.assigned_room_code || '').trim();
+    var html = '<span class="bc-guest-name-row">' +
+      '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
+    if (bed) html += '<span class="bc-guest-bed">' + escHtml(bed) + '</span>';
+    return html + '</span>';
+  }).join('');
+}
+
+function bcBookingServicesQtyLabel(records){
+  var counts = {};
+  var order = [];
+  (records || []).forEach(function(sr){
+    if (!sr) return;
+    var meta = sr.metadata;
+    if (typeof meta === 'string') {
+      try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
+    }
+    meta = meta || {};
+    var name = String(meta.service_name || meta.course_label || meta.label || sr.service_name || sr.service_type || 'Service')
+      .replace(/[\uD83E\uDD19]/g, '')
+      .replace(/_/g, ' ')
+      .replace(/ {2,}/g, ' ')
+      .trim();
+    if (!name) name = 'Service';
+    var qty = Math.max(1, parseInt(sr.quantity, 10) || 1);
+    if (!counts[name]) { counts[name] = 0; order.push(name); }
+    counts[name] += qty;
+  });
+  return order.map(function(name){
+    var q = counts[name];
+    return q > 1 ? (String(q) + '\u00d7 ' + name) : name;
+  }).join(', ');
+}
+
 function bcRenderFieldEditSectionsHtml(data, mode){
   mode = mode || 'all';
   var bk = (data && data.booking) || {};
@@ -39583,12 +39642,22 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name);
+  if (!namesHtml) {
+    namesHtml = guestNames.filter(Boolean).map(function(n){
+      return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
+    }).join('');
+  }
+  var servicesText = bcBookingServicesQtyLabel((data && data.service_records) || []);
+  var servicesHtml = servicesText
+    ? '<div class="bc-guest-services">' + escHtml(servicesText) + '</div>'
+    : '';
   var guestsReadInner =
     '<div class="kv" id="bc-field-guests-kv-only">' +
       '<span class="k"></span>' +
       '<span class="v"><span class="bc-guest-names" id="bc-guest-names">' +
-        guestNames.map(function(n){ return '<span class="bc-guest-name-line">' + escHtml(n) + '</span>'; }).join('') +
-      '</span></span>' +
+        namesHtml +
+      '</span>' + servicesHtml + '</span>' +
     '</div>';
   html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
     '<div class="ctx-field-read-row">' +

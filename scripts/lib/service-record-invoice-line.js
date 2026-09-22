@@ -237,7 +237,7 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
         days: rentalDays,
         people: rentalPeople,
         totalCents: 0,
-        freeNote: 'free with board 🤙',
+        freeNote: 'free with board',
       });
     }
     return formatRentalPeopleDaysLine({
