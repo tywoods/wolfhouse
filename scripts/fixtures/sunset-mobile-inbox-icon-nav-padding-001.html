@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-portal-client="sunset" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SUNSET-MOBILE-INBOX-ICON-NAV-PADDING-001</title>
+<style>
+:root,[data-theme="dark"]{
+  --cream:#181818;--surface:#252526;--surface-soft:#2d2d2d;--text:#e8e8e8;--text-2:#9d9d9d;
+  --border-soft:#333;--primary:#4a7c59;--staff-green-bg:#1e3a28;--staff-green-text:#c8dcc8;
+  --radius:14px;--teal:#31483d;--focus:#7aaa82;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#121212;font:14px/1.4 system-ui,sans-serif;color:var(--text)}
+.phone{width:390px;margin:16px auto;padding:12px;background:#0e0e0e;min-height:100vh}
+.inbox-two-col.inbox-shell-cols{display:grid;grid-template-columns:1fr;gap:12px;row-gap:12px;--inbox-mobile-stack-gap:12px}
+.inbox-col1{display:flex;flex-direction:column;gap:12px}
+.inbox-folder-tabs{display:flex;gap:0;width:100%}
+.inbox-folder-tab{flex:1;min-height:44px;border:1px solid #3c3c3c;background:#2a2a2b;color:var(--text-2);font:inherit;font-weight:600;border-radius:10px 10px 0 0}
+.inbox-folder-tab.is-active{background:var(--staff-green-bg);color:var(--staff-green-text);border-color:var(--staff-green-bg)}
+/* Phone icon-only rail (from staff-portal-mobile:inbox-chrome) */
+.inbox-views-rail{
+  display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;
+  overflow-x:hidden;overflow-y:hidden;gap:4px;padding:6px 8px;width:100%;max-width:100%;
+  background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+}
+.inbox-views-item{
+  position:relative;flex:1 1 0;width:auto;min-width:0;max-width:56px;height:44px;min-height:44px;
+  padding:0;margin:0;display:inline-flex;justify-content:center;align-items:center;gap:0;
+  border:0;border-radius:10px;background:transparent;color:var(--text);cursor:pointer;
+}
+.inbox-views-item.is-active{background:var(--staff-green-bg);color:var(--staff-green-text)}
+.inbox-views-item-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.inbox-views-item-count{position:absolute;top:4px;right:4px;min-width:14px;height:14px;padding:0 3px;border-radius:999px;font-size:9px;line-height:14px;text-align:center;background:var(--surface);color:var(--text-2)}
+.inbox-views-item-ico,.inbox-views-item-ico svg{width:20px;height:20px;display:block}
+.inbox-views-item-ico{color:var(--text-2)}
+.inbox-views-item.is-active .inbox-views-item-ico{color:currentColor}
+.search{height:40px;width:100%;border-radius:10px;border:1px solid var(--border-soft);background:var(--surface);color:var(--text);padding:0 12px;font-size:16px}
+#inbox-card{background:var(--surface-soft);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border-soft)}
+#conv-list{padding-top:6px;padding-bottom:6px}
+.conv-card{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-soft);align-items:flex-start;overflow:hidden}
+.conv-card:last-child{border-bottom:0}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--staff-green-bg);color:var(--staff-green-text);display:grid;place-items:center;font-size:11px;font-weight:700;flex:0 0 auto}
+.channelAutonomy{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:10px 8px;margin-top:12px}
+.channelAutonomyLabel{font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase;padding:0 8px 4px}
+.detail-header{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;padding:12px 14px;margin-bottom:12px;height:auto;max-height:none;overflow:visible;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius)}
+.detail-header-main{overflow:visible;min-height:min-content;flex:1 1 auto;min-width:0}
+.detail-header-id{display:flex;align-items:center;gap:8px;min-width:0}
+.detail-name{font-size:15px;font-weight:700;line-height:1.2}
+.detail-meta{font-size:11px;margin-top:2px;color:var(--text-2);white-space:normal;overflow:visible;word-break:break-word}
+.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#3a3a3a;color:var(--text-2);font-size:11px;font-weight:600}
+.guest{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+#proof{margin-top:14px;font:12px ui-monospace,monospace;color:#9d9d9d;white-space:pre-wrap}
+h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2);margin:18px 0 8px}
+</style>
+</head>
+<body>
+<div class="phone">
+  <h2>A) Icon-only filters · 390px</h2>
+  <div id="inbox-shell" class="inbox-two-col inbox-shell-cols">
+    <nav class="inbox-col1">
+      <div class="inbox-folder-tabs" role="tablist">
+        <button type="button" class="inbox-folder-tab is-active" aria-pressed="true">Chats</button>
+        <button type="button" class="inbox-folder-tab" aria-pressed="false">Guests</button>
+      </div>
+      <div class="inbox-views-rail" id="rail">
+        <button type="button" class="inbox-views-item is-active" aria-label="All" title="All"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span><span class="inbox-views-item-label">All</span><span class="inbox-views-item-count">3</span></button>
+        <button type="button" class="inbox-views-item" aria-label="WhatsApp" title="WhatsApp"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="inbox-views-item-label">WhatsApp</span></button>
+        <button type="button" class="inbox-views-item" aria-label="Email" title="Email"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></span><span class="inbox-views-item-label">Email</span></button>
+        <button type="button" class="inbox-views-item" aria-label="Needs human" title="Needs human"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V5"/><path d="M4 5h11l-1.6 4L15 13H4"/></svg></span><span class="inbox-views-item-label">Needs human</span><span class="inbox-views-item-count">1</span></button>
+        <button type="button" class="inbox-views-item" aria-label="Spam" title="Spam"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m6.2 6.2 11.6 11.6"/></svg></span><span class="inbox-views-item-label">Spam</span></button>
+        <button type="button" class="inbox-views-item" aria-label="Owner Lab" title="Owner Lab"><span class="inbox-views-item-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c0 4-3 6-3 9a3 3 0 0 0 6 0c0-2 2-3 2-6 2 3 3 5.5 3 8a8 8 0 1 1-16 0c0-4 4-7 8-11z"/></svg></span><span class="inbox-views-item-label">Owner Lab</span></button>
+      </div>
+    </nav>
+    <input class="search" placeholder="Search contacts" readonly>
+    <div id="inbox-card">
+      <div id="conv-list">
+        <div class="conv-card"><div class="avatar">TY</div><div><strong>Ty</strong><div style="color:var(--text-2);font-size:12px">2h ago</div></div></div>
+        <div class="conv-card"><div class="avatar">GU</div><div><strong>Guest</strong><div style="color:var(--text-2);font-size:12px">Sep 20</div></div></div>
+      </div>
+    </div>
+    <div class="channelAutonomy" id="autonomy">
+      <div class="channelAutonomyLabel">Luna Autonomy</div>
+      <div style="padding:6px 8px;color:var(--text-2);font-size:12px">Luna · WhatsApp · Email controls</div>
+    </div>
+  </div>
+
+  <h2>B) Needs-human header grows</h2>
+  <div class="detail-header" id="hdr">
+    <div class="detail-header-main">
+      <div class="detail-header-id">
+        <div class="detail-name">Tyler Woods</div>
+        <span class="pill">Needs human</span>
+      </div>
+      <div class="detail-meta">tywoods@gmail.com · Email · Booking</div>
+    </div>
+  </div>
+  <div class="guest">Guest card (spacing below header)</div>
+  <div id="proof"></div>
+</div>
+<script>
+(function () {
+  const rail = document.getElementById('rail');
+  const card = document.getElementById('inbox-card');
+  const auto = document.getElementById('autonomy');
+  const hdr = document.getElementById('hdr');
+  const meta = hdr.querySelector('.detail-meta');
+  const labels = [...rail.querySelectorAll('.inbox-views-item-label')];
+  const scroll = rail.scrollWidth > rail.clientWidth + 1;
+  const gap = Math.round(auto.getBoundingClientRect().top - card.getBoundingClientRect().bottom);
+  const metaBottom = meta.getBoundingClientRect().bottom;
+  const hdrBottom = hdr.getBoundingClientRect().bottom;
+  const clipped = metaBottom > hdrBottom + 0.5;
+  const labelHidden = labels.every((el) => getComputedStyle(el).clip === 'rect(0px, 0px, 0px, 0px)' || getComputedStyle(el).position === 'absolute');
+  const ok = !scroll && gap >= 10 && !clipped && labelHidden;
+  const line = [
+    'viewport=390',
+    'railScroll=' + scroll,
+    'cardGap=' + gap + 'px',
+    'headerClipped=' + clipped,
+    'labelsSrOnly=' + labelHidden,
+    'aria=' + rail.querySelector('.inbox-views-item').getAttribute('aria-label')
+  ].join('\n');
+  document.getElementById('proof').textContent = line;
+  document.title = (ok ? 'ICON-NAV-PADDING-001-OK' : 'ICON-NAV-PADDING-001-FAIL') + ' ' + line.replace(/\n/g, ' | ');
+})();
+</script>
+</body>
+</html>

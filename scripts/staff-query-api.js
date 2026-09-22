@@ -19568,8 +19568,9 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
   /* Mobile thread view — maximize message area */
   .inbox-two-col.show-thread #conv-detail{height:calc(100dvh - 112px);max-height:calc(100dvh - 112px)}
   .inbox-two-col.show-thread #detail-content{flex:1;min-height:0;height:100%;display:flex;flex-direction:column;padding:6px 10px 8px;overflow:hidden}
-  .inbox-two-col.show-thread .detail-header{flex-shrink:0;margin-bottom:4px;padding:0}
-  .inbox-two-col.show-thread .detail-layout{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;gap:6px}
+  /* SUNSET-MOBILE-INBOX-ICON-NAV-PADDING-001: grow to fit name + Needs human + meta; never clip. */
+  .inbox-two-col.show-thread .detail-header{flex-shrink:0;margin-bottom:12px;padding:12px 14px;flex-wrap:wrap;align-items:flex-start;height:auto;max-height:none;overflow:visible;gap:8px}
+  .inbox-two-col.show-thread .detail-layout{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;gap:12px}
   .inbox-two-col.show-thread .detail-main{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible}
   .inbox-two-col.show-thread .thread-section{flex:0 0 auto;width:100%}
   .inbox-two-col.show-thread .thread{flex:0 0 auto;width:100%;padding:6px 6px 2px}
@@ -19577,11 +19578,13 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
   .inbox-two-col.show-thread .inbox-thread-shell{flex:0 0 auto;width:100%}
   .inbox-two-col.show-thread .inbox-thread-wrap{flex:0 0 auto;width:100%}
   .inbox-two-col.show-thread .thread-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-  .inbox-two-col.show-thread .detail-header{align-items:center;margin-bottom:6px;flex-wrap:nowrap}
+  .inbox-two-col.show-thread .detail-header-main{overflow:visible;min-height:min-content;flex:1 1 auto}
+  .inbox-two-col.show-thread .detail-header-main .detail-name,
+  .inbox-two-col.show-thread .detail-header-main .detail-meta{white-space:normal;overflow:visible;text-overflow:unset;word-break:break-word}
   .inbox-two-col.show-thread .detail-name{font-size:15px;line-height:1.2}
   .inbox-two-col.show-thread .detail-meta{font-size:11px;margin-top:2px}
   .inbox-two-col.show-thread .detail-header-right{gap:4px}
-  .inbox-two-col.show-thread .detail-sidebar{max-height:none;flex-shrink:0;overflow:visible;margin-top:8px;padding-bottom:24px}
+  .inbox-two-col.show-thread .detail-sidebar{max-height:none;flex-shrink:0;overflow:visible;margin-top:12px;padding-bottom:24px}
   .inbox-two-col.show-thread .draft-panel{flex-shrink:0;margin-top:0;padding-top:6px;border-top:1px solid var(--border-soft)}
   .inbox-two-col.show-thread #draft-textarea{min-height:48px;max-height:64px;font-size:16px}
 }
@@ -21993,18 +21996,32 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-main{display:flex!important}
   .inbox-col1{
-    width:100%;flex-direction:column;align-items:stretch;padding:0;gap:8px;
+    width:100%;flex-direction:column;align-items:stretch;padding:0;gap:12px;
   }
   .inbox-col1 .inbox-view-switch{width:100%}
   .inbox-col1 > .inbox-left-toolbar{display:none}
+  /* SUNSET-MOBILE-INBOX-ICON-NAV-PADDING-001: icon-only filter bar — no sideways scroll. */
   .inbox-views-rail{
-    flex-direction:row;flex-wrap:nowrap;align-items:center;
-    overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
-    gap:8px;padding:8px;width:100%;align-self:stretch;
+    flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;
+    overflow-x:hidden;overflow-y:hidden;gap:4px;padding:6px 8px;width:100%;align-self:stretch;
+    max-width:100%;box-sizing:border-box;
   }
-  .inbox-views-group{flex-direction:row;flex-wrap:nowrap;gap:4px;flex:0 0 auto}
+  .inbox-views-group{flex-direction:row;flex-wrap:nowrap;gap:4px;flex:1 1 auto;min-width:0;justify-content:space-between}
   .inbox-views-group-label{display:none}
-  .inbox-views-item{width:auto;padding:8px 10px;white-space:nowrap}
+  .inbox-views-item{
+    position:relative;flex:1 1 0;width:auto;min-width:0;max-width:56px;height:44px;min-height:44px;
+    padding:0;margin:0;justify-content:center;align-items:center;gap:0;
+    white-space:nowrap;border-radius:10px;
+  }
+  .inbox-views-item-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .inbox-views-item-count{
+    position:absolute;top:4px;right:4px;min-width:14px;height:14px;padding:0 3px;
+    border-radius:999px;font-size:9px;line-height:14px;text-align:center;
+    background:var(--surface);color:var(--text-2);box-shadow:0 0 0 1px var(--border-soft);
+  }
+  .inbox-views-item.is-active .inbox-views-item-count{background:rgba(255,255,255,.22);color:inherit;box-shadow:none}
+  .inbox-views-item-ico{width:20px;height:20px;margin:0}
+  .inbox-views-item-ico svg{width:20px;height:20px}
   .inbox-channel-autonomy-slot,
   .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}
   .inbox-peek-edge{display:none!important}
@@ -22030,11 +22047,63 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   /* SUNSET-MOBILE-INBOX-001: phone is the product. Chats|Guests stay tappable
      after a thread opens, and Guest is the card — not a panel under the chat. */
   #tab-conversations{overflow-x:hidden;max-width:100vw}
-  .inbox-views-rail{max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  .inbox-views-rail{max-width:100%;overflow-x:hidden;overflow-y:hidden}
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
+  /* Phone: drop the desktop flush-tab pull so Chats|Guests and icon rail breathe. */
+  html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs,
+  html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{margin:0 0 0!important}
+  html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1 > .inbox-views-rail,
+  html:not([data-portal-client]) #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1 > .inbox-views-rail{
+    border-radius:var(--radius);
+  }
+  /* SUNSET-MOBILE-INBOX-ICON-NAV-PADDING-001: breathing room between stacked cards. */
+  .inbox-two-col.inbox-shell-cols{
+    --inbox-mobile-stack-gap:12px;
+    gap:var(--inbox-mobile-stack-gap)!important;
+    row-gap:var(--inbox-mobile-stack-gap)!important;
+  }
+  .inbox-two-col.inbox-shell-cols > .inbox-col1{gap:12px}
+  .inbox-two-col.inbox-shell-cols > .inbox-left,
+  .inbox-two-col.inbox-shell-cols > #inbox-card{
+    overflow:hidden;
+  }
+  .inbox-two-col.inbox-shell-cols > .inbox-left #conv-list.conv-list,
+  .inbox-two-col.inbox-shell-cols > #inbox-card #conv-list.conv-list{
+    padding-top:6px;padding-bottom:6px;box-sizing:border-box;
+  }
+  .inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card:first-child,
+  .inbox-two-col.inbox-shell-cols > #inbox-card #conv-list .conv-card:first-child{
+    border-top-left-radius:var(--radius);border-top-right-radius:var(--radius);
+  }
+  #tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{
+    margin:var(--inbox-mobile-stack-gap,12px) 0 0;
+  }
+  #tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order{
+    margin:0;
+  }
+  .inbox-two-col.show-thread #conv-detail,
+  .inbox-two-col.show-thread .detail-sidebar,
+  .inbox-two-col.show-thread #inbox-detail-sidebar{
+    gap:var(--inbox-mobile-stack-gap,12px);
+  }
+  .inbox-two-col.show-thread .detail-sidebar > *,
+  .inbox-two-col.show-thread #inbox-detail-sidebar > *{
+    margin-bottom:var(--inbox-mobile-stack-gap,12px);
+  }
+  .inbox-two-col.show-thread .detail-sidebar > *:last-child,
+  .inbox-two-col.show-thread #inbox-detail-sidebar > *:last-child{
+    margin-bottom:0;
+  }
+  /* Chat/Full presets zero header margin for a connected thread card on desktop;
+     on phone keep the stack gap so Needs-human header never sits flush on the next card. */
+  body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .detail-header,
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .detail-header{
+    margin-bottom:var(--inbox-mobile-stack-gap,12px)!important;
+    border-radius:var(--radius)!important;
+  }
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread{
     grid-template-rows:auto minmax(0,1fr)!important;
   }
@@ -22043,11 +22112,11 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{
     display:flex!important;flex-direction:column;width:100%;max-width:100%;
-    padding:0;gap:0;overflow:visible;
+    padding:0;gap:12px;overflow:visible;
   }
   html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{
     display:flex!important;flex-direction:column;width:100%;max-width:100%;
-    padding:0;gap:0;overflow:visible;
+    padding:0;gap:12px;overflow:visible;
   }
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}
   html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}

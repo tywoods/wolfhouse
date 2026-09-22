@@ -70,7 +70,7 @@ var INBOX_ROWS_CSS = [
   '#inbox-shell .inbox-row-avatar{width:28px;height:28px}',
   '#inbox-shell .inbox-left .inbox-conv-search-wrap{padding:8px 8px 6px}',
   '}',
-  /* staff-portal-mobile:inbox-filter-scroll — chip row scroll without native scrollbar chrome */
+  /* staff-portal-mobile:inbox-filter-scroll — legacy text chips only (toolbar); views rail is icon-only below. */
   '@media(max-width:768px){',
   '#tab-conversations .inbox-filters,',
   '#tab-conversations .inbox-toolbar-channels{',
@@ -84,12 +84,15 @@ var INBOX_ROWS_CSS = [
   '#tab-conversations .inbox-filters::-webkit-scrollbar,',
   '#tab-conversations .inbox-toolbar-channels::-webkit-scrollbar{display:none}',
   '#tab-conversations .inbox-filter-btn{flex:0 0 auto;white-space:nowrap;min-height:44px;padding:8px 12px}',
-  '.inbox-two-col.show-thread .detail-header{flex-wrap:wrap;align-items:flex-start;gap:8px;padding:12px 14px}',
-  '.inbox-two-col.show-thread .detail-header-main{flex:1 1 100%;min-width:0;order:1}',
+  /* SUNSET-MOBILE-INBOX-ICON-NAV-PADDING-001: detail header grows; no clip. */
+  '.inbox-two-col.show-thread .detail-header{flex-wrap:wrap;align-items:flex-start;gap:8px;padding:12px 14px!important;margin-bottom:12px;height:auto;max-height:none;overflow:visible}',
+  '.inbox-two-col.show-thread .detail-header-main{flex:1 1 100%;min-width:0;order:1;overflow:visible;min-height:min-content}',
   '.inbox-two-col.show-thread .detail-header-pills{flex:1 1 100%;width:100%;margin-left:0!important;order:2;justify-content:flex-start;flex-wrap:wrap;gap:6px}',
   '.inbox-two-col.show-thread .detail-header-right{order:3;width:100%;justify-content:space-between;align-items:center;gap:8px}',
   '.inbox-two-col.show-thread .detail-header-main .detail-name,',
   '.inbox-two-col.show-thread .detail-header-main .detail-meta{white-space:normal;overflow:visible;text-overflow:unset;word-break:break-word}',
+  '#inbox-shell #conv-list.conv-list{padding-top:6px;padding-bottom:6px;box-sizing:border-box}',
+  '#inbox-shell .conv-card.inbox-row{overflow:hidden}',
   /* staff-portal-mobile:inbox-thread-scroll — bounded flex chain; .thread-messages is the scroller (WhatsApp-style latest at bottom). */
   '.inbox-two-col.show-thread .detail-layout{',
   'flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;',
