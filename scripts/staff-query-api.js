@@ -14275,6 +14275,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     handleBotGuestPaymentCreateLink,
     STRIPE_LINKS_ENABLED,
     STRIPE_SECRET_KEY,
+    PUBLIC_PAYMENT_BASE_URL: process.env.PUBLIC_PAYMENT_BASE_URL || '',
+    WOLFHOUSE_STRIPE_MODE: process.env.WOLFHOUSE_STRIPE_MODE || '',
   });
 }
 
@@ -15791,10 +15793,12 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
 // Delegation stub — builds ctx and calls the extracted handler.
 async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode) {
   return _handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode, {
-    sendJSON, withPgClient, appendAuditLog,
+    sendJSON, withPgClient, appendAuditLog, readBody,
     boundClientSlug: req && req._botBoundClientSlug,
     guestPaymentLinkObservability,
     BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    PUBLIC_PAYMENT_BASE_URL: process.env.PUBLIC_PAYMENT_BASE_URL || '',
+    WOLFHOUSE_STRIPE_MODE: process.env.WOLFHOUSE_STRIPE_MODE || '',
     STAFF_AUTH_REQUIRED, STAFF_ACTIONS_ENABLED,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,

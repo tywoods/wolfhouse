@@ -342,6 +342,109 @@ def _availability_status(data):
     return data.get("availability_status") or "unclear"
 
 
+def _room_decision_for_tool(params, availability=None):
+    """Validate a model name hint. Never treats the hint as verified sex."""
+    try:
+        from wolfhouse.room_eligibility_policy import decide_room_eligibility
+    except Exception:
+        return None
+    params = params if isinstance(params, dict) else {}
+    if not any(params.get(key) not in (None, "", []) for key in (
+        "name_hint", "name_confidence", "room_name_hints", "explicit_gender",
+        "group_gender", "room_preference", "name_ambiguous",
+    )):
+        return None
+    travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else None
+    available = {}
+    if isinstance(availability, dict):
+        if "girls_room_available" in availability:
+            available["female_only"] = availability.get("girls_room_available")
+        if "private_room_available" in availability:
+            available["private"] = availability.get("private_room_available")
+    if isinstance(params.get("available_rooms"), dict):
+        available.update(params["available_rooms"])
+    preference = _clean(params.get("room_preference")).lower()
+    return decide_room_eligibility(
+        guest_count=params.get("guest_count") or (len(travelers) if travelers else 1),
+        travelers=travelers,
+        name=_clean(params.get("guest_name") or params.get("name")),
+        hint=params.get("name_hint"),
+        confidence=params.get("name_confidence"),
+        ambiguous=params.get("name_ambiguous") is True,
+        explicit_gender=params.get("explicit_gender") or params.get("group_gender"),
+        room_preference=params.get("room_preference"),
+        private_room_chosen=preference in {"private", "couple_private", "private_room"},
+        available=available or None,
+    )
+
+
+def _room_recovery_result(tool, decision):
+    """Gender mismatch stays with Luna. Never a team handoff."""
+    prompt = (decision or {}).get("clarification_prompt") or "Would a mixed dorm work for you?"
+    allowed = list((decision or {}).get("allowed_room_preferences") or [])
+    return {
+        "success": False,
+        "tool": tool,
+        "write_performed": False,
+        "booking_not_created_yet": True,
+        "room_decision": decision,
+        "offered_room_preferences": allowed,
+        "needs_human": False,
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "next_action": "ask_room_eligibility",
+        "reply_draft": prompt,
+    }
+
+
+def _suppress_gender_handoff(result, decision):
+    if not isinstance(result, dict) or not isinstance(decision, dict):
+        return result
+    if not (decision.get("clarification_needed") or decision.get("conflict")):
+        excluded = set(decision.get("excluded_room_preferences") or [])
+        if "female_only" in excluded:
+            result["girls_room_available"] = False
+        if "male_only" in excluded and "guys_room_available" in result:
+            result["guys_room_available"] = False
+        result["needs_human"] = False
+        return result
+    result["needs_human"] = False
+    result["staff_review_needed"] = False
+    result["do_not_escalate"] = True
+    result["next_action"] = "ask_room_eligibility"
+    result["reply_draft"] = decision.get("clarification_prompt") or result.get("reply_draft")
+    excluded = set(decision.get("excluded_room_preferences") or [])
+    if "female_only" in excluded:
+        result["girls_room_available"] = False
+    if "male_only" in excluded and "guys_room_available" in result:
+        result["guys_room_available"] = False
+    return result
+
+
+def _intentional_capability_block(data):
+    return isinstance(data, dict) and (
+        data.get("intentional_capability_block") is True
+        or data.get("outcome") == "INTENTIONALLY_BLOCKED"
+    )
+
+
+def _intentional_block_result(data):
+    reasons = data.get("capability_reasons") if isinstance(data, dict) else []
+    return {
+        "success": False,
+        "tool": "create_booking_from_plan",
+        "write_performed": False,
+        "outcome": "INTENTIONALLY_BLOCKED",
+        "intentional_capability_block": True,
+        "capability": (data or {}).get("capability") if isinstance(data, dict) else None,
+        "capability_reasons": reasons or [],
+        "booking_not_created": True,
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "reply_draft": "I can't finish the booking link from this test desk yet. Nothing was booked.",
+    }
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -362,7 +465,7 @@ def check_availability(params, **kwargs):
     }
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
-    return _json_result({
+    avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
         "availability_status": status,
@@ -379,7 +482,9 @@ def check_availability(params, **kwargs):
         "blockers": data.get("blockers") or [],
         "next_action": data.get("next_action"),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+        "room_decision": _room_decision_for_tool(params, data),
+    }
+    return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 
 
 def quote_booking(params, **kwargs):
@@ -415,7 +520,7 @@ def quote_booking(params, **kwargs):
         unknown_codes = []
     next_action = data.get("next_action")
     closed_season = next_action == "closed_season"
-    return _json_result({
+    quote_result = {
         "success": bool(data.get("success")) and not unknown_codes and not closed_season,
         "tool": "quote_booking",
         "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
@@ -437,7 +542,9 @@ def quote_booking(params, **kwargs):
             and not closed_season
         ),
         "guest_safe_next_action": data.get("guest_safe_next_action") or (data.get("reply_draft") if closed_season else None),
-    })
+        "room_decision": _room_decision_for_tool(params, data),
+    }
+    return _json_result(_suppress_gender_handoff(quote_result, quote_result.get("room_decision")))
 
 
 def _normalize_guests_payload(payload):
@@ -626,8 +733,10 @@ def create_booking_from_plan(params, **kwargs):
     # Idempotency key: stable per (phone, check_in, check_out, package).
     # Prevents duplicate bookings if the model calls this twice.
     if not payload.get("idempotency_key"):
+        trusted_phone = _normalize_phone(_session_guest_phone())
+        idem_phone = trusted_phone or str(payload.get("guest_phone") or payload.get("phone") or "")
         key_parts = "|".join([
-            str(payload.get("guest_phone") or payload.get("phone") or ""),
+            idem_phone,
             str(payload.get("check_in") or ""),
             str(payload.get("check_out") or ""),
             str(payload.get("package_code") or ""),
@@ -657,7 +766,29 @@ def create_booking_from_plan(params, **kwargs):
     elif pkg in ("", "accommodation_only", "no_package"):
         payload["package_code"] = "package_none"
 
+    room_decision = _room_decision_for_tool(payload)
+    preference = _clean(payload.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
+    excluded = set((room_decision or {}).get("excluded_room_preferences") or [])
+    if room_decision and (
+        room_decision.get("clarification_needed")
+        or room_decision.get("conflict")
+        or preference in {"female_only", "male_only"} and preference in excluded
+    ):
+        return _json_result(_room_recovery_result("create_booking_from_plan", room_decision))
+    if room_decision:
+        if excluded and payload.get("selected_bed_codes"):
+            payload.pop("selected_bed_codes", None)
+        composition = room_decision.get("resolved_composition")
+        if composition in {"male", "female", "mixed"} and not payload.get("group_gender"):
+            payload["group_gender"] = composition
+        if preference in excluded:
+            payload.pop("room_preference", None)
+
     data = _post_bot("/booking-create-from-plan", payload)
+    if _intentional_capability_block(data):
+        blocked = _intentional_block_result(data)
+        blocked["room_decision"] = room_decision
+        return _json_result(blocked)
     fields = _extract_booking_write_fields(data)
     payment_id = _clean(fields.get("payment_id"))
     secure_url = None
@@ -710,7 +841,9 @@ def create_booking_from_plan(params, **kwargs):
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
             link_payload,
         )
-        if link_data.get("success") and link_data.get("checkout_url"):
+        if _intentional_capability_block(link_data):
+            payment_link_error = None
+        elif link_data.get("success") and _guest_payment_url(link_data):
             secure_url = _guest_payment_url(link_data)
         else:
             payment_link_error = _safe_text(
@@ -731,7 +864,8 @@ def create_booking_from_plan(params, **kwargs):
     # flow (collected before the booking existed). This removes the unreliable
     # "model remembers to re-call save_transfer_request after create" step.
     transfer_results = []
-    if bool(data.get("success")) and bool(data.get("write_performed")):
+    simulator_capability = data.get("wolfhouse_staging_capability") == "wolfhouse_staging_booking_test_link"
+    if bool(data.get("success")) and bool(data.get("write_performed")) and not simulator_capability:
         transfer_results = _auto_save_pending_transfers(
             payload,
             fields.get("booking_id"),
@@ -763,12 +897,19 @@ def create_booking_from_plan(params, **kwargs):
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
         "next_action": "send_secure_payment_link" if secure_url else next_action,
-        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links)) and not expected_missing,
+        "staff_review_needed": (
+            not _intentional_capability_block(link_data)
+            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links))
+            and not expected_missing
+        ),
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
-        "do_not_escalate": expected_missing,
+        "do_not_escalate": expected_missing or _intentional_capability_block(link_data),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
+        "room_decision": room_decision,
+        "needs_human": False,
+        "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
     })
 
 
@@ -3357,7 +3498,11 @@ def register(ctx):
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
         "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests on shared/dorm bookings only: female (all girls), male (all guys), or mixed. Ask at the room-preference step before create — never on availability. Do NOT ask or pass when the booking is private room (couple_private / Private room supplement already on the quote) — gender mix does not matter for a private room."},
-        "gender_preference": {"type": "string", "description": "Same as group_gender for groups; for solo bookings only, infer silently from name (female/male/mixed). Never ask a solo guest 'are you a girl'."},
+        "gender_preference": {"type": "string", "description": "Solo only: do not pass a guessed gender here. Pass name_hint plus name_confidence instead. Group composition belongs in group_gender after the guest answers."},
+        "name_hint": {"type": "string", "description": "Provisional model interpretation of a guest-provided name: male, female, or unknown. Not biological sex and not a stored fact."},
+        "name_confidence": {"type": "number", "description": "Uncalibrated 0-1 score for name_hint. At least 0.70 is required before a provisional gendered room hint. Below that, ask one neutral question."},
+        "name_ambiguous": {"type": "boolean", "description": "True when the name is ambiguous or unisex. Ambiguity wins over a high score."},
+        "room_name_hints": {"type": "array", "description": "One hint per traveler, not the booker alone. Each item: name, hint, confidence, ambiguous, explicit_gender.", "items": {"type": "object"}},
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
         "add_ons": {

@@ -175,6 +175,10 @@ npm run luna:coach -- --seed package-choice-assumed  # diagnose a bad transcript
 
 **Guest journey map:** `docs/LUNA-GUEST-JOURNEY.md` · **Staff portal matrix:** `scripts/lib/luna-staff-portal-capability-matrix.js`
 
+## 12. Wolfhouse room eligibility (provisional name hint)
+
+Shared runtime owner: `docker/hermes-staging/wolfhouse/room_eligibility_policy.py`, consumed by the Staff plugin for both Wolfhouse WhatsApp and Crow's Nest Live Sim. A name hint is not biological sex and is not stored as a verified demographic. Confidence of at least 0.70 may guide a provisional room offer; below that, invalid, or ambiguous asks one neutral question. Explicit guest statements override hints. A male hint or statement plus an all-female room asks once and re-offers only mixed/shared or a guys room, then booking continues when they pick one. That mismatch never calls `flag_needs_human` and never becomes a team handoff. The bed allocator (`scripts/lib/luna-bed-allocator.js`) enforces the same conflict at placement time.
+
 **Rule of the loop:** no Luna behavior change merges without a fixture that proves it. No fixing from screenshots.
 
 ---

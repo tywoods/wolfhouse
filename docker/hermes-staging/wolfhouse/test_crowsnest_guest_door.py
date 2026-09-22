@@ -225,6 +225,104 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["path"], "/staff/bot/booking-preview")
         self.assertIn("redirected_create_to_booking_preview", scope.tool_calls[0]["simulator_guard"])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
+        self.assertFalse(result.get("capability_admitted") is True)
+
+    async def test_approved_wolfhouse_staging_fixture_forwards_create_and_owned_test_link(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        owned_payment = "11111111-1111-4111-8111-111111111111"
+        foreign_payment = "22222222-2222-4222-8222-222222222222"
+        scope = CrowsnestGuestScope.create("+34" + "6000230001")
+        token = door._SCOPE.set(scope)
+        original_post = self.staff._post_bot
+
+        def recording_post(path, payload):
+            self.staff.calls.append((path, dict(payload or {})))
+            if "booking-create-from-plan" in str(path):
+                return {
+                    "success": True,
+                    "write_performed": True,
+                    "path": path,
+                    "payment_id": owned_payment,
+                    "booking_id": "44444444-4444-4444-8444-444444444444",
+                }
+            return {"success": True, "path": path, "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_abc"}
+
+        self.staff._post_bot = original_post
+        # Reinstall so the guard wraps recording_post, not the previous wrapper.
+        door._INSTALLED_STAFF.discard(id(self.staff))
+        self.staff._post_bot = recording_post
+        install_request_owned_guards(self.staff, self.whatsapp)
+        try:
+            with patch.dict("os.environ", {
+                "HERMES_ROLE": "luna",
+                "LUNA_TENANT_ID": "wolfhouse-somo",
+                "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+                "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+                "PUBLIC_PAYMENT_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+                "BOT_BOOKING_ENABLED": "true",
+                "STRIPE_SECRET_KEY": "sk_test_wolfhouse_staging_fixture",
+                "WOLFHOUSE_STRIPE_MODE": "test",
+                "WHATSAPP_CLOUD_WEBHOOK_PORT": "8090",
+            }, clear=False):
+                created = self.staff._post_bot(
+                    "/booking-create-from-plan",
+                    {"guest_name": "Fred", "confirm": True, "allow_writes": True, "guest_phone": "+346000230001"},
+                )
+                linked = self.staff._post_bot(
+                    f"/payments/{owned_payment}/create-stripe-link",
+                    {"client_slug": "wolfhouse-somo"},
+                )
+                foreign = self.staff._post_bot(
+                    f"/payments/{foreign_payment}/create-stripe-link",
+                    {"client_slug": "wolfhouse-somo"},
+                )
+                transfer = self.staff._post_bot("/transfers/save", {"confirm_transfer_write": True})
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertEqual(self.staff.calls[0][0], "/staff/bot/booking-create-from-plan")
+        self.assertNotIn("booking-preview", self.staff.calls[0][0])
+        self.assertEqual(self.staff.calls[0][1]["guest_phone"], scope.inbox_phone)
+        self.assertNotIn("allow_writes", self.staff.calls[0][1])
+        self.assertTrue(created.get("write_performed"))
+        self.assertEqual(self.staff.calls[1][0], f"/staff/bot/payments/{owned_payment}/create-stripe-link")
+        self.assertTrue(linked.get("success"))
+        self.assertTrue(foreign.get("simulate_write_blocked"))
+        self.assertEqual(len(self.staff.calls), 2)
+        self.assertTrue(transfer.get("simulate_write_blocked"))
+        self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
+        self.assertFalse(any(call.get("allow_writes") is True for call in scope.tool_calls))
+
+    async def test_production_staff_destination_stays_preview_without_swapping_env(self):
+        import os
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34" + "6000230002")
+        token = door._SCOPE.set(scope)
+        prod = "https://staff.lunafrontdesk.com"
+        try:
+            with patch.dict("os.environ", {
+                "HERMES_ROLE": "luna",
+                "LUNA_TENANT_ID": "wolfhouse-somo",
+                "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+                "WOLFHOUSE_STAFF_API_BASE_URL": prod,
+                "PUBLIC_PAYMENT_BASE_URL": prod,
+                "BOT_BOOKING_ENABLED": "true",
+                "STRIPE_SECRET_KEY": "sk_test_wolfhouse_staging_fixture",
+                "WOLFHOUSE_STRIPE_MODE": "test",
+            }, clear=False):
+                result = self.staff._post_bot("/bookings/create", {"guest_name": "Fred"})
+                self.assertEqual(os.environ["WOLFHOUSE_STAFF_API_BASE_URL"], prod)
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertEqual(self.staff.calls[0][0], "/staff/bot/booking-preview")
+        self.assertIn("redirected_create_to_booking_preview", scope.tool_calls[0]["simulator_guard"])
+        denial = scope.tool_calls[0].get("effective_capability") or {}
+        self.assertFalse(denial.get("admitted"))
+        self.assertIn("staff_destination_not_approved_staging", denial.get("reasons") or [])
+        self.assertEqual(result["path"], "/staff/bot/booking-preview")
 
     async def test_wolfhouse_default_mirror_uses_runtime_tenant_identity(self):
         import wolfhouse_whatsapp_mirror as mirror_mod

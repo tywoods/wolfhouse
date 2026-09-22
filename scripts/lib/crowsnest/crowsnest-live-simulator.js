@@ -275,12 +275,82 @@ function redactRuntime(runtime) {
   };
 }
 
+function toolCallWriteBlocked(call) {
+  if (!call) return false;
+  const summary = call.result_summary;
+  if (summary && typeof summary === 'object' && (summary.simulate_write_blocked || summary.intentional_capability_block || summary.outcome === 'INTENTIONALLY_BLOCKED')) {
+    return true;
+  }
+  if (typeof summary === 'string' && /simulate_write_blocked=(?:True|true)|intentional_capability_block=(?:True|true)|outcome=INTENTIONALLY_BLOCKED/.test(summary)) {
+    return true;
+  }
+  const guard = call.simulator_guard;
+  if (Array.isArray(guard) && guard.some((warning) => {
+    const text = String(warning || '');
+    return text.startsWith('blocked') || text === 'redirected_create_to_booking_preview';
+  })) {
+    return true;
+  }
+  return false;
+}
+
+function applyUpstreamCapability(limitation, body) {
+  const base = limitation && typeof limitation === 'object' ? limitation : {};
+  const cap = body && body.effective_capability;
+  if (!cap || typeof cap !== 'object') {
+    return {
+      ...base,
+      capability_admitted: false,
+      capability_reasons: [],
+    };
+  }
+  const reasons = Array.isArray(cap.reasons) ? cap.reasons.slice() : [];
+  if (cap.admitted === true && cap.capability === 'wolfhouse_staging_booking_test_link') {
+    return {
+      ...base,
+      writes_enabled: false,
+      staff_tool_writes_enabled: false,
+      booking_writes_enabled: true,
+      payments_enabled: false,
+      test_payments_enabled: true,
+      waiver_creation_enabled: false,
+      booking_write_mode: 'wolfhouse_staging_booking_test_link',
+      limitation_flag: 'wolfhouse_staging_booking_test_link_enabled_external_transport_suppressed',
+      capability: cap.capability,
+      capability_admitted: true,
+      capability_reasons: [],
+      outcome: 'ADMITTED',
+      whatsapp_sends_enabled: false,
+      sms_sends_enabled: false,
+      denied_actions: [
+        'create_balance_payment_link',
+        'save_transfer_request',
+        'update_booking_contact',
+        'update_guest_packages',
+        'send_whatsapp_message',
+        'send_sms',
+      ],
+    };
+  }
+  return {
+    ...base,
+    capability: cap.capability || null,
+    capability_admitted: false,
+    capability_reasons: reasons,
+    outcome: cap.outcome || 'INTENTIONALLY_BLOCKED',
+    writes_enabled: false,
+    staff_tool_writes_enabled: false,
+    whatsapp_sends_enabled: false,
+    sms_sends_enabled: false,
+  };
+}
+
 function shapeSimulatorResponse({ request, upstream }) {
   const body = upstream.body && typeof upstream.body === 'object' ? upstream.body : {};
   const warnings = Array.isArray(body.warnings) ? body.warnings.slice() : [];
   const toolCalls = Array.isArray(body.tool_calls) ? body.tool_calls : [];
   const blockedWrites = toolCalls
-    .filter((call) => call && call.result_summary && call.result_summary.simulate_write_blocked)
+    .filter(toolCallWriteBlocked)
     .map((call) => call.name)
     .filter(Boolean);
 
@@ -302,7 +372,7 @@ function shapeSimulatorResponse({ request, upstream }) {
     upstream_ok: body.ok !== false,
     runtime: redactRuntime(request.runtime),
     limitation: {
-      ...request.limitation,
+      ...applyUpstreamCapability(request.limitation, body),
       tenant_whatsapp_suppressed: body.whatsapp_suppressed === true,
       tenant_allow_writes: body.allow_writes === true,
       blocked_write_tools: blockedWrites,

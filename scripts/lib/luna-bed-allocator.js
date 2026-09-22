@@ -715,9 +715,25 @@ function deriveAllocatorContext({
   const count = Math.max(1, Number(guestCount) || 1);
 
   if (rp === 'female_only') {
+    if (explicit === 'male') {
+      return {
+        groupGender: 'male',
+        roomPreference: null,
+        conflict: 'female_only_overrides_explicit_male',
+        needsClarification: true,
+      };
+    }
     return { groupGender: 'female', roomPreference: 'female_only' };
   }
   if (rp === 'male_only') {
+    if (explicit === 'female') {
+      return {
+        groupGender: 'female',
+        roomPreference: null,
+        conflict: 'male_only_overrides_explicit_female',
+        needsClarification: true,
+      };
+    }
     return { groupGender: 'male', roomPreference: 'male_only' };
   }
   if (rp === 'private') {
@@ -802,6 +818,18 @@ function runAvailabilityBedSelection(params) {
     roomPreference,
     groupGender,
   });
+  if (ctx.needsClarification) {
+    return {
+      handoff: false,
+      needs_clarification: true,
+      reason: ctx.conflict || 'room_preference_conflicts_with_explicit_gender',
+      selected_bed_codes: [],
+      selected_room_code: null,
+      group_gender: ctx.groupGender,
+      room_preference: ctx.roomPreference,
+      conflict: ctx.conflict,
+    };
+  }
 
   const pick = (useRules && !capacityOnly)
     ? chooseBeds({
@@ -832,6 +860,25 @@ function runAvailabilityBedSelection(params) {
   };
 }
 
+function rejectIncompatiblePreselectedBeds({ selectedBedCodes, bedRows, groupGender }) {
+  const gender = normalizeGroupGender(groupGender);
+  if (gender !== 'male' && gender !== 'female') return { ok: true, bed_codes: [] };
+  const banned = gender === 'male' ? 'female_only' : 'male_only';
+  const rooms = buildAllocatorRoomsFromBedRows(bedRows, new Set(), null);
+  const bedToCategory = new Map();
+  for (const room of rooms) {
+    const category = resolveRoomCategory(room);
+    for (const bed of room.beds || []) {
+      if (bed && bed.bed_code) bedToCategory.set(bed.bed_code, category);
+    }
+  }
+  const bad = (selectedBedCodes || []).filter((code) => bedToCategory.get(code) === banned);
+  if (bad.length) {
+    return { ok: false, reason: 'incompatible_preselected_beds', bed_codes: bad };
+  }
+  return { ok: true, bed_codes: [] };
+}
+
 module.exports = {
   chooseBeds,
   chooseBedsCapacityOnly,
@@ -846,4 +893,5 @@ module.exports = {
   isRulesBasedRoomingEnabled,
   needsGenderAwareBedAssignment,
   runAvailabilityBedSelection,
+  rejectIncompatiblePreselectedBeds,
 };

@@ -21,11 +21,14 @@ from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from wolfhouse.simulate_write_guards import (
+    collect_owned_simulator_ids,
+    evaluate_wolfhouse_staging_booking_capability,
     guard_bot_path_and_payload,
     is_simulate_write_blocked,
     summarize_tool_result,
     synthetic_blocked_result,
     tool_name_from_path,
+    WOLFHOUSE_STAGING_BOOKING_CAPABILITY,
 )
 
 _SCOPE: ContextVar[Optional["CrowsnestGuestScope"]] = ContextVar(
@@ -53,6 +56,9 @@ class CrowsnestGuestScope:
     transport_attempts: int = 0
     transport_calls: int = 0
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    owned_payment_ids: set[str] = field(default_factory=set)
+    owned_guest_ids: set[str] = field(default_factory=set)
+    effective_capability: Optional[Dict[str, Any]] = None
 
     @classmethod
     def create(cls, phone: str) -> "CrowsnestGuestScope":
@@ -203,21 +209,43 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     "simulator_guard": ["request_scope_revoked"],
                 })
                 return result
-            # Authority is minted from the exact one-Luna Sunset runtime identity,
-            # never request JSON. The shared Wolfhouse :8090 route stays no-write.
+            # Sunset write authority stays an exact runtime identity. Wolfhouse
+            # never receives allow_writes=True. A separate request-scoped staging
+            # capability may forward only its closed route set.
             allow_staff_writes = _sunset_staging_staff_writes_enabled()
+            capability = None
+            if not allow_staff_writes:
+                capability = evaluate_wolfhouse_staging_booking_capability(
+                    scope_active=True,
+                    scope_revoked=False,
+                )
+                scope.effective_capability = capability
+            guard_kwargs = {
+                "allow_writes": allow_staff_writes,
+                "wolfhouse_capability": capability if capability and capability.get("admitted") else None,
+                "owned_payment_ids": scope.owned_payment_ids,
+                "owned_guest_ids": scope.owned_guest_ids,
+            }
+            try:
+                accepted = inspect.signature(guard_bot_path_and_payload).parameters
+            except (TypeError, ValueError):
+                accepted = {}
+            if accepted and not any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in accepted.values()
+            ):
+                guard_kwargs = {
+                    key: value for key, value in guard_kwargs.items() if key in accepted
+                }
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
                 _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
-                allow_writes=allow_staff_writes,
+                **guard_kwargs,
             )
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:
-                if allow_staff_writes:
-                    # Preserve trusted simulator provenance across Staff writes so
-                    # notification-aware handlers can apply the same suppression
-                    # contract. The target remains the non-routable +999 identity.
+                if allow_staff_writes or (capability and capability.get("admitted")):
+                    # Provenance is suppression metadata, not a browser write flag.
                     guarded = {
                         **dict(guarded or {}),
                         "simulator_synthetic": True,
@@ -225,12 +253,36 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                         "suppress_notifications": True,
                         "suppress_approvals": True,
                     }
+                    guarded.pop("allow_writes", None)
+                    if capability and capability.get("admitted") and not allow_staff_writes:
+                        guarded["wolfhouse_staging_capability"] = WOLFHOUSE_STAGING_BOOKING_CAPABILITY
                 result = original_post(norm, guarded)
+                payments, guests = collect_owned_simulator_ids(result)
+                scope.owned_payment_ids.update(payments)
+                scope.owned_guest_ids.update(guests)
+            if (
+                isinstance(result, dict)
+                and capability
+                and not capability.get("admitted")
+                and any(
+                    warning == "redirected_create_to_booking_preview" or str(warning).startswith("blocked")
+                    for warning in warnings
+                )
+            ):
+                result = {
+                    **result,
+                    "intentional_capability_block": True,
+                    "capability": capability.get("capability"),
+                    "capability_admitted": False,
+                    "capability_reasons": list(capability.get("reasons") or []),
+                    "outcome": "INTENTIONALLY_BLOCKED",
+                }
             scope.tool_calls.append({
                 "name": tool_name_from_path(norm),
                 "args": dict(payload or {}),
                 "result_summary": summarize_tool_result(result),
                 "simulator_guard": warnings or None,
+                "effective_capability": capability,
             })
             return result
 
@@ -530,6 +582,7 @@ async def run_crowsnest_guest_turn(
                 "transport_attempts": scope.transport_attempts,
                 "inbox_persisted": True,
                 "allow_writes": _sunset_staging_staff_writes_enabled(),
+                "effective_capability": scope.effective_capability,
             }
         finally:
             scope.revoked = True

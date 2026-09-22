@@ -11,6 +11,8 @@ const {
   deriveAllocatorContext,
   allowedCategoriesForGroup,
   isRulesBasedRoomingEnabled,
+  rejectIncompatiblePreselectedBeds,
+  runAvailabilityBedSelection,
 } = require('./lib/luna-bed-allocator');
 
 let passed = 0;
@@ -357,6 +359,32 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
 }
 
 check('FLAG1', isRulesBasedRoomingEnabled() === true, 'rules rooming default on');
+
+{
+  const ctx = deriveAllocatorContext({
+    guestCount: 1,
+    groupGender: 'male',
+    roomPreference: 'female_only',
+  });
+  check('CTX-CONFLICT', ctx.conflict === 'female_only_overrides_explicit_male' && ctx.groupGender === 'male', 'female_only cannot rewrite explicit male');
+  const conflict = runAvailabilityBedSelection({
+    bedRows: [
+      { bed_code: 'R5-1', room_code: 'R5', room_type: 'female_only', gender_strategy: 'Female preferred' },
+      { bed_code: 'R2-1', room_code: 'R2', room_type: 'mixed', gender_strategy: 'Mixed' },
+    ],
+    occupiedBedCodes: [],
+    guestCount: 1,
+    groupGender: 'male',
+    roomPreference: 'female_only',
+  });
+  check('CTX-NO-FEMALE-BEDS', conflict.needs_clarification === true && conflict.selected_bed_codes.length === 0, 'conflict returns no female beds');
+  const rejected = rejectIncompatiblePreselectedBeds({
+    selectedBedCodes: ['R5-1'],
+    bedRows: [{ bed_code: 'R5-1', room_code: 'R5', room_type: 'female_only', gender_strategy: 'Female preferred' }],
+    groupGender: 'male',
+  });
+  check('PRESELECT', rejected.ok === false && rejected.bed_codes.includes('R5-1'), 'stale female bed rejected for explicit male');
+}
 
 console.log(`\n── verify:luna-bed-allocator ${failed ? 'FAILED' : 'PASSED'} (${passed}/${passed + failed}) ──`);
 process.exit(failed > 0 ? 1 : 0);
