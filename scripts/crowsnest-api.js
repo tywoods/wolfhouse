@@ -14,6 +14,27 @@ const path = require('path');
 const { renderCrowsnestLoginPage, renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 const { getCrowsnestClients } = require('./lib/crowsnest/crowsnest-clients');
 const { collectClientConnectionStatuses } = require('./lib/crowsnest/crowsnest-client-status');
+const { createCrowsnestClientPortalEvidenceCollector, CLIENT_PORTAL_SOURCES } = require('./lib/crowsnest/crowsnest-client-portal-evidence');
+const collectClientPortalEvidence = createCrowsnestClientPortalEvidenceCollector();
+
+function validateCrowsnestDirectoryBuild(value, now = Date.now()) {
+  if (!value || typeof value.sha !== 'string' || !/^[a-f0-9]{40}$/.test(value.sha)
+      || typeof value.built_at !== 'string'
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value.built_at)) return null;
+  const time = Date.parse(value.built_at);
+  if (!Number.isFinite(time) || time > now) return null;
+  const utc = new Date(time).toISOString();
+  if (utc !== value.built_at.replace(/(?<!\.\d{3})Z$/, '.000Z')) return null;
+  return Object.freeze({ sha: value.sha, built_at: utc });
+}
+
+// Artifact-owned stamp. Never take runtime env, request/start time, mtime, GitHub
+// latest or a Staff release as the directory version. Missing/invalid => unavailable.
+const directoryBuild = (() => {
+  try {
+    return validateCrowsnestDirectoryBuild(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'crowsnest-build.json'), 'utf8')));
+  } catch (_) { return null; }
+})();
 const {
   resolveCrowsnestStaffStatusConfig,
   createCrowsnestStaffStatusReader,
@@ -1422,6 +1443,15 @@ async function handleProtectedUi(req, res, method, pathname) {
         staffOrigins: staffStatus.origins,
         requestJson: createCrowsnestStaffStatusReader(staffStatus),
       });
+      pageOptions.portalEvidence = await collectClientPortalEvidence(getCrowsnestClients());
+      // Compatibility with Slice A's URL-keyed display seam. Preserve the
+      // environment-keyed DTO for observation times/reasons; only admitted
+      // sources get aliases, never browser-supplied or production URLs.
+      for (const source of CLIENT_PORTAL_SOURCES) {
+        const evidence = pageOptions.portalEvidence[source.client];
+        evidence[source.origin] = evidence[source.environment].availability;
+      }
+      pageOptions.directoryBuild = directoryBuild;
     }
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
   } catch (err) {
@@ -2712,6 +2742,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  validateCrowsnestDirectoryBuild,
   server,
   router,
   PORT,

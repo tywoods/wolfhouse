@@ -14,6 +14,12 @@ COPY config/staff-portal/staff-login-page.css ./config/staff-portal/staff-login-
 COPY public/crowsnest ./public/crowsnest
 COPY public/images/luna-login-bg.jpg ./public/images/luna-login-bg.jpg
 
+# Supplied by the approved release owner for this exact directory artifact.
+# Persist in the image, not overridable runtime ENV; omitted inputs stay unavailable.
+ARG CROWSNEST_BUILD_SHA
+ARG CROWSNEST_BUILT_AT
+RUN node -e "require('fs').writeFileSync('crowsnest-build.json', JSON.stringify({sha: process.env.CROWSNEST_BUILD_SHA || '', built_at: process.env.CROWSNEST_BUILT_AT || ''}), {mode: 0o444})"
+
 EXPOSE 3040
 
 CMD ["node", "scripts/crowsnest-api.js"]
