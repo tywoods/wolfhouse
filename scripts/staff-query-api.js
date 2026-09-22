@@ -75,6 +75,7 @@ const {
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
 const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired, getConnectionString } = require('./lib/pg-connect');
+const { withStaffAuthSessionClient } = require('./lib/staff-auth-session-recovery');
 const {
   isInactiveInboxBookingStatus,
   filterActiveInboxBookings,
@@ -1470,7 +1471,7 @@ async function loadAuthSession(req) {
   if (!rawToken) return null;
   const tokenHash = hashToken(rawToken);
 
-  return withPgClient(async (pgClient) => {
+  return withStaffAuthSessionClient(withPgClient, async (pgClient) => {
     const result = await pgClient.query(
       `SELECT su.id::text        AS staff_user_id,
               su.email,

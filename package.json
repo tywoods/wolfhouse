@@ -133,6 +133,7 @@
     "verify:crowsnest-sales-analytics": "node scripts/verify-crowsnest-sales-analytics.js",
     "verify:crowsnest-sales-governance": "node scripts/verify-crowsnest-sales-governance.js",
     "verify:staff-auth-api": "node scripts/verify-staff-auth-api.js",
+    "verify:staff-auth-session-recovery": "node scripts/verify-staff-auth-session-recovery.js",
     "verify:staff-conversation-queries": "node scripts/verify-staff-conversation-queries.js",
     "verify:staff-conversation-api": "node scripts/verify-staff-conversation-api.js",
     "verify:staff-conversation-ui": "node scripts/verify-staff-conversation-ui.js",
