@@ -1,6 +1,6 @@
 'use strict';
 
-// Offline only. Health responses below are synthetic, not staging observations.
+// Offline only. Health responses below are synthetic, not live observations.
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -10,9 +10,20 @@ const HEALTH = JSON.stringify({ status: 'ok', service: 'staff-api' });
 const URLS = [
   'https://staff-staging.lunafrontdesk.com/healthz',
   'https://sunset-staging.lunafrontdesk.com/healthz',
+  'https://wolfhouse.lunafrontdesk.com/healthz',
+  'https://sunset.lunafrontdesk.com/healthz',
 ];
+function clientsFor(environment) {
+  const admitted = URLS.slice(environment === 'staging' ? 0 : 2, environment === 'staging' ? 2 : 4);
+  return getCrowsnestClients().map((client) => ({ ...client,
+    environments: client.environments.filter((row) => admitted.includes(`${row.url}/healthz`)),
+  }));
+}
+function admittedEvidence(result) {
+  return ['wolfhouse-somo', 'sunset-somo'].flatMap((id) => ['staging', 'production'].map((env) => result[id][env]));
+}
 let passed = 0;
-// Used explicitly by the auth verifier's child process: no live staging probes.
+// Used explicitly by the auth verifier's child process: no live probes.
 function installOfflineHealthTransport() {
   global.fetch = async (url, options) => {
     assert.ok(URLS.includes(url), `unexpected offline-gate network target: ${url}`);
@@ -28,7 +39,7 @@ async function test(name, run) {
 }
 
 async function main() {
-  await test('admitted staging health mocks project Live; both productions stay Unknown without reads', async () => {
+  await test('all four admitted staging and production health mocks project Live independently', async () => {
     assert.ok(fs.existsSync(MODULE), 'portal evidence collector must exist');
     const { createCrowsnestClientPortalEvidenceCollector } = require(MODULE);
     const calls = [];
@@ -36,7 +47,7 @@ async function main() {
       now: () => Date.parse('2026-01-01T00:00:00Z'),
       transport: async (url, options) => {
         calls.push(url);
-        assert.ok(URLS.includes(url), 'no unapproved/production/provider/write request');
+        assert.ok(URLS.includes(url), 'no unapproved/provider/write request');
         assert.equal(options.method, 'GET');
         assert.equal(options.redirect, 'error');
         assert.equal(options.credentials, 'omit');
@@ -52,10 +63,7 @@ async function main() {
         availability: 'live', checked_at: '2026-01-01T00:00:00.000Z',
         source_kind: 'staff_healthz', reason: 'canonical_healthz_ok',
       });
-      assert.deepEqual(result[id].production, {
-        availability: 'unknown', checked_at: null,
-        source_kind: 'none', reason: 'source_not_admitted',
-      });
+      assert.deepEqual(result[id].production, result[id].staging);
     }
     assert.equal(result['sunset-sardinero'].staging.availability, 'unknown');
     assert.equal(result['sunset-sardinero'].staging.checked_at, null);
@@ -79,16 +87,17 @@ async function main() {
     ];
     for (const response of cases) {
       const collect = createCrowsnestClientPortalEvidenceCollector({ transport: async () => response() });
-      const evidence = (await collect(getCrowsnestClients()))['wolfhouse-somo'].staging;
-      assert.equal(evidence.availability, 'unknown');
-      assert.ok(evidence.checked_at);
-      assert.equal(evidence.source_kind, 'staff_healthz');
-      assert.ok(!JSON.stringify(evidence).includes('sensitive'));
+      for (const evidence of admittedEvidence(await collect(getCrowsnestClients()))) {
+        assert.equal(evidence.availability, 'unknown');
+        assert.ok(evidence.checked_at);
+        assert.equal(evidence.source_kind, 'staff_healthz');
+        assert.ok(!JSON.stringify(evidence).includes('sensitive'));
+      }
     }
     const exactLimit = createCrowsnestClientPortalEvidenceCollector({
       transport: async () => new Response(HEALTH.padEnd(4096, ' ')),
     });
-    assert.equal((await exactLimit(getCrowsnestClients()))['wolfhouse-somo'].staging.availability, 'live');
+    assert.ok(admittedEvidence(await exactLimit(getCrowsnestClients())).every((e) => e.availability === 'live'));
   });
   await test('three-second ceiling bounds headers AND stalled body; timeout aborts and has no retry', async () => {
     for (const stallBody of [false, true]) {
@@ -102,10 +111,12 @@ async function main() {
         },
       });
       const result = await collect(getCrowsnestClients());
-      assert.equal(calls, 2);
+      assert.equal(calls, 4);
       assert.ok(signals.every((signal) => signal.aborted));
-      assert.equal(result['wolfhouse-somo'].staging.reason, 'timeout');
-      assert.equal(result['sunset-somo'].staging.availability, 'unknown');
+      for (const evidence of admittedEvidence(result)) {
+        assert.equal(evidence.reason, 'timeout');
+        assert.equal(evidence.availability, 'unknown');
+      }
     }
   });
   await test('60s exact-source cache coalesces parallel reads, expires Live, and never serves stale on failure', async () => {
@@ -116,51 +127,89 @@ async function main() {
       transport: async (url) => { calls.push(url); return new Response(HEALTH, { status: failWolfhouse && url === URLS[0] ? 503 : 200 }); },
     });
     const [first, second] = await Promise.all([collect(getCrowsnestClients()), collect(getCrowsnestClients())]);
-    assert.equal(calls.length, 2, 'at most one in-flight request per admitted source');
+    assert.equal(calls.length, 4, 'at most one in-flight request per admitted source');
     assert.deepEqual(first, second);
     time += 59999;
     assert.deepEqual(await collect(getCrowsnestClients()), first);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 4);
     time += 1;
     failWolfhouse = true;
     const refreshed = await collect(getCrowsnestClients());
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 8);
     assert.equal(refreshed['wolfhouse-somo'].staging.availability, 'unknown');
     assert.equal(refreshed['sunset-somo'].staging.availability, 'live');
     assert.notEqual(refreshed['wolfhouse-somo'].staging.checked_at, first['wolfhouse-somo'].staging.checked_at);
     time -= 1;
     await collect(getCrowsnestClients());
-    assert.equal(calls.length, 6, 'clock rollback invalidates cache');
+    assert.equal(calls.length, 12, 'clock rollback invalidates cache');
   });
-  await test('request-start expiry survives health latency and clock rollback at page handoff', async () => {
+  await test('request-start expiry survives health latency and clock rollback at page handoff in both environments', async () => {
     const startedAt = Date.parse('2026-01-01T00:00:00Z');
-    for (const handedOffAt of [startedAt + 61999, startedAt + 60000, startedAt - 1]) {
-      let time = startedAt;
-      const calls = [];
-      const collect = createCrowsnestClientPortalEvidenceCollector({ now: () => time,
-        transport: async (url) => {
-          calls.push(url);
-          if (url === URLS[0]) time += 2000; // Initial health response latency.
-          if (url === URLS[1]) time = handedOffAt;
-          return new Response(HEALTH);
-        },
-      });
-      const first = await collect([getCrowsnestClients()[0]]);
-      const initial = first['wolfhouse-somo'].staging;
-      assert.equal(initial.availability, 'live');
-      assert.equal(initial.checked_at, new Date(startedAt + 2000).toISOString());
-      time = startedAt + 59999;
-      assert.deepEqual((await collect([getCrowsnestClients()[0]]))['wolfhouse-somo'].staging, initial);
-      const evidence = await collect(getCrowsnestClients());
-      assert.deepEqual(calls, URLS, 'the first source is cached; only the second source loads');
-      assert.deepEqual(evidence['wolfhouse-somo'].staging, {
-        availability: 'unknown', checked_at: initial.checked_at,
-        source_kind: 'staff_healthz', reason: 'evidence_expired',
-      });
-      assert.equal(evidence['sunset-somo'].staging.availability, handedOffAt < startedAt ? 'unknown' : 'live');
-      for (const id of ['wolfhouse-somo', 'sunset-somo']) {
-        assert.deepEqual(Reflect.ownKeys(evidence[id].staging).sort(), ['availability', 'checked_at', 'reason', 'source_kind']);
-        assert.equal(evidence[id].production.availability, 'unknown');
+    for (const environment of ['staging', 'production']) {
+      const clients = clientsFor(environment);
+      const urls = clients.slice(0, 2).map((client) => `${client.environments[0].url}/healthz`);
+      for (const handedOffAt of [startedAt + 61999, startedAt + 60000, startedAt - 1]) {
+        let time = startedAt;
+        const calls = [];
+        const collect = createCrowsnestClientPortalEvidenceCollector({ now: () => time,
+          transport: async (url) => {
+            calls.push(url);
+            if (url === urls[0]) time += 2000; // Initial health response latency.
+            if (url === urls[1]) time = handedOffAt;
+            return new Response(HEALTH);
+          },
+        });
+        const first = await collect([clients[0]]);
+        const initial = first['wolfhouse-somo'][environment];
+        assert.equal(initial.availability, 'live');
+        assert.equal(initial.checked_at, new Date(startedAt + 2000).toISOString());
+        time = startedAt + 59999;
+        assert.deepEqual((await collect([clients[0]]))['wolfhouse-somo'][environment], initial);
+        const evidence = await collect(clients);
+        assert.deepEqual(calls, urls, 'the first source is cached; only the second source loads');
+        assert.deepEqual(evidence['wolfhouse-somo'][environment], {
+          availability: 'unknown', checked_at: initial.checked_at,
+          source_kind: 'staff_healthz', reason: 'evidence_expired',
+        });
+        assert.equal(evidence['sunset-somo'][environment].availability, handedOffAt < startedAt ? 'unknown' : 'live');
+        for (const id of ['wolfhouse-somo', 'sunset-somo']) {
+          assert.deepEqual(Reflect.ownKeys(evidence[id][environment]).sort(), ['availability', 'checked_at', 'reason', 'source_kind']);
+          assert.equal(evidence[id][environment === 'staging' ? 'production' : 'staging'].availability, 'unknown');
+        }
+      }
+    }
+  });
+  await test('each production source loses cached Live on failed refresh without borrowing staging or sibling Live', async () => {
+    const failures = [
+      () => new Response('<html>404 Azure Unavailable</html>', { status: 404 }),
+      () => new Response(HEALTH, { status: 503 }),
+      () => { throw new Error('fixture transport failure'); },
+      () => new Promise(() => {}),
+    ];
+    for (const [index, id] of ['wolfhouse-somo', 'sunset-somo'].entries()) {
+      for (const failure of failures) {
+        let time = Date.parse('2026-01-01T00:00:00Z');
+        let failing = false;
+        const calls = [];
+        const collect = createCrowsnestClientPortalEvidenceCollector({ now: () => time, timeoutMs: 15,
+          transport: async (url) => {
+            calls.push(url);
+            return failing && url === URLS[index + 2] ? failure() : new Response(HEALTH);
+          },
+        });
+        assert.ok(admittedEvidence(await collect(getCrowsnestClients())).every((e) => e.availability === 'live'));
+        failing = true;
+        time += 60000;
+        const result = await collect(getCrowsnestClients());
+        assert.equal(result[id].production.availability, 'unknown');
+        assert.equal(result[id].staging.availability, 'live');
+        assert.equal(result[id === 'wolfhouse-somo' ? 'sunset-somo' : 'wolfhouse-somo'].production.availability, 'live');
+        assert.equal(calls.length, 8, 'exactly one read per source per expiry; no retries');
+        assert.equal((await collect(getCrowsnestClients()))[id].production.availability, 'unknown');
+        assert.equal(calls.length, 8, 'failed refresh replaces old cached Live');
+        time -= 1;
+        assert.equal((await collect(getCrowsnestClients()))[id].production.availability, 'unknown');
+        assert.equal(calls.length, 12, 'clock rollback cannot resurrect old Live');
       }
     }
   });
@@ -168,23 +217,27 @@ async function main() {
     let calls = 0;
     const collect = createCrowsnestClientPortalEvidenceCollector({ transport: async () => { calls += 1; return new Response(HEALTH); } });
     await collect(getCrowsnestClients());
-    for (const mutate of [
-      (client) => { client.environments[0].url = 'https://evil.example'; },
-      (client) => { client.environments[0].url = 'http://staff-staging.lunafrontdesk.com'; },
-      (client) => { client.environments[0].url = 'https://staff-staging.lunafrontdesk.com/other'; },
-      (client) => { client.environments[0].environment = 'production'; },
-      (client) => { client.client_slug = 'sunset'; },
-      (client) => { client.id = 'unknown-client'; },
-      (client) => { client.status = 'Planned'; },
-      (client) => { client.environments = []; },
-    ]) {
-      const client = getCrowsnestClients()[0];
-      mutate(client);
-      const result = await collect([client]);
-      assert.equal(result[client.id].staging.availability, 'unknown');
-      assert.equal(result[client.id].production.checked_at, null);
+    for (const environment of ['staging', 'production']) {
+      for (const mutate of [
+        (client) => { client.environments[0].url = 'https://evil.example'; },
+        (client) => { client.environments[0].url = client.environments[0].url.replace('https:', 'http:'); },
+        (client) => { client.environments[0].url += '/other'; },
+        (client) => { client.environments[0].environment = environment === 'staging' ? 'production' : 'staging'; },
+        (client) => { client.client_slug = 'sunset'; },
+        (client) => { client.id = 'unknown-client'; },
+        (client) => { client.status = 'Planned'; },
+        (client) => { client.environments = []; },
+      ]) {
+        const client = clientsFor(environment)[0];
+        mutate(client);
+        const result = await collect([client]);
+        for (const env of ['staging', 'production']) {
+          assert.equal(result[client.id][env].availability, 'unknown');
+          assert.equal(result[client.id][env].checked_at, null);
+        }
+      }
     }
-    assert.equal(calls, 2, 'no disallowed reads even after warming the cache');
+    assert.equal(calls, 4, 'no disallowed reads even after warming the cache');
     assert.deepEqual(await collect([]), {});
   });
   await test('ordinary authenticated /clients passes admitted evidence to the real renderer; denial/HEAD/other pages do not probe', async () => {
@@ -195,6 +248,11 @@ async function main() {
     const savedEnv = { ...process.env };
     const rendered = [];
     const calls = [];
+    const originalNow = Date.now;
+    let time = originalNow();
+    let wolfhouseDown = true;
+    let sunsetDown = false;
+    Date.now = () => time;
     let server;
     for (const key of Object.keys(process.env)) {
       if (key.startsWith('CROWSNEST_') || key.includes('DATABASE_URL')) delete process.env[key];
@@ -205,9 +263,11 @@ async function main() {
     });
     global.fetch = async (url, options) => {
       calls.push(url);
-      assert.ok(URLS.includes(url), 'provider/model/write/production/unapproved network sentinel');
+      assert.ok(URLS.includes(url), 'provider/model/write/unapproved network sentinel');
       assert.equal(options.method, 'GET');
       assert.deepEqual(options.headers, { accept: 'application/json' });
+      if (wolfhouseDown && url === URLS[2]) return new Response('<html>404 Azure Unavailable</html>', { status: 404 });
+      if (sunsetDown && url === URLS[3]) return new Response(HEALTH, { status: 503 });
       return new Response(HEALTH);
     };
     page.renderCrowsnestPage = (options) => { rendered.push(options); return originalRender(options); };
@@ -239,24 +299,44 @@ async function main() {
       assert.equal(options.portalEvidence['sunset-somo'].staging.availability, 'live');
       assert.equal(options.portalEvidence['wolfhouse-somo']['https://staff-staging.lunafrontdesk.com'], 'live', 'Slice A URL-keyed compatibility seam');
       assert.equal(options.portalEvidence['sunset-somo']['https://sunset-staging.lunafrontdesk.com'], 'live');
-      assert.equal(options.portalEvidence['wolfhouse-somo']['https://wolfhouse.lunafrontdesk.com'], undefined, 'no production Live alias');
+      assert.equal(options.portalEvidence['wolfhouse-somo']['https://wolfhouse.lunafrontdesk.com'], 'unknown', '404 never yields a Live alias');
       assert.equal(options.portalEvidence['wolfhouse-somo'].production.availability, 'unknown');
-      assert.equal(options.portalEvidence['sunset-somo'].production.checked_at, null);
+      assert.equal(options.portalEvidence['sunset-somo'].production.availability, 'live');
       const portalRows = response.body.match(/<li class="env-row\b[\s\S]*?<\/li>/g) || [];
-      for (const origin of URLS.map((url) => url.replace('/healthz', ''))) {
+      for (const origin of [URLS[0], URLS[1], URLS[3]].map((url) => url.replace('/healthz', ''))) {
         const row = portalRows.find((html) => html.includes(`href="${origin}"`));
-        assert.ok(row && row.includes('</span>Live</span>'), 'merged A renders staging Live from B mocks');
+        assert.ok(row && row.includes('</span>Live</span>'), 'real renderer shows staging and Sunset production Live from mocks');
       }
-      for (const origin of ['https://wolfhouse.lunafrontdesk.com', 'https://sunset.lunafrontdesk.com']) {
+      for (const origin of ['https://wolfhouse.lunafrontdesk.com']) {
         const row = portalRows.find((html) => html.includes(`href="${origin}"`));
-        assert.ok(row && row.includes('</span>Unknown</span>'), 'merged A keeps production Unknown');
+        assert.ok(row && row.includes('</span>Unknown</span>') && !row.includes('</span>Live</span>'), 'Wolfhouse 404 renders Unknown, never Live');
       }
       assert.equal(options.clientStatuses['wolfhouse-somo'].staging.Email, 'Unknown', 'portal Live is not integration evidence');
       assert.deepEqual(calls.sort(), [...URLS].sort());
       await request('/clients');
-      assert.equal(calls.length, 2, 'ordinary route uses the shared bounded cache');
+      assert.equal(calls.length, 4, 'ordinary route uses the shared bounded cache');
+      time += 60000;
+      sunsetDown = true;
+      const failed = await request('/clients');
+      const failedRows = failed.body.match(/<li class="env-row\b[\s\S]*?<\/li>/g) || [];
+      for (const origin of URLS.slice(2).map((url) => url.replace('/healthz', ''))) {
+        const row = failedRows.find((html) => html.includes(`href="${origin}"`));
+        assert.ok(row && row.includes('</span>Unknown</span>') && !row.includes('</span>Live</span>'), 'failed production cannot retain rendered Live');
+      }
+      assert.equal(calls.length, 8);
+      time += 60000;
+      wolfhouseDown = false;
+      sunsetDown = false;
+      const recovered = await request('/clients');
+      const recoveredRows = recovered.body.match(/<li class="env-row\b[\s\S]*?<\/li>/g) || [];
+      for (const origin of URLS.slice(2).map((url) => url.replace('/healthz', ''))) {
+        const row = recoveredRows.find((html) => html.includes(`href="${origin}"`));
+        assert.ok(row && row.includes('</span>Live</span>'), 'both production rows can recover from successful probes');
+      }
+      assert.equal(calls.length, 12);
     } finally {
       if (server && server.listening) await new Promise((resolve) => server.close(resolve));
+      Date.now = originalNow;
       global.fetch = originalFetch;
       page.renderCrowsnestPage = originalRender;
       delete require.cache[apiPath];

@@ -3,10 +3,13 @@
 const { assertPublicHealthzBody } = require('../staff-api-healthz');
 
 // Binding is admitted here, never inferred from the generic health body, a
-// browser URL or integration-reader configuration. Neither production is admitted.
+// browser URL or integration-reader configuration. Production origins were
+// explicitly admitted by CROWSNEST-CLIENTS-CARDS-005-PROD-HEALTH.
 const SOURCES = Object.freeze([
   Object.freeze({ client: 'wolfhouse-somo', slug: 'wolfhouse-somo', environment: 'staging', origin: 'https://staff-staging.lunafrontdesk.com' }),
   Object.freeze({ client: 'sunset-somo', slug: 'sunset', environment: 'staging', origin: 'https://sunset-staging.lunafrontdesk.com' }),
+  Object.freeze({ client: 'wolfhouse-somo', slug: 'wolfhouse-somo', environment: 'production', origin: 'https://wolfhouse.lunafrontdesk.com' }),
+  Object.freeze({ client: 'sunset-somo', slug: 'sunset', environment: 'production', origin: 'https://sunset.lunafrontdesk.com' }),
 ]);
 
 function unknown(reason, checkedAt = null, sourceKind = 'none') {
@@ -68,7 +71,7 @@ function createCrowsnestClientPortalEvidenceCollector({ transport = fetch, now =
     finally { clearTimeout(timer); controller.abort(); }
   }
 
-  // Two admitted sources => at most two concurrent network reads, even across
+  // Four admitted sources => at most four concurrent network reads, even across
   // simultaneous page loads. Failed refreshes replace old positives, never SWR.
   const cache = new Map();
   const inFlight = new Map();
@@ -93,11 +96,12 @@ function createCrowsnestClientPortalEvidenceCollector({ transport = fetch, now =
     const jobs = [];
     for (const client of clients) {
       result[client.id] = { staging: unknown('source_not_admitted'), production: unknown('source_not_admitted') };
-      const source = SOURCES.find((item) => item.client === client.id && item.slug === client.client_slug);
-      if (!source || client.status !== 'Live') continue;
-      if (!(client.environments || []).some((row) => row.kind === 'staff_portal' && row.url === source.origin
-          && (!row.environment || row.environment === source.environment))) continue;
-      jobs.push(readCached(source).then((entry) => ({ source, entry })));
+      if (client.status !== 'Live') continue;
+      for (const source of SOURCES.filter((item) => item.client === client.id && item.slug === client.client_slug)) {
+        if (!(client.environments || []).some((row) => row.kind === 'staff_portal' && row.url === source.origin
+            && (!row.environment || row.environment === source.environment))) continue;
+        jobs.push(readCached(source).then((entry) => ({ source, entry })));
+      }
     }
     const collected = await Promise.all(jobs);
     // A cached result can cross its expiry while the other source is loading.

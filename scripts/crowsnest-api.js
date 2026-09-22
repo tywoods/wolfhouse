@@ -1446,7 +1446,7 @@ async function handleProtectedUi(req, res, method, pathname) {
       pageOptions.portalEvidence = await collectClientPortalEvidence(getCrowsnestClients());
       // Compatibility with Slice A's URL-keyed display seam. Preserve the
       // environment-keyed DTO for observation times/reasons; only admitted
-      // sources get aliases, never browser-supplied or production URLs.
+      // sources get aliases, never browser-supplied/unapproved URLs.
       for (const source of CLIENT_PORTAL_SOURCES) {
         const evidence = pageOptions.portalEvidence[source.client];
         evidence[source.origin] = evidence[source.environment].availability;
