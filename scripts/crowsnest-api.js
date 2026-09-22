@@ -356,6 +356,58 @@ async function handleLiveSimulatorEmail(req, res, method) {
   return sendJSON(res, result.status || (result.ok ? 200 : 400), result, { 'Cache-Control': 'no-store' });
 }
 
+/**
+ * Serialize a browser Origin / configured public origin to scheme://host[:port].
+ * Rejects credentials, non-http(s), and unparseable values. Used for CSRF checks
+ * on session-authenticated Luna routing mutations.
+ *
+ * Root cause of CROWSNEST-ROUTING-ORIGIN-REJECTED-001: session POSTs previously
+ * required process.env.CROWSNEST_PUBLIC_ORIGIN to be set and to equal the raw
+ * Origin header string. That env was never wired into Crow's Nest staging, so
+ * every legitimate Communications Save routing call from the session UI got
+ * origin_rejected (and a false "Reload required").
+ */
+function serializeBrowserOrigin(raw) {
+  if (typeof raw !== 'string' || !raw || raw.length > 512) return null;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.username || parsed.password) return null;
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Expected origin for a same-origin browser mutation.
+ * Prefer CROWSNEST_PUBLIC_ORIGIN when configured (pin to the public hostname).
+ * Otherwise derive from the request Host + X-Forwarded-Proto so legitimate
+ * Crow's Nest UI sessions work without that env, while cross-site Origin
+ * still fails closed.
+ */
+function expectedSessionMutationOrigin(req, env = process.env) {
+  const pinned = serializeBrowserOrigin(env.CROWSNEST_PUBLIC_ORIGIN || '');
+  if (pinned) return pinned;
+  const host = String((req && req.headers && req.headers.host) || '').trim();
+  if (!host || /[\s/]/.test(host)) return null;
+  const xfProto = String((req && req.headers && req.headers['x-forwarded-proto']) || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  let proto = 'http';
+  if (xfProto === 'https' || xfProto === 'http') proto = xfProto;
+  else if (String(env.NODE_ENV || '').toLowerCase() === 'production') proto = 'https';
+  return serializeBrowserOrigin(`${proto}://${host}`);
+}
+
+function isTrustedSessionMutationOrigin(req, env = process.env) {
+  const got = serializeBrowserOrigin(req && req.headers && req.headers.origin);
+  if (!got) return false;
+  const expected = expectedSessionMutationOrigin(req, env);
+  return !!(expected && got === expected);
+}
+
 async function handleLunaNumberRoute(req, res, method, action) {
   if (!isLunaNumberRoutingStaging(process.env)) {
     return sendJSON(res, 404, { ok: false, code: 'routing_not_available' }, { 'Cache-Control': 'no-store' });
@@ -375,11 +427,11 @@ async function handleLunaNumberRoute(req, res, method, action) {
   if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
     return sendJSON(res, 415, { ok: false, code: 'unsupported_media_type' }, { 'Cache-Control': 'no-store' });
   }
-  if (actor.auth_type === 'session') {
-    const expectedOrigin = String(process.env.CROWSNEST_PUBLIC_ORIGIN || '').replace(/\/$/, '');
-    if (!expectedOrigin || String(req.headers.origin || '') !== expectedOrigin) {
-      return sendJSON(res, 403, { ok: false, code: 'origin_rejected' }, { 'Cache-Control': 'no-store' });
-    }
+  // Session cookie mutations need Origin CSRF protection. Basic Auth skips this
+  // (no ambient browser cookie). Fail closed on missing/cross-site Origin; accept
+  // pinned CROWSNEST_PUBLIC_ORIGIN or same-origin Host derivation (see helpers).
+  if (actor.auth_type === 'session' && !isTrustedSessionMutationOrigin(req)) {
+    return sendJSON(res, 403, { ok: false, code: 'origin_rejected' }, { 'Cache-Control': 'no-store' });
   }
   let raw;
   try { raw = await readLimitedBody(req, 16 * 1024); } catch (_) { return sendPayloadTooLarge(res); }
@@ -2753,4 +2805,7 @@ module.exports = {
   handleLiveSimulatorGuestTurn,
   handleSpyglassRefreshAll,
   METRICS_INGEST_TOKEN_ENV,
+  serializeBrowserOrigin,
+  expectedSessionMutationOrigin,
+  isTrustedSessionMutationOrigin,
 };
