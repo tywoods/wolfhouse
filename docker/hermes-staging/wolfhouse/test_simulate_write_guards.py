@@ -327,5 +327,148 @@ class WrappedPostBotTests(unittest.TestCase):
         self.assertIn("Sunset booking writes", blocked["error"])
 
 
+_OWNED_PAYMENT = "11111111-1111-4111-8111-111111111111"
+_FOREIGN_PAYMENT = "22222222-2222-4222-8222-222222222222"
+_OWNED_GUEST = "33333333-3333-4333-8333-333333333333"
+_APPROVED_STAGING_ENV = {
+    "HERMES_ROLE": "luna",
+    "LUNA_TENANT_ID": "wolfhouse-somo",
+    "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+    "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+    "PUBLIC_PAYMENT_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+    "BOT_BOOKING_ENABLED": "true",
+    "STRIPE_SECRET_KEY": "sk_test_wolfhouse_staging_fixture",
+    "WOLFHOUSE_STRIPE_MODE": "test",
+}
+
+
+class WolfhouseStagingBookingCapabilityTests(unittest.TestCase):
+    def _evaluate(self, **overrides):
+        from simulate_write_guards import evaluate_wolfhouse_staging_booking_capability
+
+        env = dict(_APPROVED_STAGING_ENV)
+        env.update(overrides.pop("env", {}))
+        return evaluate_wolfhouse_staging_booking_capability(
+            scope_active=overrides.pop("scope_active", True),
+            scope_revoked=overrides.pop("scope_revoked", False),
+            env=env,
+        )
+
+    def test_approved_staging_fixture_admits_narrow_capability(self):
+        cap = self._evaluate()
+        self.assertEqual(cap["capability"], "wolfhouse_staging_booking_test_link")
+        self.assertTrue(cap["admitted"], cap)
+        self.assertEqual(cap["reasons"], [])
+        self.assertNotIn("sk_test", json.dumps(cap))
+
+    def test_admitted_capability_forwards_create_not_preview(self):
+        cap = self._evaluate()
+        norm, body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/booking-create-from-plan",
+            {"confirm": True, "guest_name": "Fred", "allow_writes": True},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+        )
+        self.assertIn("booking-create-from-plan", norm)
+        self.assertNotIn("booking-preview", norm)
+        self.assertIn("allowed_wolfhouse_staging_booking_create", warnings)
+        self.assertFalse(is_simulate_write_blocked(warnings))
+        self.assertNotIn("allow_writes", body)
+
+    def test_admitted_capability_forwards_owned_test_link_only(self):
+        cap = self._evaluate()
+        owned, _body, owned_warnings = guard_bot_path_and_payload(
+            f"/staff/bot/payments/{_OWNED_PAYMENT}/create-stripe-link",
+            {"client_slug": "wolfhouse-somo"},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+            owned_payment_ids={_OWNED_PAYMENT},
+        )
+        self.assertIn(_OWNED_PAYMENT, owned)
+        self.assertIn("allowed_wolfhouse_staging_test_link", owned_warnings)
+        self.assertFalse(is_simulate_write_blocked(owned_warnings))
+
+        foreign, _foreign_body, foreign_warnings = guard_bot_path_and_payload(
+            f"/staff/bot/payments/{_FOREIGN_PAYMENT}/create-stripe-link",
+            {"client_slug": "wolfhouse-somo"},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+            owned_payment_ids={_OWNED_PAYMENT},
+        )
+        self.assertIn("blocked_foreign_payment_uuid", foreign_warnings)
+        self.assertTrue(is_simulate_write_blocked(foreign_warnings))
+        self.assertIn(_FOREIGN_PAYMENT, foreign)
+
+        guest, _guest_body, guest_warnings = guard_bot_path_and_payload(
+            f"/staff/bot/booking-guests/{_OWNED_GUEST}/create-payment-link",
+            {},
+            allow_writes=False,
+            wolfhouse_capability=cap,
+            owned_guest_ids={_OWNED_GUEST},
+        )
+        self.assertIn("allowed_wolfhouse_staging_guest_test_link", guest_warnings)
+        self.assertFalse(is_simulate_write_blocked(guest_warnings))
+
+    def test_admitted_capability_still_denies_unlisted_effects(self):
+        cap = self._evaluate()
+        for path, needle in (
+            ("/staff/bot/transfers/save", "blocked_transfer_not_admitted"),
+            ("/staff/bot/payments/pay-1/create-balance-link", "blocked_balance_link_not_admitted"),
+            ("/staff/bot/update-contact", "blocked_booking_mutation_in_simulate"),
+            ("/staff/bot/sunset/booking-create", "blocked_sunset_booking_write_in_simulate"),
+        ):
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                path, {"confirm": True}, allow_writes=False, wolfhouse_capability=cap,
+            )
+            self.assertTrue(any(needle in w for w in warnings), (path, warnings))
+            self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
+
+    def test_production_or_missing_binding_stays_denied(self):
+        prod = self._evaluate(env={"WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.lunafrontdesk.com"})
+        self.assertFalse(prod["admitted"])
+        self.assertIn("staff_destination_not_approved_staging", prod["reasons"])
+
+        missing = self._evaluate(env={"WOLFHOUSE_STAFF_API_BASE_URL": ""})
+        self.assertFalse(missing["admitted"])
+        self.assertIn("staff_destination_missing", missing["reasons"])
+
+        live = self._evaluate(env={"STRIPE_SECRET_KEY": "sk_live_not_for_sim", "WOLFHOUSE_STRIPE_MODE": "live"})
+        self.assertFalse(live["admitted"])
+        self.assertIn("live_stripe_key_blocked", live["reasons"])
+
+        no_pay = self._evaluate(env={"PUBLIC_PAYMENT_BASE_URL": ""})
+        self.assertFalse(no_pay["admitted"])
+        self.assertIn("public_pay_origin_missing", no_pay["reasons"])
+
+        revoked = self._evaluate(scope_revoked=True)
+        self.assertFalse(revoked["admitted"])
+        self.assertIn("request_scope_revoked", revoked["reasons"])
+
+        no_scope = self._evaluate(scope_active=False)
+        self.assertFalse(no_scope["admitted"])
+        self.assertIn("simulator_provenance_missing", no_scope["reasons"])
+
+    def test_port_and_node_env_alone_do_not_admit(self):
+        cap = self._evaluate(env={
+            "WOLFHOUSE_STAFF_API_BASE_URL": "",
+            "PUBLIC_PAYMENT_BASE_URL": "",
+            "STRIPE_SECRET_KEY": "",
+            "BOT_BOOKING_ENABLED": "",
+            "NODE_ENV": "development",
+            "WHATSAPP_CLOUD_WEBHOOK_PORT": "8090",
+        })
+        self.assertFalse(cap["admitted"])
+        self.assertIn("staff_destination_missing", cap["reasons"])
+
+    def test_unapproved_payload_flag_does_not_bypass_preview(self):
+        norm, _body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/booking-create-from-plan",
+            {"allow_writes": True, "wolfhouse_staging_capability": "wolfhouse_staging_booking_test_link"},
+            allow_writes=False,
+        )
+        self.assertIn("booking-preview", norm)
+        self.assertIn("redirected_create_to_booking_preview", warnings)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

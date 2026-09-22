@@ -547,5 +547,155 @@ finally:
 check("S15 _is_sunset_tenant false when not sunset", mod._is_sunset_tenant() is False)
 
 
+print("\n== Wolfhouse live-sim booking honesty + room decision ==")
+staging_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# /etc/hermes-staging/wolfhouse can already be cached. Putting the worktree
+# on sys.path afterwards does not reload it, so room_eligibility_policy is
+# missing and create proceeds. Evict the cached package before the call.
+if staging_root in sys.path:
+    sys.path.remove(staging_root)
+sys.path.insert(0, staging_root)
+for _shadowed in list(sys.modules):
+    if _shadowed == "wolfhouse" or _shadowed.startswith("wolfhouse."):
+        del sys.modules[_shadowed]
+
+def _with_fake(responses):
+    fake = type("Fake", (), {})()
+    fake.calls = []
+    def post(path, payload):
+        fake.calls.append((path, dict(payload or {})))
+        for key, resp in responses.items():
+            if key in path:
+                return dict(resp)
+        return {"success": False, "error": "unmatched", "path": path}
+    original = mod._post_bot
+    mod._post_bot = post
+    return fake, original
+
+fake, original_post = _with_fake({
+    "/booking-create-from-plan": {
+        "success": True,
+        "path": "/staff/bot/booking-preview",
+        "write_performed": False,
+        "intentional_capability_block": True,
+        "outcome": "INTENTIONALLY_BLOCKED",
+        "capability_reasons": ["staff_destination_not_approved_staging"],
+    },
+})
+try:
+    blocked = json.loads(mod.create_booking_from_plan({
+        "check_in": "2026-10-01",
+        "check_out": "2026-10-03",
+        "guest_count": 1,
+        "guest_name": "Fred",
+        "payment_choice": "full",
+        "phone": "+346000230001",
+    }))
+finally:
+    mod._post_bot = original_post
+check("WH1 intentional block does not hand off", blocked.get("outcome") == "INTENTIONALLY_BLOCKED" and blocked.get("do_not_escalate") is True and blocked.get("staff_review_needed") is False)
+check("WH2 intentional block does not claim a booking", blocked.get("write_performed") is False and blocked.get("booking_not_created") is True)
+check("WH3 block copy hides internal flags", "staff_destination" not in (blocked.get("reply_draft") or "") and "simulator" not in (blocked.get("reply_draft") or "").lower())
+
+short_fake, original_post = _with_fake({
+    "/booking-create-from-plan": {
+        "success": True,
+        "write_performed": True,
+        "booking_id": "bk-fred",
+        "booking_code": "WH-FRED",
+        "payment_id": "11111111-1111-4111-8111-111111111111",
+        "payment_status": "pending",
+    },
+    "/create-stripe-link": {
+        "success": True,
+        "payment_short_url": "https://staff-staging.lunafrontdesk.com/pay/WH-FRED",
+        "payment_status": "pending",
+    },
+})
+try:
+    short_link = json.loads(mod.create_booking_from_plan({
+        "check_in": "2026-10-01",
+        "check_out": "2026-10-08",
+        "guest_count": 1,
+        "guest_name": "Fred",
+        "payment_choice": "full",
+        "phone": "+346000230001",
+        "package_code": "malibu",
+    }))
+finally:
+    mod._post_bot = original_post
+check("WH4 short-only pay URL is a real link result", short_link.get("secure_payment_url") == "https://staff-staging.lunafrontdesk.com/pay/WH-FRED")
+check("WH5 short-only result is not paid", short_link.get("payment_status") == "pending" and short_link.get("payment_link_created") is True)
+
+room_fake, original_post = _with_fake({
+    "/booking-create-from-plan": {"success": True, "write_performed": True, "booking_id": "should-not-run"},
+})
+try:
+    room_blocked = json.loads(mod.create_booking_from_plan({
+        "check_in": "2026-10-01",
+        "check_out": "2026-10-03",
+        "guest_count": 1,
+        "guest_name": "Fred",
+        "payment_choice": "full",
+        "name_hint": "male",
+        "name_confidence": 0.91,
+        "room_preference": "female_only",
+        "explicit_gender": "male",
+        "selected_bed_codes": ["R5-1"],
+    }))
+finally:
+    mod._post_bot = original_post
+check("WH6 male + female_only does not create", room_blocked.get("write_performed") is False and room_fake.calls == [])
+check("WH7 male + female_only asks instead of handing off", room_blocked.get("do_not_escalate") is True and room_blocked.get("staff_review_needed") is False)
+decision = room_blocked.get("room_decision") or {}
+check(
+    "WH8 decision excludes all-female",
+    decision.get("conflict") == "female_only_overrides_explicit_male"
+    and "female_only" in (decision.get("excluded_room_preferences") or [])
+    and "female_only" not in (decision.get("allowed_room_preferences") or []),
+    decision,
+)
+reply = (room_blocked.get("reply_draft") or "").lower()
+check("WH9 mismatch offers a compatible room and does not call the team",
+      room_blocked.get("needs_human") is not True
+      and "mixed" in reply
+      and "team" not in reply
+      and "flagged" not in reply
+      and "trouble" not in reply)
+recovered_fake, original_post = _with_fake({
+    "/booking-create-from-plan": {
+        "success": True,
+        "write_performed": True,
+        "booking_id": "bk-fred-mixed",
+        "booking_code": "WH-FRED-MIX",
+        "payment_id": "11111111-1111-4111-8111-111111111111",
+        "payment_status": "pending",
+    },
+    "/create-stripe-link": {
+        "success": True,
+        "payment_short_url": "https://staff-staging.lunafrontdesk.com/pay/WH-FRED-MIX",
+        "payment_status": "pending",
+        "stripe_mode": "test",
+    },
+})
+try:
+    recovered = json.loads(mod.create_booking_from_plan({
+        "check_in": "2026-10-01",
+        "check_out": "2026-10-03",
+        "guest_count": 1,
+        "guest_name": "Fred",
+        "payment_choice": "full",
+        "name_hint": "male",
+        "name_confidence": 0.91,
+        "room_preference": "mixed",
+        "explicit_gender": "male",
+    }))
+finally:
+    mod._post_bot = original_post
+check("WH10 picked mixed room continues the booking", recovered.get("write_performed") is True and recovered_fake.calls)
+check("WH11 continued booking is not a handoff", recovered.get("needs_human") is not True and recovered.get("staff_review_needed") is False and recovered.get("next_action") != "flag_needs_human")
+check("WH12 continued booking returns the test pay link", recovered.get("secure_payment_url") == "https://staff-staging.lunafrontdesk.com/pay/WH-FRED-MIX")
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

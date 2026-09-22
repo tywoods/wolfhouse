@@ -5,10 +5,27 @@ from __future__ import annotations
 import copy
 import json
 import os
-from typing import Any, Dict, List, Tuple
+import re
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 _PREVIEW_PATH = "/staff/bot/booking-preview"
 _ADDON_PREVIEW = "/staff/bot/addon-request-preview"
+WOLFHOUSE_STAGING_BOOKING_CAPABILITY = "wolfhouse_staging_booking_test_link"
+_APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGIN = "https://staff-staging.lunafrontdesk.com"
+_APPROVED_WOLFHOUSE_STAGING_PAY_ORIGIN = "https://staff-staging.lunafrontdesk.com"
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.I,
+)
+_WOLFHOUSE_READ_FRAGMENTS = (
+    "availability-check",
+    "booking-preview",
+    "surf-report",
+    "/catalog",
+    "bookings/by-phone",
+    "payments/status",
+    "booking-guests/payment-status",
+)
 
 _PATH_TOOL_NAMES = {
     "availability-check": "check_availability",
@@ -86,6 +103,10 @@ def summarize_tool_result(result: Any, max_len: int = 400) -> str:
         "error",
         "staff_review_needed",
         "write_performed",
+        "simulate_write_blocked",
+        "intentional_capability_block",
+        "outcome",
+        "capability_admitted",
         "unknown_add_on_codes",
     ):
         if key in result and result[key] not in (None, "", []):
@@ -105,6 +126,168 @@ def _norm_path(path: str) -> str:
     return norm
 
 
+def _origin(value: Any) -> str:
+    return str(value or "").strip().rstrip("/").lower()
+
+
+def _uuid_after(norm: str, marker: str) -> str:
+    low = norm.lower()
+    idx = low.find(marker)
+    if idx < 0:
+        return ""
+    token = norm[idx + len(marker):].split("/", 1)[0].strip()
+    return token.lower() if _UUID_RE.fullmatch(token) else ""
+
+
+def _owned(ids: Optional[Iterable[str]]) -> set[str]:
+    return {str(item or "").strip().lower() for item in (ids or []) if str(item or "").strip()}
+
+
+def evaluate_wolfhouse_staging_booking_capability(
+    *,
+    scope_active: bool,
+    scope_revoked: bool = False,
+    env: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
+    """Server-owned Wolfhouse Live Sim booking admission. Ignores request JSON.
+
+    Missing or conflicting evidence stays denied. This function never rewrites
+    process environment, and port / NODE_ENV alone are not staging proof.
+    The receipt names mode and origins only — never a Stripe secret.
+    """
+    source = env if env is not None else os.environ
+    reasons: List[str] = []
+    if not scope_active:
+        reasons.append("simulator_provenance_missing")
+    if scope_revoked:
+        reasons.append("request_scope_revoked")
+    if str(source.get("HERMES_ROLE") or "").strip() != "luna":
+        reasons.append("wolfhouse_runner_role_missing")
+    if str(source.get("LUNA_TENANT_ID") or "").strip() != "wolfhouse-somo":
+        reasons.append("wolfhouse_tenant_mismatch")
+    if str(source.get("LUNA_CLIENT_SLUG") or "").strip() != "wolfhouse-somo":
+        reasons.append("wolfhouse_client_mismatch")
+
+    staff = _origin(source.get("WOLFHOUSE_STAFF_API_BASE_URL"))
+    if not staff:
+        reasons.append("staff_destination_missing")
+    elif staff != _APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGIN:
+        reasons.append("staff_destination_not_approved_staging")
+
+    pay = _origin(source.get("PUBLIC_PAYMENT_BASE_URL"))
+    if not pay:
+        reasons.append("public_pay_origin_missing")
+    elif pay != _APPROVED_WOLFHOUSE_STAGING_PAY_ORIGIN:
+        reasons.append("public_pay_origin_not_approved_staging")
+
+    if str(source.get("BOT_BOOKING_ENABLED") or "").strip() != "true":
+        reasons.append("bot_booking_disabled")
+
+    stripe_key = str(source.get("STRIPE_SECRET_KEY") or "")
+    stripe_mode = str(source.get("WOLFHOUSE_STRIPE_MODE") or source.get("STRIPE_MODE") or "").strip().lower()
+    if stripe_key.startswith("sk_live_") or stripe_mode == "live":
+        reasons.append("live_stripe_key_blocked")
+    elif not stripe_key.startswith("sk_test_") and stripe_mode != "test":
+        reasons.append("test_payment_config_missing")
+
+    admitted = not reasons
+    if stripe_key.startswith("sk_live_") or stripe_mode == "live":
+        mode = "live"
+    elif stripe_key.startswith("sk_test_") or stripe_mode == "test":
+        mode = "test"
+    else:
+        mode = "unknown"
+    return {
+        "capability": WOLFHOUSE_STAGING_BOOKING_CAPABILITY,
+        "admitted": admitted,
+        "reasons": reasons,
+        "staff_origin": staff or None,
+        "pay_origin": pay or None,
+        "stripe_mode": mode,
+        "outcome": "ADMITTED" if admitted else "INTENTIONALLY_BLOCKED",
+    }
+
+
+def _capability_admitted(capability: Optional[Dict[str, Any]]) -> bool:
+    return bool(
+        isinstance(capability, dict)
+        and capability.get("admitted") is True
+        and capability.get("capability") == WOLFHOUSE_STAGING_BOOKING_CAPABILITY
+    )
+
+
+def _deny(norm: str, body: Dict[str, Any], warning: str) -> Tuple[str, Dict[str, Any], List[str]]:
+    return norm, body, [warning]
+
+
+def _route_admitted_wolfhouse_staging(
+    norm: str,
+    body: Dict[str, Any],
+    *,
+    owned_payment_ids: Optional[Iterable[str]] = None,
+    owned_guest_ids: Optional[Iterable[str]] = None,
+) -> Tuple[str, Dict[str, Any], List[str]]:
+    """Closed route set. Never a blanket allow_writes bypass."""
+    routed = copy.deepcopy(body)
+    routed.pop("allow_writes", None)
+    routed.pop("wolfhouse_staging_capability", None)
+    payments = _owned(owned_payment_ids)
+    guests = _owned(owned_guest_ids)
+
+    if "create-balance-link" in norm:
+        return _deny(norm, routed, "blocked_balance_link_not_admitted")
+    if "create-stripe-link" in norm:
+        payment_id = _uuid_after(norm, "/payments/")
+        if payment_id and payment_id in payments:
+            return norm, routed, ["allowed_wolfhouse_staging_test_link"]
+        return _deny(norm, routed, "blocked_foreign_payment_uuid")
+    if "booking-guests/" in norm and "create-payment-link" in norm:
+        guest_id = _uuid_after(norm, "/booking-guests/")
+        if guest_id and guest_id in guests:
+            return norm, routed, ["allowed_wolfhouse_staging_guest_test_link"]
+        return _deny(norm, routed, "blocked_foreign_guest_uuid")
+    if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
+        return norm, routed, ["allowed_wolfhouse_staging_booking_create"]
+    if "transfers/save" in norm:
+        return _deny(norm, routed, "blocked_transfer_not_admitted")
+    if any(frag in norm for frag in ("update-contact", "guest-packages")):
+        return _deny(norm, routed, "blocked_booking_mutation_in_simulate")
+    if "addon-requests/create" in norm:
+        return _deny(norm, routed, "blocked_addon_not_admitted")
+    if "sunset/booking-create" in norm:
+        return _deny(norm, routed, "blocked_sunset_booking_write_in_simulate")
+    if "sunset/payment-link" in norm:
+        return _deny(norm, routed, "blocked_sunset_payment_write_in_simulate")
+    if "waiver-link" in norm:
+        return _deny(norm, routed, "blocked_sunset_waiver_write_in_simulate")
+    if any(frag in norm for frag in _WOLFHOUSE_READ_FRAGMENTS) and "create" not in norm:
+        return norm, routed, []
+    return _deny(norm, routed, "blocked_unlisted_wolfhouse_sim_write")
+
+
+def collect_owned_simulator_ids(result: Any) -> Tuple[set[str], set[str]]:
+    """Payment and guest UUIDs created by this synthetic session, not caller-supplied phones."""
+    payments: set[str] = set()
+    guests: set[str] = set()
+    if not isinstance(result, dict):
+        return payments, guests
+    payment_id = str(result.get("payment_id") or "").strip().lower()
+    if _UUID_RE.fullmatch(payment_id):
+        payments.add(payment_id)
+    rows = result.get("booking_guests") or []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            guest_id = str(row.get("booking_guest_id") or row.get("id") or "").strip().lower()
+            if _UUID_RE.fullmatch(guest_id):
+                guests.add(guest_id)
+            nested_payment = str(row.get("payment_id") or "").strip().lower()
+            if _UUID_RE.fullmatch(nested_payment):
+                payments.add(nested_payment)
+    return payments, guests
+
+
 def guard_bot_path_and_payload(
     path: str,
     payload: Dict[str, Any],
@@ -112,6 +295,9 @@ def guard_bot_path_and_payload(
     allow_writes: bool,
     booking_only_mode: str = "",
     synthetic_identity: str = "",
+    wolfhouse_capability: Optional[Dict[str, Any]] = None,
+    owned_payment_ids: Optional[Iterable[str]] = None,
+    owned_guest_ids: Optional[Iterable[str]] = None,
 ) -> Tuple[str, Dict[str, Any], List[str]]:
     """Return (path, payload, warnings). Redirect write routes to preview when writes disabled.
 
@@ -144,6 +330,14 @@ def guard_bot_path_and_payload(
             return norm, body, warnings
         body["guest_phone"] = str(synthetic_identity).strip()
         body["simulator_isolated_mode"] = True
+
+    if _capability_admitted(wolfhouse_capability) and not str(booking_only_mode or "").strip():
+        return _route_admitted_wolfhouse_staging(
+            norm,
+            body,
+            owned_payment_ids=owned_payment_ids,
+            owned_guest_ids=owned_guest_ids,
+        )
 
     if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
         warnings.append("redirected_create_to_booking_preview")

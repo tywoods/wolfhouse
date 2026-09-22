@@ -52,7 +52,9 @@ const {
   buildAvailabilityRecheckCommandFromBooking,
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
-const { needsGenderAwareBedAssignment } = require('./luna-bed-allocator');
+const { needsGenderAwareBedAssignment, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
+const { getBedCalendarRoomsQuery } = require('./staff-bed-calendar-queries');
+const { resolveBedCalendarRoomRows } = require('./wolfhouse-inventory-source');
 
 const BOOKING_CREATE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
@@ -103,6 +105,49 @@ function fail(status, reasonCode, error, extra = {}) {
       ...extra,
     },
   };
+}
+
+function roomMismatchFail(reasonCode, extra = {}) {
+  return fail(409, reasonCode, 'That room would not work for this booking. A mixed or shared dorm would — which would you like?', {
+    needs_clarification: true,
+    needs_human: false,
+    do_not_escalate: true,
+    staff_review_needed: false,
+    selected_bed_codes: [],
+    ...extra,
+  });
+}
+
+async function loadPolicyBedRows(pg, clientSlug) {
+  if (!pg) return [];
+  const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
+  return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || []);
+}
+
+function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {
+  const rejected = rejectIncompatiblePreselectedBeds({
+    selectedBedCodes: assignedBedCodes,
+    bedRows,
+    groupGender,
+  });
+  if (!rejected.ok) return rejected;
+  const gender = String(groupGender || '').trim().toLowerCase();
+  if (gender !== 'male' && gender !== 'female') return { ok: true, bed_codes: [] };
+  const known = new Set((bedRows || []).map((row) => row && row.bed_code).filter(Boolean));
+  const unknown = (assignedBedCodes || []).filter((code) => code && !known.has(code));
+  if (unknown.length) return { ok: false, reason: 'incompatible_preselected_beds', bed_codes: unknown };
+  return { ok: true, bed_codes: [] };
+}
+
+async function rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, groupGender) {
+  const gender = String(groupGender || '').trim().toLowerCase();
+  if (!pg || (gender !== 'male' && gender !== 'female')) return null;
+  const policyBeds = await loadPolicyBedRows(pg, clientSlug);
+  const rejected = rejectUnsafeAssignedBeds(assignedBedCodes, policyBeds, gender);
+  if (!rejected.ok) {
+    return roomMismatchFail('incompatible_preselected_beds', { conflict_beds: rejected.bed_codes });
+  }
+  return null;
 }
 
 async function ensureManualBookingCustomerLink(pg, command, bookingId) {
@@ -378,10 +423,14 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }
 
   let assignedBedCodes = parseSelectedBedCodes(body);
+  const pg = opts && opts.pgClient;
+  const statedGenderEarly = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
+  if (assignedBedCodes.length && pg) {
+    const preselectedConflict = await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGenderEarly);
+    if (preselectedConflict) return preselectedConflict;
+  }
   let availabilityProvenance = null;
   let availabilityPreflightAssignmentMode = false;
-
-  const pg = opts && opts.pgClient;
 
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
     const genderAwareAssign = needsGenderAwareBedAssignment({
@@ -421,6 +470,11 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       }
       const bedAssign = availResult.body;
       availabilityProvenance = bedAssign.provenance || null;
+      if (bedAssign && bedAssign.needs_clarification) {
+        return roomMismatchFail('needs_clarification', {
+          conflict: bedAssign.clarification_conflict || bedAssign.allocation_reason || null,
+        });
+      }
       if (bedAssign && Array.isArray(bedAssign.selected_bed_codes) && bedAssign.selected_bed_codes.length) {
         assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
       } else if (bedAssign && bedAssign.blockers && bedAssign.blockers.length) {
@@ -446,6 +500,11 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       });
       if (preflightBuilt.ok) {
         const preflight = await executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command);
+        if (preflight.ok && preflight.body && preflight.body.needs_clarification) {
+          return roomMismatchFail('needs_clarification', {
+            conflict: preflight.body.clarification_conflict || preflight.body.allocation_reason || null,
+          });
+        }
         if (preflight.ok) availabilityProvenance = preflight.body.provenance || null;
       }
     }
@@ -469,6 +528,11 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     });
     if (preflightBuilt.ok) {
       const preflight = await executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command);
+      if (preflight.ok && preflight.body && preflight.body.needs_clarification) {
+        return roomMismatchFail('needs_clarification', {
+          conflict: preflight.body.clarification_conflict || preflight.body.allocation_reason || null,
+        });
+      }
       if (preflight.ok) availabilityProvenance = preflight.body.provenance || null;
     }
   }
@@ -479,6 +543,10 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   if (assignedBedCodes.some((c) => SQL_INJECT_RE.test(c))) {
     return fail(400, 'invalid_bed_codes', 'invalid character in selected_bed_codes');
   }
+
+  const statedGender = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
+  const bedConflict = await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGender);
+  if (bedConflict) return bedConflict;
 
   const quote = calculateWolfhouseQuote({
     client_slug: clientSlug,
@@ -565,6 +633,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       roomType,
       roomPreference,
       genderPreference,
+      groupGender: String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase() || null,
       addOns,
       quote,
       depositCents,
@@ -624,6 +693,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     roomType,
     roomPreference,
     genderPreference,
+    groupGender,
     addOns,
     guestPackages,
     quote,
@@ -676,6 +746,14 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       });
     }
   }
+
+  const bedConflict = await rejectCreateIfBedsConflict(
+    pg,
+    clientSlug,
+    assignedBedCodes,
+    groupGender || genderPreference,
+  );
+  if (bedConflict) return bedConflict;
 
   await pg.query('BEGIN');
   try {

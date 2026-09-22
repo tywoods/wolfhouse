@@ -206,7 +206,21 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
   let allocationReason = null;
   let allocationSplit = false;
   let roomingHandoff = false;
+  let needsClarification = false;
+  let clarificationConflict = null;
   let groupGenderResolved = null;
+
+  function absorbClarification(pick) {
+    if (!pick || pick.needs_clarification !== true) return false;
+    needsClarification = true;
+    clarificationConflict = pick.conflict || pick.reason || 'room_preference_conflicts_with_explicit_gender';
+    allocationReason = clarificationConflict;
+    groupGenderResolved = pick.group_gender || groupGenderResolved;
+    selectedBedCodes = [];
+    selectedRoomCode = null;
+    if (!blockers.includes('needs_clarification')) blockers.push('needs_clarification');
+    return true;
+  }
 
   if (hasEnoughBeds) {
     const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
@@ -225,6 +239,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;
     groupGenderResolved = capacityPick.group_gender || null;
+    if (absorbClarification(capacityPick)) {
+      // Fail closed. Do not fill beds, and do not turn a gender mismatch into a team handoff.
+    } else {
     selectedBedCodes = capacityPick.selected_bed_codes || [];
     selectedRoomCode = capacityPick.selected_room_code || null;
     if (capacityPick.split) warnings.push('group_split_across_rooms_required');
@@ -250,7 +267,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
           capacityOnly: false,
         });
         groupGenderResolved = genderPick.group_gender || groupGenderResolved;
-        if (genderPick.handoff) {
+        if (absorbClarification(genderPick)) {
+          roomingHandoff = false;
+        } else if (genderPick.handoff) {
           roomingHandoff = true;
           warnings.push(genderPick.reason || 'rooming_handoff');
           if (genderPick.reason === 'group_split_needs_staff') {
@@ -269,6 +288,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
         }
       }
     }
+    }
   }
 
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
@@ -286,6 +306,8 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
     allocationSplit,
     groupGenderResolved,
     roomingHandoff,
+    needsClarification,
+    clarificationConflict,
     occupiedBedCodes,
     warnings,
     blockers,
@@ -300,6 +322,7 @@ function resolveDomainNextAction(channel, inventory, dateEval) {
     if (dateEval.reason_code === 'package_min_nights_violation') return 'package_min_nights_violation';
     return 'handoff_to_staff';
   }
+  if (inventory.needsClarification) return 'ask_room_eligibility';
   if (!inventory.hasEnoughBeds) {
     return channel === AVAILABILITY_CHANNELS.BOT_HTTP
       ? 'ask_staff_or_alternate_dates'
@@ -369,6 +392,10 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
     },
     selected_bed_codes: inventory.selectedBedCodes,
     selected_room_code: inventory.selectedRoomCode,
+    needs_clarification: inventory.needsClarification === true,
+    clarification_conflict: inventory.clarificationConflict || null,
+    needs_human: false,
+    do_not_escalate: inventory.needsClarification === true,
     has_enough_beds: inventory.hasEnoughBeds,
     available_count: inventory.availableCount,
     available_beds: inventory.availableBeds.map((b) => ({
@@ -455,7 +482,9 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
  * Map canonical availability to Staff bot HTTP response (transport enrichment only).
  */
 function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
-  const nextAction = canonical.domain_next_action === 'ask_staff_or_alternate_dates'
+  const nextAction = canonical.needs_clarification
+    ? 'ask_room_eligibility'
+    : canonical.domain_next_action === 'ask_staff_or_alternate_dates'
     ? 'ask_staff_or_alternate_dates'
     : (canonical.has_enough_beds && canonical.date_rule_ok !== false
       ? 'ready_for_bot_create'
@@ -487,6 +516,9 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     room_options: canonical.room_options,
     selected_bed_codes: canonical.selected_bed_codes,
     selected_room_code: canonical.selected_room_code,
+    needs_clarification: canonical.needs_clarification === true,
+    needs_human: false,
+    do_not_escalate: canonical.needs_clarification === true,
     has_enough_beds: canonical.has_enough_beds,
     available_count: canonical.available_count,
     available_beds: canonical.available_beds,

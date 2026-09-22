@@ -527,6 +527,44 @@ async function handleBotPaymentStatus(req, res, user, authMode, ctx) {
   }
 }
 
+function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
+  const claimed = !!(body
+    && body.simulator_synthetic === true
+    && body.source_owner === 'crowsnest-guest-door'
+    && body.wolfhouse_staging_capability === 'wolfhouse_staging_booking_test_link');
+  if (!claimed) return { claimed: false, ok: true, skip_transfers: false, reasons: [] };
+  const reasons = [];
+  const slug = String((ctx.boundClientSlug || body.client_slug || '')).trim();
+  if (slug && slug !== 'wolfhouse-somo') reasons.push('wolfhouse_client_mismatch');
+  const key = String(ctx.STRIPE_SECRET_KEY || '');
+  const mode = String(ctx.WOLFHOUSE_STRIPE_MODE || ctx.stripeMode || '').trim().toLowerCase();
+  if (key.startsWith('sk_live_') || mode === 'live') reasons.push('live_stripe_key_blocked');
+  else if (!key.startsWith('sk_test_') && mode !== 'test') reasons.push('test_payment_config_missing');
+  const pay = String(ctx.PUBLIC_PAYMENT_BASE_URL || '').trim().replace(/\/+$/, '').toLowerCase();
+  if (pay && pay !== 'https://staff-staging.lunafrontdesk.com') reasons.push('public_pay_origin_not_approved_staging');
+  if (!ctx.BOT_BOOKING_ENABLED) reasons.push('bot_booking_disabled');
+  return {
+    claimed: true,
+    ok: reasons.length === 0,
+    reasons,
+    outcome: reasons.length ? 'INTENTIONALLY_BLOCKED' : 'ADMITTED',
+    skip_transfers: true,
+  };
+}
+
+function wolfhouseSimulatorBlock(sendJSON, res, budget) {
+  return sendJSON(res, 403, {
+    success: false,
+    write_performed: false,
+    outcome: 'INTENTIONALLY_BLOCKED',
+    intentional_capability_block: true,
+    capability_reasons: budget.reasons,
+    staff_review_needed: false,
+    do_not_escalate: true,
+    error: 'wolfhouse_staging_booking_test_link_denied',
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /staff/bot/booking-create-from-plan  (Phase 13c — gated write bridge)
 //
@@ -553,6 +591,11 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     body = JSON.parse((await readBody(req)) || '{}');
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
+  }
+
+  const simulatorBudget = evaluateWolfhouseSimulatorEffectBudget(body, ctx);
+  if (simulatorBudget.claimed && !simulatorBudget.ok) {
+    return wolfhouseSimulatorBlock(sendJSON, res, simulatorBudget);
   }
 
   // Delegate to the existing bot booking create handler
@@ -621,6 +664,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     && bridgeResult.booking_id
     && collectPendingTransferEntries(body).length
     && ctx.handlePostBookingTransfer
+    && !simulatorBudget.skip_transfers
   ) {
     const pkg = String(body.package_code || '').trim().toLowerCase();
     const skipTransfers = !pkg || pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
@@ -728,7 +772,21 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
     STAFF_ACTIONS_ENABLED,
+    readBody,
   } = ctx;
+
+  let simulatorBody = {};
+  if (typeof readBody === 'function') {
+    try {
+      simulatorBody = JSON.parse((await readBody(req)) || '{}');
+    } catch (_) {
+      simulatorBody = {};
+    }
+  }
+  const simulatorBudget = evaluateWolfhouseSimulatorEffectBudget(simulatorBody, ctx);
+  if (simulatorBudget.claimed && !simulatorBudget.ok) {
+    return wolfhouseSimulatorBlock(sendJSON, res, simulatorBudget);
+  }
 
   if (!BOT_BOOKING_ENABLED) {
     return sendJSON(res, 403, {
@@ -1721,4 +1779,5 @@ module.exports = {
   handleBotPackagePricePreview,
   handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus,
+  evaluateWolfhouseSimulatorEffectBudget,
 };

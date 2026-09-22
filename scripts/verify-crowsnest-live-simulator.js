@@ -197,6 +197,81 @@ async function main() {
   ok('shaped result exposes visible limitation flag', result.limitation.limitation_flag === 'writes_and_external_sends_disabled');
   ok('shaped result reports suppressed external WhatsApp', result.limitation.tenant_whatsapp_suppressed === true);
   ok('shaped result reports blocked write tools', result.limitation.blocked_write_tools.includes('create_booking_from_plan'));
+  ok('read-only Wolfhouse stays visibly read-only without an admitted capability', result.limitation.capability_admitted === false && result.limitation.writes_enabled === false);
+
+  const stringBlocked = await runLiveSimulatorTurn({
+    tenantId: 'wolfhouse',
+    fromPhone: wolfPhone,
+    text: 'Hello again',
+    allow_writes: true,
+    wolfhouse_staging_capability: 'wolfhouse_staging_booking_test_link',
+  }, {
+    env: { CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN: 'tok' },
+    fetchImpl: async (_url, options) => {
+      const forwarded = JSON.parse(options.body);
+      if (forwarded.allow_writes !== false || forwarded.wolfhouse_staging_capability) {
+        throw new Error('browser must not grant Wolfhouse write authority');
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          reply_text: 'I cannot finish that booking link from this desk yet.',
+          allow_writes: false,
+          whatsapp_suppressed: true,
+          effective_capability: {
+            capability: 'wolfhouse_staging_booking_test_link',
+            admitted: false,
+            reasons: ['staff_destination_not_approved_staging'],
+            outcome: 'INTENTIONALLY_BLOCKED',
+          },
+          tool_calls: [{
+            name: 'create_booking_from_plan',
+            result_summary: 'success=True; outcome=INTENTIONALLY_BLOCKED; intentional_capability_block=True',
+            simulator_guard: ['redirected_create_to_booking_preview'],
+          }],
+        }),
+      };
+    },
+  });
+  ok('string guard summary still names the blocked tool', stringBlocked.limitation.blocked_write_tools.includes('create_booking_from_plan'));
+  ok('intentional block reasons survive to the visible limitation', stringBlocked.limitation.capability_admitted === false
+    && stringBlocked.limitation.outcome === 'INTENTIONALLY_BLOCKED'
+    && stringBlocked.limitation.capability_reasons.includes('staff_destination_not_approved_staging')
+    && stringBlocked.limitation.whatsapp_sends_enabled === false
+    && stringBlocked.limitation.limitation_flag === 'writes_and_external_sends_disabled');
+
+  const admittedShape = await runLiveSimulatorTurn({
+    tenantId: 'wolfhouse',
+    fromPhone: wolfPhone,
+    text: 'Please book the shared room',
+  }, {
+    env: { CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN: 'tok' },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        reply_text: 'Booking created. Payment is still pending.',
+        allow_writes: false,
+        whatsapp_suppressed: true,
+        effective_capability: {
+          capability: 'wolfhouse_staging_booking_test_link',
+          admitted: true,
+          reasons: [],
+          outcome: 'ADMITTED',
+        },
+        tool_calls: [{ name: 'create_booking_from_plan', result_summary: { success: true, write_performed: true } }],
+      }),
+    }),
+  });
+  ok('admitted Wolfhouse capability is narrow and still cannot send', admittedShape.limitation.capability_admitted === true
+    && admittedShape.limitation.booking_write_mode === 'wolfhouse_staging_booking_test_link'
+    && admittedShape.limitation.writes_enabled === false
+    && admittedShape.limitation.whatsapp_sends_enabled === false
+    && admittedShape.limitation.sms_sends_enabled === false
+    && admittedShape.limitation.test_payments_enabled === true);
 
   let seenSunsetUpstream = null;
   const sunsetResult = await runLiveSimulatorTurn({

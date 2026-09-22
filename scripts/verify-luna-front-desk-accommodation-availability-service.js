@@ -366,6 +366,62 @@ async function run() {
   });
   assert('fingerprint mismatch detected', provCheck.ok === false && provCheck.body.reason_code === 'availability_changed');
 
+  console.log('\n[K] Explicit male + preselected all-female bed does not commit');
+  function femaleCatalogBeds() {
+    const rows = [];
+    for (let room = 1; room <= 10; room += 1) {
+      rows.push({
+        room_code: `R${room}`,
+        bed_code: room === 5 ? 'R5-1' : `R${room}-B1`,
+        room_type: room === 5 ? 'female_only' : 'shared',
+        gender_strategy: room === 5 ? 'Female preferred' : null,
+        bed_active: true,
+        bed_sellable: true,
+        capacity: 4,
+      });
+    }
+    return rows;
+  }
+  const pgFemale = makePg({ beds: femaleCatalogBeds() });
+  const femaleBuilt = await buildWolfhouseBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+    transportBody: {
+      confirm: true,
+      check_in: CHECK_IN,
+      check_out: CHECK_OUT,
+      guest_count: 1,
+      package_code: 'malibu',
+      room_type: 'shared',
+      room_preference: 'female_only',
+      group_gender: 'male',
+      explicit_gender: 'male',
+      guest_name: 'Fred',
+      phone: '+34600111000',
+      payment_choice: 'deposit',
+      selected_bed_codes: ['R5-1'],
+    },
+    actorHints: { staff_user_id: 'luna-bot-internal', staff_role: 'operator' },
+    pgClient: pgFemale,
+  });
+  assert('male + R5-1 does not build a create command', femaleBuilt.ok === false, JSON.stringify(femaleBuilt.body));
+  assert(
+    'male + R5-1 asks instead of handing to the team',
+    femaleBuilt.body
+      && femaleBuilt.body.needs_human !== true
+      && femaleBuilt.body.do_not_escalate === true
+      && femaleBuilt.body.needs_clarification === true
+      && femaleBuilt.body.staff_review_needed === false,
+    JSON.stringify(femaleBuilt.body),
+  );
+  assert('male + R5-1 no commit', pgFemale.committed() === false);
+  assert('male + R5-1 no booking insert', pgFemale.inserts.filter((row) => row.table === 'bookings').length === 0);
+  if (femaleBuilt.command) {
+    const forced = await executeWolfhouseBookingCreate(pgFemale, femaleBuilt.command);
+    assert('forced execute also blocked', forced.ok === false);
+    assert('forced execute no commit', pgFemale.committed() === false);
+  }
+
   console.log(`\n── verify:luna-front-desk-accommodation-availability-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   process.exit(fail ? 1 : 0);
 }
