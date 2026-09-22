@@ -3,11 +3,11 @@
   "owner": "scripts/lib/luna-guest-personality-packs.js",
   "gate": "scripts/verify-luna-personality-contract.js",
   "spanish_variant": "peninsular",
-  "closed_ids": ["sunny", "calm", "concise", "extra"],
+  "closed_ids": ["sunny", "calm", "concise", "extra", "conversationalist"],
   "default_id": "sunny",
   "channel": "whatsapp",
   "notes": [
-    "Reviewed meaning-preserving EN/ES acceptance copy for all four closed IDs.",
+    "Authored meaning-preserving EN/ES acceptance examples for all five closed IDs; not recorded model output.",
     "Warmth-eligible turns may differ in cadence/emoji; truth-frozen turns must be identical.",
     "Spanish is Peninsular or neutral Spanish; explicit Latin-American-only markers are rejected."
   ],
@@ -28,7 +28,8 @@
         "sunny": "Hey! Welcome 🌊 How can I help you today?",
         "calm": "Welcome. I’m here to help whenever you’re ready.",
         "concise": "Welcome — how can I help?",
-        "extra": "Yesss, welcome!! 🌊🙌 So happy you’re here! What can I help you with today? 😊"
+        "extra": "Yesss, welcome!! 🌊🙌 So happy you’re here! What can I help you with today? 😊",
+        "conversationalist": "Hey, welcome! What can I help you with?"
       }
     },
     {
@@ -48,7 +49,8 @@
         "sunny": "August sounds great 🌊 Which dates are you thinking?",
         "calm": "August works. Which days would suit you?",
         "concise": "Which August dates?",
-        "extra": "August sounds amazing!! 🌊☀️ Which days are you dreaming of? 😊🙌"
+        "extra": "August sounds amazing!! 🌊☀️ Which days are you dreaming of? 😊🙌",
+        "conversationalist": "An August trip — lovely. Which dates did you have in mind?"
       }
     },
     {
@@ -69,7 +71,8 @@
         "sunny": "¡Hola! Bienvenidos 🌊 ¿En qué puedo ayudaros?",
         "calm": "Bienvenidos. Estoy aquí para ayudar cuando queráis.",
         "concise": "Bienvenidos — ¿en qué puedo ayudar?",
-        "extra": "¡¡Bienvenidos!! 🌊🙌 Me alegra un montón que estéis aquí. ¿En qué puedo ayudaros hoy? 😊"
+        "extra": "¡¡Bienvenidos!! 🌊🙌 Me alegra un montón que estéis aquí. ¿En qué puedo ayudaros hoy? 😊",
+        "conversationalist": "¡Hola, qué alegría tenerte por aquí! ¿En qué te puedo ayudar?"
       }
     },
     {
@@ -89,7 +92,8 @@
         "sunny": "Agosto pinta genial 🌊 ¿Qué fechas tenéis en mente?",
         "calm": "Agosto encaja. ¿Qué días os vienen bien?",
         "concise": "¿Qué fechas de agosto?",
-        "extra": "¡Agosto va a estar increíble!! 🌊☀️ ¿Qué días os apetecen? 😊🙌"
+        "extra": "¡Agosto va a estar increíble!! 🌊☀️ ¿Qué días os apetecen? 😊🙌",
+        "conversationalist": "Una escapada en agosto, qué bien. ¿Qué fechas tenéis en mente?"
       }
     },
     {
@@ -104,7 +108,8 @@
         "sunny": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
         "calm": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
         "concise": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
-        "extra": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc"
+        "extra": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
+        "conversationalist": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc"
       }
     },
     {
@@ -119,7 +124,8 @@
         "sunny": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
         "calm": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
         "concise": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
-        "extra": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc"
+        "extra": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
+        "conversationalist": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc"
       }
     },
     {
@@ -135,7 +141,8 @@
         "sunny": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
         "calm": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
         "concise": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
-        "extra": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House."
+        "extra": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
+        "conversationalist": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House."
       }
     },
     {
@@ -150,7 +157,8 @@
         "sunny": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
         "calm": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
         "concise": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
-        "extra": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí."
+        "extra": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
+        "conversationalist": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí."
       }
     }
   ]

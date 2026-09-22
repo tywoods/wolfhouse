@@ -1231,5 +1231,6 @@ module.exports = {
   'lunaStaff.personality.calm': 'Serena',
   'lunaStaff.personality.concise': 'Concisa',
   'lunaStaff.personality.extra': 'A tope',
+  'lunaStaff.personality.conversationalist': 'Conversacional',
 
 };
