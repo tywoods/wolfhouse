@@ -39,6 +39,15 @@ assert.match(apiSource, /pathname\.startsWith\(LUNA_ROUTING_PREFIX\)/);
 assert.match(apiSource, /CROWSNEST_LUNA_ROUTING_CONTROLLER_URL/);
 assert.match(apiSource, /unknown_or_production_number_denied/);
 assert.match(apiSource, /isBrowserUiAuthorized\(req\)/);
+assert.match(apiSource, /isTrustedSessionMutationOrigin/);
+assert.match(apiSource, /CROWSNEST_PUBLIC_ORIGIN/);
+assert.match(apiSource, /origin_rejected/);
+assert.match(apiSource, /serializeBrowserOrigin/);
+assert.doesNotMatch(
+  apiSource,
+  /if\s*\(\s*!expectedOrigin\s*\|\|\s*String\(req\.headers\.origin/,
+  'must not hard-fail session routing solely because CROWSNEST_PUBLIC_ORIGIN is unset',
+);
 assert.match(html, /nonce=["']test-nonce["']/);
 
 console.log('PASS verify:crowsnest-communications-routing');

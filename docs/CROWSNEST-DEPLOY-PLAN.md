@@ -67,6 +67,7 @@ The following must remain true:
 | `CROWSNEST_HOST` | `0.0.0.0` |
 | `NODE_ENV` | `production` in Azure |
 | `CROWSNEST_ENVIRONMENT` | Must be exactly `staging` to expose Luna-number routing; absent or any other value fails closed. This is independent of Azure’s required `NODE_ENV=production`. |
+| `CROWSNEST_PUBLIC_ORIGIN` | Optional pin for session CSRF on Luna-number routing POSTs (e.g. `https://crowsnest.lunafrontdesk.com`). When set, browser `Origin` must match exactly (URL-serialized). When unset, Crow’s Nest accepts same-origin `Origin` derived from the request `Host` + `X-Forwarded-Proto` so Communications Save routing works for legitimate staging sessions without inventing a hard fail on missing env. Cross-site `Origin` still returns `origin_rejected`. |
 | `CROWSNEST_AUTH_REQUIRED` | `true` on the public app |
 | `CROWSNEST_AUTH_EARTHLING_USERNAME` | Azure secret ref `cn-auth-user` (**VERIFIED CURRENT LIVE**); never commit the value |
 | `CROWSNEST_AUTH_EARTHLING_PASSWORD` | Azure secret ref `cn-auth-pass` (**VERIFIED CURRENT LIVE**); never commit the value |

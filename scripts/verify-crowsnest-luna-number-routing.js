@@ -48,6 +48,89 @@ async function withServer(handler, run) { const server = http.createServer(handl
   await test('missing deployment scope fails closed even when NODE_ENV is staging',async()=>{ const missingScope={...env(),NODE_ENV:'staging'}; delete missingScope.CROWSNEST_ENVIRONMENT; const read=await routing.readLunaNumberRoute({env:missingScope,transport:async()=>{throw Error('must not call')}}); assert.deepEqual(read,{ok:false,status:404,code:'routing_not_available'}); });
   await test('transport uses public URL while HMAC signs rewritten canonical path',async()=>{ let observed; const out=await routing.readLunaNumberRoute({env:env(),transport:async(url,options)=>{ observed={url,options}; return {ok:true,status:200,json:async()=>({ok:true,route:{}})}; }}); assert.equal(out.ok,true); assert.equal(observed.url,env().CROWSNEST_LUNA_ROUTING_CONTROLLER_URL); const h=observed.options.headers; const expected=crypto.createHmac('sha256',env().CROWSNEST_LUNA_ROUTING_CONTROLLER_HMAC_KEY).update(routing.canonical('GET',routing.CONTROLLER_PATH,h['x-routing-timestamp'],h['x-routing-nonce'],'')).digest('hex'); assert.equal(h.authorization,`HMAC ${expected}`); });
   await test('Crow’s Nest mutation POST requires application/json', async () => { const saved = { ...process.env }; Object.assign(process.env, { NODE_ENV: 'staging', CROWSNEST_ENVIRONMENT: 'staging', CROWSNEST_AUTH_REQUIRED: 'true', CROWSNEST_AUTH_EARTHLING_USERNAME: 'Earthling', CROWSNEST_AUTH_EARTHLING_PASSWORD: 'secret1', CROWSNEST_AUTH_MONSHIES_USERNAME: 'Monshies', CROWSNEST_AUTH_MONSHIES_PASSWORD: 'secret2' }); try { await withServer(crowsnestApi.router, async (port) => { const authorization = `Basic ${Buffer.from('Earthling:secret1').toString('base64')}`; const response = await fetch(`http://127.0.0.1:${port}/api/communications/luna-number-route/flip-to-sunset`, { method: 'POST', headers: { authorization }, body: '{}' }); assert.equal(response.status, 415); }); } finally { for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env, saved); } });
+  await test('session Origin CSRF helpers pin or derive same-origin without inventing credentials', () => {
+    assert.equal(crowsnestApi.serializeBrowserOrigin('https://crowsnest.lunafrontdesk.com/path'), 'https://crowsnest.lunafrontdesk.com');
+    assert.equal(crowsnestApi.serializeBrowserOrigin('https://user:pass@evil.test'), null);
+    assert.equal(crowsnestApi.serializeBrowserOrigin('ftp://crowsnest.lunafrontdesk.com'), null);
+    const req = { headers: { host: 'crowsnest.lunafrontdesk.com', 'x-forwarded-proto': 'https', origin: 'https://crowsnest.lunafrontdesk.com' } };
+    assert.equal(crowsnestApi.expectedSessionMutationOrigin(req, { NODE_ENV: 'production' }), 'https://crowsnest.lunafrontdesk.com');
+    assert.equal(crowsnestApi.isTrustedSessionMutationOrigin(req, { NODE_ENV: 'production' }), true);
+    assert.equal(crowsnestApi.isTrustedSessionMutationOrigin({ headers: { host: 'crowsnest.lunafrontdesk.com', origin: 'https://evil.test' } }, { NODE_ENV: 'production' }), false);
+    assert.equal(crowsnestApi.isTrustedSessionMutationOrigin({ headers: { host: 'crowsnest.lunafrontdesk.com' } }, { NODE_ENV: 'production' }), false);
+    assert.equal(crowsnestApi.isTrustedSessionMutationOrigin(req, { NODE_ENV: 'production', CROWSNEST_PUBLIC_ORIGIN: 'https://other.example' }), false);
+    assert.equal(crowsnestApi.isTrustedSessionMutationOrigin(req, { NODE_ENV: 'production', CROWSNEST_PUBLIC_ORIGIN: 'https://crowsnest.lunafrontdesk.com/' }), true);
+  });
+  await test('session Save routing no longer origin_rejects when CROWSNEST_PUBLIC_ORIGIN is unset', async () => {
+    const sessionStore = require('./lib/crowsnest/crowsnest-session-store');
+    const saved = { ...process.env };
+    sessionStore._resetForTests();
+    Object.assign(process.env, {
+      NODE_ENV: 'staging',
+      CROWSNEST_ENVIRONMENT: 'staging',
+      CROWSNEST_AUTH_REQUIRED: 'true',
+      CROWSNEST_AUTH_EARTHLING_USERNAME: 'Earthling',
+      CROWSNEST_AUTH_EARTHLING_PASSWORD: 'secret1',
+      CROWSNEST_AUTH_MONSHIES_USERNAME: 'Monshies',
+      CROWSNEST_AUTH_MONSHIES_PASSWORD: 'secret2',
+    });
+    delete process.env.CROWSNEST_PUBLIC_ORIGIN;
+    delete process.env.CROWSNEST_SESSION_DATABASE_URL;
+    try {
+      await withServer(crowsnestApi.router, async (port) => {
+        const origin = `http://127.0.0.1:${port}`;
+        const login = await fetch(`${origin}/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: 'username=Earthling&password=secret1',
+          redirect: 'manual',
+        });
+        assert.equal(login.status, 302);
+        const cookie = String(login.headers.get('set-cookie') || '').split(';')[0];
+        assert.match(cookie, /^crowsnest_session=/);
+        const missingOrigin = await fetch(`${origin}/api/communications/luna-number-route/flip-to-sunset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie },
+          body: JSON.stringify({ operation_id: crypto.randomUUID(), expected_revision: 'a'.repeat(64) }),
+        });
+        assert.equal(missingOrigin.status, 403);
+        assert.equal((await missingOrigin.json()).code, 'origin_rejected');
+        const crossSite = await fetch(`${origin}/api/communications/luna-number-route/flip-to-sunset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie, origin: 'https://evil.test' },
+          body: JSON.stringify({ operation_id: crypto.randomUUID(), expected_revision: 'a'.repeat(64) }),
+        });
+        assert.equal(crossSite.status, 403);
+        assert.equal((await crossSite.json()).code, 'origin_rejected');
+        const sameOrigin = await fetch(`${origin}/api/communications/luna-number-route/flip-to-sunset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie, origin },
+          body: JSON.stringify({ operation_id: crypto.randomUUID(), expected_revision: 'a'.repeat(64) }),
+        });
+        const sameBody = await sameOrigin.json();
+        assert.notEqual(sameBody.code, 'origin_rejected');
+        assert.ok([503, 400, 409, 422].includes(sameOrigin.status) || sameBody.ok === true || sameBody.code === 'routing_not_configured' || sameBody.code === 'routing_controller_unavailable' || sameBody.code === 'routing_controller_rejected');
+        process.env.CROWSNEST_PUBLIC_ORIGIN = 'https://crowsnest.lunafrontdesk.com';
+        const pinnedMismatch = await fetch(`${origin}/api/communications/luna-number-route/flip-to-sunset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie, origin },
+          body: JSON.stringify({ operation_id: crypto.randomUUID(), expected_revision: 'a'.repeat(64) }),
+        });
+        assert.equal(pinnedMismatch.status, 403);
+        assert.equal((await pinnedMismatch.json()).code, 'origin_rejected');
+        const pinnedMatch = await fetch(`${origin}/api/communications/luna-number-route/flip-to-sunset`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie, origin: 'https://crowsnest.lunafrontdesk.com' },
+          body: JSON.stringify({ operation_id: crypto.randomUUID(), expected_revision: 'a'.repeat(64) }),
+        });
+        const pinnedBody = await pinnedMatch.json();
+        assert.notEqual(pinnedBody.code, 'origin_rejected');
+      });
+    } finally {
+      sessionStore._resetForTests();
+      for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+      Object.assign(process.env, saved);
+    }
+  });
   await test('Crow’s Nest production route is not exposed when fully configured', async () => { const saved = { ...process.env }; Object.assign(process.env, {...env(),NODE_ENV:'production',CROWSNEST_ENVIRONMENT:'production'}); try { await withServer(crowsnestApi.router, async (port) => { const response=await fetch(`http://127.0.0.1:${port}/api/communications/luna-number-route/flip-to-sunset`,{method:'POST',headers:{'content-type':'application/json'},body:'{}'}); assert.equal(response.status,404); assert.equal((await response.json()).code,'routing_not_available'); }); } finally { for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env,saved); } });
   await test('controller POST requires application/json and removes fake mTLS', async () => { const key = 'z'.repeat(32); await withServer(ctl.makeHandler({ key, mutate: async () => ({ status: 200, body: { ok: true } }) }), async (port) => { const body = '{}'; const headers = routing.signedHeaders('POST', ctl.ROUTE_PATH, body, key); const response = await fetch(`http://127.0.0.1:${port}${ctl.ROUTE_PATH}`, { method: 'POST', headers, body }); assert.equal(response.status, 415); }); const source = fs.readFileSync(path.join(__dirname, 'luna-number-routing-controller.js'), 'utf8'); assert.doesNotMatch(source, /requestCert|rejectUnauthorized/); });
   await test('migration separates owner/API/runtime and pooled transactions reset role', () => { const sql = fs.readFileSync(path.join(__dirname, '../database/migrations/103_crowsnest_comms_number_route_audit.sql'), 'utf8'); assert.match(sql, /SET LOCAL ROLE crowsnest_comms_owner/); assert.doesNotMatch(sql, /CREATE ROLE|runtime_login|GRANT crowsnest_api TO current_user/); assert.match(sql, /CREATE SCHEMA IF NOT EXISTS crowsnest_comms AUTHORIZATION crowsnest_comms_owner/); const provision = fs.readFileSync(path.join(__dirname, 'provision-crowsnest-comms-runtime-role.sh'), 'utf8'); assert.match(provision, /rolcanlogin/); assert.match(provision, /directly owns database objects/); assert.match(provision, /GRANT crowsnest_api TO/); const apiSource = fs.readFileSync(path.join(__dirname, 'lib/crowsnest/crowsnest-luna-number-routing.js'), 'utf8'); assert.doesNotMatch(apiSource, /query\('SET ROLE/); assert.match(apiSource, /query\('BEGIN'\)[\s\S]*query\('SET LOCAL ROLE crowsnest_api'\)/); });
