@@ -371,16 +371,21 @@ function renderInboxViewsRail(data){
   for (var j = 0; j < surfaceViews.length; j++) {
     var view = surfaceViews[j];
     var active = view.id === inboxSavedViewId;
+    var label = inboxViewsLabel(view);
     var countHtml = (view.count == null)
       ? ''
       : '<span class="inbox-views-item-count">' + escHtml(String(view.count)) + '</span>';
+    /* aria-label/title keep icon-only phone chrome accessible
+       (SUNSET-MOBILE-INBOX-ICON-ONLY-STICKY-NO-GUEST-CARD-001). */
     html += '<button type="button" class="inbox-views-item' + (active ? ' is-active' : '') + '"' +
       ' data-inbox-view="' + escHtml(view.id) + '"' +
       ' data-inbox-view-surface="' + escHtml(surface) + '"' +
+      ' aria-label="' + escHtml(label) + '"' +
+      ' title="' + escHtml(label) + '"' +
       (active ? ' aria-current="true"' : '') +
       '>';
     html += inboxViewsItemIconHtml(view.id);
-    html += '<span class="inbox-views-item-label">' + escHtml(inboxViewsLabel(view)) + '</span>';
+    html += '<span class="inbox-views-item-label">' + escHtml(label) + '</span>';
     html += countHtml;
     html += '</button>';
   }

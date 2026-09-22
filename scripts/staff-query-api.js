@@ -21997,14 +21997,28 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   .inbox-col1 .inbox-view-switch{width:100%}
   .inbox-col1 > .inbox-left-toolbar{display:none}
+  /* SUNSET-MOBILE-INBOX-ICON-ONLY-STICKY-NO-GUEST-CARD-001: icon-only filter bar. */
   .inbox-views-rail{
-    flex-direction:row;flex-wrap:nowrap;align-items:center;
-    overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
-    gap:8px;padding:8px;width:100%;align-self:stretch;
+    flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;
+    overflow-x:hidden;overflow-y:hidden;gap:4px;padding:6px 8px;width:100%;align-self:stretch;
+    max-width:100%;box-sizing:border-box;
   }
-  .inbox-views-group{flex-direction:row;flex-wrap:nowrap;gap:4px;flex:0 0 auto}
+  .inbox-views-group{flex-direction:row;flex-wrap:nowrap;gap:4px;flex:1 1 auto;min-width:0;justify-content:space-between}
   .inbox-views-group-label{display:none}
-  .inbox-views-item{width:auto;padding:8px 10px;white-space:nowrap}
+  .inbox-views-item{
+    position:relative;flex:1 1 0;width:auto;min-width:0;max-width:56px;height:44px;min-height:44px;
+    padding:0;margin:0;justify-content:center;align-items:center;gap:0;
+    white-space:nowrap;border-radius:10px;
+  }
+  .inbox-views-item-label{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .inbox-views-item-count{
+    position:absolute;top:4px;right:4px;min-width:14px;height:14px;padding:0 3px;
+    border-radius:999px;font-size:9px;line-height:14px;text-align:center;
+    background:var(--surface);color:var(--text-2);box-shadow:0 0 0 1px var(--border-soft);
+  }
+  .inbox-views-item.is-active .inbox-views-item-count{background:rgba(255,255,255,.22);color:inherit;box-shadow:none}
+  .inbox-views-item-ico{width:20px;height:20px;margin:0}
+  .inbox-views-item-ico svg{width:20px;height:20px}
   .inbox-channel-autonomy-slot,
   .inbox-channel-autonomy-slot .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}
   .inbox-peek-edge{display:none!important}
@@ -22030,11 +22044,34 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   /* SUNSET-MOBILE-INBOX-001: phone is the product. Chats|Guests stay tappable
      after a thread opens, and Guest is the card — not a panel under the chat. */
   #tab-conversations{overflow-x:hidden;max-width:100vw}
-  .inbox-views-rail{max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  .inbox-views-rail{max-width:100%;overflow-x:hidden;overflow-y:hidden}
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
+  /* SUNSET-MOBILE-INBOX-ICON-ONLY-STICKY-NO-GUEST-CARD-001: sticky tabs+icon rail;
+     keep col1 above the thread (order fix); hide guest card on Chats thread. */
+  #tab-conversations #inbox-shell > .inbox-col1,
+  #tab-conversations .inbox-two-col.inbox-shell-cols > .inbox-col1{
+    position:sticky;top:0;z-index:40;align-self:start;width:100%;
+  }
+  #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1}
+  #tab-conversations #inbox-shell.show-thread > #conv-detail{
+    order:2;min-height:0;display:flex;flex-direction:column;width:100%;
+  }
+  #tab-conversations #inbox-shell.show-thread > .inbox-shell-channel-defaults.is-inbox-mobile-docked{order:3}
+  body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) .inbox-two-col.inbox-shell-cols.show-thread #inbox-detail-sidebar,
+  body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) .inbox-two-col.inbox-shell-cols.show-thread .detail-sidebar,
+  body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) .inbox-two-col.inbox-shell-cols.show-thread .inbox-guest-card{
+    display:none!important;
+  }
+  body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) .inbox-two-col.inbox-shell-cols.show-thread .detail-main{
+    display:flex!important;flex:1 1 auto!important;min-height:0!important;
+    width:100%!important;max-width:100%!important;
+  }
+  body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) .inbox-two-col.inbox-shell-cols.show-thread .detail-layout{
+    display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;
+  }
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread{
     grid-template-rows:auto minmax(0,1fr)!important;
   }
@@ -22049,8 +22086,8 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     display:flex!important;flex-direction:column;width:100%;max-width:100%;
     padding:0;gap:0;overflow:visible;
   }
-  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}
-  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs):not(.inbox-views-rail){display:none!important}
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs):not(.inbox-views-rail){display:none!important}
   body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols.show-thread .detail-main{
     display:none!important;
   }
