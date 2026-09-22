@@ -22027,6 +22027,38 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   .inbox-two-col.inbox-shell-cols > .inbox-left{
     width:100%;max-width:100%;align-self:stretch;min-width:0;min-height:0;
   }
+  /* SUNSET-MOBILE-INBOX-001: phone is the product. Chats|Guests stay tappable
+     after a thread opens, and Guest is the card — not a panel under the chat. */
+  #tab-conversations{overflow-x:hidden;max-width:100vw}
+  .inbox-views-rail{max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+  html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
+  html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%}
+  html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
+  html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px;font-size:15px}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread{
+    grid-template-rows:auto minmax(0,1fr)!important;
+  }
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread{
+    grid-template-rows:auto minmax(0,1fr)!important;
+  }
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{
+    display:flex!important;flex-direction:column;width:100%;max-width:100%;
+    padding:0;gap:0;overflow:visible;
+  }
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{
+    display:flex!important;flex-direction:column;width:100%;max-width:100%;
+    padding:0;gap:0;overflow:visible;
+  }
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1 > :not(.inbox-folder-tabs){display:none!important}
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols.show-thread .detail-main{
+    display:none!important;
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols.show-thread #inbox-detail-sidebar,
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols.show-thread .detail-sidebar{
+    display:flex!important;flex-direction:column;width:100%!important;max-width:100%!important;
+    flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+  }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
