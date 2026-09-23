@@ -4,8 +4,10 @@
 /**
  * SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002
  * Phone Inbox (~390px): Autonomy docked to viewport bottom + safe-area;
+ * default CLOSED on list and chat (slim bottom tab only until opened);
  * Chats|Guests as integrated segmented tabs; search pinned under filter chrome;
- * slim quiet back; compact conversation action row; taller transcript.
+ * slim quiet back; conversation action row wraps within viewport (no h-scroll);
+ * taller transcript.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -37,51 +39,74 @@ function ok(label, cond, detail) {
 
 const marker = 'SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002 — phone Inbox';
 const blockStart = api.indexOf(marker);
-const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 18000) : '';
+const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 28000) : '';
+const phoneEnd = phoneBlock.indexOf('/* ── Top-bar layout controls');
+const phoneCss = phoneEnd > 0 ? phoneBlock.slice(0, phoneEnd) : phoneBlock;
 
 ok('marker exists in staff-query-api.js', api.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002') && blockStart >= 0);
 ok('marker exists in inbox-shell CSS', shell.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
 ok('marker exists in inbox-rows chrome CSS', rows.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
 ok(
   'Autonomy docks with position:fixed + safe-area',
-  phoneBlock.includes('position:fixed!important') &&
-    phoneBlock.includes('bottom:0') &&
-    phoneBlock.includes('env(safe-area-inset-bottom')
+  phoneCss.includes('position:fixed!important') &&
+    phoneCss.includes('bottom:0') &&
+    phoneCss.includes('env(safe-area-inset-bottom')
 );
 ok(
   'list pins search under filters and scrolls the list',
-  phoneBlock.includes('inbox-conv-search-wrap.is-inbox-mobile-order') &&
-    phoneBlock.includes('grid-template-rows:auto auto minmax(0,1fr)!important') &&
-    phoneBlock.includes('.inbox-left-rows') &&
-    phoneBlock.includes('overflow-y:auto!important')
+  phoneCss.includes('inbox-conv-search-wrap.is-inbox-mobile-order') &&
+    phoneCss.includes('grid-template-rows:auto auto minmax(0,1fr)!important') &&
+    phoneCss.includes('.inbox-left-rows') &&
+    phoneCss.includes('overflow-y:auto!important')
 );
 ok(
   'Chats|Guests use integrated segmented tabs (no fat button margin)',
-  phoneBlock.includes('padding:2px') &&
-    phoneBlock.includes('min-height:34px') &&
-    phoneBlock.includes('margin:0') &&
-    phoneBlock.includes('border-radius:8px')
+  phoneCss.includes('padding:2px') &&
+    phoneCss.includes('min-height:34px') &&
+    phoneCss.includes('margin:0') &&
+    phoneCss.includes('border-radius:8px')
 );
 ok(
   'slim quiet back control',
-  phoneBlock.includes('.inbox-mobile-back') &&
-    phoneBlock.includes('min-height:28px') &&
-    phoneBlock.includes('background:transparent') &&
-    phoneBlock.includes('width:max-content')
+  phoneCss.includes('.inbox-mobile-back') &&
+    phoneCss.includes('min-height:28px') &&
+    phoneCss.includes('background:transparent') &&
+    phoneCss.includes('width:max-content')
 );
 ok(
   'taller transcript via flex fill (no oversized min overlap)',
-  phoneBlock.includes('.thread-messages') &&
-    phoneBlock.includes('flex:1 1 auto!important') &&
-    phoneBlock.includes('min-height:0!important') &&
-    phoneBlock.includes('.draft-actions') &&
-    phoneBlock.includes('flex-wrap:nowrap')
+  phoneCss.includes('.thread-messages') &&
+    phoneCss.includes('flex:1 1 auto!important') &&
+    phoneCss.includes('min-height:0!important') &&
+    phoneCss.includes('.draft-actions') &&
+    phoneCss.includes('flex-wrap:nowrap')
 );
 ok(
   'sunset and wolfhouse Autonomy dock rules are not comma-combined',
-  phoneBlock.includes('html[data-portal-client="sunset"]') &&
-    phoneBlock.includes('html:not([data-portal-client])') &&
-    !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneBlock)
+  phoneCss.includes('html[data-portal-client="sunset"]') &&
+    phoneCss.includes('html:not([data-portal-client])') &&
+    !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneCss)
+);
+ok(
+  'list closed Autonomy hides panel content (slim tab only)',
+  phoneCss.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
+    phoneCss.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
+    phoneCss.includes('padding-bottom:calc(44px + env(safe-area-inset-bottom,0px))') &&
+    /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
+);
+ok(
+  'action row wraps with overflow-x:hidden (no horizontal scrollbar)',
+  phoneCss.includes('.inbox-header-stack') &&
+    phoneCss.includes('flex-wrap:wrap') &&
+    phoneCss.includes('overflow-x:hidden') &&
+    !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss) &&
+    !/inbox-header-stack\{[^}]*flex-wrap:nowrap/.test(phoneCss)
+);
+ok(
+  'JS defaults Autonomy closed on list and chat phone dock',
+  shell.includes('inboxShellAutonomyPhoneDocked') &&
+    shell.includes('Default closed on list AND chat') &&
+    /data-autonomy-keep-open/.test(shell)
 );
 ok(
   'desktop 901 guest block was not rewritten',
@@ -95,6 +120,10 @@ async function measureList(page) {
     const tabs = document.querySelector('.inbox-folder-tabs');
     const chats = document.querySelector('.inbox-folder-tab[data-inbox-preset="all4"], .inbox-folder-tab[data-view="full"]');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
+    const autoTab = autonomy && autonomy.querySelector('.inbox-autonomy-bottom-tab');
+    const panelKids = autonomy
+      ? Array.from(autonomy.children).filter((el) => !el.classList.contains('inbox-autonomy-bottom-tab'))
+      : [];
     const list = document.querySelector('#inbox-shell > #inbox-card .inbox-left-rows, #inbox-shell #conv-list');
     function box(el) {
       if (!el) return null;
@@ -107,6 +136,7 @@ async function measureList(page) {
         position: s.position,
         marginTop: s.marginTop,
         borderRadius: s.borderRadius,
+        display: s.display,
       };
     }
     return {
@@ -115,6 +145,9 @@ async function measureList(page) {
       tabs: box(tabs),
       chats: box(chats),
       autonomy: box(autonomy),
+      autoTab: box(autoTab),
+      open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
+      panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       list: box(list),
     };
   });
@@ -128,6 +161,7 @@ async function measureThread(page) {
     const msgs = document.querySelector('#thread-container, .thread-messages');
     const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
+    const headerRight = document.querySelector('#inbox-shell.show-thread .detail-header-right');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -141,17 +175,26 @@ async function measureThread(page) {
         minHeight: s.minHeight,
         background: s.backgroundColor,
         flexDir: s.flexDirection,
+        flexWrap: s.flexWrap,
+        overflowX: s.overflowX,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
       };
     }
     return {
       vh: window.innerHeight,
+      vw: window.innerWidth,
       back: box(back),
       autoTab: box(autoTab),
       autonomy: box(autonomy),
       msgs: box(msgs),
       stack: box(stack),
       header: box(header),
+      headerRight: box(headerRight),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
+      stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
+      headerOverflow: !!(header && header.scrollWidth > header.clientWidth + 1),
+      docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
     };
   });
 }
@@ -189,6 +232,17 @@ async function main() {
         list.autonomy.position === 'fixed' &&
         Math.abs(list.autonomy.bottom - list.vh) <= 8,
       JSON.stringify(list.autonomy)
+    );
+    ok(
+      '390 list: Autonomy closed by default (slim tab only, panel hidden)',
+      list.open === false &&
+        list.panelVisible === false &&
+        list.autoTab &&
+        list.autoTab.height >= 28 &&
+        list.autoTab.height <= 44 &&
+        list.autonomy &&
+        list.autonomy.height <= 56,
+      JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy })
     );
     ok(
       '390 list: search sits under Chats|Guests / icon filters',
@@ -232,9 +286,21 @@ async function main() {
       JSON.stringify(thread.back)
     );
     ok(
-      '390 chat: action stack is row-wrapped toolbar',
-      thread.stack && thread.stack.flexDir === 'row',
-      JSON.stringify(thread.stack)
+      '390 chat: action stack is row-wrapped toolbar (no h-scroll)',
+      thread.stack &&
+        thread.stack.flexDir === 'row' &&
+        thread.stack.flexWrap === 'wrap' &&
+        thread.stack.overflowX === 'hidden' &&
+        thread.stackOverflow === false &&
+        thread.headerOverflow === false &&
+        thread.docOverflow === false,
+      JSON.stringify({
+        stack: thread.stack,
+        header: thread.header,
+        stackOverflow: thread.stackOverflow,
+        headerOverflow: thread.headerOverflow,
+        docOverflow: thread.docOverflow,
+      })
     );
     ok(
       '390 chat: transcript taller than chrome+draft leftovers',
