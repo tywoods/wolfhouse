@@ -4,8 +4,9 @@
 /**
  * SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001
  * Phone chat: Chats stay at the top. The tall Autonomy card starts closed
- * behind a small green bottom tab. Header chrome stays tappable. The tab
- * label is the dictionary string (AUTONOMÍA LUNA in es), not hardcoded English.
+ * behind a small green bottom tab. Header action chrome stays tappable.
+ * Bookings expand is hidden on phone Chats (guest card off). The tab label
+ * is the dictionary string (AUTONOMÍA LUNA in es), not hardcoded English.
  *
  *   node scripts/verify-sunset-mobile-autonomy-bottom-tab-001.js
  */
@@ -40,7 +41,10 @@ function ok(label, cond, detail) {
 
 const marker = 'SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001';
 const blockStart = api.indexOf(marker);
-const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 12000) : '';
+const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 28000) : '';
+const phoneLayoutMarker = 'SHARED-PHONE-INBOX-HEADER-004';
+const phoneLayoutStart = api.indexOf(phoneLayoutMarker);
+const phoneLayoutCss = phoneLayoutStart >= 0 ? api.slice(Math.max(0, phoneLayoutStart - 4000), phoneLayoutStart + 8000) : '';
 
 ok('marker exists in staff-query-api.js', blockStart >= 0);
 ok('marker exists in inbox-shell CSS', shell.includes(marker));
@@ -58,13 +62,11 @@ ok(
 );
 ok(
   'phone chat keeps header chrome inside the clip',
-  phoneBlock.includes('.detail-header-right{') &&
-    phoneBlock.includes('width:100%!important') &&
-    phoneBlock.includes('max-width:100%!important') &&
-    !phoneBlock.includes('width:auto!important') &&
-    phoneBlock.includes('display:flex!important') &&
-    !phoneBlock.includes('#inbox-header-luna-row{display:none') &&
-    !/\.detail-header-right\{display:none/.test(phoneBlock)
+  phoneLayoutCss.includes('SHARED-PHONE-INBOX-HEADER-004') &&
+    phoneLayoutCss.includes('display:contents!important') &&
+    phoneLayoutCss.includes('overflow-x:hidden') &&
+    !phoneLayoutCss.includes('#inbox-header-luna-row{display:none') &&
+    !/\.detail-header-right\{display:none/.test(phoneLayoutCss)
 );
 ok(
   'tab label comes from the dictionary, not hardcoded Autonomy',
@@ -156,37 +158,24 @@ async function measure(page) {
 }
 
 function chromeVisible(metrics) {
-  return ['headerRight', 'lunaRow', 'chrome', 'spam', 'clear', 'expand'].every((key) => {
+  /* Phone Chats hides bookings expand (guest card off). header-right is display:contents. */
+  return ['lunaRow', 'chrome', 'spam', 'clear', 'channel'].every((key) => {
     const box = metrics[key];
     return box && !box.missing && box.display !== 'none' && box.w > 0 && box.h > 0;
   });
 }
 
-async function expandHit(page) {
-  return page.evaluate(() => {
-    const btn = document.getElementById('inbox-sidebar-expand');
-    if (!btn) return { missing: true };
+async function actionHit(page, sel) {
+  return page.evaluate((selector) => {
+    const btn = document.querySelector(selector);
+    if (!btn) return { missing: true, selector };
     const r = btn.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     const hit = document.elementFromPoint(cx, cy);
-    const clips = [];
-    let node = btn.parentElement;
-    let clipped = false;
-    while (node && node !== document.documentElement) {
-      const s = getComputedStyle(node);
-      const ox = s.overflowX;
-      const oy = s.overflowY;
-      if (ox === 'hidden' || ox === 'clip' || oy === 'hidden' || oy === 'clip' || s.overflow === 'hidden') {
-        const b = node.getBoundingClientRect();
-        const outside = r.left < b.left - 0.5 || r.right > b.right + 0.5 || r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5;
-        if (outside) clipped = true;
-        clips.push({ id: node.id || node.className, right: Math.round(b.right), outside });
-      }
-      node = node.parentElement;
-    }
     return {
       missing: false,
+      selector,
       left: Math.round(r.left),
       right: Math.round(r.right),
       top: Math.round(r.top),
@@ -195,26 +184,11 @@ async function expandHit(page) {
       cx,
       cy,
       hitId: hit ? (hit.id || hit.className || hit.tagName) : '',
-      hitIsExpand: !!(hit && hit.closest && hit.closest('#inbox-sidebar-expand')),
-      insideViewport: r.left >= -0.5 && r.right <= window.innerWidth + 0.5,
-      clipped,
-      clips,
-      vw: window.innerWidth,
+      hitMatches: !!(hit && hit.closest && hit.closest(selector)),
+      insideViewport: r.left >= -0.5 && r.right <= window.innerWidth + 0.5 && r.width > 0 && r.height > 0,
+      display: getComputedStyle(btn).display,
     };
-  });
-}
-
-async function expandClickFires(page, hit) {
-  if (!hit || !hit.hitIsExpand) return false;
-  await page.evaluate(() => {
-    window.__expandClicks = 0;
-    const btn = document.getElementById('inbox-sidebar-expand');
-    if (!btn || btn.dataset.hitProof === '1') return;
-    btn.dataset.hitProof = '1';
-    btn.addEventListener('click', () => { window.__expandClicks += 1; });
-  });
-  await page.mouse.click(hit.cx, hit.cy);
-  return page.evaluate(() => window.__expandClicks > 0);
+  }, sel);
 }
 
 async function main() {
@@ -277,7 +251,7 @@ async function main() {
     );
     ok(
       'es 390 closed: header chrome is tappable',
-      chromeVisible(closed),
+      chromeVisible(closed) && closed.expand && closed.expand.display === 'none',
       JSON.stringify({
         headerRight: closed.headerRight,
         lunaRow: closed.lunaRow,
@@ -288,14 +262,13 @@ async function main() {
         channel: closed.channel,
       })
     );
-    const closedHit = await expandHit(page);
-    console.log('expand-hit closed', JSON.stringify(closedHit));
-    const closedClick = await expandClickFires(page, closedHit);
+    const closedSpam = await actionHit(page, '#btn-inbox-spam');
+    const closedClear = await actionHit(page, '#btn-inbox-clear-thread');
     ok(
-      'es 390 closed: bookings expand is inside the clip and the click fires',
-      closedHit.hitIsExpand === true && closedHit.clipped === false &&
-        closedHit.insideViewport === true && closedHit.right <= 390 && closedClick === true,
-      JSON.stringify({ closedHit, closedClick })
+      'es 390 closed: Spam/Clear action chrome is hittable (bookings expand hidden on Chats)',
+      closedSpam.hitMatches === true && closedSpam.insideViewport === true &&
+        closedClear.hitMatches === true && closedClear.insideViewport === true,
+      JSON.stringify({ closedSpam, closedClear })
     );
 
     const opened = await page.evaluate(() => {
@@ -312,17 +285,17 @@ async function main() {
     ok(
       'es 390 open: rows show above the tab and chrome stays visible',
       open.rowH >= 20 && open.rowDisplay !== 'none' && open.rowTop < open.tabTop &&
-        open.tabText === ES_TITLE && chromeVisible(open),
+        open.tabText === ES_TITLE && chromeVisible(open) &&
+        open.expand && open.expand.display === 'none',
       JSON.stringify(open)
     );
-    const openHit = await expandHit(page);
-    console.log('expand-hit open', JSON.stringify(openHit));
-    const openClick = await expandClickFires(page, openHit);
+    const openSpam = await actionHit(page, '#btn-inbox-spam');
+    const openLuna = await actionHit(page, '#inbox-chat-chrome-slot .inbox-luna-mode-btn, #inbox-header-luna-row .inbox-luna-mode-btn');
     ok(
-      'es 390 open: bookings expand is inside the clip and the click fires',
-      openHit.hitIsExpand === true && openHit.clipped === false &&
-        openHit.insideViewport === true && openHit.right <= 390 && openClick === true,
-      JSON.stringify({ openHit, openClick })
+      'es 390 open: Spam/Luna action chrome stays hittable (bookings expand hidden on Chats)',
+      openSpam.hitMatches === true && openSpam.insideViewport === true &&
+        openLuna.hitMatches === true && openLuna.insideViewport === true,
+      JSON.stringify({ openSpam, openLuna })
     );
     console.log('proof', proofDir);
     await page.close();

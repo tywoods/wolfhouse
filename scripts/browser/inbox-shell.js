@@ -161,7 +161,11 @@ function inboxShellSyncAutonomyLock(locked){
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   btn.setAttribute('aria-label', on ? 'Unlock Luna Autonomy' : 'Lock Luna Autonomy');
   btn.title = on ? 'Unlock' : 'Lock';
-  btn.innerHTML = on ? inboxShellLockClosedSvg() : inboxShellLockOpenSvg();
+  var lockLabel = on
+    ? inboxShellT('inbox.channelControl.unlock', 'Unlock')
+    : inboxShellT('inbox.channelControl.lock', 'Lock');
+  btn.innerHTML = (on ? inboxShellLockClosedSvg() : inboxShellLockOpenSvg()) +
+    '<span class="channelAutonomyLockLabel">' + escHtml(lockLabel) + '</span>';
 }
 
 function inboxShellAutonomyStoredLocked(){
@@ -480,10 +484,15 @@ function inboxShellChannelDefaultsHtml(modes){
   var wa = inboxShellNormalizeWhatsApp(modes.whatsapp);
   var em = inboxShellNormalizeEmail(modes.email);
   var html = '<div class="inbox-shell-channel-defaults channelAutonomy" id="inbox-shell-channel-defaults">';
+  /* Title-only bottom tab; lock lives in panel content (not on the slim dock). */
   html += '<div class="channelAutonomyHead">';
   html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'LUNA AUTONOMY')) + '</div>';
-  html += '<button type="button" class="channelAutonomyLock" id="inbox-autonomy-lock" aria-pressed="false" aria-label="Lock Luna Autonomy" title="Lock">' + inboxShellLockOpenSvg() + '</button>';
   html += '</div>';
+  html += '<div class="channelAutonomyToolbar">';
+  html += '<button type="button" class="channelAutonomyLock" id="inbox-autonomy-lock" aria-pressed="false" aria-label="Lock Luna Autonomy" title="Lock">';
+  html += inboxShellLockOpenSvg();
+  html += '<span class="channelAutonomyLockLabel">' + escHtml(inboxShellT('inbox.channelControl.lock', 'Lock')) + '</span>';
+  html += '</button></div>';
   html += inboxShellAutonomyRowHtml('whatsapp', wa);
   html += inboxShellAutonomyRowHtml('email', em);
   html += inboxShellChannelSelectHtml('whatsapp', wa);
@@ -523,12 +532,17 @@ function inboxShellCssText(){
     '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}',
     '}',
     '.channelAutonomyLabel{margin:0;padding:0 8px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase}',
-    '.channelAutonomyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 4px}',
+    '.channelAutonomyHead{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:0 8px 4px}',
     '.channelAutonomyHead .channelAutonomyLabel{padding:0;flex:1;min-width:0}',
-    '.channelAutonomyLock{flex:0 0 auto;width:22px;height:22px;padding:0;margin:0;border:0;background:transparent;',
-    'color:#8a9690;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:4px}',
-    '.channelAutonomyLock svg{width:14px;height:14px;display:block}',
-    '.channelAutonomyLock:hover{color:#5c6661}',
+    /* Lock is panel content (own pill), never part of the slim dock title. */
+    '.channelAutonomyToolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px 8px;box-sizing:border-box}',
+    '.channelAutonomyLock{flex:0 0 auto;min-height:28px;padding:4px 12px;margin:0;border:1px solid var(--border-soft,#D5DADD);',
+    'background:var(--surface-soft,#ECEFF1);color:#8a9690;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;',
+    'gap:6px;border-radius:999px;font:inherit;font-size:11px;font-weight:700;letter-spacing:.02em;line-height:1.2;box-sizing:border-box}',
+    '.channelAutonomyLock svg{width:14px;height:14px;display:block;flex:0 0 auto}',
+    '.channelAutonomyLockLabel{white-space:nowrap}',
+    '.channelAutonomyLock:hover{color:#5c6661;border-color:var(--border,#C5C9CC)}',
+    '.channelAutonomy.is-locked .channelAutonomyLock{background:#E8C4C4;color:#9C3D3D;border-color:#E8B4B4}',
     '.channelAutonomy.is-locked .channelModeSegmented{pointer-events:none;opacity:.5}',
     '.channelAutonomy.is-locked .channelModeBtn{cursor:not-allowed}',
     '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;min-height:0;box-sizing:border-box;border-radius:8px}',
@@ -995,9 +1009,12 @@ function inboxMockupThemeCssText(){
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
     'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
     '#tab-conversations .inbox-mobile-back,#inbox-shell .inbox-mobile-back{display:inline-flex!important;width:max-content!important;align-self:flex-start;min-height:28px;padding:2px 0;margin:0 0 2px;border:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:500}',
-    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack{flex-direction:row;flex-wrap:wrap!important;align-items:center;justify-content:flex-start;gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box}',
-    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,#tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{display:flex!important;flex-direction:row;flex-wrap:wrap!important;align-items:center;gap:4px;flex:1 1 auto;min-width:0;max-width:100%;overflow-x:hidden!important}',
-    '#tab-conversations #inbox-shell.show-thread .detail-header-right{width:100%;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;flex-wrap:wrap!important}',
+    '#tab-conversations #inbox-shell.show-thread .detail-header{display:grid!important;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:start;gap:6px 8px;padding:10px 14px!important;overflow-x:hidden!important;max-width:100%;box-sizing:border-box}',
+    '#tab-conversations #inbox-shell.show-thread .detail-header-right,#tab-conversations #inbox-shell.show-thread .inbox-header-stack{display:contents!important}',
+    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel{grid-column:2;grid-row:1;display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;justify-content:flex-end;gap:4px;overflow-x:hidden}',
+    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{grid-column:1/-1;grid-row:2;display:flex!important;flex-direction:row;flex-wrap:wrap!important;align-items:center;gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden!important}',
+    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna > *,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #inbox-chat-chrome-slot,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-spam,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-clear-thread,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-conv-delete,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-refresh{order:0!important}',
+    '#tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{display:flex!important;flex-direction:row;flex-wrap:wrap!important;align-items:center;gap:4px;flex:0 0 auto;min-width:0;max-width:100%;overflow-x:hidden!important}',
     '#tab-conversations #inbox-shell.show-thread .thread-messages{flex:1 1 auto!important;min-height:0!important}',
     '#tab-conversations #inbox-shell.show-thread .draft-actions{display:flex;flex-wrap:nowrap;gap:6px;width:100%}',
     '#tab-conversations #inbox-shell.show-thread .draft-actions > button{flex:1 1 0;min-width:0;min-height:36px;padding:6px 8px;font-size:11px}',
@@ -1007,7 +1024,10 @@ function inboxMockupThemeCssText(){
     '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open),#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
     '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab),#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
     '#tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab,#tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
-    '#tab-conversations #inbox-shell.show-thread .detail-header{flex-wrap:wrap!important;overflow-x:hidden!important;max-width:100%;box-sizing:border-box}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > .inbox-conv-search-wrap.is-inbox-mobile-order{padding:8px 10px 8px!important;margin:0 0 14px!important;box-sizing:border-box}',
+    '#tab-conversations .inbox-col1 > .inbox-folder-tabs{display:flex!important;align-items:flex-end;padding:0;background:transparent!important;border:0!important;border-radius:0!important}',
+    '#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:40px!important;border:1px solid var(--border-soft)!important;border-bottom:none!important;border-radius:10px 10px 0 0!important;background:var(--surface-soft,#2a2a2b)!important;margin:0 2px 0 0!important;font-size:15px!important}',
+    '#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{background:var(--inbox-forest,var(--primary))!important;color:var(--cream,#F2F1EC)!important}',
     '}',
     '#inbox-shell .inbox-guest-card{',
     'background:var(--inbox-paper,var(--cream));',
