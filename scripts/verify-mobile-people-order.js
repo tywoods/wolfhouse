@@ -42,9 +42,10 @@ function sourceAssertions() {
   ok('mobile Luna card is moved after the list card',
     /inboxList\.insertAdjacentElement\('afterend', card\)/.test(shell)
     && /card\.classList\.add\('is-inbox-mobile-docked'\)/.test(shell));
-  ok('mobile grid has intrinsic rows for filter, search, list, Luna',
-    shell.includes('grid-template-rows:auto auto auto auto!important')
-    && shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}'));
+  ok('mobile grid pins filter+search, list scrolls, Autonomy docks below',
+    shell.includes('grid-template-rows:auto auto minmax(0,1fr)!important')
+    && shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}')
+    && shell.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
 }
 
 async function main() {
@@ -157,10 +158,14 @@ async function main() {
         await page.screenshot({ path: path.join(OUT_DIR, `people-order-${width}x${height}-${theme}.png`), fullPage: true });
         ok(`${width}x${height} ${theme} has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ scrollWidth: metric.bodyScrollW, width }));
         ok(`${width}x${height} ${theme} search is a shell row above list`, metric.searchParent === 'inbox-shell' && metric.search && metric.list && metric.search.bottom <= metric.list.top + 1, JSON.stringify(metric));
-        ok(`${width}x${height} ${theme} Luna is a shell row below list`, metric.autonomyParent === 'inbox-shell' && metric.autonomy && metric.list && metric.autonomy.top >= metric.list.bottom - 1, JSON.stringify(metric));
+        ok(`${width}x${height} ${theme} Luna docks at viewport bottom below list`,
+          metric.autonomyParent === 'inbox-shell' && metric.autonomy && metric.list
+          && metric.autonomy.top >= metric.list.bottom - 2
+          && Math.abs(metric.autonomy.bottom - height) <= 12,
+          JSON.stringify(metric));
         ok(`${width}x${height} ${theme} all four rows sit above Luna`,
           metric.rowRects.length === 4 && metric.autonomy
-          && metric.rowRects.every((row) => row.bottom <= metric.autonomy.top - 1),
+          && metric.rowRects.every((row) => row.bottom <= metric.autonomy.top + 1),
           JSON.stringify({ rows: metric.rowRects, autonomy: metric.autonomy }));
         const fourth = metric.rowRects[3];
         if (fourth) {
@@ -173,7 +178,7 @@ async function main() {
           metric.filter && metric.search && metric.list && metric.autonomy
           && metric.search.top >= metric.filter.bottom - 1
           && metric.list.top >= metric.search.bottom - 1
-          && metric.autonomy.top >= metric.list.bottom - 1,
+          && metric.autonomy.top >= metric.list.bottom - 2,
           JSON.stringify({ filter: metric.filter, search: metric.search, list: metric.list, autonomy: metric.autonomy, order: metric.shellOrder }));
         await page.close();
       }

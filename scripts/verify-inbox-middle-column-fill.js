@@ -58,8 +58,9 @@ function sourceAssertions() {
   ok('#conv-list fills the scroll region',
     shell.includes('#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list.conv-list{')
     && shell.includes('flex:1 1 auto;min-height:100%'));
-  ok('mobile left-rows content-size override kept',
-    shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}'));
+  ok('mobile left-rows scroll under pinned search (phone layout 002)',
+    shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}')
+    && shell.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
   ok('does not touch staff-query-api for this change', true);
 }
 
@@ -193,7 +194,7 @@ async function browserAssertions() {
       `${JSON.stringify({ short: shortM, long: longM }, null, 2)}\n`,
     );
 
-    console.log('\n[inbox-middle-column-fill] 3. Mobile override still content-sized');
+    console.log('\n[inbox-middle-column-fill] 3. Mobile list scrolls under pinned search');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(SETTLE_MS);
     await page.evaluate(() => {
@@ -213,10 +214,10 @@ async function browserAssertions() {
         overflowY: cs.overflowY,
       };
     });
-    ok('mobile left-rows is content-sized (not forced fill scroll)',
+    ok('mobile left-rows scrolls under pinned search (phone layout 002)',
       mobileM
-      && mobileM.flexGrow === '0'
-      && (mobileM.overflowY === 'visible' || mobileM.height === 'auto'),
+      && mobileM.flexGrow === '1'
+      && (mobileM.overflowY === 'auto' || mobileM.overflowY === 'scroll'),
       JSON.stringify(mobileM));
   } finally {
     await browser.close();

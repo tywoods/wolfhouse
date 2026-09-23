@@ -371,31 +371,32 @@ function inboxShellHookLocaleRefresh(){
   window.inboxShellRefreshAutonomyLabel = inboxShellRefreshAutonomyLabel;
 }
 
+function inboxShellAutonomyPhoneDocked(card){
+  if (!card || !card.classList || !inboxShellIsMobile()) return false;
+  if (!inboxShellConversationsPanelActive()) return false;
+  return card.classList.contains('is-inbox-mobile-docked');
+}
+
 function inboxShellApplyAutonomyPhoneClosed(card){
   if (!card || !card.classList) return;
-  var shell = inboxShellById('inbox-shell');
-  var phoneChat = !!(inboxShellIsMobile() && shell && shell.classList.contains('show-thread'));
-  if (!phoneChat) {
+  var phoneDocked = inboxShellAutonomyPhoneDocked(card);
+  if (!phoneDocked) {
     card.classList.remove('is-autonomy-open');
     card.removeAttribute('data-autonomy-keep-open');
     inboxShellAutonomyPhoneChatSeen = false;
-  } else if (!inboxShellAutonomyPhoneChatSeen && card.getAttribute('data-autonomy-keep-open') !== '1') {
+  } else if (card.getAttribute('data-autonomy-keep-open') !== '1') {
+    /* Default closed on list AND chat until the user opens the bottom tab. */
     card.classList.remove('is-autonomy-open');
-    inboxShellAutonomyPhoneChatSeen = true;
-  } else {
-    inboxShellAutonomyPhoneChatSeen = true;
   }
   inboxShellRefreshAutonomyLabel();
   var head = card.querySelector('.inbox-autonomy-bottom-tab');
   if (!head) return;
-  var open = phoneChat && card.classList.contains('is-autonomy-open');
+  var open = phoneDocked && card.classList.contains('is-autonomy-open');
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 function inboxShellToggleAutonomyPhoneTab(card){
-  if (!card || !card.classList || !inboxShellIsMobile()) return false;
-  var shell = inboxShellById('inbox-shell');
-  if (!shell || !shell.classList.contains('show-thread')) return false;
+  if (!card || !card.classList || !inboxShellAutonomyPhoneDocked(card)) return false;
   if (card.classList.contains('is-autonomy-open')) {
     card.classList.remove('is-autonomy-open');
     card.removeAttribute('data-autonomy-keep-open');
@@ -511,16 +512,15 @@ function inboxShellCssText(){
     'border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);',
     'box-shadow:none;flex:0 0 auto}',
     '@media(max-width:768px){',
-    '#tab-conversations #inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto auto auto!important}',
+    '#tab-conversations #inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch;order:2}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order .inbox-conv-search{height:40px;font-size:16px;background:var(--surface)}',
-    '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:8px 0 0;align-self:stretch;order:4}',
+    '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch}',
     '#tab-conversations #inbox-shell > .inbox-col1{order:1;position:sticky;top:0;z-index:40;align-self:start}',
     '#tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1}',
     '#tab-conversations #inbox-shell.show-thread > #conv-detail{order:2;min-height:0;display:flex;flex-direction:column;width:100%}',
-    '#tab-conversations #inbox-shell.show-thread > .inbox-shell-channel-defaults.is-inbox-mobile-docked{order:3}',
-    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:visible}',
-    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}',
+    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:hidden;display:flex;flex-direction:column}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}',
     '}',
     '.channelAutonomyLabel{margin:0;padding:0 8px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase}',
     '.channelAutonomyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 4px}',
@@ -916,7 +916,7 @@ function inboxMockupThemeCssText(){
     '#tabs .inbox-layout-controls{display:none!important}',
     '#tab-conversations .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}',
     '#inbox-shell.inbox-two-col.inbox-shell-cols{grid-template-columns:1fr!important;width:100%;max-width:100%}',
-    '#inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto auto auto!important}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important}',
     'html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols.show-thread{grid-template-rows:auto minmax(0,1fr)!important}',
     'html:not([data-portal-client]) #inbox-shell.inbox-two-col.inbox-shell-cols.show-thread{grid-template-rows:auto minmax(0,1fr)!important}',
     'html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{display:flex!important;flex-direction:column;width:100%;padding:0;gap:0;overflow:visible}',
@@ -930,7 +930,7 @@ function inboxMockupThemeCssText(){
     '#tab-conversations #inbox-shell > .inbox-col1{position:sticky;top:0;z-index:40;align-self:start}',
     '#tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1}',
     '#tab-conversations #inbox-shell.show-thread > #conv-detail{order:2;min-height:0;display:flex;flex-direction:column;width:100%}',
-    '#tab-conversations #inbox-shell.show-thread > .inbox-shell-channel-defaults.is-inbox-mobile-docked{order:3}',
+    '#tab-conversations #inbox-shell.show-thread > .inbox-shell-channel-defaults.is-inbox-mobile-docked{order:unset}',
     'body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) #inbox-shell.show-thread #inbox-detail-sidebar,',
     'body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) #inbox-shell.show-thread .detail-sidebar,',
     'body:not(:has([data-inbox-preset="guest"][aria-pressed="true"])) #inbox-shell.show-thread .inbox-guest-card{display:none!important}',
@@ -943,14 +943,14 @@ function inboxMockupThemeCssText(){
     '#inbox-shell .inbox-views-item.is-active .inbox-views-item-count{background:rgba(255,255,255,.22);color:inherit;box-shadow:none}',
     '#inbox-shell .inbox-views-item-ico{width:20px;height:20px;margin:0}',
     '#inbox-shell .inbox-views-item-ico svg{width:20px;height:20px}',
-    'html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px}',
-    'html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:44px}',
+    'html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:36px}',
+    'html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{min-height:36px}',
     'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1{gap:0}',
     'html:not([data-portal-client]) #inbox-shell > .inbox-col1{gap:0}',
-    'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%;border-radius:10px 10px 0 0;background:var(--surface)}',
-    'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%;border-radius:10px 10px 0 0;background:var(--surface)}',
-    'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{font-size:15px;border:0}',
-    'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{font-size:15px;border:0}',
+    'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%;padding:3px;border-radius:10px 10px 0 0;background:var(--surface)}',
+    'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-folder-tabs{margin:0;width:100%;padding:3px;border-radius:10px 10px 0 0;background:var(--surface)}',
+    'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{font-size:14px;border:0;margin:0;height:36px;border-radius:7px}',
+    'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{font-size:14px;border:0;margin:0;height:36px;border-radius:7px}',
     'html[data-portal-client="sunset"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active{background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC)}',
     'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active{background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC)}',
     'html[data-portal-client="sunset"][data-theme="dark"] #inbox-shell > .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active{background:var(--inbox-forest,var(--staff-green-bg,#1e3a28));color:var(--staff-green-text,#c8dcc8)}',
@@ -959,17 +959,17 @@ function inboxMockupThemeCssText(){
     'html:not([data-portal-client]) #inbox-shell > .inbox-col1 > .inbox-views-rail{border-top:0;border-radius:0 0 10px 10px}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch;order:2}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order .inbox-conv-search{height:40px;font-size:16px;background:var(--surface)}',
-    '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:8px 0 0;align-self:stretch;order:4}',
+    '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch}',
     '#tab-conversations #inbox-shell > .inbox-col1{order:1}',
-    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:visible}',
-    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}',
+    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:hidden;display:flex;flex-direction:column}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}',
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1,',
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{width:100%;max-width:100%;align-self:stretch}',
     '}',
     /* SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001: Chats stay top; Autonomy closed behind a Guest-style bottom tab; header chrome stays */
     '@media(max-width:768px){',
-    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr) auto!important;height:100%;max-height:100%;min-height:0;overflow:hidden}',
-    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr) auto!important;height:100%;max-height:100%;min-height:0;overflow:hidden}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));box-sizing:border-box}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr)!important;height:100%;max-height:100%;min-height:0;overflow:hidden;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));box-sizing:border-box}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
     'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}',
@@ -979,6 +979,29 @@ function inboxMockupThemeCssText(){
     'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
     'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
     '#tab-conversations #inbox-shell.show-thread .detail-header-right,#tab-conversations #inbox-shell.show-thread #inbox-header-luna-row,#tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{display:flex!important;visibility:visible!important;min-width:44px;min-height:28px}',
+    '}',
+    /* SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002: viewport-bottom Autonomy + pinned search + slim back + compact chrome */
+    '@media(max-width:768px){',
+    'html[data-portal-client="sunset"] #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0;z-index:60;width:100%;max-width:100vw;margin:0!important;padding-bottom:env(safe-area-inset-bottom,0px)!important;box-sizing:border-box}',
+    'html:not([data-portal-client]) #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{position:fixed!important;left:0;right:0;bottom:0;z-index:60;width:100%;max-width:100vw;margin:0!important;padding-bottom:env(safe-area-inset-bottom,0px)!important;box-sizing:border-box}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr)!important;padding-bottom:calc(44px + env(safe-area-inset-bottom,0px));height:100%;max-height:100%;overflow:hidden;box-sizing:border-box}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread):has(> .is-inbox-mobile-docked.is-autonomy-open){padding-bottom:calc(148px + env(safe-area-inset-bottom,0px))}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
+    '#tab-conversations .inbox-mobile-back,#inbox-shell .inbox-mobile-back{display:inline-flex!important;width:max-content!important;align-self:flex-start;min-height:28px;padding:2px 0;margin:0 0 2px;border:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:500}',
+    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden;box-sizing:border-box}',
+    '#tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,#tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,#tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;flex:1 1 auto;min-width:0;max-width:100%}',
+    '#tab-conversations #inbox-shell.show-thread .detail-header-right{width:100%;max-width:100%;min-width:0;overflow-x:hidden;box-sizing:border-box}',
+    '#tab-conversations #inbox-shell.show-thread .thread-messages{flex:1 1 auto!important;min-height:0!important}',
+    '#tab-conversations #inbox-shell.show-thread .draft-actions{display:flex;flex-wrap:nowrap;gap:6px;width:100%}',
+    '#tab-conversations #inbox-shell.show-thread .draft-actions > button{flex:1 1 0;min-width:0;min-height:36px;padding:6px 8px;font-size:11px}',
+    '#tab-conversations #inbox-shell.show-thread #draft-textarea{min-height:40px!important;max-height:56px}',
     '}',
     '#inbox-shell .inbox-guest-card{',
     'background:var(--inbox-paper,var(--cream));',
