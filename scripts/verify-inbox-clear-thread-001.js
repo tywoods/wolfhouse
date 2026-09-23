@@ -363,25 +363,27 @@ async function main() {
   const pkg = JSON.parse(read(PKG) || '{}');
   const lunaAllSrc = read(LUNA_ALL);
 
-  console.log('[1] Generated header: Luna, then Clear, then Refresh');
-  const loadFn = sliceFn(threadSrc, 'loadConvDetail');
+  console.log('[1] Generated header: Luna, Clear, Delete via overflow; Refresh with channels');
   const cookFn = sliceFn(threadSrc, 'inboxCookSelectedConversationHeaderActions');
+  const loadFn = sliceFn(threadSrc, 'loadConvDetail');
   ok('Clear button helper exists', /function inboxClearThreadButtonHtml\(/.test(threadSrc));
   ok('successful Clear visibly replaces old bubbles with an explicit cleared state',
     /getElementById\('thread-container'\)/.test(threadSrc)
     && /thread\.innerHTML = .*Conversation cleared/.test(threadSrc));
   ok('header luna row includes Clear button html',
     /inboxClearThreadButtonHtml\(/.test(loadFn) || /id="btn-inbox-clear-thread"/.test(loadFn));
-  ok('cooked order appends chrome then Clear then Refresh',
-    /inbox-chat-chrome-slot/.test(cookFn)
-    && /btn-inbox-clear-thread/.test(cookFn)
+  ok('cook puts Spam/Clear/Delete/Luna into overflow panel; Refresh stays with channels',
+    /inboxEnsureThreadOverflowMenu/.test(cookFn)
+    && /panel\.appendChild\(clearBtn\)/.test(cookFn)
+    && /panel\.appendChild\(chrome\)/.test(cookFn)
     && /inboxRefreshBtn|btn-refresh/.test(cookFn)
-    && cookFn.indexOf('inbox-chat-chrome-slot') < cookFn.indexOf('btn-inbox-clear-thread')
-    && cookFn.indexOf('btn-inbox-clear-thread') < Math.max(cookFn.indexOf('inboxRefreshBtn'), cookFn.indexOf('btn-refresh')));
-  ok('CSS order is luna chrome, Clear, Refresh',
-    /\.inbox-header-stack-luna \.inbox-chat-chrome-slot\{[^}]*order:\s*1/.test(apiSrc)
-    && /#btn-inbox-clear-thread\{[^}]*order:\s*2/.test(apiSrc)
-    && /\.inbox-header-stack-luna #btn-refresh\{[^}]*order:\s*3/.test(apiSrc));
+    && /channel\.appendChild\(refresh\)/.test(cookFn)
+    && cookFn.indexOf('appendChild(spam)') < cookFn.indexOf('appendChild(clearBtn)')
+    && cookFn.indexOf('appendChild(clearBtn)') < cookFn.indexOf('appendChild(chrome)'));
+  ok('CSS keeps Clear pebble styling + overflow menu markers',
+    /#btn-inbox-clear-thread|inbox-clear-thread-btn/.test(apiSrc)
+    && /SHARED-PHONE-INBOX-OVERFLOW-006/.test(apiSrc)
+    && /inbox-thread-overflow/.test(apiSrc));
   ok('English label is exactly Clear',
     /'inbox\.detail\.clearThread\.button': 'Clear'/.test(i18nSrc));
 
@@ -417,6 +419,7 @@ async function main() {
 
   if (typeof ui.inboxCookSelectedConversationHeaderActions === 'function') {
     const row = miniNode('div', { id: 'inbox-header-luna-row' });
+    const channel = miniNode('div', { className: 'inbox-header-stack-channel' });
     const refresh = miniNode('button', { id: 'btn-refresh', textContent: '↻' });
     const clearBtn = miniNode('button', { id: 'btn-inbox-clear-thread', textContent: 'Clear' });
     const chrome = miniNode('div', { id: 'inbox-chat-chrome-slot' });
@@ -427,20 +430,41 @@ async function main() {
     ui.__byId['inbox-chat-chrome-slot'] = chrome;
     ui.__byId['btn-inbox-clear-thread'] = clearBtn;
     ui.__byId['btn-refresh'] = refresh;
-    ui.document.getElementById = (id) => ui.__byId[id] || null;
+    /* Sandbox has no matchMedia → desktop path: panel inline, actions inside overflow wrap. */
+    ui.window.matchMedia = () => ({ matches: false });
+    ui.window.innerWidth = 1200;
+    ui.document.querySelector = (sel) => {
+      if (sel.indexOf('inbox-header-stack-channel') >= 0) return channel;
+      if (sel.charAt(0) === '#') return ui.__byId[sel.slice(1)] || null;
+      return null;
+    };
+    ui.document.getElementById = (id) => {
+      if (ui.__byId[id]) return ui.__byId[id];
+      /* Walk cooked row for overflow ids created at runtime. */
+      const found = [];
+      walk(row, (n) => { if (n.id === id) found.push(n); });
+      walk(channel, (n) => { if (n.id === id) found.push(n); });
+      return found[0] || null;
+    };
     ui.inboxCookSelectedConversationHeaderActions();
     const ids = row.children.map((c) => c.id);
-    ok('cooked DOM order is chrome, Clear, Refresh',
-      ids[0] === 'inbox-chat-chrome-slot'
-      && ids[1] === 'btn-inbox-clear-thread'
-      && ids[2] === 'btn-refresh',
-      JSON.stringify(ids));
-    ok('chrome still holds the single Luna control',
+    const overflow = row.children.find((c) => c.id === 'inbox-thread-overflow');
+    const panel = overflow && overflow.querySelector
+      ? overflow.querySelector('#inbox-thread-overflow-panel')
+      : null;
+    ok('cooked row hosts overflow wrap (not raw Clear on the row)',
+      ids.indexOf('inbox-thread-overflow') >= 0
+      && ids.indexOf('btn-inbox-clear-thread') < 0
+      && !!(panel && panel.contains && panel.contains(clearBtn))
+      && !!(panel && panel.contains && panel.contains(chrome))
+      && channel.contains(refresh),
+      JSON.stringify({ ids, panelKids: panel && panel.children ? panel.children.map((c) => c.id) : null }));
+    ok('chrome still holds the single Luna control after cook',
       chrome.querySelector('.inbox-luna-mode')
-      && row.children.filter((c) => c.id === 'inbox-chat-chrome-slot').length === 1);
+      || (chrome.children || []).some((c) => c.className === 'inbox-luna-mode'));
   } else {
-    ok('cooked DOM order is chrome, Clear, Refresh', false, 'cook helper missing');
-    ok('chrome still holds the single Luna control', false, 'cook helper missing');
+    ok('cooked row hosts overflow wrap (not raw Clear on the row)', false, 'cook helper missing');
+    ok('chrome still holds the single Luna control after cook', false, 'cook helper missing');
   }
 
   console.log('\n[2] Confirm dialog: cancel zero requests; confirm exact endpoint');

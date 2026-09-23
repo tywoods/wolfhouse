@@ -8,8 +8,9 @@
  * lock is panel content (own pill), never on the slim dock title;
  * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
  * equal 8px stack gaps on list + thread; search pinned under filters;
- * name+tag | WA/Email/Refresh on one row; action row (← Spam Clear Delete Luna);
- * taller transcript fills leftover space; back survives conversation switches.
+ * name+tag | WA/Email/Refresh on one row; action row (← + ⋯ overflow);
+ * ⋯ menu holds Spam / Clear / Delete / Luna On|Off; taller transcript fills leftover;
+ * back survives conversation switches.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -172,23 +173,38 @@ ok(
     /data-autonomy-keep-open/.test(shell)
 );
 ok(
-  'JS cooks phone action row (back, spam, clear, delete, luna) + refresh in channel stack',
+  'SHARED-PHONE-INBOX-OVERFLOW-006 CSS: phone popover + desktop inline',
+  phoneCss.includes('SHARED-PHONE-INBOX-OVERFLOW-006') &&
+    phoneCss.includes('.inbox-thread-overflow') &&
+    phoneCss.includes('.inbox-thread-overflow-btn') &&
+    phoneCss.includes('.inbox-thread-overflow-panel') &&
+    api.includes('@media(min-width:769px)') &&
+    /inbox-thread-overflow-btn\{display:none!important\}/.test(api) &&
+    shell.includes('SHARED-PHONE-INBOX-OVERFLOW-006')
+);
+ok(
+  'JS cooks phone action row (back + ⋯) with Spam/Clear/Delete/Luna in overflow panel; refresh in channel',
   (() => {
     const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
     const cook = threadSrc.slice(
       threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
-      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 1600
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 2200
     );
     return (
+      /function inboxEnsureThreadOverflowMenu\(/.test(threadSrc) &&
+      /function inboxPhoneThreadOverflow\(/.test(threadSrc) &&
+      /function inboxCloseThreadOverflowMenu\(/.test(threadSrc) &&
       /row\.appendChild\(back\)/.test(cook) &&
-      /row\.appendChild\(spam\)/.test(cook) &&
-      /row\.appendChild\(clearBtn\)/.test(cook) &&
-      /row\.appendChild\(deleteBtn\)/.test(cook) &&
-      /row\.appendChild\(chrome\)/.test(cook) &&
+      /row\.appendChild\(overflow\)/.test(cook) &&
+      /panel\.appendChild\(spam\)/.test(cook) &&
+      /panel\.appendChild\(clearBtn\)/.test(cook) &&
+      /panel\.appendChild\(deleteBtn\)/.test(cook) &&
+      /panel\.appendChild\(chrome\)/.test(cook) &&
       /channel\.appendChild\(refresh\)/.test(cook) &&
-      cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(spam)') &&
-      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(chrome)') &&
-      cook.indexOf('channel.appendChild(refresh)') < cook.indexOf('row.appendChild(chrome)')
+      cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(overflow)') &&
+      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(clearBtn)') &&
+      cook.indexOf('appendChild(clearBtn)') < cook.indexOf('appendChild(deleteBtn)') &&
+      cook.indexOf('appendChild(deleteBtn)') < cook.indexOf('appendChild(chrome)')
     );
   })()
 );
@@ -292,6 +308,13 @@ async function measureThread(page) {
     const refresh = document.querySelector('#btn-refresh');
     const draft = document.querySelector('#inbox-shell.show-thread .draft-panel');
     const threadSection = document.querySelector('#inbox-shell.show-thread .thread-section, #inbox-shell.show-thread .thread');
+    const overflow = document.getElementById('inbox-thread-overflow');
+    const overflowBtn = document.getElementById('inbox-thread-overflow-btn');
+    const overflowPanel = document.getElementById('inbox-thread-overflow-panel');
+    const spam = document.getElementById('btn-inbox-spam');
+    const clearBtn = document.getElementById('btn-inbox-clear-thread');
+    const deleteBtn = document.getElementById('btn-inbox-conv-delete');
+    const chrome = document.getElementById('inbox-chat-chrome-slot');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -315,6 +338,9 @@ async function measureThread(page) {
         clientWidth: el.clientWidth,
       };
     }
+    function visible(el) {
+      return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+    }
     const nameBox = box(name);
     const channelBox = box(channel);
     const headerBox = box(header);
@@ -322,7 +348,16 @@ async function measureThread(page) {
     const draftBox = box(draft);
     const refreshInChannel = !!(refresh && channel && channel.contains(refresh));
     const refreshInLuna = !!(refresh && stack && stack.contains(refresh));
-    const backVisible = !!(back && getComputedStyle(back).display !== 'none' && back.getClientRects().length > 0);
+    const backVisible = visible(back);
+    const overflowOpen = !!(overflow && overflow.classList.contains('is-open') && overflowPanel && !overflowPanel.hidden);
+    const rowKids = stack
+      ? Array.from(stack.children).map((el) => el.id || el.className || el.tagName)
+      : [];
+    const spamInPanel = !!(spam && overflowPanel && overflowPanel.contains(spam));
+    const clearInPanel = !!(clearBtn && overflowPanel && overflowPanel.contains(clearBtn));
+    const deleteInPanel = !!(deleteBtn && overflowPanel && overflowPanel.contains(deleteBtn));
+    const chromeInPanel = !!(chrome && overflowPanel && overflowPanel.contains(chrome));
+    const spamOnRow = !!(spam && stack && stack.contains(spam) && (!overflowPanel || !overflowPanel.contains(spam)));
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
@@ -352,6 +387,18 @@ async function measureThread(page) {
       deadBandBelowDraft: draftBox && autoTab
         ? Math.round(autoTab.getBoundingClientRect().top - draftBox.bottom)
         : (draftBox ? Math.round(window.innerHeight - draftBox.bottom) : null),
+      overflowBtn: box(overflowBtn),
+      overflowBtnVisible: visible(overflowBtn),
+      overflowOpen,
+      overflowPanelVisible: visible(overflowPanel),
+      spamInPanel,
+      clearInPanel,
+      deleteInPanel,
+      chromeInPanel,
+      spamOnRow,
+      spamVisibleClosed: visible(spam),
+      clearVisibleClosed: visible(clearBtn),
+      rowKids,
     };
   });
 }
@@ -522,6 +569,77 @@ async function main() {
             thread.back.height <= 34 &&
             thread.back.width <= 40,
           JSON.stringify(thread.back)
+        );
+        ok(
+          '390 chat: action row is ← + ⋯ only (Spam/Clear/Delete/Luna tucked in menu)',
+          thread.backVisible === true &&
+            thread.overflowBtnVisible === true &&
+            thread.overflowOpen === false &&
+            thread.overflowPanelVisible === false &&
+            thread.spamInPanel === true &&
+            thread.clearInPanel === true &&
+            thread.deleteInPanel === true &&
+            thread.chromeInPanel === true &&
+            thread.spamOnRow === false &&
+            thread.spamVisibleClosed === false &&
+            thread.clearVisibleClosed === false,
+          JSON.stringify({
+            overflowBtnVisible: thread.overflowBtnVisible,
+            overflowOpen: thread.overflowOpen,
+            spamInPanel: thread.spamInPanel,
+            clearInPanel: thread.clearInPanel,
+            deleteInPanel: thread.deleteInPanel,
+            chromeInPanel: thread.chromeInPanel,
+            spamOnRow: thread.spamOnRow,
+            spamVisibleClosed: thread.spamVisibleClosed,
+            clearVisibleClosed: thread.clearVisibleClosed,
+            rowKids: thread.rowKids,
+          })
+        );
+        /* Open ⋯ and confirm menu actions become hittable. */
+        await page.click('#inbox-thread-overflow-btn');
+        await page.waitForTimeout(200);
+        const menuOpen = await page.evaluate(() => {
+          const wrap = document.getElementById('inbox-thread-overflow');
+          const panel = document.getElementById('inbox-thread-overflow-panel');
+          const spam = document.getElementById('btn-inbox-spam');
+          const clearBtn = document.getElementById('btn-inbox-clear-thread');
+          const deleteBtn = document.getElementById('btn-inbox-conv-delete');
+          const luna = document.querySelector('#inbox-chat-chrome-slot .inbox-luna-mode-btn, #inbox-thread-overflow-panel .inbox-luna-mode');
+          function vis(el) {
+            return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+          }
+          return {
+            open: !!(wrap && wrap.classList.contains('is-open') && panel && !panel.hidden),
+            spam: vis(spam),
+            clear: vis(clearBtn),
+            del: vis(deleteBtn),
+            luna: vis(luna),
+          };
+        });
+        ok(
+          '390 chat: ⋯ menu opens Spam/Clear/Delete/Luna',
+          menuOpen.open === true &&
+            menuOpen.spam === true &&
+            menuOpen.clear === true &&
+            menuOpen.del === true &&
+            menuOpen.luna === true,
+          JSON.stringify(menuOpen)
+        );
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        const menuClosed = await page.evaluate(() => {
+          const wrap = document.getElementById('inbox-thread-overflow');
+          const panel = document.getElementById('inbox-thread-overflow-panel');
+          return {
+            open: !!(wrap && wrap.classList.contains('is-open')),
+            panelHidden: !!(panel && panel.hidden),
+          };
+        });
+        ok(
+          '390 chat: Escape closes ⋯ menu',
+          menuClosed.open === false && menuClosed.panelHidden === true,
+          JSON.stringify(menuClosed)
         );
         ok(
           '390 chat: equal stack gaps around header/messages/reply',

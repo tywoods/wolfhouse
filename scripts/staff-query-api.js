@@ -22774,6 +22774,45 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;
     flex:0 0 auto;min-width:0;max-width:100%;overflow-x:hidden;
   }
+  /* SHARED-PHONE-INBOX-OVERFLOW-006: Spam/Clear/Delete/Luna live in a … menu on phone. */
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow{
+    position:relative;display:inline-flex;align-items:center;flex:0 0 auto;margin-left:auto;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-btn{
+    display:inline-flex!important;align-items:center;justify-content:center;
+    width:28px;min-width:28px;height:28px;min-height:28px;padding:0;margin:0;
+    border:1px solid var(--border-soft);border-radius:8px;
+    background:var(--surface-soft);color:var(--text);font-size:18px;font-weight:700;line-height:1;
+    cursor:pointer;flex:0 0 auto;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-btn:hover{
+    background:var(--surface);color:var(--text);
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel{
+    display:none;flex-direction:column;align-items:stretch;gap:6px;
+    position:absolute;right:0;top:calc(100% + 4px);z-index:70;
+    min-width:min(240px,calc(100vw - 24px));max-width:min(280px,calc(100vw - 16px));
+    padding:8px;box-sizing:border-box;
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;
+    box-shadow:var(--shadow-soft);
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow.is-open .inbox-thread-overflow-panel,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel:not([hidden]){
+    display:flex!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-spam,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-clear-thread,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-conv-delete{
+    width:100%;justify-content:center;box-sizing:border-box;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #inbox-chat-chrome-slot,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .detail-header-switches,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode{
+    width:100%;max-width:100%;justify-content:space-between;flex-wrap:wrap;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-seg{
+    flex:1 1 auto;
+  }
   /* SHARED-PHONE-INBOX-THREAD-FILL-005: messages grow into leftover space above Autonomy. */
   #tab-conversations.active{
     display:flex!important;flex-direction:column!important;
@@ -22849,6 +22888,19 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   border-radius:6px;border:1px solid var(--border)!important;
   background:transparent!important;color:var(--text-2)!important;
   box-shadow:none!important;font-size:13px;line-height:1;
+}
+/* SHARED-PHONE-INBOX-OVERFLOW-006 desktop: actions stay inline; hide the … trigger. */
+@media(min-width:769px){
+  #inbox-shell .inbox-thread-overflow{
+    display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;position:relative;
+  }
+  #inbox-shell .inbox-thread-overflow-btn{display:none!important}
+  #inbox-shell .inbox-thread-overflow-panel,
+  #inbox-shell .inbox-thread-overflow-panel[hidden]{
+    display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;
+    position:static;min-width:0;max-width:none;padding:0;margin:0;
+    background:transparent;border:0;border-radius:0;box-shadow:none;
+  }
 }
 #tabs .inbox-layout-controls{display:none;margin-left:auto;margin-right:0;align-self:center}
 body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls{display:flex}

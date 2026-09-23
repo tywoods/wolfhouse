@@ -114,6 +114,8 @@ async function measure(page) {
     const expand = document.getElementById('inbox-sidebar-expand');
     const spam = document.getElementById('btn-inbox-spam');
     const clear = document.getElementById('btn-inbox-clear-thread');
+    const overflowBtn = document.getElementById('inbox-thread-overflow-btn');
+    const overflowPanel = document.getElementById('inbox-thread-overflow-panel');
     const channel = document.querySelector('#inbox-chat-chrome-slot .inbox-composer-channel, #inbox-shell .inbox-header-stack-channel');
     function box(el) {
       if (!el) return { missing: true, w: 0, h: 0, display: 'missing', text: '' };
@@ -150,6 +152,8 @@ async function measure(page) {
       expand: box(expand),
       spam: box(spam),
       clear: box(clear),
+      overflowBtn: box(overflowBtn),
+      overflowOpen: !!(overflowPanel && !overflowPanel.hidden),
       channel: box(channel),
       expectedTitle,
       locale: document.documentElement.getAttribute('lang'),
@@ -158,11 +162,14 @@ async function measure(page) {
 }
 
 function chromeVisible(metrics) {
-  /* Phone Chats hides bookings expand (guest card off). header-right is display:contents. */
-  return ['lunaRow', 'chrome', 'spam', 'clear', 'channel'].every((key) => {
-    const box = metrics[key];
-    return box && !box.missing && box.display !== 'none' && box.w > 0 && box.h > 0;
-  });
+  /* Phone Chats: action chrome is ← + ⋯; Spam/Clear/Luna live in the overflow menu. */
+  const overflowOk = metrics.overflowBtn && !metrics.overflowBtn.missing &&
+    metrics.overflowBtn.display !== 'none' && metrics.overflowBtn.w > 0 && metrics.overflowBtn.h > 0;
+  const lunaRowOk = metrics.lunaRow && !metrics.lunaRow.missing &&
+    metrics.lunaRow.display !== 'none' && metrics.lunaRow.w > 0 && metrics.lunaRow.h > 0;
+  const channelOk = metrics.channel && !metrics.channel.missing &&
+    metrics.channel.display !== 'none' && metrics.channel.w > 0 && metrics.channel.h > 0;
+  return !!(overflowOk && lunaRowOk && channelOk);
 }
 
 async function actionHit(page, sel) {
@@ -227,6 +234,9 @@ async function main() {
       if (typeof window.setStaffLocale === 'function') window.setStaffLocale('es');
       if (typeof window.inboxShellRefreshAutonomyLabel === 'function') window.inboxShellRefreshAutonomyLabel();
       if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
+      if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+        window.inboxCookSelectedConversationHeaderActions();
+      }
     });
     await page.waitForTimeout(SETTLE_MS);
     const closed = await measure(page);
@@ -255,21 +265,29 @@ async function main() {
       JSON.stringify({
         headerRight: closed.headerRight,
         lunaRow: closed.lunaRow,
-        chrome: closed.chrome,
-        spam: closed.spam,
-        clear: closed.clear,
-        expand: closed.expand,
+        overflowBtn: closed.overflowBtn,
         channel: closed.channel,
+        expand: closed.expand,
       })
     );
+    const closedOverflow = await actionHit(page, '#inbox-thread-overflow-btn');
+    ok(
+      'es 390 closed: ⋯ overflow trigger is hittable (Spam/Clear live in the menu)',
+      closedOverflow.hitMatches === true && closedOverflow.insideViewport === true,
+      JSON.stringify({ closedOverflow })
+    );
+    await page.click('#inbox-thread-overflow-btn');
+    await page.waitForTimeout(200);
     const closedSpam = await actionHit(page, '#btn-inbox-spam');
     const closedClear = await actionHit(page, '#btn-inbox-clear-thread');
     ok(
-      'es 390 closed: Spam/Clear action chrome is hittable (bookings expand hidden on Chats)',
+      'es 390 closed: Spam/Clear action chrome is hittable via ⋯ menu (bookings expand hidden on Chats)',
       closedSpam.hitMatches === true && closedSpam.insideViewport === true &&
         closedClear.hitMatches === true && closedClear.insideViewport === true,
       JSON.stringify({ closedSpam, closedClear })
     );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
 
     const opened = await page.evaluate(() => {
       const label = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab .channelAutonomyLabel');
@@ -291,11 +309,20 @@ async function main() {
     );
     const openSpam = await actionHit(page, '#btn-inbox-spam');
     const openLuna = await actionHit(page, '#inbox-chat-chrome-slot .inbox-luna-mode-btn, #inbox-header-luna-row .inbox-luna-mode-btn');
+    const needOpenMenu = !(openSpam.hitMatches && openLuna.hitMatches);
+    if (needOpenMenu) {
+      await page.click('#inbox-thread-overflow-btn');
+      await page.waitForTimeout(200);
+    }
+    const openSpam2 = needOpenMenu ? await actionHit(page, '#btn-inbox-spam') : openSpam;
+    const openLuna2 = needOpenMenu
+      ? await actionHit(page, '#inbox-chat-chrome-slot .inbox-luna-mode-btn, #inbox-thread-overflow-panel .inbox-luna-mode-btn')
+      : openLuna;
     ok(
-      'es 390 open: Spam/Luna action chrome stays hittable (bookings expand hidden on Chats)',
-      openSpam.hitMatches === true && openSpam.insideViewport === true &&
-        openLuna.hitMatches === true && openLuna.insideViewport === true,
-      JSON.stringify({ openSpam, openLuna })
+      'es 390 open: Spam/Luna action chrome stays hittable via ⋯ menu (bookings expand hidden on Chats)',
+      openSpam2.hitMatches === true && openSpam2.insideViewport === true &&
+        openLuna2.hitMatches === true && openLuna2.insideViewport === true,
+      JSON.stringify({ openSpam: openSpam2, openLuna: openLuna2, needOpenMenu })
     );
     console.log('proof', proofDir);
     await page.close();

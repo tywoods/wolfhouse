@@ -788,15 +788,145 @@ function inboxCookSelectedConversationHeaderActions(){
     ? document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel')
     : null;
   var back = inboxParkMobileBackBtn();
-  /* Action row: ← Spam Clear Delete Luna. Refresh sits with WA/Email (top-right). */
+  var overflow = inboxEnsureThreadOverflowMenu();
+  var panel = overflow
+    ? (overflow.querySelector('#inbox-thread-overflow-panel') || document.getElementById('inbox-thread-overflow-panel'))
+    : null;
+  var phone = inboxPhoneThreadOverflow();
+  /* Action row (phone): ← + ⋯. Refresh stays with WA/Email. Menu holds Spam/Clear/Delete/Luna. */
   if (back) row.appendChild(back);
-  if (spam) row.appendChild(spam);
-  if (clearBtn) row.appendChild(clearBtn);
-  if (deleteBtn) row.appendChild(deleteBtn);
+  if (overflow) row.appendChild(overflow);
+  if (panel && overflow) {
+    if (spam) panel.appendChild(spam);
+    if (clearBtn) panel.appendChild(clearBtn);
+    if (deleteBtn) panel.appendChild(deleteBtn);
+    if (chrome) panel.appendChild(chrome);
+    var overflowBtn = document.getElementById('inbox-thread-overflow-btn');
+    if (!phone) {
+      /* Desktop: panel stays inline; hide the ⋯ trigger via CSS. */
+      panel.hidden = false;
+      overflow.classList.remove('is-open');
+      if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
+    } else if (!overflow.classList.contains('is-open')) {
+      /* Phone: keep menu closed unless the guest already opened it. */
+      panel.hidden = true;
+      if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
+    }
+  } else {
+    if (spam) row.appendChild(spam);
+    if (clearBtn) row.appendChild(clearBtn);
+    if (deleteBtn) row.appendChild(deleteBtn);
+    if (chrome) row.appendChild(chrome);
+  }
   if (refresh && channel) channel.appendChild(refresh);
   else if (refresh) row.appendChild(refresh);
-  if (chrome) row.appendChild(chrome);
   return row;
+}
+
+function inboxPhoneThreadOverflow(){
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia) return window.matchMedia('(max-width: 768px)').matches;
+  return window.innerWidth <= 768;
+}
+
+function inboxEnsureThreadOverflowMenu(){
+  if (typeof document === 'undefined') return null;
+  var row = document.getElementById('inbox-header-luna-row');
+  if (!row) return null;
+  var wrap = document.getElementById('inbox-thread-overflow');
+  if (!wrap && row.querySelector) {
+    wrap = row.querySelector('#inbox-thread-overflow');
+  }
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'inbox-thread-overflow';
+    wrap.className = 'inbox-thread-overflow';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'inbox-thread-overflow-btn';
+    btn.id = 'inbox-thread-overflow-btn';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-controls', 'inbox-thread-overflow-panel');
+    btn.title = 'More actions';
+    btn.setAttribute('aria-label', 'More actions');
+    btn.textContent = '\u22EF';
+    var panel = document.createElement('div');
+    panel.className = 'inbox-thread-overflow-panel';
+    panel.id = 'inbox-thread-overflow-panel';
+    panel.hidden = true;
+    panel.setAttribute('role', 'menu');
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
+  }
+  if (wrap.parentNode !== row) row.appendChild(wrap);
+  inboxWireThreadOverflowMenu(wrap);
+  return wrap;
+}
+
+function inboxCloseThreadOverflowMenu(){
+  var wrap = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow') : null;
+  var panel = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow-panel') : null;
+  var btn = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow-btn') : null;
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  if (wrap) wrap.classList.remove('is-open');
+}
+
+function inboxWireThreadOverflowMenu(wrap){
+  wrap = wrap || (typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow') : null);
+  if (!wrap) return;
+  if (!wrap.dataset) wrap.dataset = {};
+  if (wrap.dataset.wiredOverflow === '1') return;
+  wrap.dataset.wiredOverflow = '1';
+  var btn = wrap.querySelector('#inbox-thread-overflow-btn') || wrap.querySelector('.inbox-thread-overflow-btn');
+  var panel = wrap.querySelector('#inbox-thread-overflow-panel') || wrap.querySelector('.inbox-thread-overflow-panel');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', function(ev){
+    if (!inboxPhoneThreadOverflow()) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var open = panel.hidden;
+    if (open) {
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      wrap.classList.add('is-open');
+    } else {
+      inboxCloseThreadOverflowMenu();
+    }
+  });
+  panel.addEventListener('click', function(ev){
+    if (!inboxPhoneThreadOverflow()) return;
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    if (t.closest('button, a, [role="menuitem"], .inbox-luna-mode-btn')) {
+      /* Close after choosing an action so the thread chrome stays uncluttered. */
+      setTimeout(function(){ inboxCloseThreadOverflowMenu(); }, 0);
+    }
+  });
+  if (typeof document !== 'undefined' && document.documentElement &&
+      !document.documentElement.dataset.inboxThreadOverflowDocWired) {
+    document.documentElement.dataset.inboxThreadOverflowDocWired = '1';
+    document.addEventListener('click', function(ev){
+      var root = document.getElementById('inbox-thread-overflow');
+      if (!root || !root.classList.contains('is-open')) return;
+      if (root.contains(ev.target)) return;
+      inboxCloseThreadOverflowMenu();
+    });
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape') inboxCloseThreadOverflowMenu();
+    });
+  }
+  if (typeof window !== 'undefined' && !window.__inboxThreadOverflowResizeWired) {
+    window.__inboxThreadOverflowResizeWired = true;
+    window.addEventListener('resize', function(){
+      if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+        window.inboxCookSelectedConversationHeaderActions();
+      } else {
+        inboxCookSelectedConversationHeaderActions();
+      }
+    });
+  }
 }
 
 function inboxAdoptRefreshToHeader(){
