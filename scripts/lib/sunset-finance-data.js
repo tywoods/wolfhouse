@@ -365,6 +365,9 @@ const LODGING_BOOKINGS_SQL = `
      AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
 `;
 
+// Lodging stay totals recognized as accommodation BSR, tagged with package identity
+// so Finanzas "Revenue by product" can roll up Malibu / Uluwatu / Waimea (etc.).
+// Empty metadata previously forced a single "Accommodation" blob + surf "—" placeholders.
 const LODGING_BSR_SQL = `
   SELECT b.id::text AS service_record_id,
          b.id AS booking_id,
@@ -372,9 +375,15 @@ const LODGING_BSR_SQL = `
          'accommodation'::text AS service_type,
          1 AS quantity,
          b.total_amount_cents AS amount_due_cents,
-         '{}'::jsonb AS metadata
+         jsonb_strip_nulls(jsonb_build_object(
+           'package_code', NULLIF(lower(trim(both FROM COALESCE(b.package_code, ''))), ''),
+           'package_name', NULLIF(trim(both FROM COALESCE(p.name, '')), '')
+         )) AS metadata
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
+    LEFT JOIN packages p
+      ON p.client_id = c.id
+     AND lower(p.code) = lower(NULLIF(trim(both FROM COALESCE(b.package_code, '')), ''))
    WHERE c.slug = $1
      AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
      AND (b.check_in IS NOT NULL OR b.created_at IS NOT NULL)

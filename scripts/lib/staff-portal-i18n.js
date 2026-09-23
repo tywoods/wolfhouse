@@ -2651,6 +2651,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.finance.product.other': 'Altro',
     'admin.finance.product.courseIncluded': 'Attrezzatura corso',
     'admin.finance.product.lessons': 'Lezioni',
+    'admin.finance.product.accommodation': 'Alloggio',
     'inbox.detail.sidebar.show': 'Mostra prenotazioni',
     'inbox.detail.sidebar.hide': 'Nascondi prenotazioni',
     'schedule.create.courseOrTurnOff': 'Seleziona un corso oppure disattiva Corso di gruppo',
