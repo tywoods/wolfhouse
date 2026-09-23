@@ -193,7 +193,8 @@ async function main() {
   assert.match(html, /\+34 663 43 94 19/);
   assert.doesNotMatch(html, /Configured|Configured-test|Needs attention|live status unknown|>Off</);
   assert.doesNotMatch(html, /Production and staging staff portals are available\./);
-  assert.match(html, /Sunset Somo[\s\S]*?Live[\s\S]*?https:\/\/sunset\.lunafrontdesk\.com/);
+  assert.match(html, /status-dot--live[^>]*aria-label="Live"[\s\S]*?Sunset Somo/);
+  assert.match(html, /Sunset Somo[\s\S]*?https:\/\/sunset\.lunafrontdesk\.com/);
   assert.ok(!/Calendar|Microsoft Graph/.test(html));
   assert.ok(!/Create client|Onboard client|Client template/.test(html));
 
@@ -221,8 +222,14 @@ async function main() {
   const evidenced = renderCrowsnestPage({
     view: 'clients',
     portalEvidence: {
-      'sunset-somo': { 'https://sunset-staging.lunafrontdesk.com': 'live' },
-      'wolfhouse-somo': { 'https://wolfhouse.lunafrontdesk.com': 'live' },
+      'sunset-somo': {
+        staging: { availability: 'live', checked_at: '2026-01-01T00:00:00.000Z', source_kind: 'staff_healthz', reason: 'canonical_healthz_ok' },
+        'https://sunset-staging.lunafrontdesk.com': 'live',
+      },
+      'wolfhouse-somo': {
+        production: { availability: 'live', checked_at: '2026-01-01T00:05:00.000Z', source_kind: 'staff_healthz', reason: 'canonical_healthz_ok' },
+        'https://wolfhouse.lunafrontdesk.com': 'live',
+      },
     },
   });
   const sunsetStaging = envRow(clientCard(evidenced, 'Sunset Somo'), 'Staff staging');
@@ -231,15 +238,24 @@ async function main() {
   const wolfhouseProduction = envRow(clientCard(evidenced, 'Wolfhouse Somo'), 'Staff production');
   assert.match(sunsetStaging, /pill--success/);
   assert.match(sunsetStaging, />Live</);
+  assert.match(sunsetStaging, /class="env-checked"/);
+  assert.match(sunsetStaging, /title="2026-01-01T00:00:00\.000Z"/);
+  assert.match(sunsetStaging, /Checked /);
   assert.match(sunsetStaging, /target="_blank" rel="noopener noreferrer"/);
   assert.match(sunsetProduction, />Unknown</);
   assert.doesNotMatch(sunsetProduction, /pill--success/);
+  assert.doesNotMatch(sunsetProduction, /class="env-checked"/);
   assert.match(wolfhouseProduction, /pill--success/);
   assert.match(wolfhouseProduction, />Live</);
+  assert.match(wolfhouseProduction, /title="2026-01-01T00:05:00\.000Z"/);
   assert.match(wolfhouseStaging, />Unknown</);
   assert.doesNotMatch(wolfhouseStaging, />Live</);
   assert.match(sunsetStaging, />Staff staging</);
   assert.match(wolfhouseProduction, />Staff production</);
+
+  const wolfhouseCard = clientCard(evidenced, 'Wolfhouse Somo');
+  assert.match(wolfhouseCard, /status-dot status-dot--live[^>]*aria-label="Live"/);
+  assert.doesNotMatch(wolfhouseCard.slice(0, wolfhouseCard.indexOf('directory-meta')), /meta-chip--status|>Live</);
 
   const ignored = renderCrowsnestPage({
     view: 'clients',

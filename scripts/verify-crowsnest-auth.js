@@ -1083,7 +1083,7 @@ async function main() {
               const sunsetSomo = cards.find((card) => card.includes('Sunset Somo')) || '';
               const sardinero = cards.find((card) => card.includes('Sunset Sardinero')) || '';
               const hasLocationStatus = (card, label) => new RegExp(
-                `<span class="meta-chip meta-chip--status"><span class="pill [^"]+"><span class="pill-dot" aria-hidden="true"><\\/span>${label}<\\/span><\\/span>`,
+                `<span class="status-dot status-dot--[^"]+" title="${label}" aria-label="${label}" role="img"><\\/span>`,
                 'i',
               ).test(card);
               return Boolean(clientsSection)
@@ -1091,7 +1091,8 @@ async function main() {
                 && !/Add new client|Add client|Create client|Preview setup/i.test(clientsSection)
                 && hasLocationStatus(wolfhouse, 'Live')
                 && hasLocationStatus(sunsetSomo, 'Live')
-                && hasLocationStatus(sardinero, 'Planned');
+                && hasLocationStatus(sardinero, 'Planned')
+                && !/meta-chip--status/.test(clientsSection);
             })(),
           );
         }
