@@ -22775,8 +22775,14 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     flex:0 0 auto;min-width:0;max-width:100%;overflow-x:hidden;
   }
   /* SHARED-PHONE-INBOX-OVERFLOW-006: Spam/Clear/Delete/Luna live in a … menu on phone. */
+  /* Keep header/luna overflow visible so the popover is not clipped under the transcript. */
+  #tab-conversations #inbox-shell.show-thread .detail-header,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{
+    overflow:visible!important;
+  }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow{
     position:relative;display:inline-flex;align-items:center;flex:0 0 auto;margin-left:auto;
+    z-index:80;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-btn{
     display:inline-flex!important;align-items:center;justify-content:center;
@@ -22790,7 +22796,7 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel{
     display:none;flex-direction:column;align-items:stretch;gap:6px;
-    position:absolute;right:0;top:calc(100% + 4px);z-index:70;
+    position:absolute;right:0;top:calc(100% + 4px);z-index:90;
     min-width:min(240px,calc(100vw - 24px));max-width:min(280px,calc(100vw - 16px));
     padding:8px;box-sizing:border-box;
     background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;

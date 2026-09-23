@@ -917,7 +917,8 @@ function inboxWireThreadOverflowMenu(wrap){
       if (ev.key === 'Escape') inboxCloseThreadOverflowMenu();
     });
   }
-  if (typeof window !== 'undefined' && !window.__inboxThreadOverflowResizeWired) {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' &&
+      !window.__inboxThreadOverflowResizeWired) {
     window.__inboxThreadOverflowResizeWired = true;
     window.addEventListener('resize', function(){
       if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {

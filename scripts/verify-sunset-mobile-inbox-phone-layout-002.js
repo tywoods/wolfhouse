@@ -188,7 +188,7 @@ ok(
     const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
     const cook = threadSrc.slice(
       threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
-      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 2200
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 3200
     );
     return (
       /function inboxEnsureThreadOverflowMenu\(/.test(threadSrc) &&
@@ -533,7 +533,8 @@ async function main() {
         thread.stack &&
           thread.stack.flexDir === 'row' &&
           (thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse') &&
-          thread.stack.overflowX === 'hidden' &&
+          /* overflow may be visible so the ⋯ popover is not clipped; still no h-scroll. */
+          (thread.stack.overflowX === 'hidden' || thread.stack.overflowX === 'visible' || thread.stack.overflowX === 'clip') &&
           thread.stackOverflow === false &&
           thread.headerOverflow === false &&
           thread.docOverflow === false,
