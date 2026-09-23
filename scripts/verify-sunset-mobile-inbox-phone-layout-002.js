@@ -151,6 +151,21 @@ ok(
     shell.includes('SHARED-PHONE-INBOX-HEADER-007')
 );
 ok(
+  'SHARED-PHONE-INBOX-FILTER-HEADER-GAP-001: margin above open-thread card only',
+  phoneCss.includes('SHARED-PHONE-INBOX-FILTER-HEADER-GAP-001') &&
+    /\.detail-header\{[^}]*margin:8px 0 0!important/.test(phoneCss) &&
+    shell.includes('SHARED-PHONE-INBOX-FILTER-HEADER-GAP-001') &&
+    shell.includes('.detail-header{margin:8px 0 0!important}')
+);
+ok(
+  'SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001: Guests hides icon filter rail',
+  phoneCss.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001') &&
+    /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #tab-conversations \.inbox-col1 > \.inbox-views-rail\{[^}]*display:none!important/.test(
+      phoneCss
+    ) &&
+    shell.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001')
+);
+ok(
   'SHARED-PHONE-INBOX-THREAD-FILL-005 grows messages into leftover space',
   phoneCss.includes('SHARED-PHONE-INBOX-THREAD-FILL-005') &&
     phoneCss.includes('height:100%!important') &&
@@ -351,6 +366,9 @@ async function measureThread(page) {
     const msgsBox = box(msgs);
     const draftBox = box(draft);
     const backBox = box(back);
+    const rail = document.querySelector('#inbox-views-rail, .inbox-views-rail');
+    const railBox = box(rail);
+    const railDisplay = rail ? getComputedStyle(rail).display : null;
     const refreshInChannel = !!(refresh && channel && channel.contains(refresh) && visible(refresh));
     const refreshInLuna = !!(refresh && stack && stack.contains(refresh) && visible(refresh));
     const refreshVisible = visible(refresh);
@@ -363,6 +381,8 @@ async function measureThread(page) {
     const deleteInPanel = !!(deleteBtn && overflowPanel && overflowPanel.contains(deleteBtn));
     const chromeInPanel = !!(chrome && overflowPanel && overflowPanel.contains(chrome));
     const lunaRowVisible = !!(stack && getComputedStyle(stack).display !== 'none' && stack.getClientRects().length > 0);
+    const nameIconsRowGap =
+      nameBox && channelBox ? Math.abs(channelBox.top - nameBox.top) : null;
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
@@ -379,6 +399,9 @@ async function measureThread(page) {
       headerRight: box(headerRight),
       draft: draftBox,
       threadSection: box(threadSection),
+      rail: railBox,
+      railDisplay,
+      railVisible: visible(rail),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
@@ -389,6 +412,10 @@ async function measureThread(page) {
       refreshInChannel,
       refreshInLuna,
       refreshVisible,
+      filterHeaderGap: railBox && headerBox && railDisplay !== 'none'
+        ? headerBox.top - railBox.bottom
+        : null,
+      nameIconsRowGap,
       headerMsgsGap: headerBox && (threadSection || msgs) ? Math.round((threadSection || msgs).getBoundingClientRect().top - headerBox.bottom) : null,
       msgsDraftGap: msgsBox && draftBox ? draftBox.top - msgsBox.bottom : null,
       deadBandBelowDraft: draftBox && autoTab
@@ -506,6 +533,40 @@ async function main() {
           '390 list: Chats tab is classic folder height (not fat 48px+ button)',
           list.chats && list.chats.height >= 28 && list.chats.height <= 48,
           JSON.stringify(list.chats)
+        );
+        ok(
+          '390 list: Chats keeps icon filter rail visible',
+          list.rail && list.rail.height >= 36 && list.rail.display !== 'none',
+          JSON.stringify(list.rail)
+        );
+        /* Guests must hide the Chats-style icon filter strip entirely. */
+        await page.evaluate(() => {
+          const guests = document.querySelector(
+            '.inbox-folder-tab[data-inbox-preset="guest"], .inbox-folder-tab[data-view="guest"]'
+          );
+          if (guests) guests.click();
+        });
+        await page.waitForTimeout(SETTLE_MS);
+        const guestsList = await measureList(page);
+        ok(
+          '390 list: Guests hides chat icon filter rail',
+          guestsList.rail == null ||
+            guestsList.rail.display === 'none' ||
+            guestsList.rail.height === 0,
+          JSON.stringify(guestsList.rail)
+        );
+        await page.evaluate(() => {
+          const chats = document.querySelector(
+            '.inbox-folder-tab[data-inbox-preset="all4"], .inbox-folder-tab[data-view="full"]'
+          );
+          if (chats) chats.click();
+        });
+        await page.waitForTimeout(SETTLE_MS);
+        const chatsAgain = await measureList(page);
+        ok(
+          '390 list: Chats restores icon filter rail after Guests',
+          chatsAgain.rail && chatsAgain.rail.height >= 36 && chatsAgain.rail.display !== 'none',
+          JSON.stringify(chatsAgain.rail)
         );
       }
 
@@ -687,6 +748,24 @@ async function main() {
             Math.abs(thread.headerMsgsGap - 8) <= 3 &&
             Math.abs(thread.msgsDraftGap - 8) <= 3,
           JSON.stringify({ headerMsgsGap: thread.headerMsgsGap, msgsDraftGap: thread.msgsDraftGap })
+        );
+        ok(
+          '390 chat: vertical gap between icon filter strip and open-thread card',
+          thread.filterHeaderGap != null &&
+            thread.filterHeaderGap >= 6 &&
+            thread.filterHeaderGap <= 14 &&
+            thread.railVisible === true,
+          JSON.stringify({
+            filterHeaderGap: thread.filterHeaderGap,
+            rail: thread.rail,
+            header: thread.header,
+            railVisible: thread.railVisible,
+          })
+        );
+        ok(
+          '390 chat: no extra gap inside header between name and WA/Email icons',
+          thread.nameIconsRowGap != null && thread.nameIconsRowGap <= 24,
+          JSON.stringify({ nameIconsRowGap: thread.nameIconsRowGap, name: thread.name, channel: thread.channel })
         );
         ok(
           '390 chat: transcript fills leftover (no huge dead band above Autonomy)',
