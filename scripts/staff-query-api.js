@@ -45384,7 +45384,14 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     const data = lodging
       ? await withPgClient((pg) => fetchLodgingFinanceData(pg, { clientSlug }))
       : await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
-    const summary = computeSunsetFinanceSummary({ ...data, now: new Date(), timeZone: 'Europe/Madrid', view });
+    const summary = computeSunsetFinanceSummary({
+      ...data,
+      now: new Date(),
+      timeZone: 'Europe/Madrid',
+      view,
+      // Wolfhouse lodging: package-name product rows. Sunset keeps F2 surf shape.
+      productMode: lodging ? 'lodging_packages' : 'surf_f2',
+    });
     return sendJSON(res, 200, {
       success: true,
       client: clientSlug,

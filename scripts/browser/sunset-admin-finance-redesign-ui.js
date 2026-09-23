@@ -424,6 +424,10 @@ function renderFinanceRedesignHtml(summary) {
       lab = p.label && p.label !== 'Course equipment' && !/^\u2014$/.test(p.label)
         ? p.label
         : financeRedesignT('admin.finance.product.courseIncluded', 'Course equipment');
+    } else if (p.slot === 'other' || p.key === 'other') {
+      lab = financeRedesignT('admin.finance.product.other', 'Other');
+    } else if (p.slot === 'accommodation' || p.key === 'pkg:none') {
+      lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
     }
     html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
   });

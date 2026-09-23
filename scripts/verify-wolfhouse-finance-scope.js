@@ -19,8 +19,11 @@ function ok(label, cond, extra) {
 
 ok('lodging finance fetch exists', /function fetchLodgingFinanceData/.test(data));
 ok('lodging booked rows are stay totals, not sunset location',
-  /LODGING_BSR_SQL[\s\S]{0,400}b\.total_amount_cents AS amount_due_cents/.test(data)
-  && !/LODGING_BSR_SQL[\s\S]{0,500}location_id' = \$2/.test(data));
+  /LODGING_BSR_SQL[\s\S]{0,800}b\.total_amount_cents AS amount_due_cents/.test(data)
+  && !/LODGING_BSR_SQL[\s\S]{0,900}location_id' = \$2/.test(data));
+ok('lodging BSR metadata carries package_code (revenue-by-product)',
+  /LODGING_BSR_SQL[\s\S]{0,900}package_code/.test(data)
+  && /LODGING_BSR_SQL[\s\S]{0,900}LEFT JOIN packages/.test(data));
 ok('lodging payments are client-scoped only',
   /LODGING_PAYMENTS_SQL[\s\S]{0,400}c\.slug = \$1/.test(data)
   && !/LODGING_PAYMENTS_SQL[\s\S]{0,400}location_id/.test(data));

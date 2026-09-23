@@ -536,6 +536,79 @@ function productBucket(serviceTypeOrRow, metadataMaybe) {
  * Capacity mirrors only the first 4 (no Other — Other has no stock denominator).
  * Empty/sparse periods keep the 5-row structure with €0 slots.
  */
+
+/** Known Wolfhouse package display names (proper nouns — same EN/ES). */
+const LODGING_PACKAGE_LABELS = {
+  malibu: 'Malibu',
+  uluwatu: 'Uluwatu',
+  waimea: 'Waimea',
+};
+
+/**
+ * Lodging Finanzas — Revenue by product from stay totals tagged with package_code.
+ * One row per package with revenue in range (sorted by € desc); bookings without a
+ * package roll into Accommodation. No surf Lessons / Course equipment / "—" slots.
+ */
+function lodgingPackageLabel(metadata) {
+  const md = metadata && typeof metadata === 'object' ? metadata : {};
+  const code = String(md.package_code || '').trim().toLowerCase();
+  const name = String(md.package_name || '').trim();
+  if (name) return name;
+  if (code && LODGING_PACKAGE_LABELS[code]) return LODGING_PACKAGE_LABELS[code];
+  if (code) {
+    return code.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return 'Accommodation';
+}
+
+function buildLodgingRevenueByProductRows(datedBsr, range) {
+  const byKey = new Map(); // key -> { cents, label, slot }
+  for (const r of Array.isArray(datedBsr) ? datedBsr : []) {
+    if (!inRange(r.service_date, range)) continue;
+    const due = Number.isFinite(r.due) ? r.due : 0;
+    if (!Number.isFinite(due) || due === 0) continue;
+    const md = r.metadata || {};
+    const code = String(md.package_code || '').trim().toLowerCase();
+    const key = code ? `pkg:${code}` : 'pkg:none';
+    const slot = code ? 'package' : 'accommodation';
+    const label = lodgingPackageLabel(md);
+    const prev = byKey.get(key) || { cents: 0, label, slot };
+    prev.cents = checkedAdd(prev.cents, due);
+    if (!prev.label) prev.label = label;
+    byKey.set(key, prev);
+  }
+
+  const ranked = Array.from(byKey.entries())
+    .map(([key, v]) => ({
+      key,
+      label: v.label || key,
+      cents: v.cents,
+      slot: v.slot || 'package',
+    }))
+    .sort((a, b) => {
+      if (b.cents !== a.cents) return b.cents - a.cents;
+      return String(a.label).localeCompare(String(b.label));
+    });
+
+  if (!ranked.length) return [];
+
+  const productTotal = ranked.reduce((a, p) => checkedAdd(a, p.cents), 0);
+  return ranked.map((p) => {
+    const pct = productTotal > 0 ? Math.round((1000 * p.cents) / productTotal) / 10 : 0;
+    const offeringKey = p.key.indexOf('pkg:') === 0 && p.key !== 'pkg:none'
+      ? p.key.slice(4)
+      : null;
+    return {
+      key: p.key,
+      label: p.label,
+      cents: p.cents,
+      pct,
+      slot: p.slot,
+      offering_keys: offeringKey ? [offeringKey] : [],
+    };
+  });
+}
+
 function courseIncludableOfferingKeys(surfPacks) {
   const keys = new Set();
   for (const pack of Array.isArray(surfPacks) ? surfPacks : []) {
@@ -894,6 +967,11 @@ function computeSunsetFinanceSummary(args) {
   const refundLedgerUnavailable = !!(args && args.refund_ledger_unavailable);
   const rentalStock = Array.isArray(args && args.rental_stock) ? args.rental_stock : [];
   const surfPacks = Array.isArray(args && args.surf_packs) ? args.surf_packs : [];
+  // lodging_packages: Wolfhouse stay totals by package_code (no surf F2 Lessons/— rows).
+  // surf_f2 (default): Sunset five-row Lessons / course-included / top-2 / Other.
+  const productMode = args && args.productMode === 'lodging_packages'
+    ? 'lodging_packages'
+    : 'surf_f2';
 
   // Soft-fail diagnostics for this pass (malformed rows → 0; overflow still hard-fails).
   const diagnostics = (args && args.diagnostics && typeof args.diagnostics === 'object')
@@ -1125,8 +1203,11 @@ function computeSunsetFinanceSummary(args) {
   overdue_cents = cappedOutstanding.overdue_cents;
   delivered_unpaid_cents = cappedOutstanding.delivered_unpaid_cents;
 
-  // Product revenue (BSR recognition by service_date in primary range) — F2 five-row shape
-  const revenue_by_product = buildRevenueByProductRows(datedBsr, primaryRange, surfPacks);
+  // Product revenue (BSR recognition by service_date in primary range).
+  // Surf: F2 five-row shape. Lodging: real package names (Malibu/…) — no "—" placeholders.
+  const revenue_by_product = productMode === 'lodging_packages'
+    ? buildLodgingRevenueByProductRows(datedBsr, primaryRange)
+    : buildRevenueByProductRows(datedBsr, primaryRange, surfPacks);
 
   // Capacity — lesson seats
   const fallbackGs = defaultPackGroupSize(surfPacks);
@@ -1186,7 +1267,10 @@ function computeSunsetFinanceSummary(args) {
     const qty = Number.isFinite(r.quantity) && r.quantity > 0 ? Math.trunc(r.quantity) : 1;
     unitsByOffering.set(id.key, (unitsByOffering.get(id.key) || 0) + qty);
   }
-  const capacity_by_product = revenue_by_product.filter((p) => p.slot !== 'other').map((p) => {
+  // Lodging capacity-by-product (beds/rooms) is a later epic — do not invent surf stock rows.
+  const capacity_by_product = productMode === 'lodging_packages'
+    ? []
+    : revenue_by_product.filter((p) => p.slot !== 'other').map((p) => {
     if (p.slot === 'lessons') {
       const filled = capacityKnown ? seats_filled : lessonQty;
       const cap = capacityKnown ? seats_capacity : null;
@@ -1569,6 +1653,8 @@ module.exports = {
   productBucket,
   buildRevenueByProductRows,
   buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias
+  buildLodgingRevenueByProductRows,
+  lodgingPackageLabel,
   courseIncludableOfferingKeys,
   shiftRangeYears,
   monthlyCollectedGrossTrend,
