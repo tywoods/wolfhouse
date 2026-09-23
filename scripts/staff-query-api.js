@@ -20740,6 +20740,17 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   pointer-events:none;
 }
 #bc-side-drawer.is-open{transform:none;pointer-events:auto}
+@media (max-width: 768px) {
+  /* Phone hide later forces this drawer off. Open must beat it or 390px stays 0x0. */
+  #bc-side-drawer.is-open{
+    display:flex!important;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    min-width: 0;
+    z-index: 80;
+  }
+}
 body.luna-header-ui.luna-hdr-compact #bc-side-drawer,
 body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-side-head{

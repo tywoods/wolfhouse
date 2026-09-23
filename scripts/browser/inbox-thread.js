@@ -2793,6 +2793,7 @@ function loadConvDetail(convId, targetEl){
     var bookingRows = (ctxData.success && ctxData.bookings && ctxData.bookings.length)
       ? filterActiveInboxBookings(ctxData.bookings)
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
+    if (typeof inboxRememberConfirmationEvents === 'function') inboxRememberConfirmationEvents(bookingRows);
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c]);
     var composerChannel = inboxComposerChannelFor(c);
@@ -2850,14 +2851,16 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div class="inbox-thread-wrap" id="inbox-thread-wrap">';
     html +=   '<div class="thread-messages" id="thread-container">';
     var nativeCh = (c.channel === 'email') ? 'email' : 'whatsapp';
+    var threadMsgs = inboxFilterMessagesByChannel(msgs, composerChannel);
+    if (typeof inboxMergeConfirmationEvents === 'function') threadMsgs = inboxMergeConfirmationEvents(threadMsgs);
     if (composerChannel !== nativeCh || (isEmailConversation && !guestEmail)) {
       html += (isEmailConversation && !inboxFindGuestConversation(c, 'email'))
         ? inboxNoEmailThreadHtml()
         : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
-    } else if (msgs.length === 0){
+    } else if (!threadMsgs.length){
       html += '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
     } else {
-      html += renderInboxThreadMessagesHtml(inboxFilterMessagesByChannel(msgs, composerChannel));
+      html += renderInboxThreadMessagesHtml(threadMsgs);
     }
     html +=   '</div>'; /* /thread-messages */
     if (!isEmailConversation) html += inboxWhatsAppDraftMountHtml();
@@ -2972,7 +2975,7 @@ function loadConvDetail(convId, targetEl){
     var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
     calLinks.forEach(function(calLink){
       calLink.addEventListener('click', function(){
-        openBookingInCalendar({
+        inboxOpenBookingDrawerHere({
           booking_id: calLink.dataset.bookingId || null,
           booking_code: calLink.dataset.bookingCode || null,
           check_in: calLink.dataset.checkIn || null,
@@ -2987,7 +2990,7 @@ function loadConvDetail(convId, targetEl){
         var link = item.querySelector('.inbox-open-booking-cal');
         if (!link) return;
         e.preventDefault();
-        openBookingInCalendar({
+        inboxOpenBookingDrawerHere({
           booking_id: link.dataset.bookingId || null,
           booking_code: link.dataset.bookingCode || null,
           check_in: link.dataset.checkIn || null,
