@@ -22833,18 +22833,11 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     box-sizing:border-box!important;
     border-top-left-radius:0;border-top-right-radius:0;
   }
-  /* SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001: Guests = Chats|Guests tabs + guests UI only
-     (no Chats-style icon filter strip under the folder tabs). Chats keeps the rail. */
+  /* PHONE-GUESTS-ICON-BAR-001: keep the shared sticky rail chrome on Guests.
+     inbox-views.js already renders only guest-surface views here, so chat-only
+     channel filters do not leak into the guest directory. */
   body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-views-rail{
-    display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;
-    overflow:hidden!important;border:0!important;
-  }
-  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
-    border-bottom:1px solid var(--border-soft)!important;border-radius:10px!important;
-  }
-  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
-  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
-    border-bottom-color:var(--inbox-forest,var(--primary))!important;border-radius:10px!important;
+    display:flex!important;
   }
   /* SHARED-PHONE-INBOX-HEADER-007: ← Name | WA Email …  (no Refresh; no second action row). */
   #tab-conversations #inbox-shell.show-thread .detail-header{
