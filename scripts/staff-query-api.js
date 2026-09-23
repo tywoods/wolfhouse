@@ -22981,6 +22981,18 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations #inbox-shell.show-thread .draft-panel{
     flex:0 0 auto!important;
   }
+  /* SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001: Guests = guest card only (no open-thread
+     header / messages / reply). THREAD-FILL-005's
+     #tab-conversations #inbox-shell .detail-main{display:flex!important} outranks the
+     older one-id guest hide — match/exceed that specificity so Guests wins. */
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-main{
+    display:none!important;
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-sidebar,
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread #inbox-detail-sidebar{
+    display:flex!important;flex-direction:column;width:100%!important;max-width:100%!important;
+    flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+  }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}

@@ -10,7 +10,8 @@
  * equal 8px stack gaps on list + thread; search pinned under filters;
  * name+tag with ← on the left | WA/Email/… on the right (no Refresh on phone);
  * ⋯ menu holds plain-text Spam / Clear / Delete / Luna On|Off;
- * taller transcript fills leftover; back survives conversation switches.
+ * taller transcript fills leftover; back survives conversation switches;
+ * Guests + selected guest hides conversation pane (beats THREAD-FILL flex).
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -164,6 +165,17 @@ ok(
       phoneCss
     ) &&
     shell.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001')
+);
+ok(
+  'SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001: Guests hides conversation pane (beats THREAD-FILL)',
+  phoneCss.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001') &&
+    /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #tab-conversations #inbox-shell\.show-thread \.detail-main\{[\s\S]{0,80}display:none!important/.test(
+      phoneCss
+    ) &&
+    shell.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001') &&
+    shell.includes(
+      'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-main{display:none!important}'
+    )
 );
 ok(
   'SHARED-PHONE-INBOX-THREAD-FILL-005 grows messages into leftover space',
@@ -773,6 +785,113 @@ async function main() {
             thread.header && thread.msgs.height > thread.header.height * 0.9 &&
             (thread.deadBandBelowDraft == null || thread.deadBandBelowDraft <= 52),
           JSON.stringify({ msgs: thread.msgs, header: thread.header, deadBandBelowDraft: thread.deadBandBelowDraft })
+        );
+
+        /* Guests+selected CSS: flip folder preset without folder-switch list reload
+           (fixture Guests directory filters out non-customer rows). Keeps the open
+           thread DOM so we prove THREAD-FILL no longer beats Guests hide. */
+        await page.evaluate(() => {
+          document.querySelectorAll('[data-inbox-preset]').forEach((btn) => {
+            const isGuest = btn.getAttribute('data-inbox-preset') === 'guest';
+            btn.setAttribute('aria-pressed', isGuest ? 'true' : 'false');
+            btn.classList.toggle('is-active', isGuest);
+          });
+          try {
+            if (window.inboxColumnsRuntime && window.inboxColumnsRuntime.record) {
+              window.inboxColumnsRuntime.record.preset = 'guest';
+            }
+          } catch (_e) { /* ignore */ }
+        });
+        await page.waitForTimeout(SETTLE_MS);
+        const guestOpen = await page.evaluate(() => {
+          function visible(el) {
+            return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+          }
+          const main = document.querySelector('#inbox-shell.show-thread .detail-main');
+          const header = document.querySelector('#inbox-shell.show-thread .detail-header');
+          const msgs = document.querySelector('#inbox-shell.show-thread .thread-messages, #thread-container');
+          const draft = document.querySelector('#inbox-shell.show-thread .draft-panel');
+          const sidebar = document.querySelector(
+            '#inbox-shell.show-thread #inbox-detail-sidebar, #inbox-shell.show-thread .detail-sidebar'
+          );
+          const guestCard = document.querySelector(
+            '#inbox-shell.show-thread .inbox-guest-card, #inbox-shell.show-thread .inbox-customer-card'
+          );
+          const rail = document.querySelector('#inbox-views-rail, .inbox-views-rail');
+          const guestPreset = document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]');
+          return {
+            guestPresetOn: !!guestPreset,
+            shellShowThread: !!(document.getElementById('inbox-shell') &&
+              document.getElementById('inbox-shell').classList.contains('show-thread')),
+            mainDisplay: main ? getComputedStyle(main).display : null,
+            mainVisible: visible(main),
+            headerVisible: visible(header),
+            msgsVisible: visible(msgs),
+            draftVisible: visible(draft),
+            sidebarVisible: visible(sidebar),
+            guestCardVisible: visible(guestCard),
+            railVisible: visible(rail),
+            railDisplay: rail ? getComputedStyle(rail).display : null,
+          };
+        });
+        ok(
+          '390 Guests+selected: hides conversation thread (header/messages/reply)',
+          guestOpen.guestPresetOn === true &&
+            guestOpen.shellShowThread === true &&
+            guestOpen.mainDisplay === 'none' &&
+            guestOpen.mainVisible === false &&
+            guestOpen.headerVisible === false &&
+            guestOpen.msgsVisible === false &&
+            guestOpen.draftVisible === false,
+          JSON.stringify(guestOpen)
+        );
+        ok(
+          '390 Guests+selected: guest card/sidebar remains; icon filter rail stays hidden',
+          (guestOpen.sidebarVisible === true || guestOpen.guestCardVisible === true) &&
+            (guestOpen.railVisible === false || guestOpen.railDisplay === 'none'),
+          JSON.stringify(guestOpen)
+        );
+        await page.evaluate(() => {
+          document.querySelectorAll('[data-inbox-preset]').forEach((btn) => {
+            const isChat = btn.getAttribute('data-inbox-preset') === 'all4' ||
+              btn.getAttribute('data-inbox-preset') === 'chat';
+            const isGuest = btn.getAttribute('data-inbox-preset') === 'guest';
+            btn.setAttribute('aria-pressed', isChat && !isGuest ? 'true' : (isGuest ? 'false' : btn.getAttribute('aria-pressed')));
+            if (btn.getAttribute('data-inbox-preset') === 'all4') {
+              btn.setAttribute('aria-pressed', 'true');
+              btn.classList.add('is-active');
+            }
+            if (isGuest) {
+              btn.setAttribute('aria-pressed', 'false');
+              btn.classList.remove('is-active');
+            }
+          });
+          try {
+            if (window.inboxColumnsRuntime && window.inboxColumnsRuntime.record) {
+              window.inboxColumnsRuntime.record.preset = 'all4';
+            }
+          } catch (_e2) { /* ignore */ }
+        });
+        await page.waitForTimeout(SETTLE_MS);
+        const chatsRestored = await page.evaluate(() => {
+          function visible(el) {
+            return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+          }
+          const main = document.querySelector('#inbox-shell.show-thread .detail-main');
+          const header = document.querySelector('#inbox-shell.show-thread .detail-header');
+          const msgs = document.querySelector('#inbox-shell.show-thread .thread-messages, #thread-container');
+          return {
+            mainDisplay: main ? getComputedStyle(main).display : null,
+            headerVisible: visible(header),
+            msgsVisible: visible(msgs),
+          };
+        });
+        ok(
+          '390 Chats after Guests: conversation thread restored',
+          chatsRestored.mainDisplay !== 'none' &&
+            chatsRestored.headerVisible === true &&
+            chatsRestored.msgsVisible === true,
+          JSON.stringify(chatsRestored)
         );
 
         /* Back must survive opening a second conversation (park/restore). */

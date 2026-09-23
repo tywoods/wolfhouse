@@ -1077,6 +1077,10 @@ function inboxMockupThemeCssText(){
     '#tab-conversations #inbox-shell.show-thread .detail-layout{flex:1 1 auto!important;min-height:0!important;height:100%!important;overflow:hidden!important}',
     '#tab-conversations #inbox-shell.show-thread .detail-main,#tab-conversations #inbox-shell.show-thread .thread-section,#tab-conversations #inbox-shell.show-thread .thread,#tab-conversations #inbox-shell.show-thread .inbox-thread-shell,#tab-conversations #inbox-shell.show-thread .inbox-thread-wrap{flex:1 1 auto!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}',
     '#tab-conversations #inbox-shell.show-thread .thread-messages{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important}',
+    /* SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001: Guests hides conversation pane
+     (must beat THREAD-FILL-005 two-id display:flex on .detail-main). */
+    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-main{display:none!important}',
+    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-sidebar,body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread #inbox-detail-sidebar{display:flex!important;flex-direction:column;width:100%!important;max-width:100%!important;flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}',
     '}',
     '#inbox-shell .inbox-guest-card{',
     'background:var(--inbox-paper,var(--cream));',
