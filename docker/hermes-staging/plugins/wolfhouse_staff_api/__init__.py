@@ -530,7 +530,9 @@ def quote_booking(params, **kwargs):
         "remaining_after_deposit_cents": remaining_after_deposit,
         "payment_choice_needed": payment_choice_needed,
         "full_payment_only": not payment_choice_needed and total is not None and deposit is not None,
-        "guest_safe_balance_label": "remaining after deposit",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "per_person": data.get("per_person") or quote.get("per_person") or [],
+        "per_guest_deposits": data.get("per_guest_deposits") or quote.get("per_guest_deposits") or [],
         "currency": data.get("currency") or quote.get("currency") or "EUR",
         "included_items": data.get("included_items") or quote.get("included_items") or [],
         "missing_fields": data.get("missing_fields") or [],
@@ -829,6 +831,10 @@ def create_booking_from_plan(params, **kwargs):
                         "guest_name": link_data.get("guest_name") or bg.get("guest_name"),
                         "booking_guest_id": link_data.get("booking_guest_id") or guest_id,
                         "payment_id": link_data.get("payment_id"),
+                        "amount_due_cents": link_data.get("amount_due_cents"),
+                        "currency": link_data.get("currency") or "EUR",
+                        "payment_target": link_data.get("payment_target") or payment_target,
+                        "payment_status": link_data.get("payment_status"),
                         "secure_payment_url": guest_url,
                         "guest_location_line": _wolfhouse_guest_location_line(guest_url),
                     })
@@ -893,6 +899,9 @@ def create_booking_from_plan(params, **kwargs):
         "secure_payment_url": secure_url,
         "guest_location_line": _wolfhouse_guest_location_line(secure_url),
         "payment_link_created": bool(secure_url),
+        "amount_due_cents": link_data.get("amount_due_cents") if secure_url else None,
+        "currency": link_data.get("currency") or "EUR",
+        "no_payment_truth_recorded": True,  # creating a booking/link is not a receipt
         "payment_link_error": payment_link_error,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
@@ -1175,18 +1184,30 @@ def get_payment_status(params, **kwargs):
     data = _post_bot("/payments/status", payload)
     latest = data.get("latest_payment") if isinstance(data.get("latest_payment"), dict) else {}
     status = data.get("payment_status") or latest.get("payment_status") or latest.get("status")
-    paid_confirmed = str(status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
+    # /payments/status puts booking aggregates on latest_payment, alongside the
+    # individual receipt status. Keep those scopes distinct in Luna's wording.
+    booking_status = data.get("booking_payment_status") or latest.get("booking_payment_status")
+    paid = data.get("amount_paid_cents")
+    if paid is None:
+        paid = latest.get("amount_paid_cents")
+    balance = data.get("balance_due_cents")
+    if balance is None:
+        balance = latest.get("balance_due_cents")
+    paid_confirmed = bool(data.get("success")) and str(booking_status or status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "get_payment_status",
-        "payment_truth_known": bool(data.get("payment_truth_known")) or paid_confirmed,
+        "payment_truth_known": bool(data.get("success")) and (bool(data.get("payment_truth_known")) or paid_confirmed),
         "payment_confirmed": paid_confirmed,
+        "payment_scope": "booking",
+        "booking_payment_status": booking_status,
+        "booking_fully_paid": paid_confirmed and str(balance) in {"0", "0.0"},
         "payment_status": status,
         "payment_id": data.get("payment_id") or latest.get("payment_id"),
-        "booking_id": data.get("booking_id"),
-        "booking_code": data.get("booking_code"),
-        "amount_paid_cents": data.get("amount_paid_cents") or latest.get("amount_paid_cents"),
-        "balance_due_cents": data.get("balance_due_cents"),
+        "booking_id": data.get("booking_id") or latest.get("booking_id"),
+        "booking_code": data.get("booking_code") or latest.get("booking_code"),
+        "amount_paid_cents": paid,
+        "balance_due_cents": balance,
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     })
