@@ -17689,6 +17689,8 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%}
 .portal-admin-bookings-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;max-width:100%}
 .portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+/* Lodging (Wolfhouse): hide Type on desktop; mobile ≤768px restores it for Type|Export */
+.portal-admin-bookings-filter-type.is-lodging-hide-desktop{display:none}
 .portal-admin-bookings-search{flex:1 1 220px;min-width:180px}
 .portal-admin-bookings-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-input{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;box-sizing:border-box}
@@ -17821,6 +17823,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
   .portal-admin-bookings-date-range{grid-area:dates;flex:none;min-width:0;width:100%}
   .portal-admin-bookings-filter-status{grid-area:status;min-width:0}
   .portal-admin-bookings-filter-type{grid-area:type;min-width:0}
+  .portal-admin-bookings-filter-type.is-lodging-hide-desktop{display:flex;flex-direction:column}
   .portal-admin-bookings-actions{display:contents;margin-left:0}
   .portal-admin-bookings-clear-btn{grid-area:clear;align-self:end;justify-self:stretch;min-height:40px;width:100%}
   .portal-admin-bookings-export-btn{grid-area:export;align-self:end;width:100%;min-height:40px;box-sizing:border-box}
