@@ -194,7 +194,7 @@ async function browserAssertions() {
       `${JSON.stringify({ short: shortM, long: longM }, null, 2)}\n`,
     );
 
-    console.log('\n[inbox-middle-column-fill] 3. Mobile override still content-sized');
+    console.log('\n[inbox-middle-column-fill] 3. Mobile list scrolls under pinned search');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(SETTLE_MS);
     await page.evaluate(() => {
@@ -214,10 +214,10 @@ async function browserAssertions() {
         overflowY: cs.overflowY,
       };
     });
-    ok('mobile left-rows is content-sized (not forced fill scroll)',
+    ok('mobile left-rows scrolls under pinned search (phone layout 002)',
       mobileM
-      && mobileM.flexGrow === '0'
-      && (mobileM.overflowY === 'visible' || mobileM.height === 'auto'),
+      && mobileM.flexGrow === '1'
+      && (mobileM.overflowY === 'auto' || mobileM.overflowY === 'scroll'),
       JSON.stringify(mobileM));
   } finally {
     await browser.close();

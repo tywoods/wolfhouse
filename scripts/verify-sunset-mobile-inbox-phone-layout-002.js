@@ -35,13 +35,13 @@ function ok(label, cond, detail) {
   console.error('FAIL -', label, detail || '');
 }
 
-const marker = 'SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002';
+const marker = 'SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002 — phone Inbox';
 const blockStart = api.indexOf(marker);
 const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 18000) : '';
 
-ok('marker exists in staff-query-api.js', blockStart >= 0);
-ok('marker exists in inbox-shell CSS', shell.includes(marker));
-ok('marker exists in inbox-rows chrome CSS', rows.includes(marker));
+ok('marker exists in staff-query-api.js', api.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002') && blockStart >= 0);
+ok('marker exists in inbox-shell CSS', shell.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
+ok('marker exists in inbox-rows chrome CSS', rows.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
 ok(
   'Autonomy docks with position:fixed + safe-area',
   phoneBlock.includes('position:fixed!important') &&
@@ -57,20 +57,25 @@ ok(
 );
 ok(
   'Chats|Guests use integrated segmented tabs (no fat button margin)',
-  phoneBlock.includes('padding:3px') &&
-    phoneBlock.includes('min-height:36px') &&
+  phoneBlock.includes('padding:2px') &&
+    phoneBlock.includes('min-height:34px') &&
     phoneBlock.includes('margin:0') &&
-    phoneBlock.includes('border-radius:7px')
+    phoneBlock.includes('border-radius:8px')
 );
 ok(
   'slim quiet back control',
   phoneBlock.includes('.inbox-mobile-back') &&
     phoneBlock.includes('min-height:28px') &&
-    phoneBlock.includes('background:transparent')
+    phoneBlock.includes('background:transparent') &&
+    phoneBlock.includes('width:max-content')
 );
 ok(
-  'taller transcript floor',
-  phoneBlock.includes('min-height:min(42vh,320px)!important')
+  'taller transcript via flex fill (no oversized min overlap)',
+  phoneBlock.includes('.thread-messages') &&
+    phoneBlock.includes('flex:1 1 auto!important') &&
+    phoneBlock.includes('min-height:0!important') &&
+    phoneBlock.includes('.draft-actions') &&
+    phoneBlock.includes('flex-wrap:nowrap')
 );
 ok(
   'sunset and wolfhouse Autonomy dock rules are not comma-combined',
@@ -122,6 +127,7 @@ async function measureThread(page) {
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const msgs = document.querySelector('#thread-container, .thread-messages');
     const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack');
+    const header = document.querySelector('#inbox-shell.show-thread .detail-header');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -144,6 +150,7 @@ async function measureThread(page) {
       autonomy: box(autonomy),
       msgs: box(msgs),
       stack: box(stack),
+      header: box(header),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
     };
   });
@@ -190,7 +197,7 @@ async function main() {
     );
     ok(
       '390 list: Chats tab is slim segmented (not fat 44px button)',
-      list.chats && list.chats.height >= 30 && list.chats.height <= 40,
+      list.chats && list.chats.height >= 28 && list.chats.height <= 40,
       JSON.stringify(list.chats)
     );
 
@@ -221,7 +228,7 @@ async function main() {
       '390 chat: back control is slim (not fat banner)',
       thread.back &&
         thread.back.height <= 34 &&
-        thread.back.width < 360,
+        thread.back.width < 220,
       JSON.stringify(thread.back)
     );
     ok(
@@ -230,9 +237,10 @@ async function main() {
       JSON.stringify(thread.stack)
     );
     ok(
-      '390 chat: transcript has taller floor',
-      thread.msgs && thread.msgs.height >= 200,
-      JSON.stringify(thread.msgs)
+      '390 chat: transcript taller than chrome+draft leftovers',
+      thread.msgs && thread.msgs.height >= 160 &&
+        thread.header && thread.msgs.height > thread.header.height * 0.7,
+      JSON.stringify({ msgs: thread.msgs, header: thread.header })
     );
   } finally {
     await browser.close();

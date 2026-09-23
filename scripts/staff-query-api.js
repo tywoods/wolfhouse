@@ -19564,7 +19564,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
   .inbox-two-col.show-thread .inbox-left,
   .inbox-two-col.show-thread .inbox-col1{display:none}
   .inbox-two-col.show-thread #conv-detail{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
-  /* SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002: slim quiet back — not a fat banner. */
+  /* Phone slim quiet back — not a fat banner (see SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002). */
   .inbox-mobile-back{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;width:auto;max-width:100%;min-height:28px;height:auto;padding:2px 0;margin:0 0 4px;border:none;border-bottom:none;background:transparent;color:var(--text-2);font-size:13px;font-weight:500;cursor:pointer;text-align:left;box-sizing:border-box;line-height:1.2}
   .inbox-mobile-back:hover{background:transparent;color:var(--text)}
   #detail-content{padding:12px 14px 16px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box}
@@ -22411,24 +22411,24 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     background:var(--surface)!important;border:1px solid var(--border-soft)!important;border-bottom:0!important;
     border-radius:10px 10px 0 0;padding-top:8px!important;box-shadow:var(--shadow-soft);
   }
-  /* Integrated Chats|Guests tabs (segmented, not two fat buttons). */
+  /* Integrated Chats|Guests tabs (segmented track, not two fat buttons). */
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{
-    padding:3px;gap:0;align-items:stretch;
-    background:var(--surface);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
+    padding:2px;gap:0;align-items:stretch;
+    background:var(--surface-soft,#1c1c1c);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
     border-radius:10px 10px 0 0;
   }
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{
-    padding:3px;gap:0;align-items:stretch;
-    background:var(--surface);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
+    padding:2px;gap:0;align-items:stretch;
+    background:var(--surface-soft,#1c1c1c);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
     border-radius:10px 10px 0 0;
   }
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
-    min-height:36px;height:36px;margin:0;padding:0 10px;font-size:14px;font-weight:600;
-    border:0;border-radius:7px;background:transparent;box-shadow:none;color:var(--text-2);
+    min-height:34px;height:34px;margin:0;padding:0 10px;font-size:13px;font-weight:600;
+    border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--text-2);
   }
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
-    min-height:36px;height:36px;margin:0;padding:0 10px;font-size:14px;font-weight:600;
-    border:0;border-radius:7px;background:transparent;box-shadow:none;color:var(--text-2);
+    min-height:34px;height:34px;margin:0;padding:0 10px;font-size:13px;font-weight:600;
+    border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--text-2);
   }
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
@@ -22449,10 +22449,15 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #inbox-shell .inbox-mobile-back:hover{background:transparent;color:var(--text)}
   /* Compact conversation action row. */
   #tab-conversations #inbox-shell.show-thread .detail-header{
-    flex-wrap:wrap;align-items:flex-start;gap:6px 8px;padding:4px 2px 6px;margin-bottom:4px;
+    flex-wrap:wrap;align-items:flex-start;gap:4px 6px;padding:2px 0 4px;margin-bottom:2px;
   }
+  #tab-conversations #inbox-shell.show-thread .detail-header-main{
+    flex:1 1 auto;min-width:0;padding:0;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-name{font-size:15px;line-height:1.2}
+  #tab-conversations #inbox-shell.show-thread .detail-meta{font-size:11px;margin-top:1px}
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
-    flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px;width:100%;
+    flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;width:100%;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
@@ -22460,19 +22465,75 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-composer-channel-btn{
-    min-height:32px;padding:4px 8px;font-size:12px;
+    min-height:28px;min-width:28px;padding:2px 6px;font-size:0;gap:0;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-composer-channel-btn .inbox-composer-channel-ico,
+  #tab-conversations #inbox-shell.show-thread .inbox-composer-channel-btn svg{
+    width:16px;height:16px;display:block;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-composer-channel-btn > span:not(.inbox-composer-channel-ico){
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-luna-mode-control{
+    gap:4px;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-luna-mode-seg,
+  #tab-conversations #inbox-shell.show-thread .inbox-luna-mode-btn{
+    min-height:28px;font-size:11px;padding:2px 6px;
   }
   #tab-conversations #inbox-shell.show-thread #btn-inbox-spam,
   #tab-conversations #inbox-shell.show-thread #btn-inbox-clear-thread,
   #tab-conversations #inbox-shell.show-thread #btn-inbox-conv-delete{
-    min-height:32px;padding:4px 8px;font-size:11px;
+    min-height:28px;padding:2px 6px;font-size:10px;
   }
-  #tab-conversations #inbox-shell.show-thread .sidebar-expand-btn{
-    width:32px;height:32px;min-width:32px;min-height:32px;padding:0;flex:0 0 auto;
+  #tab-conversations #inbox-shell.show-thread .detail-header-right{
+    flex:1 1 100%;width:100%;gap:4px;margin-top:2px;
   }
-  /* Taller transcript on phone. */
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
+    flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:4px;width:100%;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack::-webkit-scrollbar{display:none}
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
+  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{
+    display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:4px;flex:0 0 auto;
+  }
+  #tab-conversations #inbox-shell.show-thread .sidebar-expand-btn,
+  #tab-conversations #inbox-shell.show-thread #btn-refresh{
+    width:28px;height:28px;min-width:28px;min-height:28px;padding:0;flex:0 0 auto;
+  }
+  /* Slim quiet back — shrink-wrap, not a full-width banner. */
+  #tab-conversations .inbox-mobile-back,
+  #inbox-shell .inbox-mobile-back{
+    display:inline-flex!important;align-items:center;gap:4px;
+    width:max-content!important;max-width:100%;align-self:flex-start;
+    min-height:28px;padding:2px 0;margin:0 0 2px;border:0;border-bottom:0;
+    background:transparent;color:var(--text-2);font-size:13px;font-weight:500;line-height:1.2;
+  }
+  /* Reply row stays one line; free vertical space for transcript. */
+  #tab-conversations #inbox-shell.show-thread .draft-panel{margin-top:4px;padding-top:4px}
+  #tab-conversations #inbox-shell.show-thread #draft-textarea{
+    min-height:40px!important;max-height:56px;font-size:16px;
+  }
+  #tab-conversations #inbox-shell.show-thread .draft-actions{
+    display:flex;flex-wrap:nowrap;align-items:center;justify-content:stretch;gap:6px;margin-top:6px;width:100%;
+  }
+  #tab-conversations #inbox-shell.show-thread .draft-actions > button{
+    flex:1 1 0;min-width:0;min-height:36px;padding:6px 8px;font-size:11px;white-space:nowrap;
+  }
+  /* Taller transcript on phone — flex fills leftover; avoid oversized min that overlaps draft. */
   #tab-conversations #inbox-shell.show-thread .thread-messages{
-    min-height:min(42vh,320px)!important;
+    flex:1 1 auto!important;min-height:0!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .thread-section,
+  #tab-conversations #inbox-shell.show-thread .thread,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-shell,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-wrap{
+    flex:1 1 auto!important;min-height:0!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-main{
+    flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;
   }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
