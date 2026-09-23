@@ -102,6 +102,12 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
 
 function paymentLedgerIsStaleUnpaidLinkRow(pr, isActiveUnpaid, ledgerCtx) {
   if (!isActiveUnpaid(pr)) return false;
+  const md = parseMetadata(pr && pr.metadata);
+  if (md.superseded === true || md.superseded_by_payment_id || md.superseded_at) return true;
+  if (pr.expires_at) {
+    const expiresAt = Date.parse(pr.expires_at);
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return true;
+  }
   const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
   if (intended == null || intended <= 0) return false;
   return Number(pr.amount_due_cents) !== Number(intended);

@@ -171,6 +171,7 @@ const {
 } = require('./lib/luna-guest-addon-service-payment-ledger');
 const {
   buildGuestPaymentAmountsMap,
+  paymentLedgerIsPerGuestLinkRow,
   paymentLinkIntendedAmountCents,
   paymentLedgerIsStaleUnpaidLinkRow: paymentLedgerIsStaleUnpaidLinkRowCore,
 } = require('./lib/payment-ledger-stale-links');
@@ -4988,6 +4989,7 @@ SELECT
   p.checkout_url,
   p.stripe_checkout_session_id,
   p.stripe_payment_intent_id,
+  p.expires_at,
   p.metadata,
   p.created_at,
   p.booking_guest_id::text      AS booking_guest_id,
@@ -5031,7 +5033,20 @@ function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap) {
         any = true;
       }
     }
-    if (any) return sum;
+    const bookingTotal = bookingRow && bookingRow.total_amount_cents != null
+      ? Number(bookingRow.total_amount_cents) : null;
+    // If quote lines already equal the authoritative booking total, package
+    // services are embedded there. Subtract their operational service rows so
+    // adding svcSum below counts them exactly once.
+    if (any && sum > 0 && bookingTotal != null && bookingTotal > 0 && sum >= bookingTotal) {
+      return Math.max(bookingTotal - svcSum, 0);
+    }
+    // A zero-valued original quote snapshot must not erase later authoritative
+    // booking totals. Fall through to total-minus-services when the booking
+    // total proves that accommodation value exists.
+    if (any && (sum > 0
+      || bookingTotal == null
+      || bookingTotal <= svcSum)) return sum;
   }
   if (bookingRow && bookingRow.total_amount_cents != null) {
     const total = Number(bookingRow.total_amount_cents);
@@ -5190,7 +5205,7 @@ function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
     // treated as the balance link — otherwise the balance generator sees a €X
     // per-guest deposit link, thinks "balance link already exists", and returns
     // it instead of creating the real balance link (so nothing new shows up).
-    if (pr.booking_guest_id) continue;
+    if (paymentLedgerIsPerGuestLinkRow(pr, paymentLedgerParseMetadata(pr.metadata))) continue;
     if (paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
     // Must cover the FULL outstanding balance. Matching each row against its own
     // intended amount let partial deposit links (e.g. a €400 deposit link on a

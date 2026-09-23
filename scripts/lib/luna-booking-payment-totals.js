@@ -48,7 +48,11 @@ function deriveBookingPaymentState(input) {
 
   const fullLinkPaid = paymentKind === 'full_amount'
     && amountDue > 0
-    && stripePaid >= amountDue;
+    && stripePaid >= amountDue
+    // A "full_amount" row may be a guest share or a superseded balance link.
+    // When the canonical booking total is known, only aggregate ledger truth
+    // may mark the whole booking paid.
+    && (total <= 0 || prevPaid + stripePaid >= total);
 
   let newBkPaid = total > 0
     ? Math.min(prevPaid + stripePaid, total)
