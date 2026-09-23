@@ -41962,6 +41962,33 @@ function bcRenderBookingCancelFooterHtml(data){
   return bcRenderBookingDrawerFooterHtml(data);
 }
 
+function bcScrollCancelConfirmIntoView(){
+  var panel = el('bc-cancel-confirm') || el('bc-cancel-confirm-inline');
+  if (!panel) return;
+  var scroller = panel.parentElement;
+  while (scroller && scroller !== document.body && scroller !== document.documentElement){
+    var oy = '';
+    try { oy = (window.getComputedStyle(scroller).overflowY || ''); } catch (e) { oy = ''; }
+    if ((oy === 'auto' || oy === 'scroll') && scroller.scrollHeight > scroller.clientHeight + 1) break;
+    scroller = scroller.parentElement;
+  }
+  if (scroller && panel.getBoundingClientRect && scroller.getBoundingClientRect){
+    var pad = 12;
+    var nr = panel.getBoundingClientRect();
+    var sr = scroller.getBoundingClientRect();
+    if (nr.bottom > sr.bottom - pad) scroller.scrollTop += (nr.bottom - (sr.bottom - pad));
+    nr = panel.getBoundingClientRect();
+    sr = scroller.getBoundingClientRect();
+    if (nr.top < sr.top + pad) scroller.scrollTop -= ((sr.top + pad) - nr.top);
+    return;
+  }
+  if (typeof panel.scrollIntoView === 'function'){
+    try { panel.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {
+      try { panel.scrollIntoView(false); } catch (e2) {}
+    }
+  }
+}
+
 function bcRenderCancelConfirmPanel(data){
   var bk = (data && data.booking) || {};
   var host = el('bc-cancel-confirm-inline');
@@ -41983,6 +42010,7 @@ function bcRenderCancelConfirmPanel(data){
   if (keepBtn) keepBtn.onclick = function(){ bcCloseCancelConfirm(); };
   var confirmBtn = el('bc-cancel-confirm-btn');
   if (confirmBtn) confirmBtn.onclick = function(){ bcRunCancelReservation(); };
+  bcScrollCancelConfirmIntoView();
 }
 
 function bcRenderCancelResult(data, isError){
