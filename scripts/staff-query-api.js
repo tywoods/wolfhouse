@@ -722,6 +722,9 @@ const {
   getBedCalendarSummaryQuery,
 } = require('./lib/staff-bed-calendar-queries');
 const {
+  annotateCalendarBlocks,
+} = require('./lib/staff-calendar-group-paint');
+const {
   resolveBedCalendarRoomRows,
   filterDemoCalendarBlocks,
   isWolfhouseInventoryClient,
@@ -19756,7 +19759,22 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .transfer-pebble{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(5px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#EDE7F6;color:#5E35B1;border:1px solid #D1C4E9;flex-shrink:0}
 .transfer-pebble-drawer{font-size:11px;padding:2px 8px;border-radius:999px}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
+.bc-block.bc-block-grouped{box-shadow:inset 4px 0 0 var(--bc-group-accent,#D7E3D4),var(--shadow-soft)}
+.bc-block.bc-block-grouped:hover,.bc-block.bc-block-grouped.bc-block-group-hover,.bc-block-checkout-marker.bc-block-grouped.bc-block-group-hover{filter:brightness(.95);box-shadow:inset 4px 0 0 var(--bc-group-accent,#D7E3D4),0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
+/* SCHEDULE-GROUP-BOOKING-UI-001 — multi-room group parent bar + soft Designer pebble accent */
+.bc-group-chip{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#E3D7F0;color:#534066;border:1px solid #D4C4E0;flex-shrink:0}
+.bc-block-group{box-shadow:inset 0 0 0 1px rgba(83,64,102,.16),var(--shadow-soft)}
+.bc-block.bc-block-group-hover,.bc-block-checkout-marker.bc-block-group-hover{filter:brightness(.96);box-shadow:0 2px 12px rgba(83,64,102,.22),inset 0 0 0 1px rgba(83,64,102,.26)}
+.bc-group-parent-row td{border-bottom:1px solid transparent;padding:0;height:calc(16px * var(--bc-zoom, 1));background:transparent}
+.bc-group-parent-label{position:sticky;left:0;z-index:4;background:var(--surface);font-size:calc(10px * var(--bc-zoom, 1));font-weight:600;color:#534066;padding:calc(2px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));white-space:nowrap;border-right:2px solid var(--tan);vertical-align:middle}
+.bc-group-parent-name{font-weight:700}
+.bc-group-parent-meta{font-weight:500;opacity:.72;margin-left:4px}
+.bc-group-parent-bar-cell{padding:calc(3px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))!important;vertical-align:middle;background:transparent}
+.bc-group-parent-bar{height:calc(8px * var(--bc-zoom, 1));border-radius:999px;background:linear-gradient(90deg,rgba(227,215,240,.95) 0%,rgba(213,222,232,.88) 100%);border:1px solid rgba(212,196,224,.95);box-shadow:0 1px 2px rgba(83,64,102,.08);cursor:pointer}
+.bc-group-parent-bar.bc-group-parent-bar-hover,.bc-group-parent-row.bc-group-parent-row-hover .bc-group-parent-bar{filter:brightness(.97);box-shadow:0 2px 8px rgba(83,64,102,.18)}
+.bc-group-parent-pad{background:transparent!important}
+.bc-legend-sw-group{background:#E3D7F0;border-left-color:#B39BCB}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
 .bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB}
@@ -19782,7 +19800,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-owner_schedule_blocked{background:linear-gradient(90deg,rgba(196,160,23,.35) 0%,rgba(246,229,107,.18) 40%,transparent 75%)}
-.bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
+.bc-day-cell:not(:has(.bc-block)){background:#F7F8F8}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
 .bc-detail-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;font-size:16px;font-weight:700}
@@ -20369,7 +20387,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-grid thead th.bc-bed-head{background:linear-gradient(180deg,#3c3c3c 0%,#2d2d2d 100%);border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-room-hdr{background:var(--room-bar,var(--sand));color:var(--room-bar-fg,var(--text))}
 [data-theme="dark"] .bc-bed-cell{background:#2d2d2d;border-right-color:var(--staff-green-border)}
-[data-theme="dark"] .bc-day-cell:not(:has(.bc-block)){background:rgba(24,24,24,.55)}
+[data-theme="dark"] .bc-day-cell:not(:has(.bc-block)){background:#2A2A2C}
 [data-theme="dark"] .bc-day-cell[data-date]:hover{background:rgba(74,124,89,.14)}
 [data-theme="dark"] .bc-day-cell.bc-sel{background:rgba(74,124,89,.22);outline-color:rgba(106,154,114,.55)}
 [data-theme="dark"] .bc-day-cell.bc-sel-anchor{outline-color:var(--sage)}
@@ -20398,6 +20416,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
+[data-theme="dark"] .bc-group-chip{background:#2E2838;color:#E3D7F0;border-color:#7a68a0}
+[data-theme="dark"] .bc-block-group{box-shadow:inset 0 0 0 1px rgba(216,200,232,.22),var(--shadow-soft)}
+[data-theme="dark"] .bc-block.bc-block-group-hover,[data-theme="dark"] .bc-block-checkout-marker.bc-block-group-hover{box-shadow:0 2px 12px rgba(122,104,160,.35),inset 0 0 0 1px rgba(216,200,232,.35)}
+[data-theme="dark"] .bc-group-parent-label{background:#2d2d2d;color:#E3D7F0;border-right-color:var(--staff-green-border)}
+[data-theme="dark"] .bc-group-parent-bar{background:linear-gradient(90deg,rgba(90,72,112,.9) 0%,rgba(60,80,100,.75) 100%);border-color:#7a68a0}
+[data-theme="dark"] .bc-legend-sw-group{background:#2E2838;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
 [data-theme="dark"] .btn-bc-block-pebble{background:#2d2d2d;color:var(--text-2);border-color:var(--border)}
@@ -24094,6 +24118,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span><span data-i18n="calendar.legend.luna">Luna</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
       <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
@@ -36920,6 +36945,7 @@ function bcCalendarBlockPaymentState(blk){
 }
 
 function bcCalendarPaymentTooltipHint(blk){
+  if (blk && blk.calendar_show_payment_pills === false) return '';
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
   if (st.kind === 'balance_due') {
@@ -36938,6 +36964,7 @@ function bcCalendarPaymentTooltipHint(blk){
 }
 
 function bcCalendarPaymentBadgesHtml(blk){
+  if (blk && blk.calendar_show_payment_pills === false) return '';
   if (blk && String(blk.status || '').toLowerCase() === 'blocked') return '';
   if (blk && String(blk.color_type || '').toLowerCase() === 'blocked') return '';
   var st = bcCalendarBlockPaymentState(blk);
@@ -37011,7 +37038,132 @@ function bcFormatTransferSummaryLabel(summary){
 }
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+}
+
+/** SCHEDULE-GROUP-BOOKING-UI-001 — stable key for multi-room group paint. */
+function bcGroupKey(blk){
+  if (!blk) return '';
+  if (blk.booking_id) return 'id:' + String(blk.booking_id);
+  if (blk.booking_code) return 'code:' + String(blk.booking_code);
+  return '';
+}
+
+function bcIsSkippableGroupBlock(blk){
+  if (!blk) return true;
+  var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'external_inventory_block' || at === 'private_room_block' || at === 'staff_block') return true;
+  if (String(blk.status || '').toLowerCase() === 'blocked') return true;
+  if (String(blk.color_type || '') === 'owner_schedule_blocked') return true;
+  return false;
+}
+
+/**
+ * Build multi-room group index: same booking_id/code spanning 2+ room_codes.
+ * Mutates matching blocks with _bc_is_group / _bc_group_key / _bc_group_room_count.
+ */
+function bcBuildMultiRoomGroups(blocks){
+  var map = {};
+  (blocks || []).forEach(function(blk, idx){
+    if (bcIsSkippableGroupBlock(blk)) return;
+    var key = bcGroupKey(blk);
+    if (!key) return;
+    if (!map[key]) {
+      map[key] = {
+        key: key,
+        booking_id: blk.booking_id || null,
+        booking_code: blk.booking_code || '',
+        guest_name: blk.guest_name || '',
+        rooms: {},
+        start_date: blk.start_date || '',
+        end_date: blk.end_date || '',
+        idxs: [],
+      };
+    }
+    var g = map[key];
+    if (blk.room_code) g.rooms[String(blk.room_code)] = true;
+    g.idxs.push(idx);
+    if (blk.start_date && (!g.start_date || blk.start_date < g.start_date)) g.start_date = blk.start_date;
+    if (blk.end_date && (!g.end_date || blk.end_date > g.end_date)) g.end_date = blk.end_date;
+    if (!g.guest_name && blk.guest_name) g.guest_name = blk.guest_name;
+    if (!g.booking_code && blk.booking_code) g.booking_code = blk.booking_code;
+  });
+  var out = [];
+  Object.keys(map).forEach(function(k){
+    var g = map[k];
+    g.roomCodes = Object.keys(g.rooms);
+    g.roomCount = g.roomCodes.length;
+    if (g.roomCount < 2) return;
+    g.idxs.forEach(function(i){
+      var blk = blocks[i];
+      if (!blk) return;
+      blk._bc_is_group = true;
+      blk._bc_group_key = g.key;
+      blk._bc_group_room_count = g.roomCount;
+    });
+    out.push(g);
+  });
+  return out;
+}
+
+function bcGroupChipHtml(blk){
+  if (!blk || !blk._bc_is_group) return '';
+  var count = Number(blk._bc_group_room_count) || 0;
+  var title = t('calendar.group.chipTitle', { count: count });
+  return '<span class="bc-group-chip" title="' + escHtml(title) + '">' + escHtml(t('calendar.group.chip')) + '</span>';
+}
+
+function bcRenderGroupParentRow(g, days){
+  days = days || [];
+  var N = days.length;
+  if (!g || N < 1 || !g.start_date || !g.end_date) return '';
+  var startIdx = -1;
+  var endIdx = -1;
+  for (var i = 0; i < N; i++){
+    var d = (days[i] || {}).date || '';
+    if (d >= g.start_date && d < g.end_date){
+      if (startIdx < 0) startIdx = i;
+      endIdx = i + 1;
+    }
+  }
+  if (startIdx < 0 || endIdx <= startIdx) return '';
+  var name = g.guest_name || g.booking_code || t('calendar.group.chip');
+  var roomsLabel = t('calendar.group.rooms', { count: g.roomCount });
+  var tip = escHtml(name + ' · ' + roomsLabel);
+  var html = '<tr class="bc-group-parent-row" data-group-key="' + escHtml(g.key) + '">';
+  html += '<td class="bc-group-parent-label">' +
+    '<span class="bc-group-chip">' + escHtml(t('calendar.group.chip')) + '</span> ' +
+    '<span class="bc-group-parent-name">' + escHtml(name) + '</span>' +
+    '<span class="bc-group-parent-meta">' + escHtml(roomsLabel) + '</span></td>';
+  for (var e = 0; e < startIdx; e++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
+  html += '<td colspan="' + (endIdx - startIdx) + '" class="bc-group-parent-bar-cell">' +
+    '<div class="bc-group-parent-bar" data-group-key="' + escHtml(g.key) + '" data-bidx="' + (g.idxs[0] != null ? g.idxs[0] : '') + '" title="' + tip + '"></div></td>';
+  for (var a = endIdx; a < N; a++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
+  html += '</tr>';
+  return html;
+}
+
+function bcSetGroupHover(groupKey, on){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.bc-block-group-hover').forEach(function(node){
+    node.classList.remove('bc-block-group-hover');
+  });
+  wrap.querySelectorAll('.bc-group-parent-bar-hover').forEach(function(node){
+    node.classList.remove('bc-group-parent-bar-hover');
+  });
+  wrap.querySelectorAll('.bc-group-parent-row-hover').forEach(function(node){
+    node.classList.remove('bc-group-parent-row-hover');
+  });
+  if (!on || !groupKey) return;
+  wrap.querySelectorAll('.bc-block[data-group-key], .bc-block-checkout-marker[data-group-key], .bc-group-parent-bar[data-group-key], .bc-group-parent-row[data-group-key]').forEach(function(node){
+    if (node.getAttribute('data-group-key') !== groupKey) return;
+    if (node.classList.contains('bc-block') || node.classList.contains('bc-block-checkout-marker')) {
+      node.classList.add('bc-block-group-hover');
+    }
+    if (node.classList.contains('bc-group-parent-bar')) node.classList.add('bc-group-parent-bar-hover');
+    if (node.classList.contains('bc-group-parent-row')) node.classList.add('bc-group-parent-row-hover');
+  });
 }
 
 function bcColorClass(ct){
@@ -37099,6 +37251,26 @@ function renderBedCalendar(data){
   /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
   rooms = bcSortRoomsForDisplay(rooms);
 
+  /* SCHEDULE-GROUP-BOOKING-UI-001 — detect multi-room groups before paint */
+  var multiRoomGroups = bcBuildMultiRoomGroups(blocks);
+  var roomOrderIndex = {};
+  rooms.forEach(function(room, ri){
+    roomOrderIndex[String(room.room_code || '')] = ri;
+  });
+  multiRoomGroups.forEach(function(g){
+    var firstIdx = Infinity;
+    var firstCode = null;
+    g.roomCodes.forEach(function(rc){
+      var ri = roomOrderIndex[rc];
+      if (ri != null && ri < firstIdx) {
+        firstIdx = ri;
+        firstCode = rc;
+      }
+    });
+    g.firstRoomCode = firstCode;
+  });
+  var groupParentInserted = {};
+
   /* Warnings */
   if (data.warnings && data.warnings.length > 0){
     el('bc-warnings').innerHTML = data.warnings.map(function(w){ return escHtml(w); }).join('<br>');
@@ -37132,6 +37304,13 @@ function renderBedCalendar(data){
   rooms.forEach(function(room){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
+    /* Parent bar once, above the first display-order room that hosts the group */
+    multiRoomGroups.forEach(function(g){
+      if (g.firstRoomCode !== roomCode) return;
+      if (groupParentInserted[g.key]) return;
+      groupParentInserted[g.key] = true;
+      html += bcRenderGroupParentRow(g, days);
+    });
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     /* Strip any non-alphanumerics (stray spaces / zero-width chars / dashes) before
        matching so an R# code with hidden junk still becomes "Room N". */
@@ -37246,13 +37425,38 @@ function renderBedCalendar(data){
       bcOpenBookingDrawerOverview(blocks[idx]);
     });
     bEl.addEventListener('mouseenter', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, true);
       if (!bcSideDrawerLive()) return;
       var idx = parseInt(this.dataset.bidx, 10);
       bcSideHoverEnter(blocks[idx]);
     });
-    bEl.addEventListener('mouseleave', function(){
+    bEl.addEventListener('mouseleave', function(e){
+      var gKey = this.getAttribute('data-group-key');
+      var next = e && e.relatedTarget;
+      var staying = gKey && next && next.closest && next.closest('[data-group-key="' + gKey + '"]');
+      if (gKey && !staying) bcSetGroupHover(gKey, false);
       if (!bcSideDrawerLive()) return;
       bcSideHoverLeave();
+    });
+  });
+
+  /* Parent bar: open first group block + cross-room hover shadow */
+  wrap.querySelectorAll('.bc-group-parent-bar').forEach(function(barEl){
+    barEl.addEventListener('click', function(e){
+      e.stopPropagation();
+      var idx = parseInt(this.dataset.bidx, 10);
+      if (!isNaN(idx) && blocks[idx]) bcOpenBookingDrawerOverview(blocks[idx]);
+    });
+    barEl.addEventListener('mouseenter', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, true);
+    });
+    barEl.addEventListener('mouseleave', function(e){
+      var gKey = this.getAttribute('data-group-key');
+      var next = e && e.relatedTarget;
+      var staying = gKey && next && next.closest && next.closest('[data-group-key="' + gKey + '"]');
+      if (gKey && !staying) bcSetGroupHover(gKey, false);
     });
   });
 
@@ -37408,6 +37612,28 @@ function bcBlockLabel(blk, spanDays, layer){
   return escHtml(label);
 }
 
+/**
+ * Combine Gina multi-bed soft accent (calendar_group_*) with multi-room
+ * parent-bar chrome (_bc_is_group). Prefer the multi-room group key when
+ * both apply so parent-bar hover stays united across rooms.
+ */
+function bcGroupPaintBits(blk){
+  var cls = '';
+  var key = '';
+  var style = '';
+  if (blk && Number(blk.calendar_group_size) > 1 && blk.calendar_group_key) {
+    cls += ' bc-block-grouped';
+    key = String(blk.calendar_group_key);
+    style = ' style="--bc-group-accent:' + escHtml(String(blk.calendar_group_accent || '#D7E3D4')) + '"';
+  }
+  if (blk && blk._bc_is_group) {
+    cls += ' bc-block-group';
+    if (blk._bc_group_key) key = String(blk._bc_group_key);
+  }
+  if (!cls && !key) return { cls: '', attr: '' };
+  var attr = (key ? ' data-group-key="' + escHtml(key) + '"' : '') + style;
+  return { cls: cls, attr: attr };
+}
 function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   var primary = bcTurnoverPrimarySeg(segs);
   var checkout = bcTurnoverCheckoutSeg(segs);
@@ -37416,11 +37642,13 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   var inner = '';
   if (checkout && checkout.idx !== primary.idx){
     var outColor = bcColorClass(checkout.blk.color_type);
-    inner += '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + checkout.idx + '" title="' + bcBlockTooltip(checkout.blk) + '" aria-label="Check out ' + escHtml(checkout.blk.guest_name || '') + '"></div>';
+    var outGroup = bcGroupPaintBits(checkout.blk);
+    inner += '<div class="bc-block-checkout-marker ' + outColor + outGroup.cls + '" data-bidx="' + checkout.idx + '"' + outGroup.attr + ' title="' + bcBlockTooltip(checkout.blk) + '" aria-label="Check out ' + escHtml(checkout.blk.guest_name || '') + '"></div>';
   }
 
   var priColor = bcColorClass(primary.blk.color_type);
-  inner += '<div class="bc-block ' + priColor + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '" title="' + bcTurnoverCellTooltip(segs) + '">' +
+  var priGroup = bcGroupPaintBits(primary.blk);
+  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
@@ -37429,13 +37657,15 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
 function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   spanDays = spanDays != null ? spanDays : blk.span_days;
   var colorCls = bcColorClass(blk.color_type);
+  var groupBits = bcGroupPaintBits(blk);
   var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
   var markerHtml = '';
   var tip;
   var label;
   if (turnoverCheckout){
     var outColor = bcColorClass(turnoverCheckout.blk.color_type);
-    markerHtml = '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + turnoverCheckout.idx + '" title="' + bcBlockTooltip(turnoverCheckout.blk) + '" aria-label="Check out ' + escHtml(turnoverCheckout.blk.guest_name || '') + '"></div>';
+    var outGroup = bcGroupPaintBits(turnoverCheckout.blk);
+    markerHtml = '<div class="bc-block-checkout-marker ' + outColor + outGroup.cls + '" data-bidx="' + turnoverCheckout.idx + '"' + outGroup.attr + ' title="' + bcBlockTooltip(turnoverCheckout.blk) + '" aria-label="Check out ' + escHtml(turnoverCheckout.blk.guest_name || '') + '"></div>';
     tip = bcTurnoverCellTooltip([
       { blk: turnoverCheckout.blk, idx: turnoverCheckout.idx, layer: 'checkout' },
       { blk: blk, idx: idx, layer: 'checkin' },
@@ -37447,7 +37677,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupBits.cls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
@@ -49931,13 +50161,43 @@ async function handleBedCalendar(query, res, user) {
   roomRows = resolveBedCalendarRoomRows(clientSlug, roomRows);
   blockRows = filterDemoCalendarBlocks(blockRows);
 
+  let calendarGuestRows = [];
+  const calendarBookingIds = [...new Set(blockRows.map((row) => row.booking_id).filter(Boolean))];
+  if (calendarBookingIds.length) {
+    try {
+      calendarGuestRows = await withPgClient(async (pg) => {
+        const guestRes = await pg.query(
+          `SELECT bg.booking_id::text AS booking_id,
+                  bg.guest_number,
+                  bg.guest_name,
+                  bg.assigned_bed_code,
+                  bg.assigned_room_code
+             FROM booking_guests bg
+             INNER JOIN clients c ON c.id = bg.client_id
+            WHERE c.slug = $2
+              AND bg.booking_id = ANY($1::uuid[])
+            ORDER BY bg.guest_number ASC`,
+          [calendarBookingIds, clientSlug]
+        );
+        return guestRes.rows;
+      });
+    } catch (guestErr) {
+      const guestMsg = String(guestErr && guestErr.message || '');
+      const missingGuests = /booking_guests/i.test(guestMsg) && /does not exist|relation/i.test(guestMsg);
+      if (!missingGuests) {
+        appendAuditLog({ ...auditBase, success: false, error: guestMsg, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'query failed', detail: guestMsg });
+      }
+    }
+  }
+
   const rooms  = buildRoomHierarchy(roomRows);
   const days   = generateCalendarDays(startDate, endDate);
   const transfersByBookingId = buildTransferSummariesByBookingId(transferRows);
-  const blocks = buildCalendarBlocks(blockRows, startDate, endDate).map((b) => ({
+  const blocks = annotateCalendarBlocks(buildCalendarBlocks(blockRows, startDate, endDate).map((b) => ({
     ...b,
     transfer_summary: transfersByBookingId[b.booking_id] || emptyTransferSummary(),
-  }));
+  })), calendarGuestRows);
 
   const elapsed = Date.now() - started;
   appendAuditLog({
