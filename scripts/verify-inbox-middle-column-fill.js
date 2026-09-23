@@ -58,8 +58,9 @@ function sourceAssertions() {
   ok('#conv-list fills the scroll region',
     shell.includes('#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list.conv-list{')
     && shell.includes('flex:1 1 auto;min-height:100%'));
-  ok('mobile left-rows content-size override kept',
-    shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}'));
+  ok('mobile left-rows scroll under pinned search (phone layout 002)',
+    shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:1 1 auto;min-height:0;height:auto;overflow-y:auto}')
+    && shell.includes('SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002'));
   ok('does not touch staff-query-api for this change', true);
 }
 
