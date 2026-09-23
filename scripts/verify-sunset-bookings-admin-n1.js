@@ -37,6 +37,15 @@ let pass = 0;
 let fail = 0;
 const tracer = [];
 
+function chipRuleHas(src, className, hexes, light) {
+  const scope = light
+    ? ':root:not\\(\\[data-theme="dark"\\]\\)\\s*\\.' + className
+    : '(?:^|[\\n\\r])\\.' + className;
+  const re = new RegExp(scope + '\\{[^}]*\\}', 'gi');
+  const blocks = String(src || '').match(re) || [];
+  return blocks.some((block) => hexes.every((hex) => new RegExp(hex, 'i').test(block)));
+}
+
 function ok(label, cond, detail) {
   if (cond) {
     pass += 1;
@@ -1290,8 +1299,9 @@ async function testGeneratedUi() {
     });
     ok('status chip paid uses light text (dark palette)', (() => {
       if (!chipPaidCss || !chipPaidCss.color) return false;
-      // #86efac ≈ rgb(134, 239, 172)
-      return /134,\s*239,\s*172/.test(chipPaidCss.color) || /86efac/i.test(chipPaidCss.color);
+      // Designer paid pebble: dark text #A8CDB4 ≈ rgb(168, 205, 180); light text #1F5C45 ≈ rgb(31, 92, 69)
+      return /168,\s*205,\s*180/.test(chipPaidCss.color) || /31,\s*92,\s*69/.test(chipPaidCss.color)
+        || /A8CDB4|1F5C45/i.test(chipPaidCss.color);
     })(), JSON.stringify(chipPaidCss));
     ok('status chips smaller font (~10px)', chipPaidCss && parseFloat(chipPaidCss.fontSize) <= 11.5,
       chipPaidCss && chipPaidCss.fontSize);
@@ -2065,7 +2075,7 @@ function testOwnerWiring() {
   ok('UI Restore only when not hidden', /!isHidden[\s\S]{0,200}data-bookings-restore/.test(bookingsUi)
     || /if \(!isHidden\) \{[\s\S]{0,300}data-bookings-restore/.test(bookingsUi));
   ok('UI refund section gated', /showRefundSection/.test(bookingsUi));
-  ok('CSS dark chip paid palette', /chip--paid\{color:#86efac/.test(apiSrc));
+  ok('CSS dark chip paid palette', chipRuleHas(apiSrc, 'portal-admin-bookings-chip--paid', ['#A8CDB4', '#24332C', '#3D5A48'], false));
   ok('CSS Status column widened', /minmax\(132px/.test(apiSrc));
   ok('CSS status chips centered', /portal-admin-bookings-td-status\{[^}]*justify-content:center/.test(apiSrc));
   ok('course equipment excluded helper present', /isCourseIncludedEquipmentService/.test(domainSrc));
