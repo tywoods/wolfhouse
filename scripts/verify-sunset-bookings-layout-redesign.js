@@ -4,10 +4,9 @@
  * Shared Staff portal Bookings tab layout redesign gates.
  *
  * Ty split (2026-09-23):
- *  - Desktop + mobile: remove money summary tiles only (Collected/Refunded/Net/Outstanding).
- *  - Mobile only: Bookings|Refund|Unpaid strip, footer scope note, Search+Clear /
- *    Dates|Status|Type|Export toolbar, phone card hierarchy.
- *  - Desktop: keep today's toolbar, rows, and under-summary explainer.
+ *  - Desktop + mobile: remove money summary tiles (Collected/Refunded/Net/Outstanding).
+ *  - BOOKINGS-CARDS-COUNTS-001: Bookings / Refund needed / Unpaid are counts on both.
+ *  - Mobile only: footer scope note, Search+Clear / Dates|Status|Type|Export toolbar, phone cards.
  *
  * Lodging (Wolfhouse) Type filter (2026-09-23 follow-up):
  *  - Desktop: Type stays hidden for lodging (class is-lodging-hide-desktop).
@@ -222,11 +221,13 @@ async function main() {
     /metric\('admin\.bookings\.metric\.bookings'/.test(ui));
 
   // ── Desktop: Bookings-only strip + under-summary note + classic toolbar ──────
-  ok('desktop summary strip is single Bookings column by default',
-    /\.portal-admin-bookings-summary-strip\{[^}]*grid-template-columns:minmax\(140px,220px\)/.test(api));
-  ok('Refund/Unpaid metrics marked mobile-only and hidden on desktop',
-    /portal-admin-bookings-metric--mobile-kpi/.test(ui)
-    && /\.portal-admin-bookings-metric--mobile-kpi\{display:none\}/.test(api));
+  ok('desktop summary strip shows three count cards',
+    /\.portal-admin-bookings-summary-strip\{[^}]*grid-template-columns:repeat\(3,minmax\(0,220px\)\)/.test(api)
+    && !/\.portal-admin-bookings-metric--mobile-kpi\{display:none\}/.test(api));
+  ok('Refund needed and Unpaid cards are not hidden on desktop',
+    !/portal-admin-bookings-metric--mobile-kpi/.test(ui)
+    && !/adminBookingsFormatEur\(s\.refunded_cents\)/.test(ui)
+    && !/adminBookingsFormatEur\(s\.outstanding_cents\)/.test(ui));
   ok('desktop keeps scope note under summary',
     /portal-admin-bookings-summary-note/.test(ui)
     && /data-bookings-kpi-scope="1"/.test(ui)
@@ -242,10 +243,9 @@ async function main() {
     !/\.portal-admin-bookings-tr\{[^}]*grid-template-areas:\s*"guest status"/.test(api.split('@media(max-width:520px)')[0]));
 
   // ── Mobile: lean KPIs, footer note, toolbar, cards ───────────────────────────
-  ok('mobile shows Refund + Unpaid KPIs (refunded_cents / outstanding_cents)',
-    /metric\('admin\.bookings\.metric\.refund',\s*adminBookingsFormatEur\(s\.refunded_cents\)/.test(ui)
-    && /metric\('admin\.bookings\.metric\.unpaid',\s*adminBookingsFormatEur\(s\.outstanding_cents\)/.test(ui)
-    && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-metric--mobile-kpi\{display:block\}/.test(api)
+  ok('mobile strip stays three columns and cards are counts',
+    /metric\('admin\.bookings\.status\.refund_needed',\s*adminBookingsCountText\(s\.refund_needed_count\)/.test(ui)
+    && /metric\('admin\.bookings\.metric\.unpaid',\s*adminBookingsCountText\(s\.unpaid_count\)/.test(ui)
     && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-summary-strip\{[^}]*repeat\(3,minmax\(0,1fr\)\)/.test(api));
   ok('mobile moves scope note to footer (hides under-summary note)',
     /admin-bookings-footer-note/.test(ui)
@@ -293,10 +293,10 @@ async function main() {
     /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-filter-type\.is-lodging-hide-desktop\{display:flex/.test(api));
 
   // ── i18n lean labels ─────────────────────────────────────────────────────────
-  ok('EN/ES Refund + Unpaid metric keys',
-    /'admin\.bookings\.metric\.refund':\s*'Refund'/.test(i18n)
+  ok('EN/ES Refund needed + Unpaid labels',
+    /'admin\.bookings\.status\.refund_needed':\s*'Refund needed'/.test(i18n)
     && /'admin\.bookings\.metric\.unpaid':\s*'Unpaid'/.test(i18n)
-    && /'admin\.bookings\.metric\.refund':\s*'Reembolso'/.test(i18nEs)
+    && /'admin\.bookings\.status\.refund_needed':\s*'Reembolso pendiente'/.test(i18nEs)
     && /'admin\.bookings\.metric\.unpaid':\s*'Impagado'/.test(i18nEs));
 
   console.log('\n  computed-style (Sunset + Wolfhouse Type on mobile/desktop)\n');

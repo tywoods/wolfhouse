@@ -283,16 +283,24 @@ function computeMoneyStory(input) {
  * Summary over the full filtered set (not a page slice).
  * Outstanding skips cancelled/expired/hold (Finance operational scope).
  * Collected/net already use Finance payment ledger exclusions at SQL load.
+ * Strip cards count bookings, they do not sum money:
+ *   refund_needed_count = bookingMatchesStatus(row, 'refund_needed')
+ *   unpaid_count = bookingMatchesStatus(row, 'unpaid')
+ * Same predicates as the Status filter / Refund needed chip.
  */
 function computeBookingsSummary(rows) {
   let bookingsCount = 0;
   let collected = 0;
   let refunded = 0;
   let outstanding = 0;
+  let refundNeededCount = 0;
+  let unpaidCount = 0;
   for (const row of rows || []) {
     bookingsCount += 1;
     collected = checkedAdd(collected, row.collected_cents != null ? row.collected_cents : 0);
     refunded = checkedAdd(refunded, row.refunded_cents != null ? row.refunded_cents : 0);
+    if (bookingMatchesStatus(row, 'refund_needed')) refundNeededCount += 1;
+    if (bookingMatchesStatus(row, STATUS.UNPAID)) unpaidCount += 1;
     // Prefer raw DB status when present (hold/expired); else classified status.
     const statusForScope = row.booking_status != null ? row.booking_status : row.status;
     if (isExcludedBookingStatus(statusForScope)) continue;
@@ -304,6 +312,8 @@ function computeBookingsSummary(rows) {
     refunded_cents: refunded,
     net_cents: checkedSubtract(collected, refunded),
     outstanding_cents: clampNonNegative(outstanding),
+    refund_needed_count: refundNeededCount,
+    unpaid_count: unpaidCount,
   };
 }
 

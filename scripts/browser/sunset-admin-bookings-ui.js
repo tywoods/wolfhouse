@@ -1038,20 +1038,25 @@ function loadAdminBookings() {
     });
 }
 
+function adminBookingsCountText(value) {
+  var n = parseInt(value, 10);
+  if (!isFinite(n) || n < 0) n = 0;
+  return String(n);
+}
+
 function renderAdminBookingsSummary() {
   var node = el('admin-bookings-summary');
   if (!node) return;
   var s = (adminBookingsState.data && adminBookingsState.data.summary) || {};
-  // Shared: Bookings count only (money tiles removed).
-  // Mobile: also show Refund (Σ refunded_cents) + Unpaid (Σ outstanding_cents) —
-  // same Finance/Bookings ledger rules as computeBookingsSummary.
+  // Three count cards on desktop and mobile. No euros.
+  // Refund needed / Unpaid use the same predicates as the Status filter and chip.
   // Desktop keeps the scope note under the strip; mobile moves it to the page footer.
   node.innerHTML =
     '<div class="portal-admin-bookings-summary-strip" role="group" aria-label="' +
       escHtml(portalT('admin.bookings.summaryLabel')) + '">' +
-      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count', '') +
-      metric('admin.bookings.metric.refund', adminBookingsFormatEur(s.refunded_cents), 'refund', ' portal-admin-bookings-metric--mobile-kpi') +
-      metric('admin.bookings.metric.unpaid', adminBookingsFormatEur(s.outstanding_cents), 'unpaid', ' portal-admin-bookings-metric--mobile-kpi') +
+      metric('admin.bookings.metric.bookings', adminBookingsCountText(s.bookings_count), 'count', '') +
+      metric('admin.bookings.status.refund_needed', adminBookingsCountText(s.refund_needed_count), 'refund', '') +
+      metric('admin.bookings.metric.unpaid', adminBookingsCountText(s.unpaid_count), 'unpaid', '') +
     '</div>' +
     '<p class="portal-admin-bookings-summary-note" data-bookings-kpi-scope="1">' +
       escHtml(portalT('admin.bookings.summaryScopeNote')) +

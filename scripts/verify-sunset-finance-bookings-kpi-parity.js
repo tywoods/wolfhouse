@@ -236,10 +236,12 @@ ok('Bookings UI shows KPI scope note (desktop summary + mobile footer)',
   && /portal-admin-bookings-summary-note/.test(bookingsUi)
   && /admin-bookings-footer-note/.test(bookingsUi)
   && /summaryScopeNote/.test(bookingsUi));
-ok('Bookings money tiles removed; Refund/Unpaid are mobile KPIs',
-  /admin\.bookings\.metric\.refund/.test(bookingsUi)
-  && /admin\.bookings\.metric\.unpaid/.test(bookingsUi)
-  && /portal-admin-bookings-metric--mobile-kpi/.test(bookingsUi)
+ok('Bookings strip cards are counts, not money',
+  /admin\.bookings\.status\.refund_needed/.test(bookingsUi)
+  && /refund_needed_count/.test(bookingsUi)
+  && /unpaid_count/.test(bookingsUi)
+  && !/adminBookingsFormatEur\(s\.refunded_cents\)/.test(bookingsUi)
+  && !/adminBookingsFormatEur\(s\.outstanding_cents\)/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.collected'/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.net'/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.outstanding'/.test(bookingsUi));
@@ -250,8 +252,9 @@ ok('EN + ES scope note keys present',
   && /admin\.finance\.kpiScopeNote/.test(i18n)
   && /admin\.bookings\.summaryScopeNote/.test(i18nEs)
   && /admin\.finance\.kpiScopeNote/.test(i18nEs));
-ok('EN lean metric labels Refund + Unpaid',
-  /'admin\.bookings\.metric\.refund':\s*'Refund'/.test(i18n)
+ok('EN strip labels are Bookings / Refund needed / Unpaid',
+  /'admin\.bookings\.metric\.bookings':\s*'Bookings'/.test(i18n)
+  && /'admin\.bookings\.status\.refund_needed':\s*'Refund needed'/.test(i18n)
   && /'admin\.bookings\.metric\.unpaid':\s*'Unpaid'/.test(i18n)
   && /'admin\.bookings\.export':\s*'Export'/.test(i18n));
 

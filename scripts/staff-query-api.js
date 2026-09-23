@@ -17699,9 +17699,8 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-clear-btn,.portal-admin-bookings-export-btn{min-height:40px;white-space:nowrap}
 .portal-admin-bookings-export-short{display:none}
 .portal-admin-bookings-summary{order:0}
-/* Desktop: Bookings count only (Refund/Unpaid are mobile-only). */
-.portal-admin-bookings-summary-strip{display:grid;grid-template-columns:minmax(140px,220px);gap:8px;max-width:100%}
-.portal-admin-bookings-metric--mobile-kpi{display:none}
+/* BOOKINGS-CARDS-COUNTS-001: three count cards on desktop and mobile. */
+.portal-admin-bookings-summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,220px));gap:8px;max-width:100%}
 .portal-admin-bookings-metric{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;min-width:0}
 .portal-admin-bookings-metric-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
 .portal-admin-bookings-metric-value{font-size:16px;font-weight:700;color:var(--text);word-break:break-word;font-variant-numeric:tabular-nums}
@@ -17802,7 +17801,6 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 /* Mobile Bookings chrome: lean KPIs, Search+Clear, Dates/Status/Type/Export, footer note */
 @media(max-width:768px){
   .portal-admin-bookings-summary-strip{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .portal-admin-bookings-metric--mobile-kpi{display:block}
   .portal-admin-bookings-metric{padding:8px 10px}
   .portal-admin-bookings-metric-value{font-size:15px}
   .portal-admin-bookings-summary-note{display:none}
