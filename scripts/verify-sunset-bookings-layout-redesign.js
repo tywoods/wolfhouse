@@ -11,7 +11,7 @@
  * Lodging (Wolfhouse) Type filter (2026-09-23 follow-up):
  *  - Desktop: Type stays hidden for lodging (class is-lodging-hide-desktop).
  *  - Mobile ≤768px: Type must be visible for both Sunset and Wolfhouse so the
- *    Type|Export row is present (no inline display:none).
+ *    Dates|Status|Type|Export row is present (no inline display:none).
  *
  * Run: node scripts/verify-sunset-bookings-layout-redesign.js
  */
@@ -22,7 +22,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const ui = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
-const api = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+const api = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
 const i18nEs = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
 
@@ -253,7 +253,7 @@ async function main() {
     && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-summary-note\{display:none\}/.test(api)
     && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-footer-note\{display:block\}/.test(api));
   ok('mobile toolbar: Search+Clear then Dates/Status/Type/Export',
-    /@media\(max-width:768px\)\{[\s\S]*?grid-template-areas:[\s\S]*?"search clear"[\s\S]*?"dates status"[\s\S]*?"type export"/.test(api)
+    /@media\(max-width:768px\)\{[\s\S]*?grid-template-areas:[\s\S]*?"search search search clear"[\s\S]*?"dates status type export"/.test(api)
     && /id="admin-bookings-clear"/.test(ui)
     && /id="admin-bookings-export"/.test(ui)
     && /\.portal-admin-bookings-actions\{display:contents/.test(api));

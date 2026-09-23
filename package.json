@@ -1219,6 +1219,7 @@
     "job:sunset-staff-sw-quote-readonly": "node scripts/job-sunset-staff-sw-quote-readonly.js",
     "verify:sunset-bookings-admin-sort-type": "node scripts/verify-sunset-bookings-admin-sort-type.js",
     "verify:sunset-bookings-layout-redesign": "node scripts/verify-sunset-bookings-layout-redesign.js",
+    "verify:bookings-filters-2row": "node scripts/verify-bookings-filters-2row.js",
     "verify:bookings-cards-counts-001": "node scripts/verify-bookings-cards-counts-001.js",
     "verify:item-display-name": "node scripts/verify-item-display-name.js",
     "diagnose:sunset-finance-data-quality": "node scripts/diagnose-sunset-finance-data-quality.js",
