@@ -1570,6 +1570,15 @@
       "inForwardChain": true,
       "rationale": "EMAIL-CARD-PAUSE-TOGGLE-001: independent master mailbox pause without disconnecting or changing saved capability flags. Default false preserves existing flow.",
       "sha256": "533247b261045d1e5eb9c33f6e28d254d4bbaa45a447f5937220c6df09b31b34"
+    },
+    {
+      "id": "106_wh_pricing_catalog_extra_types",
+      "filename": "106_wh_pricing_catalog_extra_types.sql",
+      "order": 102,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "PRICING-DEPOSIT-ADD-500-001: widen only the Wolfhouse pricing-item type CHECK to the deposit and supplement identities already accepted by Staff API validation; absent Wolfhouse tables are a no-op.",
+      "sha256": "32ed302289b79a8cb2f89be5fd7292c0666007a3159895e1103a7ea372a57f13"
     }
   ]
 }
