@@ -183,6 +183,7 @@
     "verify:staff-addon-service-payment-api": "node scripts/verify-staff-addon-service-payment-api.js",
     "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
     "verify:wolfhouse-admin-pricing": "node scripts/verify-wolfhouse-admin-pricing.js",
+    "verify:pricing-deposit-add-500-001": "node scripts/verify-pricing-deposit-add-500-001.js --browser",
     "verify:wolfhouse-admin-pricing-ui": "node scripts/verify-wolfhouse-admin-pricing-playwright.js",
     "verify:staff-quote-preview-api": "node scripts/verify-staff-quote-preview-api.js",
     "verify:staff-bot-booking-preview-api": "node scripts/verify-staff-bot-booking-preview-api.js",
