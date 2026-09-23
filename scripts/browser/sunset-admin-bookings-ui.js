@@ -327,74 +327,73 @@ function renderAdminBookingsShell(opts) {
     '<div class="portal-admin-bookings" data-admin-bookings="1">' +
       '<div id="admin-bookings-summary" class="portal-admin-bookings-summary" aria-live="polite"></div>' +
       '<div class="portal-admin-bookings-toolbar" role="search">' +
-        '<div class="portal-admin-bookings-toolbar-search">' +
-          '<label class="portal-admin-bookings-field portal-admin-bookings-search">' +
-            '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.search')) + '</span>' +
-            '<input type="search" id="admin-bookings-q" class="portal-admin-bookings-input" autocomplete="off" ' +
-              'placeholder="' + escHtml(portalT('admin.bookings.searchPlaceholder')) + '" />' +
-          '</label>' +
+        '<label class="portal-admin-bookings-field portal-admin-bookings-search">' +
+          '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.search')) + '</span>' +
+          '<input type="search" id="admin-bookings-q" class="portal-admin-bookings-input" autocomplete="off" ' +
+            'placeholder="' + escHtml(portalT('admin.bookings.searchPlaceholder')) + '" />' +
+        '</label>' +
+        '<div class="portal-admin-bookings-field portal-admin-bookings-date-range" id="admin-bookings-date-range">' +
+          '<span class="portal-admin-bookings-label" id="admin-bookings-date-range-label">' +
+            escHtml(portalT('admin.bookings.dateRange') || portalT('admin.bookings.dateFrom') || 'Dates') + '</span>' +
+          '<button type="button" id="admin-bookings-date-range-trigger" class="portal-admin-bookings-date-range-trigger" ' +
+            'aria-haspopup="dialog" aria-expanded="false" aria-controls="admin-bookings-date-range-popover">' +
+            '<span id="admin-bookings-date-range-display" class="portal-admin-bookings-date-range-display">' +
+              escHtml(portalT('admin.bookings.dateRangeAll') || 'All dates') + '</span>' +
+          '</button>' +
+          '<input type="hidden" id="admin-bookings-date-from" value="" />' +
+          '<input type="hidden" id="admin-bookings-date-to" value="" />' +
+          '<div id="admin-bookings-date-range-popover" class="portal-admin-bookings-date-range-popover" role="dialog" ' +
+            'aria-modal="false" aria-labelledby="admin-bookings-date-range-label" hidden style="display:none">' +
+            '<div class="portal-admin-bookings-date-range-nav">' +
+              '<button type="button" id="admin-bookings-date-range-prev" aria-label="Previous month">&#8249;</button>' +
+              '<span id="admin-bookings-date-range-month-label" class="portal-admin-bookings-date-range-month" aria-live="polite"></span>' +
+              '<button type="button" id="admin-bookings-date-range-next" aria-label="Next month">&#8250;</button>' +
+            '</div>' +
+            '<div id="admin-bookings-date-range-grid" class="portal-admin-bookings-date-range-grid" role="group" ' +
+              'aria-labelledby="admin-bookings-date-range-month-label"></div>' +
+            '<div class="portal-admin-bookings-date-range-actions">' +
+              '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-clear">' +
+                escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') + '</button>' +
+              '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-cancel">' +
+                escHtml(portalT('admin.bookings.dateRangeCancel') || 'Cancel') + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<label class="portal-admin-bookings-field portal-admin-bookings-filter-status">' +
+          '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.status')) + '</span>' +
+          '<select id="admin-bookings-status" class="portal-admin-bookings-input">' +
+            '<option value="">' + escHtml(portalT('admin.bookings.statusAll')) + '</option>' +
+            '<option value="paid">' + escHtml(portalT('admin.bookings.status.paid')) + '</option>' +
+            '<option value="unpaid">' + escHtml(portalT('admin.bookings.status.unpaid')) + '</option>' +
+            '<option value="partial">' + escHtml(portalT('admin.bookings.status.partial')) + '</option>' +
+            '<option value="refunded">' + escHtml(portalT('admin.bookings.status.refunded')) + '</option>' +
+            '<option value="cancelled">' + escHtml(portalT('admin.bookings.status.cancelled') || 'Cancelled') + '</option>' +
+            '<option value="hidden">' + escHtml(portalT('admin.bookings.status.hidden') || 'Hidden') + '</option>' +
+          '</select>' +
+        '</label>' +
+        '<label class="portal-admin-bookings-field portal-admin-bookings-filter-type">' +
+          '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.type')) + '</span>' +
+          '<select id="admin-bookings-type" class="portal-admin-bookings-input">' +
+            '<option value="">' + escHtml(portalT('admin.bookings.typeAll')) + '</option>' +
+            '<option value="lessons">' + escHtml(portalT('admin.bookings.type.lessons') || 'Lessons') + '</option>' +
+            '<option value="rentals">' + escHtml(portalT('admin.bookings.type.rentals') || 'Rentals') + '</option>' +
+            '<option value="accommodation">' + escHtml(portalT('admin.bookings.type.accommodation') || 'Accommodation') + '</option>' +
+          '</select>' +
+        '</label>' +
+        '<div class="portal-admin-bookings-actions">' +
           '<button type="button" class="btn btn-ghost portal-admin-bookings-clear-btn" id="admin-bookings-clear">' +
             escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') +
           '</button>' +
-        '</div>' +
-        '<div class="portal-admin-bookings-toolbar-filters">' +
-          '<div class="portal-admin-bookings-field portal-admin-bookings-date-range" id="admin-bookings-date-range">' +
-            '<span class="portal-admin-bookings-label" id="admin-bookings-date-range-label">' +
-              escHtml(portalT('admin.bookings.dateRange') || portalT('admin.bookings.dateFrom') || 'Dates') + '</span>' +
-            '<button type="button" id="admin-bookings-date-range-trigger" class="portal-admin-bookings-date-range-trigger" ' +
-              'aria-haspopup="dialog" aria-expanded="false" aria-controls="admin-bookings-date-range-popover">' +
-              '<span id="admin-bookings-date-range-display" class="portal-admin-bookings-date-range-display">' +
-                escHtml(portalT('admin.bookings.dateRangeAll') || 'All dates') + '</span>' +
-            '</button>' +
-            '<input type="hidden" id="admin-bookings-date-from" value="" />' +
-            '<input type="hidden" id="admin-bookings-date-to" value="" />' +
-            '<div id="admin-bookings-date-range-popover" class="portal-admin-bookings-date-range-popover" role="dialog" ' +
-              'aria-modal="false" aria-labelledby="admin-bookings-date-range-label" hidden style="display:none">' +
-              '<div class="portal-admin-bookings-date-range-nav">' +
-                '<button type="button" id="admin-bookings-date-range-prev" aria-label="Previous month">&#8249;</button>' +
-                '<span id="admin-bookings-date-range-month-label" class="portal-admin-bookings-date-range-month" aria-live="polite"></span>' +
-                '<button type="button" id="admin-bookings-date-range-next" aria-label="Next month">&#8250;</button>' +
-              '</div>' +
-              '<div id="admin-bookings-date-range-grid" class="portal-admin-bookings-date-range-grid" role="group" ' +
-                'aria-labelledby="admin-bookings-date-range-month-label"></div>' +
-              '<div class="portal-admin-bookings-date-range-actions">' +
-                '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-clear">' +
-                  escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') + '</button>' +
-                '<button type="button" class="btn btn-ghost btn-compact" id="admin-bookings-date-range-cancel">' +
-                  escHtml(portalT('admin.bookings.dateRangeCancel') || 'Cancel') + '</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          '<label class="portal-admin-bookings-field portal-admin-bookings-filter-status">' +
-            '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.status')) + '</span>' +
-            '<select id="admin-bookings-status" class="portal-admin-bookings-input">' +
-              '<option value="">' + escHtml(portalT('admin.bookings.statusAll')) + '</option>' +
-              '<option value="paid">' + escHtml(portalT('admin.bookings.status.paid')) + '</option>' +
-              '<option value="unpaid">' + escHtml(portalT('admin.bookings.status.unpaid')) + '</option>' +
-              '<option value="partial">' + escHtml(portalT('admin.bookings.status.partial')) + '</option>' +
-              '<option value="refunded">' + escHtml(portalT('admin.bookings.status.refunded')) + '</option>' +
-              '<option value="cancelled">' + escHtml(portalT('admin.bookings.status.cancelled') || 'Cancelled') + '</option>' +
-              '<option value="hidden">' + escHtml(portalT('admin.bookings.status.hidden') || 'Hidden') + '</option>' +
-            '</select>' +
-          '</label>' +
-          '<label class="portal-admin-bookings-field portal-admin-bookings-filter-type">' +
-            '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.type')) + '</span>' +
-            '<select id="admin-bookings-type" class="portal-admin-bookings-input">' +
-              '<option value="">' + escHtml(portalT('admin.bookings.typeAll')) + '</option>' +
-              '<option value="lessons">' + escHtml(portalT('admin.bookings.type.lessons') || 'Lessons') + '</option>' +
-              '<option value="rentals">' + escHtml(portalT('admin.bookings.type.rentals') || 'Rentals') + '</option>' +
-              '<option value="accommodation">' + escHtml(portalT('admin.bookings.type.accommodation') || 'Accommodation') + '</option>' +
-            '</select>' +
-          '</label>' +
-          '<div class="portal-admin-bookings-field portal-admin-bookings-export-field">' +
-            '<span class="portal-admin-bookings-label" aria-hidden="true">&nbsp;</span>' +
-            '<button type="button" class="btn btn-ghost portal-admin-bookings-export-btn" id="admin-bookings-export">' +
-              escHtml(portalT('admin.bookings.export') || portalT('admin.bookings.exportCsv') || 'Export') +
-            '</button>' +
-          '</div>' +
+          '<button type="button" class="btn btn-ghost portal-admin-bookings-export-btn" id="admin-bookings-export">' +
+            '<span class="portal-admin-bookings-export-full">' +
+              escHtml(portalT('admin.bookings.exportCsv') || 'Export CSV') + '</span>' +
+            '<span class="portal-admin-bookings-export-short">' +
+              escHtml(portalT('admin.bookings.export') || 'Export') + '</span>' +
+          '</button>' +
         '</div>' +
       '</div>' +
       '<div id="admin-bookings-table-wrap" class="portal-admin-bookings-table-wrap"></div>' +
+      /* Mobile-only footer copy of the Finance scope note (desktop keeps it under summary). */
       '<p id="admin-bookings-footer-note" class="portal-admin-bookings-footer-note" data-bookings-kpi-scope="1">' +
         escHtml(portalT('admin.bookings.summaryScopeNote')) +
       '</p>' +
@@ -1038,20 +1037,24 @@ function renderAdminBookingsSummary() {
   var node = el('admin-bookings-summary');
   if (!node) return;
   var s = (adminBookingsState.data && adminBookingsState.data.summary) || {};
-  // Lean strip: Bookings count | Refund (Σ refunded_cents) | Unpaid (Σ outstanding_cents).
-  // Refund + Unpaid reuse Finance/Bookings ledger rules from computeBookingsSummary —
-  // no Collected / Net / Outstanding tiles.
+  // Shared: Bookings count only (money tiles removed).
+  // Mobile: also show Refund (Σ refunded_cents) + Unpaid (Σ outstanding_cents) —
+  // same Finance/Bookings ledger rules as computeBookingsSummary.
+  // Desktop keeps the scope note under the strip; mobile moves it to the page footer.
   node.innerHTML =
     '<div class="portal-admin-bookings-summary-strip" role="group" aria-label="' +
       escHtml(portalT('admin.bookings.summaryLabel')) + '">' +
-      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count') +
-      metric('admin.bookings.metric.refund', adminBookingsFormatEur(s.refunded_cents), 'refund') +
-      metric('admin.bookings.metric.unpaid', adminBookingsFormatEur(s.outstanding_cents), 'unpaid') +
-    '</div>';
+      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count', '') +
+      metric('admin.bookings.metric.refund', adminBookingsFormatEur(s.refunded_cents), 'refund', ' portal-admin-bookings-metric--mobile-kpi') +
+      metric('admin.bookings.metric.unpaid', adminBookingsFormatEur(s.outstanding_cents), 'unpaid', ' portal-admin-bookings-metric--mobile-kpi') +
+    '</div>' +
+    '<p class="portal-admin-bookings-summary-note" data-bookings-kpi-scope="1">' +
+      escHtml(portalT('admin.bookings.summaryScopeNote')) +
+    '</p>';
 
-  function metric(labelKey, value, tone) {
+  function metric(labelKey, value, tone, extraClass) {
     var toneClass = tone ? (' is-' + String(tone)) : '';
-    return '<div class="portal-admin-bookings-metric">' +
+    return '<div class="portal-admin-bookings-metric' + (extraClass || '') + '">' +
       '<div class="portal-admin-bookings-metric-label">' + escHtml(portalT(labelKey)) + '</div>' +
       '<div class="portal-admin-bookings-metric-value' + toneClass + '">' + escHtml(value) + '</div></div>';
   }

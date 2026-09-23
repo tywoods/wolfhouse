@@ -3,8 +3,11 @@
 /**
  * Shared Staff portal Bookings tab layout redesign gates.
  *
- * Asserts lean summary (Bookings | Refund | Unpaid), footer scope note,
- * search+Clear row, Dates/Status/Type/Export filter row, and mobile/desktop CSS.
+ * Ty split (2026-09-23):
+ *  - Desktop + mobile: remove money summary tiles only (Collected/Refunded/Net/Outstanding).
+ *  - Mobile only: Bookings|Refund|Unpaid strip, footer scope note, Search+Clear /
+ *    Dates|Status|Type|Export toolbar, phone card hierarchy.
+ *  - Desktop: keep today's toolbar, rows, and under-summary explainer.
  *
  * Run: node scripts/verify-sunset-bookings-layout-redesign.js
  */
@@ -32,66 +35,64 @@ function ok(label, cond, extra) {
 
 console.log('\nverify:sunset-bookings-layout-redesign\n');
 
-// ── Summary strip ────────────────────────────────────────────────────────────
-ok('summary renders Bookings + Refund + Unpaid metrics',
-  /metric\('admin\.bookings\.metric\.bookings'/.test(ui)
-  && /metric\('admin\.bookings\.metric\.refund'/.test(ui)
-  && /metric\('admin\.bookings\.metric\.unpaid'/.test(ui));
-ok('summary does not render Collected / Net / Outstanding tiles',
+// ── Shared: money tiles gone ─────────────────────────────────────────────────
+ok('summary does not render Collected / Net / Outstanding / Refunded tiles',
   !/metric\('admin\.bookings\.metric\.collected'/.test(ui)
   && !/metric\('admin\.bookings\.metric\.net'/.test(ui)
   && !/metric\('admin\.bookings\.metric\.outstanding'/.test(ui)
   && !/metric\('admin\.bookings\.metric\.refunded'/.test(ui));
-ok('Refund metric binds refunded_cents',
-  /metric\('admin\.bookings\.metric\.refund',\s*adminBookingsFormatEur\(s\.refunded_cents\)/.test(ui));
-ok('Unpaid metric binds outstanding_cents',
-  /metric\('admin\.bookings\.metric\.unpaid',\s*adminBookingsFormatEur\(s\.outstanding_cents\)/.test(ui));
-ok('CSS summary strip is 3 columns',
-  /\.portal-admin-bookings-summary-strip\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/.test(api));
+ok('summary always renders Bookings count',
+  /metric\('admin\.bookings\.metric\.bookings'/.test(ui));
 
-// ── Explainer footer ─────────────────────────────────────────────────────────
-ok('scope note lives in page footer after table wrap',
-  /admin-bookings-table-wrap[\s\S]*admin-bookings-footer-note/.test(ui)
+// ── Desktop: Bookings-only strip + under-summary note + classic toolbar ──────
+ok('desktop summary strip is single Bookings column by default',
+  /\.portal-admin-bookings-summary-strip\{[^}]*grid-template-columns:minmax\(140px,220px\)/.test(api));
+ok('Refund/Unpaid metrics marked mobile-only and hidden on desktop',
+  /portal-admin-bookings-metric--mobile-kpi/.test(ui)
+  && /\.portal-admin-bookings-metric--mobile-kpi\{display:none\}/.test(api));
+ok('desktop keeps scope note under summary',
+  /portal-admin-bookings-summary-note/.test(ui)
   && /data-bookings-kpi-scope="1"/.test(ui)
-  && /portal-admin-bookings-footer-note/.test(ui));
-ok('scope note is not under summary strip',
-  !/portal-admin-bookings-summary-note/.test(ui)
-  && !/portal-admin-bookings-summary-strip[\s\S]{0,400}summaryScopeNote/.test(ui));
-ok('footer note CSS class present',
-  /\.portal-admin-bookings-footer-note\{/.test(api));
+  && /\.portal-admin-bookings-summary-note\{/.test(api));
+ok('desktop toolbar is classic flex wrap (not mobile column/grid by default)',
+  /\.portal-admin-bookings-toolbar\{display:flex;flex-wrap:wrap;align-items:flex-end/.test(api)
+  && /\.portal-admin-bookings-actions\{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto\}/.test(api));
+ok('desktop Export label stays Export CSV (full span)',
+  /portal-admin-bookings-export-full/.test(ui)
+  && /admin\.bookings\.exportCsv/.test(ui)
+  && /\.portal-admin-bookings-export-short\{display:none\}/.test(api));
+ok('desktop does not force mobile card grid outside 520px',
+  !/\.portal-admin-bookings-tr\{[^}]*grid-template-areas:\s*"guest status"/.test(api.split('@media(max-width:520px)')[0]));
 
-// ── Filters toolbar ──────────────────────────────────────────────────────────
-ok('search row wraps Clear beside search',
-  /portal-admin-bookings-toolbar-search/.test(ui)
+// ── Mobile: lean KPIs, footer note, toolbar, cards ───────────────────────────
+ok('mobile shows Refund + Unpaid KPIs (refunded_cents / outstanding_cents)',
+  /metric\('admin\.bookings\.metric\.refund',\s*adminBookingsFormatEur\(s\.refunded_cents\)/.test(ui)
+  && /metric\('admin\.bookings\.metric\.unpaid',\s*adminBookingsFormatEur\(s\.outstanding_cents\)/.test(ui)
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-metric--mobile-kpi\{display:block\}/.test(api)
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-summary-strip\{[^}]*repeat\(3,minmax\(0,1fr\)\)/.test(api));
+ok('mobile moves scope note to footer (hides under-summary note)',
+  /admin-bookings-footer-note/.test(ui)
+  && /portal-admin-bookings-footer-note/.test(ui)
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-summary-note\{display:none\}/.test(api)
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-footer-note\{display:block\}/.test(api));
+ok('mobile toolbar: Search+Clear then Dates/Status/Type/Export',
+  /@media\(max-width:768px\)\{[\s\S]*?grid-template-areas:[\s\S]*?"search clear"[\s\S]*?"dates status"[\s\S]*?"type export"/.test(api)
   && /id="admin-bookings-clear"/.test(ui)
-  && /portal-admin-bookings-clear-btn/.test(ui));
-ok('filters row has Dates Status Type Export',
-  /portal-admin-bookings-toolbar-filters/.test(ui)
-  && /id="admin-bookings-date-range"/.test(ui)
-  && /id="admin-bookings-status"/.test(ui)
-  && /id="admin-bookings-type"/.test(ui)
-  && /id="admin-bookings-export"/.test(ui));
-ok('Export button uses short Export label key',
-  /admin\.bookings\.export/.test(ui)
+  && /id="admin-bookings-export"/.test(ui)
+  && /\.portal-admin-bookings-actions\{display:contents/.test(api));
+ok('mobile Export short label',
+  /portal-admin-bookings-export-short/.test(ui)
   && /'admin\.bookings\.export':\s*'Export'/.test(i18n)
-  && /'admin\.bookings\.export':\s*'Exportar'/.test(i18nEs));
-ok('CSS search row is flex with Clear',
-  /\.portal-admin-bookings-toolbar-search\{[^}]*display:flex/.test(api)
-  && /\.portal-admin-bookings-clear-btn\{/.test(api));
-ok('CSS filter row is 4-col grid (desktop)',
-  /\.portal-admin-bookings-toolbar-filters\{[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/.test(api));
-ok('CSS filter row collapses to 2-col under 900px',
-  /@media\(max-width:900px\)\{[\s\S]*?\.portal-admin-bookings-toolbar-filters\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/.test(api));
-
-// ── Booking cards ────────────────────────────────────────────────────────────
-ok('rows expose pay-tone for unpaid/paid emphasis',
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-export-full\{display:none\}/.test(api)
+  && /@media\(max-width:768px\)\{[\s\S]*?\.portal-admin-bookings-export-short\{display:inline\}/.test(api));
+ok('mobile card hierarchy: guest+status first',
+  /@media\(max-width:520px\)\{[\s\S]*?grid-template-areas:[\s\S]*?"guest status"[\s\S]*?"total paid"[\s\S]*?"code code"/.test(api));
+ok('rows expose pay-tone for mobile unpaid/paid emphasis',
   /is-pay-/.test(ui)
   && /adminBookingsRowPayTone/.test(ui)
   && /data-bookings-pay-tone/.test(ui)
   && /portal-admin-bookings-td-total/.test(ui)
   && /portal-admin-bookings-td-paid/.test(ui));
-ok('mobile card hierarchy: guest+status first',
-  /@media\(max-width:520px\)\{[\s\S]*?grid-template-areas:[\s\S]*?"guest status"[\s\S]*?"total paid"[\s\S]*?"code code"/.test(api));
 ok('mobile keeps Booking ::before label on code cell',
   /\.portal-admin-bookings-td-code::before\{content:'Booking'/.test(api));
 ok('deep-link + export + clear ids preserved',

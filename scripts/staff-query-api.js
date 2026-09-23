@@ -17685,22 +17685,21 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-subtab{appearance:none;-webkit-appearance:none;flex:1 1 auto;min-width:44px;min-height:44px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);color:var(--text-2);font:inherit;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;box-sizing:border-box;text-align:center}
 .portal-admin-subtab[aria-selected="true"]{background:var(--surface);color:var(--text);border-color:var(--text-2);box-shadow:var(--shadow-soft)}
 .portal-admin-subtab:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
-/* Admin Bookings N1 — lean summary + toolbar (shared Sunset/Wolfhouse) */
+/* Admin Bookings N1 — shared: money KPI tiles removed; mobile-only lean strip/toolbar/cards */
 .portal-admin-bookings{display:flex;flex-direction:column;gap:12px;min-width:0;max-width:100%}
-.portal-admin-bookings-toolbar{display:flex;flex-direction:column;gap:10px;max-width:100%;min-width:0}
-.portal-admin-bookings-toolbar-search{display:flex;align-items:flex-end;gap:8px;min-width:0;width:100%}
-.portal-admin-bookings-toolbar-search .portal-admin-bookings-search{flex:1 1 auto;min-width:0}
-.portal-admin-bookings-clear-btn{flex:0 0 auto;min-height:40px;align-self:flex-end;white-space:nowrap}
-.portal-admin-bookings-toolbar-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;width:100%;min-width:0;align-items:end}
+.portal-admin-bookings-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;max-width:100%}
 .portal-admin-bookings-field{display:flex;flex-direction:column;gap:4px;min-width:0}
-.portal-admin-bookings-search{flex:1 1 220px;min-width:0}
+.portal-admin-bookings-search{flex:1 1 220px;min-width:180px}
 .portal-admin-bookings-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-input{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;box-sizing:border-box}
 .portal-admin-bookings-input:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
-.portal-admin-bookings-export-btn{width:100%;min-height:40px;box-sizing:border-box;white-space:nowrap}
 .portal-admin-bookings-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto}
+.portal-admin-bookings-clear-btn,.portal-admin-bookings-export-btn{min-height:40px;white-space:nowrap}
+.portal-admin-bookings-export-short{display:none}
 .portal-admin-bookings-summary{order:0}
-.portal-admin-bookings-summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-width:100%}
+/* Desktop: Bookings count only (Refund/Unpaid are mobile-only). */
+.portal-admin-bookings-summary-strip{display:grid;grid-template-columns:minmax(140px,220px);gap:8px;max-width:100%}
+.portal-admin-bookings-metric--mobile-kpi{display:none}
 .portal-admin-bookings-metric{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:10px;padding:10px 12px;min-width:0}
 .portal-admin-bookings-metric-label{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
 .portal-admin-bookings-metric-value{font-size:16px;font-weight:700;color:var(--text);word-break:break-word;font-variant-numeric:tabular-nums}
@@ -17708,8 +17707,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-metric-value.is-unpaid,.portal-admin-bookings-metric-value.is-outstanding{color:#c98a2b}
 .portal-admin-bookings-metric-value.is-collected{color:var(--accent,#2e8b57)}
 .portal-admin-bookings-metric-value.is-net,.portal-admin-bookings-metric-value.is-count{color:var(--text)}
-.portal-admin-bookings-footer-note{margin:4px 0 0;padding:0 2px;font-size:12px;line-height:1.4;opacity:.78;max-width:72rem;color:var(--text-2)}
-.portal-admin-bookings-date-range{position:relative;min-width:0}
+.portal-admin-bookings-summary-note{margin:8px 0 0;font-size:12px;line-height:1.35;opacity:.78;max-width:72rem;color:var(--text-2)}
+.portal-admin-bookings-footer-note{display:none;margin:4px 0 0;padding:0 2px;font-size:12px;line-height:1.4;opacity:.78;max-width:72rem;color:var(--text-2)}
+.portal-admin-bookings-date-range{position:relative;flex:0 1 200px;min-width:160px}
 .portal-admin-bookings-date-range-trigger{width:100%;min-height:40px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
 .portal-admin-bookings-date-range-trigger:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:2px}
 .portal-admin-bookings-date-range-display{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -17793,16 +17793,40 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:8px 0}
 .portal-admin-bookings-loading,.portal-admin-bookings-empty,.portal-admin-bookings-error{padding:18px 8px;color:var(--text-2);font-size:14px}
 @media(max-width:900px){
-  .portal-admin-bookings-summary-strip{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .portal-admin-bookings-metric{padding:8px 10px}
-  .portal-admin-bookings-metric-value{font-size:15px}
-  .portal-admin-bookings-toolbar-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
   .portal-admin-bookings-expand-grid{grid-template-columns:1fr}
   .portal-admin-bookings-tr{grid-template-columns:minmax(110px,1.1fr) minmax(90px,.85fr) minmax(100px,.95fr) minmax(72px,.7fr) 72px 72px minmax(110px,1.05fr);gap:6px;padding:10px 8px}
   .portal-admin-bookings-table{min-width:640px}
 }
+/* Mobile Bookings chrome: lean KPIs, Search+Clear, Dates/Status/Type/Export, footer note */
+@media(max-width:768px){
+  .portal-admin-bookings-summary-strip{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .portal-admin-bookings-metric--mobile-kpi{display:block}
+  .portal-admin-bookings-metric{padding:8px 10px}
+  .portal-admin-bookings-metric-value{font-size:15px}
+  .portal-admin-bookings-summary-note{display:none}
+  .portal-admin-bookings-footer-note{display:block}
+  .portal-admin-bookings-export-full{display:none}
+  .portal-admin-bookings-export-short{display:inline}
+  .portal-admin-bookings-toolbar{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-areas:
+      "search clear"
+      "dates status"
+      "type export";
+    gap:8px 8px;
+    align-items:end;
+  }
+  .portal-admin-bookings-search{grid-area:search;flex:none;min-width:0;width:100%}
+  .portal-admin-bookings-date-range{grid-area:dates;flex:none;min-width:0;width:100%}
+  .portal-admin-bookings-filter-status{grid-area:status;min-width:0}
+  .portal-admin-bookings-filter-type{grid-area:type;min-width:0}
+  .portal-admin-bookings-actions{display:contents;margin-left:0}
+  .portal-admin-bookings-clear-btn{grid-area:clear;align-self:end;justify-self:stretch;min-height:40px;width:100%}
+  .portal-admin-bookings-export-btn{grid-area:export;align-self:end;width:100%;min-height:40px;box-sizing:border-box}
+}
 @media(max-width:420px){
-  .portal-admin-bookings-toolbar-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .portal-admin-bookings-toolbar{gap:6px}
   .portal-admin-bookings-export-btn,.portal-admin-bookings-input,.portal-admin-bookings-date-range-trigger{min-height:38px;font-size:13px;padding:6px 8px}
   .portal-admin-bookings-clear-btn{min-height:38px;padding:6px 10px}
 }

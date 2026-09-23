@@ -226,19 +226,20 @@ eq('summary skips cancelled outstanding even if row field stale',
   }]).outstanding_cents,
   0);
 
-// ── UI notes present (explicit exclusions; footer of Bookings page) ──────────
+// ── UI notes present (desktop under summary; mobile footer twin) ─────────────
 const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
 const financeUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'), 'utf8');
 const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
 const i18nEs = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
-ok('Bookings UI shows KPI scope note in page footer',
+ok('Bookings UI shows KPI scope note (desktop summary + mobile footer)',
   /data-bookings-kpi-scope/.test(bookingsUi)
+  && /portal-admin-bookings-summary-note/.test(bookingsUi)
   && /admin-bookings-footer-note/.test(bookingsUi)
-  && /summaryScopeNote/.test(bookingsUi)
-  && !/portal-admin-bookings-summary-note/.test(bookingsUi));
-ok('Bookings lean summary uses Refund + Unpaid (not Collected/Net)',
+  && /summaryScopeNote/.test(bookingsUi));
+ok('Bookings money tiles removed; Refund/Unpaid are mobile KPIs',
   /admin\.bookings\.metric\.refund/.test(bookingsUi)
   && /admin\.bookings\.metric\.unpaid/.test(bookingsUi)
+  && /portal-admin-bookings-metric--mobile-kpi/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.collected'/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.net'/.test(bookingsUi)
   && !/metric\('admin\.bookings\.metric\.outstanding'/.test(bookingsUi));
