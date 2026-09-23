@@ -1274,6 +1274,37 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
   var phone = row.phone || guest.phone || null;
   var guestName = row.guest_name || guest.name || '';
 
+  // Wolfhouse has its own canonical booking-context drawer. Reuse the same
+  // owner as Schedule instead of the Sunset-only schedule detail endpoint,
+  // which correctly rejects non-Sunset tenants with unsupported_client (403).
+  // Body-port and initialize the fixed drawer because Bookings can be entered
+  // directly and the Schedule panel remains hidden behind it, including mobile.
+  if (adminBookingsIsLodging()) {
+    var lodgingDrawerEl = (typeof el === 'function') ? el('bc-side-drawer') : document.getElementById('bc-side-drawer');
+    if (lodgingDrawerEl && typeof document !== 'undefined' && document.body && lodgingDrawerEl.parentNode !== document.body) {
+      try { document.body.appendChild(lodgingDrawerEl); } catch (_la) { /* ignore */ }
+    }
+    var lodgingInitFn = (typeof window !== 'undefined' && typeof window.bcInitSideDrawer === 'function')
+      ? window.bcInitSideDrawer
+      : (typeof bcInitSideDrawer === 'function' ? bcInitSideDrawer : null);
+    var lodgingDrawerFn = (typeof window !== 'undefined' && typeof window.bcOpenSideBooking === 'function')
+      ? window.bcOpenSideBooking
+      : (typeof bcOpenSideBooking === 'function' ? bcOpenSideBooking : null);
+    if (!lodgingDrawerFn) return;
+    if (lodgingInitFn) lodgingInitFn();
+    lodgingDrawerFn({
+      booking_id: row.booking_id || id,
+      booking_code: code,
+      guest_name: guestName,
+      phone: phone,
+      guest_phone: phone,
+      email: row.email || guest.email || null,
+      check_in: row.check_in || start || null,
+      check_out: row.check_out || null,
+    }, { pin: true });
+    return;
+  }
+
   // Port drawer shell onto document.body before open (parity with Customers).
   var ensureLayer = (typeof window !== 'undefined' && typeof window.scheduleDrawerEnsureDocumentLayer === 'function')
     ? window.scheduleDrawerEnsureDocumentLayer
