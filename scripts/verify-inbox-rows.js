@@ -567,6 +567,7 @@ if (typeof fns.guestEmptyListMessage === 'function' && typeof fns.guestEmptyDeta
   let refreshParkCount = 0;
   sandbox.inboxTeardownClearThreadDialog = () => { dialogTeardownCount += 1; };
   sandbox.inboxParkRefreshBtn = () => { refreshParkCount += 1; };
+  sandbox.inboxParkMobileBackBtn = () => {};
   sandbox.inboxRowsRuntime.guestView = true;
   fns.fixEmptyChrome([], { preserveDetail: true, selectedId: 'previous-guest' });
   ok('Guest empty render clears stale selection and previous guest card despite preserveDetail',

@@ -604,6 +604,43 @@ function inboxParkRefreshBtn(){
   if (btn.parentNode !== park) park.insertBefore(btn, park.firstChild);
 }
 
+function inboxMobileBackBtn(){
+  return typeof document !== 'undefined' ? document.getElementById('inbox-mobile-back') : null;
+}
+
+/** Keep #inbox-mobile-back outside #detail-content so innerHTML swaps cannot destroy it. */
+function inboxParkMobileBackBtn(){
+  var back = inboxMobileBackBtn();
+  var host = typeof document !== 'undefined' ? document.getElementById('conv-detail') : null;
+  if (!host) return null;
+  if (!back) {
+    back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'inbox-mobile-back';
+    back.id = 'inbox-mobile-back';
+    back.setAttribute('data-i18n', 'inbox.mobile.back');
+    back.setAttribute('aria-label', 'Back');
+    back.innerHTML = '&larr; Back';
+  }
+  var detail = typeof document !== 'undefined' ? document.getElementById('detail-content') : null;
+  if (back.parentNode !== host) {
+    if (detail && detail.parentNode === host) host.insertBefore(back, detail);
+    else host.insertBefore(back, host.firstChild);
+  }
+  /* Re-arm click after recreate (wireInboxMobileBack no-ops when dataset.wired is set). */
+  if (back.dataset.wired !== '1' && typeof wireInboxMobileBack === 'function') {
+    wireInboxMobileBack();
+  } else if (back.dataset.wired !== '1') {
+    back.dataset.wired = '1';
+    back.addEventListener('click', function(){
+      if (typeof hideInboxMobileThread === 'function') hideInboxMobileThread();
+      var list = typeof el === 'function' ? el('conv-list') : document.getElementById('conv-list');
+      if (list) list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+    });
+  }
+  return back;
+}
+
 function inboxClearThreadButtonHtml(){
   var label = (typeof t === 'function' && t('inbox.detail.clearThread.button')) || 'Clear';
   var help = (typeof t === 'function' && t('inbox.detail.clearThread.help')) ||
@@ -747,13 +784,17 @@ function inboxCookSelectedConversationHeaderActions(){
   var clearBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null;
   var deleteBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-conv-delete') : null;
   var refresh = inboxRefreshBtn();
-  var back = typeof document !== 'undefined' ? document.getElementById('inbox-mobile-back') : null;
-  /* Phone action row order: ←, Spam, Clear, Delete, refresh, Luna On/Off. */
+  var channel = typeof document !== 'undefined'
+    ? document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel')
+    : null;
+  var back = inboxParkMobileBackBtn();
+  /* Action row: ← Spam Clear Delete Luna. Refresh sits with WA/Email (top-right). */
   if (back) row.appendChild(back);
   if (spam) row.appendChild(spam);
   if (clearBtn) row.appendChild(clearBtn);
   if (deleteBtn) row.appendChild(deleteBtn);
-  if (refresh) row.appendChild(refresh);
+  if (refresh && channel) channel.appendChild(refresh);
+  else if (refresh) row.appendChild(refresh);
   if (chrome) row.appendChild(chrome);
   return row;
 }
@@ -1155,6 +1196,7 @@ function clearInboxSelection(targetEl){
   if (targetEl){
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     targetEl.innerHTML = inboxEmptyDetailHtml();
   }
   hideInboxMobileThread();
@@ -1163,6 +1205,7 @@ function beginConvDetailLoad(targetEl){
   /* Do not leave the old guest actionable while a new selection loads. */
   inboxTeardownClearThreadDialog();
   inboxParkRefreshBtn();
+  inboxParkMobileBackBtn();
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
 }
@@ -2715,6 +2758,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     inboxTeardownClearThreadDialog();
     targetEl.innerHTML = html;
     inboxChatHideGuest();
@@ -2807,6 +2851,7 @@ function loadConvDetail(convId, targetEl){
     }
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     inboxTeardownClearThreadDialog();
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });

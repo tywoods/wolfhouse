@@ -6,9 +6,10 @@
  * Phone Inbox (~390px): Autonomy docked to viewport bottom + safe-area;
  * default CLOSED on list and chat (slim bottom tab only until opened);
  * lock is panel content (own pill), never on the slim dock title;
- * Chats|Guests as classic folder tabs; search pinned with padding under filters;
- * name+tag | WA/Email on one row; action row (← Spam Clear Delete refresh Luna);
- * taller transcript.
+ * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
+ * equal 8px stack gaps on list + thread; search pinned under filters;
+ * name+tag | WA/Email/Refresh on one row; action row (← Spam Clear Delete Luna);
+ * taller transcript fills leftover space; back survives conversation switches.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -40,7 +41,7 @@ function ok(label, cond, detail) {
 
 const marker = 'SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002 — phone Inbox';
 const blockStart = api.indexOf(marker);
-const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 28000) : '';
+const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 42000) : '';
 const phoneEnd = phoneBlock.indexOf('/* ── Top-bar layout controls');
 const phoneCss = phoneEnd > 0 ? phoneBlock.slice(0, phoneEnd) : phoneBlock;
 
@@ -61,17 +62,20 @@ ok(
     phoneCss.includes('overflow-y:auto!important')
 );
 ok(
-  'search has vertical padding gap before the chat list',
-  phoneCss.includes('SHARED-PHONE-INBOX-SEARCH-004') &&
-    /inbox-conv-search-wrap\.is-inbox-mobile-order\{[^}]*margin:0 0 14px!important/.test(phoneCss)
+  'search uses equal stack gap (no 14px margin leftover)',
+  phoneCss.includes('SHARED-PHONE-INBOX-STACK-GAP-005') &&
+    /inbox-conv-search-wrap\.is-inbox-mobile-order\{[^}]*margin:0!important/.test(phoneCss) &&
+    phoneCss.includes('#tab-conversations #inbox-shell:not(.show-thread){') &&
+    phoneCss.includes('gap:8px!important')
 );
 ok(
-  'Chats|Guests use classic folder tabs (not fat segmented buttons)',
-  phoneCss.includes('SHARED-PHONE-INBOX-FOLDER-TABS-004') &&
-    phoneCss.includes('border-radius:10px 10px 0 0') &&
-    phoneCss.includes('align-items:flex-end') &&
-    phoneCss.includes('border-bottom:none') &&
-    !/SHARED-PHONE-INBOX-FOLDER-TABS-004[\s\S]*padding:2px/.test(phoneCss.slice(phoneCss.indexOf('SHARED-PHONE-INBOX-FOLDER-TABS-004')))
+  'Chats|Guests share baseline + match icon-card width',
+  phoneCss.includes('SHARED-PHONE-INBOX-FOLDER-TABS-005') &&
+    phoneCss.includes('align-items:stretch!important') &&
+    phoneCss.includes('margin-bottom:0!important') &&
+    phoneCss.includes('.inbox-views-rail{') &&
+    /inbox-folder-tabs\{[^}]*width:100%!important/.test(phoneCss) &&
+    /inbox-views-rail\{[^}]*width:100%!important/.test(phoneCss)
 );
 ok(
   'Autonomy lock is panel pill, not dock title',
@@ -133,14 +137,33 @@ ok(
     /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
 );
 ok(
-  'SHARED-PHONE-INBOX-HEADER-004 grid: name row + action wrap (no h-scroll)',
-  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-004') &&
+  'SHARED-PHONE-INBOX-HEADER-005 grid: name row + action wrap; refresh with channels',
+  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-005') &&
     phoneCss.includes('display:grid!important') &&
     phoneCss.includes('grid-template-columns:minmax(0,1fr) auto') &&
     phoneCss.includes('display:contents!important') &&
     phoneCss.includes('overflow-x:hidden') &&
     phoneCss.includes('flex-wrap:wrap') &&
+    phoneCss.includes('.inbox-header-stack-channel #btn-refresh') &&
     !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss)
+);
+ok(
+  'SHARED-PHONE-INBOX-THREAD-FILL-005 grows messages into leftover space',
+  phoneCss.includes('SHARED-PHONE-INBOX-THREAD-FILL-005') &&
+    phoneCss.includes('height:100%!important') &&
+    phoneCss.includes('.thread-messages') &&
+    phoneCss.includes('flex:1 1 auto!important')
+);
+ok(
+  'JS parks mobile back outside detail-content (survives switches)',
+  (() => {
+    const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
+    return (
+      threadSrc.includes('function inboxParkMobileBackBtn') &&
+      threadSrc.includes('inboxParkMobileBackBtn()') &&
+      /inboxParkRefreshBtn\(\);\s*inboxParkMobileBackBtn\(\);/.test(threadSrc)
+    );
+  })()
 );
 ok(
   'JS defaults Autonomy closed on list and chat phone dock',
@@ -149,22 +172,23 @@ ok(
     /data-autonomy-keep-open/.test(shell)
 );
 ok(
-  'JS cooks phone action row order (back, spam, clear, delete, refresh, luna)',
+  'JS cooks phone action row (back, spam, clear, delete, luna) + refresh in channel stack',
   (() => {
     const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
     const cook = threadSrc.slice(
       threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
-      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 1200
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 1600
     );
     return (
       /row\.appendChild\(back\)/.test(cook) &&
       /row\.appendChild\(spam\)/.test(cook) &&
       /row\.appendChild\(clearBtn\)/.test(cook) &&
       /row\.appendChild\(deleteBtn\)/.test(cook) &&
-      /row\.appendChild\(refresh\)/.test(cook) &&
       /row\.appendChild\(chrome\)/.test(cook) &&
+      /channel\.appendChild\(refresh\)/.test(cook) &&
       cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(spam)') &&
-      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(chrome)')
+      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(chrome)') &&
+      cook.indexOf('channel.appendChild(refresh)') < cook.indexOf('row.appendChild(chrome)')
     );
   })()
 );
@@ -179,6 +203,10 @@ async function measureList(page) {
     const search = document.querySelector('#inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order');
     const tabs = document.querySelector('.inbox-folder-tabs');
     const chats = document.querySelector('.inbox-folder-tab[data-inbox-preset="all4"], .inbox-folder-tab[data-view="full"]');
+    const guests = document.querySelector('.inbox-folder-tab[data-inbox-preset="guest"], .inbox-folder-tab[data-view="guest"]');
+    const rail = document.querySelector('#inbox-views-rail, .inbox-views-rail');
+    const wrap = document.querySelector('#wrap.inbox-shell-wrap, #wrap');
+    const header = document.querySelector('#site-header, header, .portal-topbar, #topbar');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const autoTab = autonomy && autonomy.querySelector('.inbox-autonomy-bottom-tab');
     const lock = autonomy && autonomy.querySelector('#inbox-autonomy-lock, .channelAutonomyLock');
@@ -188,6 +216,7 @@ async function measureList(page) {
       : [];
     const list = document.querySelector('#inbox-shell > #inbox-card .inbox-left-rows, #inbox-shell #conv-list');
     const firstCard = document.querySelector('#conv-list .conv-card');
+    const inboxCard = document.querySelector('#inbox-shell > #inbox-card');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -195,7 +224,10 @@ async function measureList(page) {
       return {
         top: Math.round(r.top),
         bottom: Math.round(r.bottom),
+        left: Math.round(r.left),
+        right: Math.round(r.right),
         height: Math.round(r.height),
+        width: Math.round(r.width),
         position: s.position,
         marginTop: s.marginTop,
         paddingBottom: s.paddingBottom,
@@ -203,20 +235,41 @@ async function measureList(page) {
         display: s.display,
       };
     }
+    const wrapBox = box(wrap);
+    const tabsBox = box(tabs);
+    const chatsBox = box(chats);
+    const guestsBox = box(guests);
+    const railBox = box(rail);
+    const searchBox = box(search);
+    const listTopEl = inboxCard || firstCard;
+    const listTop = listTopEl ? Math.round(listTopEl.getBoundingClientRect().top) : null;
+    const headerBottom = header ? Math.round(header.getBoundingClientRect().bottom) : (wrapBox ? wrapBox.top : null);
+    const wrapPadTop = wrap ? parseFloat(getComputedStyle(wrap).paddingTop) || 0 : null;
+    const shellEl = document.getElementById('inbox-shell');
+    const shellGap = shellEl
+      ? (parseFloat(getComputedStyle(shellEl).rowGap) || parseFloat(getComputedStyle(shellEl).gap) || 0)
+      : null;
     return {
       vh: window.innerHeight,
-      search: box(search),
-      tabs: box(tabs),
-      chats: box(chats),
+      search: searchBox,
+      tabs: tabsBox,
+      chats: chatsBox,
+      guests: guestsBox,
+      rail: railBox,
       autonomy: box(autonomy),
       autoTab: box(autoTab),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       lockVisibleClosed: !!(lock && getComputedStyle(lock).display !== 'none' && lock.getClientRects().length > 0),
       lockInsideTab: !!lockInTab,
-      searchListGap: search && firstCard
-        ? Math.round(firstCard.getBoundingClientRect().top - search.getBoundingClientRect().bottom)
-        : null,
+      searchListGap: searchBox && listTop != null ? listTop - searchBox.bottom : null,
+      iconSearchGap: railBox && searchBox ? searchBox.top - railBox.bottom : null,
+      headerTabsGap: headerBottom != null && tabsBox ? tabsBox.top - headerBottom : null,
+      wrapPadTop: wrapPadTop == null ? null : Math.round(wrapPadTop),
+      shellGap: shellGap == null ? null : Math.round(shellGap),
+      tabsRailWidthDelta: tabsBox && railBox ? Math.abs(tabsBox.width - railBox.width) : null,
+      tabsRailLeftDelta: tabsBox && railBox ? Math.abs(tabsBox.left - railBox.left) : null,
+      tabsBaselineDelta: chatsBox && guestsBox ? Math.abs(chatsBox.bottom - guestsBox.bottom) : null,
       list: box(list),
     };
   });
@@ -236,6 +289,9 @@ async function measureThread(page) {
     const name = document.querySelector('#inbox-shell.show-thread .detail-header-main .detail-name, #inbox-shell.show-thread .detail-name');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
     const headerRight = document.querySelector('#inbox-shell.show-thread .detail-header-right');
+    const refresh = document.querySelector('#btn-refresh');
+    const draft = document.querySelector('#inbox-shell.show-thread .draft-panel');
+    const threadSection = document.querySelector('#inbox-shell.show-thread .thread-section, #inbox-shell.show-thread .thread');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -261,18 +317,27 @@ async function measureThread(page) {
     }
     const nameBox = box(name);
     const channelBox = box(channel);
+    const headerBox = box(header);
+    const msgsBox = box(msgs);
+    const draftBox = box(draft);
+    const refreshInChannel = !!(refresh && channel && channel.contains(refresh));
+    const refreshInLuna = !!(refresh && stack && stack.contains(refresh));
+    const backVisible = !!(back && getComputedStyle(back).display !== 'none' && back.getClientRects().length > 0);
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
       back: box(back),
+      backVisible,
       autoTab: box(autoTab),
       autonomy: box(autonomy),
-      msgs: box(msgs),
+      msgs: msgsBox,
       stack: box(stack),
       channel: channelBox,
       name: nameBox,
-      header: box(header),
+      header: headerBox,
       headerRight: box(headerRight),
+      draft: draftBox,
+      threadSection: box(threadSection),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
@@ -280,6 +345,13 @@ async function measureThread(page) {
       docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
       channelRightOfName: !!(nameBox && channelBox && channelBox.left >= nameBox.right - 4 && Math.abs(channelBox.top - nameBox.top) <= 24),
       headerPadLeft: header ? parseFloat(getComputedStyle(header).paddingLeft) || 0 : 0,
+      refreshInChannel,
+      refreshInLuna,
+      headerMsgsGap: headerBox && (threadSection || msgs) ? Math.round((threadSection || msgs).getBoundingClientRect().top - headerBox.bottom) : null,
+      msgsDraftGap: msgsBox && draftBox ? draftBox.top - msgsBox.bottom : null,
+      deadBandBelowDraft: draftBox && autoTab
+        ? Math.round(autoTab.getBoundingClientRect().top - draftBox.bottom)
+        : (draftBox ? Math.round(window.innerHeight - draftBox.bottom) : null),
     };
   });
 }
@@ -346,15 +418,40 @@ async function main() {
           JSON.stringify({ searchTop: list.search && list.search.top, tabsBottom: list.tabs && list.tabs.bottom })
         );
         ok(
-          '390 list: search has gap above first chat row',
-          list.searchListGap != null && list.searchListGap >= 8,
-          JSON.stringify({ searchListGap: list.searchListGap, search: list.search })
+          '390 list: Chats|Guests share the same baseline',
+          list.tabsBaselineDelta != null && list.tabsBaselineDelta <= 1,
+          JSON.stringify({ tabsBaselineDelta: list.tabsBaselineDelta, chats: list.chats, guests: list.guests })
         );
-ok(
-  '390 list: Chats tab is classic folder height (not fat 48px+ button)',
-  list.chats && list.chats.height >= 28 && list.chats.height <= 48,
-  JSON.stringify(list.chats)
-);
+        ok(
+          '390 list: icon filter card matches folder-tabs width',
+          list.tabsRailWidthDelta != null && list.tabsRailWidthDelta <= 2 &&
+            list.tabsRailLeftDelta != null && list.tabsRailLeftDelta <= 2,
+          JSON.stringify({
+            tabsRailWidthDelta: list.tabsRailWidthDelta,
+            tabsRailLeftDelta: list.tabsRailLeftDelta,
+            tabs: list.tabs,
+            rail: list.rail,
+          })
+        );
+        ok(
+          '390 list: equal 8px stack gaps (wrap pad, shell gap, search→list)',
+          list.wrapPadTop != null && list.shellGap != null && list.searchListGap != null &&
+            Math.abs(list.wrapPadTop - 8) <= 1 &&
+            Math.abs(list.shellGap - 8) <= 1 &&
+            Math.abs(list.searchListGap - 8) <= 2 &&
+            (list.iconSearchGap == null || Math.abs(list.iconSearchGap - 8) <= 2),
+          JSON.stringify({
+            wrapPadTop: list.wrapPadTop,
+            shellGap: list.shellGap,
+            iconSearchGap: list.iconSearchGap,
+            searchListGap: list.searchListGap,
+          })
+        );
+        ok(
+          '390 list: Chats tab is classic folder height (not fat 48px+ button)',
+          list.chats && list.chats.height >= 28 && list.chats.height <= 48,
+          JSON.stringify(list.chats)
+        );
       }
 
       await page.evaluate((id) => {
@@ -414,18 +511,59 @@ ok(
           })
         );
         ok(
-          '390 chat: back control is slim (not fat banner)',
-          thread.back &&
+          '390 chat: refresh sits in channel stack (not action row)',
+          thread.refreshInChannel === true && thread.refreshInLuna === false,
+          JSON.stringify({ refreshInChannel: thread.refreshInChannel, refreshInLuna: thread.refreshInLuna })
+        );
+        ok(
+          '390 chat: back control is slim and visible',
+          thread.backVisible === true &&
+            thread.back &&
             thread.back.height <= 34 &&
             thread.back.width <= 40,
           JSON.stringify(thread.back)
         );
         ok(
-          '390 chat: transcript taller than chrome+draft leftovers',
-          thread.msgs && thread.msgs.height >= 160 &&
-            thread.header && thread.msgs.height > thread.header.height * 0.7,
-          JSON.stringify({ msgs: thread.msgs, header: thread.header })
+          '390 chat: equal stack gaps around header/messages/reply',
+          thread.headerMsgsGap != null && thread.msgsDraftGap != null &&
+            Math.abs(thread.headerMsgsGap - 8) <= 3 &&
+            Math.abs(thread.msgsDraftGap - 8) <= 3,
+          JSON.stringify({ headerMsgsGap: thread.headerMsgsGap, msgsDraftGap: thread.msgsDraftGap })
         );
+        ok(
+          '390 chat: transcript fills leftover (no huge dead band above Autonomy)',
+          thread.msgs && thread.msgs.height >= 200 &&
+            thread.header && thread.msgs.height > thread.header.height * 0.9 &&
+            (thread.deadBandBelowDraft == null || thread.deadBandBelowDraft <= 52),
+          JSON.stringify({ msgs: thread.msgs, header: thread.header, deadBandBelowDraft: thread.deadBandBelowDraft })
+        );
+
+        /* Back must survive opening a second conversation (park/restore). */
+        const cards = await page.$$('#conv-list .conv-card');
+        if (cards.length >= 2) {
+          await page.evaluate(() => {
+            const backBtn = document.querySelector('#inbox-mobile-back, .inbox-mobile-back');
+            if (backBtn) backBtn.click();
+          });
+          await page.waitForTimeout(SETTLE_MS);
+          await page.evaluate(() => {
+            const second = document.querySelectorAll('#conv-list .conv-card')[1];
+            if (second) second.click();
+          });
+          await page.waitForSelector('#inbox-shell.show-thread .detail-header', { timeout: 15000 });
+          await page.evaluate(() => {
+            if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+              window.inboxCookSelectedConversationHeaderActions();
+            }
+          });
+          await page.waitForTimeout(SETTLE_MS);
+          const thread2 = await measureThread(page);
+          ok(
+            '390 chat: back still visible after opening a second conversation',
+            thread2.backVisible === true && thread2.back && thread2.back.height <= 34,
+            JSON.stringify(thread2.back)
+          );
+        }
       }
       await page.close();
     }

@@ -41,8 +41,8 @@ function ok(label, cond, detail) {
 
 const marker = 'SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001';
 const blockStart = api.indexOf(marker);
-const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 28000) : '';
-const phoneLayoutMarker = 'SHARED-PHONE-INBOX-HEADER-004';
+const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 42000) : '';
+const phoneLayoutMarker = 'SHARED-PHONE-INBOX-HEADER-005';
 const phoneLayoutStart = api.indexOf(phoneLayoutMarker);
 const phoneLayoutCss = phoneLayoutStart >= 0 ? api.slice(Math.max(0, phoneLayoutStart - 4000), phoneLayoutStart + 8000) : '';
 
@@ -62,7 +62,7 @@ ok(
 );
 ok(
   'phone chat keeps header chrome inside the clip',
-  phoneLayoutCss.includes('SHARED-PHONE-INBOX-HEADER-004') &&
+  phoneLayoutCss.includes('SHARED-PHONE-INBOX-HEADER-005') &&
     phoneLayoutCss.includes('display:contents!important') &&
     phoneLayoutCss.includes('overflow-x:hidden') &&
     !phoneLayoutCss.includes('#inbox-header-luna-row{display:none') &&

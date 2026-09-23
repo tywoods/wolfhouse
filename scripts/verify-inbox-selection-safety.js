@@ -35,7 +35,7 @@ function loadRuntime(options = {}) {
     el: id => id === 'detail-content' ? detail : (id === 'conv-list' ? list : element()),
     fetch: url => { const id = decodeURIComponent(String(url).split('/').pop().split('?')[0]); pending[id] = deferred(); const json = () => pending[id].promise; return Promise.resolve({ json, clone: () => ({ json }) }); },
     showInboxMobileThread: () => {}, hideInboxMobileThread: () => {}, inboxEmptyDetailHtml: () => '<div>select a conversation</div>',
-    inboxTeardownClearThreadDialog: () => {}, inboxParkRefreshBtn: () => {}, inboxAdoptRefreshToHeader: () => {},
+    inboxTeardownClearThreadDialog: () => {}, inboxParkRefreshBtn: () => {}, inboxParkMobileBackBtn: () => {}, inboxAdoptRefreshToHeader: () => {},
     convDetailHasLayout: () => false, inboxReleaseMobileThreadHeight: () => {}, inboxStickThreadToLatest: () => {},
     beginConvDetailLoad: target => { target.innerHTML = '<div>Loading…</div>'; target.classList.add('is-loading-detail'); },
     isSurfInboxDemoThread: () => false, loadSurfInboxDemoDetail: () => false, inboxClientQuery: () => '',
