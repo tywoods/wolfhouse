@@ -340,6 +340,83 @@ function inboxShellSyncCustomersMobileAutonomy(){
     if (addBtn && customersToolbar && addBtn.parentNode !== customersToolbar) customersToolbar.appendChild(addBtn);
     if (addBtn) addBtn.classList.remove('is-customers-mobile-docked-add');
   }
+  inboxShellMarkAutonomyBottomTab(card);
+  inboxShellApplyAutonomyPhoneClosed(card);
+}
+
+var inboxShellAutonomyPhoneChatSeen = false;
+
+function inboxShellAutonomyTitle(){
+  return inboxShellT('inbox.channelControl.title', 'LUNA AUTONOMY');
+}
+
+function inboxShellRefreshAutonomyLabel(){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  if (!card || !card.querySelector) return;
+  var label = card.querySelector('.channelAutonomyLabel');
+  var title = inboxShellAutonomyTitle();
+  if (label) label.textContent = title;
+  var head = card.querySelector('.inbox-autonomy-bottom-tab');
+  if (head) head.setAttribute('aria-label', title);
+}
+
+function inboxShellHookLocaleRefresh(){
+  if (typeof window === 'undefined' || window.__inboxAutonomyLocaleHooked) return;
+  window.__inboxAutonomyLocaleHooked = true;
+  var prev = window.staffPortalOnLocaleChange;
+  window.staffPortalOnLocaleChange = function(){
+    if (typeof prev === 'function') prev.apply(this, arguments);
+    inboxShellRefreshAutonomyLabel();
+  };
+  window.inboxShellRefreshAutonomyLabel = inboxShellRefreshAutonomyLabel;
+}
+
+function inboxShellApplyAutonomyPhoneClosed(card){
+  if (!card || !card.classList) return;
+  var shell = inboxShellById('inbox-shell');
+  var phoneChat = !!(inboxShellIsMobile() && shell && shell.classList.contains('show-thread'));
+  if (!phoneChat) {
+    card.classList.remove('is-autonomy-open');
+    card.removeAttribute('data-autonomy-keep-open');
+    inboxShellAutonomyPhoneChatSeen = false;
+  } else if (!inboxShellAutonomyPhoneChatSeen && card.getAttribute('data-autonomy-keep-open') !== '1') {
+    card.classList.remove('is-autonomy-open');
+    inboxShellAutonomyPhoneChatSeen = true;
+  } else {
+    inboxShellAutonomyPhoneChatSeen = true;
+  }
+  inboxShellRefreshAutonomyLabel();
+  var head = card.querySelector('.inbox-autonomy-bottom-tab');
+  if (!head) return;
+  var open = phoneChat && card.classList.contains('is-autonomy-open');
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function inboxShellToggleAutonomyPhoneTab(card){
+  if (!card || !card.classList || !inboxShellIsMobile()) return false;
+  var shell = inboxShellById('inbox-shell');
+  if (!shell || !shell.classList.contains('show-thread')) return false;
+  if (card.classList.contains('is-autonomy-open')) {
+    card.classList.remove('is-autonomy-open');
+    card.removeAttribute('data-autonomy-keep-open');
+  } else {
+    card.classList.add('is-autonomy-open');
+    card.setAttribute('data-autonomy-keep-open', '1');
+  }
+  inboxShellAutonomyPhoneChatSeen = true;
+  var head = card.querySelector('.inbox-autonomy-bottom-tab');
+  if (head) head.setAttribute('aria-expanded', card.classList.contains('is-autonomy-open') ? 'true' : 'false');
+  return true;
+}
+
+function inboxShellMarkAutonomyBottomTab(card){
+  if (!card || !card.querySelector) return;
+  var head = card.querySelector('.channelAutonomyHead');
+  if (!head) return;
+  head.classList.add('inbox-autonomy-bottom-tab');
+  head.setAttribute('role', 'button');
+  if (!head.getAttribute('aria-expanded')) head.setAttribute('aria-expanded', 'false');
+  inboxShellRefreshAutonomyLabel();
 }
 
 function inboxShellChannelIconSvg(channel){
@@ -889,6 +966,20 @@ function inboxMockupThemeCssText(){
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1,',
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{width:100%;max-width:100%;align-self:stretch}',
     '}',
+    /* SUNSET-MOBILE-AUTONOMY-BOTTOM-TAB-001: Chats stay top; Autonomy closed behind a Guest-style bottom tab; header chrome stays */
+    '@media(max-width:768px){',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr) auto!important;height:100%;max-height:100%;min-height:0;overflow:hidden}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread{grid-template-rows:auto minmax(0,1fr) auto!important;height:100%;max-height:100%;min-height:0;overflow:hidden}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .inbox-col1{order:1;grid-row:1;position:sticky!important;top:0;z-index:40}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important;max-height:44px}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){display:none!important}',
+    'html[data-portal-client="sunset"] #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
+    'html:not([data-portal-client]) #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{order:2;align-self:center;width:max-content;max-width:220px;height:36px;border-radius:10px 10px 0 0;background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);font-size:11px;font-weight:700}',
+    '#tab-conversations #inbox-shell.show-thread .detail-header-right,#tab-conversations #inbox-shell.show-thread #inbox-header-luna-row,#tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{display:flex!important;visibility:visible!important;min-width:44px;min-height:28px}',
+    '}',
     '#inbox-shell .inbox-guest-card{',
     'background:var(--inbox-paper,var(--cream));',
     'border:0;box-shadow:none;',
@@ -1265,6 +1356,8 @@ function wireInboxShellChannelDefaults(){
       inboxShellSyncAutonomyLock();
       return;
     }
+    var tabHit = ev.target && ev.target.closest && ev.target.closest('.inbox-autonomy-bottom-tab');
+    if (tabHit && wrap.contains(tabHit) && inboxShellToggleAutonomyPhoneTab(wrap)) return;
     if (inboxShellAutonomyIsLocked()) return;
     var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-autonomy]');
     if (!btn || btn.disabled) return;
@@ -1413,6 +1506,7 @@ function mountInboxShellChrome(){
      never on the markup, so a getElementById lookup used to return here and
      leave "Sunset Surf School" painted. */
   inboxShellEnsureStyle();
+  inboxShellHookLocaleRefresh();
   hideInboxDuplicateSchoolSelector();
   var toolbar = inboxShellToolbarEl();
   if (!toolbar) return inboxShellFinishGuestHide();
