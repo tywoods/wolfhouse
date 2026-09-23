@@ -226,13 +226,23 @@ eq('summary skips cancelled outstanding even if row field stale',
   }]).outstanding_cents,
   0);
 
-// ── UI notes present (explicit exclusions) ───────────────────────────────────
+// ── UI notes present (desktop under summary; mobile footer twin) ─────────────
 const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
 const financeUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'), 'utf8');
 const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
 const i18nEs = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
-ok('Bookings UI shows KPI scope note',
-  /data-bookings-kpi-scope/.test(bookingsUi) && /summaryScopeNote/.test(bookingsUi));
+ok('Bookings UI shows KPI scope note (desktop summary + mobile footer)',
+  /data-bookings-kpi-scope/.test(bookingsUi)
+  && /portal-admin-bookings-summary-note/.test(bookingsUi)
+  && /admin-bookings-footer-note/.test(bookingsUi)
+  && /summaryScopeNote/.test(bookingsUi));
+ok('Bookings money tiles removed; Refund/Unpaid are mobile KPIs',
+  /admin\.bookings\.metric\.refund/.test(bookingsUi)
+  && /admin\.bookings\.metric\.unpaid/.test(bookingsUi)
+  && /portal-admin-bookings-metric--mobile-kpi/.test(bookingsUi)
+  && !/metric\('admin\.bookings\.metric\.collected'/.test(bookingsUi)
+  && !/metric\('admin\.bookings\.metric\.net'/.test(bookingsUi)
+  && !/metric\('admin\.bookings\.metric\.outstanding'/.test(bookingsUi));
 ok('Finance UI shows KPI scope note',
   /data-finance-kpi-scope/.test(financeUi) && /kpiScopeNote/.test(financeUi));
 ok('EN + ES scope note keys present',
@@ -240,6 +250,10 @@ ok('EN + ES scope note keys present',
   && /admin\.finance\.kpiScopeNote/.test(i18n)
   && /admin\.bookings\.summaryScopeNote/.test(i18nEs)
   && /admin\.finance\.kpiScopeNote/.test(i18nEs));
+ok('EN lean metric labels Refund + Unpaid',
+  /'admin\.bookings\.metric\.refund':\s*'Refund'/.test(i18n)
+  && /'admin\.bookings\.metric\.unpaid':\s*'Unpaid'/.test(i18n)
+  && /'admin\.bookings\.export':\s*'Export'/.test(i18n));
 
 console.log(`\nverify:sunset-finance-bookings-kpi-parity  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

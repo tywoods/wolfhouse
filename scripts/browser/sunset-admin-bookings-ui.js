@@ -359,7 +359,7 @@ function renderAdminBookingsShell(opts) {
             '</div>' +
           '</div>' +
         '</div>' +
-        '<label class="portal-admin-bookings-field">' +
+        '<label class="portal-admin-bookings-field portal-admin-bookings-filter-status">' +
           '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.status')) + '</span>' +
           '<select id="admin-bookings-status" class="portal-admin-bookings-input">' +
             '<option value="">' + escHtml(portalT('admin.bookings.statusAll')) + '</option>' +
@@ -371,7 +371,7 @@ function renderAdminBookingsShell(opts) {
             '<option value="hidden">' + escHtml(portalT('admin.bookings.status.hidden') || 'Hidden') + '</option>' +
           '</select>' +
         '</label>' +
-        '<label class="portal-admin-bookings-field">' +
+        '<label class="portal-admin-bookings-field portal-admin-bookings-filter-type">' +
           '<span class="portal-admin-bookings-label">' + escHtml(portalT('admin.bookings.type')) + '</span>' +
           '<select id="admin-bookings-type" class="portal-admin-bookings-input">' +
             '<option value="">' + escHtml(portalT('admin.bookings.typeAll')) + '</option>' +
@@ -381,15 +381,22 @@ function renderAdminBookingsShell(opts) {
           '</select>' +
         '</label>' +
         '<div class="portal-admin-bookings-actions">' +
-          '<button type="button" class="btn btn-ghost" id="admin-bookings-clear">' +
+          '<button type="button" class="btn btn-ghost portal-admin-bookings-clear-btn" id="admin-bookings-clear">' +
             escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') +
           '</button>' +
-          '<button type="button" class="btn btn-ghost" id="admin-bookings-export">' +
-            escHtml(portalT('admin.bookings.exportCsv')) +
+          '<button type="button" class="btn btn-ghost portal-admin-bookings-export-btn" id="admin-bookings-export">' +
+            '<span class="portal-admin-bookings-export-full">' +
+              escHtml(portalT('admin.bookings.exportCsv') || 'Export CSV') + '</span>' +
+            '<span class="portal-admin-bookings-export-short">' +
+              escHtml(portalT('admin.bookings.export') || 'Export') + '</span>' +
           '</button>' +
         '</div>' +
       '</div>' +
       '<div id="admin-bookings-table-wrap" class="portal-admin-bookings-table-wrap"></div>' +
+      /* Mobile-only footer copy of the Finance scope note (desktop keeps it under summary). */
+      '<p id="admin-bookings-footer-note" class="portal-admin-bookings-footer-note" data-bookings-kpi-scope="1">' +
+        escHtml(portalT('admin.bookings.summaryScopeNote')) +
+      '</p>' +
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
   // Shell markup resets hidden date inputs to "". Restore state into the new
@@ -1030,25 +1037,43 @@ function renderAdminBookingsSummary() {
   var node = el('admin-bookings-summary');
   if (!node) return;
   var s = (adminBookingsState.data && adminBookingsState.data.summary) || {};
+  // Shared: Bookings count only (money tiles removed).
+  // Mobile: also show Refund (Σ refunded_cents) + Unpaid (Σ outstanding_cents) —
+  // same Finance/Bookings ledger rules as computeBookingsSummary.
+  // Desktop keeps the scope note under the strip; mobile moves it to the page footer.
   node.innerHTML =
     '<div class="portal-admin-bookings-summary-strip" role="group" aria-label="' +
       escHtml(portalT('admin.bookings.summaryLabel')) + '">' +
-      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count') +
-      metric('admin.bookings.metric.collected', adminBookingsFormatEur(s.collected_cents), 'collected') +
-      metric('admin.bookings.metric.refunded', adminBookingsFormatEur(s.refunded_cents), 'refunded') +
-      metric('admin.bookings.metric.net', adminBookingsFormatEur(s.net_cents), 'net') +
-      metric('admin.bookings.metric.outstanding', adminBookingsFormatEur(s.outstanding_cents), 'outstanding') +
+      metric('admin.bookings.metric.bookings', s.bookings_count != null ? String(s.bookings_count) : '0', 'count', '') +
+      metric('admin.bookings.metric.refund', adminBookingsFormatEur(s.refunded_cents), 'refund', ' portal-admin-bookings-metric--mobile-kpi') +
+      metric('admin.bookings.metric.unpaid', adminBookingsFormatEur(s.outstanding_cents), 'unpaid', ' portal-admin-bookings-metric--mobile-kpi') +
     '</div>' +
-    '<p class="portal-admin-bookings-summary-note" data-bookings-kpi-scope="1" style="margin:8px 0 0;font-size:12px;line-height:1.35;opacity:0.78;max-width:72rem">' +
+    '<p class="portal-admin-bookings-summary-note" data-bookings-kpi-scope="1">' +
       escHtml(portalT('admin.bookings.summaryScopeNote')) +
     '</p>';
 
-  function metric(labelKey, value, tone) {
+  function metric(labelKey, value, tone, extraClass) {
     var toneClass = tone ? (' is-' + String(tone)) : '';
-    return '<div class="portal-admin-bookings-metric">' +
+    return '<div class="portal-admin-bookings-metric' + (extraClass || '') + '">' +
       '<div class="portal-admin-bookings-metric-label">' + escHtml(portalT(labelKey)) + '</div>' +
       '<div class="portal-admin-bookings-metric-value' + toneClass + '">' + escHtml(value) + '</div></div>';
   }
+}
+
+/** Primary money tone for row emphasis (unpaid / partial / paid / refunded / cancelled). */
+function adminBookingsRowPayTone(row) {
+  var tags = Array.isArray(row && row.status_tags) && row.status_tags.length
+    ? row.status_tags
+    : [row && row.status ? row.status : 'unpaid'];
+  var i;
+  for (i = 0; i < tags.length; i += 1) {
+    var t = String(tags[i] || '').toLowerCase();
+    if (t === 'canceled') t = 'cancelled';
+    if (t === 'cancelled' || t === 'refunded' || t === 'partial' || t === 'paid' || t === 'unpaid') {
+      return t;
+    }
+  }
+  return 'unpaid';
 }
 
 function renderAdminBookingsTable() {
@@ -1083,12 +1108,17 @@ function renderAdminBookingsTable() {
     var archived = false;
     var code = String(row.booking_code || '');
     var createdText = adminBookingsFormatMadridCreated(row.created_at);
+    var payTone = adminBookingsRowPayTone(row);
+    var totalCents = row.total_cents != null ? row.total_cents : row.charged_cents;
+    var paidCents = row.paid_cents != null ? row.paid_cents : row.collected_cents;
     // Row block keeps expand OUTSIDE the 7-col grid so line-items never inject
     // into Total/Paid (KPI) columns. data-bookings-row-id stays on the tr so
     // closest() / n1 row clicks hit the compact row, not the expanded block.
     html += '<div class="portal-admin-bookings-row-block' + (expanded ? ' is-expanded' : '') + '">';
     html += '<div class="portal-admin-bookings-tr' + (archived ? ' is-archived' : '') +
-      (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(rowKey) +
+      (expanded ? ' is-expanded' : '') + ' is-pay-' + escHtml(payTone) +
+      '" role="row" data-bookings-row-id="' + escHtml(rowKey) +
+      '" data-bookings-pay-tone="' + escHtml(payTone) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
     var openScheduleLabel = adminBookingsOpenScheduleLabel(code);
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
@@ -1109,10 +1139,12 @@ function renderAdminBookingsTable() {
       escHtml(createdText) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-type" role="cell">' +
       adminBookingsTypeChipsHtml(row) + '</div>';
-    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
-      escHtml(adminBookingsFormatEur(row.total_cents != null ? row.total_cents : row.charged_cents)) + '</div>';
-    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num" role="cell">' +
-      escHtml(adminBookingsFormatEur(row.paid_cents != null ? row.paid_cents : row.collected_cents)) + '</div>';
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num portal-admin-bookings-td-total" role="cell">' +
+      '<span class="portal-admin-bookings-money-value">' +
+      escHtml(adminBookingsFormatEur(totalCents)) + '</span></div>';
+    html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num portal-admin-bookings-td-paid" role="cell">' +
+      '<span class="portal-admin-bookings-money-value">' +
+      escHtml(adminBookingsFormatEur(paidCents)) + '</span></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-status" role="cell">' +
       '<div class="portal-admin-bookings-chip-row">' + adminBookingsStatusChipsHtml(row) + '</div></div>';
     html += '</div>';
