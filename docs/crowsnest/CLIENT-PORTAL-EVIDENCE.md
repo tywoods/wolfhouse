@@ -12,13 +12,12 @@ The authenticated GET `/clients` passes:
   Availability is `live` or `unknown`. `checked_at` is an ISO UTC **healthz**
   observation timestamp (probe time), or `null` for a source that was not read.
   Reasons are bounded codes, never upstream diagnostics or response bodies.
-- Deploy-age fields (merged from the Azure ACA revision reader; never from
-  healthz):
-  - `deploy_updated_at` — active revision `properties.createdTime`
-  - `deploy_revision` / `deploy_revision_short` — full and short revision name
-  - `deploy_image_tag` — short image tag when present
-  - `deploy_source_kind` — `azure_aca_revision` or `none`
-  - `deploy_reason` — bounded code (`active_revision_ok`, `portal_deploy_config_absent`, …)
+- Deploy-age fields (merged from **stored deploy stamps**; never from healthz):
+  - `deploy_updated_at` — stamp ISO time (deploy moment written by Skipper)
+  - `deploy_revision` / `deploy_revision_short` — full and short revision / git id
+  - `deploy_image_tag` — optional short image tag when present
+  - `deploy_source_kind` — `deploy_stamp` or `none`
+  - `deploy_reason` — bounded code (`stamp_ok`, `stamp_absent`, …)
 - Compatibility with Slice A's URL-keyed seam: the **same**
   `portalEvidence[client.id][admittedOrigin]` contains the availability string.
   This alias is produced only from the admitted-source registry, including the
@@ -33,7 +32,7 @@ Renderer rules:
   revision / image tag when present). This is **last deploy / revision create**,
   not healthz probe time.
 - **Do not** render healthz `checked_at` as “Checked …” next to Staff portal titles.
-- Null deploy fields omit the Updated meta (fail soft when MI/config/RBAC absent);
+- Null deploy fields omit the Updated meta (fail soft when no stamp yet);
   never invent timestamps or substitute Crow’s Nest `directoryBuild` for a Staff
   portal’s deploy age.
 - Clients safety copy may acknowledge bounded public Staff health reads for the
@@ -43,26 +42,18 @@ Renderer rules:
 
 ## Staff portal deploy-age source
 
-Crow’s Nest reads Azure Container Apps **active revision** metadata over ARM
-(managed identity), for the same four admitted portal origins:
+Crow’s Nest reads **stored deploy stamps** written after each successful Staff
+deploy via `PUT|POST /api/portal-deploy-stamp` (Bearer
+`CROWSNEST_PORTAL_DEPLOY_STAMP_TOKEN`). See
+[`PORTAL-DEPLOY-STAMP.md`](PORTAL-DEPLOY-STAMP.md) for Skipper curl + env.
 
-| Client | Environment | Container App | Resource group |
-| --- | --- | --- | --- |
-| `wolfhouse-somo` | staging | `wh-staging-staff-api` | `wh-staging-rg` |
-| `sunset-somo` | staging | `luna-sunset-staging-staff-api` | `luna-sunset-staging-rg` |
-| `wolfhouse-somo` | production | `wh-prod-staff-api` | `wh-prod-rg` |
-| `sunset-somo` | production | `luna-sunset-staging-staff-api` | `luna-sunset-staging-rg` |
-
-Sunset production currently CNAMEs onto the Sunset staging Container App; the
-lock matches that measured identity. Requires
-`CROWSNEST_PORTAL_DEPLOY_AZURE_SUBSCRIPTION_ID` plus Container Apps
-`IDENTITY_ENDPOINT` / `IDENTITY_HEADER`, and Reader on those apps. Missing
-config fails soft (no Updated line).
+No Azure Container Apps Reader, ARM revision GETs, or
+`CROWSNEST_PORTAL_DEPLOY_AZURE_SUBSCRIPTION_ID` are used. Missing stamps fail
+soft (no Updated line).
 
 B is rebased on master after Slice A (#1131). No Slice A files are changed by B.
-The B verifier proves acquisition, authorization and page-option handoff using
-real local routing/rendering with mocked health transport. It does **not** claim
-that the renderer displays directoryBuild, or prove authenticated deployed UI.
+The B verifier proves stamp write/read, merge into portalEvidence, and Clients
+Updated render. It does **not** claim authenticated deployed UI.
 
 ## Admitted sources and limits
 

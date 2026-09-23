@@ -17,12 +17,18 @@ const { collectClientConnectionStatuses } = require('./lib/crowsnest/crowsnest-c
 const { createCrowsnestClientPortalEvidenceCollector, CLIENT_PORTAL_SOURCES } = require('./lib/crowsnest/crowsnest-client-portal-evidence');
 const collectClientPortalEvidence = createCrowsnestClientPortalEvidenceCollector();
 const {
+  STAMP_TOKEN_ENV: PORTAL_DEPLOY_STAMP_TOKEN_ENV,
   createCrowsnestClientPortalDeployCollector,
+  getPortalDeployStampStore,
   mergePortalDeployIntoEvidence,
 } = require('./lib/crowsnest/crowsnest-client-portal-deploy');
-const collectClientPortalDeploy = createCrowsnestClientPortalDeployCollector({
-  transport: typeof fetch === 'function' ? fetch : undefined,
-});
+const PORTAL_DEPLOY_STAMP_MAX_BODY = 8 * 1024;
+
+async function collectClientPortalDeploy(clients) {
+  // Resolve store at call time so PUT stamp and Clients GET share one store
+  // (including after test resets).
+  return createCrowsnestClientPortalDeployCollector()(clients);
+}
 
 function validateCrowsnestDirectoryBuild(value, now = Date.now()) {
   if (!value || typeof value.sha !== 'string' || !/^[a-f0-9]{40}$/.test(value.sha)
@@ -221,6 +227,14 @@ function aiUsageIngestAuthorized(req) {
   return bearerTokenAuthorized(req, process.env[AI_USAGE_INGEST_TOKEN_ENV]);
 }
 
+function portalDeployStampConfigured() {
+  return String(process.env[PORTAL_DEPLOY_STAMP_TOKEN_ENV] || '').trim().length > 0;
+}
+
+function portalDeployStampAuthorized(req) {
+  return bearerTokenAuthorized(req, process.env[PORTAL_DEPLOY_STAMP_TOKEN_ENV]);
+}
+
 // POST /api/client-metrics — machine reporters push crowsnest.client_metrics.v1
 // snapshots. Invisible (404) unless a token is configured; the contract validates
 // every event; the store fails closed (503) until a DSN is set. No writes to any
@@ -292,6 +306,55 @@ async function handleAiUsageIngest(req, res, method) {
   }
   const status = result && result.status === 503 ? 503 : 400;
   return sendJSON(res, status, {
+    ok: false,
+    code: (result && result.code) || 'rejected',
+    errors: (result && result.errors) || undefined,
+  }, { 'Cache-Control': 'no-store' });
+}
+
+// PUT|POST /api/portal-deploy-stamp — Skipper / deploy scripts record Staff
+// portal deploy age after a successful staging/prod Staff deploy. Invisible
+// (404) unless CROWSNEST_PORTAL_DEPLOY_STAMP_TOKEN is set. No Azure RBAC.
+async function handlePortalDeployStamp(req, res, method) {
+  if (!portalDeployStampConfigured()) {
+    return sendJSON(res, 404, { error: 'not found' }, { 'Cache-Control': 'no-store' });
+  }
+  if (method !== 'PUT' && method !== 'POST') {
+    return sendMethodNotAllowed(res, 'PUT, POST');
+  }
+  if (!portalDeployStampAuthorized(req)) {
+    return sendJSON(res, 401, { error: 'unauthorized' }, {
+      'Cache-Control': 'no-store',
+      'WWW-Authenticate': 'Bearer',
+    });
+  }
+  let raw;
+  try {
+    raw = await readLimitedBody(req, PORTAL_DEPLOY_STAMP_MAX_BODY);
+  } catch {
+    return sendPayloadTooLarge(res);
+  }
+  let body;
+  try {
+    body = JSON.parse(raw || '');
+  } catch {
+    return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  }
+  const store = getPortalDeployStampStore();
+  const result = store.putStamp(body);
+  if (result && result.ok) {
+    return sendJSON(res, 200, {
+      ok: true,
+      stamp: {
+        client: result.stamp.client,
+        environment: result.stamp.environment,
+        updated_at: result.stamp.updated_at,
+        revision: result.stamp.revision,
+        revision_short: result.stamp.revision_short,
+      },
+    }, { 'Cache-Control': 'no-store' });
+  }
+  return sendJSON(res, 400, {
     ok: false,
     code: (result && result.code) || 'rejected',
     errors: (result && result.errors) || undefined,
@@ -1510,8 +1573,8 @@ async function handleProtectedUi(req, res, method, pathname) {
         const evidence = pageOptions.portalEvidence[source.client];
         evidence[source.origin] = evidence[source.environment].availability;
       }
-      // Deploy age (ACA active revision createdTime) — separate from healthz.
-      // Fail-soft: missing MI/config/RBAC leaves deploy_* null (no "Checked" fallback).
+      // Deploy age from stored stamps (Skipper POST after Staff deploy) — not healthz.
+      // Fail-soft: missing stamp leaves deploy_* null (no "Checked" fallback).
       try {
         const deployEvidence = await collectClientPortalDeploy(getCrowsnestClients());
         mergePortalDeployIntoEvidence(pageOptions.portalEvidence, deployEvidence);
@@ -2642,6 +2705,10 @@ async function router(req, res) {
     return handleAiUsageIngest(req, res, method);
   }
 
+  if (pathname === '/api/portal-deploy-stamp') {
+    return handlePortalDeployStamp(req, res, method);
+  }
+
   if (authEnabled && resolveCrowsnestSessionBackend() === 'fail_closed') {
     return sendCrowsnestAuthMisconfigured(res);
   }
@@ -2816,10 +2883,12 @@ module.exports = {
   HOST,
   sendSalesUnavailable,
   handleClientMetricsIngest,
+  handlePortalDeployStamp,
   handleLunaNumberRoute,
   handleLiveSimulatorGuestTurn,
   handleSpyglassRefreshAll,
   METRICS_INGEST_TOKEN_ENV,
+  PORTAL_DEPLOY_STAMP_TOKEN_ENV,
   serializeBrowserOrigin,
   expectedSessionMutationOrigin,
   isTrustedSessionMutationOrigin,

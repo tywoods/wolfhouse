@@ -1,59 +1,50 @@
 'use strict';
 
 /**
- * Staff portal deploy-age evidence for Crow's Nest Clients.
+ * Staff portal deploy stamps for Crow's Nest Clients.
  *
- * Reads Azure Container Apps active-revision createdTime (plus short revision /
- * image tag) for admitted Staff portal origins. This is deploy/upload age —
- * never /healthz probe time.
+ * Skipper (or deploy scripts) POST/PUT a stamp after each successful Staff
+ * staging/prod deploy. Clients renders "Updated … ago · --rev" from the stored
+ * stamp. No Azure Container Apps Reader / ARM revision APIs.
  *
- * - Injected fetch only (no global fetch, Azure SDK, or Azure CLI)
- * - Managed-identity ARM token via IDENTITY_ENDPOINT / IDENTITY_HEADER
- * - Exact admitted RG/app locks; fail soft when config/identity/ARM unavailable
+ * - Admitted portals only (exact client + environment + origin locks)
+ * - Memory store by default; optional JSON file via CROWSNEST_PORTAL_DEPLOY_STAMP_PATH
+ * - Fail soft: missing stamp => null deploy_* fields (no Updated line)
  */
 
-const ARM_HOST = 'management.azure.com';
-const ARM_RESOURCE = 'https://management.azure.com/';
-const ARM_API_VERSION = '2024-03-01';
-const MI_API_VERSION = '2019-08-01';
-const DEFAULT_TIMEOUT_MS = 8000;
-const CACHE_TTL_MS = 60000;
-const AZURE_GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const fs = require('fs');
+const path = require('path');
 
-// Locked to measured public CNAMEs / known Staff ACA apps. Sunset production
-// currently aliases the Sunset staging Container App (same FQDN family).
+const STAMP_TOKEN_ENV = 'CROWSNEST_PORTAL_DEPLOY_STAMP_TOKEN';
+const STAMP_PATH_ENV = 'CROWSNEST_PORTAL_DEPLOY_STAMP_PATH';
+const STAMP_SOURCE_KIND = 'deploy_stamp';
+
+// Locked to measured public Staff portal origins. Azure RG/app names are not
+// required — stamps are written by deploy scripts, not read from ACA.
 const PORTAL_DEPLOY_SOURCES = Object.freeze([
   Object.freeze({
     client: 'wolfhouse-somo',
     slug: 'wolfhouse-somo',
     environment: 'staging',
     origin: 'https://staff-staging.lunafrontdesk.com',
-    resource_group: 'wh-staging-rg',
-    container_app: 'wh-staging-staff-api',
   }),
   Object.freeze({
     client: 'sunset-somo',
     slug: 'sunset',
     environment: 'staging',
     origin: 'https://sunset-staging.lunafrontdesk.com',
-    resource_group: 'luna-sunset-staging-rg',
-    container_app: 'luna-sunset-staging-staff-api',
   }),
   Object.freeze({
     client: 'wolfhouse-somo',
     slug: 'wolfhouse-somo',
     environment: 'production',
     origin: 'https://wolfhouse.lunafrontdesk.com',
-    resource_group: 'wh-prod-rg',
-    container_app: 'wh-prod-staff-api',
   }),
   Object.freeze({
     client: 'sunset-somo',
     slug: 'sunset',
     environment: 'production',
     origin: 'https://sunset.lunafrontdesk.com',
-    resource_group: 'luna-sunset-staging-rg',
-    container_app: 'luna-sunset-staging-staff-api',
   }),
 ]);
 
@@ -61,7 +52,11 @@ function trimString(value) {
   return value == null ? '' : String(value).trim();
 }
 
-function emptyDeploy(reason = 'source_not_admitted') {
+function stampKey(client, environment) {
+  return `${trimString(client)}|${trimString(environment)}`;
+}
+
+function emptyDeploy(reason = 'stamp_absent') {
   return Object.freeze({
     updated_at: null,
     revision: null,
@@ -72,329 +67,256 @@ function emptyDeploy(reason = 'source_not_admitted') {
   });
 }
 
-function assertExactIdentityEndpointBase(identityEndpoint) {
-  let url;
-  try {
-    url = new URL(String(identityEndpoint || ''));
-  } catch {
-    return false;
-  }
-  if (url.protocol !== 'http:') return false;
-  if (url.username || url.password) return false;
-  const host = String(url.hostname || '').toLowerCase();
-  if (host !== '127.0.0.1' && host !== 'localhost') return false;
-  if (url.pathname !== '/msi/token') return false;
-  if (url.search || url.hash) return false;
-  return true;
+function findAdmittedSource(client, environment) {
+  const c = trimString(client);
+  const e = trimString(environment);
+  return PORTAL_DEPLOY_SOURCES.find((row) => row.client === c && row.environment === e) || null;
 }
 
-function buildManagedIdentityTokenUrl(identityEndpoint, managedIdentityClientId) {
-  if (!assertExactIdentityEndpointBase(identityEndpoint)) return null;
-  const url = new URL(identityEndpoint);
-  url.searchParams.set('api-version', MI_API_VERSION);
-  url.searchParams.set('resource', ARM_RESOURCE);
-  if (managedIdentityClientId) {
-    url.searchParams.set('client_id', managedIdentityClientId);
-  }
-  return url.toString();
-}
-
-function buildArmContainerAppUrl(subscriptionId, resourceGroup, containerApp) {
-  return (
-    `https://${ARM_HOST}/subscriptions/${encodeURIComponent(subscriptionId)}`
-    + `/resourceGroups/${encodeURIComponent(resourceGroup)}`
-    + `/providers/Microsoft.App/containerApps/${encodeURIComponent(containerApp)}`
-    + `?api-version=${ARM_API_VERSION}`
-  );
-}
-
-function buildArmRevisionUrl(subscriptionId, resourceGroup, containerApp, revisionName) {
-  return (
-    `https://${ARM_HOST}/subscriptions/${encodeURIComponent(subscriptionId)}`
-    + `/resourceGroups/${encodeURIComponent(resourceGroup)}`
-    + `/providers/Microsoft.App/containerApps/${encodeURIComponent(containerApp)}`
-    + `/revisions/${encodeURIComponent(revisionName)}`
-    + `?api-version=${ARM_API_VERSION}`
-  );
-}
-
-function resolvePortalDeployRuntimeConfig(env = process.env) {
-  const subscriptionId = trimString(env.CROWSNEST_PORTAL_DEPLOY_AZURE_SUBSCRIPTION_ID);
-  const managedIdentityClientId = trimString(
-    env.CROWSNEST_PORTAL_DEPLOY_AZURE_MANAGED_IDENTITY_CLIENT_ID,
-  );
-  if (!subscriptionId) {
-    return Object.freeze({ ok: false, code: 'portal_deploy_config_absent' });
-  }
-  if (!AZURE_GUID_RE.test(subscriptionId)) {
-    return Object.freeze({ ok: false, code: 'portal_deploy_config_invalid_subscription' });
-  }
-  if (managedIdentityClientId && !AZURE_GUID_RE.test(managedIdentityClientId)) {
-    return Object.freeze({ ok: false, code: 'portal_deploy_config_invalid_managed_identity' });
-  }
-  const config = { subscription_id: subscriptionId };
-  if (managedIdentityClientId) config.managed_identity_client_id = managedIdentityClientId;
-  return Object.freeze({ ok: true, config: Object.freeze(config) });
-}
-
-function resolveManagedIdentityEndpointConfig(env = process.env) {
-  const identityEndpoint = trimString(env.IDENTITY_ENDPOINT);
-  const identityHeader = trimString(env.IDENTITY_HEADER);
-  if (!identityEndpoint || !identityHeader) {
-    return Object.freeze({ ok: false, code: 'managed_identity_endpoint_absent' });
-  }
-  if (identityHeader.length > 4096 || /[\r\n]/.test(identityHeader)) {
-    return Object.freeze({ ok: false, code: 'managed_identity_header_invalid' });
-  }
-  if (!assertExactIdentityEndpointBase(identityEndpoint)) {
-    return Object.freeze({ ok: false, code: 'managed_identity_endpoint_invalid' });
-  }
-  return Object.freeze({
-    ok: true,
-    identity_endpoint: identityEndpoint,
-    identity_header: identityHeader,
-  });
-}
-
-async function timedJson(transport, url, init, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await transport(url, { ...init, signal: controller.signal, redirect: 'error' });
-    const status = Number(response && response.status) || 0;
-    let body = null;
-    try {
-      body = typeof response.json === 'function' ? await response.json() : null;
-    } catch {
-      body = null;
-    }
-    return { status, body, ok: status >= 200 && status < 300 };
-  } catch {
-    return { status: 0, body: null, ok: false };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function pickActiveRevisionName(appBody) {
-  const props = appBody && typeof appBody === 'object' ? appBody.properties : null;
-  if (!props || typeof props !== 'object') return '';
-  const traffic = props.configuration
-    && props.configuration.ingress
-    && Array.isArray(props.configuration.ingress.traffic)
-    ? props.configuration.ingress.traffic
-    : [];
-  const weighted = traffic
-    .map((row) => ({
-      name: trimString(row && row.revisionName),
-      weight: Number(row && row.weight),
-    }))
-    .filter((row) => row.name && Number.isFinite(row.weight) && row.weight > 0)
-    .sort((a, b) => b.weight - a.weight);
-  if (weighted.length === 1 && weighted[0].weight === 100) return weighted[0].name;
-  if (weighted.length >= 1) return weighted[0].name;
-  return trimString(props.latestReadyRevisionName || props.latestRevisionName);
-}
-
-function shortRevisionLabel(revisionName, containerApp) {
-  const full = trimString(revisionName);
+/**
+ * Normalize a short display revision for the Clients "· --rev" suffix.
+ * Accepts full ACA revision names, short "--0000525", or git SHAs.
+ */
+function shortRevisionLabel(revision, _containerApp) {
+  const full = trimString(revision);
   if (!full) return null;
-  const prefix = `${trimString(containerApp)}--`;
-  if (prefix.length > 2 && full.startsWith(prefix)) {
-    return `--${full.slice(prefix.length)}`;
-  }
+  if (/^--[A-Za-z0-9._-]{1,32}$/.test(full)) return full;
+  if (/^[a-f0-9]{40}$/i.test(full)) return full.slice(0, 7).toLowerCase();
+  if (/^[a-f0-9]{7,12}$/i.test(full)) return full.toLowerCase();
   const idx = full.lastIndexOf('--');
-  if (idx >= 0 && idx < full.length - 2) return full.slice(idx);
-  return full.length > 18 ? full.slice(-18) : full;
+  if (idx >= 0 && idx < full.length - 2) {
+    const tail = full.slice(idx);
+    return tail.length > 18 ? tail.slice(0, 18) : tail;
+  }
+  return full.length > 18 ? full.slice(0, 18) : full;
 }
 
-function imageTagFromRevision(revisionBody) {
-  const containers = revisionBody
-    && revisionBody.properties
-    && revisionBody.properties.template
-    && Array.isArray(revisionBody.properties.template.containers)
-    ? revisionBody.properties.template.containers
-    : [];
-  const image = trimString(containers[0] && containers[0].image);
-  if (!image) return null;
-  const digestAt = image.lastIndexOf('@');
-  const bare = digestAt >= 0 ? image.slice(0, digestAt) : image;
-  const colon = bare.lastIndexOf(':');
-  if (colon < 0) return null;
-  const tag = bare.slice(colon + 1);
-  if (!tag) return null;
-  if (/^[a-f0-9]{40}$/i.test(tag)) return tag.slice(0, 8).toLowerCase();
-  return tag.length > 16 ? tag.slice(0, 16) : tag;
-}
-
-function normalizeCreatedTime(value) {
+function normalizeUpdatedAt(value, nowMs) {
   const raw = trimString(value);
-  if (!raw) return null;
+  if (!raw) {
+    return new Date(nowMs).toISOString();
+  }
   const time = Date.parse(raw);
   if (!Number.isFinite(time)) return null;
+  if (time > nowMs + 60_000) return null; // reject far-future stamps
   return new Date(time).toISOString();
 }
 
-function createCrowsnestClientPortalDeployCollector(options = {}) {
-  const transport = options.transport || options.fetch || options.fetchImpl;
-  const now = typeof options.now === 'function' ? options.now : Date.now;
-  const timeoutMs = Number.isFinite(options.timeoutMs)
-    ? Math.max(1, Math.min(options.timeoutMs, 15000))
-    : DEFAULT_TIMEOUT_MS;
-  const runtime = options.runtimeConfig
-    || resolvePortalDeployRuntimeConfig(options.env || process.env);
-  const identity = options.identityConfig
-    || resolveManagedIdentityEndpointConfig(options.env || process.env);
-
-  const cache = new Map();
-  const inFlight = new Map();
-
-  async function acquireToken() {
-    if (typeof transport !== 'function') return null;
-    if (!runtime || runtime.ok !== true) return null;
-    if (!identity || identity.ok !== true) return null;
-    const tokenUrl = buildManagedIdentityTokenUrl(
-      identity.identity_endpoint,
-      runtime.config.managed_identity_client_id || '',
-    );
-    if (!tokenUrl) return null;
-    const tokenResult = await timedJson(transport, tokenUrl, {
-      method: 'GET',
-      headers: { 'X-IDENTITY-HEADER': identity.identity_header },
-    }, timeoutMs);
-    if (!tokenResult.ok || !tokenResult.body || typeof tokenResult.body !== 'object') return null;
-    const accessToken = trimString(tokenResult.body.access_token);
-    return accessToken || null;
+function validateStampInput(input, options = {}) {
+  const errors = [];
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, errors: ['body_must_be_object'] };
   }
+  const client = trimString(input.client);
+  const environment = trimString(input.environment);
+  if (!client) errors.push('client_required');
+  if (environment !== 'staging' && environment !== 'production') {
+    errors.push('environment_must_be_staging_or_production');
+  }
+  const source = findAdmittedSource(client, environment);
+  if (client && (environment === 'staging' || environment === 'production') && !source) {
+    errors.push('portal_not_admitted');
+  }
+  const revisionRaw = trimString(input.revision || input.revision_short || input.rev);
+  if (!revisionRaw) errors.push('revision_required');
+  if (revisionRaw.length > 128) errors.push('revision_too_long');
+  const nowMs = typeof options.now === 'function' ? options.now() : Date.now();
+  const updatedAt = normalizeUpdatedAt(input.updated_at, nowMs);
+  if (input.updated_at != null && input.updated_at !== '' && !updatedAt) {
+    errors.push('updated_at_invalid');
+  }
+  if (errors.length) return { ok: false, errors };
 
-  async function readSource(source, accessToken) {
-    if (!accessToken) return emptyDeploy('identity_token_failed');
-    const subscriptionId = runtime.config.subscription_id;
-    const appUrl = buildArmContainerAppUrl(
-      subscriptionId,
-      source.resource_group,
-      source.container_app,
-    );
-    const appResult = await timedJson(transport, appUrl, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    }, timeoutMs);
-    if (!appResult.ok) return emptyDeploy('arm_app_read_failed');
-    const revisionName = pickActiveRevisionName(appResult.body);
-    if (!revisionName) return emptyDeploy('active_revision_missing');
-    if (!revisionName.startsWith(`${source.container_app}--`)
-        && revisionName !== source.container_app) {
-      // Accept only revision names owned by the locked app.
-      if (!revisionName.includes(source.container_app)) {
-        return emptyDeploy('active_revision_mismatch');
-      }
-    }
-    const revUrl = buildArmRevisionUrl(
-      subscriptionId,
-      source.resource_group,
-      source.container_app,
-      revisionName,
-    );
-    const revResult = await timedJson(transport, revUrl, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    }, timeoutMs);
-    if (!revResult.ok) return emptyDeploy('arm_revision_read_failed');
-    const updatedAt = normalizeCreatedTime(
-      revResult.body
-      && revResult.body.properties
-      && revResult.body.properties.createdTime,
-    );
-    if (!updatedAt) return emptyDeploy('revision_created_time_missing');
-    return Object.freeze({
+  const revisionShort = shortRevisionLabel(revisionRaw);
+  return {
+    ok: true,
+    stamp: Object.freeze({
+      client,
+      environment,
+      origin: source.origin,
       updated_at: updatedAt,
-      revision: revisionName,
-      revision_short: shortRevisionLabel(revisionName, source.container_app),
-      image_tag: imageTagFromRevision(revResult.body),
-      source_kind: 'azure_aca_revision',
-      reason: 'active_revision_ok',
-    });
+      revision: revisionRaw,
+      revision_short: revisionShort,
+      image_tag: trimString(input.image_tag) || null,
+      source_kind: STAMP_SOURCE_KIND,
+      reason: 'stamp_ok',
+      stamped_at: new Date(nowMs).toISOString(),
+    }),
+  };
+}
+
+function stampToDeployEvidence(stamp) {
+  if (!stamp) return emptyDeploy('stamp_absent');
+  return Object.freeze({
+    updated_at: stamp.updated_at || null,
+    revision: stamp.revision || null,
+    revision_short: stamp.revision_short || null,
+    image_tag: stamp.image_tag || null,
+    source_kind: stamp.source_kind || STAMP_SOURCE_KIND,
+    reason: stamp.reason || 'stamp_ok',
+  });
+}
+
+function readStampFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return new Map();
+    const map = new Map();
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== 'object') continue;
+      const client = trimString(value.client);
+      const environment = trimString(value.environment);
+      if (!findAdmittedSource(client, environment)) continue;
+      if (!value.updated_at || !value.revision) continue;
+      map.set(key || stampKey(client, environment), Object.freeze({ ...value }));
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function writeStampFile(filePath, map) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const obj = {};
+  for (const [key, value] of map.entries()) {
+    obj[key] = value;
+  }
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, 'utf8');
+  fs.renameSync(tmp, filePath);
+}
+
+function createPortalDeployStampStore(options = {}) {
+  const env = options.env || process.env;
+  const filePath = trimString(options.filePath || env[STAMP_PATH_ENV]);
+  const now = typeof options.now === 'function' ? options.now : Date.now;
+  const map = filePath ? readStampFile(filePath) : new Map();
+
+  // Optional in-process seed (tests / one-shot operator seed).
+  if (Array.isArray(options.seed)) {
+    for (const row of options.seed) {
+      const validated = validateStampInput(row, { now });
+      if (validated.ok) {
+        map.set(stampKey(validated.stamp.client, validated.stamp.environment), validated.stamp);
+      }
+    }
   }
 
-  async function readCached(source, accessToken) {
-    const key = `${source.client}|${source.environment}|${source.container_app}`;
-    const time = now();
-    const cached = cache.get(key);
-    if (cached && time >= cached.startedAt && time < cached.expiresAt) return cached.evidence;
-    if (inFlight.has(key)) return inFlight.get(key);
-    const promise = readSource(source, accessToken).then((evidence) => {
-      cache.set(key, { startedAt: time, expiresAt: time + CACHE_TTL_MS, evidence });
-      return evidence;
-    }).finally(() => { inFlight.delete(key); });
-    inFlight.set(key, promise);
-    return promise;
+  function persist() {
+    if (!filePath) return;
+    try {
+      writeStampFile(filePath, map);
+    } catch {
+      // Fail soft on disk errors — in-memory stamp still serves this process.
+    }
   }
 
+  return {
+    backend: filePath ? 'file' : 'memory',
+    filePath: filePath || null,
+
+    putStamp(input) {
+      const validated = validateStampInput(input, { now });
+      if (!validated.ok) {
+        return { ok: false, code: 'invalid_stamp', errors: validated.errors };
+      }
+      const key = stampKey(validated.stamp.client, validated.stamp.environment);
+      map.set(key, validated.stamp);
+      persist();
+      return { ok: true, stamp: validated.stamp };
+    },
+
+    getStamp(client, environment) {
+      return map.get(stampKey(client, environment)) || null;
+    },
+
+    listStamps() {
+      return [...map.values()];
+    },
+
+    collectForClients(clients = []) {
+      const result = {};
+      for (const client of clients) {
+        result[client.id] = {
+          staging: emptyDeploy('stamp_absent'),
+          production: emptyDeploy('stamp_absent'),
+        };
+      }
+      for (const client of clients) {
+        if (!result[client.id]) continue;
+        for (const environment of ['staging', 'production']) {
+          const source = PORTAL_DEPLOY_SOURCES.find(
+            (item) => item.client === client.id
+              && item.slug === client.client_slug
+              && item.environment === environment,
+          );
+          if (!source) continue;
+          if (client.status !== 'Live') {
+            result[client.id][environment] = emptyDeploy('client_not_live');
+            continue;
+          }
+          if (!(client.environments || []).some((row) => row.kind === 'staff_portal'
+              && row.url === source.origin)) {
+            result[client.id][environment] = emptyDeploy('origin_not_in_directory');
+            continue;
+          }
+          result[client.id][environment] = stampToDeployEvidence(
+            map.get(stampKey(client.id, environment)),
+          );
+        }
+      }
+      return result;
+    },
+
+    _reset() {
+      map.clear();
+      if (filePath) {
+        try {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        } catch {
+          // ignore
+        }
+      }
+    },
+  };
+}
+
+let defaultStore = null;
+
+function getPortalDeployStampStore(options = {}) {
+  if (options.store) return options.store;
+  if (options.fresh || !defaultStore) {
+    defaultStore = createPortalDeployStampStore(options);
+  }
+  return defaultStore;
+}
+
+function _resetPortalDeployStampStoreForTests() {
+  if (defaultStore && typeof defaultStore._reset === 'function') defaultStore._reset();
+  defaultStore = null;
+}
+
+/**
+ * Collector used by GET /clients — reads stored stamps only (no Azure).
+ */
+function createCrowsnestClientPortalDeployCollector(options = {}) {
+  const store = getPortalDeployStampStore(options);
   return async function collect(clients = []) {
-    const result = {};
-    for (const client of clients) {
-      result[client.id] = {
-        staging: emptyDeploy('source_not_admitted'),
-        production: emptyDeploy('source_not_admitted'),
-      };
-    }
-
-    if (typeof transport !== 'function') {
-      for (const id of Object.keys(result)) {
-        result[id].staging = emptyDeploy('transport_required');
-        result[id].production = emptyDeploy('transport_required');
+    try {
+      return store.collectForClients(clients);
+    } catch {
+      const result = {};
+      for (const client of clients) {
+        result[client.id] = {
+          staging: emptyDeploy('stamp_read_failed'),
+          production: emptyDeploy('stamp_read_failed'),
+        };
       }
       return result;
     }
-    if (!runtime || runtime.ok !== true) {
-      const reason = (runtime && runtime.code) || 'portal_deploy_config_absent';
-      for (const id of Object.keys(result)) {
-        result[id].staging = emptyDeploy(reason);
-        result[id].production = emptyDeploy(reason);
-      }
-      return result;
-    }
-    if (!identity || identity.ok !== true) {
-      const reason = (identity && identity.code) || 'managed_identity_endpoint_absent';
-      for (const id of Object.keys(result)) {
-        result[id].staging = emptyDeploy(reason);
-        result[id].production = emptyDeploy(reason);
-      }
-      return result;
-    }
-
-    const jobs = [];
-    for (const client of clients) {
-      if (client.status !== 'Live') continue;
-      for (const source of PORTAL_DEPLOY_SOURCES.filter(
-        (item) => item.client === client.id && item.slug === client.client_slug,
-      )) {
-        if (!(client.environments || []).some((row) => row.kind === 'staff_portal'
-            && row.url === source.origin)) continue;
-        jobs.push({ source, clientId: client.id });
-      }
-    }
-
-    if (!jobs.length) return result;
-
-    const accessToken = await acquireToken();
-    const collected = await Promise.all(
-      jobs.map(async ({ source, clientId }) => ({
-        source,
-        clientId,
-        evidence: await readCached(source, accessToken),
-      })),
-    );
-    for (const item of collected) {
-      result[item.clientId][item.source.environment] = item.evidence;
-    }
-    return result;
   };
 }
 
@@ -421,7 +343,7 @@ function mergePortalDeployIntoEvidence(portalEvidence, deployEvidence) {
       base.deploy_revision_short = deploy && deploy.revision_short ? deploy.revision_short : null;
       base.deploy_image_tag = deploy && deploy.image_tag ? deploy.image_tag : null;
       base.deploy_source_kind = deploy && deploy.source_kind ? deploy.source_kind : 'none';
-      base.deploy_reason = deploy && deploy.reason ? deploy.reason : 'source_not_admitted';
+      base.deploy_reason = deploy && deploy.reason ? deploy.reason : 'stamp_absent';
       portalEvidence[clientId][environment] = Object.freeze(base);
     }
   }
@@ -429,15 +351,17 @@ function mergePortalDeployIntoEvidence(portalEvidence, deployEvidence) {
 }
 
 module.exports = {
+  STAMP_TOKEN_ENV,
+  STAMP_PATH_ENV,
+  STAMP_SOURCE_KIND,
   PORTAL_DEPLOY_SOURCES,
-  resolvePortalDeployRuntimeConfig,
-  resolveManagedIdentityEndpointConfig,
+  shortRevisionLabel,
+  validateStampInput,
+  createPortalDeployStampStore,
+  getPortalDeployStampStore,
+  _resetPortalDeployStampStoreForTests,
   createCrowsnestClientPortalDeployCollector,
   mergePortalDeployIntoEvidence,
-  shortRevisionLabel,
-  pickActiveRevisionName,
-  imageTagFromRevision,
-  buildArmContainerAppUrl,
-  buildArmRevisionUrl,
-  buildManagedIdentityTokenUrl,
+  emptyDeploy,
+  findAdmittedSource,
 };

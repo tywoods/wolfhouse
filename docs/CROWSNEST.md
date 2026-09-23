@@ -124,6 +124,10 @@ The first Sales vertical slice shipped in-memory only (restart-lost). Chapter 1 
 
 **Slice 1 is merged and deployed** — PR [#128](https://github.com/wolfhouse-somo/WH/pull/128); master/image SHA `14a7e3f7f656dd8a7dc11b528b8a645d3feb1210`; ACR build `cb11e`; active healthy revision `crowsnest-internal--0000010` at **100% traffic**. Protected routes: `/` (Spyglass default), `/clients`, `/billing`, `/communications` (aliases `/crowsnest` and `/crowsnest/ui` still render Spyglass). Honest read-only Spyglass shell from in-memory static client data; Billing/Communications placeholders stay **not connected**. No live writes or integrations. Staff API remained `wh-staging-staff-api--0000520` (untouched).
 
+### Clients portal “Updated” (deploy stamps)
+
+Staff staging/production rows on `/clients` show **Updated … ago · rev** from **stored deploy stamps** (not Azure ACA Reader). After each successful Staff deploy, Skipper POSTs to `/api/portal-deploy-stamp`. See [`docs/crowsnest/PORTAL-DEPLOY-STAMP.md`](crowsnest/PORTAL-DEPLOY-STAMP.md). Verify with `npm run verify:crowsnest-client-portal-deploy`.
+
 ### History (pre-login-portal live shell)
 
 Before the login-portal image was promoted, the public hostname used a browser Basic Auth challenge on `/` and `/healthz` reported `stage: skeleton`. That shell is **historical only** and is no longer the live baseline.
