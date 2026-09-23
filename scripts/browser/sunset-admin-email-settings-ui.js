@@ -129,24 +129,71 @@ function postSmtpIdentityRegister(locationId, publicAddress){
     });
 }
 function adminEmailGuessImapHost(kind, address){
+  try {
+    if (typeof guessEmailImapHostFromAddress === 'function') {
+      return guessEmailImapHostFromAddress(kind, address) || '';
+    }
+    if (typeof EmailImapProviderDefaults !== 'undefined' &&
+        EmailImapProviderDefaults &&
+        typeof EmailImapProviderDefaults.guessEmailImapHostFromAddress === 'function') {
+      return EmailImapProviderDefaults.guessEmailImapHostFromAddress(kind, address) || '';
+    }
+  } catch (_e) { /* fall through */ }
   var s = String(address || '').trim().toLowerCase();
   var at = s.lastIndexOf('@');
   if (at < 1) return '';
   var domain = s.slice(at + 1).replace(/\.$/, '');
   if (!domain || domain.indexOf('.') < 0) return '';
-  if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    return kind === 'smtp' ? 'smtp.gmail.com' : 'imap.gmail.com';
-  }
-  if (domain === 'outlook.com' || domain === 'hotmail.com' || domain === 'live.com' || domain === 'msn.com') {
-    return kind === 'smtp' ? 'smtp.office365.com' : 'outlook.office365.com';
-  }
-  if (domain === 'yahoo.com' || domain === 'ymail.com') {
-    return kind === 'smtp' ? 'smtp.mail.yahoo.com' : 'imap.mail.yahoo.com';
-  }
-  if (domain === 'icloud.com' || domain === 'me.com' || domain === 'mac.com') {
-    return kind === 'smtp' ? 'smtp.mail.me.com' : 'imap.mail.me.com';
-  }
   return (kind === 'smtp' ? 'smtp.' : 'imap.') + domain;
+}
+function adminEmailImapAutofillFieldKeys(){
+  try {
+    if (typeof EmailImapProviderDefaults !== 'undefined' &&
+        EmailImapProviderDefaults &&
+        Array.isArray(EmailImapProviderDefaults.AUTOFILL_FIELD_KEYS)) {
+      return EmailImapProviderDefaults.AUTOFILL_FIELD_KEYS;
+    }
+  } catch (_e) { /* ignore */ }
+  return ['smtp-server', 'smtp-port', 'smtp-tls', 'imap-server', 'imap-port', 'imap-tls'];
+}
+function adminEmailSuggestImapAutofillPatch(address, userEditedFlags){
+  try {
+    if (typeof suggestEmailImapAutofillPatch === 'function') {
+      return suggestEmailImapAutofillPatch(address, userEditedFlags);
+    }
+    if (typeof EmailImapProviderDefaults !== 'undefined' &&
+        EmailImapProviderDefaults &&
+        typeof EmailImapProviderDefaults.suggestEmailImapAutofillPatch === 'function') {
+      return EmailImapProviderDefaults.suggestEmailImapAutofillPatch(address, userEditedFlags);
+    }
+  } catch (_e) { /* ignore */ }
+  return null;
+}
+/** Apply known-provider host/port/tls defaults; skip fields staff already edited. */
+function applyAdminEmailImapAutofill(section, address){
+  if (!section || typeof section.querySelector !== 'function') return false;
+  var edited = {};
+  var keys = adminEmailImapAutofillFieldKeys();
+  var i;
+  for (i = 0; i < keys.length; i += 1) {
+    var node = section.querySelector('[data-wh-email="' + keys[i] + '"]');
+    if (node && node.getAttribute && node.getAttribute('data-user-edited') === '1') {
+      edited[keys[i]] = true;
+    }
+  }
+  var patch = adminEmailSuggestImapAutofillPatch(address, edited);
+  if (!patch) return false;
+  var applied = false;
+  for (i = 0; i < keys.length; i += 1) {
+    var name = keys[i];
+    if (!Object.prototype.hasOwnProperty.call(patch, name)) continue;
+    var field = section.querySelector('[data-wh-email="' + name + '"]');
+    if (!field) continue;
+    field.value = patch[name];
+    if (field.setAttribute) field.setAttribute('data-autofilled-value', String(patch[name]));
+    applied = true;
+  }
+  return applied;
 }
 function captureWolfhouseImapDraft(section){
   try {
@@ -223,11 +270,47 @@ function wireWolfhouseImapSimpleForm(section){
     if (smtpUser && !String(smtpUser.value || '').replace(/^\s+|\s+$/g, '')) smtpUser.value = email;
     if (imapUser && !String(imapUser.value || '').replace(/^\s+|\s+$/g, '')) imapUser.value = email;
   }
+  function fillProviderDefaults(){
+    var email = emailInput ? String(emailInput.value || '').replace(/^\s+|\s+$/g, '') : '';
+    applyAdminEmailImapAutofill(section, email);
+  }
+  function markServerFieldEdited(ev){
+    var t = ev && ev.target;
+    if (!t || typeof t.getAttribute !== 'function') return;
+    var name = t.getAttribute('data-wh-email');
+    if (!name) return;
+    var keys = adminEmailImapAutofillFieldKeys();
+    if (keys.indexOf(name) < 0) return;
+    t.setAttribute('data-user-edited', '1');
+  }
   if (emailInput && typeof emailInput.addEventListener === 'function') {
-    emailInput.addEventListener('input', fillUsers);
-    emailInput.addEventListener('change', fillUsers);
+    emailInput.addEventListener('input', function(){
+      fillUsers();
+      fillProviderDefaults();
+    });
+    emailInput.addEventListener('change', function(){
+      fillUsers();
+      fillProviderDefaults();
+    });
+    emailInput.addEventListener('blur', function(){
+      fillUsers();
+      fillProviderDefaults();
+    });
+  }
+  var serverFields = typeof section.querySelectorAll === 'function'
+    ? section.querySelectorAll('[data-wh-email]')
+    : [];
+  var si;
+  for (si = 0; si < serverFields.length; si += 1) {
+    var sf = serverFields[si];
+    if (!sf || typeof sf.addEventListener !== 'function') continue;
+    var wh = sf.getAttribute && sf.getAttribute('data-wh-email');
+    if (!wh || adminEmailImapAutofillFieldKeys().indexOf(wh) < 0) continue;
+    sf.addEventListener('input', markServerFieldEdited);
+    sf.addEventListener('change', markServerFieldEdited);
   }
   fillUsers();
+  fillProviderDefaults();
   var advanced = section.querySelector('[data-wh-email-advanced]');
   if (advanced && typeof advanced.addEventListener === 'function') {
     advanced.addEventListener('toggle', function(){

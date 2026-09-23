@@ -1,0 +1,53 @@
+{
+  "job_id": "WOLFHOUSE-EMAIL-IMAP-AUTOFILL-001",
+  "cases": [
+    {
+      "address": "desk@gmail.com",
+      "provider_id": "gmail",
+      "smtp": { "server": "smtp.gmail.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "imap.gmail.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "user@googlemail.com",
+      "provider_id": "gmail",
+      "smtp": { "server": "smtp.gmail.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "imap.gmail.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "host@outlook.com",
+      "provider_id": "microsoft",
+      "smtp": { "server": "smtp.office365.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "outlook.office365.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "desk@hotmail.com",
+      "provider_id": "microsoft",
+      "smtp": { "server": "smtp.office365.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "outlook.office365.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "stay@icloud.com",
+      "provider_id": "icloud",
+      "smtp": { "server": "smtp.mail.me.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "imap.mail.me.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "inbox@yahoo.com",
+      "provider_id": "yahoo",
+      "smtp": { "server": "smtp.mail.yahoo.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "imap.mail.yahoo.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "ops@aol.com",
+      "provider_id": "aol",
+      "smtp": { "server": "smtp.aol.com", "port": 587, "tls": "starttls" },
+      "imap": { "server": "imap.aol.com", "port": 993, "tls": "tls" }
+    },
+    {
+      "address": "frontdesk@custom-hostel.test",
+      "provider_id": null,
+      "smtp": null,
+      "imap": null
+    }
+  ]
+}
