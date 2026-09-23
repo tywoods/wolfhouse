@@ -99,5 +99,17 @@ check('C7', quoteDry.full_payment_only === true, 'dry-run sets full_payment_only
 check('C8', /payment_choice_needed/.test(plugin) && /full_payment_only/.test(plugin),
   'Hermes plugin exposes payment_choice_needed + full_payment_only');
 
+// D — Gina 4–7: exercise the actual Hermes tool projections + prompt injection offline.
+const { spawnSync } = require('child_process');
+const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+const wording = spawnSync(python, [
+  path.join(ROOT, 'docker/hermes-staging/plugins/wolfhouse_staff_api/test_gina_wording.py'),
+], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
+if (wording.stdout) process.stdout.write(wording.stdout);
+if (wording.stderr) process.stderr.write(wording.stderr);
+check('D1', !wording.error && wording.status === 0,
+  'Gina payment wording: complete shares, pending links, receipt vs booking, Conversationalist');
+if (wording.error) console.error(wording.error.message);
+
 console.log(`\n${passes} passed, ${failures} failed\n`);
 process.exit(failures > 0 ? 1 : 0);
