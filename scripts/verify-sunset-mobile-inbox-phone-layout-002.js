@@ -88,6 +88,14 @@ ok(
     !/html\[data-portal-client="sunset"\]\s*,\s*html:not/.test(phoneCss)
 );
 ok(
+  'SHARED-PHONE-INBOX-AUTONOMY-003 tenant-agnostic closed hide exists',
+  phoneCss.includes('SHARED-PHONE-INBOX-AUTONOMY-003') &&
+    /#tab-conversations #inbox-shell:not\(\.show-thread\) > \.is-inbox-mobile-docked:not\(\.is-autonomy-open\) > :not\(\.inbox-autonomy-bottom-tab\)/.test(
+      phoneCss
+    ) &&
+    shell.includes('SHARED-PHONE-INBOX-AUTONOMY-003')
+);
+ok(
   'list closed Autonomy hides panel content (slim tab only)',
   phoneCss.includes('#inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open)') &&
     phoneCss.includes(':not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab)') &&
@@ -158,6 +166,9 @@ async function measureThread(page) {
     const back = document.querySelector('#inbox-mobile-back, .inbox-mobile-back');
     const autoTab = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
+    const panelKids = autonomy
+      ? Array.from(autonomy.children).filter((el) => !el.classList.contains('inbox-autonomy-bottom-tab'))
+      : [];
     const msgs = document.querySelector('#thread-container, .thread-messages');
     const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
@@ -192,6 +203,7 @@ async function measureThread(page) {
       header: box(header),
       headerRight: box(headerRight),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
+      panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
       headerOverflow: !!(header && header.scrollWidth > header.clientWidth + 1),
       docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -211,103 +223,118 @@ async function main() {
 
   const { server, base } = await startFixtureServer(buildPortalHtml());
   const browser = await playwright.chromium.launch({ headless: true });
+  /* Sunset stamp + lodging (no attr) + accidental wolfhouse-somo stamp must all pass. */
+  const portalStamps = [
+    { name: 'sunset', value: 'sunset' },
+    { name: 'wolfhouse-unscoped', value: null },
+    { name: 'wolfhouse-somo-stamp', value: 'wolfhouse-somo' },
+  ];
   try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => typeof window.switchToTab === 'function');
-    await page.evaluate(() => {
-      document.documentElement.setAttribute('data-portal-client', 'sunset');
-      document.documentElement.setAttribute('data-theme', 'dark');
-      window.switchToTab('conversations');
-      if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
-    });
-    await page.waitForSelector('#conv-list .conv-card', { timeout: 15000 });
-    await page.waitForTimeout(SETTLE_MS);
-    const list = await measureList(page);
+    for (const stamp of portalStamps) {
+      const page = await browser.newPage();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => typeof window.switchToTab === 'function');
+      await page.evaluate((portalValue) => {
+        if (portalValue == null) document.documentElement.removeAttribute('data-portal-client');
+        else document.documentElement.setAttribute('data-portal-client', portalValue);
+        document.documentElement.setAttribute('data-theme', 'dark');
+        window.switchToTab('conversations');
+        if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
+      }, stamp.value);
+      await page.waitForSelector('#conv-list .conv-card', { timeout: 15000 });
+      await page.waitForTimeout(SETTLE_MS);
+      const list = await measureList(page);
 
-    ok(
-      '390 list: Autonomy fixed to viewport bottom',
-      list.autonomy &&
-        list.autonomy.position === 'fixed' &&
-        Math.abs(list.autonomy.bottom - list.vh) <= 8,
-      JSON.stringify(list.autonomy)
-    );
-    ok(
-      '390 list: Autonomy closed by default (slim tab only, panel hidden)',
-      list.open === false &&
-        list.panelVisible === false &&
-        list.autoTab &&
-        list.autoTab.height >= 28 &&
-        list.autoTab.height <= 44 &&
+      ok(
+        `390 list [${stamp.name}]: Autonomy fixed to viewport bottom`,
         list.autonomy &&
-        list.autonomy.height <= 56,
-      JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy })
-    );
-    ok(
-      '390 list: search sits under Chats|Guests / icon filters',
-      list.search && list.tabs && list.search.top >= list.tabs.bottom - 2,
-      JSON.stringify({ searchTop: list.search && list.search.top, tabsBottom: list.tabs && list.tabs.bottom })
-    );
-    ok(
-      '390 list: Chats tab is slim segmented (not fat 44px button)',
-      list.chats && list.chats.height >= 28 && list.chats.height <= 40,
-      JSON.stringify(list.chats)
-    );
+          list.autonomy.position === 'fixed' &&
+          Math.abs(list.autonomy.bottom - list.vh) <= 8,
+        JSON.stringify(list.autonomy)
+      );
+      ok(
+        `390 list [${stamp.name}]: Autonomy closed by default (slim tab only, panel hidden)`,
+        list.open === false &&
+          list.panelVisible === false &&
+          list.autoTab &&
+          list.autoTab.height >= 28 &&
+          list.autoTab.height <= 44 &&
+          list.autonomy &&
+          list.autonomy.height <= 56,
+        JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy })
+      );
+      if (stamp.name === 'sunset') {
+        ok(
+          '390 list: search sits under Chats|Guests / icon filters',
+          list.search && list.tabs && list.search.top >= list.tabs.bottom - 2,
+          JSON.stringify({ searchTop: list.search && list.search.top, tabsBottom: list.tabs && list.tabs.bottom })
+        );
+        ok(
+          '390 list: Chats tab is slim segmented (not fat 44px button)',
+          list.chats && list.chats.height >= 28 && list.chats.height <= 40,
+          JSON.stringify(list.chats)
+        );
+      }
 
-    await page.evaluate((id) => {
-      const card = document.querySelector(`#conv-list .conv-card[data-id="${id}"]`) ||
-        document.querySelector('#conv-list .conv-card');
-      if (card) card.click();
-    }, CONV_ID);
-    await page.waitForSelector('#inbox-shell.show-thread .detail-header-right', { timeout: 15000 });
-    await page.evaluate(() => {
-      if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
-    });
-    await page.waitForTimeout(SETTLE_MS);
-    const thread = await measureThread(page);
+      await page.evaluate((id) => {
+        const card = document.querySelector(`#conv-list .conv-card[data-id="${id}"]`) ||
+          document.querySelector('#conv-list .conv-card');
+        if (card) card.click();
+      }, CONV_ID);
+      await page.waitForSelector('#inbox-shell.show-thread .detail-header-right', { timeout: 15000 });
+      await page.evaluate(() => {
+        if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
+      });
+      await page.waitForTimeout(SETTLE_MS);
+      const thread = await measureThread(page);
 
-    ok(
-      '390 chat: Autonomy slim tab docked to viewport bottom',
-      thread.autonomy &&
-        thread.autonomy.position === 'fixed' &&
-        Math.abs(thread.autonomy.bottom - thread.vh) <= 8 &&
-        thread.open === false &&
-        thread.autoTab &&
-        thread.autoTab.height >= 28 &&
-        thread.autoTab.height <= 44,
-      JSON.stringify(thread)
-    );
-    ok(
-      '390 chat: back control is slim (not fat banner)',
-      thread.back &&
-        thread.back.height <= 34 &&
-        thread.back.width < 220,
-      JSON.stringify(thread.back)
-    );
-    ok(
-      '390 chat: action stack is row-wrapped toolbar (no h-scroll)',
-      thread.stack &&
-        thread.stack.flexDir === 'row' &&
-        thread.stack.flexWrap === 'wrap' &&
-        thread.stack.overflowX === 'hidden' &&
-        thread.stackOverflow === false &&
-        thread.headerOverflow === false &&
-        thread.docOverflow === false,
-      JSON.stringify({
-        stack: thread.stack,
-        header: thread.header,
-        stackOverflow: thread.stackOverflow,
-        headerOverflow: thread.headerOverflow,
-        docOverflow: thread.docOverflow,
-      })
-    );
-    ok(
-      '390 chat: transcript taller than chrome+draft leftovers',
-      thread.msgs && thread.msgs.height >= 160 &&
-        thread.header && thread.msgs.height > thread.header.height * 0.7,
-      JSON.stringify({ msgs: thread.msgs, header: thread.header })
-    );
+      ok(
+        `390 chat [${stamp.name}]: Autonomy slim tab docked to viewport bottom`,
+        thread.autonomy &&
+          thread.autonomy.position === 'fixed' &&
+          Math.abs(thread.autonomy.bottom - thread.vh) <= 8 &&
+          thread.open === false &&
+          thread.panelVisible === false &&
+          thread.autoTab &&
+          thread.autoTab.height >= 28 &&
+          thread.autoTab.height <= 44,
+        JSON.stringify(thread)
+      );
+      ok(
+        `390 chat [${stamp.name}]: action stack is row-wrapped toolbar (no h-scroll)`,
+        thread.stack &&
+          thread.stack.flexDir === 'row' &&
+          thread.stack.flexWrap === 'wrap' &&
+          thread.stack.overflowX === 'hidden' &&
+          thread.stackOverflow === false &&
+          thread.headerOverflow === false &&
+          thread.docOverflow === false,
+        JSON.stringify({
+          stack: thread.stack,
+          header: thread.header,
+          stackOverflow: thread.stackOverflow,
+          headerOverflow: thread.headerOverflow,
+          docOverflow: thread.docOverflow,
+        })
+      );
+      if (stamp.name === 'sunset') {
+        ok(
+          '390 chat: back control is slim (not fat banner)',
+          thread.back &&
+            thread.back.height <= 34 &&
+            thread.back.width < 220,
+          JSON.stringify(thread.back)
+        );
+        ok(
+          '390 chat: transcript taller than chrome+draft leftovers',
+          thread.msgs && thread.msgs.height >= 160 &&
+            thread.header && thread.msgs.height > thread.header.height * 0.7,
+          JSON.stringify({ msgs: thread.msgs, header: thread.header })
+        );
+      }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -22582,6 +22582,51 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations #inbox-shell.show-thread .detail-main{
     flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;
   }
+  /* SHARED-PHONE-INBOX-AUTONOMY-003: tenant-agnostic closed Autonomy + action wrap.
+     Sunset twin + html:not([data-portal-client]) miss any other stamp (wolfhouse-somo,
+     empty attribute, future clients). Unscoped rules close that gap for every tenant. */
+  #tab-conversations.active #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{
+    position:fixed!important;left:0;right:0;bottom:0;z-index:60;
+    width:100%;max-width:100vw;box-sizing:border-box;
+    margin:0!important;align-self:stretch;
+    padding-left:max(8px,env(safe-area-inset-left,0px))!important;
+    padding-right:max(8px,env(safe-area-inset-right,0px))!important;
+    padding-bottom:env(safe-area-inset-bottom,0px)!important;
+  }
+  #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open){
+    order:unset;grid-row:auto;display:flex!important;flex-direction:column;align-items:center;justify-content:flex-end;
+    max-height:calc(44px + env(safe-area-inset-bottom,0px));
+    background:transparent!important;border:0!important;box-shadow:none!important;padding-top:0!important;
+  }
+  #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab),
+  #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open) > :not(.inbox-autonomy-bottom-tab){
+    display:none!important;
+  }
+  #tab-conversations #inbox-shell:not(.show-thread) > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab,
+  #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab{
+    order:2;align-self:center;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    width:max-content;min-width:88px;max-width:220px;height:36px;min-height:36px;max-height:40px;
+    margin:0;padding:0 12px;box-sizing:border-box;cursor:pointer;white-space:nowrap;
+    background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);
+    border:1px solid var(--inbox-forest,#2F4A3E);border-bottom:none;
+    border-radius:10px 10px 0 0;font-size:11px;font-weight:700;letter-spacing:.04em;
+    box-shadow:var(--shadow-soft);
+  }
+  #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){
+    order:unset;grid-row:auto;align-items:center;justify-content:center;
+    max-height:calc(44px + env(safe-area-inset-bottom,0px));
+    background:transparent!important;border:0!important;box-shadow:none!important;padding-top:0!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-header{
+    flex-wrap:wrap!important;max-width:100%;overflow-x:hidden!important;box-sizing:border-box;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
+  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot,
+  #tab-conversations #inbox-shell.show-thread .detail-header-right{
+    flex-wrap:wrap!important;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;
+  }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
