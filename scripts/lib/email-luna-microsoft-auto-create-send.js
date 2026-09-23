@@ -75,6 +75,7 @@ INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev
   AND ep.connector_mode='microsoft_delegated_oauth'
   AND ep.mailbox_access_kind='own_user'
   AND ep.binding_status='verified'
+  AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false
   AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
   AND ep.provider_resource_id IS NOT NULL AND btrim(ep.provider_resource_id) <> ''
   AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'

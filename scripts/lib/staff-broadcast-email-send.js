@@ -39,9 +39,11 @@ const {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SQL_RESOLVE_BROADCAST_MAILBOX = `
+WITH chosen AS (
 SELECT cl.id::text AS client_id,
        ep.id::text AS endpoint_id,
-       ep.provider_resource_id AS provider_mailbox_id
+       ep.provider_resource_id AS provider_mailbox_id,
+       COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) AS mail_flow_paused
   FROM clients cl
  INNER JOIN tenant_channel_endpoints ep ON ep.client_id = cl.id
  WHERE cl.id = $1::uuid
@@ -57,6 +59,7 @@ SELECT cl.id::text AS client_id,
    AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
  ORDER BY ep.updated_at DESC, ep.id DESC
  LIMIT 1
+) SELECT client_id, endpoint_id, provider_mailbox_id FROM chosen WHERE mail_flow_paused = false
 `.replace(/\s+/g, ' ').trim();
 
 function ownData(o, k) {
@@ -194,6 +197,13 @@ function createBroadcastEmailSendMail(deps) {
               const phone = rec && rec.phone ? String(rec.phone) : '';
               const to = rec && rec.email ? String(rec.email) : '';
               try {
+                // Each recipient is a new admission; never substitute another sender.
+                const current = await resolveBroadcastMailbox(pgClient, mailbox.clientId);
+                if (!current || current.endpointId !== mailbox.endpointId
+                    || current.providerMailboxId !== mailbox.providerMailboxId) {
+                  results.push({ phone, ok: false });
+                  continue;
+                }
                 invokedGraph = true;
                 const sent = await graphTransport.sendMail({
                   accessToken: token,

@@ -1546,8 +1546,9 @@ function futureExpires(msFromNow = 600000) {
             || String(v).match(/data-email-reauthorize="1" data-email-location-id="([^"]*)" data-email-endpoint-id="([^"]*)"/);
           // More tolerant: extract attrs separately
           if (/data-email-reauthorize/.test(String(v))) {
-            const loc = (String(v).match(/data-email-location-id="([^"]*)"/) || [])[1] || '';
-            const ep = (String(v).match(/data-email-endpoint-id="([^"]*)"/) || [])[1] || '';
+            const buttonHtml = (String(v).match(/<button[^>]*data-email-reauthorize[^>]*>/) || [''])[0];
+            const loc = (buttonHtml.match(/data-email-location-id="([^"]*)"/) || [])[1] || '';
+            const ep = (buttonHtml.match(/data-email-endpoint-id="([^"]*)"/) || [])[1] || '';
             const btn = makeEl('button', {
               'data-email-reauthorize': '1',
               'data-email-location-id': loc,
@@ -1962,8 +1963,9 @@ function futureExpires(msFromNow = 600000) {
           const section = makeEl('section', { 'data-email-state': 'connected_health' });
           section.className = 'portal-admin-email-settings';
           if (/data-email-disconnect/.test(String(v))) {
-            const loc = (String(v).match(/data-email-location-id="([^"]*)"/) || [])[1] || '';
-            const ep = (String(v).match(/data-email-endpoint-id="([^"]*)"/) || [])[1] || '';
+            const buttonHtml = (String(v).match(/<button[^>]*data-email-disconnect[^>]*>/) || [''])[0];
+            const loc = (buttonHtml.match(/data-email-location-id="([^"]*)"/) || [])[1] || '';
+            const ep = (buttonHtml.match(/data-email-endpoint-id="([^"]*)"/) || [])[1] || '';
             const btn = makeEl('button', {
               'data-email-disconnect': '1',
               'data-email-location-id': loc,

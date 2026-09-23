@@ -50,6 +50,7 @@ SELECT ev.client_id::text AS "clientId",
     ON ep.client_id = ev.client_id AND ep.id = ev.endpoint_id
    AND ep.location_id = loc.location_id
    AND ep.channel = 'email'
+   AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false
    AND ep.provider = 'microsoft_graph'
    AND ep.auth_mode = 'delegated_authorization_code'
    AND ep.connector_mode = 'microsoft_delegated_oauth'

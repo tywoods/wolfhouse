@@ -294,7 +294,7 @@ async function listTenantChannelEndpoints(args, deps) {
              secret_ref, provider_resource_id, capabilities,
              inbound_enabled, outbound_enabled, default_automation_mode, active,
              auth_mode, connector_mode, binding_status, smtp_health_verified_at,
-             imap_health_verified_at,
+             imap_health_verified_at, mail_flow_paused,
              created_at, updated_at, created_by, updated_by
         FROM tenant_channel_endpoints
        WHERE client_id = $1
@@ -306,7 +306,7 @@ async function listTenantChannelEndpoints(args, deps) {
              secret_ref, provider_resource_id, capabilities,
              inbound_enabled, outbound_enabled, default_automation_mode, active,
              auth_mode, connector_mode, binding_status, smtp_health_verified_at,
-             imap_health_verified_at,
+             imap_health_verified_at, mail_flow_paused,
              created_at, updated_at, created_by, updated_by
         FROM tenant_channel_endpoints
        WHERE client_id = $1

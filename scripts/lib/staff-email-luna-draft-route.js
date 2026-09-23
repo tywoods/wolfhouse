@@ -58,6 +58,7 @@ INNER JOIN tenant_email_inbound_events ev ON ev.client_id=p.client_id AND ev.id=
 INNER JOIN tenant_locations loc ON loc.client_id=ev.client_id AND loc.id=ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev.endpoint_id
   AND ep.location_id=loc.location_id AND ep.channel='email'
+  AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false
   AND ep.provider='microsoft_graph' AND ep.auth_mode='delegated_authorization_code'
   AND ep.connector_mode='microsoft_delegated_oauth' AND ep.mailbox_access_kind='own_user'
   AND ep.binding_status='verified' AND ep.public_address IS NOT NULL AND btrim(ep.public_address)<>''

@@ -1561,6 +1561,15 @@
       "inForwardChain": true,
       "rationale": "Durable eight-hour Crow's Nest operator sessions with hashed bearer tokens, expiry, and least-privilege crowsnest_api grants.",
       "sha256": "1d829d7509ebf523386a831d9c790605a33e3abe33b257da427a987b945735e2"
+    },
+    {
+      "id": "105_email_mailbox_pause",
+      "filename": "105_email_mailbox_pause.sql",
+      "order": 101,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-CARD-PAUSE-TOGGLE-001: independent master mailbox pause without disconnecting or changing saved capability flags. Default false preserves existing flow.",
+      "sha256": "533247b261045d1e5eb9c33f6e28d254d4bbaa45a447f5937220c6df09b31b34"
     }
   ]
 }

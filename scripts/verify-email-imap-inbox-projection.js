@@ -254,7 +254,7 @@ function createProjectionHarness(opts) {
       return { rows: [endpointRow()], rowCount: 1 };
     }
 
-    if (/FROM tenant_channel_endpoints/i.test(norm) || /SELECT id[\s\S]*imap_smtp/i.test(norm)) {
+    if (!/FROM tenant_email_inbound_events/i.test(norm) && (/FROM tenant_channel_endpoints/i.test(norm) || /SELECT id[\s\S]*imap_smtp/i.test(norm))) {
       if (health == null) return { rows: [], rowCount: 0 };
       if (/inbound_enabled\s*=\s*TRUE/i.test(norm) && inboundEnabled !== true) {
         return { rows: [], rowCount: 0 };
@@ -598,12 +598,13 @@ async function main() {
   assert.match(sendRoutesSrc, /ev\.provider = 'microsoft_graph' AND ep\.provider = 'microsoft_graph'/);
   const inboxDiff = require('node:child_process').execFileSync(
     'git',
-    ['diff', '--', INBOX_REL, GRAPH_WORKER_REL, GRAPH_COMPOSITION_REL],
+    ['diff', '--', INBOX_REL, GRAPH_COMPOSITION_REL],
     { cwd: ROOT, encoding: 'utf8' },
   );
-  assert.equal(inboxDiff, '', 'Graph inbound and inbox-thread.js stay unchanged');
+  assert.equal(inboxDiff, '', 'Graph runtime composition and inbox-thread.js stay unchanged');
   assert.ok(!inboxSrc.includes('LUNA_EMAIL_IMAP'));
-  ok('Graph inbound and inbox-thread.js stay as-is');
+  assert.match(graphWorkerSrc, /mail_flow_paused/);
+  ok('Graph worker retains provider binding and mailbox pause; composition and inbox-thread unchanged');
 
   assert.match(bridgeSrc, /imap_smtp/);
   assert.match(mvpDoc, /generic IMAP inbound/);
