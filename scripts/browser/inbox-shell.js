@@ -1062,10 +1062,8 @@ function inboxMockupThemeCssText(){
     '#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab + .inbox-folder-tab{margin-left:2px!important}',
     '#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,#tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{background:var(--inbox-forest,var(--primary))!important;color:var(--cream,#F2F1EC)!important;margin-bottom:0!important}',
     '#tab-conversations .inbox-col1 > .inbox-views-rail{width:100%!important;max-width:100%!important;margin:0!important;box-sizing:border-box!important}',
-    /* SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001: Guests hides Chats icon filter strip */
-    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-views-rail{display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;border:0!important}',
-    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{border-bottom:1px solid var(--border-soft)!important;border-radius:10px!important}',
-    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{border-bottom-color:var(--inbox-forest,var(--primary))!important;border-radius:10px!important}',
+    /* PHONE-GUESTS-ICON-BAR-001: retain chrome; renderer supplies guest-only views. */
+    'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-views-rail{display:flex!important}',
     /* SHARED-PHONE-INBOX-HEADER-007 + THREAD-FILL-005 */
     '#tab-conversations.active{display:flex!important;flex-direction:column!important;flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important}',
     '#tab-conversations.active #wrap.inbox-shell-wrap{flex:1 1 auto!important;min-height:0!important;height:auto!important;max-height:none!important;display:flex!important;flex-direction:column!important}',

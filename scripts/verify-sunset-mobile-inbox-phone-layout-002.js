@@ -159,12 +159,12 @@ ok(
     shell.includes('.detail-header{margin:8px 0 0!important}')
 );
 ok(
-  'SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001: Guests hides icon filter rail',
-  phoneCss.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001') &&
-    /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #tab-conversations \.inbox-col1 > \.inbox-views-rail\{[^}]*display:none!important/.test(
+  'PHONE-GUESTS-ICON-BAR-001: Guests keeps the sticky icon filter rail',
+  phoneCss.includes('PHONE-GUESTS-ICON-BAR-001') &&
+    /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #tab-conversations \.inbox-col1 > \.inbox-views-rail\{[^}]*display:flex!important/.test(
       phoneCss
     ) &&
-    shell.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001')
+    shell.includes('PHONE-GUESTS-ICON-BAR-001')
 );
 ok(
   'SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001: Guests hides conversation pane (beats THREAD-FILL)',
@@ -551,7 +551,7 @@ async function main() {
           list.rail && list.rail.height >= 36 && list.rail.display !== 'none',
           JSON.stringify(list.rail)
         );
-        /* Guests must hide the Chats-style icon filter strip entirely. */
+        /* Guests keeps the shared chrome but the renderer supplies guest-surface views only. */
         await page.evaluate(() => {
           const guests = document.querySelector(
             '.inbox-folder-tab[data-inbox-preset="guest"], .inbox-folder-tab[data-view="guest"]'
@@ -560,12 +560,16 @@ async function main() {
         });
         await page.waitForTimeout(SETTLE_MS);
         const guestsList = await measureList(page);
+        const guestRailItems = await page.evaluate(() => Array.from(
+          document.querySelectorAll('#inbox-views-rail [data-inbox-view]')
+        ).map((el) => el.getAttribute('data-inbox-view-surface')));
         ok(
-          '390 list: Guests hides chat icon filter rail',
-          guestsList.rail == null ||
-            guestsList.rail.display === 'none' ||
-            guestsList.rail.height === 0,
-          JSON.stringify(guestsList.rail)
+          '390 list: Guests keeps icon filter rail with guest-only filters',
+          guestsList.rail &&
+            guestsList.rail.height >= 36 &&
+            guestsList.rail.display !== 'none' &&
+            guestRailItems.every((surface) => surface === 'guest'),
+          JSON.stringify({ rail: guestsList.rail, surfaces: guestRailItems })
         );
         await page.evaluate(() => {
           const chats = document.querySelector(
@@ -846,9 +850,10 @@ async function main() {
           JSON.stringify(guestOpen)
         );
         ok(
-          '390 Guests+selected: guest card/sidebar remains; icon filter rail stays hidden',
+          '390 Guests+selected: guest card/sidebar and Guests icon filter rail remain visible',
           (guestOpen.sidebarVisible === true || guestOpen.guestCardVisible === true) &&
-            (guestOpen.railVisible === false || guestOpen.railDisplay === 'none'),
+            guestOpen.railVisible === true &&
+            guestOpen.railDisplay !== 'none',
           JSON.stringify(guestOpen)
         );
         await page.evaluate(() => {
