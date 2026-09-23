@@ -51,6 +51,8 @@ const primeCalls = [];
 
 const ctx = {
   console,
+  getClient() { return 'sunset'; },
+  adminBookingsIsLodging() { return false; },
   portalT(k) { return k; },
   escHtml(s) { return String(s == null ? '' : s); },
   el() { return null; },
