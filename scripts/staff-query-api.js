@@ -22714,7 +22714,7 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   /* SHARED-PHONE-INBOX-STACK-GAP-005: equal 8px rhythm (smallest of prior gaps).
      List: header→tabs, icon-card→search, search→chat list.
-     Thread: header card → messages → reply. */
+     Thread: icon filter strip → header card → messages → reply. */
   #tab-conversations.active #wrap.inbox-shell-wrap{
     padding-top:8px!important;
     padding-left:8px!important;
@@ -22745,8 +22745,10 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations #inbox-shell.show-thread .detail-main{
     gap:8px!important;
   }
+  /* SHARED-PHONE-INBOX-FILTER-HEADER-GAP-001: band between sticky icon filter
+     strip and open-thread header card only — not inside the name/icons row. */
   #tab-conversations #inbox-shell.show-thread .detail-header{
-    margin:0!important;
+    margin:8px 0 0!important;
   }
   #tab-conversations #inbox-shell.show-thread .thread-section{
     margin:0!important;
@@ -22789,6 +22791,19 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     width:100%!important;max-width:100%!important;margin:0!important;
     box-sizing:border-box!important;
     border-top-left-radius:0;border-top-right-radius:0;
+  }
+  /* SHARED-PHONE-INBOX-GUESTS-HIDE-FILTERS-001: Guests = Chats|Guests tabs + guests UI only
+     (no Chats-style icon filter strip under the folder tabs). Chats keeps the rail. */
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-views-rail{
+    display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;
+    overflow:hidden!important;border:0!important;
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+    border-bottom:1px solid var(--border-soft)!important;border-radius:10px!important;
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+    border-bottom-color:var(--inbox-forest,var(--primary))!important;border-radius:10px!important;
   }
   /* SHARED-PHONE-INBOX-HEADER-007: ← Name | WA Email …  (no Refresh; no second action row). */
   #tab-conversations #inbox-shell.show-thread .detail-header{
