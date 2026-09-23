@@ -63,13 +63,99 @@ function renderMetaChip(label, value) {
   return `<span class="meta-chip"><span class="meta-chip-label">${escapeHtml(label)}</span><span class="meta-chip-value">${escapeHtml(value)}</span></span>`;
 }
 
-function portalAvailability(client, env, portalEvidence) {
-  const byClient = portalEvidence && client ? portalEvidence[client.id] : null;
-  const raw = byClient && env && env.url ? byClient[env.url] : '';
-  return String(raw || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown';
+function formatPortalRelativeTime(iso, nowMs = Date.now()) {
+  const raw = String(iso || '').trim();
+  if (!raw) return '';
+  const then = Date.parse(raw);
+  if (!Number.isFinite(then)) return '';
+  const deltaSec = Math.floor((nowMs - then) / 1000);
+  if (!Number.isFinite(deltaSec) || deltaSec < 0) return '';
+  if (deltaSec < 45) return 'just now';
+  if (deltaSec < 3600) return `${Math.max(1, Math.floor(deltaSec / 60))}m ago`;
+  if (deltaSec < 86400) return `${Math.floor(deltaSec / 3600)}h ago`;
+  if (deltaSec < 86400 * 14) return `${Math.floor(deltaSec / 86400)}d ago`;
+  return new Date(then).toISOString().slice(0, 10);
 }
 
-function renderEnvironmentRow(env, availability) {
+function portalEnvironmentKey(env) {
+  const state = String(env && env.state || '').trim().toLowerCase();
+  if (state === 'staging') return 'staging';
+  if (state === 'linked' || state === 'production' || state === 'live') return 'production';
+  const label = String(env && env.label || '').trim().toLowerCase();
+  if (label.includes('staging')) return 'staging';
+  if (label.includes('production') || label.includes('prod')) return 'production';
+  return '';
+}
+
+function portalEvidenceDetail(client, env, portalEvidence) {
+  const byClient = portalEvidence && client ? portalEvidence[client.id] : null;
+  if (!byClient || !env) {
+    return {
+      availability: 'Unknown',
+      deployUpdatedAt: null,
+      deployRevisionShort: null,
+      deployImageTag: null,
+      deployRevision: null,
+    };
+  }
+
+  const envKey = portalEnvironmentKey(env);
+  const detail = envKey && byClient[envKey] && typeof byClient[envKey] === 'object'
+    ? byClient[envKey]
+    : null;
+  if (detail && detail.availability != null) {
+    const availability = String(detail.availability || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown';
+    return {
+      availability,
+      deployUpdatedAt: detail.deploy_updated_at ? String(detail.deploy_updated_at) : null,
+      deployRevisionShort: detail.deploy_revision_short ? String(detail.deploy_revision_short) : null,
+      deployImageTag: detail.deploy_image_tag ? String(detail.deploy_image_tag) : null,
+      deployRevision: detail.deploy_revision ? String(detail.deploy_revision) : null,
+    };
+  }
+
+  // Slice A URL-keyed compatibility seam (availability string only).
+  const raw = env.url ? byClient[env.url] : '';
+  return {
+    availability: String(raw || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown',
+    deployUpdatedAt: null,
+    deployRevisionShort: null,
+    deployImageTag: null,
+    deployRevision: null,
+  };
+}
+
+function renderPortalDeployMeta(detail) {
+  if (!detail) return '';
+  const relative = formatPortalRelativeTime(detail.deployUpdatedAt);
+  if (!relative) return '';
+  const rev = String(detail.deployRevisionShort || detail.deployImageTag || '').trim();
+  const titleParts = [];
+  if (detail.deployRevision) titleParts.push(String(detail.deployRevision));
+  if (detail.deployUpdatedAt) titleParts.push(`created ${detail.deployUpdatedAt}`);
+  if (detail.deployImageTag) titleParts.push(`image ${detail.deployImageTag}`);
+  const title = titleParts.join(' · ') || String(detail.deployUpdatedAt);
+  const label = rev
+    ? `Updated ${relative} · ${rev}`
+    : `Updated ${relative}`;
+  return `<span class="env-updated" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+}
+
+function renderClientStatusDot(status) {
+  const key = String(status || '').trim().toLowerCase();
+  let mod = 'status-dot--offline';
+  let label = 'Offline';
+  if (key === 'live' || key === 'online' || key === 'linked' || key === 'active') {
+    mod = 'status-dot--live';
+    label = 'Live';
+  } else if (key === 'planned' || key === 'coming soon' || key === 'coming_soon' || key === 'pending') {
+    mod = 'status-dot--planned';
+    label = 'Planned';
+  }
+  return `<span class="status-dot ${mod}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" role="img"></span>`;
+}
+
+function renderEnvironmentRow(env, evidence) {
   const available = Boolean(env.url);
   const stateClass = available ? 'env-linked' : 'env-muted';
   let valueHtml;
@@ -79,12 +165,19 @@ function renderEnvironmentRow(env, availability) {
     valueHtml = '<span class="env-coming-soon">Coming soon</span>';
   }
   const note = env.note ? `<p class="env-note">${escapeHtml(env.note)}</p>` : '';
-  const envStatus = availability || 'unknown';
+  const detail = evidence && typeof evidence === 'object' && !Array.isArray(evidence)
+    ? evidence
+    : { availability: evidence || 'unknown' };
+  const envStatus = detail.availability || 'unknown';
+  const deployMeta = renderPortalDeployMeta(detail);
 
   return `<li class="env-row ${stateClass}">
       <div class="env-row-main">
         <div class="env-row-head">
-          <span class="env-label">${escapeHtml(env.label)}</span>
+          <span class="env-row-head-title">
+            <span class="env-label">${escapeHtml(env.label)}</span>
+            ${deployMeta}
+          </span>
           ${renderStatusPill(envStatus)}
         </div>
         <div class="env-value">${valueHtml}</div>
@@ -107,21 +200,20 @@ function renderConnectionGroup(label, statuses) {
 function renderClientCard(client, clientStatuses, portalEvidence) {
   const statuses = clientStatuses || {};
   const connectionGroups = renderConnectionGroup('Connections', statuses.staging);
-  const envRows = (client.environments || []).map((env) => renderEnvironmentRow(env, portalAvailability(client, env, portalEvidence))).join('\n        ');
+  const envRows = (client.environments || []).map((env) => renderEnvironmentRow(env, portalEvidenceDetail(client, env, portalEvidence))).join('\n        ');
   const portalList = envRows || `<li class="env-row env-muted">
       <div class="env-row-main">
-        <div class="env-row-head"><span class="env-label">Staff portal</span>${renderStatusPill('planned')}</div>
+        <div class="env-row-head"><span class="env-row-head-title"><span class="env-label">Staff portal</span></span>${renderStatusPill('planned')}</div>
         <div class="env-value"><span class="env-coming-soon">Not available</span></div>
       </div>
     </li>`;
   return `<article class="card client-card">
         <header class="client-card-head">
           <div class="client-card-title-row">
-            <h2 class="client-name">${escapeHtml(client.name)}</h2>
+            <h2 class="client-name">${renderClientStatusDot(client.status)}<span class="client-name-text">${escapeHtml(client.name)}</span></h2>
             <div class="client-meta-row">
               ${renderMetaChip('slug', client.client_slug)}
               ${renderMetaChip('type', client.type)}
-              <span class="meta-chip meta-chip--status">${renderStatusPill(client.status)}</span>
             </div>
           </div>
           <dl class="directory-meta">
@@ -934,6 +1026,27 @@ h2.section{
   color:var(--navy);
   letter-spacing:-.02em;
 }
+.client-card-title-row .client-name{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  margin:0;
+  min-width:0;
+  flex:0 1 auto;
+  white-space:nowrap;
+}
+.client-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.status-dot{
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  flex:0 0 auto;
+  box-shadow:0 0 0 2px rgba(30,42,54,.06);
+}
+.status-dot--live{background:var(--green)}
+.status-dot--planned{background:var(--amber)}
+.status-dot--offline{background:var(--text-3)}
+html[data-theme="dark"] .status-dot{box-shadow:0 0 0 2px rgba(0,0,0,.35)}
 .directory-meta{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -957,12 +1070,6 @@ h2.section{
   align-items:flex-start;
   justify-content:space-between;
   gap:8px 12px;
-}
-.client-card-title-row .client-name{
-  margin:0;
-  min-width:0;
-  flex:0 0 auto;
-  white-space:nowrap;
 }
 .client-card-title-row .client-meta-row{
   margin-left:auto;
@@ -999,7 +1106,6 @@ h2.section{
   font-size:10px;
 }
 .meta-chip-value{font-weight:600;color:var(--charcoal)}
-.meta-chip--status{background:transparent;border:none;padding:0}
 .pill{
   display:inline-flex;
   align-items:center;
@@ -1047,10 +1153,25 @@ h2.section{
   flex-wrap:wrap;
   margin-bottom:6px;
 }
+.env-row-head-title{
+  display:inline-flex;
+  align-items:baseline;
+  gap:8px;
+  min-width:0;
+  flex:1 1 auto;
+  flex-wrap:wrap;
+}
 .env-label{
   font-size:13px;
   font-weight:700;
   color:var(--navy);
+}
+.env-checked,
+.env-updated{
+  font-size:11px;
+  font-weight:650;
+  color:var(--text-3);
+  white-space:nowrap;
 }
 .env-value{font-size:13px;line-height:1.45;word-break:break-word}
 .env-link{

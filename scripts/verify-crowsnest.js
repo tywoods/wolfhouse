@@ -252,24 +252,29 @@ ok('UI associates each location with its intended status', (() => {
   const wolfhouse = cards.find((card) => card.includes('Wolfhouse Somo')) || '';
   const sunsetSomo = cards.find((card) => card.includes('Sunset Somo')) || '';
   const sardinero = cards.find((card) => card.includes('Sunset Sardinero')) || '';
-  const hasLocationStatus = (card, status) => new RegExp(`<span class="meta-chip meta-chip--status"><span class="pill[^"]*"><span class="pill-dot" aria-hidden="true"><\\/span>${status}<\\/span><\\/span>`, 'i').test(card);
+  const hasLocationStatus = (card, status) => new RegExp(
+    `<span class="status-dot status-dot--[^"]+" title="${status}" aria-label="${status}" role="img"><\\/span>`,
+    'i',
+  ).test(card);
   return hasLocationStatus(wolfhouse, 'Live')
     && hasLocationStatus(sunsetSomo, 'Live')
-    && hasLocationStatus(sardinero, 'Planned');
+    && hasLocationStatus(sardinero, 'Planned')
+    && !/meta-chip--status/.test(wolfhouse + sunsetSomo + sardinero);
 })());
-ok('UI title sits left of slug, type, and Live/Planned pills on one wrapping row', (() => {
+ok('UI title has status dot left of name, then slug and type chips (no top LIVE pill)', (() => {
   const cards = clientsHtml.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
   if (cards.length !== 3) return false;
   return cards.every((card) => {
     const headEnd = card.indexOf('directory-meta');
     const head = headEnd > 0 ? card.slice(0, headEnd) : card;
     const titleRow = head.indexOf('client-card-title-row');
-    const nameAt = head.indexOf('client-name');
+    const statusDot = head.indexOf('status-dot');
+    const nameText = head.indexOf('client-name-text');
     const metaAt = head.indexOf('client-meta-row');
-    return titleRow >= 0 && titleRow < nameAt && nameAt < metaAt
+    return titleRow >= 0 && titleRow < statusDot && statusDot < nameText && nameText < metaAt
       && head.includes('meta-chip-label">slug<')
       && head.includes('meta-chip-label">type<')
-      && head.includes('meta-chip--status');
+      && !head.includes('meta-chip--status');
   });
 })());
 ok('UI title row wraps safely at 390px', /@media\s*\(\s*max-width:\s*390px\s*\)\{[^}]*client-card-title-row\{[^}]*flex-wrap:\s*wrap/.test(clientsHtml)
@@ -326,6 +331,8 @@ const CROWSNEST_LIB_DIR = path.join(ROOT, 'scripts', 'lib', 'crowsnest');
 const CROWSNEST_OUTBOUND_ALLOWLIST = new Set([
   // Slice B: dedicated Azure Container Apps Job-start adapter (injected fetch only).
   'crowsnest-spyglass-refresh-azure-job-start.js',
+  // Clients portal deploy-age reader (injected fetch + MI ARM GET only).
+  'crowsnest-client-portal-deploy.js',
   // Live Simulator UI uses browser fetch to the same-origin Crowsnest proxy only.
   'crowsnest-page.js',
 ]);
