@@ -132,6 +132,7 @@ console.log('\n-- keep vs skeleton --');
   sandbox.inboxRowsRuntime.guestView = true;
   let parked = 0;
   sandbox.inboxParkRefreshBtn = function() { parked += 1; };
+  sandbox.inboxParkMobileBackBtn = function() {};
   sandbox.beginConvDetailLoad = function(targetEl) {
     targetEl.innerHTML = SKELETON;
     targetEl.classList.add('is-loading-detail');

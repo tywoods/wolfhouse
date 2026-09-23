@@ -604,6 +604,43 @@ function inboxParkRefreshBtn(){
   if (btn.parentNode !== park) park.insertBefore(btn, park.firstChild);
 }
 
+function inboxMobileBackBtn(){
+  return typeof document !== 'undefined' ? document.getElementById('inbox-mobile-back') : null;
+}
+
+/** Keep #inbox-mobile-back outside #detail-content so innerHTML swaps cannot destroy it. */
+function inboxParkMobileBackBtn(){
+  var back = inboxMobileBackBtn();
+  var host = typeof document !== 'undefined' ? document.getElementById('conv-detail') : null;
+  if (!host) return null;
+  if (!back) {
+    back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'inbox-mobile-back';
+    back.id = 'inbox-mobile-back';
+    back.setAttribute('data-i18n', 'inbox.mobile.back');
+    back.setAttribute('aria-label', 'Back');
+    back.innerHTML = '&larr; Back';
+  }
+  var detail = typeof document !== 'undefined' ? document.getElementById('detail-content') : null;
+  if (back.parentNode !== host) {
+    if (detail && detail.parentNode === host) host.insertBefore(back, detail);
+    else host.insertBefore(back, host.firstChild);
+  }
+  /* Re-arm click after recreate (wireInboxMobileBack no-ops when dataset.wired is set). */
+  if (back.dataset.wired !== '1' && typeof wireInboxMobileBack === 'function') {
+    wireInboxMobileBack();
+  } else if (back.dataset.wired !== '1') {
+    back.dataset.wired = '1';
+    back.addEventListener('click', function(){
+      if (typeof hideInboxMobileThread === 'function') hideInboxMobileThread();
+      var list = typeof el === 'function' ? el('conv-list') : document.getElementById('conv-list');
+      if (list) list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+    });
+  }
+  return back;
+}
+
 function inboxClearThreadButtonHtml(){
   var label = (typeof t === 'function' && t('inbox.detail.clearThread.button')) || 'Clear';
   var help = (typeof t === 'function' && t('inbox.detail.clearThread.help')) ||
@@ -747,15 +784,183 @@ function inboxCookSelectedConversationHeaderActions(){
   var clearBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null;
   var deleteBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-conv-delete') : null;
   var refresh = inboxRefreshBtn();
-  var back = typeof document !== 'undefined' ? document.getElementById('inbox-mobile-back') : null;
-  /* Phone action row order: ←, Spam, Clear, Delete, refresh, Luna On/Off. */
-  if (back) row.appendChild(back);
-  if (spam) row.appendChild(spam);
-  if (clearBtn) row.appendChild(clearBtn);
-  if (deleteBtn) row.appendChild(deleteBtn);
-  if (refresh) row.appendChild(refresh);
-  if (chrome) row.appendChild(chrome);
+  var channel = typeof document !== 'undefined'
+    ? document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel')
+    : null;
+  var nameHost = typeof document !== 'undefined'
+    ? document.querySelector('#inbox-shell .detail-header-id, .detail-header .detail-header-id')
+    : null;
+  var back = inboxParkMobileBackBtn();
+  var overflow = inboxEnsureThreadOverflowMenu();
+  var panel = overflow
+    ? (overflow.querySelector('#inbox-thread-overflow-panel') || document.getElementById('inbox-thread-overflow-panel'))
+    : null;
+  var phone = inboxPhoneThreadOverflow();
+  /*
+   * Phone: ← Name | WA Email …
+   *   Spam/Clear/Delete/Luna live in the … menu (plain text). No Refresh on phone header.
+   * Desktop: actions stay inline on the luna row; Refresh may sit with channels.
+   */
+  if (phone) {
+    if (back && nameHost) nameHost.insertBefore(back, nameHost.firstChild);
+    else if (back) row.appendChild(back);
+    if (overflow && channel) channel.appendChild(overflow);
+    else if (overflow) row.appendChild(overflow);
+    inboxParkRefreshBtn();
+  } else {
+    if (overflow) row.appendChild(overflow);
+    if (refresh && channel) channel.appendChild(refresh);
+    else if (refresh) row.appendChild(refresh);
+  }
+  if (panel && overflow) {
+    if (spam) panel.appendChild(spam);
+    if (clearBtn) panel.appendChild(clearBtn);
+    if (deleteBtn) panel.appendChild(deleteBtn);
+    if (chrome) panel.appendChild(chrome);
+    var overflowBtn = document.getElementById('inbox-thread-overflow-btn');
+    if (!phone) {
+      panel.hidden = false;
+      overflow.classList.remove('is-open');
+      if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
+    } else if (!overflow.classList.contains('is-open')) {
+      panel.hidden = true;
+      if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
+    }
+    inboxSyncPhoneOverflowPlainLabels(panel);
+  } else {
+    if (spam) row.appendChild(spam);
+    if (clearBtn) row.appendChild(clearBtn);
+    if (deleteBtn) row.appendChild(deleteBtn);
+    if (chrome) row.appendChild(chrome);
+  }
   return row;
+}
+
+function inboxSyncPhoneOverflowPlainLabels(panel){
+  if (!panel || typeof panel.querySelectorAll !== 'function') return;
+  var phone = inboxPhoneThreadOverflow();
+  panel.querySelectorAll('.inbox-luna-mode-btn').forEach(function(btn){
+    var mode = btn.getAttribute('data-luna-mode');
+    if (phone) {
+      if (mode === 'off') btn.textContent = 'Luna Off';
+      else if (mode === 'draft') btn.textContent = 'Luna Draft';
+      else btn.textContent = 'Luna On';
+      return;
+    }
+    if (typeof inboxLunaModeBtnCopy === 'function') {
+      btn.textContent = inboxLunaModeBtnCopy(mode);
+    }
+  });
+}
+
+function inboxPhoneThreadOverflow(){
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia) return window.matchMedia('(max-width: 768px)').matches;
+  return window.innerWidth <= 768;
+}
+
+function inboxEnsureThreadOverflowMenu(){
+  if (typeof document === 'undefined') return null;
+  var row = document.getElementById('inbox-header-luna-row');
+  var channel = document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel');
+  var host = row || channel;
+  if (!host) return null;
+  var wrap = document.getElementById('inbox-thread-overflow');
+  if (!wrap && row && row.querySelector) wrap = row.querySelector('#inbox-thread-overflow');
+  if (!wrap && channel && channel.querySelector) wrap = channel.querySelector('#inbox-thread-overflow');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'inbox-thread-overflow';
+    wrap.className = 'inbox-thread-overflow';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'inbox-thread-overflow-btn';
+    btn.id = 'inbox-thread-overflow-btn';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-controls', 'inbox-thread-overflow-panel');
+    btn.title = 'More actions';
+    btn.setAttribute('aria-label', 'More actions');
+    btn.textContent = '\u22EF';
+    var panel = document.createElement('div');
+    panel.className = 'inbox-thread-overflow-panel';
+    panel.id = 'inbox-thread-overflow-panel';
+    panel.hidden = true;
+    panel.setAttribute('role', 'menu');
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
+  }
+  /* Parent is set by cook (channel on phone, luna row on desktop). */
+  if (!wrap.parentNode) host.appendChild(wrap);
+  inboxWireThreadOverflowMenu(wrap);
+  return wrap;
+}
+
+function inboxCloseThreadOverflowMenu(){
+  var wrap = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow') : null;
+  var panel = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow-panel') : null;
+  var btn = typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow-btn') : null;
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  if (wrap) wrap.classList.remove('is-open');
+}
+
+function inboxWireThreadOverflowMenu(wrap){
+  wrap = wrap || (typeof document !== 'undefined' ? document.getElementById('inbox-thread-overflow') : null);
+  if (!wrap) return;
+  if (!wrap.dataset) wrap.dataset = {};
+  if (wrap.dataset.wiredOverflow === '1') return;
+  wrap.dataset.wiredOverflow = '1';
+  var btn = wrap.querySelector('#inbox-thread-overflow-btn') || wrap.querySelector('.inbox-thread-overflow-btn');
+  var panel = wrap.querySelector('#inbox-thread-overflow-panel') || wrap.querySelector('.inbox-thread-overflow-panel');
+  if (!btn || !panel) return;
+  btn.addEventListener('click', function(ev){
+    if (!inboxPhoneThreadOverflow()) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var open = panel.hidden;
+    if (open) {
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      wrap.classList.add('is-open');
+      inboxSyncPhoneOverflowPlainLabels(panel);
+    } else {
+      inboxCloseThreadOverflowMenu();
+    }
+  });
+  panel.addEventListener('click', function(ev){
+    if (!inboxPhoneThreadOverflow()) return;
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    if (t.closest('button, a, [role="menuitem"], .inbox-luna-mode-btn')) {
+      /* Close after choosing an action so the thread chrome stays uncluttered. */
+      setTimeout(function(){ inboxCloseThreadOverflowMenu(); }, 0);
+    }
+  });
+  if (typeof document !== 'undefined' && document.documentElement &&
+      !document.documentElement.dataset.inboxThreadOverflowDocWired) {
+    document.documentElement.dataset.inboxThreadOverflowDocWired = '1';
+    document.addEventListener('click', function(ev){
+      var root = document.getElementById('inbox-thread-overflow');
+      if (!root || !root.classList.contains('is-open')) return;
+      if (root.contains(ev.target)) return;
+      inboxCloseThreadOverflowMenu();
+    });
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape') inboxCloseThreadOverflowMenu();
+    });
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' &&
+      !window.__inboxThreadOverflowResizeWired) {
+    window.__inboxThreadOverflowResizeWired = true;
+    window.addEventListener('resize', function(){
+      if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+        window.inboxCookSelectedConversationHeaderActions();
+      } else {
+        inboxCookSelectedConversationHeaderActions();
+      }
+    });
+  }
 }
 
 function inboxAdoptRefreshToHeader(){
@@ -1155,6 +1360,7 @@ function clearInboxSelection(targetEl){
   if (targetEl){
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     targetEl.innerHTML = inboxEmptyDetailHtml();
   }
   hideInboxMobileThread();
@@ -1163,6 +1369,7 @@ function beginConvDetailLoad(targetEl){
   /* Do not leave the old guest actionable while a new selection loads. */
   inboxTeardownClearThreadDialog();
   inboxParkRefreshBtn();
+  inboxParkMobileBackBtn();
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
 }
@@ -2715,6 +2922,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     inboxTeardownClearThreadDialog();
     targetEl.innerHTML = html;
     inboxChatHideGuest();
@@ -2807,6 +3015,7 @@ function loadConvDetail(convId, targetEl){
     }
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxParkMobileBackBtn();
     inboxTeardownClearThreadDialog();
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });

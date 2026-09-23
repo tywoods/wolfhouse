@@ -426,7 +426,7 @@ console.log('\n── conversation hold: rapid / delayed / empty / identity ─�
       },
       showInboxMobileThread: () => {}, hideInboxMobileThread: () => {},
       inboxEmptyDetailHtml: () => '<div>select a conversation</div>',
-      inboxTeardownClearThreadDialog: () => {}, inboxParkRefreshBtn: () => {}, inboxAdoptRefreshToHeader: () => {},
+      inboxTeardownClearThreadDialog: () => {}, inboxParkRefreshBtn: () => {}, inboxParkMobileBackBtn: () => {}, inboxAdoptRefreshToHeader: () => {},
       convDetailHasLayout: () => false, inboxReleaseMobileThreadHeight: () => {}, inboxStickThreadToLatest: () => {},
       beginConvDetailLoad: (target) => { target.innerHTML = '<div>Loading…</div>'; target.classList.add('is-loading-detail'); },
       isSurfInboxDemoThread: () => false, loadSurfInboxDemoDetail: () => false, inboxClientQuery: () => '',

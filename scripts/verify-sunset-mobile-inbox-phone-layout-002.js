@@ -6,9 +6,11 @@
  * Phone Inbox (~390px): Autonomy docked to viewport bottom + safe-area;
  * default CLOSED on list and chat (slim bottom tab only until opened);
  * lock is panel content (own pill), never on the slim dock title;
- * Chats|Guests as classic folder tabs; search pinned with padding under filters;
- * name+tag | WA/Email on one row; action row (← Spam Clear Delete refresh Luna);
- * taller transcript.
+ * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
+ * equal 8px stack gaps on list + thread; search pinned under filters;
+ * name+tag with ← on the left | WA/Email/… on the right (no Refresh on phone);
+ * ⋯ menu holds plain-text Spam / Clear / Delete / Luna On|Off;
+ * taller transcript fills leftover; back survives conversation switches.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -40,7 +42,7 @@ function ok(label, cond, detail) {
 
 const marker = 'SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002 — phone Inbox';
 const blockStart = api.indexOf(marker);
-const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 28000) : '';
+const phoneBlock = blockStart >= 0 ? api.slice(blockStart, blockStart + 42000) : '';
 const phoneEnd = phoneBlock.indexOf('/* ── Top-bar layout controls');
 const phoneCss = phoneEnd > 0 ? phoneBlock.slice(0, phoneEnd) : phoneBlock;
 
@@ -61,17 +63,20 @@ ok(
     phoneCss.includes('overflow-y:auto!important')
 );
 ok(
-  'search has vertical padding gap before the chat list',
-  phoneCss.includes('SHARED-PHONE-INBOX-SEARCH-004') &&
-    /inbox-conv-search-wrap\.is-inbox-mobile-order\{[^}]*margin:0 0 14px!important/.test(phoneCss)
+  'search uses equal stack gap (no 14px margin leftover)',
+  phoneCss.includes('SHARED-PHONE-INBOX-STACK-GAP-005') &&
+    /inbox-conv-search-wrap\.is-inbox-mobile-order\{[^}]*margin:0!important/.test(phoneCss) &&
+    phoneCss.includes('#tab-conversations #inbox-shell:not(.show-thread){') &&
+    phoneCss.includes('gap:8px!important')
 );
 ok(
-  'Chats|Guests use classic folder tabs (not fat segmented buttons)',
-  phoneCss.includes('SHARED-PHONE-INBOX-FOLDER-TABS-004') &&
-    phoneCss.includes('border-radius:10px 10px 0 0') &&
-    phoneCss.includes('align-items:flex-end') &&
-    phoneCss.includes('border-bottom:none') &&
-    !/SHARED-PHONE-INBOX-FOLDER-TABS-004[\s\S]*padding:2px/.test(phoneCss.slice(phoneCss.indexOf('SHARED-PHONE-INBOX-FOLDER-TABS-004')))
+  'Chats|Guests share baseline + match icon-card width',
+  phoneCss.includes('SHARED-PHONE-INBOX-FOLDER-TABS-005') &&
+    phoneCss.includes('align-items:stretch!important') &&
+    phoneCss.includes('margin-bottom:0!important') &&
+    phoneCss.includes('.inbox-views-rail{') &&
+    /inbox-folder-tabs\{[^}]*width:100%!important/.test(phoneCss) &&
+    /inbox-views-rail\{[^}]*width:100%!important/.test(phoneCss)
 );
 ok(
   'Autonomy lock is panel pill, not dock title',
@@ -133,14 +138,35 @@ ok(
     /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
 );
 ok(
-  'SHARED-PHONE-INBOX-HEADER-004 grid: name row + action wrap (no h-scroll)',
-  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-004') &&
+  'SHARED-PHONE-INBOX-HEADER-007: ← name | WA Email … ; no phone Refresh',
+  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-007') &&
     phoneCss.includes('display:grid!important') &&
     phoneCss.includes('grid-template-columns:minmax(0,1fr) auto') &&
     phoneCss.includes('display:contents!important') &&
-    phoneCss.includes('overflow-x:hidden') &&
-    phoneCss.includes('flex-wrap:wrap') &&
-    !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss)
+    phoneCss.includes('.detail-header-id') &&
+    phoneCss.includes('.inbox-header-stack-channel #btn-refresh') &&
+    /#btn-refresh\{[^}]*display:none!important/.test(phoneCss) &&
+    /#inbox-header-luna-row/.test(phoneCss) &&
+    /inbox-header-stack-luna\{[^}]*display:none!important/.test(phoneCss) &&
+    shell.includes('SHARED-PHONE-INBOX-HEADER-007')
+);
+ok(
+  'SHARED-PHONE-INBOX-THREAD-FILL-005 grows messages into leftover space',
+  phoneCss.includes('SHARED-PHONE-INBOX-THREAD-FILL-005') &&
+    phoneCss.includes('height:100%!important') &&
+    phoneCss.includes('.thread-messages') &&
+    phoneCss.includes('flex:1 1 auto!important')
+);
+ok(
+  'JS parks mobile back outside detail-content (survives switches)',
+  (() => {
+    const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
+    return (
+      threadSrc.includes('function inboxParkMobileBackBtn') &&
+      threadSrc.includes('inboxParkMobileBackBtn()') &&
+      /inboxParkRefreshBtn\(\);\s*inboxParkMobileBackBtn\(\);/.test(threadSrc)
+    );
+  })()
 );
 ok(
   'JS defaults Autonomy closed on list and chat phone dock',
@@ -149,22 +175,39 @@ ok(
     /data-autonomy-keep-open/.test(shell)
 );
 ok(
-  'JS cooks phone action row order (back, spam, clear, delete, refresh, luna)',
+  'SHARED-PHONE-INBOX-OVERFLOW-007 CSS: plain-text menu + desktop inline',
+  phoneCss.includes('SHARED-PHONE-INBOX-OVERFLOW-007') &&
+    phoneCss.includes('.inbox-thread-overflow') &&
+    phoneCss.includes('.inbox-thread-overflow-btn') &&
+    phoneCss.includes('.inbox-thread-overflow-panel') &&
+    phoneCss.includes('background:transparent!important') &&
+    phoneCss.includes('.inbox-luna-mode-label') &&
+    api.includes('@media(min-width:769px)') &&
+    /inbox-thread-overflow-btn\{display:none!important\}/.test(api) &&
+    shell.includes('SHARED-PHONE-INBOX-OVERFLOW-007')
+);
+ok(
+  'JS cooks phone header: ← beside name, … in channel, no Refresh; menu holds actions',
   (() => {
     const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
     const cook = threadSrc.slice(
       threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
-      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 1200
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 4200
     );
     return (
-      /row\.appendChild\(back\)/.test(cook) &&
-      /row\.appendChild\(spam\)/.test(cook) &&
-      /row\.appendChild\(clearBtn\)/.test(cook) &&
-      /row\.appendChild\(deleteBtn\)/.test(cook) &&
-      /row\.appendChild\(refresh\)/.test(cook) &&
-      /row\.appendChild\(chrome\)/.test(cook) &&
-      cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(spam)') &&
-      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(chrome)')
+      /function inboxEnsureThreadOverflowMenu\(/.test(threadSrc) &&
+      /function inboxPhoneThreadOverflow\(/.test(threadSrc) &&
+      /function inboxCloseThreadOverflowMenu\(/.test(threadSrc) &&
+      /function inboxSyncPhoneOverflowPlainLabels\(/.test(threadSrc) &&
+      /nameHost\.insertBefore\(back/.test(cook) &&
+      /channel\.appendChild\(overflow\)/.test(cook) &&
+      /inboxParkRefreshBtn\(\)/.test(cook) &&
+      /panel\.appendChild\(spam\)/.test(cook) &&
+      /panel\.appendChild\(clearBtn\)/.test(cook) &&
+      /panel\.appendChild\(deleteBtn\)/.test(cook) &&
+      /panel\.appendChild\(chrome\)/.test(cook) &&
+      /Luna On/.test(threadSrc) &&
+      /Luna Off/.test(threadSrc)
     );
   })()
 );
@@ -179,6 +222,10 @@ async function measureList(page) {
     const search = document.querySelector('#inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order');
     const tabs = document.querySelector('.inbox-folder-tabs');
     const chats = document.querySelector('.inbox-folder-tab[data-inbox-preset="all4"], .inbox-folder-tab[data-view="full"]');
+    const guests = document.querySelector('.inbox-folder-tab[data-inbox-preset="guest"], .inbox-folder-tab[data-view="guest"]');
+    const rail = document.querySelector('#inbox-views-rail, .inbox-views-rail');
+    const wrap = document.querySelector('#wrap.inbox-shell-wrap, #wrap');
+    const header = document.querySelector('#site-header, header, .portal-topbar, #topbar');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const autoTab = autonomy && autonomy.querySelector('.inbox-autonomy-bottom-tab');
     const lock = autonomy && autonomy.querySelector('#inbox-autonomy-lock, .channelAutonomyLock');
@@ -188,6 +235,7 @@ async function measureList(page) {
       : [];
     const list = document.querySelector('#inbox-shell > #inbox-card .inbox-left-rows, #inbox-shell #conv-list');
     const firstCard = document.querySelector('#conv-list .conv-card');
+    const inboxCard = document.querySelector('#inbox-shell > #inbox-card');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -195,7 +243,10 @@ async function measureList(page) {
       return {
         top: Math.round(r.top),
         bottom: Math.round(r.bottom),
+        left: Math.round(r.left),
+        right: Math.round(r.right),
         height: Math.round(r.height),
+        width: Math.round(r.width),
         position: s.position,
         marginTop: s.marginTop,
         paddingBottom: s.paddingBottom,
@@ -203,20 +254,41 @@ async function measureList(page) {
         display: s.display,
       };
     }
+    const wrapBox = box(wrap);
+    const tabsBox = box(tabs);
+    const chatsBox = box(chats);
+    const guestsBox = box(guests);
+    const railBox = box(rail);
+    const searchBox = box(search);
+    const listTopEl = inboxCard || firstCard;
+    const listTop = listTopEl ? Math.round(listTopEl.getBoundingClientRect().top) : null;
+    const headerBottom = header ? Math.round(header.getBoundingClientRect().bottom) : (wrapBox ? wrapBox.top : null);
+    const wrapPadTop = wrap ? parseFloat(getComputedStyle(wrap).paddingTop) || 0 : null;
+    const shellEl = document.getElementById('inbox-shell');
+    const shellGap = shellEl
+      ? (parseFloat(getComputedStyle(shellEl).rowGap) || parseFloat(getComputedStyle(shellEl).gap) || 0)
+      : null;
     return {
       vh: window.innerHeight,
-      search: box(search),
-      tabs: box(tabs),
-      chats: box(chats),
+      search: searchBox,
+      tabs: tabsBox,
+      chats: chatsBox,
+      guests: guestsBox,
+      rail: railBox,
       autonomy: box(autonomy),
       autoTab: box(autoTab),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       lockVisibleClosed: !!(lock && getComputedStyle(lock).display !== 'none' && lock.getClientRects().length > 0),
       lockInsideTab: !!lockInTab,
-      searchListGap: search && firstCard
-        ? Math.round(firstCard.getBoundingClientRect().top - search.getBoundingClientRect().bottom)
-        : null,
+      searchListGap: searchBox && listTop != null ? listTop - searchBox.bottom : null,
+      iconSearchGap: railBox && searchBox ? searchBox.top - railBox.bottom : null,
+      headerTabsGap: headerBottom != null && tabsBox ? tabsBox.top - headerBottom : null,
+      wrapPadTop: wrapPadTop == null ? null : Math.round(wrapPadTop),
+      shellGap: shellGap == null ? null : Math.round(shellGap),
+      tabsRailWidthDelta: tabsBox && railBox ? Math.abs(tabsBox.width - railBox.width) : null,
+      tabsRailLeftDelta: tabsBox && railBox ? Math.abs(tabsBox.left - railBox.left) : null,
+      tabsBaselineDelta: chatsBox && guestsBox ? Math.abs(chatsBox.bottom - guestsBox.bottom) : null,
       list: box(list),
     };
   });
@@ -224,7 +296,7 @@ async function measureList(page) {
 
 async function measureThread(page) {
   return page.evaluate(() => {
-    const back = document.querySelector('#inbox-header-luna-row > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
+    const back = document.querySelector('#inbox-shell.show-thread .detail-header-id > .inbox-mobile-back, #inbox-header-luna-row > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
     const autoTab = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const panelKids = autonomy
@@ -234,8 +306,19 @@ async function measureThread(page) {
     const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-luna');
     const channel = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-channel');
     const name = document.querySelector('#inbox-shell.show-thread .detail-header-main .detail-name, #inbox-shell.show-thread .detail-name');
+    const nameHost = document.querySelector('#inbox-shell.show-thread .detail-header-id');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
     const headerRight = document.querySelector('#inbox-shell.show-thread .detail-header-right');
+    const refresh = document.querySelector('#btn-refresh');
+    const draft = document.querySelector('#inbox-shell.show-thread .draft-panel');
+    const threadSection = document.querySelector('#inbox-shell.show-thread .thread-section, #inbox-shell.show-thread .thread');
+    const overflow = document.getElementById('inbox-thread-overflow');
+    const overflowBtn = document.getElementById('inbox-thread-overflow-btn');
+    const overflowPanel = document.getElementById('inbox-thread-overflow-panel');
+    const spam = document.getElementById('btn-inbox-spam');
+    const clearBtn = document.getElementById('btn-inbox-clear-thread');
+    const deleteBtn = document.getElementById('btn-inbox-conv-delete');
+    const chrome = document.getElementById('inbox-chat-chrome-slot');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -259,20 +342,43 @@ async function measureThread(page) {
         clientWidth: el.clientWidth,
       };
     }
+    function visible(el) {
+      return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+    }
     const nameBox = box(name);
     const channelBox = box(channel);
+    const headerBox = box(header);
+    const msgsBox = box(msgs);
+    const draftBox = box(draft);
+    const backBox = box(back);
+    const refreshInChannel = !!(refresh && channel && channel.contains(refresh) && visible(refresh));
+    const refreshInLuna = !!(refresh && stack && stack.contains(refresh) && visible(refresh));
+    const refreshVisible = visible(refresh);
+    const backVisible = visible(back);
+    const backBesideName = !!(back && nameHost && nameHost.contains(back));
+    const overflowInChannel = !!(overflow && channel && channel.contains(overflow));
+    const overflowOpen = !!(overflow && overflow.classList.contains('is-open') && overflowPanel && !overflowPanel.hidden);
+    const spamInPanel = !!(spam && overflowPanel && overflowPanel.contains(spam));
+    const clearInPanel = !!(clearBtn && overflowPanel && overflowPanel.contains(clearBtn));
+    const deleteInPanel = !!(deleteBtn && overflowPanel && overflowPanel.contains(deleteBtn));
+    const chromeInPanel = !!(chrome && overflowPanel && overflowPanel.contains(chrome));
+    const lunaRowVisible = !!(stack && getComputedStyle(stack).display !== 'none' && stack.getClientRects().length > 0);
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
-      back: box(back),
+      back: backBox,
+      backVisible,
+      backBesideName,
       autoTab: box(autoTab),
       autonomy: box(autonomy),
-      msgs: box(msgs),
+      msgs: msgsBox,
       stack: box(stack),
       channel: channelBox,
       name: nameBox,
-      header: box(header),
+      header: headerBox,
       headerRight: box(headerRight),
+      draft: draftBox,
+      threadSection: box(threadSection),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
@@ -280,6 +386,27 @@ async function measureThread(page) {
       docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
       channelRightOfName: !!(nameBox && channelBox && channelBox.left >= nameBox.right - 4 && Math.abs(channelBox.top - nameBox.top) <= 24),
       headerPadLeft: header ? parseFloat(getComputedStyle(header).paddingLeft) || 0 : 0,
+      refreshInChannel,
+      refreshInLuna,
+      refreshVisible,
+      headerMsgsGap: headerBox && (threadSection || msgs) ? Math.round((threadSection || msgs).getBoundingClientRect().top - headerBox.bottom) : null,
+      msgsDraftGap: msgsBox && draftBox ? draftBox.top - msgsBox.bottom : null,
+      deadBandBelowDraft: draftBox && autoTab
+        ? Math.round(autoTab.getBoundingClientRect().top - draftBox.bottom)
+        : (draftBox ? Math.round(window.innerHeight - draftBox.bottom) : null),
+      overflowBtn: box(overflowBtn),
+      overflowBtnVisible: visible(overflowBtn),
+      overflowInChannel,
+      overflowOpen,
+      overflowPanelVisible: visible(overflowPanel),
+      spamInPanel,
+      clearInPanel,
+      deleteInPanel,
+      chromeInPanel,
+      spamVisibleClosed: visible(spam),
+      clearVisibleClosed: visible(clearBtn),
+      lunaRowVisible,
+      backLeftOfName: !!(backBox && nameBox && backBox.right <= nameBox.left + 2 && Math.abs(backBox.top - nameBox.top) <= 20),
     };
   });
 }
@@ -346,15 +473,40 @@ async function main() {
           JSON.stringify({ searchTop: list.search && list.search.top, tabsBottom: list.tabs && list.tabs.bottom })
         );
         ok(
-          '390 list: search has gap above first chat row',
-          list.searchListGap != null && list.searchListGap >= 8,
-          JSON.stringify({ searchListGap: list.searchListGap, search: list.search })
+          '390 list: Chats|Guests share the same baseline',
+          list.tabsBaselineDelta != null && list.tabsBaselineDelta <= 1,
+          JSON.stringify({ tabsBaselineDelta: list.tabsBaselineDelta, chats: list.chats, guests: list.guests })
         );
-ok(
-  '390 list: Chats tab is classic folder height (not fat 48px+ button)',
-  list.chats && list.chats.height >= 28 && list.chats.height <= 48,
-  JSON.stringify(list.chats)
-);
+        ok(
+          '390 list: icon filter card matches folder-tabs width',
+          list.tabsRailWidthDelta != null && list.tabsRailWidthDelta <= 2 &&
+            list.tabsRailLeftDelta != null && list.tabsRailLeftDelta <= 2,
+          JSON.stringify({
+            tabsRailWidthDelta: list.tabsRailWidthDelta,
+            tabsRailLeftDelta: list.tabsRailLeftDelta,
+            tabs: list.tabs,
+            rail: list.rail,
+          })
+        );
+        ok(
+          '390 list: equal 8px stack gaps (wrap pad, shell gap, search→list)',
+          list.wrapPadTop != null && list.shellGap != null && list.searchListGap != null &&
+            Math.abs(list.wrapPadTop - 8) <= 1 &&
+            Math.abs(list.shellGap - 8) <= 1 &&
+            Math.abs(list.searchListGap - 8) <= 2 &&
+            (list.iconSearchGap == null || Math.abs(list.iconSearchGap - 8) <= 2),
+          JSON.stringify({
+            wrapPadTop: list.wrapPadTop,
+            shellGap: list.shellGap,
+            iconSearchGap: list.iconSearchGap,
+            searchListGap: list.searchListGap,
+          })
+        );
+        ok(
+          '390 list: Chats tab is classic folder height (not fat 48px+ button)',
+          list.chats && list.chats.height >= 28 && list.chats.height <= 48,
+          JSON.stringify(list.chats)
+        );
       }
 
       await page.evaluate((id) => {
@@ -386,16 +538,16 @@ ok(
       );
       ok(
         `390 chat [${stamp.name}]: action stack is row-wrapped toolbar (no h-scroll)`,
-        thread.stack &&
-          thread.stack.flexDir === 'row' &&
-          (thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse') &&
-          thread.stack.overflowX === 'hidden' &&
-          thread.stackOverflow === false &&
+        thread.header &&
           thread.headerOverflow === false &&
-          thread.docOverflow === false,
+          thread.docOverflow === false &&
+          (thread.stack == null || thread.lunaRowVisible === false ||
+            ((thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse' || thread.stack.display === 'none') &&
+              thread.stackOverflow === false)),
         JSON.stringify({
           stack: thread.stack,
           header: thread.header,
+          lunaRowVisible: thread.lunaRowVisible,
           stackOverflow: thread.stackOverflow,
           headerOverflow: thread.headerOverflow,
           docOverflow: thread.docOverflow,
@@ -414,18 +566,162 @@ ok(
           })
         );
         ok(
-          '390 chat: back control is slim (not fat banner)',
-          thread.back &&
-            thread.back.height <= 34 &&
-            thread.back.width <= 40,
-          JSON.stringify(thread.back)
+          '390 chat: no Refresh on phone open-thread header',
+          thread.refreshVisible === false &&
+            thread.refreshInChannel === false &&
+            thread.refreshInLuna === false,
+          JSON.stringify({
+            refreshVisible: thread.refreshVisible,
+            refreshInChannel: thread.refreshInChannel,
+            refreshInLuna: thread.refreshInLuna,
+          })
         );
         ok(
-          '390 chat: transcript taller than chrome+draft leftovers',
-          thread.msgs && thread.msgs.height >= 160 &&
-            thread.header && thread.msgs.height > thread.header.height * 0.7,
-          JSON.stringify({ msgs: thread.msgs, header: thread.header })
+          '390 chat: ← sits left of guest name; … in channel top-right',
+          thread.backVisible === true &&
+            thread.backBesideName === true &&
+            thread.backLeftOfName === true &&
+            thread.overflowBtnVisible === true &&
+            thread.overflowInChannel === true &&
+            thread.lunaRowVisible === false,
+          JSON.stringify({
+            backVisible: thread.backVisible,
+            backBesideName: thread.backBesideName,
+            backLeftOfName: thread.backLeftOfName,
+            overflowBtnVisible: thread.overflowBtnVisible,
+            overflowInChannel: thread.overflowInChannel,
+            lunaRowVisible: thread.lunaRowVisible,
+            back: thread.back,
+            name: thread.name,
+          })
         );
+        ok(
+          '390 chat: Spam/Clear/Delete/Luna tucked in closed … menu',
+          thread.overflowOpen === false &&
+            thread.overflowPanelVisible === false &&
+            thread.spamInPanel === true &&
+            thread.clearInPanel === true &&
+            thread.deleteInPanel === true &&
+            thread.chromeInPanel === true &&
+            thread.spamVisibleClosed === false &&
+            thread.clearVisibleClosed === false,
+          JSON.stringify({
+            overflowOpen: thread.overflowOpen,
+            spamInPanel: thread.spamInPanel,
+            clearInPanel: thread.clearInPanel,
+            deleteInPanel: thread.deleteInPanel,
+            chromeInPanel: thread.chromeInPanel,
+            spamVisibleClosed: thread.spamVisibleClosed,
+            clearVisibleClosed: thread.clearVisibleClosed,
+          })
+        );
+        /* Open ⋯ and confirm plain-text menu actions. */
+        await page.click('#inbox-thread-overflow-btn');
+        await page.waitForTimeout(200);
+        const menuOpen = await page.evaluate(() => {
+          const wrap = document.getElementById('inbox-thread-overflow');
+          const panel = document.getElementById('inbox-thread-overflow-panel');
+          const spam = document.getElementById('btn-inbox-spam');
+          const clearBtn = document.getElementById('btn-inbox-clear-thread');
+          const deleteBtn = document.getElementById('btn-inbox-conv-delete');
+          const lunaBtns = Array.from(document.querySelectorAll('#inbox-thread-overflow-panel .inbox-luna-mode-btn'));
+          function vis(el) {
+            return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+          }
+          function plain(el) {
+            if (!el) return false;
+            const s = getComputedStyle(el);
+            const bg = s.backgroundColor;
+            const transparent = !bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)';
+            return transparent && (s.borderStyle === 'none' || s.borderWidth === '0px' || parseFloat(s.borderWidth) === 0);
+          }
+          return {
+            open: !!(wrap && wrap.classList.contains('is-open') && panel && !panel.hidden),
+            spam: vis(spam),
+            clear: vis(clearBtn),
+            del: vis(deleteBtn),
+            lunaTexts: lunaBtns.map((b) => (b.textContent || '').trim()),
+            lunaPlain: lunaBtns.length > 0 && lunaBtns.every((b) => plain(b)),
+            spamPlain: plain(spam),
+            clearPlain: plain(clearBtn),
+            delPlain: plain(deleteBtn),
+            labelHidden: (() => {
+              const lab = document.querySelector('#inbox-thread-overflow-panel .inbox-luna-mode-label');
+              return !lab || getComputedStyle(lab).display === 'none';
+            })(),
+          };
+        });
+        ok(
+          '390 chat: ⋯ menu opens plain-text Spam/Clear/Delete/Luna On|Off',
+          menuOpen.open === true &&
+            menuOpen.spam === true &&
+            menuOpen.clear === true &&
+            menuOpen.del === true &&
+            menuOpen.labelHidden === true &&
+            menuOpen.spamPlain === true &&
+            menuOpen.clearPlain === true &&
+            menuOpen.delPlain === true &&
+            menuOpen.lunaPlain === true &&
+            menuOpen.lunaTexts.some((t) => /Luna On/i.test(t)) &&
+            menuOpen.lunaTexts.some((t) => /Luna Off/i.test(t)),
+          JSON.stringify(menuOpen)
+        );
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        const menuClosed = await page.evaluate(() => {
+          const wrap = document.getElementById('inbox-thread-overflow');
+          const panel = document.getElementById('inbox-thread-overflow-panel');
+          return {
+            open: !!(wrap && wrap.classList.contains('is-open')),
+            panelHidden: !!(panel && panel.hidden),
+          };
+        });
+        ok(
+          '390 chat: Escape closes ⋯ menu',
+          menuClosed.open === false && menuClosed.panelHidden === true,
+          JSON.stringify(menuClosed)
+        );
+        ok(
+          '390 chat: equal stack gaps around header/messages/reply',
+          thread.headerMsgsGap != null && thread.msgsDraftGap != null &&
+            Math.abs(thread.headerMsgsGap - 8) <= 3 &&
+            Math.abs(thread.msgsDraftGap - 8) <= 3,
+          JSON.stringify({ headerMsgsGap: thread.headerMsgsGap, msgsDraftGap: thread.msgsDraftGap })
+        );
+        ok(
+          '390 chat: transcript fills leftover (no huge dead band above Autonomy)',
+          thread.msgs && thread.msgs.height >= 200 &&
+            thread.header && thread.msgs.height > thread.header.height * 0.9 &&
+            (thread.deadBandBelowDraft == null || thread.deadBandBelowDraft <= 52),
+          JSON.stringify({ msgs: thread.msgs, header: thread.header, deadBandBelowDraft: thread.deadBandBelowDraft })
+        );
+
+        /* Back must survive opening a second conversation (park/restore). */
+        const cards = await page.$$('#conv-list .conv-card');
+        if (cards.length >= 2) {
+          await page.evaluate(() => {
+            const backBtn = document.querySelector('#inbox-mobile-back, .inbox-mobile-back');
+            if (backBtn) backBtn.click();
+          });
+          await page.waitForTimeout(SETTLE_MS);
+          await page.evaluate(() => {
+            const second = document.querySelectorAll('#conv-list .conv-card')[1];
+            if (second) second.click();
+          });
+          await page.waitForSelector('#inbox-shell.show-thread .detail-header', { timeout: 15000 });
+          await page.evaluate(() => {
+            if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+              window.inboxCookSelectedConversationHeaderActions();
+            }
+          });
+          await page.waitForTimeout(SETTLE_MS);
+          const thread2 = await measureThread(page);
+          ok(
+            '390 chat: back still visible after opening a second conversation',
+            thread2.backVisible === true && thread2.back && thread2.back.height <= 34,
+            JSON.stringify(thread2.back)
+          );
+        }
       }
       await page.close();
     }
