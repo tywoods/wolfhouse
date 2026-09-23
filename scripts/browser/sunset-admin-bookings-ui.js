@@ -401,13 +401,18 @@ function renderAdminBookingsShell(opts) {
     '</div>';
   // Shell markup resets hidden date inputs to "". Restore state into the new
   // nodes BEFORE wiring so the date-range display and any early reads honor
-  // the active range (search ∩ dates). Lodging may hide Type after restore.
+  // the active range (search ∩ dates). Lodging hides Type on desktop only
+  // (CSS class); mobile ≤768px keeps Type|Export per Bookings layout contract.
   adminBookingsRestoreFiltersToDom();
   wireAdminBookingsPanel();
   if (adminBookingsIsLodging()) {
     var typeSel = el('admin-bookings-type');
-    var typeWrap = typeSel && typeSel.closest ? typeSel.closest('.portal-admin-bookings-field') : null;
-    if (typeWrap) typeWrap.style.display = 'none';
+    var typeWrap = typeSel && typeSel.closest
+      ? typeSel.closest('.portal-admin-bookings-filter-type')
+      : null;
+    if (typeWrap && typeWrap.classList) {
+      typeWrap.classList.add('is-lodging-hide-desktop');
+    }
   }
   if (opts && opts.skipLoad && adminBookingsState.data) {
     renderAdminBookingsSummary();
