@@ -622,6 +622,35 @@ def validate_luna_personality_emitted_ast(source: str) -> dict:
     }
 
 
+def apply_luna_intelligence_cleanup(source: str) -> str:
+    """Decorate the entire ordinary worker without moving its validated cache owner.
+
+    Its own finally must cover binding, construction, setup, early returns and
+    conversation. The outer async request cannot clear a copied worker context.
+    """
+    tree = ast.parse(source)
+    owners = [fn for fn in ast.walk(tree)
+              if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and _cache_triple_start(fn.body) is not None]
+    if len(owners) != 1 or isinstance(owners[0], ast.AsyncFunctionDef):
+        raise RuntimeError('intelligence cleanup: unique synchronous ordinary worker required')
+    worker = owners[0]
+    name = '_wh_research_turn_lifetime'
+    if any(isinstance(d, ast.Name) and d.id == name for d in worker.decorator_list):
+        validate_luna_personality_emitted_ast(source)
+        return source
+    line = min([worker.lineno] + [d.lineno for d in worker.decorator_list]) - 1
+    pad = ' ' * worker.col_offset
+    lines = source.splitlines(keepends=True)
+    lines[line:line] = [
+        pad + 'from wolfhouse.luna_intelligence import research_turn_lifetime as ' + name + '\n',
+        pad + '@' + name + '\n',
+    ]
+    result = ''.join(lines)
+    validate_luna_personality_emitted_ast(result)
+    return result
+
+
 def apply_luna_cold_admission(source: str) -> str:
     """Reject before proxy/config/tool discovery, with a second worker defense."""
     prehook = '        if not is_internal:\n            try:\n                from hermes_cli.plugins import invoke_hook as _invoke_hook\n'
@@ -1169,6 +1198,7 @@ def apply_patches(run_path: Path) -> dict:
         s = s.replace(_old_guard_call, _new_guard_call, 1)
 
     s, lp_meta = apply_luna_personality_gateway_patches(s)
+    s = apply_luna_intelligence_cleanup(s)
     s = apply_luna_cold_admission(s)
     soul_note = lp_meta.get("luna_soul_reload_note")
     if LUNA_PERSONALITY_CLEAR_TAG not in s:
