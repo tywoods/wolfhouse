@@ -20075,6 +20075,10 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-sel-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
 .bc-sel-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;width:100%}
 .bc-sel-header-row .bc-sel-title{margin-bottom:0;flex:1 1 auto;min-width:0}
+/* SUNSET-NEW-BOOKING-POLISH-001: drop the wide Create New Booking banner */
+#bc-sel-panel .bc-sel-title{display:none!important}
+#bc-side-drawer #bc-sel-panel .bc-sel-header-row:not(:has(#bc-sel-block)){display:none}
+#bc-side-drawer .bc-side-head-actions #bc-sel-block{height:32px;margin:0 2px 0 0}
 .btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3;height:28px;box-sizing:border-box}
 .btn-bc-block-pebble:hover:not(:disabled){background:#DDDAD4;border-color:#C8C4BC;box-shadow:0 1px 4px rgba(68,80,74,.08)}
 .btn-bc-block-pebble:disabled{opacity:.38;cursor:not-allowed}
@@ -34790,7 +34794,7 @@ function bcApplySelectionHighlight(){
   var _blEl = el('bc-sel-beds-list');
   if (_blEl){
     _blEl.innerHTML = bcSelectedBeds.map(function(b){
-      return '<span class="bc-sel-bed-tag">' + escHtml(b.room_code) + '&thinsp;/&thinsp;' + escHtml(b.bed_code) + '</span>';
+      return '<span class="bc-sel-bed-tag">' + escHtml(bcBedIdLabel(b)) + '</span>';
     }).join('');
   }
   var _bcEl = el('bc-sel-bed-count');
@@ -34946,7 +34950,7 @@ function bcRenderGuestNameInputs(){
     var pkgVal = existingPkg[i] != null ? existingPkg[i] : defPkg;
     html += '<div class="bk-compact-row bk-guest-name-row">';
     html += '<label class="bk-label" for="bk-guest-name-' + i + '">Name (Guest ' + i + ')';
-    if (bed) html += ' <span class="bk-guest-bed-hint">' + escHtml(bed.room_code + '/' + bed.bed_code) + '</span>';
+    if (bed) html += ' <span class="bk-guest-bed-hint">' + escHtml(bcBedIdLabel(bed)) + '</span>';
     html += '</label>';
     html += '<input type="text" id="bk-guest-name-' + i + '" class="bk-input bk-input-sm bk-guest-name-input" data-guest-num="' + i + '"';
     if (bed) {
@@ -35659,7 +35663,7 @@ function renderCreateResult(res, ctx){
   if (d.selected_bed_codes && d.selected_bed_codes.length){
     bedLabel = escHtml(d.selected_bed_codes.join(', '));
   } else if (ctx.beds && ctx.beds.length){
-    bedLabel = escHtml(ctx.beds.map(function(b){ return b.room_code + '/' + b.bed_code; }).join(', '));
+    bedLabel = escHtml(ctx.beds.map(function(b){ return bcBedIdLabel(b); }).join(', '));
   }
   var bannerText = d.duplicate
     ? '\u2705 Booking already exists (same request)'
@@ -42762,6 +42766,7 @@ function bcSetSidePinned(on){
 function bcUndockCreatePanel(){
   var panel = el('bc-sel-panel');
   var slot = el('bc-sel-panel-slot');
+  bcRestoreBlockButton();
   if (panel && slot && panel.parentNode !== slot.parentNode){
     slot.parentNode.insertBefore(panel, slot.nextSibling);
   }
@@ -42777,6 +42782,26 @@ function bcCloseSideRail(){
   bcSetSidePinned(false);
   bcSideHoverCode = null;
   bcUndockCreatePanel();
+}
+
+function bcPlaceBlockNextToPin(){
+  var btn = el('bc-sel-block');
+  var actions = document.querySelector('#bc-side-drawer .bc-side-head-actions');
+  var pin = el('bc-side-pin');
+  if (!btn || !actions || !pin || btn.parentNode === actions) return;
+  actions.insertBefore(btn, pin);
+}
+
+function bcRestoreBlockButton(){
+  var btn = el('bc-sel-block');
+  var row = document.querySelector('#bc-sel-panel .bc-sel-header-row');
+  if (!btn || !row || btn.parentNode === row) return;
+  row.appendChild(btn);
+}
+
+function bcBedIdLabel(bed){
+  if (!bed) return '';
+  return String(bed.bed_code || bed.bed_label || '').trim();
 }
 
 function bcSideStayMetaHtml(cin, cout, guests){
@@ -42810,6 +42835,7 @@ function bcDockCreatePanel(){
   if (panel.parentNode !== body) body.appendChild(panel);
   panel.style.display = 'block';
   panel.style.marginTop = '0';
+  bcPlaceBlockNextToPin();
   rail.classList.add('is-open');
   rail.dataset.mode = 'create';
   if (typeof bcSyncSideDrawerTop === 'function') bcSyncSideDrawerTop();
@@ -42823,6 +42849,8 @@ function bcDockCreatePanel(){
     meta.innerHTML = bcSideStayMetaHtml(cin && cin.value, cout && cout.value);
   }
 }
+window.bcDockCreatePanel = bcDockCreatePanel;
+window.bcBedIdLabel = bcBedIdLabel;
 
 function bcOpenSideBooking(blk, opts){
   opts = opts || {};
