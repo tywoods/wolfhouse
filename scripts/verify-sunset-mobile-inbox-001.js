@@ -39,8 +39,23 @@ ok('phone Chats|Guests stay after a thread opens', phoneBlock.includes('html[dat
 ok('sunset and wolfhouse folder tabs are separate rules', phoneBlock.includes('html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{') && phoneBlock.includes('html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{'));
 ok('folder tabs are a thumb target', phoneBlock.includes('min-height:44px'));
 ok('phone page does not scroll sideways', phoneBlock.includes('overflow-x:hidden'));
+/* SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001: two-id selector must beat THREAD-FILL display:flex. */
+ok(
+  'phone Guests hide-thread beats THREAD-FILL specificity',
+  phoneBlock.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001') &&
+    /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #tab-conversations #inbox-shell\.show-thread \.detail-main\{[\s\S]{0,80}display:none!important/.test(
+      phoneBlock
+    )
+);
 
 ok('injected shell repeats the guest phone rule', shell.includes('body:has([data-inbox-preset="guest"][aria-pressed="true"]) #inbox-shell.show-thread .detail-main{display:none!important}'));
+ok(
+  'injected shell Guests hide-thread beats THREAD-FILL',
+  shell.includes('SHARED-PHONE-INBOX-GUESTS-HIDE-THREAD-001') &&
+    shell.includes(
+      'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #tab-conversations #inbox-shell.show-thread .detail-main{display:none!important}'
+    )
+);
 ok('injected shell keeps folder tabs on an open thread', shell.includes('html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols.show-thread > .inbox-col1{display:flex!important'));
 ok('desktop 901 guest block was not rewritten', api.includes('@media(min-width:901px){') && api.includes('.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-sidebar{display:none}'));
 
