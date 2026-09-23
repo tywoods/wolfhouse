@@ -228,6 +228,7 @@ const {
   EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const { EMAIL_PAUSE_PATH, isEmailPauseAvailable } = require('./lib/email-mailbox-pause');
 const {
   isWolfhouseEmailSettingsUiEnabled,
 } = require('./lib/email-wolfhouse-tenant');
@@ -17847,9 +17848,16 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 @media(min-width:900px){.portal-admin-email-cards{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}}
 .portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:14px}
 .portal-admin-email-card-kicker{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650}
-.portal-admin-email-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.portal-admin-email-card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}
+.portal-admin-email-flow-toggle{grid-column:2;grid-row:1;display:inline-flex;flex-shrink:0;gap:2px;padding:3px;background:#eceef2;border:1px solid #d8dde5;border-radius:999px;margin-left:auto}
+.portal-admin-email-flow-option{border:0;border-radius:999px;background:transparent;color:#526077;font-size:12px;font-weight:600;line-height:1.4;padding:5px 12px;cursor:pointer}
+.portal-admin-email-flow-option.is-on{background:#2563eb;color:#fff}
+.portal-admin-email-flow-option.is-off{background:#dc2626;color:#fff}
+.portal-admin-email-flow-option:disabled{cursor:default;opacity:.65}
+.portal-admin-email-flow-option:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.portal-admin-email-card-head [data-email-flow-error]:not([hidden]){grid-column:1 / -1;font-size:12px;color:#b91c1c}
 .portal-admin-email-card-head .portal-admin-email-card-title{flex:1;min-width:0}
-.portal-admin-email-card-head .portal-admin-email-status{margin-left:auto;flex-shrink:0}
+.portal-admin-email-card-head .portal-admin-email-status{grid-column:1 / -1;grid-row:2;justify-self:start;margin-left:0;flex-shrink:0}
 .portal-admin-email-card-title{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em}
 .portal-admin-email-card-copy,.portal-admin-email-card-meta{margin:0;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-email-card-meta{margin-top:auto}
@@ -52565,6 +52573,17 @@ async function router(req, res) {
 
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
   // The Stage 6 status boundary is concealed before auth and before every lookup.
+  if (pathname === EMAIL_PAUSE_PATH && method === 'POST') {
+    if (!isEmailPauseAvailable(process.env, 'sunset') && !isEmailPauseAvailable(process.env, 'wolfhouse-somo')) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return emailSettingsRoutes.handlePausePost(body, req, res, auth.user);
+  }
   if (pathname === EMAIL_SETTINGS_PATH && method === 'GET') {
     if (!isSunsetEmailSettingsUiEnabled(process.env)
         && !isWolfhouseEmailSettingsUiEnabled(process.env)) {

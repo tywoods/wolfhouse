@@ -5,6 +5,7 @@ var adminEmailReauthAbortController = null;
 var adminEmailReauthOrigin = null;
 var adminEmailSettingsLastData = null;
 var adminEmailSettingsView = '';
+var adminEmailSettingsFlowReloadFailed = false;
 var adminEmailSettingsConnectFailed = false;
 var adminEmailSettingsConnectFailedByProvider = {};
 var adminEmailSettingsDisconnectFailedByProvider = {};
@@ -906,11 +907,92 @@ function adminEmailStatusPill(kind, label){
   var cls = kind === 'on' ? 'is-on' : (kind === 'active' ? 'is-active' : (kind === 'soon' ? 'is-soon' : 'is-off'));
   return '<span class="portal-admin-email-status ' + cls + '">' + escHtml(label) + '</span>';
 }
-function adminEmailCardHeadHtml(titleTag, titleHtml, pillKind, pillLabel){
+function adminEmailFlowToggleHtml(data){
+  var known = !!(data && data.endpoint_id && data.location_id
+    && data.connection_state === 'connected_health' && typeof data.mail_flow_paused === 'boolean');
+  var available = known && data.pause_available === true;
+  var paused = known ? data.mail_flow_paused : null;
+  var label = emailUiT('admin.email.flowLabel', 'Mailbox email flow', 'Flujo de correo del buzón');
+  function button(off){
+    var selected = paused === off;
+    return '<button type="button" class="portal-admin-email-flow-option' +
+      (selected ? (off ? ' is-off' : ' is-on') : '') + '" data-email-flow-paused="' + off +
+      '" aria-pressed="' + selected + '"' + (available ? '' : ' disabled') + '>' +
+      escHtml(off ? emailUiT('admin.email.off', 'Off', 'Desactivado') : emailUiT('admin.email.on', 'On', 'Activado')) + '</button>';
+  }
+  return '<div class="portal-admin-email-flow-toggle" data-email-flow-toggle role="group" aria-label="' + escHtml(label) +
+    '" data-email-location-id="' + escHtml(known ? data.location_id : '') +
+    '" data-email-endpoint-id="' + escHtml(known ? data.endpoint_id : '') +
+    '" data-email-flow-available="' + available + '" data-email-flow-current="' + paused + '">' +
+    button(false) + button(true) + '</div>' +
+    '<span data-email-flow-error role="alert" hidden></span>';
+}
+function adminEmailCardHeadHtml(titleTag, titleHtml, pillKind, pillLabel, flowData){
   return '<div class="portal-admin-email-card-head">' +
     '<' + titleTag + ' class="portal-admin-email-card-title">' + titleHtml + '</' + titleTag + '>' +
-    adminEmailStatusPill(pillKind, pillLabel) +
+    adminEmailStatusPill(pillKind, pillLabel) + adminEmailFlowToggleHtml(flowData) +
     '</div>';
+}
+function wireAdminEmailFlowHandlers(body){
+  var sections = typeof body.querySelectorAll === 'function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
+  var client = adminEmailSettingsClient();
+  var renderSeq = adminEmailReauthSeq;
+  var loadSeq = adminEmailSettingsLoadSeq;
+  for (var i = 0; i < sections.length; i += 1) (function(section){
+    var group = section.querySelector('[data-email-flow-toggle]');
+    if (!group || group.getAttribute('data-email-flow-available') !== 'true') return;
+    var buttons = group.querySelectorAll('[data-email-flow-paused]');
+    var error = section.querySelector('[data-email-flow-error]');
+    var busy = false;
+    function live(btn){
+      return !!client && adminEmailSettingsClient() === client && loadSeq === adminEmailSettingsLoadSeq
+        && isAdminEmailReauthSurfaceLive({ body: body, section: section, btn: btn }, renderSeq);
+    }
+    function setBusy(value){
+      busy = value;
+      group.setAttribute('aria-busy', value ? 'true' : 'false');
+      for (var j = 0; j < buttons.length; j += 1) buttons[j].disabled = value;
+    }
+    for (var b = 0; b < buttons.length; b += 1) (function(btn){
+      btn.addEventListener('click', function(){
+        if (busy || btn.disabled || !live(btn)) return;
+        var value = btn.getAttribute('data-email-flow-paused');
+        if ((value !== 'true' && value !== 'false') || value === group.getAttribute('data-email-flow-current')) return;
+        var endpointId = group.getAttribute('data-email-endpoint-id');
+        var locationId = group.getAttribute('data-email-location-id');
+        if (!endpointId || !locationId) return;
+        setBusy(true);
+        if (error) { error.hidden = true; error.textContent = ''; }
+        // Do not change selected state or saved capabilities before an authoritative reload.
+        new Promise(function(resolve){
+          resolve(fetch('/staff/admin/email-settings/pause', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ client: client, location_id: locationId, endpoint_id: endpointId, paused: value === 'true' })
+          }));
+        }).then(function(r){
+          if (!live(btn)) return null;
+          if (!r || r.status !== 200) throw new Error('unavailable');
+          return r.json();
+        }).then(function(dto){
+          if (!live(btn)) return;
+          if (!dto || dto.success !== true || dto.endpoint_id !== endpointId || typeof dto.mail_flow_paused !== 'boolean') {
+            throw new Error('invalid_response');
+          }
+          loadAdminEmailSettings(true);
+        }).catch(function(){
+          if (!live(btn)) return;
+          setBusy(false);
+          if (error) {
+            error.textContent = emailUiT('admin.email.flowFailed',
+              'Could not confirm the mailbox pause change. Reload to check its current state before trying again.',
+              'No se pudo confirmar el cambio de pausa del buzón. Recarga para comprobar su estado actual antes de reintentarlo.');
+            error.hidden = false;
+          }
+        });
+      });
+    })(buttons[b]);
+  })(sections[i]);
 }
 function adminEmailLooksLikeAddress(raw){
   var s = String(raw || '').trim();
@@ -1121,7 +1203,7 @@ function renderAdminEmailSettingsState(state, data, provider){
   var html = '<section class="portal-admin-email-settings portal-admin-email-card' + (isActiveInbox ? ' is-active-inbox' : '') + '" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '"' +
     (isActiveInbox ? ' data-email-active-inbox="1"' : '') +
     (empty ? ' data-email-empty="1"' : '') + '>' +
-    adminEmailCardHeadHtml('h2', escHtml(emailUiT('admin.email.provider.' + provider, providerTitleEn, providerTitleEs)), pillKind, pillLabel) +
+    adminEmailCardHeadHtml('h2', escHtml(emailUiT('admin.email.provider.' + provider, providerTitleEn, providerTitleEs)), pillKind, pillLabel, data) +
     '<p role="status"' + (failed ? ' data-email-connect-failed data-i18n="' + failI18n + '"' : '') + '>' +
     escHtml(statusCopy) + '</p>';
   var connectedAs = connected ? adminEmailLooksLikeAddress(data && data.public_address) : '';
@@ -1230,6 +1312,7 @@ function renderAdminEmailSettingsState(state, data, provider){
   wireConnectHandlers(body, data);
   wireReauthorizeHandlers(body, data);
   wireDisconnectHandlers(body);
+  wireAdminEmailFlowHandlers(body);
 }
 function adminEmailPageWrap(innerHtml){
   // No page title — Admin subtab "Email" is enough (Pricing has no extra heading).
@@ -1284,15 +1367,29 @@ function adminEmailStaffRepliesOn(data){
   return adminEmailCapabilityOn(data, 'staff_replies_enabled') || adminEmailCapabilityOn(data, 'outbound_enabled');
 }
 function adminEmailCapabilitiesHtml(data){
-  function dd(on){
-    return escHtml(on ? (portalT('admin.email.on') || emailUiT('admin.email.on', 'On', 'Activado')) : portalT('admin.email.off'));
+  var paused = adminEmailCapabilityOn(data, 'mail_flow_paused');
+  function dd(on, connectionFact){
+    var saved = escHtml(on ? emailUiT('admin.email.on', 'On', 'Activado') : emailUiT('admin.email.off', 'Off', 'Desactivado'));
+    if (!paused || connectionFact === true) return saved;
+    return escHtml(emailUiT('admin.email.off', 'Off', 'Desactivado')) +
+      ' <span data-email-cap-saved="' + (on ? 'on' : 'off') + '">(' +
+      escHtml(emailUiT('admin.email.savedFlag', 'saved', 'guardado')) + ': ' + saved + ')</span>';
   }
   var staffLabel = portalT('admin.email.staffReplies');
   if (!staffLabel || staffLabel === 'admin.email.staffReplies') {
     staffLabel = emailUiT('admin.email.staffReplies', 'Staff replies', 'Respuestas del personal');
   }
-  return '<dl data-email-capabilities>' +
-    '<dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd data-email-cap="endpoint_active">' + dd(adminEmailCapabilityOn(data, 'endpoint_active')) + '</dd>' +
+  var note = data && typeof data.mail_flow_paused === 'boolean'
+    ? '<p data-email-flow-note role="note">' + escHtml(paused
+      ? emailUiT('admin.email.flowPausedNote',
+        'Master pause: email flow is Off; saved capability flags are unchanged. On only removes this pause and does not enable capabilities already Off.',
+        'Pausa general: el flujo de correo está desactivado; los ajustes guardados no cambian. Activar solo quita esta pausa y no activa funciones ya desactivadas.')
+      : emailUiT('admin.email.flowOnNote',
+        'Email flow is On (master pause removed): only saved, enabled capabilities can run. On does not enable capabilities already Off.',
+        'Flujo de correo activado (sin pausa general): solo pueden funcionar las capacidades guardadas y activadas. Activar no activa funciones ya desactivadas.')) + '</p>'
+    : '';
+  return note + '<dl data-email-capabilities>' +
+    '<dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd data-email-cap="endpoint_active">' + dd(adminEmailCapabilityOn(data, 'endpoint_active'), true) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd data-email-cap="inbound">' + dd(adminEmailCapabilityOn(data, 'inbound_enabled')) + '</dd>' +
     '<dt>' + escHtml(staffLabel) + '</dt><dd data-email-cap="staff_replies">' + dd(adminEmailStaffRepliesOn(data)) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd data-email-cap="automation">' + dd(adminEmailCapabilityOn(data, 'automation_enabled')) + '</dd>' +
@@ -1378,7 +1475,7 @@ function adminEmailImapCardHtml(data){
       : (stateKey === 'reauth_required'
         ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
         : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
-    html += adminEmailCardHeadHtml('h3', title, pillKind, pillLabel);
+    html += adminEmailCardHeadHtml('h3', title, pillKind, pillLabel, ep);
     html += '<p role="status">' + escHtml(adminEmailStateCopy(stateKey, 'imap_smtp')) + '</p>';
     var addr = adminEmailLooksLikeAddress(ep.public_address);
     if (addr) {
@@ -1474,6 +1571,7 @@ function adminEmailComingCardsHtml(){
 }
 function renderAdminEmailSettingsData(data){
   var body = adminEmailSettingsBodyEl(); if (!body) return;
+  adminEmailSettingsFlowReloadFailed = false;
   adminEmailSettingsLastData = data;
   adminEmailSettingsView = adminEmailHasConnectFeedback() ? 'connect_failed' : 'data';
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
@@ -1492,7 +1590,11 @@ function renderAdminEmailSettingsData(data){
   renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,'microsoft_graph');
   var microsoftHtml = body.innerHTML;
   var gmailHtml;
-  if (adminEmailGmailActionsLive(data) || isWolfhouseEmailUi()) {
+  var gmailFlowSupported = endpoints.some(function(endpoint){
+    return endpoint && endpoint.provider === 'gmail_api' && (!active || endpoint.location_id === active)
+      && typeof endpoint.mail_flow_paused === 'boolean';
+  });
+  if (adminEmailGmailActionsLive(data) || isWolfhouseEmailUi() || gmailFlowSupported) {
     var gmailEp=null;
     for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider==='gmail_api'&&(!active||endpoints[i].location_id===active)){gmailEp=endpoints[i];break;}
     var gmailView={ location_id:active };
@@ -1506,16 +1608,20 @@ function renderAdminEmailSettingsData(data){
   var imapHtml = (adminEmailImapCardLive(data) || isWolfhouseEmailUi()) ? adminEmailImapCardHtml(data) : adminEmailImapComingCardHtml();
   body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + microsoftHtml + gmailHtml + imapHtml + '</div>');
   wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
+  wireAdminEmailFlowHandlers(body);
   restoreAdminEmailConnectBusy(body);
 }
-function renderAdminEmailLoadFail(){
+function renderAdminEmailLoadFail(afterFlowChange){
   var body = adminEmailSettingsBodyEl();
   if (!body) return;
+  adminEmailSettingsFlowReloadFailed = afterFlowChange === true;
   adminEmailSettingsView = 'fail';
   cancelAdminEmailReauthorization();
   var fail = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-state="error">' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.loadFailTitle', 'Couldn’t load mailboxes', 'No se pudieron cargar los buzones')) + '</h2>' +
-    '<p role="status">' + escHtml(emailUiT('admin.email.loadFailBody', 'Check your connection and try again. Nothing was changed.', 'Comprueba la conexión e inténtalo de nuevo. No se ha cambiado nada.')) + '</p>' +
+    '<p role="status">' + escHtml(afterFlowChange
+      ? emailUiT('admin.email.flowReloadFailed', 'The pause change was saved, but mailbox status could not be reloaded. Try again to check the current state.', 'El cambio de pausa se guardó, pero no se pudo recargar el estado del buzón. Reintenta para comprobar el estado actual.')
+      : emailUiT('admin.email.loadFailBody', 'Check your connection and try again. Nothing was changed.', 'Comprueba la conexión e inténtalo de nuevo. No se ha cambiado nada.')) + '</p>' +
     '<button type="button" class="portal-admin-email-action-btn" data-email-retry="1">' +
       escHtml(emailUiT('admin.email.retry', 'Try again', 'Reintentar')) + '</button>' +
     '</section>';
@@ -1523,13 +1629,20 @@ function renderAdminEmailLoadFail(){
   var retry = body.querySelector ? body.querySelector('[data-email-retry]') : null;
   if (retry) retry.addEventListener('click', function(){ loadAdminEmailSettings(); });
 }
-function loadAdminEmailSettings(){
+function loadAdminEmailSettings(afterFlowChange){
   var body = adminEmailSettingsBodyEl();
   if (!body) return;
+  afterFlowChange = afterFlowChange === true || adminEmailSettingsFlowReloadFailed;
+  adminEmailSettingsView = 'loading';
   cancelAdminEmailReauthorization();
   resetAdminEmailConnectFeedback();
   var seq = ++adminEmailSettingsLoadSeq;
   var client = typeof getClient === 'function' ? getClient() : '';
+  var flowSeq = adminEmailReauthSeq;
+  function flowReloadLive(){
+    return !afterFlowChange || (adminEmailSettingsClient() === client &&
+      isAdminEmailReauthSurfaceLive({ body: body, section: body, btn: body }, flowSeq));
+  }
   if (client !== 'sunset' && client !== 'wolfhouse-somo') { renderAdminEmailSettingsState('unavailable'); return; }
   body.innerHTML = adminEmailPageWrap(
     '<p class="portal-admin-email-loading" role="status" data-email-state="loading">' +
@@ -1541,12 +1654,12 @@ function loadAdminEmailSettings(){
   fetch(settingsUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
     .then(function(data){
-      if (seq !== adminEmailSettingsLoadSeq) return;
+      if (seq !== adminEmailSettingsLoadSeq || !flowReloadLive()) return;
       var now = typeof getClient === 'function' ? getClient() : '';
       if (now !== client) return;
       renderAdminEmailSettingsData(data);
     })
-    .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailLoadFail(); });
+    .catch(function(){ if (seq === adminEmailSettingsLoadSeq && flowReloadLive()) renderAdminEmailLoadFail(afterFlowChange); });
 }
 function adminEmailRefreshOnLocaleChange(){
   try {
@@ -1554,6 +1667,8 @@ function adminEmailRefreshOnLocaleChange(){
   } catch (_e) { /* ignore */ }
   var body = adminEmailSettingsBodyEl();
   var busyRoots = [];
+  // A locale repaint must not detach and re-enable an in-flight pause operation.
+  if (body && typeof body.querySelector === 'function' && body.querySelector('[data-email-flow-toggle][aria-busy="true"]')) return;
   if (body && typeof body.querySelectorAll === 'function') {
     var listed = body.querySelectorAll('[data-email-connect-busy]');
     if (listed && listed.length) {
@@ -1576,7 +1691,7 @@ function adminEmailRefreshOnLocaleChange(){
     renderAdminEmailSettingsData(adminEmailSettingsLastData);
     return;
   }
-  if (adminEmailSettingsView === 'fail') renderAdminEmailLoadFail();
+  if (adminEmailSettingsView === 'fail') renderAdminEmailLoadFail(adminEmailSettingsFlowReloadFailed);
 }
 
 /* Narrow production exposure: tab/client navigation outside nested scopes + verifiers. */

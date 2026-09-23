@@ -91,6 +91,9 @@ FROM tenant_email_inbound_events e
 WHERE e.client_id = $1::uuid
   AND e.location_id = $2::uuid
   AND e.endpoint_id = $3::uuid
+  AND NOT EXISTS (SELECT 1 FROM tenant_channel_endpoints ep
+    WHERE ep.client_id = e.client_id AND ep.id = e.endpoint_id
+      AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = true)
   AND e.id = $4::uuid
 LIMIT 1
 `.replace(/\s+/g, ' ').trim();
@@ -116,6 +119,9 @@ FROM tenant_email_inbound_events e
 WHERE e.client_id = $1::uuid
   AND e.location_id = $2::uuid
   AND e.endpoint_id = $3::uuid
+  AND NOT EXISTS (SELECT 1 FROM tenant_channel_endpoints ep
+    WHERE ep.client_id = e.client_id AND ep.id = e.endpoint_id
+      AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = true)
   AND e.provider = $4
   AND e.provider_mailbox_id = $5
   AND e.provider_message_id = $6

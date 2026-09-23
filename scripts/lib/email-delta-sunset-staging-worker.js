@@ -17,6 +17,7 @@ WHERE e.channel = 'email'
   AND e.provider = 'microsoft_graph'
   AND e.binding_status = 'verified'
   AND e.inbound_enabled = true
+  AND COALESCE((to_jsonb(e)->>'mail_flow_paused')::boolean, false) = false
   AND g.grant_status = 'active'
   AND g.reconcile_state = 'clean'
   AND g.grant_lease_owner IS NULL

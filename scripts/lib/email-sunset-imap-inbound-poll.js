@@ -40,6 +40,7 @@ const SQL_ELIGIBLE = `SELECT e.id::text AS id, e.public_address, e.inbound_enabl
  JOIN tenant_locations tl ON tl.client_id=e.client_id AND tl.location_id=e.location_id
  WHERE e.client_id=$1::uuid AND e.location_id=$2 AND e.provider='imap_smtp'
    AND c.slug='sunset'
+   AND COALESCE((to_jsonb(e)->>'mail_flow_paused')::boolean, false) = false
    AND e.imap_health_verified_at IS NOT NULL
    AND e.inbound_enabled=TRUE AND e.outbound_enabled=FALSE
    AND e.active=FALSE AND e.default_automation_mode='off'
@@ -62,6 +63,7 @@ const SQL_DISCOVER = `SELECT e.id::text AS id, e.client_id::text AS client_id, e
  JOIN tenant_locations tl ON tl.client_id=e.client_id AND tl.location_id=e.location_id
  WHERE e.provider='imap_smtp'
    AND c.slug='sunset'
+   AND COALESCE((to_jsonb(e)->>'mail_flow_paused')::boolean, false) = false
    AND e.imap_health_verified_at IS NOT NULL
    AND e.outbound_enabled=FALSE
    AND e.active=FALSE AND e.default_automation_mode='off'

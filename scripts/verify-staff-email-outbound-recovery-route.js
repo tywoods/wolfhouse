@@ -114,6 +114,7 @@ function createFakePg(opts = {}) {
       const n = String(sql).replace(/\s+/g, ' ').trim();
       if (n === 'BEGIN' || n === 'COMMIT' || n === 'ROLLBACK') return { rows: [] };
       if (/FROM clients cl/.test(n) || /tenant_email_inbound_inbox_projections/.test(n)) {
+        if (opts.paused === true && n.includes("COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false")) return {rows:[]};
         if (foreign || !authorityPresent || String(params[0]).toLowerCase() !== C
             || String(params[1]).toLowerCase() !== A || String(params[2]).toLowerCase() !== V) {
           return { rows: [] };
@@ -286,6 +287,15 @@ async function main() {
   ok('surface exposes handleRecoverSend', typeof routes.handleRecoverSend === 'function'
     && routes.EMAIL_RECOVER_SEND_PATH === '/staff/inbox/email/recover-send');
 
+  for (const phase of ['send_dispatched', 'committed', 'prepared']) {
+    const pausedPg = createFakePg({paused:true,journalPhase:phase==='committed'?'reconciled_sent':phase,journalOutcome:phase==='committed'?'committed':'outcome_unknown'});
+    const pausedSend = captureSend(); let reconcileHits=0;
+    const pausedRoutes = mod.createStaffEmailInboxRoutes({sendJSON:pausedSend.sendJSON,withPgClient:pausedPg.withPgClient,
+      runtimeEnv:enabledEnv(),appendAuditLog(){},createOutboundDispatch(){return Object.freeze({async dispatchApprovedOutbound(){reconcileHits++;return Object.freeze({ok:true,code:'email_send_committed'});}});}});
+    await pausedRoutes.handleRecoverSend(mockReq(recoveryDto()),{},user(),mod.snapshotGateEnv(enabledEnv()));
+    ok('paused '+phase+' preserves reconcile-only recovery', pausedSend.calls[0].status===(phase==='prepared'?503:200)
+      && reconcileHits===(phase==='send_dispatched'?1:0));
+  }
   const gateOff = mod.snapshotGateEnv({});
   send.calls.length = 0; dispatchHits = 0;
   if (typeof routes.handleRecoverSend === 'function') {

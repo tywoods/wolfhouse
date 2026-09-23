@@ -187,6 +187,7 @@ const SQL_RESOLVE_DELEGATED_READ_AUTHORITY = `
      AND tl.id = $2::uuid
      AND e.id = $3::uuid
      AND e.channel = 'email'
+     AND COALESCE((to_jsonb(e)->>'mail_flow_paused')::boolean, false) = false
      AND e.auth_mode = 'delegated_authorization_code'
      AND e.binding_status = 'verified'
      AND e.mailbox_kind = 'user'

@@ -522,6 +522,7 @@ INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id 
   AND ep.location_id = loc.location_id
 WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('viewer','operator','admin','owner')
   AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'microsoft_graph' AND ep.provider = 'microsoft_graph'
+  AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false
   AND ep.channel = 'email' AND ep.auth_mode = 'delegated_authorization_code'
   AND ep.connector_mode = 'microsoft_delegated_oauth' AND ep.mailbox_access_kind = 'own_user'
   AND ep.binding_status = 'verified' AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
@@ -549,6 +550,7 @@ INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id 
   AND ep.location_id = loc.location_id
 WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('viewer','operator','admin','owner')
   AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'imap_smtp' AND ep.provider = 'imap_smtp'
+  AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false
   AND ep.channel = 'email' AND ep.auth_mode IS NULL AND ep.connector_mode IS NULL
   AND ep.mailbox_kind IS NULL AND ep.mailbox_access_kind IS NULL AND ep.binding_status IS NULL
   AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
@@ -557,6 +559,11 @@ WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('viewer','operat
   AND ev.provider_mailbox_id = ep.public_address
   AND c.email IS NOT NULL AND btrim(c.email) <> ''
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
+// Recovery may only inspect committed work or reconcile send_dispatched below.
+// Keep tenant/identity authorization, but do not treat it as a new-send admission.
+const PAUSE_ADMISSION_SQL = " AND COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) = false";
+const SQL_RESOLVE_RECOVERY = SQL_RESOLVE.replace(PAUSE_ADMISSION_SQL, '');
+const SQL_RESOLVE_SMTP_RECOVERY = SQL_RESOLVE_SMTP.replace(PAUSE_ADMISSION_SQL, '');
 const SQL_VISIBLE_EMAIL = `
 SELECT c.id::text AS conversation_id
 FROM conversations c
@@ -750,17 +757,17 @@ function createStaffEmailInboxRoutes(deps) {
     }
     return Object.freeze(auth);
   }
-  async function resolveAuthority(pg, actor, conversationId) {
-    const res = await pg.query(SQL_RESOLVE, [actor.client_id, actor.staff_user_id, conversationId]);
+  async function resolveAuthority(pg, actor, conversationId, recoveryOnly = false) {
+    const res = await pg.query(recoveryOnly ? SQL_RESOLVE_RECOVERY : SQL_RESOLVE, [actor.client_id, actor.staff_user_id, conversationId]);
     if (res && Array.isArray(res.rows) && res.rows.length === 1 && res.rows[0]) {
       return freezeAuthorityRow(res.rows[0]);
     }
-    const smtp = await pg.query(SQL_RESOLVE_SMTP, [actor.client_id, actor.staff_user_id, conversationId]);
+    const smtp = await pg.query(recoveryOnly ? SQL_RESOLVE_SMTP_RECOVERY : SQL_RESOLVE_SMTP, [actor.client_id, actor.staff_user_id, conversationId]);
     if (!smtp || !Array.isArray(smtp.rows) || smtp.rows.length !== 1 || !smtp.rows[0]) return null;
     return freezeAuthorityRow(smtp.rows[0]);
   }
-  async function resolveSendableAuthority(pg, actor, conversationId) {
-    const auth = await resolveAuthority(pg, actor, conversationId);
+  async function resolveSendableAuthority(pg, actor, conversationId, recoveryOnly = false) {
+    const auth = await resolveAuthority(pg, actor, conversationId, recoveryOnly);
     if (auth) return { auth };
     const visible = await pg.query(SQL_VISIBLE_EMAIL, [actor.client_id, conversationId]);
     if (visible && Array.isArray(visible.rows) && visible.rows.length === 1 && visible.rows[0]) {
@@ -1292,7 +1299,7 @@ function createStaffEmailInboxRoutes(deps) {
     }
     try {
       const result = await withPgClient(async (pg) => {
-        const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id);
+        const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id, true);
         if (!resolved.auth) return resolved;
         const auth = resolved.auth;
         const loaded = await pg.query(SQL_LOAD_APPROVAL, [input.approval_id, actor.client_id, input.conversation_id]);
@@ -1454,7 +1461,7 @@ module.exports = {
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, BODY_KEYS_UI, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_DELETE_DRAFT, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
+  SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_RESOLVE_RECOVERY, SQL_RESOLVE_SMTP_RECOVERY, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_DELETE_DRAFT, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailStaffDraftsEnabledForCaller, isEmailStaffOutboundEnabledForCaller, isEmailOutboundSendEnabledForCaller,

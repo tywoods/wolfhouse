@@ -168,9 +168,11 @@ ok('card gap is at least 14px',
   /\.portal-admin-email-card\{[^}]*gap:(1[4-9]|2[0-9])px/.test(emailCss));
 
 console.log('\n── 4. title-row status pills ──');
-ok('card head is a space-between row',
-  /\.portal-admin-email-card-head\{[^}]*display:flex/.test(emailCss)
-  && /\.portal-admin-email-card-head\{[^}]*justify-content:space-between/.test(emailCss));
+ok('card head reserves top-right for pause with status on its own row',
+  /\.portal-admin-email-card-head\{[^}]*display:grid/.test(emailCss)
+  && /\.portal-admin-email-card-head\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/.test(emailCss)
+  && /\.portal-admin-email-flow-toggle\{[^}]*grid-column:2;grid-row:1/.test(emailCss)
+  && /\.portal-admin-email-card-head \.portal-admin-email-status\{[^}]*grid-row:2/.test(emailCss));
 ok('owner paints card-head around title + pill',
   uiSrc.includes('portal-admin-email-card-head')
   && /card-head[\s\S]{0,240}card-title[\s\S]{0,240}adminEmailStatusPill/.test(uiSrc));

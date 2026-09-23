@@ -166,7 +166,8 @@ SELECT c.id::text AS conversation_id,
   ev.location_id::text AS event_location_id,
   loc.location_id AS location_key,
   ev.provider_mailbox_id AS provider_mailbox_id,
-  ep.provider_resource_id AS endpoint_provider_mailbox_id
+  ep.provider_resource_id AS endpoint_provider_mailbox_id,
+  COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) AS mail_flow_paused
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
   AND su.role IN ('viewer','operator','admin','owner')
@@ -197,7 +198,8 @@ SELECT c.id::text AS conversation_id,
   ev.location_id::text AS event_location_id,
   loc.location_id AS location_key,
   ev.provider_mailbox_id AS provider_mailbox_id,
-  ep.provider_resource_id AS endpoint_provider_mailbox_id
+  ep.provider_resource_id AS endpoint_provider_mailbox_id,
+  COALESCE((to_jsonb(ep)->>'mail_flow_paused')::boolean, false) AS mail_flow_paused
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
   AND su.role IN ('viewer','operator','admin','owner')
@@ -897,7 +899,7 @@ function createStaffEmailLunaDraftOpen(deps) {
 
   // BEGIN → SELECT conversation FOR UPDATE → separate claim/CAS UPDATE → COMMIT.
   // Snapshot of the UPDATE is acquired after the lock under READ COMMITTED.
-  async function lockThenWrite(actor, conversationId, expectedEventId, writeFn, lockSql) {
+  async function lockThenWrite(actor, conversationId, expectedEventId, writeFn, lockSql, requireUnpaused = false) {
     const sql = typeof lockSql === 'string' && lockSql
       ? lockSql
       : (actor && actor.client_slug === 'wolfhouse-somo'
@@ -918,7 +920,8 @@ function createStaffEmailLunaDraftOpen(deps) {
         const wolfhouseLock = row && row.location_key === 'wolfhouse-somo'
           && (row.provider === 'microsoft_graph' || row.provider === 'gmail_api' || row.provider === 'imap_smtp');
         const sunsetLock = row && row.provider === 'microsoft_graph' && row.location_key === 'sunset-somo';
-        if (!row || lockedEvent !== expectedEventId || !(wolfhouseLock || sunsetLock)) {
+        if (!row || lockedEvent !== expectedEventId || !(wolfhouseLock || sunsetLock)
+            || (requireUnpaused && row.mail_flow_paused === true)) {
           await rollbackOrDiscard(pg);
           settled = true;
           return null;
@@ -1039,6 +1042,7 @@ function createStaffEmailLunaDraftOpen(deps) {
           ]);
           return !!(wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1);
         },
+        undefined, true, // New admission only; shared completion/CAS remains allowed while paused.
       );
       if (!claimed) {
         const again = await loadOpenContext(actor, conversationId);
@@ -1196,6 +1200,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         actor && actor.client_slug === 'wolfhouse-somo'
           ? SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT_WOLFHOUSE
           : SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
+        true,
       );
       if (!claimed) {
         const again = await loadOpenContext(actor, conversationId);

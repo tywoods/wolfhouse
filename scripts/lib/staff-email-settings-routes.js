@@ -1,6 +1,8 @@
 'use strict';
 
 const registry = require('./email-tenant-channel-registry');
+const { EMAIL_PAUSE_PATH, isEmailPauseAvailable, SQL_SET_PAUSE } = require('./email-mailbox-pause');
+const { validateSameOrigin, validateJsonContentType } = require('./staff-email-inbox-routes');
 const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
 const imapSecretContract = require('./email-sunset-imap-secret-ref-contract');
 const wolfhouseTenant = require('./email-wolfhouse-tenant');
@@ -698,6 +700,8 @@ function endpointDto(row, grant, options) {
     connection_state: publicState(row, publicGrant),
     grant_status: publicGrant && publicGrant.grant_present ? publicGrant.grant_status : null,
     reconcile_state: publicGrant && publicGrant.grant_present ? publicGrant.reconcile_state : null,
+    mail_flow_paused: ownExactTrue(row, 'mail_flow_paused'),
+    pause_available: !!(options && options.pauseAvailable === true && publicState(row, publicGrant) === 'connected_health'),
     endpoint_active: ownExactTrue(row, 'active'),
     inbound_enabled: ownExactTrue(row, 'inbound_enabled'),
     outbound_enabled: ownExactTrue(row, 'outbound_enabled'),
@@ -1007,6 +1011,7 @@ function createEmailSettingsRoutes(deps) {
             atomicRow,
             reauthGateOn,
             disconnectGateOn,
+            pauseAvailable: isEmailPauseAvailable(runtimeEnv, tenantSlug) && SMTP_ALLOWED_ROLES.includes(user.role) && !!user.staff_user_id,
             lastSync,
           });
           if (dto.provider === 'imap_smtp' && dto.connection_state === 'disconnected') continue;
@@ -1295,7 +1300,35 @@ function createEmailSettingsRoutes(deps) {
     }
   }
 
-  return { handleGet, handlePost, handleVerifyPost, handleImapVerifyPost, handleDisconnectPost };
+  async function handlePausePost(body, req, res, user) {
+    const origin = validateSameOrigin(req, runtimeEnv);
+    if (!origin.ok) return deps.sendJSON(res, origin.status, origin.body);
+    const contentType = validateJsonContentType(req);
+    if (!contentType.ok) return deps.sendJSON(res, contentType.status, contentType.body);
+    const slug = body && body.client;
+    if (!isEmailPauseAvailable(runtimeEnv, slug)) return deps.sendJSON(res, 404, {success:false,error:'not_found'});
+    if (!user || !SMTP_ALLOWED_ROLES.includes(user.role) || !UUID_RE_CI.test(user.staff_user_id || '')) {
+      return deps.sendJSON(res, 403, {success:false,error:'forbidden'});
+    }
+    if (!deps.assertStaffClientAccess(user, slug, res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({clientSlug:slug,method:'POST',pathname:EMAIL_PAUSE_PATH,env:runtimeEnv});
+    if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || {success:false,error:'forbidden'});
+    if (!body || Array.isArray(body) || Object.keys(body).sort().join(',') !== 'client,endpoint_id,location_id,paused'
+        || typeof body.paused !== 'boolean' || typeof body.endpoint_id !== 'string' || !UUID_RE_CI.test(body.endpoint_id)
+        || typeof body.location_id !== 'string' || body.location_id.length > 100 || !LOCATION_SLUG_RE.test(body.location_id)) {
+      return deps.sendJSON(res, 400, {success:false,error:'invalid_request'});
+    }
+    try {
+      return await deps.withPgClient(async pg => {
+        const result = await pg.query(SQL_SET_PAUSE, [slug,body.location_id,body.endpoint_id,body.paused,user.staff_user_id]);
+        const row = result.rows && result.rows[0];
+        if (!row) return deps.sendJSON(res,404,{success:false,error:'not_found'});
+        return deps.sendJSON(res,200,{success:true,endpoint_id:row.endpoint_id,mail_flow_paused:row.mail_flow_paused});
+      });
+    } catch (_) { return deps.sendJSON(res,500,{success:false,error:'email_pause_unavailable'}); }
+  }
+
+  return { handleGet, handlePost, handleVerifyPost, handleImapVerifyPost, handleDisconnectPost, handlePausePost };
 }
 
 module.exports = {
