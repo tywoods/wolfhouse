@@ -308,7 +308,7 @@ function renderCustomerLinkedBookingsSection(data) {
 function wireCustomerLinkedBookingsActions() {
   document.querySelectorAll('.cust-booking-open-link').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      openBookingInCalendar({
+      inboxOpenBookingDrawerHere({
         booking_id: btn.dataset.bookingId || null,
         booking_code: btn.dataset.bookingCode || null,
         check_in: btn.dataset.checkIn || null,

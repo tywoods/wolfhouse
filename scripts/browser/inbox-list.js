@@ -284,7 +284,47 @@ function inboxThreadDayLabel(ts){
   }
 }
 
+function inboxConfirmationEventsFromBookings(bookings){
+  var events = [];
+  (bookings || []).forEach(function(b){
+    if (!b || !b.confirmation_sent_at) return;
+    var code = b.booking_code ? String(b.booking_code) : '';
+    events.push({
+      direction: 'outbound',
+      source: 'booking_confirmation',
+      confirmation_event: true,
+      message_text: code ? ('Booking confirmed · ' + code) : 'Booking confirmed',
+      created_at: b.confirmation_sent_at,
+    });
+  });
+  return events;
+}
+
+var inboxThreadConfirmationEvents = [];
+
+function inboxRememberConfirmationEvents(bookings){
+  inboxThreadConfirmationEvents = inboxConfirmationEventsFromBookings(bookings);
+}
+
+function inboxMergeConfirmationEvents(msgs){
+  var out = (msgs || []).slice();
+  (inboxThreadConfirmationEvents || []).forEach(function(ev){
+    var ts = String(ev.created_at || '');
+    var dup = out.some(function(m){
+      if (!m) return false;
+      if (m.confirmation_event || m.source === 'booking_confirmation') return String(m.created_at || '') === ts;
+      return false;
+    });
+    if (!dup) out.push(ev);
+  });
+  out.sort(function(a, b){
+    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  });
+  return out;
+}
+
 function renderInboxThreadMessagesHtml(msgs){
+  msgs = inboxMergeConfirmationEvents(msgs);
   var html = '';
   if (!msgs || !msgs.length){
     return '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
@@ -304,6 +344,7 @@ function renderInboxThreadMessagesHtml(msgs){
     }
     // Map hermes reply source to a short guest-facing sender label.
     if (dir === 'outbound' && m.source === 'hermes_luna_whatsapp_reply') sender = 'Luna';
+    if (m.source === 'booking_confirmation' || m.confirmation_event) sender = 'Confirmation';
     html += '<div class="' + msgClass + '">';
     html +=   '<div class="msg-bubble">' + formatInboxThreadBubbleHtml(m) + '</div>';
     html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));

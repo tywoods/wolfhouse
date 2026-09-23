@@ -1600,8 +1600,44 @@ function inboxCustomerSaveEdit(data) {
   });
 }
 
+function inboxBookingUsesScheduleDrawer(){
+  if (typeof isSunsetSurfActive === 'function' && isSunsetSurfActive()) return true;
+  if (typeof getClient === 'function' && getClient() === 'sunset') return true;
+  return false;
+}
+
+function inboxEnsureWolfhouseBookingDrawerOnBody(){
+  if (typeof document === 'undefined' || !document.body) return null;
+  var rail = typeof el === 'function' ? el('bc-side-drawer') : document.getElementById('bc-side-drawer');
+  if (rail && rail.parentNode !== document.body) document.body.appendChild(rail);
+  return rail;
+}
+
+function inboxOpenWolfhouseBookingDrawer(booking){
+  booking = booking || {};
+  var code = String(booking.booking_code || '').trim();
+  var rail = inboxEnsureWolfhouseBookingDrawerOnBody();
+  var blk = {
+    booking_id: booking.booking_id || null,
+    booking_code: code || null,
+    guest_name: booking.guest_name || booking.booking_guest_name || '',
+    check_in: booking.check_in || null,
+    check_out: booking.check_out || null,
+    start_date: booking.check_in ? String(booking.check_in).slice(0, 10) : null,
+    end_date: booking.check_out ? String(booking.check_out).slice(0, 10) : null,
+  };
+  if (typeof bcOpenSideBooking === 'function' && rail) {
+    bcOpenSideBooking(blk, { pin: true });
+    return true;
+  }
+  return false;
+}
+
 function inboxOpenBookingDrawerHere(booking) {
   booking = booking || {};
+  if (!inboxBookingUsesScheduleDrawer()) {
+    return inboxOpenWolfhouseBookingDrawer(booking);
+  }
   var drawerFn = (typeof window !== 'undefined' && typeof window.openScheduleDetailDrawer === 'function')
     ? window.openScheduleDetailDrawer
     : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
