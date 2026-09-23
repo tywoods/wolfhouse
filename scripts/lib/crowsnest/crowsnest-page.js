@@ -63,7 +63,7 @@ function renderMetaChip(label, value) {
   return `<span class="meta-chip"><span class="meta-chip-label">${escapeHtml(label)}</span><span class="meta-chip-value">${escapeHtml(value)}</span></span>`;
 }
 
-function formatPortalCheckedAt(iso, nowMs = Date.now()) {
+function formatPortalRelativeTime(iso, nowMs = Date.now()) {
   const raw = String(iso || '').trim();
   if (!raw) return '';
   const then = Date.parse(raw);
@@ -89,7 +89,15 @@ function portalEnvironmentKey(env) {
 
 function portalEvidenceDetail(client, env, portalEvidence) {
   const byClient = portalEvidence && client ? portalEvidence[client.id] : null;
-  if (!byClient || !env) return { availability: 'Unknown', checkedAt: null };
+  if (!byClient || !env) {
+    return {
+      availability: 'Unknown',
+      deployUpdatedAt: null,
+      deployRevisionShort: null,
+      deployImageTag: null,
+      deployRevision: null,
+    };
+  }
 
   const envKey = portalEnvironmentKey(env);
   const detail = envKey && byClient[envKey] && typeof byClient[envKey] === 'object'
@@ -97,16 +105,40 @@ function portalEvidenceDetail(client, env, portalEvidence) {
     : null;
   if (detail && detail.availability != null) {
     const availability = String(detail.availability || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown';
-    const checkedAt = detail.checked_at ? String(detail.checked_at) : null;
-    return { availability, checkedAt };
+    return {
+      availability,
+      deployUpdatedAt: detail.deploy_updated_at ? String(detail.deploy_updated_at) : null,
+      deployRevisionShort: detail.deploy_revision_short ? String(detail.deploy_revision_short) : null,
+      deployImageTag: detail.deploy_image_tag ? String(detail.deploy_image_tag) : null,
+      deployRevision: detail.deploy_revision ? String(detail.deploy_revision) : null,
+    };
   }
 
   // Slice A URL-keyed compatibility seam (availability string only).
   const raw = env.url ? byClient[env.url] : '';
   return {
     availability: String(raw || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown',
-    checkedAt: null,
+    deployUpdatedAt: null,
+    deployRevisionShort: null,
+    deployImageTag: null,
+    deployRevision: null,
   };
+}
+
+function renderPortalDeployMeta(detail) {
+  if (!detail) return '';
+  const relative = formatPortalRelativeTime(detail.deployUpdatedAt);
+  if (!relative) return '';
+  const rev = String(detail.deployRevisionShort || detail.deployImageTag || '').trim();
+  const titleParts = [];
+  if (detail.deployRevision) titleParts.push(String(detail.deployRevision));
+  if (detail.deployUpdatedAt) titleParts.push(`created ${detail.deployUpdatedAt}`);
+  if (detail.deployImageTag) titleParts.push(`image ${detail.deployImageTag}`);
+  const title = titleParts.join(' · ') || String(detail.deployUpdatedAt);
+  const label = rev
+    ? `Updated ${relative} · ${rev}`
+    : `Updated ${relative}`;
+  return `<span class="env-updated" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
 }
 
 function renderClientStatusDot(status) {
@@ -135,19 +167,16 @@ function renderEnvironmentRow(env, evidence) {
   const note = env.note ? `<p class="env-note">${escapeHtml(env.note)}</p>` : '';
   const detail = evidence && typeof evidence === 'object' && !Array.isArray(evidence)
     ? evidence
-    : { availability: evidence || 'unknown', checkedAt: null };
+    : { availability: evidence || 'unknown' };
   const envStatus = detail.availability || 'unknown';
-  const checkedLabel = formatPortalCheckedAt(detail.checkedAt);
-  const checkedMeta = checkedLabel
-    ? `<span class="env-checked" title="${escapeHtml(String(detail.checkedAt))}">Checked ${escapeHtml(checkedLabel)}</span>`
-    : '';
+  const deployMeta = renderPortalDeployMeta(detail);
 
   return `<li class="env-row ${stateClass}">
       <div class="env-row-main">
         <div class="env-row-head">
           <span class="env-row-head-title">
             <span class="env-label">${escapeHtml(env.label)}</span>
-            ${checkedMeta}
+            ${deployMeta}
           </span>
           ${renderStatusPill(envStatus)}
         </div>
@@ -1137,7 +1166,8 @@ html[data-theme="dark"] .status-dot{box-shadow:0 0 0 2px rgba(0,0,0,.35)}
   font-weight:700;
   color:var(--navy);
 }
-.env-checked{
+.env-checked,
+.env-updated{
   font-size:11px;
   font-weight:650;
   color:var(--text-3);

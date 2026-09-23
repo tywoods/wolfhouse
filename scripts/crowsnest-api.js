@@ -16,6 +16,13 @@ const { getCrowsnestClients } = require('./lib/crowsnest/crowsnest-clients');
 const { collectClientConnectionStatuses } = require('./lib/crowsnest/crowsnest-client-status');
 const { createCrowsnestClientPortalEvidenceCollector, CLIENT_PORTAL_SOURCES } = require('./lib/crowsnest/crowsnest-client-portal-evidence');
 const collectClientPortalEvidence = createCrowsnestClientPortalEvidenceCollector();
+const {
+  createCrowsnestClientPortalDeployCollector,
+  mergePortalDeployIntoEvidence,
+} = require('./lib/crowsnest/crowsnest-client-portal-deploy');
+const collectClientPortalDeploy = createCrowsnestClientPortalDeployCollector({
+  transport: typeof fetch === 'function' ? fetch : undefined,
+});
 
 function validateCrowsnestDirectoryBuild(value, now = Date.now()) {
   if (!value || typeof value.sha !== 'string' || !/^[a-f0-9]{40}$/.test(value.sha)
@@ -1502,6 +1509,14 @@ async function handleProtectedUi(req, res, method, pathname) {
       for (const source of CLIENT_PORTAL_SOURCES) {
         const evidence = pageOptions.portalEvidence[source.client];
         evidence[source.origin] = evidence[source.environment].availability;
+      }
+      // Deploy age (ACA active revision createdTime) — separate from healthz.
+      // Fail-soft: missing MI/config/RBAC leaves deploy_* null (no "Checked" fallback).
+      try {
+        const deployEvidence = await collectClientPortalDeploy(getCrowsnestClients());
+        mergePortalDeployIntoEvidence(pageOptions.portalEvidence, deployEvidence);
+      } catch (_) {
+        // Keep availability evidence; omit Updated meta.
       }
       pageOptions.directoryBuild = directoryBuild;
     }

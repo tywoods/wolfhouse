@@ -331,6 +331,8 @@ const CROWSNEST_LIB_DIR = path.join(ROOT, 'scripts', 'lib', 'crowsnest');
 const CROWSNEST_OUTBOUND_ALLOWLIST = new Set([
   // Slice B: dedicated Azure Container Apps Job-start adapter (injected fetch only).
   'crowsnest-spyglass-refresh-azure-job-start.js',
+  // Clients portal deploy-age reader (injected fetch + MI ARM GET only).
+  'crowsnest-client-portal-deploy.js',
   // Live Simulator UI uses browser fetch to the same-origin Crowsnest proxy only.
   'crowsnest-page.js',
 ]);

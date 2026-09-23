@@ -223,11 +223,33 @@ async function main() {
     view: 'clients',
     portalEvidence: {
       'sunset-somo': {
-        staging: { availability: 'live', checked_at: '2026-01-01T00:00:00.000Z', source_kind: 'staff_healthz', reason: 'canonical_healthz_ok' },
+        staging: {
+          availability: 'live',
+          checked_at: '2026-01-01T00:00:00.000Z',
+          source_kind: 'staff_healthz',
+          reason: 'canonical_healthz_ok',
+          deploy_updated_at: '2026-01-01T00:00:00.000Z',
+          deploy_revision: 'luna-sunset-staging-staff-api--0000266',
+          deploy_revision_short: '--0000266',
+          deploy_image_tag: '18630741',
+          deploy_source_kind: 'azure_aca_revision',
+          deploy_reason: 'active_revision_ok',
+        },
         'https://sunset-staging.lunafrontdesk.com': 'live',
       },
       'wolfhouse-somo': {
-        production: { availability: 'live', checked_at: '2026-01-01T00:05:00.000Z', source_kind: 'staff_healthz', reason: 'canonical_healthz_ok' },
+        production: {
+          availability: 'live',
+          checked_at: '2026-01-01T00:05:00.000Z',
+          source_kind: 'staff_healthz',
+          reason: 'canonical_healthz_ok',
+          deploy_updated_at: '2026-01-01T00:05:00.000Z',
+          deploy_revision: 'wh-prod-staff-api--0000002',
+          deploy_revision_short: '--0000002',
+          deploy_image_tag: 'a1b2c3d4',
+          deploy_source_kind: 'azure_aca_revision',
+          deploy_reason: 'active_revision_ok',
+        },
         'https://wolfhouse.lunafrontdesk.com': 'live',
       },
     },
@@ -238,16 +260,18 @@ async function main() {
   const wolfhouseProduction = envRow(clientCard(evidenced, 'Wolfhouse Somo'), 'Staff production');
   assert.match(sunsetStaging, /pill--success/);
   assert.match(sunsetStaging, />Live</);
-  assert.match(sunsetStaging, /class="env-checked"/);
-  assert.match(sunsetStaging, /title="2026-01-01T00:00:00\.000Z"/);
-  assert.match(sunsetStaging, /Checked /);
+  assert.match(sunsetStaging, /class="env-updated"/);
+  assert.match(sunsetStaging, /Updated /);
+  assert.match(sunsetStaging, /--0000266/);
+  assert.doesNotMatch(sunsetStaging, /Checked /);
+  assert.doesNotMatch(sunsetStaging, /class="env-checked"/);
   assert.match(sunsetStaging, /target="_blank" rel="noopener noreferrer"/);
   assert.match(sunsetProduction, />Unknown</);
   assert.doesNotMatch(sunsetProduction, /pill--success/);
-  assert.doesNotMatch(sunsetProduction, /class="env-checked"/);
+  assert.doesNotMatch(sunsetProduction, /class="env-updated"/);
   assert.match(wolfhouseProduction, /pill--success/);
   assert.match(wolfhouseProduction, />Live</);
-  assert.match(wolfhouseProduction, /title="2026-01-01T00:05:00\.000Z"/);
+  assert.match(wolfhouseProduction, /--0000002/);
   assert.match(wolfhouseStaging, />Unknown</);
   assert.doesNotMatch(wolfhouseStaging, />Live</);
   assert.match(sunsetStaging, />Staff staging</);

@@ -8,10 +8,17 @@ explicitly admits both listed Staff production origins under the staging fences.
 The authenticated GET `/clients` passes:
 
 - `options.portalEvidence[client.id][environment]`, where environment is `staging`
-  or `production`, contains `{ availability, checked_at, source_kind, reason }`.
-  Availability is `live` or `unknown`. `checked_at` is an ISO UTC observation
-  timestamp, or `null` for a source that was not read. Reasons are bounded codes,
-  never upstream diagnostics or response bodies.
+  or `production`, contains `{ availability, checked_at, source_kind, reason, … }`.
+  Availability is `live` or `unknown`. `checked_at` is an ISO UTC **healthz**
+  observation timestamp (probe time), or `null` for a source that was not read.
+  Reasons are bounded codes, never upstream diagnostics or response bodies.
+- Deploy-age fields (merged from the Azure ACA revision reader; never from
+  healthz):
+  - `deploy_updated_at` — active revision `properties.createdTime`
+  - `deploy_revision` / `deploy_revision_short` — full and short revision name
+  - `deploy_image_tag` — short image tag when present
+  - `deploy_source_kind` — `azure_aca_revision` or `none`
+  - `deploy_reason` — bounded code (`active_revision_ok`, `portal_deploy_config_absent`, …)
 - Compatibility with Slice A's URL-keyed seam: the **same**
   `portalEvidence[client.id][admittedOrigin]` contains the availability string.
   This alias is produced only from the admitted-source registry, including the
@@ -20,17 +27,37 @@ The authenticated GET `/clients` passes:
   `sha` is the full 40-character lowercase commit SHA; `built_at` is canonical
   ISO UTC. Both are required to consider the stamp available.
 
-Renderer integration required before release (not implemented by B's allowlist):
+Renderer rules:
 
-- Use environment-keyed observations for **Last checked**, not **Last updated**.
-- Show **Last updated: [UTC build timestamp] · Directory version [short SHA]**,
-  qualified accessibly as **Crow's Nest directory build**. Null means unavailable;
-  never substitute request time or another service's release time.
-- Clients safety copy must acknowledge bounded public Staff health reads:
-  **Staff service reachable; not a check of login, bookings or integrations.**
-  Do not retain the old claim that this route performs no health checks.
+- Staff portal title row shows **Updated …** from `deploy_updated_at` (plus short
+  revision / image tag when present). This is **last deploy / revision create**,
+  not healthz probe time.
+- **Do not** render healthz `checked_at` as “Checked …” next to Staff portal titles.
+- Null deploy fields omit the Updated meta (fail soft when MI/config/RBAC absent);
+  never invent timestamps or substitute Crow’s Nest `directoryBuild` for a Staff
+  portal’s deploy age.
+- Clients safety copy may acknowledge bounded public Staff health reads for the
+  Live/Unknown pill only.
 - Preserve staging connection evidence as a separate block. Portal liveness
   never upgrades Luna/WhatsApp/Email/Stripe integration states.
+
+## Staff portal deploy-age source
+
+Crow’s Nest reads Azure Container Apps **active revision** metadata over ARM
+(managed identity), for the same four admitted portal origins:
+
+| Client | Environment | Container App | Resource group |
+| --- | --- | --- | --- |
+| `wolfhouse-somo` | staging | `wh-staging-staff-api` | `wh-staging-rg` |
+| `sunset-somo` | staging | `luna-sunset-staging-staff-api` | `luna-sunset-staging-rg` |
+| `wolfhouse-somo` | production | `wh-prod-staff-api` | `wh-prod-rg` |
+| `sunset-somo` | production | `luna-sunset-staging-staff-api` | `luna-sunset-staging-rg` |
+
+Sunset production currently CNAMEs onto the Sunset staging Container App; the
+lock matches that measured identity. Requires
+`CROWSNEST_PORTAL_DEPLOY_AZURE_SUBSCRIPTION_ID` plus Container Apps
+`IDENTITY_ENDPOINT` / `IDENTITY_HEADER`, and Reader on those apps. Missing
+config fails soft (no Updated line).
 
 B is rebased on master after Slice A (#1131). No Slice A files are changed by B.
 The B verifier proves acquisition, authorization and page-option handoff using
@@ -84,6 +111,7 @@ Staff/Luna-only releases and filesystem mtime are not metadata sources.
 
 ```sh
 node scripts/verify-crowsnest-client-portal-evidence.js
+node scripts/verify-crowsnest-client-portal-deploy.js
 node scripts/verify-crowsnest.js
 node scripts/verify-crowsnest-client-status-chips.js
 node scripts/verify-crowsnest-auth.js
