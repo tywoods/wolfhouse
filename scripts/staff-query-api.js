@@ -22338,13 +22338,15 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   }
   html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > .inbox-conv-search-wrap.is-inbox-mobile-order{
     order:2;grid-row:2;position:relative;z-index:35;align-self:stretch;
-    width:100%;max-width:100%;margin:0!important;flex-shrink:0;
-    background:var(--cream,var(--bg));box-sizing:border-box;
+    width:100%;max-width:100%;margin:0 0 14px!important;flex-shrink:0;
+    padding:8px 10px 8px!important;box-sizing:border-box;
+    background:var(--cream,var(--bg));
   }
   html:not([data-portal-client]) #tab-conversations #inbox-shell:not(.show-thread) > .inbox-conv-search-wrap.is-inbox-mobile-order{
     order:2;grid-row:2;position:relative;z-index:35;align-self:stretch;
-    width:100%;max-width:100%;margin:0!important;flex-shrink:0;
-    background:var(--cream,var(--bg));box-sizing:border-box;
+    width:100%;max-width:100%;margin:0 0 14px!important;flex-shrink:0;
+    padding:8px 10px 8px!important;box-sizing:border-box;
+    background:var(--cream,var(--bg));
   }
   html[data-portal-client="sunset"] #tab-conversations #inbox-shell:not(.show-thread) > #inbox-card{
     order:3;grid-row:3;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-self:stretch;
@@ -22452,34 +22454,40 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     background:var(--surface)!important;border:1px solid var(--border-soft)!important;border-bottom:0!important;
     border-radius:10px 10px 0 0;padding-top:8px!important;box-shadow:var(--shadow-soft);
   }
-  /* Integrated Chats|Guests tabs (segmented track, not two fat buttons). */
+  /* Classic Chats|Guests folder tabs (sit on icon-filter card — not fat segmented buttons). */
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{
-    padding:2px;gap:0;align-items:stretch;
-    background:var(--surface-soft,#1c1c1c);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
-    border-radius:10px 10px 0 0;
+    padding:0;gap:0;align-items:flex-end;
+    background:transparent;border:0;border-bottom:0;
+    border-radius:0;margin:0;
   }
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{
-    padding:2px;gap:0;align-items:stretch;
-    background:var(--surface-soft,#1c1c1c);border:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);
-    border-radius:10px 10px 0 0;
+    padding:0;gap:0;align-items:flex-end;
+    background:transparent;border:0;border-bottom:0;
+    border-radius:0;margin:0;
   }
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
-    min-height:34px;height:34px;margin:0;padding:0 10px;font-size:13px;font-weight:600;
-    border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--text-2);
+    min-height:40px;height:auto;margin:0 2px 0 0;padding:8px 10px;font-size:15px;font-weight:500;
+    border:1px solid var(--border-soft);border-bottom:none;
+    border-radius:10px 10px 0 0;background:var(--surface-soft,#2a2a2b);box-shadow:none;color:var(--text-2);
   }
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
-    min-height:34px;height:34px;margin:0;padding:0 10px;font-size:13px;font-weight:600;
-    border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--text-2);
+    min-height:40px;height:auto;margin:0 2px 0 0;padding:8px 10px;font-size:15px;font-weight:500;
+    border:1px solid var(--border-soft);border-bottom:none;
+    border-radius:10px 10px 0 0;background:var(--surface-soft,#2a2a2b);box-shadow:none;color:var(--text-2);
   }
+  html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child,
+  html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child{margin-right:0}
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
-    background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC);border:0;
+    background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC);border-color:var(--inbox-forest,var(--primary));
+    font-weight:600;z-index:2;margin-bottom:-1px;
   }
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
   html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
-    background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC);border:0;
+    background:var(--inbox-forest,var(--primary));color:var(--cream,#F2F1EC);border-color:var(--inbox-forest,var(--primary));
+    font-weight:600;z-index:2;margin-bottom:-1px;
   }
-  /* Slim quiet back control. */
+  /* Slim quiet back control (list / non-relocated). */
   #tab-conversations .inbox-mobile-back,
   #inbox-shell .inbox-mobile-back{
     display:inline-flex;align-items:center;gap:4px;width:auto;max-width:100%;
@@ -22489,24 +22497,56 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations .inbox-mobile-back:hover,
   #inbox-shell .inbox-mobile-back:hover{background:transparent;color:var(--text)}
   /* Compact conversation action row — wrap within viewport; never h-scroll off-screen. */
+  /* SHARED-PHONE-INBOX-HEADER-004: name+tag | WA/Email on one row; actions on one row. */
   #tab-conversations #inbox-shell.show-thread .detail-header{
-    flex-wrap:wrap;align-items:flex-start;gap:4px 6px;padding:2px 0 4px;margin-bottom:2px;
-    max-width:100%;overflow-x:hidden;box-sizing:border-box;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:auto auto;
+    align-items:start;
+    gap:6px 8px;
+    padding:10px 14px!important;
+    margin:0 0 6px;
+    max-width:100%;
+    overflow-x:hidden!important;
+    box-sizing:border-box;
   }
   #tab-conversations #inbox-shell.show-thread .detail-header-main{
-    flex:1 1 auto;min-width:0;padding:0;
+    grid-column:1;grid-row:1;flex:unset;min-width:0;padding:0;overflow:hidden;
   }
   #tab-conversations #inbox-shell.show-thread .detail-name{font-size:15px;line-height:1.2}
   #tab-conversations #inbox-shell.show-thread .detail-meta{font-size:11px;margin-top:1px}
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
-    flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;
-    width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow-x:hidden;
+  #tab-conversations #inbox-shell.show-thread .detail-header-right{
+    display:contents!important;
   }
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
-  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
+    display:contents!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel{
+    grid-column:2;grid-row:1;
+    display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;justify-content:flex-end;
+    gap:4px;flex:0 0 auto;min-width:0;max-width:none;overflow-x:hidden;margin:0;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{
+    grid-column:1 / -1;grid-row:2;
     display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;
-    gap:4px;flex:1 1 auto;min-width:0;max-width:100%;
+    gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;
+  }
+  /* DOM cook order wins: ← Spam Clear Delete refresh Luna — kill desktop order:* reshuffles. */
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna > *,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #inbox-chat-chrome-slot,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-spam,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-clear-thread,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-conv-delete,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-refresh{
+    order:0!important;
+  }
+  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot,
+  #tab-conversations #inbox-shell.show-thread .detail-header-switches{
+    display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;
+    flex:0 0 auto;min-width:0;max-width:100%;width:auto;justify-content:flex-start;
+  }
+  #tab-conversations #inbox-shell.show-thread .sidebar-expand-btn{
+    display:none!important;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-composer-channel-btn{
     min-height:28px;min-width:28px;padding:2px 6px;font-size:0;gap:0;
@@ -22528,36 +22568,30 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations #inbox-shell.show-thread #btn-inbox-spam,
   #tab-conversations #inbox-shell.show-thread #btn-inbox-clear-thread,
   #tab-conversations #inbox-shell.show-thread #btn-inbox-conv-delete{
-    min-height:28px;padding:2px 6px;font-size:10px;
+    min-height:28px;padding:2px 6px;font-size:10px;flex:0 0 auto;
   }
-  #tab-conversations #inbox-shell.show-thread .detail-header-right{
-    flex:1 1 100%;width:100%;max-width:100%;min-width:0;gap:4px;margin-top:2px;
-    overflow-x:hidden;box-sizing:border-box;
-  }
-  /* Action row must fit ~390px — wrap/shrink, never horizontal scroll or clip off-screen. */
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
-    flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px;
-    width:100%;max-width:100%;min-width:0;box-sizing:border-box;
-    overflow-x:hidden;overflow-y:visible;
-  }
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
-  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{
-    display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;
-    gap:4px;flex:1 1 auto;min-width:0;max-width:100%;
-  }
-  #tab-conversations #inbox-shell.show-thread .sidebar-expand-btn,
   #tab-conversations #inbox-shell.show-thread #btn-refresh{
     width:28px;height:28px;min-width:28px;min-height:28px;padding:0;flex:0 0 auto;
   }
-  /* Slim quiet back — shrink-wrap, not a full-width banner. */
+  /* Slim quiet back — sits in the action row (not a solo banner). */
   #tab-conversations .inbox-mobile-back,
-  #inbox-shell .inbox-mobile-back{
-    display:inline-flex!important;align-items:center;gap:4px;
-    width:max-content!important;max-width:100%;align-self:flex-start;
-    min-height:28px;padding:2px 0;margin:0 0 2px;border:0;border-bottom:0;
-    background:transparent;color:var(--text-2);font-size:13px;font-weight:500;line-height:1.2;
+  #inbox-shell .inbox-mobile-back,
+  #tab-conversations #inbox-shell.show-thread #inbox-header-luna-row > .inbox-mobile-back{
+    display:inline-flex!important;align-items:center;justify-content:center;gap:0;
+    width:28px!important;min-width:28px;max-width:28px;height:28px;min-height:28px;
+    padding:0;margin:0;border:1px solid var(--border-soft);border-radius:8px;
+    background:var(--surface-soft);color:var(--text-2);font-size:14px;font-weight:600;line-height:1;
+    flex:0 0 auto;align-self:center;
   }
+  #tab-conversations #inbox-shell.show-thread #inbox-header-luna-row > .inbox-mobile-back{
+    /* Icon-only affordance in the action cluster. */
+    font-size:0;overflow:hidden;
+  }
+  #tab-conversations #inbox-shell.show-thread #inbox-header-luna-row > .inbox-mobile-back::before{
+    content:"\\2190";font-size:14px;line-height:1;color:inherit;
+  }
+  #tab-conversations .inbox-mobile-back:hover,
+  #inbox-shell .inbox-mobile-back:hover{background:var(--surface);color:var(--text)}
   /* Reply row stays one line; free vertical space for transcript. */
   #tab-conversations #inbox-shell.show-thread .draft-panel{margin-top:4px;padding-top:4px}
   #tab-conversations #inbox-shell.show-thread #draft-textarea{
@@ -22612,20 +22646,85 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     border-radius:10px 10px 0 0;font-size:11px;font-weight:700;letter-spacing:.04em;
     box-shadow:var(--shadow-soft);
   }
+  /* Title-only dock: never show lock (or any panel chrome) on the slim tab. */
+  #tab-conversations #inbox-shell .is-inbox-mobile-docked .inbox-autonomy-bottom-tab .channelAutonomyLock,
+  #tab-conversations #inbox-shell .is-inbox-mobile-docked .inbox-autonomy-bottom-tab .channelAutonomyToolbar{
+    display:none!important;
+  }
   #tab-conversations #inbox-shell.show-thread > .is-inbox-mobile-docked:not(.is-autonomy-open){
     order:unset;grid-row:auto;align-items:center;justify-content:center;
     max-height:calc(44px + env(safe-area-inset-bottom,0px));
     background:transparent!important;border:0!important;box-shadow:none!important;padding-top:0!important;
   }
-  #tab-conversations #inbox-shell.show-thread .detail-header{
-    flex-wrap:wrap!important;max-width:100%;overflow-x:hidden!important;box-sizing:border-box;
+  /* SHARED-PHONE-INBOX-SEARCH-004: gap between search and first chat row (any stamp). */
+  #tab-conversations #inbox-shell:not(.show-thread) > .inbox-conv-search-wrap.is-inbox-mobile-order{
+    padding:8px 10px 8px!important;margin:0 0 14px!important;box-sizing:border-box;
   }
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna,
-  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot,
-  #tab-conversations #inbox-shell.show-thread .detail-header-right{
-    flex-wrap:wrap!important;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;
+  /* SHARED-PHONE-INBOX-FOLDER-TABS-004: classic folder tabs for every portal-client stamp. */
+  #tab-conversations .inbox-col1 > .inbox-folder-tabs{
+    display:flex!important;flex-direction:row;align-items:flex-end;gap:0;
+    width:100%;margin:0;padding:0;background:transparent!important;border:0!important;
+    border-radius:0!important;position:relative;z-index:2;
+  }
+  #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+    flex:1 1 0;min-width:0;min-height:40px!important;height:auto!important;
+    margin:0 2px 0 0!important;padding:8px 10px!important;font-size:15px!important;font-weight:500;
+    border:1px solid var(--border-soft)!important;border-bottom:none!important;
+    border-radius:10px 10px 0 0!important;background:var(--surface-soft,#2a2a2b)!important;
+    box-shadow:none!important;color:var(--text-2)!important;
+  }
+  #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child{margin-right:0!important}
+  #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+  #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+    background:var(--inbox-forest,var(--primary))!important;color:var(--cream,#F2F1EC)!important;
+    border-color:var(--inbox-forest,var(--primary))!important;font-weight:600;z-index:2;margin-bottom:-1px!important;
+  }
+  html[data-theme="dark"] #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+  html[data-theme="dark"] #tab-conversations .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+    background:var(--inbox-forest,var(--staff-green-bg,#1e3a28))!important;
+    color:var(--staff-green-text,#c8dcc8)!important;
+    border-color:var(--inbox-forest,var(--staff-green-bg,#1e3a28))!important;
+  }
+  #tab-conversations .inbox-col1 > .inbox-views-rail{
+    border-top-left-radius:0;border-top-right-radius:0;margin-top:0;
+  }
+  /* SHARED-PHONE-INBOX-HEADER-004: keep grid header for every stamp (do not reinstate stacked wrap). */
+  #tab-conversations #inbox-shell.show-thread .detail-header{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:auto auto;
+    align-items:start;
+    gap:6px 8px;
+    padding:10px 14px!important;
+    max-width:100%;
+    overflow-x:hidden!important;
+    box-sizing:border-box;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-header-right,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
+    display:contents!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel{
+    grid-column:2;grid-row:1;
+    display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;justify-content:flex-end;
+    gap:4px;overflow-x:hidden;max-width:100%;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{
+    grid-column:1 / -1;grid-row:2;
+    display:flex!important;flex-direction:row;flex-wrap:wrap!important;align-items:center;justify-content:flex-start;
+    gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna > *,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #inbox-chat-chrome-slot,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-spam,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-clear-thread,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-conv-delete,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-refresh{
+    order:0!important;
+  }
+  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{
+    display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;
+    flex:0 0 auto;min-width:0;max-width:100%;overflow-x:hidden;
   }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */

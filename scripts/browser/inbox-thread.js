@@ -743,11 +743,18 @@ function inboxCookSelectedConversationHeaderActions(){
   var row = typeof document !== 'undefined' ? document.getElementById('inbox-header-luna-row') : null;
   if (!row) return row;
   var chrome = typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null;
+  var spam = typeof document !== 'undefined' ? document.getElementById('btn-inbox-spam') : null;
   var clearBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null;
+  var deleteBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-conv-delete') : null;
   var refresh = inboxRefreshBtn();
-  if (chrome) row.appendChild(chrome);
+  var back = typeof document !== 'undefined' ? document.getElementById('inbox-mobile-back') : null;
+  /* Phone action row order: ←, Spam, Clear, Delete, refresh, Luna On/Off. */
+  if (back) row.appendChild(back);
+  if (spam) row.appendChild(spam);
   if (clearBtn) row.appendChild(clearBtn);
+  if (deleteBtn) row.appendChild(deleteBtn);
   if (refresh) row.appendChild(refresh);
+  if (chrome) row.appendChild(chrome);
   return row;
 }
 

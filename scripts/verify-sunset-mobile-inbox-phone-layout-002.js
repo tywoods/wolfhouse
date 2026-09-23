@@ -5,8 +5,9 @@
  * SUNSET-MOBILE-INBOX-PHONE-LAYOUT-002
  * Phone Inbox (~390px): Autonomy docked to viewport bottom + safe-area;
  * default CLOSED on list and chat (slim bottom tab only until opened);
- * Chats|Guests as integrated segmented tabs; search pinned under filter chrome;
- * slim quiet back; conversation action row wraps within viewport (no h-scroll);
+ * lock is panel content (own pill), never on the slim dock title;
+ * Chats|Guests as classic folder tabs; search pinned with padding under filters;
+ * name+tag | WA/Email on one row; action row (← Spam Clear Delete refresh Luna);
  * taller transcript.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
@@ -60,11 +61,40 @@ ok(
     phoneCss.includes('overflow-y:auto!important')
 );
 ok(
-  'Chats|Guests use integrated segmented tabs (no fat button margin)',
-  phoneCss.includes('padding:2px') &&
-    phoneCss.includes('min-height:34px') &&
-    phoneCss.includes('margin:0') &&
-    phoneCss.includes('border-radius:8px')
+  'search has vertical padding gap before the chat list',
+  phoneCss.includes('SHARED-PHONE-INBOX-SEARCH-004') &&
+    /inbox-conv-search-wrap\.is-inbox-mobile-order\{[^}]*margin:0 0 14px!important/.test(phoneCss)
+);
+ok(
+  'Chats|Guests use classic folder tabs (not fat segmented buttons)',
+  phoneCss.includes('SHARED-PHONE-INBOX-FOLDER-TABS-004') &&
+    phoneCss.includes('border-radius:10px 10px 0 0') &&
+    phoneCss.includes('align-items:flex-end') &&
+    phoneCss.includes('border-bottom:none') &&
+    !/SHARED-PHONE-INBOX-FOLDER-TABS-004[\s\S]*padding:2px/.test(phoneCss.slice(phoneCss.indexOf('SHARED-PHONE-INBOX-FOLDER-TABS-004')))
+);
+ok(
+  'Autonomy lock is panel pill, not dock title',
+  (() => {
+    const fn = shell.slice(
+      shell.indexOf('function inboxShellChannelDefaultsHtml'),
+      shell.indexOf('function inboxShellChannelDefaultsHtml') + 1200
+    );
+    const headAt = fn.indexOf('channelAutonomyHead');
+    const toolbarAt = fn.indexOf('channelAutonomyToolbar');
+    const lockAt = fn.indexOf('id="inbox-autonomy-lock"');
+    return (
+      fn.includes('channelAutonomyLockLabel') &&
+      headAt >= 0 &&
+      toolbarAt > headAt &&
+      lockAt > toolbarAt
+    );
+  })()
+);
+ok(
+  'phone CSS hides lock on slim Autonomy tab',
+  phoneCss.includes('.inbox-autonomy-bottom-tab .channelAutonomyLock') &&
+    phoneCss.includes('channelAutonomyToolbar')
 );
 ok(
   'slim quiet back control',
@@ -103,18 +133,40 @@ ok(
     /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
 );
 ok(
-  'action row wraps with overflow-x:hidden (no horizontal scrollbar)',
-  phoneCss.includes('.inbox-header-stack') &&
-    phoneCss.includes('flex-wrap:wrap') &&
+  'SHARED-PHONE-INBOX-HEADER-004 grid: name row + action wrap (no h-scroll)',
+  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-004') &&
+    phoneCss.includes('display:grid!important') &&
+    phoneCss.includes('grid-template-columns:minmax(0,1fr) auto') &&
+    phoneCss.includes('display:contents!important') &&
     phoneCss.includes('overflow-x:hidden') &&
-    !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss) &&
-    !/inbox-header-stack\{[^}]*flex-wrap:nowrap/.test(phoneCss)
+    phoneCss.includes('flex-wrap:wrap') &&
+    !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss)
 );
 ok(
   'JS defaults Autonomy closed on list and chat phone dock',
   shell.includes('inboxShellAutonomyPhoneDocked') &&
     shell.includes('Default closed on list AND chat') &&
     /data-autonomy-keep-open/.test(shell)
+);
+ok(
+  'JS cooks phone action row order (back, spam, clear, delete, refresh, luna)',
+  (() => {
+    const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
+    const cook = threadSrc.slice(
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 1200
+    );
+    return (
+      /row\.appendChild\(back\)/.test(cook) &&
+      /row\.appendChild\(spam\)/.test(cook) &&
+      /row\.appendChild\(clearBtn\)/.test(cook) &&
+      /row\.appendChild\(deleteBtn\)/.test(cook) &&
+      /row\.appendChild\(refresh\)/.test(cook) &&
+      /row\.appendChild\(chrome\)/.test(cook) &&
+      cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(spam)') &&
+      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(chrome)')
+    );
+  })()
 );
 ok(
   'desktop 901 guest block was not rewritten',
@@ -129,10 +181,13 @@ async function measureList(page) {
     const chats = document.querySelector('.inbox-folder-tab[data-inbox-preset="all4"], .inbox-folder-tab[data-view="full"]');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const autoTab = autonomy && autonomy.querySelector('.inbox-autonomy-bottom-tab');
+    const lock = autonomy && autonomy.querySelector('#inbox-autonomy-lock, .channelAutonomyLock');
+    const lockInTab = autoTab && autoTab.querySelector('.channelAutonomyLock, #inbox-autonomy-lock');
     const panelKids = autonomy
       ? Array.from(autonomy.children).filter((el) => !el.classList.contains('inbox-autonomy-bottom-tab'))
       : [];
     const list = document.querySelector('#inbox-shell > #inbox-card .inbox-left-rows, #inbox-shell #conv-list');
+    const firstCard = document.querySelector('#conv-list .conv-card');
     function box(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();
@@ -143,6 +198,7 @@ async function measureList(page) {
         height: Math.round(r.height),
         position: s.position,
         marginTop: s.marginTop,
+        paddingBottom: s.paddingBottom,
         borderRadius: s.borderRadius,
         display: s.display,
       };
@@ -156,6 +212,11 @@ async function measureList(page) {
       autoTab: box(autoTab),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
       panelVisible: panelKids.some((el) => getComputedStyle(el).display !== 'none'),
+      lockVisibleClosed: !!(lock && getComputedStyle(lock).display !== 'none' && lock.getClientRects().length > 0),
+      lockInsideTab: !!lockInTab,
+      searchListGap: search && firstCard
+        ? Math.round(firstCard.getBoundingClientRect().top - search.getBoundingClientRect().bottom)
+        : null,
       list: box(list),
     };
   });
@@ -163,14 +224,16 @@ async function measureList(page) {
 
 async function measureThread(page) {
   return page.evaluate(() => {
-    const back = document.querySelector('#inbox-mobile-back, .inbox-mobile-back');
+    const back = document.querySelector('#inbox-header-luna-row > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
     const autoTab = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const panelKids = autonomy
       ? Array.from(autonomy.children).filter((el) => !el.classList.contains('inbox-autonomy-bottom-tab'))
       : [];
     const msgs = document.querySelector('#thread-container, .thread-messages');
-    const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack');
+    const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-luna');
+    const channel = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-channel');
+    const name = document.querySelector('#inbox-shell.show-thread .detail-header-main .detail-name, #inbox-shell.show-thread .detail-name');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
     const headerRight = document.querySelector('#inbox-shell.show-thread .detail-header-right');
     function box(el) {
@@ -180,6 +243,8 @@ async function measureThread(page) {
       return {
         top: Math.round(r.top),
         bottom: Math.round(r.bottom),
+        left: Math.round(r.left),
+        right: Math.round(r.right),
         height: Math.round(r.height),
         width: Math.round(r.width),
         position: s.position,
@@ -188,10 +253,14 @@ async function measureThread(page) {
         flexDir: s.flexDirection,
         flexWrap: s.flexWrap,
         overflowX: s.overflowX,
+        display: s.display,
+        paddingLeft: s.paddingLeft,
         scrollWidth: el.scrollWidth,
         clientWidth: el.clientWidth,
       };
     }
+    const nameBox = box(name);
+    const channelBox = box(channel);
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
@@ -200,6 +269,8 @@ async function measureThread(page) {
       autonomy: box(autonomy),
       msgs: box(msgs),
       stack: box(stack),
+      channel: channelBox,
+      name: nameBox,
       header: box(header),
       headerRight: box(headerRight),
       open: !!(autonomy && autonomy.classList.contains('is-autonomy-open')),
@@ -207,6 +278,8 @@ async function measureThread(page) {
       stackOverflow: !!(stack && stack.scrollWidth > stack.clientWidth + 1),
       headerOverflow: !!(header && header.scrollWidth > header.clientWidth + 1),
       docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+      channelRightOfName: !!(nameBox && channelBox && channelBox.left >= nameBox.right - 4 && Math.abs(channelBox.top - nameBox.top) <= 24),
+      headerPadLeft: header ? parseFloat(getComputedStyle(header).paddingLeft) || 0 : 0,
     };
   });
 }
@@ -261,8 +334,10 @@ async function main() {
           list.autoTab.height >= 28 &&
           list.autoTab.height <= 44 &&
           list.autonomy &&
-          list.autonomy.height <= 56,
-        JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy })
+          list.autonomy.height <= 56 &&
+          list.lockVisibleClosed === false &&
+          list.lockInsideTab === false,
+        JSON.stringify({ open: list.open, panelVisible: list.panelVisible, autoTab: list.autoTab, autonomy: list.autonomy, lockVisibleClosed: list.lockVisibleClosed, lockInsideTab: list.lockInsideTab })
       );
       if (stamp.name === 'sunset') {
         ok(
@@ -271,10 +346,15 @@ async function main() {
           JSON.stringify({ searchTop: list.search && list.search.top, tabsBottom: list.tabs && list.tabs.bottom })
         );
         ok(
-          '390 list: Chats tab is slim segmented (not fat 44px button)',
-          list.chats && list.chats.height >= 28 && list.chats.height <= 40,
-          JSON.stringify(list.chats)
+          '390 list: search has gap above first chat row',
+          list.searchListGap != null && list.searchListGap >= 8,
+          JSON.stringify({ searchListGap: list.searchListGap, search: list.search })
         );
+ok(
+  '390 list: Chats tab is classic folder height (not fat 48px+ button)',
+  list.chats && list.chats.height >= 28 && list.chats.height <= 48,
+  JSON.stringify(list.chats)
+);
       }
 
       await page.evaluate((id) => {
@@ -282,9 +362,12 @@ async function main() {
           document.querySelector('#conv-list .conv-card');
         if (card) card.click();
       }, CONV_ID);
-      await page.waitForSelector('#inbox-shell.show-thread .detail-header-right', { timeout: 15000 });
+      await page.waitForSelector('#inbox-shell.show-thread .detail-header', { timeout: 15000 });
       await page.evaluate(() => {
         if (typeof window.__syncInboxMobileOrder === 'function') window.__syncInboxMobileOrder();
+        if (typeof window.inboxCookSelectedConversationHeaderActions === 'function') {
+          window.inboxCookSelectedConversationHeaderActions();
+        }
       });
       await page.waitForTimeout(SETTLE_MS);
       const thread = await measureThread(page);
@@ -305,7 +388,7 @@ async function main() {
         `390 chat [${stamp.name}]: action stack is row-wrapped toolbar (no h-scroll)`,
         thread.stack &&
           thread.stack.flexDir === 'row' &&
-          thread.stack.flexWrap === 'wrap' &&
+          (thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse') &&
           thread.stack.overflowX === 'hidden' &&
           thread.stackOverflow === false &&
           thread.headerOverflow === false &&
@@ -320,10 +403,21 @@ async function main() {
       );
       if (stamp.name === 'sunset') {
         ok(
+          '390 chat: header has edge padding; WA/Email right of name',
+          thread.headerPadLeft >= 8 &&
+            thread.channelRightOfName === true,
+          JSON.stringify({
+            headerPadLeft: thread.headerPadLeft,
+            channelRightOfName: thread.channelRightOfName,
+            name: thread.name,
+            channel: thread.channel,
+          })
+        );
+        ok(
           '390 chat: back control is slim (not fat banner)',
           thread.back &&
             thread.back.height <= 34 &&
-            thread.back.width < 220,
+            thread.back.width <= 40,
           JSON.stringify(thread.back)
         );
         ok(

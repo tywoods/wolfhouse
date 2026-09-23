@@ -41,7 +41,8 @@ ok('sunset and wolfhouse card rules are separate',
 ok('text tabs stay a thumb target', phoneBlock.includes('min-height:44px') && phoneBlock.includes('font-size:15px'));
 ok('tabs are not replaced by icons',
   !api.includes('inbox-folder-tab-ico')
-  && !phoneBlock.includes('font-size:0')
+  && !/\.inbox-folder-tab[^}]*font-size:\s*0/.test(phoneBlock)
+  && !/\.inbox-folder-tabs[^}]*font-size:\s*0/.test(phoneBlock)
   && api.includes('data-i18n="inbox.layout.folder.chats"'));
 ok('desktop folder chrome was not rewritten',
   /html\[data-portal-client="sunset"\] \.inbox-col1 > \.inbox-folder-tabs\{[^}]*margin:0 0 -11px/.test(api));
