@@ -212,6 +212,17 @@ section('G. Per-guest payment link stale detection');
   };
   check('G6', paymentLinkIntendedAmountCents(fullBalanceLink, ledgerCtx) === 106000,
     'full-balance staff link still tracks current balance due');
+
+  const expiredBalanceLink = {
+    ...fullBalanceLink,
+    amount_due_cents: 106000,
+    expires_at: '2000-01-01T00:00:00.000Z',
+  };
+  check('G7', paymentLedgerIsStaleUnpaidLinkRow(
+    expiredBalanceLink,
+    (pr) => pr === expiredBalanceLink,
+    ledgerCtx,
+  ), 'provider-expired balance link is stale even when its amount matches');
 }
 
 section('H. Per-guest create path — guest_name + payment_choice');
@@ -227,6 +238,11 @@ section('H. Per-guest create path — guest_name + payment_choice');
   check('H3', mapBotBookingCreateErrorToBlockedReason('guest_name is required') === 'guest_name_missing', 'error mapped to blocked_reason');
   check('H4', staffApiSrc.includes('resolveAndMarkConversationNeedsHuman'), 'handoff resolves session phone');
   check('H5', bookingCreateSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
+  check('H6', botRoutesSrc.includes('&& splitPaymentRequested'),
+    'named guests do not mint individual links without explicit split choice');
+  check('H7', fs.readFileSync(path.join(__dirname, 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+    .includes('GREATEST(COALESCE(amount_paid_cents, 0), $1)'),
+  'paid guest projection cannot be overwritten by an older zero snapshot');
 }
 
 section('F. Routes & migration wiring');

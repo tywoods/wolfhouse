@@ -27,6 +27,7 @@ const {
   guestPaymentStatusFromRow,
   isMissingBookingGuestsTable,
   normalizeBookingGuestsInput,
+  normalizeBotBookingPaymentChoice,
   mapBotBookingCreateErrorToBlockedReason,
 } = require('./booking-guests');
 const {
@@ -604,6 +605,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
 
   const guestsNormPreview = normalizeBookingGuestsInput(body);
   const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;
+  const splitPaymentRequested = normalizeBotBookingPaymentChoice(body.payment_choice)
+    .per_guest_payment_links === true;
 
   // Build a synthetic result accumulator
   let bridgeResult = {
@@ -696,7 +699,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   if (
     bridgeResult.success
     && bridgeResult.write_performed
-    && bridgeResult.uses_per_guest_model
+    // Guest names describe the party; they do not choose who pays. Only mint
+    // individual links after an explicit split/per-guest choice.
+    && splitPaymentRequested
     && Array.isArray(bridgeResult.booking_guests)
     && bridgeResult.booking_guests.length
     && ctx.handleBotGuestPaymentCreateLink
@@ -1153,12 +1158,16 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
     });
   };
 
+  const activeBalanceLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
   const existingByKey = paymentRows.find((pr) => {
     let parsed = pr.metadata;
     if (typeof parsed === 'string') {
       try { parsed = JSON.parse(parsed); } catch (_) { parsed = {}; }
     }
-    return parsed && parsed.idempotency_key === idempotencyKey && pr.checkout_url;
+    return parsed
+      && parsed.idempotency_key === idempotencyKey
+      && pr.checkout_url
+      && activeBalanceLink === pr;
   });
   if (existingByKey) {
     return finishWithLink({
@@ -1253,10 +1262,22 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       cancel_url: stripeCheckoutSessionCancelUrl(),
     });
   } catch (stripeErr) {
+    // Do not leave a reusable draft after the provider rejected session creation.
+    try {
+      await withPgClient((pg) => pg.query(
+        `UPDATE payments
+            SET status = 'failed'::payment_record_status,
+                metadata = metadata || $1::jsonb
+          WHERE id = $2::uuid
+            AND client_id = $3
+            AND status = 'draft'::payment_record_status`,
+        [JSON.stringify({ provider_create_failed: true }), newPaymentId, balanceLinkClientId],
+      ));
+    } catch (_) { /* safe failure response below; repair remains observable */ }
     return sendJSON(res, 500, {
       success: false,
       error: 'Stripe session creation failed: ' + stripeErr.message,
-      no_db_write: true,
+      no_checkout_created: true,
     });
   }
 

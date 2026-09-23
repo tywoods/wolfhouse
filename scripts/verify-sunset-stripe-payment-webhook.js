@@ -215,8 +215,18 @@ const staleTotalPaid = deriveBookingPaymentState({
   paymentKind: 'full_amount',
   amountDueCents: 4500,
 });
-assert('full link paid marks booking paid even when bk_total higher', staleTotalPaid.newBkPayStatus === 'paid');
-assert('full link paid clears balance', staleTotalPaid.newBkBalance === 0);
+assert('partial full_amount row does not mark a larger booking paid', staleTotalPaid.newBkPayStatus === 'waiting_payment');
+assert('partial full_amount row preserves canonical outstanding balance', staleTotalPaid.newBkBalance === 4900);
+
+const ginaPartial = deriveBookingPaymentState({
+  bkTotal: 97500,
+  prevCompletedPaidCents: 0,
+  stripePaidCents: 32500,
+  paymentKind: 'full_amount',
+  amountDueCents: 32500,
+});
+assert('Gina €975 total with Tina €325 remains partial', ginaPartial.newBkPayStatus === 'waiting_payment');
+assert('Gina audited outstanding balance is €650', ginaPartial.newBkBalance === 65000);
 
 const partialDeposit = deriveBookingPaymentState({
   bkTotal: 10000,

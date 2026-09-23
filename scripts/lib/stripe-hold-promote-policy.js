@@ -440,6 +440,26 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   validateLockedPaymentIdentityForStripeTruth(lockedPayment, session, identityCtx);
 
   if (lockedPayment.payment_status === 'paid') {
+    // Duplicate delivery is also a repair opportunity for a stale zero guest
+    // projection. The payment ledger remains untouched, so no amount can be
+    // collected or counted twice.
+    if (lockedPayment.booking_guest_id && Number(lockedPayment.amount_paid_cents || 0) > 0) {
+      await pg.query(
+        `UPDATE booking_guests
+            SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
+                payment_status = 'paid',
+                updated_at = NOW()
+          WHERE id = $2::uuid
+            AND client_id = $4
+            AND booking_id = $3::uuid`,
+        [
+          Number(lockedPayment.amount_paid_cents),
+          lockedPayment.booking_guest_id,
+          pm.booking_id,
+          pm.client_id,
+        ],
+      );
+    }
     const sunsetStaging = isAuthoritativeSunsetStagingPaymentScope(
       pm,
       (opts && opts.env) || process.env,
@@ -633,7 +653,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   if (guestId) {
     const gUpd = await pg.query(
       `UPDATE booking_guests
-           SET amount_paid_cents = $1,
+           SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
                payment_status = 'paid',
                updated_at = NOW()
          WHERE id = $2::uuid

@@ -161,6 +161,7 @@
     "verify:staff-booking-drawer-layout": "node scripts/verify-staff-booking-drawer-layout.js",
     "verify:staff-running-invoice-display": "node scripts/verify-staff-running-invoice-display.js",
     "verify:staff-payment-records-ledger": "node scripts/verify-staff-payment-records-ledger.js",
+    "verify:gina-booking-payment-001": "node scripts/verify-gina-booking-payment-001.js",
     "verify:staff-generate-payment-link": "node scripts/verify-staff-generate-payment-link.js",
     "verify:staff-booking-conversation-create": "node scripts/verify-staff-booking-conversation-create.js",
     "verify:staff-manual-booking-payment-choice": "node scripts/verify-staff-manual-booking-payment-choice.js",
