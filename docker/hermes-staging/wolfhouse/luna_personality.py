@@ -327,6 +327,10 @@ def inject_personality_pack_once(
 
 
 def bind_whatsapp_turn_personality(source: Any, fetch_setting: Optional[Callable[[str], Dict[str, Any]]] = None) -> Dict[str, Any]:
+    # This existing ordinary-worker lifecycle owns request scope, not the style ID.
+    # No network/permission change at bind: public handlers recheck Staff per call.
+    from wolfhouse.luna_intelligence import bind_guest_turn
+    bind_guest_turn(source)
     channel = _platform_name(source) or CHANNEL
     if channel not in {"whatsapp", "whatsapp_cloud"}:
         bound = _sunny(_tenant_id(), channel, "not_whatsapp", applied=False)
@@ -355,6 +359,8 @@ def get_bound_personality() -> Optional[Dict[str, Any]]:
 
 
 def clear_bound_personality() -> None:
+    from wolfhouse.luna_intelligence import clear_guest_turn
+    clear_guest_turn()
     _bound.set(None)
 
 
