@@ -19757,6 +19757,19 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .transfer-pebble-drawer{font-size:11px;padding:2px 8px;border-radius:999px}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
+/* SCHEDULE-GROUP-BOOKING-UI-001 — multi-room group parent bar + soft Designer pebble accent */
+.bc-group-chip{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#E3D7F0;color:#534066;border:1px solid #D4C4E0;flex-shrink:0}
+.bc-block-group{box-shadow:inset 0 0 0 1px rgba(83,64,102,.16),var(--shadow-soft)}
+.bc-block.bc-block-group-hover,.bc-block-checkout-marker.bc-block-group-hover{filter:brightness(.96);box-shadow:0 2px 12px rgba(83,64,102,.22),inset 0 0 0 1px rgba(83,64,102,.26)}
+.bc-group-parent-row td{border-bottom:1px solid transparent;padding:0;height:calc(16px * var(--bc-zoom, 1));background:transparent}
+.bc-group-parent-label{position:sticky;left:0;z-index:4;background:var(--surface);font-size:calc(10px * var(--bc-zoom, 1));font-weight:600;color:#534066;padding:calc(2px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));white-space:nowrap;border-right:2px solid var(--tan);vertical-align:middle}
+.bc-group-parent-name{font-weight:700}
+.bc-group-parent-meta{font-weight:500;opacity:.72;margin-left:4px}
+.bc-group-parent-bar-cell{padding:calc(3px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))!important;vertical-align:middle;background:transparent}
+.bc-group-parent-bar{height:calc(8px * var(--bc-zoom, 1));border-radius:999px;background:linear-gradient(90deg,rgba(227,215,240,.95) 0%,rgba(213,222,232,.88) 100%);border:1px solid rgba(212,196,224,.95);box-shadow:0 1px 2px rgba(83,64,102,.08);cursor:pointer}
+.bc-group-parent-bar.bc-group-parent-bar-hover,.bc-group-parent-row.bc-group-parent-row-hover .bc-group-parent-bar{filter:brightness(.97);box-shadow:0 2px 8px rgba(83,64,102,.18)}
+.bc-group-parent-pad{background:transparent!important}
+.bc-legend-sw-group{background:#E3D7F0;border-left-color:#B39BCB}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
 .bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB}
@@ -20398,6 +20411,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
+[data-theme="dark"] .bc-group-chip{background:#2E2838;color:#E3D7F0;border-color:#7a68a0}
+[data-theme="dark"] .bc-block-group{box-shadow:inset 0 0 0 1px rgba(216,200,232,.22),var(--shadow-soft)}
+[data-theme="dark"] .bc-block.bc-block-group-hover,[data-theme="dark"] .bc-block-checkout-marker.bc-block-group-hover{box-shadow:0 2px 12px rgba(122,104,160,.35),inset 0 0 0 1px rgba(216,200,232,.35)}
+[data-theme="dark"] .bc-group-parent-label{background:#2d2d2d;color:#E3D7F0;border-right-color:var(--staff-green-border)}
+[data-theme="dark"] .bc-group-parent-bar{background:linear-gradient(90deg,rgba(90,72,112,.9) 0%,rgba(60,80,100,.75) 100%);border-color:#7a68a0}
+[data-theme="dark"] .bc-legend-sw-group{background:#2E2838;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
 [data-theme="dark"] .btn-bc-block-pebble{background:#2d2d2d;color:var(--text-2);border-color:var(--border)}
@@ -24094,6 +24113,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span><span data-i18n="calendar.legend.luna">Luna</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
       <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
@@ -37011,7 +37031,132 @@ function bcFormatTransferSummaryLabel(summary){
 }
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+}
+
+/** SCHEDULE-GROUP-BOOKING-UI-001 — stable key for multi-room group paint. */
+function bcGroupKey(blk){
+  if (!blk) return '';
+  if (blk.booking_id) return 'id:' + String(blk.booking_id);
+  if (blk.booking_code) return 'code:' + String(blk.booking_code);
+  return '';
+}
+
+function bcIsSkippableGroupBlock(blk){
+  if (!blk) return true;
+  var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'external_inventory_block' || at === 'private_room_block' || at === 'staff_block') return true;
+  if (String(blk.status || '').toLowerCase() === 'blocked') return true;
+  if (String(blk.color_type || '') === 'owner_schedule_blocked') return true;
+  return false;
+}
+
+/**
+ * Build multi-room group index: same booking_id/code spanning 2+ room_codes.
+ * Mutates matching blocks with _bc_is_group / _bc_group_key / _bc_group_room_count.
+ */
+function bcBuildMultiRoomGroups(blocks){
+  var map = {};
+  (blocks || []).forEach(function(blk, idx){
+    if (bcIsSkippableGroupBlock(blk)) return;
+    var key = bcGroupKey(blk);
+    if (!key) return;
+    if (!map[key]) {
+      map[key] = {
+        key: key,
+        booking_id: blk.booking_id || null,
+        booking_code: blk.booking_code || '',
+        guest_name: blk.guest_name || '',
+        rooms: {},
+        start_date: blk.start_date || '',
+        end_date: blk.end_date || '',
+        idxs: [],
+      };
+    }
+    var g = map[key];
+    if (blk.room_code) g.rooms[String(blk.room_code)] = true;
+    g.idxs.push(idx);
+    if (blk.start_date && (!g.start_date || blk.start_date < g.start_date)) g.start_date = blk.start_date;
+    if (blk.end_date && (!g.end_date || blk.end_date > g.end_date)) g.end_date = blk.end_date;
+    if (!g.guest_name && blk.guest_name) g.guest_name = blk.guest_name;
+    if (!g.booking_code && blk.booking_code) g.booking_code = blk.booking_code;
+  });
+  var out = [];
+  Object.keys(map).forEach(function(k){
+    var g = map[k];
+    g.roomCodes = Object.keys(g.rooms);
+    g.roomCount = g.roomCodes.length;
+    if (g.roomCount < 2) return;
+    g.idxs.forEach(function(i){
+      var blk = blocks[i];
+      if (!blk) return;
+      blk._bc_is_group = true;
+      blk._bc_group_key = g.key;
+      blk._bc_group_room_count = g.roomCount;
+    });
+    out.push(g);
+  });
+  return out;
+}
+
+function bcGroupChipHtml(blk){
+  if (!blk || !blk._bc_is_group) return '';
+  var count = Number(blk._bc_group_room_count) || 0;
+  var title = t('calendar.group.chipTitle', { count: count });
+  return '<span class="bc-group-chip" title="' + escHtml(title) + '">' + escHtml(t('calendar.group.chip')) + '</span>';
+}
+
+function bcRenderGroupParentRow(g, days){
+  days = days || [];
+  var N = days.length;
+  if (!g || N < 1 || !g.start_date || !g.end_date) return '';
+  var startIdx = -1;
+  var endIdx = -1;
+  for (var i = 0; i < N; i++){
+    var d = (days[i] || {}).date || '';
+    if (d >= g.start_date && d < g.end_date){
+      if (startIdx < 0) startIdx = i;
+      endIdx = i + 1;
+    }
+  }
+  if (startIdx < 0 || endIdx <= startIdx) return '';
+  var name = g.guest_name || g.booking_code || t('calendar.group.chip');
+  var roomsLabel = t('calendar.group.rooms', { count: g.roomCount });
+  var tip = escHtml(name + ' · ' + roomsLabel);
+  var html = '<tr class="bc-group-parent-row" data-group-key="' + escHtml(g.key) + '">';
+  html += '<td class="bc-group-parent-label">' +
+    '<span class="bc-group-chip">' + escHtml(t('calendar.group.chip')) + '</span> ' +
+    '<span class="bc-group-parent-name">' + escHtml(name) + '</span>' +
+    '<span class="bc-group-parent-meta">' + escHtml(roomsLabel) + '</span></td>';
+  for (var e = 0; e < startIdx; e++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
+  html += '<td colspan="' + (endIdx - startIdx) + '" class="bc-group-parent-bar-cell">' +
+    '<div class="bc-group-parent-bar" data-group-key="' + escHtml(g.key) + '" data-bidx="' + (g.idxs[0] != null ? g.idxs[0] : '') + '" title="' + tip + '"></div></td>';
+  for (var a = endIdx; a < N; a++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
+  html += '</tr>';
+  return html;
+}
+
+function bcSetGroupHover(groupKey, on){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.bc-block-group-hover').forEach(function(node){
+    node.classList.remove('bc-block-group-hover');
+  });
+  wrap.querySelectorAll('.bc-group-parent-bar-hover').forEach(function(node){
+    node.classList.remove('bc-group-parent-bar-hover');
+  });
+  wrap.querySelectorAll('.bc-group-parent-row-hover').forEach(function(node){
+    node.classList.remove('bc-group-parent-row-hover');
+  });
+  if (!on || !groupKey) return;
+  wrap.querySelectorAll('.bc-block[data-group-key], .bc-block-checkout-marker[data-group-key], .bc-group-parent-bar[data-group-key], .bc-group-parent-row[data-group-key]').forEach(function(node){
+    if (node.getAttribute('data-group-key') !== groupKey) return;
+    if (node.classList.contains('bc-block') || node.classList.contains('bc-block-checkout-marker')) {
+      node.classList.add('bc-block-group-hover');
+    }
+    if (node.classList.contains('bc-group-parent-bar')) node.classList.add('bc-group-parent-bar-hover');
+    if (node.classList.contains('bc-group-parent-row')) node.classList.add('bc-group-parent-row-hover');
+  });
 }
 
 function bcColorClass(ct){
@@ -37099,6 +37244,26 @@ function renderBedCalendar(data){
   /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
   rooms = bcSortRoomsForDisplay(rooms);
 
+  /* SCHEDULE-GROUP-BOOKING-UI-001 — detect multi-room groups before paint */
+  var multiRoomGroups = bcBuildMultiRoomGroups(blocks);
+  var roomOrderIndex = {};
+  rooms.forEach(function(room, ri){
+    roomOrderIndex[String(room.room_code || '')] = ri;
+  });
+  multiRoomGroups.forEach(function(g){
+    var firstIdx = Infinity;
+    var firstCode = null;
+    g.roomCodes.forEach(function(rc){
+      var ri = roomOrderIndex[rc];
+      if (ri != null && ri < firstIdx) {
+        firstIdx = ri;
+        firstCode = rc;
+      }
+    });
+    g.firstRoomCode = firstCode;
+  });
+  var groupParentInserted = {};
+
   /* Warnings */
   if (data.warnings && data.warnings.length > 0){
     el('bc-warnings').innerHTML = data.warnings.map(function(w){ return escHtml(w); }).join('<br>');
@@ -37132,6 +37297,13 @@ function renderBedCalendar(data){
   rooms.forEach(function(room){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
+    /* Parent bar once, above the first display-order room that hosts the group */
+    multiRoomGroups.forEach(function(g){
+      if (g.firstRoomCode !== roomCode) return;
+      if (groupParentInserted[g.key]) return;
+      groupParentInserted[g.key] = true;
+      html += bcRenderGroupParentRow(g, days);
+    });
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     /* Strip any non-alphanumerics (stray spaces / zero-width chars / dashes) before
        matching so an R# code with hidden junk still becomes "Room N". */
@@ -37246,13 +37418,34 @@ function renderBedCalendar(data){
       bcOpenBookingDrawerOverview(blocks[idx]);
     });
     bEl.addEventListener('mouseenter', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, true);
       if (!bcSideDrawerLive()) return;
       var idx = parseInt(this.dataset.bidx, 10);
       bcSideHoverEnter(blocks[idx]);
     });
     bEl.addEventListener('mouseleave', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, false);
       if (!bcSideDrawerLive()) return;
       bcSideHoverLeave();
+    });
+  });
+
+  /* Parent bar: open first group block + cross-room hover shadow */
+  wrap.querySelectorAll('.bc-group-parent-bar').forEach(function(barEl){
+    barEl.addEventListener('click', function(e){
+      e.stopPropagation();
+      var idx = parseInt(this.dataset.bidx, 10);
+      if (!isNaN(idx) && blocks[idx]) bcOpenBookingDrawerOverview(blocks[idx]);
+    });
+    barEl.addEventListener('mouseenter', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, true);
+    });
+    barEl.addEventListener('mouseleave', function(){
+      var gKey = this.getAttribute('data-group-key');
+      if (gKey) bcSetGroupHover(gKey, false);
     });
   });
 
@@ -37416,11 +37609,15 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   var inner = '';
   if (checkout && checkout.idx !== primary.idx){
     var outColor = bcColorClass(checkout.blk.color_type);
-    inner += '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + checkout.idx + '" title="' + bcBlockTooltip(checkout.blk) + '" aria-label="Check out ' + escHtml(checkout.blk.guest_name || '') + '"></div>';
+    var outGroupCls = checkout.blk._bc_is_group ? ' bc-block-group' : '';
+    var outGroupAttr = checkout.blk._bc_group_key ? ' data-group-key="' + escHtml(checkout.blk._bc_group_key) + '"' : '';
+    inner += '<div class="bc-block-checkout-marker ' + outColor + outGroupCls + '" data-bidx="' + checkout.idx + '"' + outGroupAttr + ' title="' + bcBlockTooltip(checkout.blk) + '" aria-label="Check out ' + escHtml(checkout.blk.guest_name || '') + '"></div>';
   }
 
   var priColor = bcColorClass(primary.blk.color_type);
-  inner += '<div class="bc-block ' + priColor + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '" title="' + bcTurnoverCellTooltip(segs) + '">' +
+  var groupCls = primary.blk._bc_is_group ? ' bc-block-group' : '';
+  var groupAttr = primary.blk._bc_group_key ? ' data-group-key="' + escHtml(primary.blk._bc_group_key) + '"' : '';
+  inner += '<div class="bc-block ' + priColor + groupCls + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '"' + groupAttr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
@@ -37429,13 +37626,16 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
 function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   spanDays = spanDays != null ? spanDays : blk.span_days;
   var colorCls = bcColorClass(blk.color_type);
+  var groupCls = blk && blk._bc_is_group ? ' bc-block-group' : '';
+  var groupAttr = blk && blk._bc_group_key ? ' data-group-key="' + escHtml(blk._bc_group_key) + '"' : '';
   var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
   var markerHtml = '';
   var tip;
   var label;
   if (turnoverCheckout){
     var outColor = bcColorClass(turnoverCheckout.blk.color_type);
-    markerHtml = '<div class="bc-block-checkout-marker ' + outColor + '" data-bidx="' + turnoverCheckout.idx + '" title="' + bcBlockTooltip(turnoverCheckout.blk) + '" aria-label="Check out ' + escHtml(turnoverCheckout.blk.guest_name || '') + '"></div>';
+    var outGroupAttr = turnoverCheckout.blk._bc_group_key ? ' data-group-key="' + escHtml(turnoverCheckout.blk._bc_group_key) + '"' : '';
+    markerHtml = '<div class="bc-block-checkout-marker ' + outColor + (turnoverCheckout.blk._bc_is_group ? ' bc-block-group' : '') + '" data-bidx="' + turnoverCheckout.idx + '"' + outGroupAttr + ' title="' + bcBlockTooltip(turnoverCheckout.blk) + '" aria-label="Check out ' + escHtml(turnoverCheckout.blk.guest_name || '') + '"></div>';
     tip = bcTurnoverCellTooltip([
       { blk: turnoverCheckout.blk, idx: turnoverCheckout.idx, layer: 'checkout' },
       { blk: blk, idx: idx, layer: 'checkin' },
@@ -37447,7 +37647,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + '" data-bidx="' + idx + '" title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupCls + '" data-bidx="' + idx + '"' + groupAttr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
