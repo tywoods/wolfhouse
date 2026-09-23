@@ -14,6 +14,7 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const uiSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-email-settings-ui.js'), 'utf8');
+const defaultsSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-imap-provider-defaults.js'), 'utf8');
 const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
 
 assert.doesNotMatch(uiSrc, /type="password"/);
@@ -21,10 +22,12 @@ assert.match(uiSrc, /'password'/);
 assert.match(uiSrc, /data-wh-email="mailbox-password"/);
 assert.match(uiSrc, /data-wh-email-advanced/);
 assert.match(uiSrc, /adminEmailGuessImapHost/);
+assert.match(uiSrc, /applyAdminEmailImapAutofill/);
 assert.match(uiSrc, /readWolfhouseSmtpImapConnectPayload/);
 assert.doesNotMatch(uiSrc, /data-wh-email-credentials/);
 assert.ok(!uiSrc.includes('inbox-thread'));
 assert.match(apiSrc, /\[data-wh-email-advanced\]/);
+assert.match(defaultsSrc, /smtp\.gmail\.com/);
 
 function cardHtml(html, provider) {
   const start = html.indexOf('data-email-provider="' + provider + '"');
@@ -168,6 +171,7 @@ function boot(client) {
   const sandbox = {
     URL,
     Date,
+    globalThis: null,
     window: {
       location: { assign() {} },
       prompt() { return null; },
@@ -184,8 +188,10 @@ function boot(client) {
       return Promise.resolve({ ok: false, json: async () => ({}) });
     },
     console,
+    module: { exports: {} },
   };
-  vm.runInNewContext(uiSrc, sandbox);
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(defaultsSrc + '\n' + uiSrc, sandbox);
   return { body, sandbox, fetches };
 }
 

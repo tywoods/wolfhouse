@@ -12,6 +12,7 @@ const BROWSER_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-ui.js');
 const FINANCE_REDESIGN = path.join(__dirname, '..', 'browser', 'sunset-admin-finance-redesign-ui.js');
 const BOOKINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-bookings-ui.js');
 const EMAIL_SETTINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-email-settings-ui.js');
+const EMAIL_IMAP_PROVIDER_DEFAULTS = path.join(__dirname, 'email-imap-provider-defaults.js');
 const LUNA_RUNTIME_STATUS = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-runtime-status.js');
 // Shared Luna Staff 3-card regroup (also injected into Wolfhouse Admin).
 const LUNA_CARDS_COMBINE = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-cards-combine.js');
@@ -20,9 +21,11 @@ const EQUIPMENT_MODEL = path.join(__dirname, '..', 'browser', 'sunset-equipment-
 
 function getSunsetAdminUiBrowserSource() {
   // Finance redesign + Bookings panel first so admin-ui can call their renderers.
+  // IMAP provider defaults before email settings so Connect autofill can call them.
   return [
     fs.readFileSync(FINANCE_REDESIGN, 'utf8'),
     fs.readFileSync(BOOKINGS_UI, 'utf8'),
+    fs.readFileSync(EMAIL_IMAP_PROVIDER_DEFAULTS, 'utf8'),
     fs.readFileSync(EMAIL_SETTINGS_UI, 'utf8'),
     fs.readFileSync(LUNA_RUNTIME_STATUS, 'utf8'),
     fs.readFileSync(LUNA_CARDS_COMBINE, 'utf8'),
