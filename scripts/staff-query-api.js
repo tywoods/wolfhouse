@@ -22734,55 +22734,65 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     box-sizing:border-box!important;
     border-top-left-radius:0;border-top-right-radius:0;
   }
-  /* SHARED-PHONE-INBOX-HEADER-005: refresh with WA/Email; back stays in action row. */
+  /* SHARED-PHONE-INBOX-HEADER-007: ← Name | WA Email …  (no Refresh; no second action row). */
   #tab-conversations #inbox-shell.show-thread .detail-header{
     display:grid!important;
     grid-template-columns:minmax(0,1fr) auto;
-    grid-template-rows:auto auto;
+    grid-template-rows:auto;
     align-items:start;
     gap:6px 8px;
     padding:10px 14px!important;
     max-width:100%;
-    overflow-x:hidden!important;
+    overflow:visible!important;
     box-sizing:border-box;
   }
   #tab-conversations #inbox-shell.show-thread .detail-header-right,
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack{
     display:contents!important;
   }
+  #tab-conversations #inbox-shell.show-thread .detail-header-main{
+    grid-column:1;grid-row:1;min-width:0;overflow:hidden;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-header-id{
+    display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0;
+  }
+  #tab-conversations #inbox-shell.show-thread .detail-header-id > .detail-name,
+  #tab-conversations #inbox-shell.show-thread .detail-header-id > .inbox-chat-guest-name{
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel{
     grid-column:2;grid-row:1;
     display:flex!important;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;justify-content:flex-end;
-    gap:4px;overflow-x:hidden;max-width:100%;
+    gap:4px;overflow:visible;max-width:100%;
   }
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel #btn-refresh{
-    width:28px;height:28px;min-width:28px;min-height:28px;padding:0;flex:0 0 auto;order:3;
+  /* Phone: hide Refresh in the open-thread header (parked back to layout controls). */
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-channel #btn-refresh,
+  #tab-conversations #inbox-shell.show-thread #btn-refresh,
+  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-refresh{
+    display:none!important;
   }
+  /* Luna row emptied on phone (actions live in …); collapse it.
+   * Beat #inbox-header-luna-row{display:flex!important} from autonomy chrome keep-alive. */
+  #tab-conversations #inbox-shell.show-thread #inbox-header-luna-row,
   #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{
-    grid-column:1 / -1;grid-row:2;
-    display:flex!important;flex-direction:row;flex-wrap:wrap!important;align-items:center;justify-content:flex-start;
-    gap:4px;width:100%;max-width:100%;min-width:0;overflow-x:hidden!important;box-sizing:border-box;
+    display:none!important;height:0!important;min-height:0!important;margin:0!important;padding:0!important;
+    overflow:hidden!important;border:0!important;
   }
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna > *,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #inbox-chat-chrome-slot,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-spam,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-clear-thread,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna #btn-inbox-conv-delete{
-    order:0!important;
+  #tab-conversations #inbox-shell.show-thread .detail-header-id > .inbox-mobile-back,
+  #tab-conversations #inbox-shell.show-thread .inbox-mobile-back{
+    display:inline-flex!important;align-items:center;justify-content:center;gap:0;
+    width:28px!important;min-width:28px;max-width:28px;height:28px;min-height:28px;
+    padding:0;margin:0;border:1px solid var(--border-soft);border-radius:8px;
+    background:var(--surface-soft);color:var(--text-2);font-size:0;font-weight:600;line-height:1;
+    flex:0 0 auto;overflow:hidden;
   }
-  #tab-conversations #inbox-shell.show-thread #inbox-chat-chrome-slot{
-    display:flex!important;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px;
-    flex:0 0 auto;min-width:0;max-width:100%;overflow-x:hidden;
+  #tab-conversations #inbox-shell.show-thread .detail-header-id > .inbox-mobile-back::before{
+    content:"\\2190";font-size:14px;line-height:1;color:inherit;
   }
-  /* SHARED-PHONE-INBOX-OVERFLOW-006: Spam/Clear/Delete/Luna live in a … menu on phone. */
-  /* Keep header/luna overflow visible so the popover is not clipped under the transcript. */
-  #tab-conversations #inbox-shell.show-thread .detail-header,
-  #tab-conversations #inbox-shell.show-thread .inbox-header-stack-luna{
-    overflow:visible!important;
-  }
+  /* SHARED-PHONE-INBOX-OVERFLOW-007: … after WA/Email; plain-text menu rows. */
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow{
-    position:relative;display:inline-flex;align-items:center;flex:0 0 auto;margin-left:auto;
-    z-index:80;
+    position:relative;display:inline-flex;align-items:center;flex:0 0 auto;margin-left:0;
+    z-index:80;order:4;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-btn{
     display:inline-flex!important;align-items:center;justify-content:center;
@@ -22795,10 +22805,10 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
     background:var(--surface);color:var(--text);
   }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel{
-    display:none;flex-direction:column;align-items:stretch;gap:6px;
+    display:none;flex-direction:column;align-items:stretch;gap:0;
     position:absolute;right:0;top:calc(100% + 4px);z-index:90;
-    min-width:min(240px,calc(100vw - 24px));max-width:min(280px,calc(100vw - 16px));
-    padding:8px;box-sizing:border-box;
+    min-width:min(200px,calc(100vw - 24px));max-width:min(260px,calc(100vw - 16px));
+    padding:4px 0;box-sizing:border-box;
     background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;
     box-shadow:var(--shadow-soft);
   }
@@ -22806,18 +22816,38 @@ html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!importan
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel:not([hidden]){
     display:flex!important;
   }
+  /* Plain text menu: Spam / Clear / Delete / Luna On|Off — no pill colours. */
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-spam,
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-clear-thread,
-  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-conv-delete{
-    width:100%;justify-content:center;box-sizing:border-box;
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-conv-delete,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-btn{
+    display:flex!important;width:100%;justify-content:flex-start;align-items:center;
+    box-sizing:border-box;margin:0;padding:10px 14px;min-height:40px;
+    border:0!important;border-radius:0!important;box-shadow:none!important;
+    background:transparent!important;color:var(--text)!important;
+    font-size:14px!important;font-weight:500;letter-spacing:0;line-height:1.2;
+    cursor:pointer;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-spam.is-active,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-clear-thread,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #btn-inbox-conv-delete,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-btn.is-active,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-btn[data-luna-mode="off"].is-active,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-btn[data-luna-mode="auto"].is-active,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-btn[data-luna-mode="draft"].is-active{
+    background:transparent!important;color:var(--text)!important;border:0!important;
   }
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel #inbox-chat-chrome-slot,
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .detail-header-switches,
-  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode{
-    width:100%;max-width:100%;justify-content:space-between;flex-wrap:wrap;
-  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode,
   #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-seg{
-    flex:1 1 auto;
+    display:flex!important;flex-direction:column;align-items:stretch;gap:0;
+    width:100%;max-width:100%;margin:0;padding:0;background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important;
+  }
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-label,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-needs-human-raise,
+  #tab-conversations #inbox-shell.show-thread .inbox-thread-overflow-panel .inbox-luna-mode-native{
+    display:none!important;
   }
   /* SHARED-PHONE-INBOX-THREAD-FILL-005: messages grow into leftover space above Autonomy. */
   #tab-conversations.active{

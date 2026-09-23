@@ -787,15 +787,31 @@ function inboxCookSelectedConversationHeaderActions(){
   var channel = typeof document !== 'undefined'
     ? document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel')
     : null;
+  var nameHost = typeof document !== 'undefined'
+    ? document.querySelector('#inbox-shell .detail-header-id, .detail-header .detail-header-id')
+    : null;
   var back = inboxParkMobileBackBtn();
   var overflow = inboxEnsureThreadOverflowMenu();
   var panel = overflow
     ? (overflow.querySelector('#inbox-thread-overflow-panel') || document.getElementById('inbox-thread-overflow-panel'))
     : null;
   var phone = inboxPhoneThreadOverflow();
-  /* Action row (phone): ← + ⋯. Refresh stays with WA/Email. Menu holds Spam/Clear/Delete/Luna. */
-  if (back) row.appendChild(back);
-  if (overflow) row.appendChild(overflow);
+  /*
+   * Phone: ← Name | WA Email …
+   *   Spam/Clear/Delete/Luna live in the … menu (plain text). No Refresh on phone header.
+   * Desktop: actions stay inline on the luna row; Refresh may sit with channels.
+   */
+  if (phone) {
+    if (back && nameHost) nameHost.insertBefore(back, nameHost.firstChild);
+    else if (back) row.appendChild(back);
+    if (overflow && channel) channel.appendChild(overflow);
+    else if (overflow) row.appendChild(overflow);
+    inboxParkRefreshBtn();
+  } else {
+    if (overflow) row.appendChild(overflow);
+    if (refresh && channel) channel.appendChild(refresh);
+    else if (refresh) row.appendChild(refresh);
+  }
   if (panel && overflow) {
     if (spam) panel.appendChild(spam);
     if (clearBtn) panel.appendChild(clearBtn);
@@ -803,24 +819,38 @@ function inboxCookSelectedConversationHeaderActions(){
     if (chrome) panel.appendChild(chrome);
     var overflowBtn = document.getElementById('inbox-thread-overflow-btn');
     if (!phone) {
-      /* Desktop: panel stays inline; hide the ⋯ trigger via CSS. */
       panel.hidden = false;
       overflow.classList.remove('is-open');
       if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
     } else if (!overflow.classList.contains('is-open')) {
-      /* Phone: keep menu closed unless the guest already opened it. */
       panel.hidden = true;
       if (overflowBtn) overflowBtn.setAttribute('aria-expanded', 'false');
     }
+    inboxSyncPhoneOverflowPlainLabels(panel);
   } else {
     if (spam) row.appendChild(spam);
     if (clearBtn) row.appendChild(clearBtn);
     if (deleteBtn) row.appendChild(deleteBtn);
     if (chrome) row.appendChild(chrome);
   }
-  if (refresh && channel) channel.appendChild(refresh);
-  else if (refresh) row.appendChild(refresh);
   return row;
+}
+
+function inboxSyncPhoneOverflowPlainLabels(panel){
+  if (!panel || typeof panel.querySelectorAll !== 'function') return;
+  var phone = inboxPhoneThreadOverflow();
+  panel.querySelectorAll('.inbox-luna-mode-btn').forEach(function(btn){
+    var mode = btn.getAttribute('data-luna-mode');
+    if (phone) {
+      if (mode === 'off') btn.textContent = 'Luna Off';
+      else if (mode === 'draft') btn.textContent = 'Luna Draft';
+      else btn.textContent = 'Luna On';
+      return;
+    }
+    if (typeof inboxLunaModeBtnCopy === 'function') {
+      btn.textContent = inboxLunaModeBtnCopy(mode);
+    }
+  });
 }
 
 function inboxPhoneThreadOverflow(){
@@ -832,11 +862,12 @@ function inboxPhoneThreadOverflow(){
 function inboxEnsureThreadOverflowMenu(){
   if (typeof document === 'undefined') return null;
   var row = document.getElementById('inbox-header-luna-row');
-  if (!row) return null;
+  var channel = document.querySelector('#inbox-shell .inbox-header-stack-channel, .detail-header .inbox-header-stack-channel');
+  var host = row || channel;
+  if (!host) return null;
   var wrap = document.getElementById('inbox-thread-overflow');
-  if (!wrap && row.querySelector) {
-    wrap = row.querySelector('#inbox-thread-overflow');
-  }
+  if (!wrap && row && row.querySelector) wrap = row.querySelector('#inbox-thread-overflow');
+  if (!wrap && channel && channel.querySelector) wrap = channel.querySelector('#inbox-thread-overflow');
   if (!wrap) {
     wrap = document.createElement('div');
     wrap.id = 'inbox-thread-overflow';
@@ -859,7 +890,8 @@ function inboxEnsureThreadOverflowMenu(){
     wrap.appendChild(btn);
     wrap.appendChild(panel);
   }
-  if (wrap.parentNode !== row) row.appendChild(wrap);
+  /* Parent is set by cook (channel on phone, luna row on desktop). */
+  if (!wrap.parentNode) host.appendChild(wrap);
   inboxWireThreadOverflowMenu(wrap);
   return wrap;
 }
@@ -891,6 +923,7 @@ function inboxWireThreadOverflowMenu(wrap){
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
       wrap.classList.add('is-open');
+      inboxSyncPhoneOverflowPlainLabels(panel);
     } else {
       inboxCloseThreadOverflowMenu();
     }

@@ -8,9 +8,9 @@
  * lock is panel content (own pill), never on the slim dock title;
  * Chats|Guests as classic folder tabs (shared baseline, same width as icon card);
  * equal 8px stack gaps on list + thread; search pinned under filters;
- * name+tag | WA/Email/Refresh on one row; action row (← + ⋯ overflow);
- * ⋯ menu holds Spam / Clear / Delete / Luna On|Off; taller transcript fills leftover;
- * back survives conversation switches.
+ * name+tag with ← on the left | WA/Email/… on the right (no Refresh on phone);
+ * ⋯ menu holds plain-text Spam / Clear / Delete / Luna On|Off;
+ * taller transcript fills leftover; back survives conversation switches.
  *
  *   node scripts/verify-sunset-mobile-inbox-phone-layout-002.js
  */
@@ -138,15 +138,17 @@ ok(
     /:not\(\.show-thread\):has\(> \.is-inbox-mobile-docked\.is-autonomy-open\)/.test(phoneCss)
 );
 ok(
-  'SHARED-PHONE-INBOX-HEADER-005 grid: name row + action wrap; refresh with channels',
-  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-005') &&
+  'SHARED-PHONE-INBOX-HEADER-007: ← name | WA Email … ; no phone Refresh',
+  phoneCss.includes('SHARED-PHONE-INBOX-HEADER-007') &&
     phoneCss.includes('display:grid!important') &&
     phoneCss.includes('grid-template-columns:minmax(0,1fr) auto') &&
     phoneCss.includes('display:contents!important') &&
-    phoneCss.includes('overflow-x:hidden') &&
-    phoneCss.includes('flex-wrap:wrap') &&
+    phoneCss.includes('.detail-header-id') &&
     phoneCss.includes('.inbox-header-stack-channel #btn-refresh') &&
-    !/inbox-header-stack\{[^}]*overflow-x:auto/.test(phoneCss)
+    /#btn-refresh\{[^}]*display:none!important/.test(phoneCss) &&
+    /#inbox-header-luna-row/.test(phoneCss) &&
+    /inbox-header-stack-luna\{[^}]*display:none!important/.test(phoneCss) &&
+    shell.includes('SHARED-PHONE-INBOX-HEADER-007')
 );
 ok(
   'SHARED-PHONE-INBOX-THREAD-FILL-005 grows messages into leftover space',
@@ -173,38 +175,39 @@ ok(
     /data-autonomy-keep-open/.test(shell)
 );
 ok(
-  'SHARED-PHONE-INBOX-OVERFLOW-006 CSS: phone popover + desktop inline',
-  phoneCss.includes('SHARED-PHONE-INBOX-OVERFLOW-006') &&
+  'SHARED-PHONE-INBOX-OVERFLOW-007 CSS: plain-text menu + desktop inline',
+  phoneCss.includes('SHARED-PHONE-INBOX-OVERFLOW-007') &&
     phoneCss.includes('.inbox-thread-overflow') &&
     phoneCss.includes('.inbox-thread-overflow-btn') &&
     phoneCss.includes('.inbox-thread-overflow-panel') &&
+    phoneCss.includes('background:transparent!important') &&
+    phoneCss.includes('.inbox-luna-mode-label') &&
     api.includes('@media(min-width:769px)') &&
     /inbox-thread-overflow-btn\{display:none!important\}/.test(api) &&
-    shell.includes('SHARED-PHONE-INBOX-OVERFLOW-006')
+    shell.includes('SHARED-PHONE-INBOX-OVERFLOW-007')
 );
 ok(
-  'JS cooks phone action row (back + ⋯) with Spam/Clear/Delete/Luna in overflow panel; refresh in channel',
+  'JS cooks phone header: ← beside name, … in channel, no Refresh; menu holds actions',
   (() => {
     const threadSrc = fs.readFileSync(path.join(root, 'scripts/browser/inbox-thread.js'), 'utf8');
     const cook = threadSrc.slice(
       threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions'),
-      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 3200
+      threadSrc.indexOf('function inboxCookSelectedConversationHeaderActions') + 4200
     );
     return (
       /function inboxEnsureThreadOverflowMenu\(/.test(threadSrc) &&
       /function inboxPhoneThreadOverflow\(/.test(threadSrc) &&
       /function inboxCloseThreadOverflowMenu\(/.test(threadSrc) &&
-      /row\.appendChild\(back\)/.test(cook) &&
-      /row\.appendChild\(overflow\)/.test(cook) &&
+      /function inboxSyncPhoneOverflowPlainLabels\(/.test(threadSrc) &&
+      /nameHost\.insertBefore\(back/.test(cook) &&
+      /channel\.appendChild\(overflow\)/.test(cook) &&
+      /inboxParkRefreshBtn\(\)/.test(cook) &&
       /panel\.appendChild\(spam\)/.test(cook) &&
       /panel\.appendChild\(clearBtn\)/.test(cook) &&
       /panel\.appendChild\(deleteBtn\)/.test(cook) &&
       /panel\.appendChild\(chrome\)/.test(cook) &&
-      /channel\.appendChild\(refresh\)/.test(cook) &&
-      cook.indexOf('appendChild(back)') < cook.indexOf('appendChild(overflow)') &&
-      cook.indexOf('appendChild(spam)') < cook.indexOf('appendChild(clearBtn)') &&
-      cook.indexOf('appendChild(clearBtn)') < cook.indexOf('appendChild(deleteBtn)') &&
-      cook.indexOf('appendChild(deleteBtn)') < cook.indexOf('appendChild(chrome)')
+      /Luna On/.test(threadSrc) &&
+      /Luna Off/.test(threadSrc)
     );
   })()
 );
@@ -293,7 +296,7 @@ async function measureList(page) {
 
 async function measureThread(page) {
   return page.evaluate(() => {
-    const back = document.querySelector('#inbox-header-luna-row > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
+    const back = document.querySelector('#inbox-shell.show-thread .detail-header-id > .inbox-mobile-back, #inbox-header-luna-row > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
     const autoTab = document.querySelector('#inbox-shell.show-thread > .is-inbox-mobile-docked .inbox-autonomy-bottom-tab');
     const autonomy = document.querySelector('#inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked');
     const panelKids = autonomy
@@ -303,6 +306,7 @@ async function measureThread(page) {
     const stack = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-luna');
     const channel = document.querySelector('#inbox-shell.show-thread .inbox-header-stack-channel');
     const name = document.querySelector('#inbox-shell.show-thread .detail-header-main .detail-name, #inbox-shell.show-thread .detail-name');
+    const nameHost = document.querySelector('#inbox-shell.show-thread .detail-header-id');
     const header = document.querySelector('#inbox-shell.show-thread .detail-header');
     const headerRight = document.querySelector('#inbox-shell.show-thread .detail-header-right');
     const refresh = document.querySelector('#btn-refresh');
@@ -346,23 +350,25 @@ async function measureThread(page) {
     const headerBox = box(header);
     const msgsBox = box(msgs);
     const draftBox = box(draft);
-    const refreshInChannel = !!(refresh && channel && channel.contains(refresh));
-    const refreshInLuna = !!(refresh && stack && stack.contains(refresh));
+    const backBox = box(back);
+    const refreshInChannel = !!(refresh && channel && channel.contains(refresh) && visible(refresh));
+    const refreshInLuna = !!(refresh && stack && stack.contains(refresh) && visible(refresh));
+    const refreshVisible = visible(refresh);
     const backVisible = visible(back);
+    const backBesideName = !!(back && nameHost && nameHost.contains(back));
+    const overflowInChannel = !!(overflow && channel && channel.contains(overflow));
     const overflowOpen = !!(overflow && overflow.classList.contains('is-open') && overflowPanel && !overflowPanel.hidden);
-    const rowKids = stack
-      ? Array.from(stack.children).map((el) => el.id || el.className || el.tagName)
-      : [];
     const spamInPanel = !!(spam && overflowPanel && overflowPanel.contains(spam));
     const clearInPanel = !!(clearBtn && overflowPanel && overflowPanel.contains(clearBtn));
     const deleteInPanel = !!(deleteBtn && overflowPanel && overflowPanel.contains(deleteBtn));
     const chromeInPanel = !!(chrome && overflowPanel && overflowPanel.contains(chrome));
-    const spamOnRow = !!(spam && stack && stack.contains(spam) && (!overflowPanel || !overflowPanel.contains(spam)));
+    const lunaRowVisible = !!(stack && getComputedStyle(stack).display !== 'none' && stack.getClientRects().length > 0);
     return {
       vh: window.innerHeight,
       vw: window.innerWidth,
-      back: box(back),
+      back: backBox,
       backVisible,
+      backBesideName,
       autoTab: box(autoTab),
       autonomy: box(autonomy),
       msgs: msgsBox,
@@ -382,6 +388,7 @@ async function measureThread(page) {
       headerPadLeft: header ? parseFloat(getComputedStyle(header).paddingLeft) || 0 : 0,
       refreshInChannel,
       refreshInLuna,
+      refreshVisible,
       headerMsgsGap: headerBox && (threadSection || msgs) ? Math.round((threadSection || msgs).getBoundingClientRect().top - headerBox.bottom) : null,
       msgsDraftGap: msgsBox && draftBox ? draftBox.top - msgsBox.bottom : null,
       deadBandBelowDraft: draftBox && autoTab
@@ -389,16 +396,17 @@ async function measureThread(page) {
         : (draftBox ? Math.round(window.innerHeight - draftBox.bottom) : null),
       overflowBtn: box(overflowBtn),
       overflowBtnVisible: visible(overflowBtn),
+      overflowInChannel,
       overflowOpen,
       overflowPanelVisible: visible(overflowPanel),
       spamInPanel,
       clearInPanel,
       deleteInPanel,
       chromeInPanel,
-      spamOnRow,
       spamVisibleClosed: visible(spam),
       clearVisibleClosed: visible(clearBtn),
-      rowKids,
+      lunaRowVisible,
+      backLeftOfName: !!(backBox && nameBox && backBox.right <= nameBox.left + 2 && Math.abs(backBox.top - nameBox.top) <= 20),
     };
   });
 }
@@ -530,17 +538,16 @@ async function main() {
       );
       ok(
         `390 chat [${stamp.name}]: action stack is row-wrapped toolbar (no h-scroll)`,
-        thread.stack &&
-          thread.stack.flexDir === 'row' &&
-          (thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse') &&
-          /* overflow may be visible so the ⋯ popover is not clipped; still no h-scroll. */
-          (thread.stack.overflowX === 'hidden' || thread.stack.overflowX === 'visible' || thread.stack.overflowX === 'clip') &&
-          thread.stackOverflow === false &&
+        thread.header &&
           thread.headerOverflow === false &&
-          thread.docOverflow === false,
+          thread.docOverflow === false &&
+          (thread.stack == null || thread.lunaRowVisible === false ||
+            ((thread.stack.flexWrap === 'wrap' || thread.stack.flexWrap === 'wrap-reverse' || thread.stack.display === 'none') &&
+              thread.stackOverflow === false)),
         JSON.stringify({
           stack: thread.stack,
           header: thread.header,
+          lunaRowVisible: thread.lunaRowVisible,
           stackOverflow: thread.stackOverflow,
           headerOverflow: thread.headerOverflow,
           docOverflow: thread.docOverflow,
@@ -559,45 +566,56 @@ async function main() {
           })
         );
         ok(
-          '390 chat: refresh sits in channel stack (not action row)',
-          thread.refreshInChannel === true && thread.refreshInLuna === false,
-          JSON.stringify({ refreshInChannel: thread.refreshInChannel, refreshInLuna: thread.refreshInLuna })
+          '390 chat: no Refresh on phone open-thread header',
+          thread.refreshVisible === false &&
+            thread.refreshInChannel === false &&
+            thread.refreshInLuna === false,
+          JSON.stringify({
+            refreshVisible: thread.refreshVisible,
+            refreshInChannel: thread.refreshInChannel,
+            refreshInLuna: thread.refreshInLuna,
+          })
         );
         ok(
-          '390 chat: back control is slim and visible',
+          '390 chat: ← sits left of guest name; … in channel top-right',
           thread.backVisible === true &&
-            thread.back &&
-            thread.back.height <= 34 &&
-            thread.back.width <= 40,
-          JSON.stringify(thread.back)
-        );
-        ok(
-          '390 chat: action row is ← + ⋯ only (Spam/Clear/Delete/Luna tucked in menu)',
-          thread.backVisible === true &&
+            thread.backBesideName === true &&
+            thread.backLeftOfName === true &&
             thread.overflowBtnVisible === true &&
-            thread.overflowOpen === false &&
+            thread.overflowInChannel === true &&
+            thread.lunaRowVisible === false,
+          JSON.stringify({
+            backVisible: thread.backVisible,
+            backBesideName: thread.backBesideName,
+            backLeftOfName: thread.backLeftOfName,
+            overflowBtnVisible: thread.overflowBtnVisible,
+            overflowInChannel: thread.overflowInChannel,
+            lunaRowVisible: thread.lunaRowVisible,
+            back: thread.back,
+            name: thread.name,
+          })
+        );
+        ok(
+          '390 chat: Spam/Clear/Delete/Luna tucked in closed … menu',
+          thread.overflowOpen === false &&
             thread.overflowPanelVisible === false &&
             thread.spamInPanel === true &&
             thread.clearInPanel === true &&
             thread.deleteInPanel === true &&
             thread.chromeInPanel === true &&
-            thread.spamOnRow === false &&
             thread.spamVisibleClosed === false &&
             thread.clearVisibleClosed === false,
           JSON.stringify({
-            overflowBtnVisible: thread.overflowBtnVisible,
             overflowOpen: thread.overflowOpen,
             spamInPanel: thread.spamInPanel,
             clearInPanel: thread.clearInPanel,
             deleteInPanel: thread.deleteInPanel,
             chromeInPanel: thread.chromeInPanel,
-            spamOnRow: thread.spamOnRow,
             spamVisibleClosed: thread.spamVisibleClosed,
             clearVisibleClosed: thread.clearVisibleClosed,
-            rowKids: thread.rowKids,
           })
         );
-        /* Open ⋯ and confirm menu actions become hittable. */
+        /* Open ⋯ and confirm plain-text menu actions. */
         await page.click('#inbox-thread-overflow-btn');
         await page.waitForTimeout(200);
         const menuOpen = await page.evaluate(() => {
@@ -606,25 +624,46 @@ async function main() {
           const spam = document.getElementById('btn-inbox-spam');
           const clearBtn = document.getElementById('btn-inbox-clear-thread');
           const deleteBtn = document.getElementById('btn-inbox-conv-delete');
-          const luna = document.querySelector('#inbox-chat-chrome-slot .inbox-luna-mode-btn, #inbox-thread-overflow-panel .inbox-luna-mode');
+          const lunaBtns = Array.from(document.querySelectorAll('#inbox-thread-overflow-panel .inbox-luna-mode-btn'));
           function vis(el) {
             return !!(el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0);
+          }
+          function plain(el) {
+            if (!el) return false;
+            const s = getComputedStyle(el);
+            const bg = s.backgroundColor;
+            const transparent = !bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)';
+            return transparent && (s.borderStyle === 'none' || s.borderWidth === '0px' || parseFloat(s.borderWidth) === 0);
           }
           return {
             open: !!(wrap && wrap.classList.contains('is-open') && panel && !panel.hidden),
             spam: vis(spam),
             clear: vis(clearBtn),
             del: vis(deleteBtn),
-            luna: vis(luna),
+            lunaTexts: lunaBtns.map((b) => (b.textContent || '').trim()),
+            lunaPlain: lunaBtns.length > 0 && lunaBtns.every((b) => plain(b)),
+            spamPlain: plain(spam),
+            clearPlain: plain(clearBtn),
+            delPlain: plain(deleteBtn),
+            labelHidden: (() => {
+              const lab = document.querySelector('#inbox-thread-overflow-panel .inbox-luna-mode-label');
+              return !lab || getComputedStyle(lab).display === 'none';
+            })(),
           };
         });
         ok(
-          '390 chat: ⋯ menu opens Spam/Clear/Delete/Luna',
+          '390 chat: ⋯ menu opens plain-text Spam/Clear/Delete/Luna On|Off',
           menuOpen.open === true &&
             menuOpen.spam === true &&
             menuOpen.clear === true &&
             menuOpen.del === true &&
-            menuOpen.luna === true,
+            menuOpen.labelHidden === true &&
+            menuOpen.spamPlain === true &&
+            menuOpen.clearPlain === true &&
+            menuOpen.delPlain === true &&
+            menuOpen.lunaPlain === true &&
+            menuOpen.lunaTexts.some((t) => /Luna On/i.test(t)) &&
+            menuOpen.lunaTexts.some((t) => /Luna Off/i.test(t)),
           JSON.stringify(menuOpen)
         );
         await page.keyboard.press('Escape');

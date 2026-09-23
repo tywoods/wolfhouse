@@ -116,7 +116,8 @@ async function measure(page) {
     const clear = document.getElementById('btn-inbox-clear-thread');
     const overflowBtn = document.getElementById('inbox-thread-overflow-btn');
     const overflowPanel = document.getElementById('inbox-thread-overflow-panel');
-    const channel = document.querySelector('#inbox-chat-chrome-slot .inbox-composer-channel, #inbox-shell .inbox-header-stack-channel');
+    const back = document.querySelector('.detail-header-id > .inbox-mobile-back, #inbox-mobile-back, .inbox-mobile-back');
+    const channel = document.querySelector('#inbox-shell .inbox-header-stack-channel, #inbox-chat-chrome-slot .inbox-composer-channel');
     function box(el) {
       if (!el) return { missing: true, w: 0, h: 0, display: 'missing', text: '' };
       const r = el.getBoundingClientRect();
@@ -154,6 +155,7 @@ async function measure(page) {
       clear: box(clear),
       overflowBtn: box(overflowBtn),
       overflowOpen: !!(overflowPanel && !overflowPanel.hidden),
+      back: box(back),
       channel: box(channel),
       expectedTitle,
       locale: document.documentElement.getAttribute('lang'),
@@ -162,14 +164,14 @@ async function measure(page) {
 }
 
 function chromeVisible(metrics) {
-  /* Phone Chats: action chrome is ← + ⋯; Spam/Clear/Luna live in the overflow menu. */
+  /* Phone Chats: ← beside name, WA/Email/… in channel; Spam/Clear/Luna live in the overflow menu. */
   const overflowOk = metrics.overflowBtn && !metrics.overflowBtn.missing &&
     metrics.overflowBtn.display !== 'none' && metrics.overflowBtn.w > 0 && metrics.overflowBtn.h > 0;
-  const lunaRowOk = metrics.lunaRow && !metrics.lunaRow.missing &&
-    metrics.lunaRow.display !== 'none' && metrics.lunaRow.w > 0 && metrics.lunaRow.h > 0;
   const channelOk = metrics.channel && !metrics.channel.missing &&
     metrics.channel.display !== 'none' && metrics.channel.w > 0 && metrics.channel.h > 0;
-  return !!(overflowOk && lunaRowOk && channelOk);
+  const backOk = metrics.back && !metrics.back.missing &&
+    metrics.back.display !== 'none' && metrics.back.w > 0 && metrics.back.h > 0;
+  return !!(overflowOk && channelOk && backOk);
 }
 
 async function actionHit(page, sel) {
@@ -264,7 +266,7 @@ async function main() {
       chromeVisible(closed) && closed.expand && closed.expand.display === 'none',
       JSON.stringify({
         headerRight: closed.headerRight,
-        lunaRow: closed.lunaRow,
+        back: closed.back,
         overflowBtn: closed.overflowBtn,
         channel: closed.channel,
         expand: closed.expand,
