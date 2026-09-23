@@ -28,6 +28,16 @@ const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-so
 let pass = 0;
 let fail = 0;
 
+/** Designer A+B hexes may appear in any order or case inside the chip rule. */
+function chipRuleHas(src, className, hexes, light) {
+  const scope = light
+    ? ':root:not\\(\\[data-theme="dark"\\]\\)\\s*\\.' + className
+    : '(?:^|[\\n\\r])\\.' + className;
+  const re = new RegExp(scope + '\\{[^}]*\\}', 'gi');
+  const blocks = String(src || '').match(re) || [];
+  return blocks.some((block) => hexes.every((hex) => new RegExp(hex, 'i').test(block)));
+}
+
 function ok(label, cond, detail) {
   if (cond) {
     pass += 1;
@@ -374,19 +384,19 @@ function main() {
   ok('CSS Booking wider (minmax 128)', /minmax\(128px,1\.15fr\)/.test(api));
   ok('CSS Type narrower (minmax 88)', /minmax\(88px,\.75fr\)/.test(api));
   ok('CSS status chips centered', /\.portal-admin-bookings-td-status\{[^}]*justify-content:center/.test(api));
-  ok('CSS chip paid dark palette', /chip--paid\{color:#86efac;[^}]*background:rgba\(34,197,94,\.15\)/.test(api));
-  ok('CSS chip unpaid dark palette', /chip--unpaid\{color:#cbd5e1;[^}]*background:rgba\(148,163,184,\.15\)/.test(api));
-  ok('CSS chip partial dark palette', /chip--partial\{color:#5eead4;[^}]*background:rgba\(20,184,166,\.15\)/.test(api));
+  ok('CSS chip paid dark palette', chipRuleHas(api, 'portal-admin-bookings-chip--paid', ['#A8CDB4', '#24332C', '#3D5A48'], false));
+  ok('CSS chip unpaid dark palette', chipRuleHas(api, 'portal-admin-bookings-chip--unpaid', ['#B0B8C0', '#2A2E34', '#4A5560'], false));
+  ok('CSS chip partial dark palette', chipRuleHas(api, 'portal-admin-bookings-chip--partial', ['#9BC9C0', '#1E2E2C', '#3D5A55'], false));
   ok('CSS chip refunded dark palette', /chip--refunded\{color:#d8b4fe;[^}]*background:rgba\(168,85,247,\.15\)/.test(api));
-  ok('CSS chip cancelled dark palette', /chip--cancelled\{color:#fca5a5;[^}]*background:rgba\(239,68,68,\.15\)/.test(api));
+  ok('CSS chip cancelled dark palette', chipRuleHas(api, 'portal-admin-bookings-chip--cancelled', ['#D4A8A8', '#322828', '#6B4545'], false));
   ok('CSS chip refund_needed dark palette', /chip--refund_needed\{color:#fcd34d;[^}]*background:rgba\(245,158,11,\.18\)/.test(api));
   ok('CSS chip hidden dark palette', /chip--hidden\{color:#cbd5e1;[^}]*background:rgba\(100,116,139,\.18\)/.test(api));
   ok('CSS chips smaller padding/font', /\.portal-admin-bookings-chip\{[^}]*padding:2px 7px;[^}]*font-size:10px/.test(api));
-  ok('CSS chip paid light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--paid\{color:#166534;background:#dcfce7/.test(api));
-  ok('CSS chip unpaid light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--unpaid\{color:#475569;background:#f1f5f9/.test(api));
-  ok('CSS chip partial light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--partial\{color:#115e59;background:#ccfbf1/.test(api));
+  ok('CSS chip paid light mode', chipRuleHas(api, 'portal-admin-bookings-chip--paid', ['#1F5C45', '#E6F0EA', '#B8D0C4'], true));
+  ok('CSS chip unpaid light mode', chipRuleHas(api, 'portal-admin-bookings-chip--unpaid', ['#4A5568', '#EEF1F4', '#C8D0D8'], true));
+  ok('CSS chip partial light mode', chipRuleHas(api, 'portal-admin-bookings-chip--partial', ['#1A5C55', '#E0F2EF', '#A8D4CE'], true));
   ok('CSS chip refunded light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--refunded\{color:#6b21a8;background:#f3e8ff/.test(api));
-  ok('CSS chip cancelled light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--cancelled\{color:#991b1b;background:#fee2e2/.test(api));
+  ok('CSS chip cancelled light mode', chipRuleHas(api, 'portal-admin-bookings-chip--cancelled', ['#8B3A3A', '#F5E8E8', '#D4B0B0'], true));
   ok('CSS chip hidden light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--hidden\{color:#334155;background:#e2e8f0/.test(api));
   ok('CSS chip refund_needed light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--refund_needed\{color:#92400e;background:#fef3c7/.test(api));
   ok('i18n col.type present EN', (() => {

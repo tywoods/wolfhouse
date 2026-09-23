@@ -17776,11 +17776,11 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-type-text{font-size:12px;font-weight:600;color:var(--text);line-height:1.35}
 /* Status chips: smaller + dark translucent palette (readable on dark UI) */
 .portal-admin-bookings-chip{display:inline-flex;align-items:center;justify-content:center;min-width:0;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.02em;border:1px solid transparent;white-space:nowrap}
-.portal-admin-bookings-chip--paid{color:#86efac;border-color:rgba(34,197,94,.28);background:rgba(34,197,94,.15)}
-.portal-admin-bookings-chip--unpaid{color:#cbd5e1;border-color:rgba(148,163,184,.28);background:rgba(148,163,184,.15)}
-.portal-admin-bookings-chip--partial{color:#5eead4;border-color:rgba(20,184,166,.28);background:rgba(20,184,166,.15)}
+.portal-admin-bookings-chip--paid{color:#A8CDB4;background:#24332C;border-color:#3D5A48}
+.portal-admin-bookings-chip--unpaid{color:#B0B8C0;background:#2A2E34;border-color:#4A5560}
+.portal-admin-bookings-chip--partial{color:#9BC9C0;background:#1E2E2C;border-color:#3D5A55}
 .portal-admin-bookings-chip--refunded{color:#d8b4fe;border-color:rgba(168,85,247,.28);background:rgba(168,85,247,.15)}
-.portal-admin-bookings-chip--cancelled{color:#fca5a5;border-color:rgba(239,68,68,.28);background:rgba(239,68,68,.15)}
+.portal-admin-bookings-chip--cancelled{color:#D4A8A8;background:#322828;border-color:#6B4545}
 .portal-admin-bookings-chip--hidden{color:#cbd5e1;border-color:rgba(100,116,139,.28);background:rgba(100,116,139,.18)}
 .portal-admin-bookings-chip--refund_needed{color:#fcd34d;border-color:rgba(245,158,11,.32);background:rgba(245,158,11,.18)}
 .portal-admin-bookings-chip-row{display:inline-flex;flex-wrap:wrap;gap:4px;justify-content:center;align-items:center}
@@ -20540,11 +20540,11 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 :root:not([data-theme="dark"]) .channelModeBtn,
 :root:not([data-theme="dark"]) .portal-admin-subtab,
 :root:not([data-theme="dark"]) .portal-admin-bookings-chip{color:#2f3430;font-weight:700}
-:root:not([data-theme="dark"]) .portal-admin-bookings-chip--paid{color:#166534;background:#dcfce7;border-color:#86efac}
-:root:not([data-theme="dark"]) .portal-admin-bookings-chip--unpaid{color:#475569;background:#f1f5f9;border-color:#cbd5e1}
-:root:not([data-theme="dark"]) .portal-admin-bookings-chip--partial{color:#115e59;background:#ccfbf1;border-color:#5eead4}
+:root:not([data-theme="dark"]) .portal-admin-bookings-chip--paid{color:#1F5C45;background:#E6F0EA;border-color:#B8D0C4}
+:root:not([data-theme="dark"]) .portal-admin-bookings-chip--unpaid{color:#4A5568;background:#EEF1F4;border-color:#C8D0D8}
+:root:not([data-theme="dark"]) .portal-admin-bookings-chip--partial{color:#1A5C55;background:#E0F2EF;border-color:#A8D4CE}
 :root:not([data-theme="dark"]) .portal-admin-bookings-chip--refunded{color:#6b21a8;background:#f3e8ff;border-color:#d8b4fe}
-:root:not([data-theme="dark"]) .portal-admin-bookings-chip--cancelled{color:#991b1b;background:#fee2e2;border-color:#fca5a5}
+:root:not([data-theme="dark"]) .portal-admin-bookings-chip--cancelled{color:#8B3A3A;background:#F5E8E8;border-color:#D4B0B0}
 :root:not([data-theme="dark"]) .portal-admin-bookings-chip--hidden{color:#334155;background:#e2e8f0;border-color:#94a3b8}
 :root:not([data-theme="dark"]) .portal-admin-bookings-chip--refund_needed{color:#92400e;background:#fef3c7;border-color:#fcd34d}
 :root:not([data-theme="dark"]) .portal-admin-pill.is-selected{color:#fff!important;border-color:#566157;font-weight:800}
