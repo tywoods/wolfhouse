@@ -208,6 +208,11 @@ const {
   LUNA_PERSONALITY_PATH,
   LUNA_PERSONALITY_BOT_PATH,
 } = require('./lib/staff-luna-personality-routes');
+const {
+  LUNA_INTELLIGENCE_PATH,
+  LUNA_INTELLIGENCE_BOT_PATH,
+  createLunaIntelligenceRoutes,
+} = require('./lib/staff-luna-intelligence-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
 const {
   createAutomatedNotificationsRoutes,
@@ -2647,6 +2652,9 @@ const {
   handleLunaPersonalityPut,
   handleLunaPersonalityBotGet,
 } = lunaPersonalityRoutes;
+const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
+  sendJSON, readBody, withPgClient,
+});
 
 // Staff automated-notifications collection routes (GET/POST). Auth stays in router (admin).
 // PUT/DELETE /:id remain inline below. Helpers from staff-automated-notifications.js injected.
@@ -24526,6 +24534,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
     <div id="staff-luna-personality-status" class="al-hint" role="status"></div>
+    <div class="staff-style-mode" id="staff-luna-intelligence">
+      <div class="luna-header-mode-head">
+        <span class="luna-header-mode-title" id="staff-luna-intelligence-label">Luna Intelligence</span>
+        <button type="button" class="luna-header-mode-btn" id="staff-luna-intelligence-toggle" role="switch" aria-checked="false" aria-labelledby="staff-luna-intelligence-label" aria-describedby="staff-luna-intelligence-help" disabled>Off</button>
+      </div>
+      <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
+      <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
+    </div>
   </section>
 
 ${showOwnerScheduleBridge ? `
@@ -33985,9 +34001,58 @@ function lunaPersonalityLoad(){
     .catch(function(){ /* keep default sunny until a later load */ });
 }
 
+function lunaIntelligenceLoad(){
+  var btn = el('staff-luna-intelligence-toggle');
+  if (!btn) return;
+  if (!btn._lunaIntelligenceWired){
+    btn._lunaIntelligenceWired = true;
+    btn.addEventListener('click', function(){
+      if (btn.disabled) return;
+      lunaIntelligenceRequest({ enabled: btn.getAttribute('aria-checked') !== 'true' });
+    });
+  }
+  return lunaIntelligenceRequest();
+}
+
+function lunaIntelligenceRequest(change){
+  var btn = el('staff-luna-intelligence-toggle');
+  if (btn._lunaIntelligencePending) return;
+  btn._lunaIntelligencePending = true;
+  var status = el('staff-luna-intelligence-status');
+  btn.disabled = true;
+  status.textContent = change ? 'Saving…' : 'Loading…';
+  var opts = { credentials: 'same-origin', headers: { Accept: 'application/json' } };
+  if (change){
+    opts.method = 'PUT';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(change);
+  }
+  return fetch('/staff/luna-intelligence', opts)
+    .then(function(r){
+      if (!r.ok) throw new Error('Request failed');
+      return r.json();
+    })
+    .then(function(data){
+      if (!data || data.success !== true || typeof data.enabled !== 'boolean'
+          || typeof data.client_slug !== 'string' || !data.client_slug) throw new Error('Invalid setting');
+      btn.setAttribute('aria-checked', data.enabled === true ? 'true' : 'false');
+      btn.textContent = data.enabled === true ? 'On' : 'Off';
+      btn.classList.toggle('is-active', data.enabled === true);
+      btn.disabled = false;
+      status.textContent = change ? 'Saved.' : '';
+    })
+    .catch(function(){
+      status.textContent = change
+        ? 'Could not save Luna Intelligence. Reopen this tab to reload the saved setting.'
+        : 'Could not load Luna Intelligence. Reopen this tab to retry.';
+    })
+    .finally(function(){ btn._lunaIntelligencePending = false; });
+}
+
 function wireLunaStaffTabCards(){
   lunaGlobalPauseLoad();
   lunaPersonalityLoad();
+  lunaIntelligenceLoad();
   staffWhatsappNumbersLoad();
   houseNotesLoad();
   maybeLoadStaffNotificationSettings();
@@ -53891,6 +53956,23 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailRegistryChannelEndpointsPost(parsed.query, req, res, auth.user);
+  }
+
+  // ── Luna Intelligence (tenant-wide, default off) ─────────────────────────
+  if (pathname === LUNA_INTELLIGENCE_BOT_PATH && method === 'GET') {
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === LUNA_INTELLIGENCE_PATH && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleLunaIntelligencePut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === LUNA_INTELLIGENCE_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
   }
 
   // ── Luna Personality (tenant-wide WhatsApp-only closed ID) ────────────────
