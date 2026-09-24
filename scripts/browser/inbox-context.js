@@ -1964,7 +1964,10 @@ function inboxCustomerOpenOrStartConversation(sidebar, data, opts) {
   });
 }
 
-function inboxCustomerWireFull(sidebar, data) {
+function inboxCustomerWireFull(sidebar, data, opts) {
+  // Bind to the rendered card, not whatever thread is selected at click time.
+  // People-only cards explicitly pass conv:null and cannot inherit a thread.
+  var conversationOpts = { conv: opts ? opts.conv : inboxContextLastConv };
   var edit = sidebar && (sidebar.querySelector('#cust-profile-edit-btn') || sidebar.querySelector('#inbox-customer-edit-profile'));
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
     edit.dataset.inboxCustomerWired = '1';
@@ -1976,7 +1979,7 @@ function inboxCustomerWireFull(sidebar, data) {
   if (convBtn && convBtn.dataset.inboxCustomerWired !== '1') {
     convBtn.dataset.inboxCustomerWired = '1';
     convBtn.addEventListener('click', function() {
-      inboxCustomerOpenOrStartConversation(sidebar, data, { conv: inboxContextLastConv });
+      inboxCustomerOpenOrStartConversation(sidebar, data, conversationOpts);
     });
   }
   inboxCustomerWireNotes(sidebar);

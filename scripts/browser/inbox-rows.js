@@ -1171,20 +1171,27 @@ function inboxRowsOnGuestPresetChange(name) {
 function inboxRowsWrapGuestViewPreset() {
   if (typeof inboxColumnsSetPreset === 'function' && !inboxColumnsSetPreset._inboxGuestViewWrapped) {
     var _inboxRowsLegacySetPreset = inboxColumnsSetPreset;
-    inboxColumnsSetPreset = function(name) {
+    var presetApplyGeneration = 0;
+    inboxColumnsSetPreset = function(name, opts) {
+      var applyGeneration = ++presetApplyGeneration;
+      /* Explicit navigation must commit the destination surface before its
+         targeted load; a deferred folder reload would discard that target. */
+      opts = opts || {};
       /* Capture before legacy write — record.preset flips inside setPreset. */
       var wasGuest = inboxRowsGuestViewActive();
       var nowGuest = name === 'guest';
       var crossing = wasGuest !== nowGuest && inboxRowsIsSunsetPortal();
       var result;
       function applyFolder() {
+        // A newer explicit destination wins over any queued visual transition.
+        if (applyGeneration !== presetApplyGeneration) return;
         result = _inboxRowsLegacySetPreset(name);
         inboxRowsRuntime.guestView = nowGuest;
         if (nowGuest && !wasGuest) inboxRowsEnterGuestDirectory();
         else if (!nowGuest && wasGuest) inboxRowsLeaveGuestDirectory();
         else inboxRowsRerenderGuestViewList();
       }
-      if (crossing) inboxRowsRunFolderSwitch(applyFolder);
+      if (crossing && !opts.immediate) inboxRowsRunFolderSwitch(applyFolder);
       else applyFolder();
       return result;
     };

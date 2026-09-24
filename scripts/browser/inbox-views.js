@@ -145,35 +145,20 @@ function inboxViewsPaintPersonCustomerCard(row) {
   if (!sidebar || !row) return;
   var phone = normalizeCustomerPhoneClient(row.phone) || String(row.phone || '').trim();
   if (!phone) return;
-  var fallback = {
-    success: true,
-    phone: phone,
-    identity: {
-      customer_id: row.customer_id || null,
-      phone: phone,
-      display_name: row.guest_name || row.display_name || null,
-      email: row.email || row.guest_email || null,
-      language: row.language || null,
-      crm_tags: row.crm_tags || {},
-      auto_tags: row.auto_tags || {},
-      display_tags: row.display_tags || [],
-    },
-    bookings: [],
-    service_records: [],
-    handoffs: [],
-    open_handoffs: [],
-    messages: [],
-    notes: {},
-  };
-  function paint(data) {
-    var payload = data && data.success ? data : fallback;
+  function paint(payload) {
+    // Context is fetched by phone; it must not override the selected customer
+    // identity when a shared/stale phone resolves to somebody else.
+    if (!inboxViewsMatchGuestRow(payload.identity, phone, row.customer_id)) {
+      sidebar.innerHTML = '<div class="state-msg error">Guest identity did not match. Refresh People and try again.</div>';
+      return;
+    }
     sidebar.innerHTML = typeof inboxCustomerFullHtml === 'function'
       ? inboxCustomerFullHtml(payload, { composite: { context: payload, bookings: payload.bookings || [] }, conv: null })
       : '';
     if (typeof inboxContextWireActions === 'function') inboxContextWireActions(sidebar, { conversation: null });
-    if (typeof inboxCustomerWireFull === 'function') inboxCustomerWireFull(sidebar, payload);
+    if (typeof inboxCustomerWireFull === 'function') inboxCustomerWireFull(sidebar, payload, { conv: null });
   }
-  paint(fallback);
+  sidebar.innerHTML = '<div class="state-msg">Loading guest details…</div>';
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient());
   if (getClient() === 'sunset' && typeof getSunsetLocation === 'function') {
     url += '&location=' + encodeURIComponent(getSunsetLocation());
@@ -181,7 +166,7 @@ function inboxViewsPaintPersonCustomerCard(row) {
   fetch(url)
     .then(function(r){ return r.json().then(function(data){ if (!r.ok || !data.success) throw new Error((data && data.error) || ('HTTP ' + r.status)); return data; }); })
     .then(paint)
-    .catch(function(){ paint(fallback); });
+    .catch(function(){ sidebar.innerHTML = '<div class="state-msg error">Could not load guest details. Refresh People and try again.</div>'; });
 }
 
 function inboxViewsOpenGuestCustomerCard(row, targetEl) {
@@ -616,7 +601,9 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
 function inboxViewsMatchGuestRow(row, phone, customerId) {
   if (!row) return false;
   var preferredCustomerId = String(customerId || '').trim();
-  if (preferredCustomerId && String(row.customer_id || '').trim() === preferredCustomerId) return true;
+  // An explicit customer ID is authoritative; never fall back to another
+  // customer's matching phone (including when the ID is absent from this page).
+  if (preferredCustomerId) return String(row.customer_id || '').trim() === preferredCustomerId;
   var targetPhone = normalizeCustomerPhoneClient(phone) || String(phone || '').trim();
   if (!targetPhone) return false;
   var rowPhone = normalizeCustomerPhoneClient(row.phone) || normalizeCustomerPhoneClient(row.durable_phone) || String(row.phone || row.durable_phone || '').trim();
@@ -636,7 +623,7 @@ function inboxViewsOpenGuestByPhone(phone, opts) {
   var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
   var targetPhone = normalizeCustomerPhoneClient(phone) || String(phone || '').trim();
   if (!targetPhone && !preferredCustomerId) return Promise.resolve(false);
-  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest', { immediate: true }); } catch (_preset) {}
   inboxCurrentSurface = INBOX_VIEW_SURFACE_GUEST;
   inboxSavedViewId = 'all_people';
   inboxLastGuestViewId = 'all_people';
@@ -660,13 +647,18 @@ function inboxViewsOpenGuestByPhone(phone, opts) {
       renderInboxSchoolContext(null);
       updateInboxSavedViewPagination(data, false);
       var match = inboxViewsFindGuestRow(inboxSavedViewRows, targetPhone, preferredCustomerId);
-      if (!match && !preferredCustomerId && targetPhone && Array.isArray(inboxSavedViewRows) && inboxSavedViewRows.length === 1) {
-        match = inboxSavedViewRows[0];
-      }
       var selectedKey = match ? match.key : null;
-      applyInboxSavedViewRows(inboxSavedViewRows, { preserveDetail: false, selectedId: selectedKey });
+      // Explicit lookup owns the detail pane. Do not let list rendering choose
+      // its first row (or retain a prior thread) when identity did not match.
+      if (typeof clearInboxSelection === 'function') clearInboxSelection();
+      else selectedConvId = null;
+      applyInboxSavedViewRows(inboxSavedViewRows, { preserveDetail: true, selectedId: selectedKey });
       if (state) state.style.display = 'none';
       if (!match) {
+        if (state) {
+          state.textContent = 'Guest not found in People';
+          state.style.display = 'block';
+        }
         var detail = el('detail-content');
         if (detail) {
           detail.innerHTML = '<div class="inbox-empty-right"><p class="main-msg">Guest not found in People</p><p class="sub-msg">Try All people search in Guest mode.</p></div>';

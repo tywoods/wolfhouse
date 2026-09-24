@@ -21,7 +21,7 @@ ok('Guest cold-load syncs preset surface before saved-view list fetch',
   /function loadInboxFromSavedView\([\s\S]*?var presetSurface = inboxViewsSyncSurfaceFromPreset\(\);[\s\S]*?inboxCurrentSurface = presetSurface;[\s\S]*?inboxSavedViewId = presetSurface === INBOX_VIEW_SURFACE_GUEST[\s\S]*?'all_people'[\s\S]*?var viewId = inboxSavedViewId/.test(views));
 
 ok('Guest card create/open conversation switches to Full before loading thread',
-  /function openInboxToConversation\(convId\)[\s\S]*?switchToTab\('conversations', 'inbox'\)[\s\S]*?inboxColumnsSetPreset\('all4'\)[\s\S]*?loadInbox\(convId\)/.test(thread));
+  /function openInboxToConversation\(convId\)[\s\S]*?switchToTab\('conversations', 'inbox'\)[\s\S]*?inboxColumnsSetPreset\('all4', \{ immediate: true \}\)[\s\S]*?loadInbox\(convId\)/.test(thread));
 
 ok('Bookings toolbar exposes Clear control',
   /id="admin-bookings-clear"/.test(bookings));
