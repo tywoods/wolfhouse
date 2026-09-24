@@ -186,6 +186,14 @@ function financeRedesignUtilRow(name, pct, detail, colorClass) {
     '</div>';
 }
 
+function financeRedesignCapacityDetail(detail) {
+  var raw = String(detail == null ? '' : detail).trim();
+  var match = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (!match) return raw || '\u2014';
+  var template = financeRedesignT('admin.finance.capacityCount', '{used} of {capacity}');
+  return template.replace('{used}', match[1]).replace('{capacity}', match[2]);
+}
+
 function financeRedesignTrendHtml(trend, mode, opts) {
   var rows = Array.isArray(trend) ? trend : [];
   if (!rows.length) {
@@ -481,7 +489,8 @@ function renderFinanceRedesignHtml(summary) {
       (over ? ' data-capacity-over="1"' : '') + '>';
     html += '<span class="pfb-bar-name">' + financeRedesignEsc(lab) + '</span>';
     html += '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + fillCls + '" style="width:' + w + '%"></span></span>';
-    html += '<span class="pfb-bar-amt">' + financeRedesignEsc(detail) + '</span>';
+    var capacityDetail = financeRedesignCapacityDetail(detail);
+    html += '<span class="pfb-bar-amt" aria-label="' + financeRedesignEsc(capacityDetail) + '">' + financeRedesignEsc(capacityDetail) + '</span>';
     html += '<span class="pfb-bar-pct">' + financeRedesignEsc(pctLabel) + '</span>';
     html += '</div>';
   });

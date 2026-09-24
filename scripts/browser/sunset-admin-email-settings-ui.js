@@ -1191,7 +1191,7 @@ function adminEmailDisconnectSafetyNote(provider, stateKey){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.disconnectGoogleSafetyNote', 'Disconnect revokes Gmail mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Gmail. El procesamiento de email sigue desactivado.');
   }
-  return emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.');
+  return emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access and stops email processing.', 'La desconexión revoca el acceso al buzón de Microsoft y detiene el procesamiento de email.');
 }
 function adminEmailMailboxLabel(provider){
   if (provider === 'gmail_api') {
@@ -1472,7 +1472,7 @@ function adminEmailCapabilitiesHtml(data){
         'Flujo de correo activado (sin pausa general): solo pueden funcionar las capacidades guardadas y activadas. Activar no activa funciones ya desactivadas.')) + '</p>'
     : '';
   return note + '<dl data-email-capabilities>' +
-    '<dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd data-email-cap="endpoint_active">' + dd(adminEmailCapabilityOn(data, 'endpoint_active'), true) + '</dd>' +
+    '<dt>' + escHtml(emailUiT('admin.email.endpointProcessing', 'Email processing', 'Procesamiento de email')) + '</dt><dd data-email-cap="endpoint_active">' + dd(adminEmailCapabilityOn(data, 'endpoint_active'), true) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd data-email-cap="inbound">' + dd(adminEmailCapabilityOn(data, 'inbound_enabled')) + '</dd>' +
     '<dt>' + escHtml(staffLabel) + '</dt><dd data-email-cap="staff_replies">' + dd(adminEmailStaffRepliesOn(data)) + '</dd>' +
     '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd data-email-cap="automation">' + dd(adminEmailCapabilityOn(data, 'automation_enabled')) + '</dd>' +

@@ -59,9 +59,9 @@ const html = box.renderFinanceRedesignHtml({
   },
 });
 
-assert.ok(html.includes('132/100'), 'truthful over-capacity count');
+assert.ok(html.includes('132 of 100'), 'truthful labelled over-capacity count');
 assert.ok(html.includes('132%'), 'truthful over-capacity percent');
-assert.ok(!/132\/100[\s\S]{0,120}100%/.test(html), 'no clamped 100% label beside 132/100');
+assert.ok(!/132 of 100[\s\S]{0,120}100%/.test(html), 'no clamped 100% label beside 132 of 100');
 assert.ok(/data-capacity-over="1"/.test(html), 'over marker on capacity UI');
 assert.ok(/pfb-bar-fill[^>]*is-over/.test(html), 'over fill class on bar');
 assert.ok(/pfb-bar-fill[^>]*is-over[^>]*width:100%|width:100%[^<]*is-over|pfb-bar-fill is-green is-over" style="width:100%"/.test(html),
@@ -92,6 +92,6 @@ const under = box.renderFinanceRedesignHtml({
 });
 assert.ok(!/data-capacity-over/.test(under), 'no over marker under capacity');
 assert.ok(!/pfb-ring is-over/.test(under), 'ring not over under capacity');
-assert.ok(under.includes('71%') && under.includes('34/48'));
+assert.ok(under.includes('71%') && under.includes('34 of 48'));
 
-console.log('PASS finance capacity overflow display (132/100 honest, fill clamped, is-over)');
+console.log('PASS finance capacity overflow display (132 of 100 honest, fill clamped, is-over)');

@@ -219,7 +219,7 @@ console.log('\n── painted cards ──');
     && /Click Connect to enter your mailbox email and password/.test(imap));
   ok('capability rows still use dt+dd pairs',
     /<dl data-email-capabilities>/.test(ms)
-    && /<dt>Mailbox connection<\/dt><dd data-email-cap="endpoint_active">Off<\/dd>/.test(ms)
+    && /<dt>Email processing<\/dt><dd data-email-cap="endpoint_active">Off<\/dd>/.test(ms)
     && /<dt>Inbound<\/dt><dd data-email-cap="inbound">Off<\/dd>/.test(ms)
     && /<dt>Staff replies<\/dt><dd data-email-cap="staff_replies">Off<\/dd>/.test(ms)
     && /<dt>Automation<\/dt><dd data-email-cap="automation">Off<\/dd>/.test(ms));

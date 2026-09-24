@@ -45,7 +45,7 @@ function boot() {
     escHtml(s) { return String(s == null ? '' : s); },
     portalT(key) {
       const pack = {
-        'admin.email.endpointActive': 'Mailbox connection',
+        'admin.email.endpointProcessing': 'Email processing',
         'admin.email.inbound': 'Inbound',
         'admin.email.outbound': 'Outbound',
         'admin.email.staffReplies': 'Staff replies',
@@ -199,7 +199,7 @@ async function main() {
     && /support@sunset\.example/.test(ms)
     && /Disconnect Microsoft/.test(ms));
   ok('Microsoft paints DTO inbound on + staff replies on + automation off',
-    /Mailbox connection/.test(ms) && /Inbound/.test(ms) && /Staff replies/.test(ms)
+    /Email processing/.test(ms) && /Inbound/.test(ms) && /Staff replies/.test(ms)
     && /data-email-cap="endpoint_active">On</.test(ms)
     && /data-email-cap="inbound">On</.test(ms)
     && /data-email-cap="staff_replies">On</.test(ms)

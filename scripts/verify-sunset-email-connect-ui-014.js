@@ -49,8 +49,8 @@ function boot(lang) {
     escHtml(s) { return String(s == null ? '' : s); },
     portalT(key) {
       const pack = {
-        'admin.email.state.connected_health': 'Mailbox connected. Email processing remains off.',
-        'admin.email.endpointActive': 'Mailbox connection',
+        'admin.email.state.connected_health': 'Mailbox connected.',
+        'admin.email.endpointProcessing': 'Email processing',
         'admin.email.inbound': 'Inbound',
         'admin.email.outbound': 'Outbound',
         'admin.email.staffReplies': 'Staff replies',
@@ -117,7 +117,7 @@ const payload = {
   assert.match(ms, /Connected as/);
   assert.match(ms, /support@sunset\.example/);
   assert.match(ms, /Last sync/);
-  assert.match(ms, /Mailbox connection/);
+  assert.match(ms, /Email processing/);
   assert.doesNotMatch(ms, /Email processing remains off/);
   assert.doesNotMatch(ms, /data-email-not-inbox/);
   assert.match(imap, /data-email-not-inbox="1"/);
@@ -157,8 +157,8 @@ const payload = {
   const ms = cardHtml(body.innerHTML, 'microsoft_graph');
   assert.doesNotMatch(ms, /data-email-active-inbox/);
   assert.match(ms, /Connected/);
-  assert.match(ms, /Mailbox connected. Email processing remains off/);
-  assert.match(ms, /Mailbox connection/);
+  assert.match(ms, /Mailbox connected\./);
+  assert.match(ms, /Email processing/);
 }
 
 console.log('PASS EMAIL-CONNECT-UI-014 active Inbox mailbox vs IMAP not-in-use');

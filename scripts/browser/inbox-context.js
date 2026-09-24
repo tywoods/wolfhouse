@@ -236,6 +236,13 @@ var INBOX_CONTEXT_CSS = [
   '#inbox-shell.inbox-guest-drawer .inbox-guest-inline-edit,',
   '#inbox-shell[data-peek="col4"] .inbox-guest-inline-edit{grid-column:1}',
   '}',
+  /* SUNSET-EMAIL-DESKTOP-POLISH-001: email needs a real reading track at 1280px+. */
+  '@media(min-width:1280px){',
+  'html[data-portal-client="sunset"] #inbox-shell:has(#inbox-email-reply-subject){',
+  '--inbox-col1-w:56px;--inbox-col4-w:0px;',
+  'grid-template-columns:56px minmax(196px,252px) minmax(520px,1fr) 0px;',
+  '}',
+  '}',
 ].join('');
 
 var inboxContextLastComposite = null;
