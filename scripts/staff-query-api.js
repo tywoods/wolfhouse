@@ -243,6 +243,8 @@ const {
 const { isEnabled: isWolfhouseEmailConnectEnabled, CONNECT_PATH: WOLFHOUSE_EMAIL_CONNECT_PATH } = require('./lib/email-wolfhouse-smtp-imap-connect');
 const { createStaffWolfhouseEmailConnectRoutes } = require('./lib/staff-wolfhouse-email-connect-routes');
 const { PAYMENT_SUMMARY_PATH, buildStaffPaymentSummary } = require('./lib/staff-payment-summary');
+const { hydrateStaffBookingDisplayTruth, staffPaymentDisplayStatus } = require('./lib/staff-booking-display-truth');
+const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./lib/sunset-staff-money-scope');
 const {
   LUNA_STATUS_SUMMARY_PATH,
   authorizeCrowsnestStatusRead,
@@ -4991,6 +4993,9 @@ LIMIT 1
 /* Phase 10.6b — payment ledger rows include metadata for method/source display */
 const BOOKING_PAYMENTS_LEDGER_SQL = `
 SELECT
+  (p.client_id = b.client_id AND (
+    p.status::text <> 'paid' OR (TRUE ${PAYMENT_COLLECTED_SCOPE_SQL})
+  ))                           AS display_eligible,
   p.id::text                    AS payment_id,
   p.status::text                AS payment_status,
   p.payment_kind::text          AS payment_kind,
@@ -38733,6 +38738,9 @@ function bcRunningInvoicePackageLabel(code){
 }
 
 function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
+  var svcSum = (svcRows || []).reduce(function(s, r){
+    return s + bcServiceRecordBillableCents(r);
+  }, 0);
   if (quoteSnap && Array.isArray(quoteSnap.line_items)){
     var sum = 0;
     var any = false;
@@ -38742,11 +38750,13 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
         any = true;
       }
     });
-    if (any) return sum;
+    // Same persisted-total guards as bookingLedgerAccommodationCents (calendar).
+    var bookingTotal = bk && bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null;
+    if (any && sum > 0 && bookingTotal != null && bookingTotal > 0 && sum >= bookingTotal){
+      return Math.max(bookingTotal - svcSum, 0);
+    }
+    if (any && (sum > 0 || bookingTotal == null || bookingTotal <= svcSum)) return sum;
   }
-  var svcSum = (svcRows || []).reduce(function(s, r){
-    return s + bcServiceRecordBillableCents(r);
-  }, 0);
   if (bk && bk.total_amount_cents != null){
     var total = Number(bk.total_amount_cents);
     var derived = total - svcSum;
@@ -38756,6 +38766,8 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
 }
 
 /* Shared invoice totals for Payments tab + Overview payment summary (Phase 10.x) */
+${staffPaymentDisplayStatus.toString()}
+
 function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines){
   bk = bk || {};
   svcRows = svcRows || [];
@@ -38769,9 +38781,14 @@ function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccL
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum
     : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  // Without a quote allocation, the context total already includes persisted
+  // active services (and signed custom lines). Never add raw/history rows twice.
+  if ((!quoteSnap || !Array.isArray(quoteSnap.line_items) || !quoteSnap.line_items.length)
+    && bk.total_amount_cents != null) invoiceTotal = Number(bk.total_amount_cents) + transferSum;
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
-  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
-    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
+  var settledRows = ledgerRows.filter(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status); });
+  var paidCents = settledRows.length ? bcPaymentLedgerPaidTotalCents(settledRows)
+    : (Number(pmt.amount_paid_cents) > 0 ? Number(pmt.amount_paid_cents) : Number(bk.amount_paid_cents || 0));
   var balanceDue = null;
   if (invoiceTotal != null && paidCents != null) {
     balanceDue = invoiceTotal > paidCents ? invoiceTotal - paidCents : 0;
@@ -38782,7 +38799,7 @@ function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccL
     invoiceTotal: invoiceTotal,
     paidCents: paidCents,
     balanceDue: balanceDue,
-    payStatus: bk.payment_status || pmt.latest_status || null,
+    payStatus: staffPaymentDisplayStatus(invoiceTotal, paidCents),
   };
 }
 
@@ -48081,6 +48098,7 @@ async function handleConversationContext(convId, query, res, user) {
       const detailParams = conversationDetailQueryParams(clientSlug, convId, scope);
       const ctx = await pg.query(getConversationContextQuery(scope.queryOpts), detailParams);
       const bk = await pg.query(getConversationBookingsQuery(scope.queryOpts), detailParams);
+      await hydrateStaffBookingDisplayTruth(pg, clientSlug, [...ctx.rows, ...bk.rows]);
       return { contextRow: ctx.rows[0] || null, bookingRows: bk.rows || [] };
     }));
   } catch (err) {
@@ -51882,7 +51900,10 @@ async function handleBookingContext(bookingCode, query, res, user) {
             else throw err;
           }
         }
-        return [b.rows, p.rows, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers, xferAvailable, pauseGate, guestRows, guestsAvailable];
+        // Scope invoice credits without changing ledger history used by payment-link writes.
+        // Non-paid rows retain their pending/history/link behavior.
+        const displayPayments = p.rows.filter((row) => row.display_eligible !== false);
+        return [b.rows, displayPayments, r.rows, c.rows, h.rows, a.rows, m.rows, svc.rows, svc.available, transfers, xferAvailable, pauseGate, guestRows, guestsAvailable];
       });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -51895,6 +51916,11 @@ async function handleBookingContext(bookingCode, query, res, user) {
   }
 
   const bk = bookingRows[0];
+  // Read-only invoice fallback; reuse Bookings' persisted active-service owner.
+  // Do not reprice or overwrite booking state, and preserve an explicit zero.
+  const bookingDisplayTotal = bk.total_amount_cents == null && serviceRecordsAvailable && serviceRecordRows.length
+    ? require('./lib/sunset-bookings-admin').computeChargedCents(bk, serviceRecordRows)
+    : bk.total_amount_cents;
   const bkMetadata = (metaRows[0] && metaRows[0].metadata) || {};
   const confirmationDraft = bkMetadata.confirmation_draft || null;
   const lunaGuestNotes = getLunaGuestNotesFromMetadata(bkMetadata);
@@ -52015,7 +52041,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
       primary_room_code:   bk.primary_room_code,
       needs_rooming_review:bk.needs_rooming_review,
       rooming_notes:       bk.rooming_notes,
-      total_amount_cents:  bk.total_amount_cents,
+      total_amount_cents:  bookingDisplayTotal,
       deposit_required_cents: bk.deposit_required_cents,
       amount_paid_cents:   bk.amount_paid_cents,
       balance_due_cents:   bk.balance_due_cents,
@@ -52025,7 +52051,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
     payments: {
       rows:                  paymentRows,
       amount_paid_cents:     totalPaid,
-      total_amount_cents:    Number(bk.total_amount_cents || 0),
+      total_amount_cents:    Number(bookingDisplayTotal || 0),
       deposit_required_cents:Number(bk.deposit_required_cents || 0),
       balance_due_cents:     Number(bk.balance_due_cents || 0),
       latest_status:         latestStatus,

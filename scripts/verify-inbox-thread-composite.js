@@ -537,8 +537,8 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
       !deps.pg.log.some((e) => e.sql === getConversationStaffStateQuery().trim()));
     const dataQueries = deps.pg.log.filter((e) => !/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i.test(e.sql));
     // detail, messages, context, bookings, draft, then the global and
-    // per-conversation bot_pause_states lookups. Was 8 with staff-state.
-    ok('one thread open costs 7 queries', dataQueries.length === 7, `got ${dataQueries.length}`);
+    // per-conversation bot_pause_states lookups, plus one batched booking truth read.
+    ok('one thread open costs 8 queries', dataQueries.length === 8, `got ${dataQueries.length}`);
 
     const isLunaGuestAutomationPaused = shippedPauseHelper();
     const c = body.detail.conversation;
@@ -590,7 +590,10 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
     ok('every query is tenant-scoped to the requested client',
       dataQueries.length > 0 && dataQueries.every((e) => e.params && e.params[0] === CLIENT));
     ok('every conversation query is bound to the requested id',
-      dataQueries.filter((e) => !/bot_pause_states/.test(e.sql)).every((e) => e.params[1] === CONV_ID));
+      dataQueries.filter((e) => !/bot_pause_states|b.id = ANY\(\$2::uuid\[\]\)/.test(e.sql)).every((e) => e.params[1] === CONV_ID));
+    const truthRead = dataQueries.find((e) => /b.id = ANY\(\$2::uuid\[\]\)/.test(e.sql));
+    ok('booking truth read is bound to exactly the context/stack booking ids',
+      truthRead && eq(truthRead.params, [CLIENT, ['bk-1', 'bk-2']]));
   }
   {
     const { deps, body } = await runComposite({ scoped: true }, {}, { client: 'sunset', location: 'sunset-sardinero' });

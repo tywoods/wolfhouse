@@ -386,10 +386,10 @@ const staleStoredBalanceHighPaid = buildPaymentSummary(
   [], 'config', 10000, null,
   { paid_rows: [{ payment_status: 'paid', amount_paid_cents: 10000, metadata: {} }] },
 );
-assert('displayed balance reconciles when booking paid aggregate is ahead of detail',
-  staleStoredBalanceHighPaid.paid_cents === 30000
-  && staleStoredBalanceHighPaid.balance_due_cents === 20000
-  && staleStoredBalanceHighPaid.paid_ledger_remainder_cents === 20000);
+assert('settled ledger beats stale larger booking aggregate (same truth as Bookings list)',
+  staleStoredBalanceHighPaid.paid_cents === 10000
+  && staleStoredBalanceHighPaid.balance_due_cents === 40000
+  && staleStoredBalanceHighPaid.paid_ledger_remainder_cents === 0);
 
 const ambiguousUnit = buildPaymentSummary(
   [],

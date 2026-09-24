@@ -25,6 +25,8 @@
 
 'use strict';
 
+const { hydrateStaffBookingDisplayTruth } = require('./staff-booking-display-truth');
+
 const {
   getConversationDetailQuery,
   getConversationMessagesQuery,
@@ -155,6 +157,7 @@ function createInboxThreadCompositeRoutes(deps) {
     const context = await readSection(pg, async () => {
       const ctx = await pg.query(getConversationContextQuery(scope.queryOpts), params);
       const bk = await pg.query(getConversationBookingsQuery(scope.queryOpts), params);
+      await hydrateStaffBookingDisplayTruth(pg, clientSlug, [...ctx.rows, ...bk.rows]);
       return { contextRow: ctx.rows[0] || null, bookingRows: bk.rows || [] };
     });
     const draft = await readSection(pg, () => pg.query(
