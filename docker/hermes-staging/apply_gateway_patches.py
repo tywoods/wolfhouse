@@ -635,6 +635,43 @@ def apply_luna_intelligence_cleanup(source: str) -> str:
     if len(owners) != 1 or isinstance(owners[0], ast.AsyncFunctionDef):
         raise RuntimeError('intelligence cleanup: unique synchronous ordinary worker required')
     worker = owners[0]
+    # Capture at the actual submission boundary, before a raw executor drops
+    # ContextVars. This must not depend on the optional isolation loop patch.
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    scope = parents[worker]
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    edits = []
+    for call in ast.walk(scope):
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+            continue
+        index = {'run_in_executor': 1, '_run_in_executor_with_context': 0}.get(call.func.attr)
+        if index is None or len(call.args) <= index:
+            continue
+        arg = call.args[index]
+        if not isinstance(arg, ast.Name) or arg.id != worker.name:
+            continue
+        edits.append((offsets[arg.lineno - 1] + arg.col_offset,
+                      offsets[arg.end_lineno - 1] + arg.end_col_offset))
+    for start, end in sorted(edits, reverse=True):
+        source = (source[:start] + '_wh_handoff_partial(_wh_handoff_copy_context().run, '
+                  + source[start:end] + ')' + source[end:])
+    if edits:
+        # Import in the submission's lexical scope; avoid disturbing module
+        # docstrings/future imports or the worker's validated cache ownership.
+        lines = source.splitlines(keepends=True)
+        line = min([worker.lineno] + [d.lineno for d in worker.decorator_list]) - 1
+        pad = ' ' * worker.col_offset
+        lines[line:line] = [
+            pad + 'from contextvars import copy_context as _wh_handoff_copy_context\n',
+            pad + 'from functools import partial as _wh_handoff_partial\n',
+        ]
+        source = ''.join(lines)
+        tree = ast.parse(source)
+        worker = next(fn for fn in ast.walk(tree)
+                      if isinstance(fn, ast.FunctionDef) and _cache_triple_start(fn.body) is not None)
     name = '_wh_research_turn_lifetime'
     if any(isinstance(d, ast.Name) and d.id == name for d in worker.decorator_list):
         validate_luna_personality_emitted_ast(source)
@@ -1275,6 +1312,11 @@ def _patched_prepare_gateway_status_message(platform, event_type, message):
     return _orig_prepare_gateway_status_message(platform, event_type, message)
 
 async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, metadata=None):
+    from wolfhouse.explicit_human_handoff import suppress_ordinary_handoff_reply
+    if suppress_ordinary_handoff_reply(chat_id):
+        from gateway.platforms.base import SendResult
+        return SendResult(success=True, message_id=None,
+                          raw_response={"suppressed_handoff_duplicate": True})
     try:
         from wolfhouse.guest_send_guard import suppress_guest_whatsapp_text_send
         if suppress_guest_whatsapp_text_send(content, metadata):
@@ -1506,6 +1548,11 @@ def install_runtime_whatsapp_patches() -> dict:
         applied["pause_webhook"] = bool(install_whatsapp_pause_webhook_patch())
     except Exception:
         pass
+    try:
+        from wolfhouse.explicit_human_handoff import install_ordinary_handoff_patch
+        applied["ordinary_handoff"] = bool(install_ordinary_handoff_patch())
+    except Exception:
+        applied["ordinary_handoff"] = False
     try:
         from wolfhouse.whatsapp_burst_coalesce import install_whatsapp_burst_coalesce_patch
         applied["burst_coalesce"] = bool(install_whatsapp_burst_coalesce_patch())

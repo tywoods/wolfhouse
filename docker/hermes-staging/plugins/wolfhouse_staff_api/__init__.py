@@ -1309,9 +1309,37 @@ def _clarify_first_guest_action(reason):
     return "What would you like help with — a lesson or a rental?"
 
 
+# Existing explicit categories (Luna behavior spec §8); a research outage is
+# not a business-tool failure. Free-form context belongs after a code + colon.
+_EXPLICIT_HANDOFF_CODES = frozenset({
+    "human_requested", "complaint", "urgent_safety", "refund",
+    "paid_cancellation_or_reschedule", "date_change_different_nights",
+    "payment_state_mismatch", "cancel_or_change_request", "transfer_exception",
+    "bilbao_no_package_request", "bad_weather_lesson_refund",
+    "needs_booking_identification", "add_guest_on_paid_booking", "business_tool_error",
+})
+_HANDOFF_REASON_DESCRIPTION = (
+    "Use an explicit reason code, optionally followed by a colon and context: "
+    + ", ".join(sorted(_EXPLICIT_HANDOFF_CODES))
+    + ". business_tool_error means an unresolved Staff booking/payment operation, "
+      "never public research/search/read/weather failure. Public lookup failure alone "
+      "must not flag or promise follow-up. Use human_requested for an actual transfer request."
+)
+
+
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    from wolfhouse.luna_intelligence import public_research_failed_this_turn
+    reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
+    if public_research_failed_this_turn() and reason_code not in _EXPLICIT_HANDOFF_CODES:
+        return _json_result({
+            "success": False, "tool": "flag_needs_human", "needs_human": False,
+            "blocked_reasons": ["public_research_not_handoff"],
+            "staff_review_needed": False, "do_not_escalate": True,
+            "guest_safe_next_action": "I can’t verify that information right now, and I don’t want to guess.",
+            "guidance": _HANDOFF_REASON_DESCRIPTION,
+        })
     # Tenant must come from runtime (LUNA_CLIENT_SLUG via _post_bot). Never trust the model.
     payload.pop("client_slug", None)
     if _is_auto_escalation_reason(payload.get("reason")):
@@ -1327,7 +1355,8 @@ def flag_needs_human(params, **kwargs):
         })
     # Do not let the model pick an arbitrary conversation UUID across tenants.
     payload.pop("conversation_id", None)
-    session_phone = _session_guest_phone()
+    from wolfhouse.explicit_human_handoff import ordinary_handoff_phone, persist_ordinary_handoff
+    session_phone = _normalize_phone(ordinary_handoff_phone()) or _session_guest_phone()
     model_phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone"))
     if session_phone:
         payload["phone"] = session_phone
@@ -1353,9 +1382,14 @@ def flag_needs_human(params, **kwargs):
             "staff_review_needed": True,
             "error": "LUNA_CLIENT_SLUG is required for tenant-scoped handoff.",
         })
-    data = _post_bot("/conversation/needs-human", payload)
+    data = persist_ordinary_handoff(payload, lambda: _post_bot("/conversation/needs-human", payload))
+    if data is None:
+        data = _post_bot("/conversation/needs-human", payload)
     ok = bool(data.get("success")) and bool(data.get("needs_human"))
     return _json_result({
+        **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
+                                     "needs_operator_reconciliation", "guest_safe_next_action",
+                                     "failure_notice_sent", "error") if key in data},
         "success": ok,
         "tool": "flag_needs_human",
         "needs_human": bool(data.get("needs_human")),
@@ -3436,7 +3470,7 @@ def _sunset_write_tools():
         ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
         ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
         ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, paid cancellation/change, payment mismatch, safety, or tool errors you cannot resolve. Do NOT use when the guest message is merely unclear (missing school, dates, party size, lesson vs rental, etc.) and do NOT use for a large party or remaining-seat shortfall — ask one clarifying question, or tell remaining seats and offer another slot. Do NOT use solely for take_request lesson queue. After success, persist Needs human AND still produce the guest-visible reassurance that a human from the Sunset team is coming into the chat; ask no question. Needs human is review state — keep answering later inbound questions.", flag_needs_human, {"phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, paid cancellation/change, payment mismatch, safety, or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use when the guest message is merely unclear (missing school, dates, party size, lesson vs rental, etc.) and do NOT use for a large party or remaining-seat shortfall — ask one clarifying question, or tell remaining seats and offer another slot. Do NOT use solely for take_request lesson queue. After success, persist Needs human AND still produce the guest-visible reassurance that a human from the Sunset team is coming into the chat; ask no question. Needs human is review state — keep answering later inbound questions.", flag_needs_human, {"phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),
     ]
 
 
@@ -3552,7 +3586,7 @@ def register(ctx):
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use after the guest agrees to add it AND a booking exists (create it first if mid-intake — use the camp dates). Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +

@@ -835,7 +835,8 @@ class BurstCoalescer:
         self._stats["agent_invocations"] += 1
         failed = False
         try:
-            await adapter_dispatch.dispatch_fn(event)
+            from wolfhouse.explicit_human_handoff import dispatch_with_handoff_notice
+            await dispatch_with_handoff_notice(event, adapter_dispatch)
             self._stats["replies"] += 1
         except Exception:
             failed = True
@@ -880,7 +881,8 @@ class BurstCoalescer:
         st.active_task = asyncio.current_task()
         self._stats["agent_invocations"] += 1
         try:
-            await adapter_dispatch.dispatch_fn(event)
+            from wolfhouse.explicit_human_handoff import dispatch_with_handoff_notice
+            await dispatch_with_handoff_notice(event, adapter_dispatch)
             self._stats["replies"] += 1
         except Exception:
             self._stats["failures"] += 1
