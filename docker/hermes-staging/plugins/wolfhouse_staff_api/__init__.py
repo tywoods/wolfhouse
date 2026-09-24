@@ -550,7 +550,7 @@ def quote_booking(params, **kwargs):
 
 
 def _normalize_guests_payload(payload):
-    """Normalize guests:[{name}] for Slice A per-guest bookings."""
+    """Normalize occupant names without dropping unnamed guest slots."""
     raw = payload.get("guests")
     if not isinstance(raw, list):
         return
@@ -562,8 +562,7 @@ def _normalize_guests_payload(payload):
             name = _clean(item.get("name") or item.get("guest_name"))
         else:
             name = ""
-        if name:
-            normalized.append({"name": name})
+        normalized.append({"name": name})
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -670,6 +669,43 @@ def create_booking_from_plan(params, **kwargs):
     payload = dict(params or {})
     payload.setdefault("source", "agent_luna_whatsapp")
 
+    # Validate supplied counts before roster inference, room policy or transport.
+    # Python int() and JS parseInt() disagree on e.g. "4.0"; never fail open.
+    supplied_count = None
+    for count_key in ("guest_count", "num_guests", "count"):
+        if count_key not in payload:
+            continue
+        raw_count = payload[count_key]
+        try:
+            if isinstance(raw_count, bool) or not isinstance(raw_count, (int, float, str)):
+                raise ValueError("invalid count type")
+            if isinstance(raw_count, str) and not re.fullmatch(r"[1-9][0-9]*", raw_count):
+                raise ValueError("noncanonical count")
+            parsed_count = int(raw_count)
+            # Keep integral numeric inputs, but not truncation or JS precision loss.
+            if not 1 <= parsed_count <= 9007199254740991 or (
+                isinstance(raw_count, float) and raw_count != parsed_count
+            ):
+                raise ValueError("invalid integer count")
+        except (TypeError, ValueError, OverflowError):
+            return _json_result({
+                "success": True,
+                "tool": "create_booking_from_plan",
+                "write_performed": False,
+                "booking_not_created_yet": True,
+                "next_action": "clarify_guest_count",
+                "guest_safe_next_action": "clarify_guest_count",
+                "missing_fields": ["guest_count"],
+                "guidance": "Confirm a positive whole-number guest count, keep all known names, and retry.",
+                "reply_draft": "How many people should I include in the booking?",
+                "staff_review_needed": False,
+                "do_not_escalate": True,
+            })
+        if supplied_count is None:
+            supplied_count = parsed_count
+    if supplied_count is not None:
+        payload["guest_count"] = supplied_count
+
     # Auto-inject required write fields the model shouldn't need to know about.
     # confirm: true is the deliberate "guest accepted" signal the bridge requires.
     payload.setdefault("confirm", True)
@@ -705,6 +741,34 @@ def create_booking_from_plan(params, **kwargs):
             "do_not_escalate": True,
         })
     payload["guest_name"] = guest_name
+
+    # The API already inserts an occupant per bed; without names it falls back
+    # to primary-name numbered placeholders. Never discard a group's roster.
+    guest_count = int(payload.get("guest_count") or 0)  # Validated above or inferred from guests.
+    guests = payload.get("guests")
+    names_incomplete = isinstance(guests, list) and (
+        (guest_count > 0 and len(guests) != guest_count)
+        or any(not _clean(guest.get("name")) for guest in guests)
+    )
+    if names_incomplete or (guest_count > 1 and not isinstance(guests, list)):
+        return _json_result({
+            "success": True,
+            "tool": "create_booking_from_plan",
+            "write_performed": False,
+            "booking_not_created_yet": True,
+            "next_action": "complete_guest_names",
+            "guest_safe_next_action": "complete_guest_names",
+            "missing_fields": ["guests"],
+            "guidance": (
+                "Use every guest's name already supplied in this conversation and retry "
+                "with guests:[{name}] in the same order, one entry per guest, including "
+                "for full payment. Do not re-ask names already known. If a name or the "
+                "list/count is genuinely unclear, ask one clarification; do not invent "
+                "names or repeat the booker's name for unnamed people."
+            ),
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+        })
 
     # Persist the guest's language on the booking so the post-payment confirmation
     # (built server-side from templates) goes out in the same language the booking
@@ -3570,7 +3634,7 @@ def register(ctx):
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender — ask composition later at the room-preference step before create.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For groups with named guests pass guests:[{name}] (one entry per person) — this enables per-guest deposits and payment links. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "Named guests for per-guest deposits/links, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count.", "items": {"type": "object"}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),

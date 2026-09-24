@@ -133,6 +133,8 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
             result = json.loads(plugin.create_booking_from_plan({
                 "check_in": "2026-09-01", "check_out": "2026-09-06", "guest_count": 3,
                 "guest_name": "Gina", "group_gender": "mixed", "package_code": "package_none",
+                # Occupant names are required independently of single-link wording.
+                "guests": [{"name": name} for name in ["Gina", "Jamie", "Tina"]],
                 "payment_choice": "full", "confirm": True,
             }))
         self.assertEqual(result.get("amount_due_cents"), 97500)
