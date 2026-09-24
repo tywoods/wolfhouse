@@ -653,7 +653,7 @@ function openCustomerCardForPhone(phone, opts) {
   var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
   if (!phone && !preferredCustomerId) return Promise.resolve(false);
   if (typeof switchToTab === 'function') switchToTab('conversations');
-  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest', { immediate: true }); } catch (_preset) {}
   if (typeof inboxViewsOpenGuestByPhone === 'function') {
     return inboxViewsOpenGuestByPhone(phone, { customer_id: preferredCustomerId });
   }

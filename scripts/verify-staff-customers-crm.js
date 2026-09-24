@@ -520,7 +520,7 @@ if (apiSrc) {
   assert('openCustomerCardForPhone helper defined', apiSrc.includes('function openCustomerCardForPhone('));
   assert('helper normalizes phone', /function openCustomerCardForPhone[\s\S]{0,200}normalizeCustomerPhoneClient/.test(apiSrc));
   assert('helper switches to Inbox tab', /function openCustomerCardForPhone[\s\S]{0,400}switchToTab\('conversations'\)/.test(apiSrc));
-  assert('helper forces Guest preset', /function openCustomerCardForPhone[\s\S]{0,500}inboxColumnsSetPreset\('guest'\)/.test(apiSrc));
+  assert('helper forces Guest preset', /function openCustomerCardForPhone[\s\S]{0,500}inboxColumnsSetPreset\('guest', \{ immediate: true \}\)/.test(apiSrc));
   assert('helper opens Guest People card', /function openCustomerCardForPhone[\s\S]{0,800}inboxViewsOpenGuestByPhone/.test(apiSrc));
   assert('retired customers destination absent from helper', !/function openCustomerCardForPhone[\s\S]{0,900}(switchToTab\('customers'\)|cust-search|loadCustomersList|waitForCustomersDom)/.test(apiSrc));
   assert('loadCustomersList returns promise on skip', /function loadCustomersList\(\)[\s\S]{0,120}return Promise\.resolve\(\)/.test(apiSrc));

@@ -43,7 +43,7 @@ ok('canonical customer opener does not touch retired Customers DOM/list/detail',
   !/cust-search|loadCustomersList|waitForCustomersDom/.test(openCustomerSrc));
 ok('Guest People helper exported', /openGuestByPhone = inboxViewsOpenGuestByPhone/.test(views));
 ok('Guest People helper forces guest preset and all_people',
-  /inboxColumnsSetPreset\('guest'\)/.test(views) && /inboxSavedViewId = 'all_people'/.test(views));
+  /inboxColumnsSetPreset\('guest', \{ immediate: true \}\)/.test(views) && /inboxSavedViewId = 'all_people'/.test(views));
 ok('Guest People helper searches Inbox People endpoint',
   /\/staff\/inbox\/list\?client=/.test(views) && /view=all_people/.test(views));
 ok('Inbox People rows carry customer_id for exact guest matching',

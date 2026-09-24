@@ -949,6 +949,7 @@
     "verify:sunset-booking-truth": "node scripts/verify-sunset-booking-truth.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
     "verify:inbox-columns": "node scripts/verify-inbox-columns.js",
+    "verify:staff-open-customer-deeplink": "node scripts/verify-staff-open-customer-deeplink.js",
     "verify:inbox-columns-playwright": "node scripts/verify-inbox-columns-playwright.js",
     "verify:inbox-whatsapp-draft-route": "node scripts/verify-inbox-whatsapp-draft-route.js",
     "verify:inbox-stream-route": "node scripts/verify-inbox-stream-route.js",

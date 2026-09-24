@@ -1736,7 +1736,7 @@ function openInboxToConversation(convId){
   if (typeof switchToTab === 'function') switchToTab('conversations', 'inbox');
   /* Create/open from the Guest card is a thread action: land in Full, not
    * Guest focus, so staff see the conversation rail + messenger immediately. */
-  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('all4'); } catch (_preset) {}
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('all4', { immediate: true }); } catch (_preset) {}
   selectedConvId = convId;
   var detailEl = el('detail-content');
   if (detailEl){
