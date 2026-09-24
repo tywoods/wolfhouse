@@ -576,7 +576,7 @@ function inboxChatPaintGuest(){
     body = inboxCustomerFullHtml(data, { composite: inboxContextLastComposite, conv: inboxContextLastConv });
   }
   host.innerHTML = '<div class="inbox-chat-guest-toolbar"><button type="button" class="inbox-chat-guest-back" id="inbox-chat-guest-back">BACK</button></div>' + (body || '');
-  if (typeof inboxContextWireActions === 'function') inboxContextWireActions(host, { conversation: inboxContextLastConv });
+  if (typeof inboxContextWireActions === 'function') inboxContextWireActions(host, { conversation: inboxContextLastConv, customer: data });
   if (typeof inboxCustomerWireFull === 'function') inboxCustomerWireFull(host, data);
   var back = host.querySelector('#inbox-chat-guest-back');
   if (back) back.addEventListener('click', function(){ inboxChatHideGuest(); });

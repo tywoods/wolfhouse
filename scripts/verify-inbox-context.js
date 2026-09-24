@@ -149,7 +149,9 @@ ok('context module does not fetch /staff-state or invent a bookings API',
   && contextSrc.includes("/staff/customers/'")
   && contextSrc.includes('/context?client='));
 ok('context module does not open a booking form in the panel',
-  !/openCreateBookingFromContact[\s\S]{0,80}sidebar/.test(contextSrc)
+  // Inspect the opener's arguments, not a fixed-width window that can reach
+  // the unrelated inboxGuestLinkWire(sidebar, conv) call after the listener.
+  !/openCreateBookingFromContact\s*\([^;]*\bsidebar\b/.test(contextSrc)
   && contextSrc.includes('openCreateBookingFromContact')
   && contextSrc.includes('openCustomerCardForPhone')
   && contextSrc.includes('inbox-open-booking-cal'));
