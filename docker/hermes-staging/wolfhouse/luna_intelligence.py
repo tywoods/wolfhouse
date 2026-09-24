@@ -36,6 +36,7 @@ class Turn:
     reads: int = 0
     lock: LockType = field(default_factory=threading.Lock)
     closed: bool = False
+    public_failure: bool = False
 
 _current: ContextVar[Turn | None] = ContextVar('luna_public_research_turn', default=None)
 
@@ -149,9 +150,20 @@ def run_bounded(operation, value, timeout=8.0):
             proc.communicate()
 
 
+def public_research_failed_this_turn():
+    turn = _current.get()
+    return bool(turn and not turn.closed and turn.public_failure
+                and turn.tenant == os.environ.get('LUNA_CLIENT_SLUG')
+                and turn.origin == os.environ.get('WOLFHOUSE_STAFF_API_BASE_URL', '').rstrip('/'))
+
+
 def failure(error):
+    turn = _current.get()
+    if turn is not None and not turn.closed:
+        turn.public_failure = True
     return json.dumps({'success': False, 'error': error, 'staff_review_needed': False,
-                       'guidance': 'Answer only what is supported; do not invent or promise staff follow-up.'})
+                       'do_not_escalate': True,
+                       'guidance': 'Public research failure alone is not a handoff reason. Explain what cannot be verified; do not invent a forecast or promise staff follow-up. Independent human requests, safety, complaints and booking issues still follow normal handoff policy.'})
 
 
 def _live(turn):

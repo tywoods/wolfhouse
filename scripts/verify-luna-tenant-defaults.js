@@ -47,7 +47,7 @@ assert('sunset compose does not list sunset-sardinero allow', !/sunset-sardinero
 const py = `
 import json, os, sys, io
 from unittest.mock import patch
-sys.path.insert(0, "docker/hermes-staging/plugins")
+sys.path[:0] = ["docker/hermes-staging", "docker/hermes-staging/plugins"]
 import wolfhouse_staff_api as mod
 
 captured = []

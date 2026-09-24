@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(PLUGIN_DIR.parent))
+sys.path[:0] = [str(PLUGIN_DIR.parent.parent), str(PLUGIN_DIR.parent)]
 os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = "+34600111222"
 
