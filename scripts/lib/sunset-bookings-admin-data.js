@@ -34,6 +34,8 @@ const {
   LIST_MAX_LIMIT,
 } = require('./sunset-bookings-admin');
 
+const { sqlGuestBooking } = require('./staff-guest-booking-scope');
+
 const DEFAULT_LOCATION = 'sunset-somo';
 
 const LODGING_BOOKINGS_CLIENT_SLUG = 'wolfhouse-somo';
@@ -125,6 +127,7 @@ SELECT
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
+  AND ${sqlGuestBooking('b')}
   AND ${LOCATION_SQL} = $2
 `;
 
@@ -155,6 +158,7 @@ SELECT
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
+  AND ${sqlGuestBooking('b')}
 `;
 
 const LIST_BOOKINGS_SQL = `${LIST_BOOKINGS_SQL_BASE}
@@ -394,6 +398,7 @@ async function fetchLodgingBookingRowsFallback(pg, clientSlug) {
      FROM bookings b
      INNER JOIN clients c ON c.id = b.client_id
      WHERE c.slug = $1
+       AND ${sqlGuestBooking('b')}
      ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC
      LIMIT 500`,
     [clientSlug],

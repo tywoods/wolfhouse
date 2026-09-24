@@ -18,6 +18,7 @@ const {
   sqlLocationMatch,
 } = require('./sunset-school-locations');
 const { loadClientPortalProfile } = require('./staff-portal-clients');
+const { sqlGuestBooking } = require('./staff-guest-booking-scope');
 
 /** Email-only CRM identity — never a fake +dddd WhatsApp phone. */
 const EMAILCUST_IDENTITY_PREFIX = 'emailcust1:';
@@ -843,6 +844,69 @@ function customerListCursorClause(opts) {
 )`;
 }
 
+
+/** Equality key equivalent to sqlCustomerPhoneMatch, without opaque/empty-digit collisions. */
+function sqlCustomerEligibilityPhoneKey(column) {
+  return `(CASE
+    WHEN ${column} ~* '^(emailcust1|emailv1|email):' THEN 'identity:' || ${column}
+    WHEN ${sqlCustomerPhoneDigits(column)} <> '' THEN 'phone:' || ${sqlCustomerPhoneDigits(column)}
+    ELSE 'identity:' || ${column}
+  END)`;
+}
+
+/**
+ * Touch triggers create block-only identities too. Build tenant-wide evidence
+ * once, joining separately by customer_id and safe phone key (no OR join scans).
+ * Conversations and guest bookings, even cancelled, retain mixed identities;
+ * no evidence retains standalone leads. Eligibility is deliberately independent
+ * of location: only the existing list/activity clauses decide location membership.
+ * Materialize the eligible rows for CRM outer/inner scans and customer_base, so
+ * their repeated reads never re-run booking/conversation eligibility per customer.
+ */
+function sqlGuestCustomerEligibilityCtes() {
+  return `customer_touch_evidence AS MATERIALIZED (
+  SELECT b.client_id, b.customer_id,
+    ${sqlCustomerEligibilityPhoneKey('b.phone')} AS phone_key,
+    ${sqlGuestBooking('b')} AS is_guest
+  FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
+  WHERE c.slug = $1
+  UNION ALL
+  SELECT conv.client_id, conv.customer_id,
+    ${sqlCustomerEligibilityPhoneKey('conv.phone')} AS phone_key,
+    TRUE AS is_guest
+  FROM conversations conv
+  INNER JOIN clients c ON c.id = conv.client_id
+  WHERE c.slug = $1
+),
+customer_touch_by_id AS (
+  SELECT client_id, customer_id, bool_or(NOT is_guest) AS has_block, bool_or(is_guest) AS has_guest
+  FROM customer_touch_evidence
+  WHERE customer_id IS NOT NULL
+  GROUP BY client_id, customer_id
+),
+customer_touch_by_phone AS (
+  SELECT client_id, phone_key, bool_or(NOT is_guest) AS has_block, bool_or(is_guest) AS has_guest
+  FROM customer_touch_evidence
+  WHERE phone_key IS NOT NULL
+  GROUP BY client_id, phone_key
+),
+guest_customers AS MATERIALIZED (
+  SELECT cu.*
+  FROM customers cu
+  INNER JOIN clients c ON c.id = cu.client_id
+  LEFT JOIN customer_touch_by_id ti ON ti.client_id = cu.client_id AND ti.customer_id = cu.id
+  LEFT JOIN customer_touch_by_phone tp ON tp.client_id = cu.client_id
+    AND tp.phone_key = ${sqlCustomerEligibilityPhoneKey('cu.phone')}
+  WHERE c.slug = $1
+    AND cu.phone NOT IN ('staff-block', 'owner-schedule')
+    AND (
+      (NOT COALESCE(ti.has_block, FALSE) AND NOT COALESCE(tp.has_block, FALSE))
+      OR COALESCE(ti.has_guest, FALSE) OR COALESCE(tp.has_guest, FALSE)
+    )
+)`;
+}
+
 /**
  * The CTE block and FROM/JOIN block behind the customer list. Shared verbatim by
  * the row query and the one-pass counts query so a view count can never drift
@@ -872,6 +936,7 @@ function customerListScanSql(opts) {
         SELECT 1 FROM bookings b_loc
         INNER JOIN clients c_loc ON c_loc.id = b_loc.client_id
         WHERE c_loc.slug = $1
+          AND ${sqlGuestBooking('b_loc')}
           AND b_loc.status NOT IN ('cancelled', 'expired')
           AND ${sqlCustomerPhoneDigits('b_loc.phone')} = ${sqlCustomerPhoneDigits('cu.phone')}
           AND COALESCE(b_loc.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}
@@ -880,6 +945,7 @@ function customerListScanSql(opts) {
         SELECT 1 FROM booking_service_records bsr_loc
         INNER JOIN bookings b_loc2 ON b_loc2.id = bsr_loc.booking_id
         WHERE bsr_loc.client_slug = $1
+          AND ${sqlGuestBooking('b_loc2')}
           AND ${sqlCustomerPhoneDigits('b_loc2.phone')} = ${sqlCustomerPhoneDigits('cu.phone')}
           AND ${sqlLocationMatch('bsr_loc', 'b_loc2', locParam)}
       )
@@ -893,6 +959,7 @@ waiver_pending_agg AS (
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
   WHERE c.slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL
     AND b.status NOT IN ('cancelled', 'expired')
     AND EXISTS (
@@ -922,6 +989,7 @@ equipment_out_agg AS (
   INNER JOIN clients c ON c.id = b.client_id
   WHERE bsr.client_slug = $1
     AND c.slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL
     AND bsr.service_date = CURRENT_DATE
     AND bsr.status::text <> 'cancelled'
@@ -947,7 +1015,8 @@ equipment_out_agg AS (
     ? '\nLEFT JOIN equipment_out_agg eo ON eo.phone_digits = cu.phone_digits'
     : '';
 
-  const cteSql = `WITH customer_crm_merged AS (
+  const cteSql = `WITH ${sqlGuestCustomerEligibilityCtes()},
+customer_crm_merged AS (
   SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
     ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
     COALESCE(
@@ -961,7 +1030,7 @@ equipment_out_agg AS (
                 ELSE lower(btrim(e.value::text)) IN ('true', 't', '1')
               END
             ) AS v
-          FROM customers cu_inner
+          FROM guest_customers cu_inner
           INNER JOIN clients c_inner ON c_inner.id = cu_inner.client_id
           CROSS JOIN LATERAL jsonb_each(COALESCE(cu_inner.crm_tags, '{}'::jsonb)) e
           WHERE c_inner.slug = $1
@@ -971,7 +1040,7 @@ equipment_out_agg AS (
       ),
       '{}'::jsonb
     ) AS crm_tags
-  FROM customers cu
+  FROM guest_customers cu
   INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1
     AND cu.phone IS NOT NULL
@@ -988,7 +1057,7 @@ customer_base AS (
     cu.language,
     cu.notes,
     cu.location_id
-  FROM customers cu
+  FROM guest_customers cu
   INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1
     AND cu.phone IS NOT NULL
@@ -1023,6 +1092,7 @@ booking_agg AS (
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
   WHERE c.slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL
     AND b.status NOT IN ('cancelled', 'expired')${bookingLocClause}
   GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
@@ -1038,6 +1108,7 @@ service_agg AS (
   INNER JOIN clients c ON c.id = b.client_id
   WHERE bsr.client_slug = $1
     AND c.slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL${serviceLocClause}
   GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
 ),
@@ -1061,6 +1132,7 @@ last_service AS (
   FROM booking_service_records bsr
   INNER JOIN bookings b ON b.id = bsr.booking_id
   WHERE bsr.client_slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL${serviceLocClause}
   ORDER BY ${sqlCustomerPhoneDigits('b.phone')}, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
 ),
@@ -1069,6 +1141,7 @@ checked_in_agg AS (
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
   WHERE c.slug = $1
+    AND ${sqlGuestBooking('b')}
     AND b.phone IS NOT NULL
     AND b.status IN ('confirmed', 'checked_in', 'payment_pending')
     AND b.check_in IS NOT NULL
