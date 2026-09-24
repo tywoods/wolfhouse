@@ -206,6 +206,23 @@ from wolfhouse import guest_public_worker as worker
 
 
 class SearchTests(unittest.TestCase):
+    def test_null_or_structured_metadata_does_not_discard_valid_sources(self):
+        for value in (None, 17, {}, [], False):
+            with self.subTest(value=value):
+                fake = ModuleType('tools.web_tools')
+                fake.web_search_tool = Mock(return_value=json.dumps({
+                    'success': True, 'data': {'web': [
+                        {'url': 'https://example.org/first', 'title': value, 'description': value},
+                        {'url': 'https://example.org/second', 'title': 'Public guide', 'description': 'Evidence'},
+                    ]}}))
+                with patch.dict(sys.modules, {'tools.web_tools': fake}):
+                    result = worker._execute('search', 'public museums in Santander')
+                self.assertTrue(result['ok'], result)
+                self.assertEqual(result['results'], [
+                    {'url': 'https://example.org/first', 'title': '', 'description': ''},
+                    {'url': 'https://example.org/second', 'title': 'Public guide', 'description': 'Evidence'},
+                ])
+
     def test_invalid_inputs_and_upstream_failures_are_sanitized(self):
         fake = ModuleType('tools.web_tools')
         tool = Mock(side_effect=RuntimeError('upstream-secret'))

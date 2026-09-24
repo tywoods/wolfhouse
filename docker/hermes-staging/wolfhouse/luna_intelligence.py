@@ -8,7 +8,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from _thread import LockType
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 import os
 import re
@@ -30,7 +30,9 @@ class Turn:
     tenant: str
     origin: str
     private_terms: tuple = ()
-    deadline: float = field(default_factory=lambda: time.monotonic() + 30)
+    # The capability is bounded even before lookup; planning is not research.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 120)
+    research_deadline: float | None = None
     sources: dict = field(default_factory=dict)
     searches: int = 0
     reads: int = 0
@@ -166,9 +168,20 @@ def failure(error):
                        'guidance': 'Public research failure alone is not a handoff reason. Explain what cannot be verified; do not invent a forecast or promise staff follow-up. Independent human requests, safety, complaints and booking issues still follow normal handoff policy.'})
 
 
+def _deadline(turn):
+    return min(turn.deadline, turn.research_deadline or turn.deadline)
+
+
+def _admission_failure():
+    turn = _current.get()
+    if turn and not turn.closed and time.monotonic() >= _deadline(turn):
+        return failure('research_budget_exhausted')
+    return failure('intelligence_off')
+
+
 def _live(turn):
     # Call while holding turn.lock for admission, reservation and publication.
-    return (turn is _current.get() and not turn.closed and time.monotonic() < turn.deadline
+    return (turn is _current.get() and not turn.closed and time.monotonic() < _deadline(turn)
             and turn.tenant == os.environ.get('LUNA_CLIENT_SLUG')
             and os.environ.get('HERMES_ROLE') == ROLES.get(turn.tenant)
             and turn.origin == os.environ.get('WOLFHOUSE_STAFF_API_BASE_URL', '').rstrip('/'))
@@ -194,10 +207,39 @@ def _admitted():
     return None
 
 
+def _without_calendar_dates(query):
+    """Exclude standalone valid ISO dates from the phone-like digit check only.
+
+    The original query still undergoes identity/secret checks and is what the
+    provider receives. Invalid dates and date-shaped pieces of longer numbers
+    are not exemptions. This is query minimization, not a universal PII detector.
+    """
+    def calendar(match):
+        try:
+            date.fromisoformat(match[0])
+        except ValueError:
+            return match[0]
+        return ' calendar-date '
+    return re.sub(r'(?<![\w+.-])\d{4}-\d{2}-\d{2}(?![\w.-])', calendar, query)
+
+
 def search_public_info(params, **kwargs):
+    turn = _current.get()
+    result = _search_public_info_once(params)
+    if json.loads(result).get('error') == 'public_search_unavailable' and turn is not None:
+        # Never transfer a retry to another turn. Admission rechecks the Staff
+        # switch and reserves from the same two-search/30-second allowance.
+        with turn.lock:
+            retry = _live(turn) and turn.searches < 2
+        if retry:
+            return _search_public_info_once(params)
+    return result
+
+
+def _search_public_info_once(params):
     turn = _admitted()
     if not turn:
-        return failure('intelligence_off')
+        return _admission_failure()
     if not isinstance(params, dict):
         return failure('invalid_public_query')
     query = params.get('query', '')
@@ -206,25 +248,28 @@ def search_public_info(params, **kwargs):
     # Reject rather than silently paraphrasing private data into a public query.
     normalized = query.casefold()
     if (any(term in normalized for term in turn.private_terms)
-            or re.search(r'@|https?://|www\.|[\r\n\x00-\x1f]|\b(?:guest|assistant|system|user)\s*:|\b(?:booking|payment|reservation)\s*(?:id|code|link)|\b(?:token|password|secret)\b|[a-z0-9]{24,}|(?:\+?\d[ .()-]*){7,}', normalized)):
+            or re.search(r'@|https?://|www\.|[\r\n\x00-\x1f]|\b(?:guest|assistant|system|user)\s*:|\b(?:booking|payment|reservation)\s*(?:id|code|link)|\b(?:token|password|secret)\b|[a-z0-9]{24,}', normalized)
+            or re.search(r'(?:\+?\d[ .()-]*){7,}', _without_calendar_dates(normalized))):
         return failure('invalid_public_query')
     with turn.lock:
         if turn.searches >= 2 or not _live(turn):
             return failure('research_budget_exhausted')
+        if turn.research_deadline is None:
+            turn.research_deadline = min(turn.deadline, time.monotonic() + 30)
         turn.searches += 1
     try:
-        result = run_bounded('search', query.strip(), timeout=min(8, max(.1, turn.deadline - time.monotonic())))
+        result = run_bounded('search', query.strip(), timeout=min(8, max(.01, _deadline(turn) - time.monotonic())))
     except Exception:
         return failure('public_search_unavailable')
     if _admitted() is not turn:
-        return failure('intelligence_off')
+        return _admission_failure()
     if not isinstance(result, dict) or result.get('success') is not True or not isinstance(result.get('results'), list):
         return failure('public_search_unavailable')
     sources = []
     from wolfhouse.guest_public_worker import validate_public_url
     with turn.lock:
         if not _live(turn):
-            return failure('intelligence_off')
+            return _admission_failure()
         for row in result.get('results', [])[:4]:
             if not isinstance(row, dict) or not validate_public_url(row.get('url')):
                 continue
@@ -241,7 +286,7 @@ def search_public_info(params, **kwargs):
 def read_public_source(params, **kwargs):
     turn = _admitted()
     if not turn:
-        return failure('intelligence_off')
+        return _admission_failure()
     if not isinstance(params, dict):
         return failure('unknown_source')
     sid = params.get('source_id')
@@ -253,16 +298,16 @@ def read_public_source(params, **kwargs):
         turn.reads += 1
         url = turn.sources[sid]
     try:
-        result = run_bounded('read', url, timeout=min(8, max(.1, turn.deadline - time.monotonic())))
+        result = run_bounded('read', url, timeout=min(8, max(.01, _deadline(turn) - time.monotonic())))
     except Exception:
         return failure('public_source_unavailable')
     if _admitted() is not turn:
-        return failure('intelligence_off')
+        return _admission_failure()
     if not isinstance(result, dict) or result.get('success') is not True or not isinstance(result.get('content'), str):
         return failure('public_source_unavailable')
     with turn.lock:
         if not _live(turn):
-            return failure('intelligence_off')
+            return _admission_failure()
         return json.dumps({'success': True, 'untrusted_content_warning': UNTRUSTED,
                            'source_id': sid, 'url': url,
                            'retrieved_at': datetime.now(timezone.utc).isoformat(),
