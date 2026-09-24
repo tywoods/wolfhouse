@@ -71,8 +71,8 @@ function boot(i18n) {
   const body = makeBody();
   const keys = i18n || {
     'admin.email.state.registered_not_connected': 'Mailbox registered, not connected.',
-    'admin.email.state.connected_health': 'Mailbox connected. Email processing remains off.',
-    'admin.email.endpointActive': 'Mailbox connection',
+    'admin.email.state.connected_health': 'Mailbox connected.',
+    'admin.email.endpointProcessing': 'Email processing',
     'admin.email.inbound': 'Inbound',
     'admin.email.outbound': 'Outbound',
     'admin.email.staffReplies': 'Staff replies',
@@ -156,7 +156,7 @@ function baseActions(imapPrepare) {
   assert.match(imap, /data-email-disconnect/);
   assert.match(imap, /Disconnect IMAP/);
   assert.match(imap, new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.match(imap, /Mailbox connection/);
+  assert.match(imap, /Email processing/);
   assert.match(imap, /Inbound/);
   assert.match(imap, /Staff replies/);
   assert.match(imap, /Automation/);
