@@ -150,6 +150,8 @@ for (const name of NAMES) {
 
 const sandbox = {
   console,
+  // buildUiHtml injects this shared helper into the production invoice script.
+  staffPaymentDisplayStatus: require('./lib/staff-booking-display-truth').staffPaymentDisplayStatus,
   t,
   escHtml,
   BC_RENTAL_DAY_RATES: {

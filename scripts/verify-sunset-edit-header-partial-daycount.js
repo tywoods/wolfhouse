@@ -74,9 +74,9 @@ console.log('[1] Drawer payment UI status preserves Partial');
 ok('cash partial → partial', deriveDrawerPaymentUiStatus({ payment_status: 'unpaid' }, 50000, 10000) === 'partial');
 ok('cash paid in full → paid', deriveDrawerPaymentUiStatus({ payment_status: 'unpaid' }, 50000, 50000) === 'paid');
 ok('zero paid stays unpaid', deriveDrawerPaymentUiStatus({ payment_status: 'waiting_payment' }, 50000, 0) === 'unpaid');
-ok('API deposit_paid → partial', deriveDrawerPaymentUiStatus({ payment_status: 'deposit_paid' }, 50000, 0) === 'partial');
-ok('API partially_paid → partial', deriveDrawerPaymentUiStatus({ payment_status: 'partially_paid' }, 80000, 0) === 'partial');
-ok('API partial → partial', deriveDrawerPaymentUiStatus({ payment_status: 'partial' }, 80000, 0) === 'partial');
+ok('zero cash beats stale deposit_paid enum', deriveDrawerPaymentUiStatus({ payment_status: 'deposit_paid' }, 50000, 0) === 'unpaid');
+ok('zero cash beats stale partially_paid enum', deriveDrawerPaymentUiStatus({ payment_status: 'partially_paid' }, 80000, 0) === 'unpaid');
+ok('zero cash beats stale partial enum', deriveDrawerPaymentUiStatus({ payment_status: 'partial' }, 80000, 0) === 'unpaid');
 
 const summary = buildPaymentSummary([], {
   payment_status: 'unpaid',

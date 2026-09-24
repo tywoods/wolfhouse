@@ -1,5 +1,8 @@
 'use strict';
 
+const { staffPaymentDisplayStatus } = require('./staff-booking-display-truth');
+const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./sunset-staff-money-scope');
+
 /**
  * Sunset Schedule — booking drawer context, payment summary, and updates.
  * Sunset client only. Prefer persisted amount_due_cents (including explicit 0 for
@@ -283,7 +286,7 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
   if (!booking) return null;
   const svcRes = await pg.query(
     `SELECT id::text AS service_record_id, service_type::text AS service_type,
-            service_date::text AS service_date, quantity,
+            service_date::text AS service_date, quantity, status::text AS status,
             amount_due_cents, amount_paid_cents, payment_status::text AS payment_status,
             metadata->>'slot_time' AS slot_time, metadata->>'notes' AS notes,
             metadata->>'staff_ui_service_type' AS staff_ui_service_type,
@@ -309,12 +312,16 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
        INNER JOIN bookings b ON b.id = p.booking_id
        INNER JOIN clients c ON c.id = b.client_id
       WHERE p.booking_id = $1::uuid AND c.slug = $2
+        AND p.client_id = b.client_id
         AND p.checkout_url IS NOT NULL
       ORDER BY p.created_at DESC LIMIT 1`,
     [booking.booking_id, clientSlug],
   );
   const paidSumRes = await pg.query(
-    `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS paid_total
+    `SELECT COALESCE(SUM(p.amount_paid_cents) FILTER (
+              WHERE p.client_id = b.client_id ${PAYMENT_COLLECTED_SCOPE_SQL}
+            ), 0)::int AS paid_total,
+            COALESCE(SUM(p.amount_paid_cents), 0)::int AS operational_paid_total
        FROM payments p
        INNER JOIN bookings b ON b.id = p.booking_id
        INNER JOIN clients c ON c.id = b.client_id
@@ -331,6 +338,8 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
        INNER JOIN clients c ON c.id = b.client_id
       WHERE p.booking_id = $1::uuid AND c.slug = $2
         AND p.status = 'paid'::payment_record_status
+        AND p.client_id = b.client_id
+        ${PAYMENT_COLLECTED_SCOPE_SQL}
       ORDER BY COALESCE(p.paid_at, p.created_at) ASC, p.id ASC`,
     [booking.booking_id, clientSlug],
   );
@@ -340,6 +349,9 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
     services: svcRes.rows,
     payment_link: payRes.rows[0] || null,
     payments_paid_cents,
+    // Cancel/archive/restore retain their pre-existing operational aggregate.
+    // Collected exclusions above apply to display only, not write policy.
+    operational_payments_paid_cents: Number(paidSumRes.rows[0]?.operational_paid_total ?? payments_paid_cents),
     paid_payment_rows: paidRowsRes.rows || [],
   };
 }
@@ -561,24 +573,7 @@ function aggregateComponentsFromServices(services) {
 }
 
 function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
-  const paid = Number(paidCents) || 0;
-  const subtotal = Number(subtotalCents) || 0;
-  // Cash truth first — Partial when some paid and still owing vs subtotal.
-  if (paid > 0 && (subtotal === 0 || paid >= subtotal)) return 'paid';
-  if (paid > 0 && subtotal > 0 && paid < subtotal) return 'partial';
-  const raw = String(booking && booking.payment_status || '').toLowerCase();
-  if (raw === 'paid' || raw === 'complete' || raw === 'completed' || raw === 'paid_in_full') {
-    return 'paid';
-  }
-  if (
-    raw === 'partial'
-    || raw === 'partially_paid'
-    || raw === 'deposit_paid'
-    || raw === 'balance_due'
-  ) {
-    return 'partial';
-  }
-  return 'unpaid';
+  return staffPaymentDisplayStatus(subtotalCents, paidCents);
 }
 
 /** Persisted due amount including explicit 0. null = never stored (live fallback eligible). */
@@ -646,6 +641,9 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
   const lineItems = [];
   let lineSumCents = 0;
   (services || []).forEach((sr) => {
+    // Keep raw bundle services for edit/cancel/restore; only invoice charges
+    // exclude cancelled rows, matching Bookings' active-service fallback.
+    if (String(sr.status || '').toLowerCase() === 'cancelled') return;
     const persisted = readPersistedServiceDueCents(sr);
     let lineCents = 0;
     let usedLive = false;
@@ -700,10 +698,8 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
   const subtotalCents = bookingTotal != null ? bookingTotal : lineSumCents;
   const storedPaid = Number(booking && booking.amount_paid_cents);
   const ledgerPaid = Number(paymentsPaidCents);
-  const paidCents = Math.max(
-    Number.isFinite(storedPaid) ? storedPaid : 0,
-    Number.isFinite(ledgerPaid) ? ledgerPaid : 0,
-  );
+  const paidCents = Number.isFinite(ledgerPaid) && (ledgerPaid > 0 || (opts && opts.paid_rows || []).length > 0)
+    ? ledgerPaid : (Number.isFinite(storedPaid) ? storedPaid : 0);
   const uiStatus = deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents);
   // The invoice must reconcile internally. Persisted balance remains operational
   // state, but display truth is always subtotal minus the same paid aggregate.
@@ -2382,7 +2378,7 @@ async function cancelSunsetScheduleBooking(pg, opts) {
       };
     }
 
-    const paidCents = Number(bundle.payments_paid_cents || 0);
+    const paidCents = Number(bundle.operational_payments_paid_cents || 0);
 
     // Original cancel semantics (paid allowed): BSR + booking status.
     await pg.query(
@@ -2541,7 +2537,7 @@ async function archiveSunsetScheduleBooking(pg, opts) {
 
     // Classify payments for Finance exclusion. Never DELETE payments/payment_events.
     // Never call Stripe refund APIs. Refund is assumed manual/external.
-    const paidCents = Number(bundle.payments_paid_cents || 0);
+    const paidCents = Number(bundle.operational_payments_paid_cents || 0);
     const dueCents = Number(
       bundle.booking.total_amount_cents != null
         ? bundle.booking.total_amount_cents
@@ -2897,7 +2893,7 @@ async function restoreSunsetScheduleBooking(pg, opts) {
       [clientSlug, bookingId],
     );
 
-    const paidCents = Number(bundle.payments_paid_cents || 0);
+    const paidCents = Number(bundle.operational_payments_paid_cents || 0);
     const restoreStatus = paidCents > 0 ? 'confirmed' : 'payment_pending';
     const restoreMeta = {
       schedule_restored: true,

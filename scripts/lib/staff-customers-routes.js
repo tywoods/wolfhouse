@@ -14,6 +14,8 @@
 
 'use strict';
 
+const { hydrateStaffBookingDisplayTruth } = require('./staff-booking-display-truth');
+
 const {
   buildCustomerListParams,
   buildCustomerDisplayTags,
@@ -203,6 +205,7 @@ function createCustomersRoutes(deps) {
         const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
         const mergedCrmTags = await loadCustomerCrmTagsMerged(pg, clientSlug, phone);
         const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
+        await hydrateStaffBookingDisplayTruth(pg, clientSlug, bookings);
         const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
         const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
         const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;

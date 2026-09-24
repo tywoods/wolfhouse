@@ -1,5 +1,7 @@
 'use strict';
 
+const { staffBookingStayDates, staffPaymentDisplayStatus } = require('./staff-booking-display-truth');
+
 const {
   isExcludedBookingStatus,
 } = require('./sunset-staff-money-scope');
@@ -225,9 +227,7 @@ function classifyBookingStatus(input) {
 
   const netCollected = checkedSubtract(collected, refunded);
   if (refunded > 0 && netCollected <= 0) return STATUS.REFUNDED;
-  if (outstanding === 0 && (charged > 0 || collected > 0)) return STATUS.PAID;
-  if (collected > 0 && outstanding > 0) return STATUS.PARTIAL;
-  return STATUS.UNPAID;
+  return staffPaymentDisplayStatus(charged, collected, outstanding);
 }
 
 /**
@@ -1069,8 +1069,9 @@ function buildBookingListRow(input) {
     created_at: booking.created_at || src.created_at || null,
     guest_name: booking.guest_name || src.guest_name || null,
     phone: booking.phone || src.phone || null,
-    check_in: booking.check_in || src.check_in || null,
-    check_out: booking.check_out || src.check_out || null,
+    ...staffBookingStayDates({ ...booking,
+      check_in: booking.check_in || src.check_in || null,
+      check_out: booking.check_out || src.check_out || null }, services),
     package_code: booking.package_code || src.package_code || null,
     ...span,
     what_summary: src.what_summary != null ? src.what_summary : typeInfo.what_summary,
