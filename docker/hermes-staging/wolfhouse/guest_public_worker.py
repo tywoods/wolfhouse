@@ -233,8 +233,9 @@ def _search(value):
     for item in data['data']['web']:
         if isinstance(item, dict) and validate_public_url(item.get('url')):
             results.append({
-                'url': item['url'], 'title': item.get('title', '')[:300],
-                'description': item.get('description', '')[:1200],
+                'url': item['url'],
+                'title': item['title'][:300] if isinstance(item.get('title'), str) else '',
+                'description': item['description'][:1200] if isinstance(item.get('description'), str) else '',
             })
         if len(results) == 4:
             break

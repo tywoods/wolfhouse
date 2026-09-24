@@ -8,7 +8,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +25,8 @@ from wolfhouse.test_draft_mode_inbox_persist import _SendResult, _install_gatewa
 class OrdinaryHandoffTests(unittest.TestCase):
     def run_turn(self, tenant, *, crash=False, provider='ok', duplicate=False, research=None,
                  reason='urgent_safety', raw_executor=False, extra_env=None, blocked=False,
-                 installed=False, persist_failures=0, cancel_during_ack=False):
+                 installed=False, persist_failures=0, cancel_during_ack=False,
+                 lookup_query='Somo weather September 26 and 27, 2026', lookup_delay=0):
         timeline, flags, finals = [], [], []
         public_calls, sent_content = [], []
         phone = '+34900000001'
@@ -44,9 +45,22 @@ class OrdinaryHandoffTests(unittest.TestCase):
             self.assertNotIn(tenant, value)
             if research != 'success':
                 return {'success': False}
+            from wolfhouse import guest_public_worker as worker
             if operation == 'search':
-                return {'success': True, 'results': [{'url': 'https://example.org/weather', 'title': 'Offline fixture'}]}
-            return {'success': True, 'content': 'Offline source fixture: forecast unavailable beyond Saturday.'}
+                fake = ModuleType('tools.web_tools')
+                fake.web_search_tool = lambda query, limit: json.dumps({
+                    'success': True, 'data': {'web': [{
+                        'url': 'https://example.org/weather', 'title': None, 'description': None,
+                    }]}})
+                with patch.dict(sys.modules, {'tools.web_tools': fake}):
+                    result = worker._execute(operation, value)
+                return {'success': result['ok'], 'results': result.get('results')}
+            with patch.object(worker, '_https_get', side_effect=[
+                (b'User-agent: *\nDisallow:\n', 'text/plain'),
+                (b'Offline source fixture: forecast unavailable beyond Saturday.', 'text/plain'),
+            ]):
+                result = worker._execute(operation, value)
+            return {'success': result['ok'], 'content': result.get('text')}
         def post(path, payload):
             self.assertEqual(path, '/conversation/needs-human')
             self.assertEqual(payload['phone'], phone)
@@ -87,10 +101,12 @@ class OrdinaryHandoffTests(unittest.TestCase):
             def __init__(self, **kw): pass
             def run_conversation(self, *a, **kw):
                 if research:
-                    lookup = json.loads(li.search_public_info({'query': 'Somo weather September 26 and 27, 2026'}))
-                    if lookup['success']:
-                        evidence = json.loads(li.read_public_source({'source_id': lookup['sources'][0]['source_id']}))
-                        return {'final_response': evidence['content'] + ' ' + evidence['url']}
+                    now = li.time.monotonic()
+                    with patch.object(li.time, 'monotonic', return_value=now + lookup_delay):
+                        lookup = json.loads(li.search_public_info({'query': lookup_query}))
+                        if lookup['success']:
+                            evidence = json.loads(li.read_public_source({'source_id': lookup['sources'][0]['source_id']}))
+                            return {'final_response': evidence['content'] + ' ' + evidence['url']}
                 flags.append(json.loads(plugin.flag_needs_human({'reason': reason, 'phone': '+34900009999'})))
                 if duplicate:
                     flags.append(json.loads(plugin.flag_needs_human({'reason': reason})))
@@ -165,10 +181,22 @@ class OrdinaryHandoffTests(unittest.TestCase):
             if persist_failures or cancel_during_ack:
                 self.assertEqual(handoff.is_local_automation_blocked(phone), not flags[-1]['success'])
             if research == 'success':
-                self.assertEqual(public_calls, [('search', 'Somo weather September 26 and 27, 2026'),
+                self.assertEqual(public_calls, [('search', lookup_query),
                                                 ('read', 'https://example.org/weather')])
                 self.assertEqual(sent_content, ['Offline source fixture: forecast unavailable beyond Saturday. https://example.org/weather'])
         return timeline, flags, finals
+
+    def test_delayed_general_date_lookup_through_ordinary_guest_worker(self):
+        for tenant in ('wolfhouse-somo', 'sunset'):
+            for query in ('Somo weather 2026-09-26 2026-09-27',
+                          'Santander museums 2026-09-26', 'Somo ferry 2026-09-27'):
+                with self.subTest(tenant=tenant, query=query):
+                    timeline, flags, finals = self.run_turn(
+                        tenant, installed=True, raw_executor=True, research='success',
+                        lookup_query=query, lookup_delay=31)
+                    self.assertEqual(timeline, ['send'])
+                    self.assertEqual(flags, [])
+                    self.assertTrue(finals[0].success)
 
     def test_revocation_during_ack_cannot_persist_from_late_worker(self):
         for tenant in ('wolfhouse-somo', 'sunset'):

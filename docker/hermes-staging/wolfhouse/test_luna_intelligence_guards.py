@@ -99,7 +99,7 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(json.loads(li.read_public_source({'source_id': 's1'}))['error'], 'research_budget_exhausted')
             self.assertEqual(network.call_count, 3)
             li._current.get().deadline = time.monotonic() - 1
-            self.assertEqual(self.search()['error'], 'intelligence_off')
+            self.assertEqual(self.search()['error'], 'research_budget_exhausted')
     def test_provider_exception_or_malformed_result_is_safe_failure(self):
         for value in [None, [], {'success': True, 'results': [None, {}, {'url': 'http://localhost'}]}]:
             li.bind_guest_turn(SimpleNamespace(platform='whatsapp'))
