@@ -1599,8 +1599,69 @@ function wireInboxShellGuestHide(){
 
 function inboxShellFinishGuestHide(){
   wireInboxShellGuestHide();
+  wireInboxShellPhoneListDrag();
   inboxShellDefaultHideGuest();
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(inboxShellDefaultHideGuest);
+}
+
+/* PHONE-INBOX-SCROLL-ANYWHERE-001: a desktop pointer inside a phone-width
+ * viewport should drag the Chats/Guests list just like a finger. Native touch
+ * scrolling remains authoritative; this only fills the mouse-emulation gap. */
+function wireInboxShellPhoneListDrag(){
+  if (typeof document === 'undefined' || !document.addEventListener) return;
+  if (document.documentElement.getAttribute('data-wired-inbox-phone-list-drag') === '1') return;
+  document.documentElement.setAttribute('data-wired-inbox-phone-list-drag', '1');
+  var drag = null;
+  var suppressClickUntil = 0;
+
+  function phoneWidth(){
+    return typeof window !== 'undefined' && window.innerWidth <= 768;
+  }
+  function listScroller(target){
+    if (!target || !target.closest || !phoneWidth()) return null;
+    var scroller = target.closest('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows');
+    if (!scroller) return null;
+    var action = target.closest('input,select,textarea,a,.conv-card-delete,[data-inbox-row-action]');
+    return action ? null : scroller;
+  }
+  function clearDrag(){
+    if (drag && drag.scroller && drag.scroller.classList) drag.scroller.classList.remove('is-pointer-dragging');
+    drag = null;
+  }
+
+  document.addEventListener('pointerdown', function(ev){
+    if (!ev || ev.pointerType !== 'mouse' || ev.button !== 0) return;
+    var scroller = listScroller(ev.target);
+    if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return;
+    drag = { pointerId: ev.pointerId, scroller: scroller, startY: ev.clientY, startTop: scroller.scrollTop, moved: false };
+  }, true);
+  document.addEventListener('pointermove', function(ev){
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    var delta = ev.clientY - drag.startY;
+    if (!drag.moved && Math.abs(delta) < 6) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      if (drag.scroller.setPointerCapture) {
+        try { drag.scroller.setPointerCapture(ev.pointerId); } catch (_capture) { /* best effort */ }
+      }
+      if (drag.scroller.classList) drag.scroller.classList.add('is-pointer-dragging');
+    }
+    drag.scroller.scrollTop = drag.startTop - delta;
+    if (ev.preventDefault) ev.preventDefault();
+  }, true);
+  document.addEventListener('pointerup', function(ev){
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    var moved = drag.moved;
+    clearDrag();
+    if (moved) suppressClickUntil = Date.now() + 400;
+  }, true);
+  document.addEventListener('click', function suppressDraggedRowClick(ev){
+    if (Date.now() > suppressClickUntil || !listScroller(ev.target)) return;
+    suppressClickUntil = 0;
+    if (ev.preventDefault) ev.preventDefault();
+    if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+  }, true);
+  document.addEventListener('pointercancel', clearDrag, true);
 }
 
 function mountInboxShellChrome(){
