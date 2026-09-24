@@ -452,11 +452,20 @@ function inboxIsThreadNearBottom(scrollEl){
 }
 
 /** WhatsApp-style: open on the latest messages (bottom of the thread pane). */
-function inboxStickThreadToLatest(root){
+function inboxStickThreadToLatest(root, initialOpen){
   var scrollEl = inboxThreadScrollEl(root);
   if (!scrollEl) return;
   function doScroll(){
+    if (!scrollEl.isConnected) return;
     scrollEl.scrollTop = scrollEl.scrollHeight;
+    // PHONE-INBOX-OPEN-AT-NEWEST-001: the phone's auto-height transcript
+    // can overflow the document rather than its own pane. Only initial opens
+    // follow that existing owner; composer refreshes must not move the reader.
+    if (initialOpen && typeof isPortalMobile === 'function' && isPortalMobile()
+        && scrollEl.clientHeight > 0 && scrollEl.scrollHeight <= scrollEl.clientHeight
+        && document.scrollingElement) {
+      document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    }
   }
   doScroll();
   if (typeof requestAnimationFrame === 'function') {
@@ -3003,7 +3012,7 @@ function loadConvDetail(convId, targetEl){
     inboxInitThreadResize();
     inboxReleaseMobileThreadHeight();
     if (typeof inboxScrollThreadToBottom === 'function') inboxScrollThreadToBottom(targetEl);
-    inboxStickThreadToLatest(targetEl);
+    inboxStickThreadToLatest(targetEl, true);
   })
   .catch(function(err){
     if (!inboxSelectionIsCurrent(convId, selectionGeneration)) return;
