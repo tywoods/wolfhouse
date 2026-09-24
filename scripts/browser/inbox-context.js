@@ -1021,13 +1021,24 @@ function inboxCustomerMerge(base, extra) {
   return out;
 }
 
-function inboxCustomerCondensedHtml(data, opts) {
-  opts = opts || {};
+function inboxCustomerContact(data) {
   var id = (data && data.identity) || {};
   var cacheRow = inboxClientInfoCacheRow(data && data.phone);
-  var name = id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest';
-  var phone = (data && data.phone) || '';
-  var email = id.email || (cacheRow && cacheRow.email) || '';
+  return {
+    display_name: id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest',
+    phone: (data && data.phone) || '',
+    email: id.email || (cacheRow && cacheRow.email) || '',
+    language: id.language || (cacheRow && cacheRow.language) || '',
+  };
+}
+
+function inboxCustomerCondensedHtml(data, opts) {
+  opts = opts || {};
+  var contact = inboxCustomerContact(data);
+  var cacheRow = inboxClientInfoCacheRow(data && data.phone);
+  var name = contact.display_name;
+  var phone = contact.phone;
+  var email = contact.email;
   var notes = '';
   if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
   if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
@@ -1326,12 +1337,11 @@ function inboxCustomerConversationDisabledText(data) {
 
 function inboxCustomerFullHtml(data, opts) {
   opts = opts || {};
-  var id = (data && data.identity) || {};
-  var cacheRow = inboxClientInfoCacheRow(data && data.phone);
-  var name = id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest';
-  var phone = (data && data.phone) || '';
-  var email = id.email || (cacheRow && cacheRow.email) || '';
-  var language = id.language || (cacheRow && cacheRow.language) || '';
+  var contact = inboxCustomerContact(data);
+  var name = contact.display_name;
+  var phone = contact.phone;
+  var email = contact.email;
+  var language = contact.language;
   var convId = inboxCustomerConversationId(data, opts);
   var convLabel = convId
     ? inboxContextT('customers.conversation.open', 'Open conversation')
@@ -1481,7 +1491,7 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
       ? inboxCustomerEditHtml(data, { composite: composite, conv: conv })
       : inboxCustomerFullHtml(data, { composite: composite, conv: conv }))
     : inboxCustomerCondensedHtml(data, { composite: composite });
-  inboxContextWireActions(sidebar, { conversation: conv });
+  inboxContextWireActions(sidebar, { conversation: conv, customer: data });
   inboxCustomerWireFull(sidebar, data);
 }
 
@@ -2403,15 +2413,13 @@ function inboxContextWireActions(sidebar, model) {
   var createBtn = sidebar.querySelector('#inbox-create-booking-for-guest');
   if (createBtn && createBtn.dataset.inboxContextWired !== '1') {
     createBtn.dataset.inboxContextWired = '1';
+    // Snapshot the same contact resolution as the card before cache/model or
+    // global selection can change. Keep the existing conversation notes source.
+    var contact = inboxCustomerContact((model && model.customer) || inboxCustomerFromConv(conv));
+    contact.internal_staff_notes = conv.internal_staff_notes;
     createBtn.addEventListener('click', function() {
       if (typeof openCreateBookingFromContact === 'function') {
-        openCreateBookingFromContact({
-          display_name: conv.guest_name,
-          phone: conv.phone,
-          email: conv.email,
-          language: conv.language,
-          internal_staff_notes: conv.internal_staff_notes,
-        });
+        openCreateBookingFromContact(contact);
       }
     });
   }

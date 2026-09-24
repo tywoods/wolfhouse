@@ -35871,6 +35871,8 @@ function bcApplyCreatePrefill(){
   setVal("bk-email", pf.email);
   if (pf.staff_notes) setVal("bk-notes", pf.staff_notes);
   if (typeof bcUpdateCreateButton === "function") bcUpdateCreateButton();
+  /* Desktop CSS hides the undocked panel; use the calendar's existing rail. */
+  if (typeof bcDockCreatePanel === "function") bcDockCreatePanel();
   /* Bring the create panel into view for the staffer. */
   if (panel && typeof panel.scrollIntoView === "function"){
     try { panel.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
