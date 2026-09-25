@@ -72,7 +72,10 @@ function paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md) {
   }
 
   if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit') {
-    return depositCents == null ? null : Math.max(0, depositCents - receivedCents);
+    // A configured deposit can exceed a discounted guest share. Both values
+    // are required so unknown money does not become zero or an over-collection.
+    return depositCents == null || subtotalCents == null ? null
+      : Math.max(0, Math.min(depositCents, subtotalCents) - receivedCents);
   }
   if (paymentTarget === 'remaining_share') {
     return subtotalCents == null ? null : Math.max(0, subtotalCents - receivedCents);

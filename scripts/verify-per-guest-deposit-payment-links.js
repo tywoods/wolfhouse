@@ -27,6 +27,10 @@ assert.strictEqual(paymentLinkIntendedAmountCents(remaining, { guest_amounts_by_
 assert.strictEqual(paymentLinkIntendedAmountCents(remaining, { guest_amounts_by_id: {
   [guestId]: { subtotal_cents: 32500, deposit_cents: 10000, amount_paid_cents: 32500 },
 } }), 0, 'authoritative zero must not fall back to old checkout amount');
+assert.strictEqual(paymentLinkIntendedAmountCents({ payment_kind: 'deposit_only', booking_guest_id: guestId,
+  metadata: { payment_target: 'deposit', booking_guest_id: guestId } }, { guest_amounts_by_id: {
+  [guestId]: { subtotal_cents: 5000, deposit_cents: 10000, amount_paid_cents: 1000 },
+} }), 4000, 'ledger deposit intent must be capped by the guest share before receipts');
 assert(portal.includes('data-payment-target="deposit"'), 'deposit row action missing');
 assert(portal.includes('data-payment-target="remaining_share"'), 'remaining-share row action missing');
 assert(portal.indexOf('data-payment-target="deposit"') < portal.indexOf('data-payment-target="remaining_share"'), 'deposit must precede payment');
@@ -36,13 +40,7 @@ assert(portal.includes('var link = (res.data && res.data.checkout_url) ||'), 'UI
 assert(policy.includes('SELECT COALESCE(SUM(amount_paid_cents), 0)'), 'guest projection must sum distinct paid ledger rows');
 assert(!policy.includes('SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1)'), 'obsolete max projection remains');
 const routeSource = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-v2-routes.js'), 'utf8');
-assert(routeSource.includes('stripe.checkout.sessions.expire'), 'replacement must retire the prior provider checkout');
-assert(routeSource.includes("SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE"), 'same guest domain must serialize with receipt writers');
-assert(routeSource.includes("{ idempotencyKey: stripeIdempotencyKey }"), 'Stripe request must use deterministic idempotency identity');
-assert(routeSource.indexOf("await pg.query('COMMIT')") < routeSource.indexOf('stripe.checkout.sessions.create({', routeSource.indexOf('async function handleBotGuestPaymentCreateLink')), 'durable draft must commit before provider creation');
 assert(routeSource.includes("authMode === 'staff_portal' && paymentTarget === 'full_share'"), 'staff endpoint must reject legacy full_share');
-assert(routeSource.includes("(checkout|billing)\\.stripe\\.com"), 'checkout URL must be restricted to approved Stripe HTTPS hosts');
-assert(routeSource.includes('unit_amount: amountDueCents'), 'legacy source amount assertion missing');
 assert(portal.includes('requestStillCurrent'), 'late browser response guard missing');
 assert(portal.includes("t('drawer.invoice.depositLink')"), 'visible Deposit Link label missing');
 assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link label missing');
@@ -111,6 +109,24 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
       successUrl: 'https://example.test/success', cancelUrl: 'https://example.test/cancel' });
   }
 
+  // Provider truth, not a locally stored URL, controls reuse. Terminal and
+  // expired sessions are retired and replaced by exactly one fresh payable one.
+  for (const stale of [
+    { status: 'expired', payment_status: 'unpaid', expires_at: 1 },
+    { status: 'complete', payment_status: 'paid', expires_at: 9999999999 },
+  ]) {
+    const h = harness([]);
+    await execute(h, 'deposit');
+    const old = [...h.state.collectible][0];
+    const session = await h.stripe.checkout.sessions.retrieve(old);
+    Object.assign(session, stale);
+    h.state.collectible.delete(old);
+    const result = await execute(h, 'deposit');
+    assert.notStrictEqual(result.session.id, old, stale.status + ' session must not be returned');
+    assert.strictEqual(result.session.status, 'open');
+    assert.strictEqual(h.state.collectible.size, 1, 'exactly one fresh payable session remains');
+  }
+
   // Provider success followed by finalize-query and commit ambiguity must replay
   // the exact same key and recover one session, never mint a second collectible.
   for (const failure of ['finalize query error', 'commit error']) {
@@ -145,17 +161,98 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
     assert(h.state.createCalls.every((call) => call.key.includes(':10000:EUR')));
   }
 
-  // Public staff wrapper rejects operator-A/body-B before any downstream work.
+  // Exercise the exported production SQL store against a stateful pg double:
+  // winner mismatch, durable provider identity, conditional finalize and retire.
   {
-    const auth = require('./lib/staff-guest-payment-link-auth');
+    const db = { status: 'draft', metadata: { source: 'bot_guest_payment_link_slice_a', payment_target: 'remaining_share' },
+      finalized: 0, retired: 0, failFinalize: false };
+    const guest = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
+      booking_code: 'BKSQL', guest_name: 'SQL Guest', guest_number: 1, booking_status: 'confirmed',
+      deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 1000 };
+    const row = () => ({ payment_id: '33333333-3333-3333-3333-333333333333', amount_due_cents: 4000,
+      currency: 'EUR', metadata: db.metadata, stripe_checkout_session_id: null, checkout_url: null });
+    const pg = { async query(sql, args) {
+      if (/^BEGIN|^COMMIT|^ROLLBACK/.test(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: guest.booking_id }] };
+      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }] };
+      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [guest] };
+      if (sql.includes("FROM payments WHERE client_id") && sql.includes('FOR UPDATE')) return { rows: db.status === 'expired' ? [] : [row()] };
+      if (sql.includes("SET status='checkout_created'")) { if (db.failFinalize) return { rows: [], rowCount: 0 }; db.finalized += 1; return { rows: [], rowCount: 1 }; }
+      if (sql.includes("SET status='expired'")) { db.status = 'expired'; db.retired += 1; return { rows: [], rowCount: 1 }; }
+      if (sql.includes('SET metadata=metadata ||')) { Object.assign(db.metadata, JSON.parse(args[1])); return { rows: [], rowCount: 1 }; }
+      if (sql.includes('UPDATE booking_guests SET payment_id')) return { rows: [], rowCount: 1 };
+      throw new Error('unexpected SQL: ' + sql);
+    } };
+    const store = checkout.createSqlStore((fn) => fn(pg), guestId, 'client-a', 'staff-1');
+    const prepared = await store.prepare('deposit');
+    assert.strictEqual(prepared.authoritative, false, 'mismatched winner must not become authoritative');
+    assert(db.metadata.provider_idempotency_key, 'provider key must be durable during preflight');
+    const op = { ...prepared.operation, target: 'deposit', amount: 4000 };
+    await store.finalize(op, { id: 'cs_sql', url: 'https://checkout.stripe.com/c/pay/sql', expires_at: 9999999999 }, 'deposit', 4000);
+    assert.strictEqual(db.finalized, 1);
+    db.failFinalize = true;
+    await assert.rejects(store.finalize(op, { id: 'cs_sql', url: 'https://checkout.stripe.com/c/pay/sql', expires_at: 9999999999 }, 'deposit', 4000), /checkout_finalize_precondition_failed/);
+    db.failFinalize = false;
+    await store.retire(op, 'test_retirement');
+    assert.strictEqual(db.retired, 1);
+  }
+
+  // Execute the production staff wrapper: URL tenant A/body tenant B is
+  // rejected before delegation (and therefore before guest SQL or Stripe).
+  {
+    const { handleStaffGenerateGuestPaymentLink } = require('./lib/staff-guest-payment-link-handler');
     const sent = []; let downstream = 0;
-    const bound = auth.bindStaffGuestPaymentClient({ req: { url: '/staff/bookings/generate-guest-payment-link?client=A' },
-      body: { client_slug: 'B' }, user: { allowed_clients: ['A'] }, defaultClient: 'default', res: {},
-      assertStaffClientAccess(u, slug) { assert.strictEqual(slug, 'A'); return true; },
-      sendJSON(r, status, body) { sent.push({ status, body }); } });
-    if (bound) downstream += 1;
+    await handleStaffGenerateGuestPaymentLink(
+      { url: '/staff/bookings/generate-guest-payment-link?client=A' }, {},
+      { allowed_clients: ['A'], staff_user_id: 'staff-1' }, {
+        STAFF_ACTIONS_ENABLED: true, UUID_VALIDATE_RE: /^[0-9a-f-]{36}$/i, DEFAULT_CLIENT: 'default',
+        readBody: async () => JSON.stringify({ booking_guest_id: guestId, client_slug: 'B', payment_target: 'deposit' }),
+        send400() { throw new Error('unexpected send400'); },
+        assertStaffClientAccess(u, slug) { assert.strictEqual(slug, 'A'); return true; },
+        sendJSON(r, status, body) { sent.push({ status, body }); },
+        delegatedHandler: async () => { downstream += 1; }, delegatedContext: {},
+      });
     assert.strictEqual(downstream, 0);
     assert.deepStrictEqual(sent, [{ status: 403, body: { success: false, error: 'client_scope_mismatch' } }]);
+  }
+
+  // Same-tenant request traverses the production wrapper, delegated route,
+  // coordinator and SQL/Stripe seams.
+  {
+    const { handleStaffGenerateGuestPaymentLink } = require('./lib/staff-guest-payment-link-handler');
+    const g = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
+      booking_code: 'BK-HAPPY', guest_name: 'Happy Guest', guest_number: 2, booking_status: 'confirmed',
+      deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 1000 };
+    const md = { source: 'bot_guest_payment_link_slice_a', payment_target: 'deposit', intent_target: 'deposit',
+      intent_amount_cents: 4000, intent_currency: 'EUR', intent_generation: 'pay-happy', provider_idempotency_key: 'key-happy' };
+    const pg = { async query(sql) {
+      if (/^BEGIN|^COMMIT|^ROLLBACK/.test(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: g.booking_id }] };
+      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }] };
+      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [g] };
+      if (sql.includes('FROM payments WHERE client_id') && sql.includes('FOR UPDATE')) return { rows: [{ payment_id: '33333333-3333-3333-3333-333333333333', amount_due_cents: 4000, currency: 'EUR', metadata: md }] };
+      if (sql.includes("SET status='checkout_created'") || sql.includes('UPDATE booking_guests SET payment_id')) return { rows: [], rowCount: 1 };
+      throw new Error('unexpected happy SQL: ' + sql);
+    } };
+    const sent = []; let stripeCreates = 0;
+    await handleStaffGenerateGuestPaymentLink({ url: '/staff/bookings/generate-guest-payment-link?client=A' }, {},
+      { allowed_clients: ['A'], staff_user_id: 'staff-1' }, {
+        STAFF_ACTIONS_ENABLED: true, UUID_VALIDATE_RE: /^[0-9a-f-]{36}$/i, DEFAULT_CLIENT: 'default',
+        readBody: async () => JSON.stringify({ booking_guest_id: guestId, client_slug: 'A', payment_target: 'deposit' }),
+        send400() { throw new Error('unexpected send400'); }, assertStaffClientAccess: () => true,
+        sendJSON(r, status, body) { sent.push({ status, body }); }, delegatedHandler: routes.handleBotGuestPaymentCreateLink,
+        delegatedContext: { sendJSON(r, status, body) { sent.push({ status, body }); }, send400() {}, readBody: async () => '',
+          withPgClient: (fn) => fn(pg), BOT_BOOKING_ENABLED: false, STAFF_ACTIONS_ENABLED: true,
+          STRIPE_LINKS_ENABLED: true, STRIPE_SECRET_KEY: 'sk_test_double', DEFAULT_CLIENT: 'default',
+          stripeCheckoutRedirectUrlsConfigured: () => true, stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
+          stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel', stripe: { checkout: { sessions: {
+            create: async () => { stripeCreates += 1; return { id: 'cs_happy', url: 'https://checkout.stripe.com/c/pay/happy', status: 'open', payment_status: 'unpaid', expires_at: 9999999999 }; },
+            retrieve: async () => { throw new Error('unexpected retrieve'); }, expire: async () => {},
+          } } } },
+      });
+    assert.strictEqual(stripeCreates, 1);
+    assert.strictEqual(sent[0].status, 200);
+    assert.strictEqual(sent[0].body.amount_due_cents, 4000);
   }
 
   // UI/server agreement: deposit is capped by share; unknown is not zero.

@@ -35,6 +35,20 @@ function validUrl(value) {
   } catch (_) { return false; }
 }
 
+function reusableProviderSession(session, nowSeconds) {
+  const paymentStatus = String(session && session.payment_status || '').toLowerCase();
+  return !!(session && session.id && session.status === 'open'
+    && paymentStatus !== 'paid' && paymentStatus !== 'no_payment_required'
+    && validUrl(session.url) && Number(session.expires_at) > nowSeconds);
+}
+
+function obsoleteProviderSession(session) {
+  const err = new Error('stripe_checkout_session_not_payable');
+  err.providerObsolete = true;
+  err.session = session || null;
+  return err;
+}
+
 const LOCKED_GUEST_SQL = `SELECT bg.id::text AS booking_guest_id, bg.client_id::text AS client_id,
  bg.booking_id::text AS booking_id, bg.guest_number, bg.guest_name,
  bg.deposit_amount_cents, bg.metadata AS guest_metadata, b.booking_code,
@@ -153,21 +167,25 @@ function providerParams(item, guest, clientSlug, guestId, successUrl, cancelUrl)
 }
 
 async function recoverProvider(stripe, op, guest, opts) {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   if (op.sessionId) {
+    // Never mint a replacement while the state of an existing provider
+    // identity is unknown; retrieval failures propagate and fail closed.
     const known = await stripe.checkout.sessions.retrieve(op.sessionId);
-    if (known && known.id && validUrl(known.url)) return known;
+    if (reusableProviderSession(known, nowSeconds)) return known;
+    throw obsoleteProviderSession(known);
   }
   /* Create is deliberately replayed when DB lacks the session id: Stripe's
      durable idempotency record is the recovery log for provider-success/DB-failure. */
   const session = await stripe.checkout.sessions.create(
     providerParams(op, guest, opts.clientSlug, opts.guestId, opts.successUrl, opts.cancelUrl),
     { idempotencyKey: op.key });
-  if (!session || !session.id || !validUrl(session.url)) throw new Error('stripe_checkout_url_invalid');
+  if (!reusableProviderSession(session, nowSeconds)) throw obsoleteProviderSession(session);
   return session;
 }
 
 async function expireIfOpen(stripe, session) {
-  if (session && session.status !== 'complete' && session.status !== 'expired') await stripe.checkout.sessions.expire(session.id);
+  if (session && session.id && session.status === 'open') await stripe.checkout.sessions.expire(session.id);
 }
 
 async function run(opts) {
@@ -180,7 +198,14 @@ async function run(opts) {
     const op = prepared.operation;
     let session;
     try { session = await recoverProvider(stripe, op, prepared.guest, opts); }
-    catch (err) { lastError = err; continue; }
+    catch (err) {
+      lastError = err;
+      if (err.providerObsolete) {
+        await expireIfOpen(stripe, err.session);
+        await store.retire(op, 'provider_session_not_payable');
+      }
+      continue;
+    }
 
     if (!prepared.authoritative) {
       await expireIfOpen(stripe, session);
@@ -204,4 +229,4 @@ async function run(opts) {
 }
 
 module.exports = { run, tx, amountFor, validUrl, lockAndLoad, operationFromRow,
-  sameIntent, createSqlStore, providerParams, recoverProvider };
+  sameIntent, reusableProviderSession, createSqlStore, providerParams, recoverProvider };
