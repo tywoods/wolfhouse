@@ -986,7 +986,7 @@ def create_booking_from_plan(params, **kwargs):
     })
 
 
-_WOLFHOUSE_GUEST_LOCATION_LINE = "📍 Wolfhouse: https://maps.app.goo.gl/6KdamJ66roaMugJD8"
+_WOLFHOUSE_GUEST_LOCATION_LINE = "📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16"
 
 
 def _wolfhouse_guest_location_line(guest_url):
