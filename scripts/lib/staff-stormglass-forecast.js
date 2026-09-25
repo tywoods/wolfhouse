@@ -12,6 +12,7 @@ const https = require('https');
 const {
   hasStormglassConfig,
   getStormglassSurfSpot,
+  getStormglassForecastLocation,
 } = require('./staff-stormglass-config');
 
 const STORMGLASS_POINT_URL = 'https://api.stormglass.io/v2/weather/point';
@@ -544,7 +545,101 @@ async function fetchSurfForecastForAskLuna(opts) {
   }
 }
 
+// Generic guest weather/marine forecast.  It is deliberately separate from the
+// legacy surf-day aggregate so callers retain hour-level facts and provenance.
+const FORECAST_CACHE_TTL_MS = 60 * 1000;
+const FORECAST_HORIZON_DAYS = 10;
+const FORECAST_PARAMS = [
+  'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
+  'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
+  'currentSpeed', 'currentDirection', 'waterTemperature', 'tideHeight',
+].join(',');
+const FORECAST_FIELDS = Object.freeze([
+  ['waveHeight', 'wave_height_m'], ['swellHeight', 'swell_height_m'],
+  ['swellPeriod', 'swell_period_s'], ['swellDirection', 'swell_direction_deg'],
+  ['windSpeed', 'wind_speed_mps'], ['windDirection', 'wind_direction_deg'],
+  ['airTemperature', 'air_temperature_c'], ['precipitation', 'precipitation_mm_per_h'],
+  ['cloudCover', 'cloud_cover_pct'], ['currentSpeed', 'current_speed_mps'],
+  ['currentDirection', 'current_direction_deg'], ['waterTemperature', 'water_temperature_c'],
+  ['tideHeight', 'tide_height_m'],
+]);
+const forecastCache = new Map();
+
+function toYmd(value) {
+  const text = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? null : text;
+}
+
+function getForecastWindow(date, startHour = 0, endHour = 24) {
+  const start = Number(startHour);
+  const end = Number(endHour);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > 24 || end <= start) {
+    const err = new Error('invalid local hourly window'); err.code = 'INVALID_WINDOW'; throw err;
+  }
+  const nextDate = new Date(Date.parse(`${date}T12:00:00Z`) + DAY_MS).toISOString().slice(0, 10);
+  return { start: madridLocalToUtcZ(date, start), end: end === 24
+    ? madridLocalToUtcZ(nextDate, 0)
+    : madridLocalToUtcZ(date, end) };
+}
+
+function typedStormglassError(code, message, status) {
+  const err = new Error(message); err.code = code; if (status) err.status = status; return err;
+}
+
+function normalizeHourlyFacts(hours) {
+  return hours.map((hour) => {
+    const row = { time: typeof hour.time === 'string' ? hour.time : null };
+    for (const [source, output] of FORECAST_FIELDS) row[output] = pickStormglassValue(hour[source]);
+    return row;
+  });
+}
+
+async function fetchStormglassForecast(opts) {
+  const input = opts || {};
+  const locationId = String(input.locationId || input.clientSlug || '').trim();
+  const location = getStormglassForecastLocation(locationId);
+  if (!location) throw typedStormglassError('UNSUPPORTED_LOCATION', 'forecast location is not bound');
+  const date = toYmd(input.date);
+  if (!date) throw typedStormglassError('INVALID_DATE', 'date must be YYYY-MM-DD');
+  const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
+  const daysAway = Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${getMadridCalendarYmd('today', nowMs)}T00:00:00Z`)) / DAY_MS);
+  if (daysAway < -1 || daysAway > FORECAST_HORIZON_DAYS) throw typedStormglassError('OUT_OF_HORIZON', 'requested date is outside forecast horizon');
+  if (!hasStormglassConfig()) throw typedStormglassError('NOT_CONFIGURED', 'Stormglass forecast is not configured');
+  const window = getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour);
+  const cacheKey = JSON.stringify([locationId, window.start, window.end]);
+  const cached = forecastCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < FORECAST_CACHE_TTL_MS) return cached.value;
+  const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: window.start, end: window.end });
+  let response;
+  try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
+  catch (err) { throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed'); }
+  if (!response || response.status < 200 || response.status >= 300) {
+    const status = response && response.status;
+    const code = status === 401 || status === 402 || status === 403 ? 'ENTITLEMENT_DENIED' : status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR';
+    throw typedStormglassError(code, 'Stormglass forecast unavailable', status);
+  }
+  let payload;
+  try { payload = JSON.parse(response.body || '{}'); } catch (_) { throw typedStormglassError('MALFORMED_DATA', 'Stormglass returned invalid forecast data'); }
+  if (!Array.isArray(payload.hours) || !payload.hours.length) throw typedStormglassError('UNAVAILABLE', 'Stormglass returned no hourly forecast data');
+  const hourly = normalizeHourlyFacts(payload.hours);
+  const missing = FORECAST_FIELDS.filter(([, key]) => hourly.every((row) => row[key] == null)).map(([, key]) => key);
+  const coverage = missing.length === 0 ? 'complete' : (missing.length === FORECAST_FIELDS.length ? 'unavailable' : 'partial');
+  const value = {
+    success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
+    retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
+    missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
+    units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
+  };
+  forecastCache.set(cacheKey, { cachedAt: Date.now(), value });
+  return value;
+}
+
 module.exports = {
+  FORECAST_PARAMS,
+  FORECAST_HORIZON_DAYS,
+  fetchStormglassForecast,
   STORMGLASS_POINT_URL,
   STORMGLASS_PARAMS,
   DEFAULT_TIMEOUT_MS,
