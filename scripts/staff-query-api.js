@@ -20113,6 +20113,15 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .btn-danger-light{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC;border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-danger-light:hover{background:#F0D9D2;border-color:#D9A89A}
 .btn-danger-light:disabled{opacity:.55;cursor:not-allowed}
+#bc-cancel-reservation-btn.is-awaiting-confirm,
+#bc-cancel-reservation-btn.is-awaiting-confirm:hover,
+#bc-cancel-reservation-btn.is-awaiting-confirm:disabled{
+  background:#E5E5EA;
+  color:#6E6E73;
+  border-color:#C7C7CC;
+  opacity:1;
+  cursor:not-allowed;
+}
 .ctx-booking-cancel-footer{margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)}
 .bc-drawer-footer{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)}
 .bc-drawer-footer-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;flex:1;min-width:0}
@@ -42238,6 +42247,21 @@ function bcCancelFormatDatesLine(bk){
 function bcCloseCancelConfirm(){
   var host = el('bc-cancel-confirm-inline');
   if (host) host.innerHTML = '';
+  bcSyncCancelPrimaryWhileConfirmOpen();
+}
+
+function bcSyncCancelPrimaryWhileConfirmOpen(){
+  var openBtn = el('bc-cancel-reservation-btn');
+  if (!openBtn) return;
+  if (openBtn.style.display === 'none') return;
+  var panelOpen = !!el('bc-cancel-confirm');
+  if (panelOpen || bcCancelCtx.inFlight){
+    openBtn.disabled = true;
+    if (openBtn.classList) openBtn.classList.add('is-awaiting-confirm');
+    return;
+  }
+  openBtn.disabled = false;
+  if (openBtn.classList) openBtn.classList.remove('is-awaiting-confirm');
 }
 
 function bcRenderBookingDrawerFooterHtml(data){
@@ -42319,6 +42343,11 @@ function bcRenderCancelConfirmPanel(data){
   if (keepBtn) keepBtn.onclick = function(){ bcCloseCancelConfirm(); };
   var confirmBtn = el('bc-cancel-confirm-btn');
   if (confirmBtn) confirmBtn.onclick = function(){ bcRunCancelReservation(); };
+  var openBtn = el('bc-cancel-reservation-btn');
+  if (openBtn && openBtn.style.display !== 'none'){
+    openBtn.disabled = true;
+    if (openBtn.classList) openBtn.classList.add('is-awaiting-confirm');
+  }
   bcScrollCancelConfirmIntoView();
 }
 
@@ -42370,7 +42399,7 @@ function bcRunCancelReservation(){
           message: data.message,
         }, true);
         if (confirmBtn) confirmBtn.disabled = false;
-        if (openBtn) openBtn.disabled = false;
+        bcSyncCancelPrimaryWhileConfirmOpen();
         return;
       }
       bcCloseCancelConfirm();
@@ -42382,7 +42411,7 @@ function bcRunCancelReservation(){
       bcCancelCtx.inFlight = false;
       bcRenderCancelResult({ success: false, error: e.message || 'Network error' }, true);
       if (confirmBtn) confirmBtn.disabled = false;
-      if (openBtn) openBtn.disabled = false;
+      bcSyncCancelPrimaryWhileConfirmOpen();
     });
 }
 
@@ -42411,6 +42440,7 @@ function bcInitBookingCancelShell(data){
   openBtn.disabled = false;
   openBtn.onclick = function(){
     if (bcCancelCtx.inFlight) return;
+    if (el('bc-cancel-confirm')) return;
     bcRenderCancelConfirmPanel(data);
   };
 }
