@@ -132,7 +132,9 @@ var INBOX_ROWS_CSS = [
   '.inbox-two-col.show-thread .thread-messages{',
   'flex:1 1 auto!important;min-height:0!important;',
   'overflow-y:auto!important;overflow-x:hidden;',
-  '-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;',
+  /* Auto-height phone layouts scroll the document: do not trap native pans
+   * in this zero-range transcript. Bounded layouts still scroll it first. */
+  '-webkit-overflow-scrolling:touch;overscroll-behavior:auto;touch-action:pan-y;',
   '}',
   '.inbox-two-col.show-thread .draft-panel{flex:0 0 auto!important;}',
   '.inbox-two-col.show-thread .draft-actions{display:flex;flex-wrap:nowrap;gap:6px;width:100%}',
