@@ -1484,7 +1484,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   let body = {};
   try {
-    body = JSON.parse((await readBody(req)) || '{}');
+    body = ctx.parsedBody || JSON.parse((await readBody(req)) || '{}');
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
   }

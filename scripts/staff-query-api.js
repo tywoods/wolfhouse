@@ -15907,6 +15907,12 @@ async function handleStaffGenerateGuestPaymentLink(req, res, user) {
   if (!guestId || !UUID_VALIDATE_RE.test(guestId)) {
     return send400(res, 'booking_guest_id must be a valid UUID');
   }
+  // Bind the public staff call to the authenticated operator's selected tenant;
+  // the body is request data and can never select a different tenant.
+  const boundClientSlug = require('./lib/staff-guest-payment-link-auth').bindStaffGuestPaymentClient({
+    req, body, user, defaultClient: DEFAULT_CLIENT, assertStaffClientAccess, res, sendJSON,
+  });
+  if (!boundClientSlug) return;
   return _handleBotGuestPaymentCreateLink(guestId, req, res, user, 'staff_portal', {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
@@ -15914,6 +15920,8 @@ async function handleStaffGenerateGuestPaymentLink(req, res, user) {
     STAFF_ACTIONS_ENABLED: true,
     STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     DEFAULT_CLIENT,
+    boundClientSlug,
+    parsedBody: body,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
@@ -39457,10 +39465,10 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
   rows.forEach(function(row){
     var name = bcInvoiceGuestStaffLabel(row.guest_number, row.guest_name, leadName);
     var paid = Number(row.amount_paid_cents || 0);
-    var deposit = Number(row.deposit_cents != null ? row.deposit_cents : 0);
-    var share = Number(row.subtotal_cents || 0);
-    var depositRemaining = Math.max(0, Math.min(deposit, share || deposit) - paid);
-    var shareRemaining = share > 0 ? Math.max(0, share - paid) : null;
+    var deposit = row.deposit_cents == null ? null : Number(row.deposit_cents);
+    var share = row.subtotal_cents == null ? null : Number(row.subtotal_cents);
+    var depositRemaining = (deposit == null || share == null) ? null : Math.max(0, Math.min(deposit, share) - paid);
+    var shareRemaining = share == null ? null : Math.max(0, share - paid);
     var pay = bcInvoicePaymentRequestDisplay(row.payment_status);
     html += '<div class="ctx-inv-line ctx-inv-guest-line" data-guest-number="' + escHtml(String(row.guest_number)) + '"';
     if (row.booking_guest_id) html += ' data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '"';
@@ -39931,8 +39939,16 @@ function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
   var mountedParent = btn && btn.parentNode;
   var requestClient = getClient();
   var requestBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+  var drawer = document.querySelector && document.querySelector('#bc-side-drawer');
+  var requestGeneration = drawer && drawer.getAttribute('data-booking-view-generation');
   function requestStillCurrent(){
     if (getClient() !== requestClient) return false;
+    if (!btn || !document.contains(btn)) return false;
+    if (resultEl && !document.contains(resultEl)) return false;
+    var liveDrawer = document.querySelector && document.querySelector('#bc-side-drawer');
+    if (!liveDrawer || !document.contains(liveDrawer)) return false;
+    if (liveDrawer.getAttribute('data-booking-view-generation') !== requestGeneration) return false;
+    if (liveDrawer.getAttribute('data-mounted-booking-id') !== requestBooking) return false;
     if (btn && btn._bcGuestPayRequestNumber !== requestNumber) return false;
     if (btn && btn.parentNode !== mountedParent) return false;
     if (btn && btn.getAttribute('data-booking-guest-id') !== String(guestId)) return false;
@@ -39996,6 +40012,13 @@ function bcBindCreateGuestPaymentLinkButtons(data){
   // document and rely on the per-button marker to keep this idempotent.
   var root = document;
   if (!root || !root.querySelectorAll) return;
+  var drawer = root.querySelector('#bc-side-drawer');
+  var mountedBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+  if (drawer) {
+    var generation = Number(drawer.getAttribute('data-booking-view-generation') || 0) + 1;
+    drawer.setAttribute('data-booking-view-generation', String(generation));
+    drawer.setAttribute('data-mounted-booking-id', mountedBooking);
+  }
   root.querySelectorAll('.bc-create-guest-payment-link-btn').forEach(function(btn){
     if (btn.getAttribute('data-bc-paylink-bound') === '1') return;
     btn.setAttribute('data-bc-paylink-bound', '1');

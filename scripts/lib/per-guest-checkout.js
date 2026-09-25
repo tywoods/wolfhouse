@@ -54,101 +54,154 @@ async function lockAndLoad(pg, guestId, clientSlug) {
   return loaded.rows[0] || null;
 }
 
-async function run(opts) {
-  const { withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId, successUrl, cancelUrl } = opts;
-  const prepared = await withPgClient((pg) => tx(pg, async () => {
-    const guest = await lockAndLoad(pg, guestId, clientSlug);
-    if (!guest) return { missing: true };
-    if (String(guest.booking_status).toLowerCase() === 'cancelled') throw new Error('booking_not_active');
-    const amount = amountFor(guest, paymentTarget);
-    const active = await pg.query(`SELECT id::text AS payment_id, status::text AS payment_status,
-      stripe_checkout_session_id, checkout_url, expires_at, amount_due_cents, currency, metadata
-      FROM payments WHERE client_id=$1::uuid AND booking_id=$2::uuid AND booking_guest_id=$3::uuid
-      AND metadata->>'source'='bot_guest_payment_link_slice_a'
-      AND status IN ('draft'::payment_record_status,'checkout_created'::payment_record_status)
-      ORDER BY created_at, id FOR UPDATE`, [guest.client_id, guest.booking_id, guestId]);
-    return { guest, amount, active: active.rows };
-  }));
-  if (prepared.missing) return prepared;
-  if (prepared.amount <= 0) return { zero: true, guest: prepared.guest, amount: 0 };
-
-  let reusable = null;
-  const expired = [];
-  for (const row of prepared.active) {
-    if (!row.stripe_checkout_session_id) continue;
-    const session = await stripe.checkout.sessions.retrieve(row.stripe_checkout_session_id);
-    const md = metadata(row.metadata);
-    const exact = md.payment_target === paymentTarget && Number(row.amount_due_cents) === prepared.amount
-      && String(row.currency).toUpperCase() === 'EUR';
-    const open = session.status === 'open' && (!session.expires_at || session.expires_at * 1000 > Date.now()) && validUrl(session.url);
-    if (exact && open && !reusable) reusable = { row, session };
-    else if (open) {
-      await stripe.checkout.sessions.expire(session.id);
-      expired.push(row.payment_id);
-    } else expired.push(row.payment_id);
-  }
-
-  const draft = await withPgClient((pg) => tx(pg, async () => {
-    const guest = await lockAndLoad(pg, guestId, clientSlug);
-    if (!guest || guest.booking_id !== prepared.guest.booking_id || guest.client_id !== prepared.guest.client_id) throw new Error('guest_identity_changed');
-    if (amountFor(guest, paymentTarget) !== prepared.amount) throw new Error('guest_payment_snapshot_changed_retry');
-    if (expired.length) await pg.query(`UPDATE payments SET status='expired'::payment_record_status,
-      metadata=metadata || $2::jsonb WHERE id=ANY($1::uuid[]) AND status IN ('draft','checkout_created')`,
-    [expired, JSON.stringify({ superseded_at: new Date().toISOString(), superseded_target: paymentTarget })]);
-    if (reusable) return { paymentId: reusable.row.payment_id, reusable: true, guest };
-    const inserted = await pg.query(`INSERT INTO payments(client_id,booking_id,booking_guest_id,status,payment_kind,currency,amount_due_cents,metadata)
-      VALUES($1::uuid,$2::uuid,$3::uuid,'draft'::payment_record_status,$4::payment_kind,'EUR',$5,$6::jsonb)
-      ON CONFLICT (client_id,booking_id,booking_guest_id) WHERE metadata->>'source'='bot_guest_payment_link_slice_a'
-      AND booking_guest_id IS NOT NULL AND status IN ('draft'::payment_record_status,'checkout_created'::payment_record_status)
-      DO NOTHING RETURNING id::text AS payment_id`, [guest.client_id, guest.booking_id, guestId,
-      paymentTarget === 'deposit' ? 'deposit_only' : 'full_amount', prepared.amount,
-      JSON.stringify({ source: 'bot_guest_payment_link_slice_a', payment_target: paymentTarget, created_by: actorId })]);
-    if (inserted.rows[0]) return { paymentId: inserted.rows[0].payment_id, guest };
-    const winner = await pg.query(`SELECT id::text AS payment_id FROM payments WHERE client_id=$1::uuid AND booking_id=$2::uuid
-      AND booking_guest_id=$3::uuid AND metadata->>'source'='bot_guest_payment_link_slice_a'
-      AND status IN ('draft','checkout_created') ORDER BY created_at LIMIT 1`, [guest.client_id, guest.booking_id, guestId]);
-    if (!winner.rows[0]) throw new Error('checkout_intent_conflict_without_winner');
-    return { paymentId: winner.rows[0].payment_id, guest, conflict: true };
-  }));
-
-  if (draft.reusable) return { guest: draft.guest, amount: prepared.amount, paymentId: draft.paymentId,
-    session: reusable.session, idempotent: true };
-
-  const key = ['guest-checkout-v2', draft.guest.client_id, draft.guest.booking_id, guestId, draft.paymentId].join(':');
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({ mode: 'payment', currency: 'eur',
-      line_items: [{ price_data: { currency: 'eur', product_data: {
-        name: `Booking ${draft.guest.booking_code} — ${draft.guest.guest_name}`,
-        description: `${paymentTarget === 'deposit' ? 'Deposit' : 'Payment'} | Guest ${draft.guest.guest_number}`,
-      }, unit_amount: prepared.amount }, quantity: 1 }],
-      metadata: { client_slug: clientSlug, booking_id: draft.guest.booking_id, payment_id: draft.paymentId,
-        booking_guest_id: guestId, payment_kind: paymentTarget === 'deposit' ? 'deposit_only' : 'full_amount' },
-      success_url: successUrl, cancel_url: cancelUrl,
-    }, { idempotencyKey: key });
-    if (!session || !session.id || !validUrl(session.url)) throw new Error('stripe_checkout_url_invalid');
-  } catch (err) {
-    await withPgClient((pg) => tx(pg, () => pg.query(`UPDATE payments SET status='failed'::payment_record_status,
-      metadata=metadata || $2::jsonb WHERE id=$1::uuid AND status='draft'::payment_record_status`,
-    [draft.paymentId, JSON.stringify({ provider_failure: err.message, provider_failed_at: new Date().toISOString() })])));
-    throw err;
-  }
-
-  await withPgClient((pg) => tx(pg, async () => {
-    const guest = await lockAndLoad(pg, guestId, clientSlug);
-    if (!guest || guest.booking_id !== draft.guest.booking_id || amountFor(guest, paymentTarget) !== prepared.amount) throw new Error('guest_payment_snapshot_changed_retry');
-    const finalized = await pg.query(`UPDATE payments SET status='checkout_created'::payment_record_status,
-      stripe_checkout_session_id=$1, checkout_url=$2, expires_at=to_timestamp($3),
-      metadata=metadata || $4::jsonb WHERE id=$5::uuid AND client_id=$6::uuid AND booking_id=$7::uuid
-      AND booking_guest_id=$8::uuid AND status='draft'::payment_record_status`, [session.id, session.url,
-      session.expires_at || Math.floor(Date.now()/1000)+86400, JSON.stringify({ stripe_session_id: session.id }),
-      draft.paymentId, guest.client_id, guest.booking_id, guestId]);
-    if (finalized.rowCount !== 1) throw new Error('checkout_finalize_precondition_failed');
-    const pointer = await pg.query(`UPDATE booking_guests SET payment_id=$1::uuid,payment_status='checkout_created',updated_at=NOW()
-      WHERE id=$2::uuid AND client_id=$3::uuid AND booking_id=$4::uuid`, [draft.paymentId, guestId, guest.client_id, guest.booking_id]);
-    if (pointer.rowCount !== 1) throw new Error('guest_pointer_finalize_precondition_failed');
-  }));
-  return { guest: draft.guest, amount: prepared.amount, paymentId: draft.paymentId, session, idempotent: false };
+function operationFromRow(row) {
+  const md = metadata(row.metadata);
+  const target = md.intent_target || md.payment_target;
+  const amount = Number(md.intent_amount_cents != null ? md.intent_amount_cents : row.amount_due_cents);
+  const currency = String(md.intent_currency || row.currency || '').toUpperCase();
+  const generation = String(md.intent_generation || row.payment_id);
+  return { paymentId: row.payment_id, target, amount, currency, generation,
+    key: md.provider_idempotency_key || ['guest-checkout-v3', generation, target, amount, currency].join(':'),
+    sessionId: row.stripe_checkout_session_id || null, url: row.checkout_url || null };
 }
 
-module.exports = { run, tx, amountFor, validUrl, lockAndLoad };
+function sameIntent(op, target, amount) {
+  return op.target === target && op.amount === amount && op.currency === 'EUR';
+}
+
+function createSqlStore(withPgClient, guestId, clientSlug, actorId) {
+  return {
+    async prepare(target) {
+      return withPgClient((pg) => tx(pg, async () => {
+        const guest = await lockAndLoad(pg, guestId, clientSlug);
+        if (!guest) return { missing: true };
+        if (String(guest.booking_status).toLowerCase() === 'cancelled') throw new Error('booking_not_active');
+        const amount = amountFor(guest, target);
+        if (amount <= 0) return { zero: true, guest, amount: 0 };
+        const active = await pg.query(`SELECT id::text AS payment_id,stripe_checkout_session_id,checkout_url,
+          amount_due_cents,currency,metadata FROM payments WHERE client_id=$1::uuid AND booking_id=$2::uuid
+          AND booking_guest_id=$3::uuid AND metadata->>'source'='bot_guest_payment_link_slice_a'
+          AND status IN ('draft','checkout_created') ORDER BY created_at,id LIMIT 1 FOR UPDATE`,
+        [guest.client_id, guest.booking_id, guestId]);
+        let row = active.rows[0];
+        if (!row) {
+          const inserted = await pg.query(`INSERT INTO payments(client_id,booking_id,booking_guest_id,status,payment_kind,currency,amount_due_cents,metadata)
+            VALUES($1::uuid,$2::uuid,$3::uuid,'draft'::payment_record_status,$4::payment_kind,'EUR',$5,$6::jsonb)
+            ON CONFLICT (client_id,booking_id,booking_guest_id) WHERE metadata->>'source'='bot_guest_payment_link_slice_a'
+            AND booking_guest_id IS NOT NULL AND status IN ('draft'::payment_record_status,'checkout_created'::payment_record_status)
+            DO NOTHING RETURNING id::text AS payment_id,amount_due_cents,currency,metadata,stripe_checkout_session_id,checkout_url`,
+          [guest.client_id, guest.booking_id, guestId, target === 'deposit' ? 'deposit_only' : 'full_amount', amount,
+            JSON.stringify({ source: 'bot_guest_payment_link_slice_a', payment_target: target, created_by: actorId })]);
+          row = inserted.rows[0];
+          if (!row) {
+            const winner = await pg.query(`SELECT id::text AS payment_id,stripe_checkout_session_id,checkout_url,
+              amount_due_cents,currency,metadata FROM payments WHERE client_id=$1::uuid AND booking_id=$2::uuid
+              AND booking_guest_id=$3::uuid AND metadata->>'source'='bot_guest_payment_link_slice_a'
+              AND status IN ('draft','checkout_created') ORDER BY created_at,id LIMIT 1 FOR UPDATE`,
+            [guest.client_id, guest.booking_id, guestId]);
+            row = winner.rows[0];
+          }
+        }
+        if (!row) throw new Error('checkout_intent_conflict_without_winner');
+        let op = operationFromRow(row);
+        /* Persist exact provider identity before the first provider call. */
+        if (!metadata(row.metadata).provider_idempotency_key) {
+          const durable = { intent_generation: op.generation, intent_target: op.target,
+            intent_amount_cents: op.amount, intent_currency: op.currency, provider_idempotency_key: op.key };
+          await pg.query('UPDATE payments SET metadata=metadata || $2::jsonb WHERE id=$1::uuid',
+            [op.paymentId, JSON.stringify(durable)]);
+          op = Object.assign(op, { key: durable.provider_idempotency_key });
+        }
+        return { guest, amount, operation: op, authoritative: sameIntent(op, target, amount) };
+      }));
+    },
+    async finalize(op, session, target, amount) {
+      return withPgClient((pg) => tx(pg, async () => {
+        const guest = await lockAndLoad(pg, guestId, clientSlug);
+        if (!guest || amountFor(guest, target) !== amount) { const e = new Error('guest_payment_snapshot_changed_retry'); e.snapshotChanged = true; throw e; }
+        const finalized = await pg.query(`UPDATE payments SET status='checkout_created'::payment_record_status,
+          stripe_checkout_session_id=$1,checkout_url=$2,expires_at=to_timestamp($3),metadata=metadata || $4::jsonb
+          WHERE id=$5::uuid AND status IN ('draft','checkout_created') AND metadata->>'provider_idempotency_key'=$6`,
+        [session.id, session.url, session.expires_at || Math.floor(Date.now()/1000)+86400,
+          JSON.stringify({ stripe_session_id: session.id }), op.paymentId, op.key]);
+        if (finalized.rowCount !== 1) throw new Error('checkout_finalize_precondition_failed');
+        const pointer = await pg.query(`UPDATE booking_guests SET payment_id=$1::uuid,payment_status='checkout_created',updated_at=NOW()
+          WHERE id=$2::uuid AND client_id=$3::uuid AND booking_id=$4::uuid`,
+        [op.paymentId, guestId, guest.client_id, guest.booking_id]);
+        if (pointer.rowCount !== 1) throw new Error('guest_pointer_finalize_precondition_failed');
+        return guest;
+      }));
+    },
+    async retire(op, reason) {
+      return withPgClient((pg) => tx(pg, () => pg.query(`UPDATE payments SET status='expired'::payment_record_status,
+        metadata=metadata || $2::jsonb WHERE id=$1::uuid AND status IN ('draft','checkout_created')
+        AND metadata->>'provider_idempotency_key'=$3`, [op.paymentId,
+        JSON.stringify({ superseded_at: new Date().toISOString(), superseded_reason: reason }), op.key])));
+    },
+  };
+}
+
+function providerParams(item, guest, clientSlug, guestId, successUrl, cancelUrl) {
+  return { mode: 'payment', currency: item.currency.toLowerCase(),
+    line_items: [{ price_data: { currency: item.currency.toLowerCase(), product_data: {
+      name: `Booking ${guest.booking_code} — ${guest.guest_name}`,
+      description: `${item.target === 'deposit' ? 'Deposit' : 'Payment'} | Guest ${guest.guest_number}`,
+    }, unit_amount: item.amount }, quantity: 1 }],
+    metadata: { client_slug: clientSlug, booking_id: guest.booking_id, payment_id: item.paymentId,
+      booking_guest_id: guestId, payment_kind: item.target === 'deposit' ? 'deposit_only' : 'full_amount',
+      intent_generation: item.generation }, success_url: successUrl, cancel_url: cancelUrl };
+}
+
+async function recoverProvider(stripe, op, guest, opts) {
+  if (op.sessionId) {
+    const known = await stripe.checkout.sessions.retrieve(op.sessionId);
+    if (known && known.id && validUrl(known.url)) return known;
+  }
+  /* Create is deliberately replayed when DB lacks the session id: Stripe's
+     durable idempotency record is the recovery log for provider-success/DB-failure. */
+  const session = await stripe.checkout.sessions.create(
+    providerParams(op, guest, opts.clientSlug, opts.guestId, opts.successUrl, opts.cancelUrl),
+    { idempotencyKey: op.key });
+  if (!session || !session.id || !validUrl(session.url)) throw new Error('stripe_checkout_url_invalid');
+  return session;
+}
+
+async function expireIfOpen(stripe, session) {
+  if (session && session.status !== 'complete' && session.status !== 'expired') await stripe.checkout.sessions.expire(session.id);
+}
+
+async function run(opts) {
+  const { stripe, guestId, clientSlug, paymentTarget } = opts;
+  const store = opts.store || createSqlStore(opts.withPgClient, guestId, clientSlug, opts.actorId);
+  let lastError;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const prepared = await store.prepare(paymentTarget);
+    if (prepared.missing || prepared.zero) return prepared;
+    const op = prepared.operation;
+    let session;
+    try { session = await recoverProvider(stripe, op, prepared.guest, opts); }
+    catch (err) { lastError = err; continue; }
+
+    if (!prepared.authoritative) {
+      await expireIfOpen(stripe, session);
+      await store.retire(op, 'intent_mismatch');
+      continue;
+    }
+    try {
+      const guest = await store.finalize(op, session, paymentTarget, prepared.amount);
+      return { guest: guest || prepared.guest, amount: prepared.amount, paymentId: op.paymentId,
+        session, idempotent: !!op.sessionId || attempt > 0 };
+    } catch (err) {
+      lastError = err;
+      if (err.snapshotChanged) {
+        await expireIfOpen(stripe, session);
+        await store.retire(op, 'snapshot_changed');
+      }
+      /* Query/commit ambiguity is retried through prepare + the exact same key. */
+    }
+  }
+  throw lastError || new Error('checkout_recovery_exhausted');
+}
+
+module.exports = { run, tx, amountFor, validUrl, lockAndLoad, operationFromRow,
+  sameIntent, createSqlStore, providerParams, recoverProvider };
