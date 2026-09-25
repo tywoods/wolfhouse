@@ -1430,12 +1430,31 @@ function computeGuestPayableAmounts({ shareCents, depositCents, receivedCents })
   const share = Number(shareCents);
   const deposit = Number(depositCents);
   const received = Number(receivedCents);
-  if (!Number.isInteger(share) || share <= 0) throw new Error('authoritative_share_not_available');
+  if (!Number.isInteger(share) || share < 0) throw new Error('authoritative_share_not_available');
   if (![deposit, received].every((n) => Number.isInteger(n) && n >= 0)) throw new Error('invalid_guest_money');
   return {
     depositRemainingCents: Math.max(0, Math.min(deposit, share) - received),
     remainingShareCents: Math.max(0, share - received),
   };
+}
+
+async function inTransaction(pg, work) {
+  await pg.query('BEGIN');
+  try {
+    const value = await work(pg);
+    await pg.query('COMMIT');
+    return value;
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (rollbackErr) { err.rollback_error = rollbackErr.message; }
+    throw err;
+  }
+}
+
+function approvedStripeCheckoutUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' && ['checkout.stripe.com', 'billing.stripe.com'].includes(url.hostname);
+  } catch (_) { return false; }
 }
 
 async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode, ctx) {
@@ -1480,11 +1499,41 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   let stripe;
   try {
-    stripe = require('stripe')(STRIPE_SECRET_KEY);
+    stripe = ctx.stripe || require('stripe')(STRIPE_SECRET_KEY);
   } catch (e) {
     return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message });
   }
 
+  // The checkout coordinator owns short, exception-safe DB transactions. No
+  // pooled client remains in a transaction while Stripe is called.
+  try {
+    const checkout = await require('./per-guest-checkout').run({
+      withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId,
+      successUrl: stripeCheckoutSessionSuccessUrl(),
+      cancelUrl: stripeCheckoutSessionCancelUrl(),
+    });
+    if (checkout.missing) return sendJSON(res, 404, { success: false, error: 'booking guest not found' });
+    if (checkout.zero) return sendJSON(res, 422, { success: false, error: 'nothing_due', amount_due_cents: 0 });
+    const guest = checkout.guest;
+    const shortUrl = buildPaymentShortLink({ booking_code: guest.booking_code, guest_number: guest.guest_number,
+      client_slug: clientSlug, env: process.env });
+    if (appendAuditLog) appendAuditLog({ ts: new Date().toISOString(), intent: 'api:bot_guest_payment_link',
+      category: 'bot_guest_payment_link_create', success: true, booking_guest_id: guestId,
+      payment_id: checkout.paymentId, auth_mode: authMode });
+    return sendJSON(res, 200, { success: true, idempotent: checkout.idempotent, source: 'luna_bot_guest_payment_link',
+      booking_guest_id: guestId, guest_number: guest.guest_number, guest_name: guest.guest_name,
+      booking_id: guest.booking_id, booking_code: guest.booking_code, payment_id: checkout.paymentId,
+      payment_target: paymentTarget, amount_due_cents: checkout.amount, checkout_url: checkout.session.url,
+      stripe_checkout_session_id: checkout.session.id, guest_payment_url: shortUrl || checkout.session.url,
+      payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
+      uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });
+  } catch (err) {
+    const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
+    return sendJSON(res, status, { success: false, error: err.message });
+  }
+
+  /* Legacy implementation retained temporarily below for source-history clarity;
+     the coordinator above always returns. */
   let guestRow;
   try {
     guestRow = await withPgClient(async (pg) => {

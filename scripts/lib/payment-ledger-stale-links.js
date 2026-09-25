@@ -92,7 +92,8 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
 
   if (paymentLedgerIsPerGuestLinkRow(pr, md)) {
     const guestIntended = paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md);
-    if (guestIntended != null && guestIntended > 0) return guestIntended;
+    // Zero is authoritative (fully paid); only null means unavailable.
+    if (guestIntended != null) return guestIntended;
     if (pr.amount_due_cents != null) return Number(pr.amount_due_cents);
     return null;
   }
@@ -116,7 +117,8 @@ function paymentLedgerIsStaleUnpaidLinkRow(pr, isActiveUnpaid, ledgerCtx) {
     if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return true;
   }
   const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
+  if (intended == null) return false;
+  if (intended === 0) return Number(pr.amount_due_cents) !== 0;
   return Number(pr.amount_due_cents) !== Number(intended);
 }
 

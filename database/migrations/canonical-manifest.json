@@ -1586,8 +1586,8 @@
       "order": 103,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted authoritative active checkout identity across tenant, booking, guest, target, amount and currency.",
-      "sha256": "c3731ee606ddf237239f880e8877e9e2a4b6f155b974808eba223f5d8d0e505f"
+      "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted single active collectible checkout identity across tenant, booking and guest.",
+      "sha256": "eb35b5ee40c05d25dccef53bf02342d59942c1d471846e707ef213a7cb684ed6"
     }
   ]
 }

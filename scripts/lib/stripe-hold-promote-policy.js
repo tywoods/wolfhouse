@@ -420,6 +420,23 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
+  // Global lock order for both receipt writers and checkout creators is booking,
+  // then guest, then payment. This prevents the guest aggregate update racing a
+  // newly-priced checkout without introducing a payment↔guest lock inversion.
+  if (pm.booking_guest_id) {
+    const guestLock = await pg.query(
+      `SELECT id FROM booking_guests
+        WHERE id = $1::uuid AND client_id = $2 AND booking_id = $3::uuid
+        FOR UPDATE`,
+      [pm.booking_guest_id, pm.client_id, pm.booking_id],
+    );
+    if (!guestLock.rows[0]) {
+      const err = new Error('booking_guest_lock_miss');
+      err.code = 'booking_guest_lock_miss';
+      throw err;
+    }
+  }
+
   const lockedPayment = await lockPaymentForStripePaymentTruth(pg, {
     paymentId: pm.payment_id,
     clientId: pm.client_id,

@@ -831,6 +831,8 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.invoice.guestLine': 'Guest {number} — {detail}',
     'drawer.invoice.unnamedGuest': 'Unnamed guest {number}',
     'drawer.invoice.createLink': 'Payment Link',
+    'drawer.invoice.depositLink': 'Deposit Link',
+    'drawer.invoice.paymentLink': 'Payment Link',
     'drawer.invoice.copyLink': 'Copy',
     'drawer.invoice.payStatus.pending': 'Pending',
     'drawer.invoice.payStatus.paid': 'Paid',

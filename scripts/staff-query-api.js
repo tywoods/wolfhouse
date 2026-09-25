@@ -39468,13 +39468,13 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
     html += ' \u2014 paid ' + escHtml(eur(paid));
     if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
       if (depositRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
       }
       if (shareRemaining == null) {
         html += ' \u2014 <span class="muted">' + escHtml(t('drawer.payments.linkFailed')) + '</span>';
       } else if (shareRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
       }
     } else if (pay.createLink && row.booking_guest_id) {
@@ -39926,9 +39926,23 @@ function bcInitPaymentLinkShell(data){
 
 function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
   if (!guestId) return;
+  var requestNumber = Number((btn && btn._bcGuestPayRequestNumber) || 0) + 1;
+  if (btn) btn._bcGuestPayRequestNumber = requestNumber;
+  var mountedParent = btn && btn.parentNode;
+  var requestClient = getClient();
+  var requestBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+  function requestStillCurrent(){
+    if (getClient() !== requestClient) return false;
+    if (btn && btn._bcGuestPayRequestNumber !== requestNumber) return false;
+    if (btn && btn.parentNode !== mountedParent) return false;
+    if (btn && btn.getAttribute('data-booking-guest-id') !== String(guestId)) return false;
+    if (btn && (btn.getAttribute('data-payment-target') || 'deposit') !== paymentTarget) return false;
+    var nowBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+    return nowBooking === requestBooking;
+  }
   if (btn) btn.disabled = true;
   if (resultEl){ resultEl.innerHTML = ''; resultEl.style.display = 'none'; }
-  var client = getClient();
+  var client = requestClient;
   fetch('/staff/bookings/generate-guest-payment-link?client=' + encodeURIComponent(client), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -39940,6 +39954,7 @@ function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!requestStillCurrent()) return;
       if (btn) btn.disabled = false;
       if (!res.ok || !res.data.success){
         if (resultEl){
@@ -39967,6 +39982,7 @@ function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
       }
     })
     .catch(function(err){
+      if (!requestStillCurrent()) return;
       if (btn) btn.disabled = false;
       if (resultEl){
         resultEl.innerHTML = escHtml(err.message || 'Network error');
