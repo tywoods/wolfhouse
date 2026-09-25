@@ -110,9 +110,10 @@ function emptyTypeConfig() {
 function normalizeRecipient(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const enabled = src.enabled !== false;
+  const staffNumberId = trimStr(src.staff_number_id) || null;
   const phone = normalizePhoneE164(src.phone);
   const name = trimStr(src.name).slice(0, NAME_MAX) || null;
-  return { name, phone, enabled };
+  return { staff_number_id: staffNumberId, name, phone, enabled };
 }
 
 function validateNotificationTypeConfig(raw, typeLabel) {
@@ -312,6 +313,65 @@ function handoffEventKeyForType(notificationType, handoffEventKey) {
   return key || `handoff:${Date.now()}`;
 }
 
+function validateStaffAlertCanaryAuthorization(env = process.env, input = {}, now = new Date()) {
+  // Default-empty, dispatcher-owned authority. This is intentionally not browser input.
+  let authorization;
+  try { authorization = JSON.parse(trimStr((env || {}).STAFF_ALERT_CANARY_AUTHORIZATION)); } catch (_) { authorization = null; }
+  if (!authorization || typeof authorization !== 'object' || Array.isArray(authorization)) {
+    return { ok: false, reason: 'canary_authorization_missing' };
+  }
+  const types = Array.isArray(authorization.alert_types) ? authorization.alert_types.map(trimStr) : [];
+  const expectedLocation = normalizeLocationId(authorization.location_id);
+  const actualLocation = normalizeLocationId(input.location_id);
+  if (!trimStr(authorization.authorization_id)) return { ok: false, reason: 'canary_authorization_invalid' };
+  if (trimStr(authorization.client_slug) !== trimStr(input.client_slug)
+    || expectedLocation !== actualLocation
+    || trimStr(authorization.recipient_id) !== trimStr(input.recipient_id)) {
+    return { ok: false, reason: 'canary_scope_mismatch' };
+  }
+  if (normalizePhoneE164(authorization.approved_phone) !== normalizePhoneE164(input.phone)) {
+    return { ok: false, reason: 'canary_phone_mismatch' };
+  }
+  if (trimStr(authorization.phone_version) !== trimStr(input.phone_version)) {
+    return { ok: false, reason: 'canary_phone_version_mismatch' };
+  }
+  if (!types.includes(trimStr(input.notification_type))) return { ok: false, reason: 'canary_type_mismatch' };
+  const expiresAt = new Date(trimStr(authorization.expires_at));
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+    return { ok: false, reason: 'canary_expired' };
+  }
+  const maxAttempts = Number(authorization.max_attempts);
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 2) {
+    return { ok: false, reason: 'canary_budget_invalid' };
+  }
+  return { ok: true, authorization_id: trimStr(authorization.authorization_id), max_attempts: maxAttempts, expires_at: expiresAt.toISOString() };
+}
+
+async function resolveActiveStaffAlertRecipient(pg, clientSlug, staffNumberId) {
+  const slug = trimStr(clientSlug);
+  const id = trimStr(staffNumberId);
+  if (!pg || !slug || !id) return { ok: false, reason: 'recipient_not_active' };
+  const result = await pg.query(
+    `SELECT id::text AS id, phone, display_name, active, updated_at
+       FROM wolfhouse_staff_whatsapp_numbers
+      WHERE client_slug = $1 AND id = $2::uuid AND active = TRUE
+      LIMIT 1`,
+    [slug, id],
+  );
+  const row = result && result.rows && result.rows[0];
+  const phone = row && normalizePhoneE164(row.phone);
+  if (!row || !phone) return { ok: false, reason: 'recipient_not_active' };
+  const updated = new Date(row.updated_at);
+  if (Number.isNaN(updated.getTime())) return { ok: false, reason: 'recipient_version_unavailable' };
+  return {
+    ok: true,
+    staff_number_id: trimStr(row.id),
+    phone,
+    name: trimStr(row.display_name) || null,
+    phone_version: updated.toISOString(),
+  };
+}
+
 async function clientExists(pg, clientSlug) {
   const slug = trimStr(clientSlug);
   if (!slug) return false;
@@ -450,6 +510,19 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
       continue;
     }
 
+    const canary = validateStaffAlertCanaryAuthorization(env, {
+      client_slug: clientSlug,
+      location_id: locationId,
+      recipient_id: recipient.staff_number_id,
+      phone: recipient.phone,
+      phone_version: recipient.phone_version,
+      notification_type: notificationType,
+    });
+    if (!canary.ok) {
+      results.push({ recipient_phone: recipient.phone, status: 'skipped', reason: canary.reason, canary_denied: true });
+      continue;
+    }
+
     const dedupeProbe = await insertNotificationEvent(pg, {
       client_slug: clientSlug,
       location_id: locationId,
@@ -546,6 +619,8 @@ module.exports = {
   normalizePhoneE164,
   isStaffNotificationsEnabled,
   isStaffNotificationsDryRun,
+  validateStaffAlertCanaryAuthorization,
+  resolveActiveStaffAlertRecipient,
   validateNotificationSettingsPayload,
   validateNotificationTypeConfig,
   buildStaffInboxDeepLink,

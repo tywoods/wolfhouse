@@ -17,6 +17,8 @@ const {
   getNotificationSettings,
   isStaffNotificationsEnabled,
   isStaffNotificationsDryRun,
+  validateStaffAlertCanaryAuthorization,
+  resolveActiveStaffAlertRecipient,
   PHONE_RE,
 } = require('./lib/staff-whatsapp-notifications');
 
@@ -149,7 +151,28 @@ async function runAsyncTests() {
     recipients: [{ name: 'Desk', phone: '+34900000001', enabled: true }],
   }, 'new_conversation');
   ok('settings validation accepts E.164 phone', goodPhone.ok === true);
-  ok('E.164 regex matches +34900000001', PHONE_RE.test('+34900000001'));
+  ok('E.164 regex matches fixture phone', PHONE_RE.test('+34900000001'));
+  const directoryRecipient = validateNotificationTypeConfig({
+    enabled: true,
+    recipients: [{ staff_number_id: '11111111-1111-4111-8111-111111111111', name: 'Desk', phone: '+34900000001', enabled: true }],
+  }, 'new_conversation');
+  ok('settings preserve directory recipient ID', directoryRecipient.ok === true
+    && directoryRecipient.recipients[0].staff_number_id === '11111111-1111-4111-8111-111111111111');
+  const directoryPg = {
+    async query(sql, params) {
+      if (/FROM wolfhouse_staff_whatsapp_numbers/.test(String(sql))
+        && params[0] === 'wolfhouse-somo' && params[1] === '11111111-1111-4111-8111-111111111111') {
+        return { rows: [{ id: params[1], phone: '+34900000001', display_name: 'Desk', active: true, updated_at: '2026-09-25T11:24:00.000Z' }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const activeDirectoryRecipient = await resolveActiveStaffAlertRecipient(directoryPg, 'wolfhouse-somo', '11111111-1111-4111-8111-111111111111');
+  ok('active recipient resolution is tenant-bound and returns the current phone version', activeDirectoryRecipient.ok === true
+    && activeDirectoryRecipient.phone === '+34900000001'
+    && activeDirectoryRecipient.phone_version === '2026-09-25T11:24:00.000Z');
+  const foreignDirectoryRecipient = await resolveActiveStaffAlertRecipient(directoryPg, 'sunset', '11111111-1111-4111-8111-111111111111');
+  ok('foreign recipient ID is refused', foreignDirectoryRecipient.ok === false && foreignDirectoryRecipient.reason === 'recipient_not_active');
 
   const pgA = createMockPg({ clients: ['wolfhouse-somo', 'sunset'] });
   await putNotificationSettings(pgA, {
@@ -258,6 +281,53 @@ async function runAsyncTests() {
 
   ok('env gate defaults disabled', isStaffNotificationsEnabled({}) === false);
   ok('env gate dry-run defaults true', isStaffNotificationsDryRun({}) === true);
+
+  console.log('\n── canary authority ──');
+  const approvedCanary = validateStaffAlertCanaryAuthorization({
+    STAFF_ALERT_CANARY_AUTHORIZATION: JSON.stringify({
+      authorization_id: 'ty-canary-001',
+      client_slug: 'wolfhouse-somo',
+      location_id: null,
+      recipient_id: 'staff-number-1',
+      approved_phone: '+34900000003',
+      phone_version: '2026-09-25T11:24:00.000Z',
+      alert_types: ['new_conversation', 'human_needed'],
+      expires_at: '2099-01-01T00:00:00.000Z',
+      max_attempts: 2,
+    }),
+  }, {
+    client_slug: 'wolfhouse-somo', location_id: null, recipient_id: 'staff-number-1',
+    phone: '+34900000003', phone_version: '2026-09-25T11:24:00.000Z', notification_type: 'new_conversation',
+  });
+  ok('canary authority requires exact recipient phone/version and type', approvedCanary.ok === true);
+  const stalePhoneCanary = validateStaffAlertCanaryAuthorization({
+    STAFF_ALERT_CANARY_AUTHORIZATION: JSON.stringify({
+      authorization_id: 'ty-canary-001', client_slug: 'wolfhouse-somo', location_id: null,
+      recipient_id: 'staff-number-1', approved_phone: '+34900000003', phone_version: 'v1',
+      alert_types: ['new_conversation'], expires_at: '2099-01-01T00:00:00.000Z', max_attempts: 2,
+    }),
+  }, {
+    client_slug: 'wolfhouse-somo', location_id: null, recipient_id: 'staff-number-1',
+    phone: '+349****0099', phone_version: 'v1', notification_type: 'new_conversation',
+  });
+  ok('changed phone denies the same recipient ID', stalePhoneCanary.ok === false && stalePhoneCanary.reason === 'canary_phone_mismatch');
+
+  const pgLiveNoCanary = createMockPg({ clients: ['wolfhouse-somo'] });
+  await putNotificationSettings(pgLiveNoCanary, {
+    clientSlug: 'wolfhouse-somo', locationId: null,
+    settings: {
+      new_conversation: { enabled: true, recipients: [{ name: 'Fixture desk', phone: '+34900000003', enabled: true }] },
+      human_needed: { enabled: false, recipients: [] },
+    },
+  });
+  let liveProviderCalls = 0;
+  const liveDenied = await dispatchStaffWhatsAppNotifications(pgLiveNoCanary, {
+    STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
+  }, {
+    client_slug: 'wolfhouse-somo', conversation_id: '22222222-2222-4222-8222-222222222222',
+    notification_type: 'new_conversation', guest_phone: '+34900000099', guest_name: 'Fixture guest',
+  }, { async sendMessage(){ liveProviderCalls += 1; return { success: true, whatsapp_message_id: 'wamid.NEVER' }; } });
+  ok('live dispatch without a canary authorization calls no provider', liveProviderCalls === 0 && liveDenied.results[0].status === 'skipped' && liveDenied.results[0].reason === 'canary_authorization_missing');
 
   console.log('\n── repo hygiene ──');
   const staffApi = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
