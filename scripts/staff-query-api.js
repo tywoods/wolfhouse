@@ -19416,6 +19416,9 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
   background:#F8E8E8;color:#9C3D3D;border:1px solid #E8B4B4;
 }
 .inbox-clear-thread-btn:hover,#btn-inbox-clear-thread:hover{background:#F3DADA}
+/* STAFF-NIGHT-SOFT-CHROME-001: Clear stays destructive, not neon pink on dark. */
+[data-theme="dark"] .inbox-clear-thread-btn,[data-theme="dark"] #btn-inbox-clear-thread{background:#3a2424;color:#e7c4c0;border-color:#6a4540}
+[data-theme="dark"] .inbox-clear-thread-btn:hover,[data-theme="dark"] #btn-inbox-clear-thread:hover{background:#4a2c2c;color:#f0d0cc}
 .inbox-clear-thread-dialog[hidden]{display:none!important}
 .inbox-clear-thread-dialog{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center}
 .inbox-clear-thread-dialog-backdrop{position:absolute;inset:0;background:rgba(40,32,28,.28)}
@@ -19428,6 +19431,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 }
 .inbox-clear-thread-dialog-cancel{border:1px solid var(--border);background:var(--surface);color:var(--text-2)}
 .inbox-clear-thread-dialog-confirm{border:1px solid #E8B4B4;background:#F8E8E8;color:#9C3D3D}
+[data-theme="dark"] .inbox-clear-thread-dialog-confirm{background:#3a2424;color:#e7c4c0;border-color:#6a4540}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-switches{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
@@ -20230,6 +20234,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-sel-beds-section{margin-top:8px;min-height:24px}
 .bc-sel-bed-count{font-size:11px;color:var(--text-2);margin-bottom:4px}
 .bc-sel-bed-tag{display:inline-block;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;margin:2px 3px 2px 0;white-space:nowrap}
+/* STAFF-NIGHT-SOFT-CHROME-001: day cyan stays; night selected-bed pills are muted slate, not neon. */
+[data-theme="dark"] .bc-sel-bed-tag{background:#1a2830;color:#c5d4de;border-color:#3a5566}
 /* Phase 10.3h.2 — Move bed source pills (match create-booking selected-bed tags) */
 .bc-move-source-pills{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0}
 .bc-move-source-pill{display:inline-block;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:3px 12px;font-size:11px;font-weight:500;font-family:inherit;line-height:1.4;margin:2px 0;white-space:nowrap;cursor:pointer;transition:background .14s,border-color .14s,box-shadow .14s,font-weight .14s}
@@ -20830,6 +20836,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 .bc-side-pin svg{display:block;transform:rotate(45deg);overflow:visible}
 .bc-side-pin.is-on{background:#E7EEE9;color:#2c5f56;border-color:#8AA396}
+/* STAFF-NIGHT-SOFT-CHROME-001: pinned thumbtack stays readable, not loud mint on dark. */
+[data-theme="dark"] .bc-side-pin.is-on{background:#1e3328;color:#c5d9cc;border-color:#3d5c48}
 .bc-side-pin.is-on svg{transform:none}
 .bc-side-close{font-size:18px}
 .bc-side-pin:hover,.bc-side-close:hover{background:var(--surface);color:var(--text)}
@@ -39307,8 +39315,8 @@ function bcRunningInvoiceSvcLineText(sr){
   var unitCents = bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, qty);
   if (qty != null && qty > 0 && totalCents >= 0){
     if (unitLabel && unitCents != null){
-      var dayWord = bcPluralUnit(qty, 'day', 'days');
-      return label + ' \u2014 ' + qty + ' ' + (unitLabel === 'days' ? dayWord : unitLabel) + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
+      var unitWord = bcInvoiceSvcQtyUnitWord(sr.service_type, qty);
+      return label + ' \u2014 ' + qty + ' ' + (unitWord || unitLabel) + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
     }
     return label + ' \u2014 ' + qty + ' \u00d7 ' + eur(totalCents) + ' = ' + eur(totalCents);
   }
@@ -39366,6 +39374,60 @@ function bcInvoicePaymentRequestDisplay(status){
   return { createLink: false, label: bcInvoiceTitleCaseStatus(raw) };
 }
 
+function bcInvoiceSvcQtyUnitWord(serviceType, qty){
+  var t = (serviceType || '').toLowerCase();
+  if (t === 'wetsuit' || t === 'surfboard') return bcPluralUnit(qty, 'day', 'days');
+  if (t === 'surf_lesson') return bcPluralUnit(qty, 'lesson', 'lessons');
+  if (t === 'yoga') return bcPluralUnit(qty, 'class', 'classes');
+  if (t === 'meal') return bcPluralUnit(qty, 'meal', 'meals');
+  return bcRunningInvoiceSvcUnitLabel(serviceType);
+}
+
+/* Same display name + same unit price. Rentals and catalog lines stay on their own paths. */
+function bcInvoiceIdenticalServiceGroupKey(sr){
+  var type = sr && sr.service_type;
+  if (type === 'wetsuit' || type === 'surfboard') return null;
+  var meta = bcParseServiceRecordMeta(sr.metadata);
+  if (meta.catalog_service) return null;
+  var label = bcRunningInvoiceSvcTypeLabel(type, meta);
+  var totalCents = bcServiceRecordBillableCents(sr);
+  var qty = bcResolveRentalInvoiceDisplayQty(sr, meta);
+  var unitCents = bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, qty);
+  var unitWord = bcInvoiceSvcQtyUnitWord(type, qty);
+  if (!label || !unitWord || unitCents == null || !(qty > 0) || totalCents == null) return null;
+  if (Math.round(Number(unitCents) * Number(qty)) !== Math.round(Number(totalCents))) return null;
+  return ['identical', label, String(Math.round(Number(unitCents)))].join('|');
+}
+
+function bcInvoiceGroupedIdenticalServiceLineText(rows, summedCents){
+  if (!rows || rows.length < 2) return null;
+  var first = rows[0];
+  var meta = bcParseServiceRecordMeta(first.metadata);
+  var label = bcRunningInvoiceSvcTypeLabel(first.service_type, meta);
+  var firstQty = bcResolveRentalInvoiceDisplayQty(first, meta);
+  var unitCents = bcResolveRentalInvoiceUnitCents(first, meta, bcServiceRecordBillableCents(first), firstQty);
+  if (unitCents == null || !label) return null;
+  var qty = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var rowMeta = bcParseServiceRecordMeta(row.metadata);
+    var rowQty = bcResolveRentalInvoiceDisplayQty(row, rowMeta);
+    if (!(rowQty > 0)) return null;
+    var rowUnit = bcResolveRentalInvoiceUnitCents(row, rowMeta, bcServiceRecordBillableCents(row), rowQty);
+    var rowLabel = bcRunningInvoiceSvcTypeLabel(row.service_type, rowMeta);
+    if (rowUnit == null || Math.round(Number(rowUnit)) !== Math.round(Number(unitCents))) return null;
+    if (rowLabel !== label) return null;
+    qty += Number(rowQty);
+  }
+  if (Math.round(Number(unitCents) * qty) !== Math.round(Number(summedCents))) return null;
+  var word = bcInvoiceSvcQtyUnitWord(first.service_type, qty);
+  if (!word) return null;
+  var eur = function(cents){
+    return '\u20ac' + (Number(cents) / 100).toFixed(2);
+  };
+  return label + ' \u2014 ' + qty + ' ' + word + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(summedCents);
+}
+
 function bcInvoiceServiceRollupKey(sr){
   var meta = bcParseServiceRecordMeta(sr.metadata);
   var label = bcRunningInvoiceSvcTypeLabel(sr.service_type, meta);
@@ -39415,10 +39477,11 @@ function bcRollupInvoiceServiceDisplay(svcRows){
   svcRows.forEach(function(sr, i){
     var type = sr.service_type;
     var canRoll = type === 'wetsuit' || type === 'surfboard';
-    var key = canRoll ? bcInvoiceServiceRollupKey(sr) : ('row:' + i);
+    var identicalKey = canRoll ? null : bcInvoiceIdenticalServiceGroupKey(sr);
+    var key = canRoll ? bcInvoiceServiceRollupKey(sr) : (identicalKey || ('row:' + i));
     if (index[key] == null) {
       index[key] = groups.length;
-      groups.push({ key: key, rows: [sr], canRoll: canRoll });
+      groups.push({ key: key, rows: [sr], canRoll: canRoll, identical: !!identicalKey });
     } else {
       groups[index[key]].rows.push(sr);
     }
@@ -39452,8 +39515,13 @@ function bcRollupInvoiceServiceDisplay(svcRows){
       }
     }
     var rolled = g.canRoll ? bcInvoiceRolledServiceLineText(g.rows, cents) : null;
+    var grouped = (!rolled && g.identical && g.rows.length > 1)
+      ? bcInvoiceGroupedIdenticalServiceLineText(g.rows, cents)
+      : null;
     if (rolled) {
       lines.push({ text: rolled, cents: cents, service_type: g.rows[0].service_type || '' });
+    } else if (grouped) {
+      lines.push({ text: grouped, cents: cents, service_type: g.rows[0].service_type || '' });
     } else {
       g.rows.forEach(function(sr){
         lines.push({
