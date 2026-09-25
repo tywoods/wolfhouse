@@ -341,11 +341,31 @@ async function persistHermesLunaInboundThreadMessage(pg, input) {
       [conv.client_id, conversationId, messageText, HERMES_LUNA_INBOUND_SOURCE, waId, JSON.stringify(metadata)],
     );
     if (insert.rows[0]) {
+      const messageId = insert.rows[0].message_id;
+      let initialAlertEventKey = null;
+      let initialAlertClaimError = false;
+      try {
+        const claimed = await pg.query(
+          `UPDATE conversations
+              SET metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('staff_alert_initial_event_key', $2::text),
+                  updated_at = NOW()
+            WHERE id = $1::uuid
+              AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'staff_alert_initial_event_key')
+          RETURNING metadata->>'staff_alert_initial_event_key' AS initial_alert_event_key`,
+          [conversationId, messageId],
+        );
+        initialAlertEventKey = claimed.rows[0] && claimed.rows[0].initial_alert_event_key || null;
+      } catch (_) {
+        initialAlertClaimError = true;
+      }
       return {
         ok: true,
         persisted: true,
         duplicate: false,
-        message_id: insert.rows[0].message_id,
+        message_id: messageId,
+        initial_alert_event_key: initialAlertEventKey,
+        initial_alert_claim_error: initialAlertClaimError,
         whatsapp_message_id: insert.rows[0].whatsapp_message_id || waId,
         source: insert.rows[0].source,
         direction: insert.rows[0].direction,

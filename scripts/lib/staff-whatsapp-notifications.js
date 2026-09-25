@@ -738,11 +738,12 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
 }
 
 async function maybeNotifyNewConversation(pg, env, input, context) {
-  if (!input || input.created !== true) return { skipped: true, reason: 'not_new_conversation' };
+  const eventKey = trimStr(input && input.initial_alert_event_key);
+  if (!input || input.created !== true || !eventKey) return { skipped: true, reason: 'not_new_conversation' };
   return dispatchStaffWhatsAppNotifications(pg, env, {
     ...input,
     notification_type: 'new_conversation',
-    handoff_event_key: 'initial',
+    handoff_event_key: eventKey,
   }, context);
 }
 

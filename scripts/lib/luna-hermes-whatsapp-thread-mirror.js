@@ -493,7 +493,8 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     } else {
       try {
         staff_notification = await maybeNotifyNewConversation(pg, env, {
-          created: ensured.created === true,
+          created: !!thread.initial_alert_event_key,
+          initial_alert_event_key: thread.initial_alert_event_key,
           client_slug: i.client_slug,
           location_id: ensured.location_id,
           conversation_id: conversationId,
