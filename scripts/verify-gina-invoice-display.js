@@ -349,14 +349,18 @@ check('M10', /var invoiceTotal = fin\.invoiceTotal;/.test(extractFunctionSource(
 let shell = '';
 let req = '';
 let bindShell = '';
+let copyDelegation = '';
 try { shell = extractFunctionSource(apiSrc, 'bcInitGuestPaymentLinkShell'); } catch (err) { shell = ''; }
 try { req = extractFunctionSource(apiSrc, 'bcRequestGuestPaymentLink'); } catch (err) { req = ''; }
 try { bindShell = extractFunctionSource(apiSrc, 'bcBindCreateGuestPaymentLinkButtons'); } catch (err) { bindShell = ''; }
+try { copyDelegation = extractFunctionSource(apiSrc, 'bcInitDetailCopyDelegation'); } catch (err) { copyDelegation = ''; }
 check('W1', shell.includes('bcBindCreateGuestPaymentLinkButtons'), 'row buttons share the guest-link shell');
 check('W2', shell.includes("if (!genBtn) return;") === false, 'missing select must not skip row buttons');
 check('W3', req.includes('/staff/bookings/generate-guest-payment-link'), 'reuses existing guest payment-link route');
 check('W4', req.includes("payment_target: 'deposit'") || req.includes('payment_target: "deposit"'), 'same deposit target as the existing control');
 check('W5', bindShell.includes('var root = document;'), 'row binding reaches the live side drawer outside #bc-detail');
+check('W6', copyDelegation.includes('var panel = document;'), 'Copy delegation reaches the live side drawer outside #bc-detail');
+check('W7', shell.includes('bcInitDetailCopyDelegation();'), 'guest-link shell initializes Copy delegation for the live drawer');
 
 const i18n = fs.readFileSync(I18N, 'utf8');
 const es = fs.readFileSync(I18N_ES, 'utf8');

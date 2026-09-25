@@ -39748,7 +39748,9 @@ function bcCopyPaymentLinkIcon(btn){
 var bcDetailCopyDelegationBound = false;
 function bcInitDetailCopyDelegation(){
   if (bcDetailCopyDelegationBound) return;
-  var panel = el('bc-detail');
+  // Copy controls may be rendered in the live lodging side drawer outside
+  // #bc-detail, so delegate from the document.
+  var panel = document;
   if (!panel) return;
   bcDetailCopyDelegationBound = true;
   panel.addEventListener('click', function(ev){
@@ -39902,6 +39904,7 @@ function bcBindCreateGuestPaymentLinkButtons(data){
 }
 
 function bcInitGuestPaymentLinkShell(data){
+  bcInitDetailCopyDelegation();
   bcBindCreateGuestPaymentLinkButtons(data);
   var genBtn = el('bc-generate-guest-payment-link-btn');
   if (!genBtn) {
