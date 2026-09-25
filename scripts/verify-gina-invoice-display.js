@@ -84,6 +84,8 @@ const NAMES = [
   'bcRenderPerGuestPaymentsHtml',
   'bcRenderRunningInvoiceHtml',
   'bcRequestGuestPaymentLink',
+  'bcInlinePaymentLinkMarkup',
+  'bcCopyLinkIconSvg',
   'bcInitPaymentLinkShell',
   'bcNewPaymentLinkIdempotencyKey',
   'bcBindCreateGuestPaymentLinkButtons',
@@ -103,7 +105,7 @@ const strings = {
   'drawer.invoice.notAvailable': 'Not available',
   'drawer.invoice.guestLine': 'Guest {number} — {detail}',
   'drawer.invoice.unnamedGuest': 'Unnamed guest {number}',
-  'drawer.invoice.createLink': 'Create link',
+  'drawer.invoice.createLink': 'Payment Link',
   'drawer.invoice.copyLink': 'Copy',
   'drawer.invoice.payStatus.pending': 'Pending',
   'drawer.invoice.payStatus.paid': 'Paid',
@@ -304,7 +306,7 @@ check('P1', guest.includes('Gina Rossi') && guest.includes('Luca Rossi'), 'per-g
 check('P2', guest.includes('Unnamed guest 3'), 'per-guest unnamed label');
 check('P3', !guest.includes('not_requested') && !guest.includes('Not requested'), 'no not_requested text');
 check('P4', (guest.match(/bc-create-guest-payment-link-btn/g) || []).length === 1, 'one Create link for the unrequested guest');
-check('P5', guest.includes('>Create link<'), 'button label');
+check('P5', guest.includes('>Payment Link<'), 'button label');
 check('P6', guest.includes('data-booking-guest-id="22222222-2222-4222-8222-222222222222"'), 'button carries guest id');
 check('P7', guest.includes('Deposit paid'), 'deposit_paid translated');
 check('P8', guest.includes('Checkout created'), 'checkout_created translated');
@@ -314,7 +316,10 @@ check('M2', html.includes('€325.00'), 'paid preserved');
 check('M3', html.includes('€650.00'), 'balance preserved');
 check('M3a', html.includes('id="bc-generate-payment-link-btn"'), 'overview balance due has its own Create link control');
 check('M3b', html.includes('id="bc-payment-link-result"'), 'overview balance due has an inline link result target');
-check('M3c', /id="bc-generate-payment-link-btn"[^>]*>Create link<\//.test(html), 'overview balance control uses the same Create link copy as each guest');
+check('M3c', /id="bc-generate-payment-link-btn"[^>]*>Payment Link<\//.test(html), 'overview balance control uses the same Payment Link copy as each guest');
+check('L1', apiSrc.includes('#bc-overview-invoice,#bc-running-invoice{overflow:hidden')
+  && apiSrc.includes('.bc-inline-payment-link{display:inline-flex')
+  && apiSrc.includes('.bc-balance-link-slot{'), 'invoice card clips link rows and the masked link cannot grow past the card');
 
 let rollup = null;
 let rollupErr = null;
@@ -364,12 +369,12 @@ check('W7', shell.includes('bcInitDetailCopyDelegation();'), 'guest-link shell i
 
 const i18n = fs.readFileSync(I18N, 'utf8');
 const es = fs.readFileSync(I18N_ES, 'utf8');
-check('I1', i18n.includes("'drawer.invoice.createLink': 'Create link'"), 'EN create link');
-check('I1a', i18n.includes("'drawer.invoice.copyLink': 'Copy'"), 'EN visible Copy control');
+check('I1', i18n.includes("'drawer.invoice.createLink': 'Payment Link'"), 'EN Payment Link');
+check('I1a', i18n.includes("'drawer.invoice.copyLink': 'Copy'"), 'EN copy aria label');
 check('I2', i18n.includes("'drawer.invoice.unnamedGuest': 'Unnamed guest {number}'"), 'EN unnamed guest');
-check('I3', es.includes('"drawer.invoice.createLink": "Crear enlace"'), 'ES create link differs from EN');
-check('I3a', es.includes('"drawer.invoice.copyLink": "Copiar"'), 'ES visible Copy control');
-check('I4', i18n.includes("'drawer.invoice.createLink': 'Crea link'"), 'IT create link differs from EN');
+check('I3', es.includes('"drawer.invoice.createLink": "Enlace de pago"'), 'ES payment link differs from EN');
+check('I3a', es.includes('"drawer.invoice.copyLink": "Copiar"'), 'ES copy aria label');
+check('I4', i18n.includes("'drawer.invoice.createLink': 'Link di pagamento'"), 'IT payment link differs from EN');
 let unknown = null;
 try { unknown = sandbox.bcInvoicePaymentRequestDisplay('payment_link_sent'); } catch (err) { unknown = null; }
 check('I5', unknown && unknown.createLink === false && unknown.label === 'Payment link sent', unknown && unknown.label);
@@ -407,12 +412,15 @@ async function verifyInlinePaymentLinkResults() {
   sandbox.bcRequestGuestPaymentLink('guest-inline', perGuestResult, perGuestBtn, { booking: { booking_id: 'b1' } });
   await new Promise((resolve) => setTimeout(resolve, 0));
   check('UX1', perGuestBtn.outerHTML.includes('<a href="https://pay.example/guest-inline"')
-    && perGuestBtn.outerHTML.includes('https://pay.example/guest-inline'), 'per-guest success renders its payment-link anchor in place');
+    && perGuestBtn.outerHTML.includes('>Payment Link</a>')
+    && !perGuestBtn.outerHTML.includes('>https://pay.example/guest-inline<'), 'per-guest link is masked; full URL stays in href only');
   check('UX1a', perGuestBtn.outerHTML.includes('btn-bc-copy-link-icon')
-    && perGuestBtn.outerHTML.includes('>Copy<'), 'per-guest URL exposes a visible Copy control');
-  check('UX1b', perGuestBtn.outerHTML.includes('https://pay.example/guest-inline')
+    && perGuestBtn.outerHTML.includes('aria-label="Copy"')
+    && perGuestBtn.outerHTML.includes('bc-copy-link-svg')
+    && !perGuestBtn.outerHTML.includes('>Copy<'), 'per-guest Copy is an icon with aria-label Copy');
+  check('UX1b', perGuestBtn.outerHTML.includes('data-url="https://pay.example/guest-inline"')
     && perGuestBtn.outerHTML.includes('btn-bc-copy-link-icon')
-    && !perGuestBtn.outerHTML.includes('bc-create-guest-payment-link-btn'), 'per-guest success replaces its Create link control in place');
+    && !perGuestBtn.outerHTML.includes('bc-create-guest-payment-link-btn'), 'per-guest success replaces its Payment Link control in place');
   check('UX2', refreshes === 0, 'per-guest success does not jump to Payments');
   refreshes = 0;
 
@@ -440,9 +448,12 @@ async function verifyInlinePaymentLinkResults() {
   balanceBtn.listeners.click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   check('UX7', balanceResult.innerHTML.includes('<a href="https://pay.example/balance-inline"')
-    && balanceResult.innerHTML.includes('https://pay.example/balance-inline'), 'balance success renders an inline payment-link anchor');
+    && balanceResult.innerHTML.includes('>Payment Link</a>')
+    && !balanceResult.innerHTML.includes('>https://pay.example/balance-inline<'), 'balance link is masked; full URL stays in href only');
   check('UX7a', balanceResult.innerHTML.includes('btn-bc-copy-link-icon')
-    && balanceResult.innerHTML.includes('>Copy<'), 'balance URL exposes a visible Copy control');
+    && balanceResult.innerHTML.includes('aria-label="Copy"')
+    && balanceResult.innerHTML.includes('bc-copy-link-svg')
+    && !balanceResult.innerHTML.includes('>Copy<'), 'balance Copy is an icon with aria-label Copy');
   check('UX8', refreshes === 0, 'balance success does not jump to Payments');
 
   const balanceFailureResult = fakeInlineNode();

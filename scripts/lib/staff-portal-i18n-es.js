@@ -424,7 +424,7 @@ module.exports = {
   "drawer.invoice.accommodationTotal": "Total alojamiento: {amount}",
   "drawer.invoice.guestLine": "Huésped {number} — {detail}",
   "drawer.invoice.unnamedGuest": "Huésped sin nombre {number}",
-  "drawer.invoice.createLink": "Crear enlace",
+  "drawer.invoice.createLink": "Enlace de pago",
   "drawer.invoice.copyLink": "Copiar",
   "drawer.invoice.payStatus.pending": "Pendiente",
   "drawer.invoice.payStatus.paid": "Pagado",

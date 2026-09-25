@@ -20025,6 +20025,14 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:640px}
 .bc-drawer-overview-panel{display:flex;flex-direction:column;gap:12px}
 .bc-drawer-overview-card{padding:14px 16px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow-soft)}
+#bc-overview-invoice,#bc-running-invoice{overflow:hidden;max-width:100%;min-width:0;box-sizing:border-box}
+.ctx-inv-guest-line,.ctx-inv-totals,.ctx-inv-total-row{max-width:100%;min-width:0}
+.bc-balance-link-slot{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+#bc-payment-link-result,.bc-guest-pay-link-result{max-width:100%;min-width:0;overflow:hidden}
+.bc-inline-payment-link{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;vertical-align:middle;box-sizing:border-box}
+.bc-inline-payment-link a{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn-bc-copy-link-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.bc-copy-link-svg{display:block}
 .bc-drawer-card-title{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px}
 .bc-drawer-card-subtitle{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px}
 .bc-drawer-overview-card .ctx-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)}
@@ -39565,13 +39573,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:8px">' +
+        '<span class="bc-balance-link-slot">' +
           '<span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' +
           (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.invoice.createLink')) + '">' + escHtml(t('drawer.invoice.createLink')) + '</button>' : '') +
         '</span>' +
         '</div>';
       if (canGenBalLink) {
-        html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite" style="text-align:right;margin-top:2px;font-size:11px"></div>';
+        html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite" style="text-align:right;margin-top:2px;font-size:11px;max-width:100%;overflow:hidden"></div>';
       }
     } else if (invoiceTotal === paidCents){
       html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
@@ -39726,18 +39734,28 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
   return '';
 }
 
+function bcCopyLinkIconSvg(){
+  return '<svg class="bc-copy-link-svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"></rect><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.4"></path></svg>';
+}
+
+function bcInlinePaymentLinkMarkup(url){
+  var label = t('drawer.invoice.createLink');
+  var copyLabel = t('drawer.invoice.copyLink');
+  return '<span class="bc-inline-payment-link"><a href="' + escHtml(url) + '" target="_blank" rel="noopener">' + escHtml(label) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(url) + '" title="' + escHtml(copyLabel) + '" aria-label="' + escHtml(copyLabel) + '">' + bcCopyLinkIconSvg() + '</button></span>';
+}
+
 function bcCopyPaymentLinkIcon(btn){
   var u = bcPaymentLinkUrlFromCopyBtn(btn);
   if (!u) return;
   var origTitle = btn.getAttribute('title') || t('drawer.payments.copyLink');
   var origLabel = btn.getAttribute('aria-label') || origTitle;
-  var origText = btn.textContent;
+  var origHtml = btn.innerHTML;
   function showCopied(){
     btn.textContent = '\u2713';
     btn.setAttribute('title', t('drawer.payments.copied'));
     btn.setAttribute('aria-label', t('drawer.payments.copied'));
     setTimeout(function(){
-      btn.textContent = origText;
+      btn.innerHTML = origHtml;
       btn.setAttribute('title', origTitle);
       btn.setAttribute('aria-label', origLabel);
     }, 2000);
@@ -39817,7 +39835,7 @@ function bcInitPaymentLinkShell(data){
         if (resultEl) {
           var balanceLink = (res.data && (res.data.payment_short_url || res.data.checkout_url || res.data.guest_payment_url)) || '';
           resultEl.innerHTML = balanceLink && (/^https:/i.test(balanceLink) || /^http:/i.test(balanceLink))
-            ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(balanceLink) + '" target="_blank" rel="noopener">' + escHtml(balanceLink) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(balanceLink) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
+            ? bcInlinePaymentLinkMarkup(balanceLink)
             : escHtml(t('drawer.payments.linkReady'));
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
@@ -39861,12 +39879,12 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
       if (resultEl) {
         var link = (res.data && (res.data.payment_short_url || res.data.guest_payment_url)) || '';
         if (link && (/^https:/i.test(link) || /^http:/i.test(link)) && btn) {
-          btn.outerHTML = '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>';
+          btn.outerHTML = bcInlinePaymentLinkMarkup(link);
           resultEl.innerHTML = '';
           resultEl.style.display = 'none';
         } else {
           resultEl.innerHTML = link && (/^https:/i.test(link) || /^http:/i.test(link))
-            ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
+            ? bcInlinePaymentLinkMarkup(link)
             : escHtml(t('drawer.payments.linkReady'));
           resultEl.style.display = 'block';
         }
