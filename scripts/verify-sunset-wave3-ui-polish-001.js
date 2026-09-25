@@ -30,8 +30,8 @@ const mobileRules = shellSrc.match(/#tab-conversations #inbox-shell:not\(\.show-
 ok('phone Chats and Guests list scroller allows vertical touch panning', mobileRules.length >= 2);
 ok('phone row children and conversation list allow vertical touch panning',
   shellSrc.includes('.inbox-left-rows > *,#tab-conversations #inbox-shell:not(.show-thread) #conv-list{touch-action:pan-y}'));
-ok('open thread keeps vertical touch panning',
-  rowsSrc.includes('-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;'));
+ok('open thread keeps vertical touch panning and permits document-owned phone scrolling',
+  rowsSrc.includes('-webkit-overflow-scrolling:touch;overscroll-behavior:auto;touch-action:pan-y;'));
 
 ok('Microsoft disconnect status no longer claims processing is already off',
   emailSrc.includes('stops email processing.')
