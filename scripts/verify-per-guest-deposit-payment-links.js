@@ -301,6 +301,42 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
     assert.strictEqual(sent[0].body.amount_due_cents, 4000);
   }
 
+  // Expired bookings traverse the real staff wrapper/coordinator and fail
+  // closed before any payment insert or Stripe operation.
+  {
+    const { handleStaffGenerateGuestPaymentLink } = require('./lib/staff-guest-payment-link-handler');
+    const g = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
+      booking_code: 'BK-EXPIRED', guest_name: 'Expired Guest', guest_number: 4, booking_status: 'expired',
+      deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 0 };
+    let mutations = 0; let stripeCalls = 0;
+    const pg = { async query(sql) {
+      if (/^BEGIN|^COMMIT|^ROLLBACK/.test(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: g.booking_id }] };
+      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }] };
+      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [g] };
+      if (/UPDATE|INSERT/.test(sql)) { mutations += 1; }
+      throw new Error('unexpected expired SQL: ' + sql);
+    } };
+    const sent = [];
+    await handleStaffGenerateGuestPaymentLink({ url: '/staff/bookings/generate-guest-payment-link?client=A' }, {},
+      { allowed_clients: ['A'], staff_user_id: 'staff-1' }, {
+        STAFF_ACTIONS_ENABLED: true, UUID_VALIDATE_RE: /^[0-9a-f-]{36}$/i, DEFAULT_CLIENT: 'default',
+        readBody: async () => JSON.stringify({ booking_guest_id: guestId, client_slug: 'A', payment_target: 'deposit' }),
+        send400() { throw new Error('unexpected send400'); }, assertStaffClientAccess: () => true,
+        sendJSON(r, status, body) { sent.push({ status, body }); }, delegatedHandler: routes.handleBotGuestPaymentCreateLink,
+        delegatedContext: { sendJSON(r, status, body) { sent.push({ status, body }); }, send400() {}, readBody: async () => '',
+          withPgClient: (fn) => fn(pg), BOT_BOOKING_ENABLED: false, STAFF_ACTIONS_ENABLED: true,
+          STRIPE_LINKS_ENABLED: true, STRIPE_SECRET_KEY: '***', DEFAULT_CLIENT: 'default',
+          stripeCheckoutRedirectUrlsConfigured: () => true, stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
+          stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel', stripe: { checkout: { sessions: {
+            create: async () => { stripeCalls += 1; }, retrieve: async () => { stripeCalls += 1; },
+            expire: async () => { stripeCalls += 1; },
+          } } } },
+      });
+    assert.strictEqual(stripeCalls, 0); assert.strictEqual(mutations, 0);
+    assert.deepStrictEqual(sent, [{ status: 409, body: { success: false, error: 'booking_not_active' } }]);
+  }
+
   // A paid provider session traversing the real staff wrapper returns a safe,
   // typed 409 while preserving the original SQL row and provider identity.
   {

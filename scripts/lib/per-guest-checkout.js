@@ -106,7 +106,9 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId) {
       return withPgClient((pg) => tx(pg, async () => {
         const guest = await lockAndLoad(pg, guestId, clientSlug);
         if (!guest) return { missing: true };
-        if (String(guest.booking_status).toLowerCase() === 'cancelled') throw new Error('booking_not_active');
+        if (['cancelled', 'expired'].includes(String(guest.booking_status).toLowerCase())) {
+          throw new Error('booking_not_active');
+        }
         const amount = amountFor(guest, target);
         if (amount <= 0) return { zero: true, guest, amount: 0 };
         const active = await pg.query(`SELECT id::text AS payment_id,stripe_checkout_session_id,checkout_url,
