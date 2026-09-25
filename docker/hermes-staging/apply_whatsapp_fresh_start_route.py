@@ -12,7 +12,8 @@ FRESH_START_TAG = "_wgfs.register_fresh_start_route(app)"
 INGRESS_PROOF_TAG = "register_ingress_proof_route(app)"
 SAME_LUNA_AUTHOR_ROUTE_TAG = "register_same_luna_author_route(app)"
 LIVE_EVAL_ROUTE_TAG = "register_live_eval_route(app)"
-SAME_LUNA_AUTHOR_ROUTE = """
+WOLFHOUSE_8090_PROBE_ROUTE_TAG = "register_wolfhouse_8090_probe_route(app)"
+SAME_LUNA_AUTHOR_ROUTE="""
         try:
             from wolfhouse.email_draft_same_luna import register_same_luna_author_route
             if not register_same_luna_author_route(app):
@@ -24,6 +25,13 @@ LIVE_EVAL_ROUTE = """
         try:
             from wolfhouse.luna_personality_live_eval import register_live_eval_route
             register_live_eval_route(app)
+        except Exception:
+            pass
+"""
+WOLFHOUSE_8090_PROBE_ROUTE = """
+        try:
+            from wolfhouse.luna_personality_8090_probe import register_wolfhouse_8090_probe_route
+            register_wolfhouse_8090_probe_route(app)
         except Exception:
             pass
 """
@@ -94,6 +102,14 @@ def apply_patches(module_path: Path) -> dict:
             s = s.replace(SAME_LUNA_AUTHOR_ROUTE, SAME_LUNA_AUTHOR_ROUTE + LIVE_EVAL_ROUTE, 1)
         else:
             s = s.replace(SAME_LUNA_AUTHOR_ROUTE_TAG, SAME_LUNA_AUTHOR_ROUTE_TAG + LIVE_EVAL_ROUTE, 1)
+        module_path.write_text(s, encoding="utf-8")
+    if WOLFHOUSE_8090_PROBE_ROUTE_TAG not in s:
+        if LIVE_EVAL_ROUTE_TAG not in s:
+            raise RuntimeError("live eval route missing before Wolfhouse 8090 probe route")
+        if LIVE_EVAL_ROUTE in s:
+            s = s.replace(LIVE_EVAL_ROUTE, LIVE_EVAL_ROUTE + WOLFHOUSE_8090_PROBE_ROUTE, 1)
+        else:
+            s = s.replace(LIVE_EVAL_ROUTE_TAG, LIVE_EVAL_ROUTE_TAG + WOLFHOUSE_8090_PROBE_ROUTE, 1)
         module_path.write_text(s, encoding="utf-8")
     _compile_check(module_path)
     return {
