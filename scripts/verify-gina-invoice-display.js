@@ -314,6 +314,7 @@ check('M2', html.includes('€325.00'), 'paid preserved');
 check('M3', html.includes('€650.00'), 'balance preserved');
 check('M3a', html.includes('id="bc-generate-payment-link-btn"'), 'overview balance due has its own Create link control');
 check('M3b', html.includes('id="bc-payment-link-result"'), 'overview balance due has an inline link result target');
+check('M3c', /id="bc-generate-payment-link-btn"[^>]*>Create link<\//.test(html), 'overview balance control uses the same Create link copy as each guest');
 
 let rollup = null;
 let rollupErr = null;

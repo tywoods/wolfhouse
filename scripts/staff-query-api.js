@@ -39567,7 +39567,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span style="display:inline-flex;align-items:center;gap:8px">' +
           '<span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' +
-          (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.payments.generateBalanceLink')) + '">' + escHtml(t('drawer.payments.generateBalanceLink')) + '</button>' : '') +
+          (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.invoice.createLink')) + '">' + escHtml(t('drawer.invoice.createLink')) + '</button>' : '') +
         '</span>' +
         '</div>';
       if (canGenBalLink) {
