@@ -33934,7 +33934,7 @@ function staffWhatsappNumberUpdate(id, phone, group, name, active){
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone: phone, permission_group: group, display_name: name || null, active: active }),
+    body: JSON.stringify({ id: id, phone: phone, permission_group: group, display_name: name || null, active: active }),
   })
     .then(function(r){ return r.json(); })
     .then(function(data){
