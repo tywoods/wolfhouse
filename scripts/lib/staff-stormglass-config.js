@@ -1,51 +1,51 @@
 /**
- * Phase 11b.0 — Stormglass API key config detection (no API calls).
- * Phase 11b.1 — Wolfhouse/Somo surf spot constants (backend-only).
- *
+ * Backend-only Stormglass location bindings.  Coordinates are server-owned and
+ * keyed by the authenticated tenant/location binding; callers never supply a
+ * latitude/longitude or inherit a nearby school's location.
  * @module staff-stormglass-config
  */
-
 'use strict';
 
-/** Backend-only surf spot coordinates for Stormglass requests. */
-const STORMGLASS_SURF_SPOTS = Object.freeze({
+const STORMGLASS_FORECAST_LOCATIONS = Object.freeze({
   'wolfhouse-somo': Object.freeze({
-    client_slug: 'wolfhouse-somo',
-    spot: 'Somo',
-    // Playa de Somo area — backend-only constant; confirm with ops if needed.
-    lat: 43.4630,
-    lng: -3.7510,
+    client_slug: 'wolfhouse-somo', location_id: 'wolfhouse-somo', label: 'Somo',
+    timezone: 'Europe/Madrid', lat: 43.4630, lng: -3.7510,
+  }),
+  'sunset-somo': Object.freeze({
+    client_slug: 'sunset', location_id: 'sunset-somo', label: 'Somo',
+    timezone: 'Europe/Madrid', lat: 43.4630, lng: -3.7510,
+  }),
+  'sunset-sardinero': Object.freeze({
+    client_slug: 'sunset', location_id: 'sunset-sardinero', label: 'El Sardinero',
+    timezone: 'Europe/Madrid', lat: 43.4769, lng: -3.7879,
   }),
 });
 
-/**
- * True when STORMGLASS_API_KEY is set to a non-empty string.
- * @returns {boolean}
- */
+// Legacy surf call compatibility.  This is deliberately not a generic fallback.
+const STORMGLASS_SURF_SPOTS = STORMGLASS_FORECAST_LOCATIONS;
+
 function hasStormglassConfig() {
   const key = process.env.STORMGLASS_API_KEY;
   return typeof key === 'string' && key.trim().length > 0;
 }
 
-/**
- * Safe status for health/debug responses (never includes the key).
- * @returns {{ configured: boolean }}
- */
 function getStormglassConfigStatus() {
   return { configured: hasStormglassConfig() };
 }
 
-/**
- * @param {string} clientSlug
- * @returns {object|null}
- */
+function getStormglassForecastLocation(locationId) {
+  return STORMGLASS_FORECAST_LOCATIONS[String(locationId || '').trim()] || null;
+}
+
 function getStormglassSurfSpot(clientSlug) {
-  return STORMGLASS_SURF_SPOTS[clientSlug] || null;
+  return getStormglassForecastLocation(clientSlug);
 }
 
 module.exports = {
+  STORMGLASS_FORECAST_LOCATIONS,
   STORMGLASS_SURF_SPOTS,
   hasStormglassConfig,
   getStormglassConfigStatus,
+  getStormglassForecastLocation,
   getStormglassSurfSpot,
 };
