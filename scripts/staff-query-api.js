@@ -39814,7 +39814,7 @@ function bcInitPaymentLinkShell(data){
         }
         if (resultEl) {
           var balanceLink = (res.data && (res.data.payment_short_url || res.data.checkout_url || res.data.guest_payment_url)) || '';
-          resultEl.innerHTML = balanceLink && /^https?:\/\//i.test(balanceLink)
+          resultEl.innerHTML = balanceLink && (/^https:/i.test(balanceLink) || /^http:/i.test(balanceLink))
             ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(balanceLink) + '" target="_blank" rel="noopener">' + escHtml(balanceLink) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(balanceLink) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
             : escHtml(t('drawer.payments.linkReady'));
           resultEl.classList.add('is-visible');
@@ -39858,12 +39858,12 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
       }
       if (resultEl) {
         var link = (res.data && (res.data.payment_short_url || res.data.guest_payment_url)) || '';
-        if (link && /^https?:\/\//i.test(link) && btn) {
+        if (link && (/^https:/i.test(link) || /^http:/i.test(link)) && btn) {
           btn.outerHTML = '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>';
           resultEl.innerHTML = '';
           resultEl.style.display = 'none';
         } else {
-          resultEl.innerHTML = link && /^https?:\/\//i.test(link)
+          resultEl.innerHTML = link && (/^https:/i.test(link) || /^http:/i.test(link))
             ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
             : escHtml(t('drawer.payments.linkReady'));
           resultEl.style.display = 'block';
