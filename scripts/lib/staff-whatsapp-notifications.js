@@ -19,6 +19,8 @@ const NOTIFICATION_TYPES = ['new_conversation', 'human_needed'];
 const MAX_RECIPIENTS = 10;
 const NAME_MAX = 80;
 const PHONE_RE = /^\+[1-9]\d{7,14}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SCOPE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CLIENTS_JSON = path.join(__dirname, '..', '..', 'config', 'clients', 'clients.json');
 
 let clientsRegistryCache = null;
@@ -316,35 +318,75 @@ function handoffEventKeyForType(notificationType, handoffEventKey) {
 function validateStaffAlertCanaryAuthorization(env = process.env, input = {}, now = new Date()) {
   // Default-empty, dispatcher-owned authority. This is intentionally not browser input.
   let authorization;
-  try { authorization = JSON.parse(trimStr((env || {}).STAFF_ALERT_CANARY_AUTHORIZATION)); } catch (_) { authorization = null; }
+  try { authorization = JSON.parse(typeof (env || {}).STAFF_ALERT_CANARY_AUTHORIZATION === 'string'
+    ? env.STAFF_ALERT_CANARY_AUTHORIZATION : ''); } catch (_) { authorization = null; }
   if (!authorization || typeof authorization !== 'object' || Array.isArray(authorization)) {
     return { ok: false, reason: 'canary_authorization_missing' };
   }
-  const types = Array.isArray(authorization.alert_types) ? authorization.alert_types.map(trimStr) : [];
-  const expectedLocation = normalizeLocationId(authorization.location_id);
-  const actualLocation = normalizeLocationId(input.location_id);
-  if (!trimStr(authorization.authorization_id)) return { ok: false, reason: 'canary_authorization_invalid' };
-  if (trimStr(authorization.client_slug) !== trimStr(input.client_slug)
-    || expectedLocation !== actualLocation
-    || trimStr(authorization.recipient_id) !== trimStr(input.recipient_id)) {
+
+  const authId = typeof authorization.authorization_id === 'string' ? authorization.authorization_id.trim() : '';
+  const deployment = typeof authorization.deployment === 'string' ? authorization.deployment.trim() : '';
+  const trustedDeployment = typeof (env || {}).LUNA_DEPLOYMENT === 'string' ? env.LUNA_DEPLOYMENT.trim() : '';
+  const senderId = typeof authorization.sender_phone_number_id === 'string' ? authorization.sender_phone_number_id.trim() : '';
+  const trustedSenderId = typeof (env || {}).WHATSAPP_PHONE_NUMBER_ID === 'string' ? env.WHATSAPP_PHONE_NUMBER_ID.trim() : '';
+  const approvedClientSlug = typeof authorization.client_slug === 'string' ? authorization.client_slug.trim() : '';
+  const actualClientSlug = typeof input.client_slug === 'string' ? input.client_slug.trim() : '';
+  const hasLocation = Object.prototype.hasOwnProperty.call(authorization, 'location_id');
+  const approvedLocation = authorization.location_id;
+  const actualLocation = input.location_id == null ? null : input.location_id;
+  const approvedRecipientId = typeof authorization.staff_number_id === 'string' ? authorization.staff_number_id.trim().toLowerCase() : '';
+  const actualRecipientId = typeof input.staff_number_id === 'string' ? input.staff_number_id.trim().toLowerCase() : '';
+  const approvedPhone = typeof authorization.recipient_phone === 'string'
+    ? normalizePhoneE164(authorization.recipient_phone) : null;
+  const actualPhone = typeof input.phone === 'string' ? normalizePhoneE164(input.phone) : null;
+  const approvedRevision = typeof authorization.directory_revision === 'string' ? authorization.directory_revision : '';
+  const actualRevision = typeof input.directory_revision === 'string' ? input.directory_revision : '';
+  const approvedGuestPhone = typeof authorization.approved_guest_phone === 'string'
+    ? normalizePhoneE164(authorization.approved_guest_phone) : null;
+  const actualGuestPhone = typeof input.guest_phone === 'string' ? normalizePhoneE164(input.guest_phone) : null;
+  const types = authorization.alert_types;
+  const notificationType = typeof input.notification_type === 'string' ? input.notification_type : '';
+  const expiresRaw = authorization.expires_at;
+  const expiresAt = typeof expiresRaw === 'string' ? new Date(expiresRaw) : new Date(NaN);
+  const canonicalExpiry = !Number.isNaN(expiresAt.getTime()) && expiresAt.toISOString() === expiresRaw;
+  const maxAttempts = authorization.max_attempts;
+  const validLocation = hasLocation
+    && ((approvedClientSlug === 'sunset'
+      && (approvedLocation === 'sunset-somo' || approvedLocation === 'sunset-sardinero'))
+      || (approvedClientSlug !== 'sunset' && approvedLocation === null));
+  const validTypes = Array.isArray(types) && types.length > 0
+    && types.every((type) => typeof type === 'string' && NOTIFICATION_TYPES.includes(type))
+    && new Set(types).size === types.length;
+
+  if (!authId || authId.length > 120
+    || !deployment || !trustedDeployment
+    || !senderId || !trustedSenderId
+    || !SCOPE_ID_RE.test(approvedClientSlug) || !SCOPE_ID_RE.test(actualClientSlug)
+    || !validLocation
+    || !(actualLocation === null || (typeof actualLocation === 'string' && SCOPE_ID_RE.test(actualLocation)))
+    || !UUID_RE.test(approvedRecipientId) || !UUID_RE.test(actualRecipientId)
+    || !approvedPhone || !actualPhone
+    || !approvedRevision || !actualRevision
+    || !approvedGuestPhone || !actualGuestPhone
+    || !validTypes || !NOTIFICATION_TYPES.includes(notificationType)
+    || !canonicalExpiry
+    || typeof maxAttempts !== 'number' || !Number.isInteger(maxAttempts)
+    || maxAttempts < 1 || maxAttempts > 2) {
+    return { ok: false, reason: 'canary_authorization_invalid' };
+  }
+  if (deployment !== trustedDeployment) return { ok: false, reason: 'canary_deployment_mismatch' };
+  if (senderId !== trustedSenderId) return { ok: false, reason: 'canary_sender_mismatch' };
+  if (approvedClientSlug !== actualClientSlug
+    || approvedLocation !== actualLocation
+    || approvedRecipientId !== actualRecipientId) {
     return { ok: false, reason: 'canary_scope_mismatch' };
   }
-  if (normalizePhoneE164(authorization.approved_phone) !== normalizePhoneE164(input.phone)) {
-    return { ok: false, reason: 'canary_phone_mismatch' };
-  }
-  if (trimStr(authorization.phone_version) !== trimStr(input.phone_version)) {
-    return { ok: false, reason: 'canary_phone_version_mismatch' };
-  }
-  if (!types.includes(trimStr(input.notification_type))) return { ok: false, reason: 'canary_type_mismatch' };
-  const expiresAt = new Date(trimStr(authorization.expires_at));
-  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
-    return { ok: false, reason: 'canary_expired' };
-  }
-  const maxAttempts = Number(authorization.max_attempts);
-  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 2) {
-    return { ok: false, reason: 'canary_budget_invalid' };
-  }
-  return { ok: true, authorization_id: trimStr(authorization.authorization_id), max_attempts: maxAttempts, expires_at: expiresAt.toISOString() };
+  if (approvedPhone !== actualPhone) return { ok: false, reason: 'canary_phone_mismatch' };
+  if (approvedRevision !== actualRevision) return { ok: false, reason: 'canary_directory_revision_mismatch' };
+  if (approvedGuestPhone !== actualGuestPhone) return { ok: false, reason: 'canary_guest_mismatch' };
+  if (!types.includes(notificationType)) return { ok: false, reason: 'canary_type_mismatch' };
+  if (expiresAt.getTime() <= now.getTime()) return { ok: false, reason: 'canary_expired' };
+  return { ok: true, authorization_id: authId, max_attempts: maxAttempts, expires_at: expiresAt.toISOString() };
 }
 
 async function resolveActiveStaffAlertRecipient(pg, clientSlug, staffNumberId) {

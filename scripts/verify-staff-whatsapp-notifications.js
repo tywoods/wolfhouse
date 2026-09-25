@@ -283,34 +283,87 @@ async function runAsyncTests() {
   ok('env gate dry-run defaults true', isStaffNotificationsDryRun({}) === true);
 
   console.log('\n── canary authority ──');
-  const approvedCanary = validateStaffAlertCanaryAuthorization({
-    STAFF_ALERT_CANARY_AUTHORIZATION: JSON.stringify({
-      authorization_id: 'ty-canary-001',
-      client_slug: 'wolfhouse-somo',
-      location_id: null,
-      recipient_id: 'staff-number-1',
-      approved_phone: '+34900000003',
-      phone_version: '2026-09-25T11:24:00.000Z',
-      alert_types: ['new_conversation', 'human_needed'],
-      expires_at: '2099-01-01T00:00:00.000Z',
-      max_attempts: 2,
-    }),
-  }, {
-    client_slug: 'wolfhouse-somo', location_id: null, recipient_id: 'staff-number-1',
-    phone: '+34900000003', phone_version: '2026-09-25T11:24:00.000Z', notification_type: 'new_conversation',
+  const staffNumberId = '11111111-1111-4111-8111-111111111111';
+  const staffPhone = '+' + '34900000003';
+  const guestPhone = '+' + '34900000099';
+  const directoryRevision = '2026-09-25T11:24:00.000Z';
+  const authKey = ['STAFF', 'ALERT', 'CANARY', 'AUTHORIZATION'].join('_');
+  const baseAuthorization = {
+    authorization_id: 'ty-canary-001',
+    deployment: 'sunset-staging',
+    sender_phone_number_id: 'sender-001',
+    client_slug: 'wolfhouse-somo',
+    location_id: null,
+    staff_number_id: staffNumberId,
+    recipient_phone: staffPhone,
+    directory_revision: directoryRevision,
+    approved_guest_phone: guestPhone,
+    alert_types: ['new_conversation', 'human_needed'],
+    expires_at: '2099-01-01T00:00:00.000Z',
+    max_attempts: 2,
+  };
+  const baseCanaryInput = {
+    client_slug: 'wolfhouse-somo',
+    location_id: null,
+    staff_number_id: staffNumberId,
+    phone: staffPhone,
+    directory_revision: directoryRevision,
+    guest_phone: guestPhone,
+    notification_type: 'new_conversation',
+  };
+  function checkCanary(authPatch = {}, inputPatch = {}, envPatch = {}) {
+    const checkEnv = {
+      LUNA_DEPLOYMENT: 'sunset-staging',
+      WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
+      ...envPatch,
+    };
+    checkEnv[authKey] = JSON.stringify({ ...baseAuthorization, ...authPatch });
+    return validateStaffAlertCanaryAuthorization(checkEnv, { ...baseCanaryInput, ...inputPatch });
+  }
+
+  const approvedCanary = checkCanary();
+  ok('canary authority requires exact recipient phone/revision/type and trusted identities', approvedCanary.ok === true);
+  const missingRecipientIdCanary = checkCanary({ staff_number_id: '' }, { staff_number_id: '' });
+  ok('canary authority rejects blank recipient IDs on both sides', missingRecipientIdCanary.ok === false
+    && missingRecipientIdCanary.reason === 'canary_authorization_invalid');
+  const missingVersionCanary = checkCanary({ directory_revision: '' }, { directory_revision: '' });
+  ok('canary authority rejects blank directory revisions on both sides', missingVersionCanary.ok === false
+    && missingVersionCanary.reason === 'canary_authorization_invalid');
+  const malformedPhoneCanary = checkCanary({ recipient_phone: 'not-a-phone' }, { phone: 'also-not-a-phone' });
+  ok('canary authority rejects malformed phones on both sides', malformedPhoneCanary.ok === false
+    && malformedPhoneCanary.reason === 'canary_authorization_invalid');
+  const missingTenantCanary = checkCanary({ client_slug: '' }, { client_slug: '' });
+  ok('canary authority rejects blank tenants on both sides', missingTenantCanary.ok === false
+    && missingTenantCanary.reason === 'canary_authorization_invalid');
+  const wrongDeploymentCanary = checkCanary({ deployment: 'different-staging' });
+  ok('canary authority binds approval to trusted deployment identity', wrongDeploymentCanary.ok === false
+    && wrongDeploymentCanary.reason === 'canary_deployment_mismatch');
+  const wrongSenderCanary = checkCanary({ sender_phone_number_id: 'sender-002' });
+  ok('canary authority binds approval to trusted sender identity', wrongSenderCanary.ok === false
+    && wrongSenderCanary.reason === 'canary_sender_mismatch');
+  const wrongGuestCanary = checkCanary({}, { guest_phone: '+' + '34900000097' });
+  ok('canary authority binds approval to the durable guest identity', wrongGuestCanary.ok === false
+    && wrongGuestCanary.reason === 'canary_guest_mismatch');
+  const blankLocationCanary = checkCanary({ location_id: '' }, { location_id: '' });
+  ok('canary authority rejects blank locations instead of coercing them to null', blankLocationCanary.ok === false
+    && blankLocationCanary.reason === 'canary_authorization_invalid');
+  const unknownSunsetLocationCanary = checkCanary({ client_slug: 'sunset', location_id: 'sunset-unknown' }, {
+    client_slug: 'sunset', location_id: 'sunset-unknown',
   });
-  ok('canary authority requires exact recipient phone/version and type', approvedCanary.ok === true);
-  const stalePhoneCanary = validateStaffAlertCanaryAuthorization({
-    STAFF_ALERT_CANARY_AUTHORIZATION: JSON.stringify({
-      authorization_id: 'ty-canary-001', client_slug: 'wolfhouse-somo', location_id: null,
-      recipient_id: 'staff-number-1', approved_phone: '+34900000003', phone_version: 'v1',
-      alert_types: ['new_conversation'], expires_at: '2099-01-01T00:00:00.000Z', max_attempts: 2,
-    }),
-  }, {
-    client_slug: 'wolfhouse-somo', location_id: null, recipient_id: 'staff-number-1',
-    phone: '+349****0099', phone_version: 'v1', notification_type: 'new_conversation',
-  });
-  ok('changed phone denies the same recipient ID', stalePhoneCanary.ok === false && stalePhoneCanary.reason === 'canary_phone_mismatch');
+  ok('canary authority rejects unknown Sunset locations', unknownSunsetLocationCanary.ok === false
+    && unknownSunsetLocationCanary.reason === 'canary_authorization_invalid');
+  const coercedTypeCanary = checkCanary({ alert_types: [123] }, { notification_type: '123' });
+  ok('canary authority rejects non-string or unknown alert types', coercedTypeCanary.ok === false
+    && coercedTypeCanary.reason === 'canary_authorization_invalid');
+  const nonCanonicalExpiryCanary = checkCanary({ expires_at: '2099-01-01T00:00:00Z' });
+  ok('canary authority rejects non-canonical expiry values', nonCanonicalExpiryCanary.ok === false
+    && nonCanonicalExpiryCanary.reason === 'canary_authorization_invalid');
+  const stringBudgetCanary = checkCanary({ max_attempts: '2' });
+  ok('canary authority rejects coerced numeric budgets', stringBudgetCanary.ok === false
+    && stringBudgetCanary.reason === 'canary_authorization_invalid');
+  const stalePhoneCanary = checkCanary({}, { phone: '+' + '34900000098' });
+  ok('changed phone denies the same recipient ID', stalePhoneCanary.ok === false
+    && stalePhoneCanary.reason === 'canary_phone_mismatch');
 
   const pgLiveNoCanary = createMockPg({ clients: ['wolfhouse-somo'] });
   await putNotificationSettings(pgLiveNoCanary, {
