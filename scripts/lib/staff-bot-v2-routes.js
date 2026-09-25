@@ -1472,7 +1472,8 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const paymentTarget = String(body.payment_target || 'deposit').trim().toLowerCase();
-  if (!['deposit', 'full_share', 'remaining_share'].includes(paymentTarget)) {
+  if (!['deposit', 'full_share', 'remaining_share'].includes(paymentTarget)
+      || (authMode === 'staff_portal' && paymentTarget === 'full_share')) {
     return sendJSON(res, 400, { success: false, error: 'invalid_payment_target' });
   }
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
@@ -1565,32 +1566,58 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   try {
     const result = await withPgClient(async (pg) => {
-      // Serialize all targets for one guest.  This closes the two-tab duplicate
-      // window without introducing a schema-level lock or changing other links.
-      await pg.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`guest-payment:${clientSlug}:${guestId}`]);
-      let paymentId = guestRow.payment_id;
+      // Serialize with receipt writers on the durable booking/guest domain.
+      await pg.query('BEGIN');
+      await pg.query('SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE', [guestRow.booking_id]);
+      await pg.query('SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE', [guestId, guestRow.booking_id]);
+      const paidNow = await pg.query(
+        `SELECT COALESCE(SUM(amount_paid_cents), 0)::bigint AS paid
+           FROM payments
+          WHERE client_id = (SELECT id FROM clients WHERE slug = $1)
+            AND booking_id = $2::uuid AND booking_guest_id = $3::uuid
+            AND status = 'paid'`,
+        [clientSlug, guestRow.booking_id, guestId],
+      );
+      if (Number(paidNow.rows[0].paid) !== Number(guestRow.amount_paid_cents || 0)) {
+        await pg.query('ROLLBACK');
+        const changed = new Error('guest_payment_snapshot_changed_retry');
+        changed.code = 'PAYMENT_SNAPSHOT_CHANGED';
+        throw changed;
+      }
+      let paymentId = null;
       let checkoutUrl = null;
       let sessionId = null;
       let idempotent = false;
 
-      if (paymentId) {
+      {
         const existing = await pg.query(
           `SELECT id::text AS payment_id, status::text AS payment_status,
                   checkout_url, stripe_checkout_session_id, amount_due_cents,
-                  currency, metadata
+                  currency, metadata, expires_at
              FROM payments
-            WHERE id = $1::uuid AND booking_guest_id = $2::uuid`,
-          [paymentId, guestId],
+            WHERE client_id = (SELECT id FROM clients WHERE slug = $1)
+              AND booking_id = $2::uuid AND booking_guest_id = $3::uuid
+              AND metadata->>'source' = 'bot_guest_payment_link_slice_a'
+              AND metadata->>'payment_target' = $4
+              AND amount_due_cents = $5 AND currency = 'EUR'
+              AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)
+            ORDER BY created_at ASC LIMIT 1`,
+          [clientSlug, guestRow.booking_id, guestId, paymentTarget, amountDueCents],
         );
         const ex = existing.rows[0];
         const exMeta = ex && (typeof ex.metadata === 'string' ? JSON.parse(ex.metadata) : (ex.metadata || {}));
         if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url
+            && (!ex.expires_at || new Date(ex.expires_at).getTime() > Date.now())
             && exMeta.payment_target === paymentTarget
             && Number(ex.amount_due_cents) === amountDueCents
             && String(ex.currency || '').toUpperCase() === 'EUR') {
           idempotent = true;
           checkoutUrl = ex.checkout_url;
           sessionId = ex.stripe_checkout_session_id;
+          paymentId = ex.payment_id;
+        } else if (ex && ex.payment_status === 'draft') {
+          // Provider success + DB-finalize failure recovery: this durable row and
+          // its deterministic provider key are reused on the retry.
           paymentId = ex.payment_id;
         } else if (ex && ex.payment_status === 'checkout_created' && ex.stripe_checkout_session_id) {
           // Never leave an overlapping old checkout collectible. Stripe expiry
@@ -1604,7 +1631,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
         }
       }
 
-      if (!checkoutUrl) {
+      if (!checkoutUrl && !paymentId) {
         const ins = await pg.query(
           `INSERT INTO payments (
              client_id, booking_id, booking_guest_id, status, payment_kind,
@@ -1632,6 +1659,16 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
           ],
         );
         paymentId = ins.rows[0].payment_id;
+      }
+
+      // Provider creation occurs only after the durable recovery anchor commits.
+      await pg.query('COMMIT');
+
+      if (!checkoutUrl) {
+        const stripeIdempotencyKey = [
+          'guest-checkout-v1', clientSlug, guestRow.booking_id, guestId,
+          paymentTarget, amountDueCents, 'EUR', paymentId,
+        ].join(':');
 
         const session = await stripe.checkout.sessions.create({
           mode: 'payment',
@@ -1659,11 +1696,19 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
           },
           success_url: stripeCheckoutSessionSuccessUrl(),
           cancel_url: stripeCheckoutSessionCancelUrl(),
-        });
+        }, { idempotencyKey: stripeIdempotencyKey });
+
+        if (!session || !session.id
+            || !/^https:\/\/(checkout|billing)\.stripe\.com\//i.test(String(session.url || ''))) {
+          throw new Error('stripe_checkout_url_invalid');
+        }
 
         checkoutUrl = session.url;
         sessionId = session.id;
 
+        await pg.query('BEGIN');
+        await pg.query('SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE', [guestRow.booking_id]);
+        await pg.query('SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE', [guestId, guestRow.booking_id]);
         await pg.query(
           `UPDATE payments
              SET status = 'checkout_created'::payment_record_status,
@@ -1687,6 +1732,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
            WHERE id = $2::uuid`,
           [paymentId, guestId],
         );
+        await pg.query('COMMIT');
       }
 
       return {

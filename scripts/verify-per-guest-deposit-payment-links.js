@@ -31,6 +31,10 @@ assert(policy.includes('SELECT COALESCE(SUM(amount_paid_cents), 0)'), 'guest pro
 assert(!policy.includes('SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1)'), 'obsolete max projection remains');
 const routeSource = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-v2-routes.js'), 'utf8');
 assert(routeSource.includes('stripe.checkout.sessions.expire'), 'replacement must retire the prior provider checkout');
-assert(routeSource.includes('pg_advisory_xact_lock'), 'same-guest creation must serialize');
+assert(routeSource.includes("SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE"), 'same guest domain must serialize with receipt writers');
+assert(routeSource.includes("{ idempotencyKey: stripeIdempotencyKey }"), 'Stripe request must use deterministic idempotency identity');
+assert(routeSource.indexOf("await pg.query('COMMIT')") < routeSource.indexOf('stripe.checkout.sessions.create({', routeSource.indexOf('async function handleBotGuestPaymentCreateLink')), 'durable draft must commit before provider creation');
+assert(routeSource.includes("authMode === 'staff_portal' && paymentTarget === 'full_share'"), 'staff endpoint must reject legacy full_share');
+assert(routeSource.includes("(checkout|billing)\\.stripe\\.com"), 'checkout URL must be restricted to approved Stripe HTTPS hosts');
 assert(routeSource.includes('unit_amount: amountDueCents'), 'provider amount must be the server-computed cents');
 console.log('PASS verify-per-guest-deposit-payment-links');

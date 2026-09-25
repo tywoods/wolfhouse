@@ -39437,9 +39437,11 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
   };
   var html = '<div class="ctx-inv-group" id="bc-inv-per-guest">';
   html += '<div class="ctx-inv-group-title">Per guest</div>';
-  var rows = (perPerson.length ? perPerson : bookingGuests).map(function(row){
+  // Only durable booking_guests rows are eligible for checkout actions. Quote
+  // per-person rows may enrich amounts/names but must never invent an identity.
+  var rows = bookingGuests.map(function(row){
     var match = null;
-    (bookingGuests || []).forEach(function(g){
+    (perPerson || []).forEach(function(g){
       if (Number(g.guest_number) === Number(row.guest_number)) match = g;
     });
     return {
@@ -39466,13 +39468,13 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
     html += ' \u2014 paid ' + escHtml(eur(paid));
     if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
       if (depositRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">Deposit Link</button>';
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
       }
       if (shareRemaining == null) {
-        html += ' \u2014 <span class="muted" title="Authoritative guest share unavailable">Payment Link unavailable</span>';
+        html += ' \u2014 <span class="muted">' + escHtml(t('drawer.payments.linkFailed')) + '</span>';
       } else if (shareRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">Payment Link</button>';
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
       }
     } else if (pay.createLink && row.booking_guest_id) {
@@ -39948,16 +39950,18 @@ function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
       }
       if (resultEl) {
         var link = (res.data && res.data.checkout_url) || '';
-        if (link && (/^https:/i.test(link) || /^http:/i.test(link)) && btn) {
-          var row = btn.closest && btn.closest('.ctx-inv-guest-line');
-          if (row && row.querySelectorAll) row.querySelectorAll('.bc-guest-pay-link-result').forEach(function(slot){ slot.innerHTML = ''; slot.style.display = 'none'; });
+        var approvedStripeUrl = false;
+        try {
+          var parsedCheckoutUrl = new URL(link);
+          approvedStripeUrl = parsedCheckoutUrl.protocol === 'https:' &&
+            (parsedCheckoutUrl.hostname === 'checkout.stripe.com' || parsedCheckoutUrl.hostname === 'billing.stripe.com');
+        } catch (_) { approvedStripeUrl = false; }
+        if (approvedStripeUrl && btn) {
           btn.outerHTML = bcInlinePaymentLinkMarkup(link);
           resultEl.innerHTML = '';
           resultEl.style.display = 'none';
         } else {
-          resultEl.innerHTML = link && (/^https:/i.test(link) || /^http:/i.test(link))
-            ? bcInlinePaymentLinkMarkup(link)
-            : escHtml(t('drawer.payments.linkReady'));
+          resultEl.innerHTML = escHtml(t('drawer.payments.linkFailed'));
           resultEl.style.display = 'block';
         }
       }
