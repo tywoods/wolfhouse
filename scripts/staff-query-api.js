@@ -20168,6 +20168,10 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 #bc-sel-panel .bc-sel-title{display:none!important}
 #bc-side-drawer #bc-sel-panel .bc-sel-header-row:not(:has(#bc-sel-block)){display:none}
 #bc-side-drawer .bc-side-head-actions #bc-sel-block{height:32px;margin:0 2px 0 0}
+/* NEW-BOOKING-HEADER-GAP-001: Selected Stay sits tight under the date range */
+#bc-side-drawer[data-mode="create"] .bc-side-head{border-bottom:0;padding-bottom:0}
+#bc-side-drawer[data-mode="create"] .bc-side-body{padding-top:6px}
+#bc-side-drawer[data-mode="create"] #bc-sel-panel > .bk-form-section:has(> [data-i18n="calendar.create.stay"]){margin-top:0;padding-top:0;border-top:0}
 .btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3;height:28px;box-sizing:border-box}
 .btn-bc-block-pebble:hover:not(:disabled){background:#DDDAD4;border-color:#C8C4BC;box-shadow:0 1px 4px rgba(68,80,74,.08)}
 .btn-bc-block-pebble:disabled{opacity:.38;cursor:not-allowed}
