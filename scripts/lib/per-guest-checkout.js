@@ -38,7 +38,7 @@ function validUrl(value) {
 function reusableProviderSession(session, nowSeconds) {
   const paymentStatus = String(session && session.payment_status || '').toLowerCase();
   return !!(session && session.id && session.status === 'open'
-    && paymentStatus !== 'paid' && paymentStatus !== 'no_payment_required'
+    && paymentStatus === 'unpaid'
     && validUrl(session.url) && Number(session.expires_at) > nowSeconds);
 }
 
@@ -47,6 +47,23 @@ function obsoleteProviderSession(session) {
   err.providerObsolete = true;
   err.session = session || null;
   return err;
+}
+
+function blockedProviderSession(session) {
+  const err = new Error('guest_payment_provider_state_blocked');
+  err.providerBlocked = true;
+  err.httpStatus = 409;
+  err.publicMessage = 'Payment may already be processing. Refresh payment status before creating another link.';
+  err.session = session || null;
+  return err;
+}
+
+function definitelyUnpaidObsoleteSession(session, nowSeconds) {
+  const status = String(session && session.status || '').toLowerCase();
+  const paymentStatus = String(session && session.payment_status || '').toLowerCase();
+  if (paymentStatus !== 'unpaid') return false;
+  if (status === 'expired' || status === 'canceled' || status === 'cancelled') return true;
+  return status === 'open' && Number(session.expires_at) <= nowSeconds;
 }
 
 const LOCKED_GUEST_SQL = `SELECT bg.id::text AS booking_guest_id, bg.client_id::text AS client_id,
@@ -173,14 +190,15 @@ async function recoverProvider(stripe, op, guest, opts) {
     // identity is unknown; retrieval failures propagate and fail closed.
     const known = await stripe.checkout.sessions.retrieve(op.sessionId);
     if (reusableProviderSession(known, nowSeconds)) return known;
-    throw obsoleteProviderSession(known);
+    if (definitelyUnpaidObsoleteSession(known, nowSeconds)) throw obsoleteProviderSession(known);
+    throw blockedProviderSession(known);
   }
   /* Create is deliberately replayed when DB lacks the session id: Stripe's
      durable idempotency record is the recovery log for provider-success/DB-failure. */
   const session = await stripe.checkout.sessions.create(
     providerParams(op, guest, opts.clientSlug, opts.guestId, opts.successUrl, opts.cancelUrl),
     { idempotencyKey: op.key });
-  if (!reusableProviderSession(session, nowSeconds)) throw obsoleteProviderSession(session);
+  if (!reusableProviderSession(session, nowSeconds)) throw blockedProviderSession(session);
   return session;
 }
 
@@ -203,6 +221,8 @@ async function run(opts) {
       if (err.providerObsolete) {
         await expireIfOpen(stripe, err.session);
         await store.retire(op, 'provider_session_not_payable');
+      } else if (err.providerBlocked) {
+        throw err;
       }
       continue;
     }
@@ -229,4 +249,4 @@ async function run(opts) {
 }
 
 module.exports = { run, tx, amountFor, validUrl, lockAndLoad, operationFromRow,
-  sameIntent, reusableProviderSession, createSqlStore, providerParams, recoverProvider };
+  sameIntent, reusableProviderSession, definitelyUnpaidObsoleteSession, createSqlStore, providerParams, recoverProvider };

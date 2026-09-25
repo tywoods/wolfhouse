@@ -1528,6 +1528,11 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
       uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });
   } catch (err) {
+    if (err.providerBlocked) return sendJSON(res, err.httpStatus || 409, {
+      success: false,
+      error: 'payment_processing_refresh_required',
+      message: err.publicMessage || 'Payment may already be processing. Refresh payment status before creating another link.',
+    });
     const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
     return sendJSON(res, status, { success: false, error: err.message });
   }

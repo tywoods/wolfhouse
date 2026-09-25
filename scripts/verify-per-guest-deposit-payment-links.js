@@ -64,7 +64,7 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
   assert(!checkout.validUrl('https://checkout.stripe.com.evil.test/x'));
 
   function harness(finalizeFailures) {
-    const state = { active: null, generation: 0, amount: 10000, collectible: new Set(), expired: [], createCalls: [] };
+    const state = { active: null, generation: 0, amount: 10000, collectible: new Set(), expired: [], createCalls: [], retireCalls: 0 };
     const sessions = new Map();
     const guest = { client_id: 'client-a', booking_id: 'booking-a', booking_code: 'BK1', guest_name: 'Guest', guest_number: 1 };
     const stripe = { checkout: { sessions: {
@@ -72,7 +72,7 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
         state.createCalls.push({ params, key: options.idempotencyKey });
         if (!sessions.has(options.idempotencyKey)) {
           const id = 'cs_' + (sessions.size + 1);
-          sessions.set(options.idempotencyKey, { id, url: 'https://checkout.stripe.com/c/pay/' + id, status: 'open', expires_at: 9999999999 });
+          sessions.set(options.idempotencyKey, { id, url: 'https://checkout.stripe.com/c/pay/' + id, status: 'open', payment_status: 'unpaid', expires_at: 9999999999 });
           state.collectible.add(id);
         }
         return sessions.get(options.idempotencyKey);
@@ -100,7 +100,7 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
         if (!state.active || state.active.key !== op.key || op.target !== target || op.amount !== amount || amount !== state.amount) throw new Error('checkout_finalize_precondition_failed');
         state.active.sessionId = session.id; return guest;
       },
-      async retire(op) { if (state.active && state.active.key === op.key) state.active = null; },
+      async retire(op) { state.retireCalls += 1; if (state.active && state.active.key === op.key) state.active = null; },
     };
     return { state, stripe, store };
   }
@@ -109,22 +109,39 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
       successUrl: 'https://example.test/success', cancelUrl: 'https://example.test/cancel' });
   }
 
-  // Provider truth, not a locally stored URL, controls reuse. Terminal and
-  // expired sessions are retired and replaced by exactly one fresh payable one.
-  for (const stale of [
-    { status: 'expired', payment_status: 'unpaid', expires_at: 1 },
-    { status: 'complete', payment_status: 'paid', expires_at: 9999999999 },
-  ]) {
+  // Only definitely-unpaid terminal sessions may be retired and replaced.
+  {
     const h = harness([]);
     await execute(h, 'deposit');
     const old = [...h.state.collectible][0];
     const session = await h.stripe.checkout.sessions.retrieve(old);
-    Object.assign(session, stale);
+    Object.assign(session, { status: 'expired', payment_status: 'unpaid', expires_at: 1 });
     h.state.collectible.delete(old);
     const result = await execute(h, 'deposit');
-    assert.notStrictEqual(result.session.id, old, stale.status + ' session must not be returned');
+    assert.notStrictEqual(result.session.id, old, 'expired unpaid session must be replaced');
     assert.strictEqual(result.session.status, 'open');
     assert.strictEqual(h.state.collectible.size, 1, 'exactly one fresh payable session remains');
+    assert.strictEqual(h.state.retireCalls, 1);
+  }
+  // Provider-complete, paid, no-payment-required, and async/pending states fail
+  // closed: preserve the exact local identity for webhook/late reconciliation.
+  for (const unsafe of [
+    { status: 'complete', payment_status: 'paid' },
+    { status: 'complete', payment_status: 'unpaid' },
+    { status: 'complete', payment_status: 'no_payment_required' },
+    { status: 'open', payment_status: 'processing' },
+  ]) {
+    const h = harness([]);
+    const first = await execute(h, 'deposit');
+    const original = { ...h.state.active };
+    const session = await h.stripe.checkout.sessions.retrieve(first.session.id);
+    Object.assign(session, unsafe);
+    const createsBefore = h.state.createCalls.length;
+    await assert.rejects(execute(h, 'deposit'), (err) => err.providerBlocked && err.httpStatus === 409);
+    assert.strictEqual(h.state.createCalls.length, createsBefore, 'blocked retrieval must never create');
+    assert.deepStrictEqual(h.state.expired, [], 'complete/potentially-paid provider state must never be expired');
+    assert.strictEqual(h.state.retireCalls, 0, 'blocked provider state must never retire local payment');
+    assert.deepStrictEqual(h.state.active, original, 'local payment/session identity must remain unchanged');
   }
 
   // Provider success followed by finalize-query and commit ambiguity must replay
@@ -161,40 +178,69 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
     assert(h.state.createCalls.every((call) => call.key.includes(':10000:EUR')));
   }
 
-  // Exercise the exported production SQL store against a stateful pg double:
-  // winner mismatch, durable provider identity, conditional finalize and retire.
+  // Exercise createSqlStore through its actual query surface. The double keeps
+  // transaction snapshots, enforces the partial-unique winner, and reports real
+  // rowCount preconditions rather than rewriting operations returned by prepare.
   {
-    const db = { status: 'draft', metadata: { source: 'bot_guest_payment_link_slice_a', payment_target: 'remaining_share' },
-      finalized: 0, retired: 0, failFinalize: false };
     const guest = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
       booking_code: 'BKSQL', guest_name: 'SQL Guest', guest_number: 1, booking_status: 'confirmed',
       deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 1000 };
-    const row = () => ({ payment_id: '33333333-3333-3333-3333-333333333333', amount_due_cents: 4000,
-      currency: 'EUR', metadata: db.metadata, stripe_checkout_session_id: null, checkout_url: null });
-    const pg = { async query(sql, args) {
-      if (/^BEGIN|^COMMIT|^ROLLBACK/.test(sql)) return { rows: [], rowCount: 0 };
-      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: guest.booking_id }] };
-      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }] };
-      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [guest] };
-      if (sql.includes("FROM payments WHERE client_id") && sql.includes('FOR UPDATE')) return { rows: db.status === 'expired' ? [] : [row()] };
-      if (sql.includes("SET status='checkout_created'")) { if (db.failFinalize) return { rows: [], rowCount: 0 }; db.finalized += 1; return { rows: [], rowCount: 1 }; }
-      if (sql.includes("SET status='expired'")) { db.status = 'expired'; db.retired += 1; return { rows: [], rowCount: 1 }; }
-      if (sql.includes('SET metadata=metadata ||')) { Object.assign(db.metadata, JSON.parse(args[1])); return { rows: [], rowCount: 1 }; }
-      if (sql.includes('UPDATE booking_guests SET payment_id')) return { rows: [], rowCount: 1 };
+    const db = { payment: null, guestPaymentId: null, txSnapshot: null, inserts: 0, conflicts: 0, rollbacks: 0 };
+    const clone = (x) => x == null ? x : JSON.parse(JSON.stringify(x));
+    const paymentRow = () => db.payment && ({ payment_id: db.payment.id, amount_due_cents: db.payment.amount,
+      currency: 'EUR', metadata: clone(db.payment.metadata), stripe_checkout_session_id: db.payment.sessionId,
+      checkout_url: db.payment.url });
+    const pg = { async query(sql, args = []) {
+      if (sql === 'BEGIN') { db.txSnapshot = clone({ payment: db.payment, guestPaymentId: db.guestPaymentId }); return { rows: [], rowCount: 0 }; }
+      if (sql === 'COMMIT') { db.txSnapshot = null; return { rows: [], rowCount: 0 }; }
+      if (sql === 'ROLLBACK') { db.payment = db.txSnapshot.payment; db.guestPaymentId = db.txSnapshot.guestPaymentId; db.txSnapshot = null; db.rollbacks += 1; return { rows: [], rowCount: 0 }; }
+      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: guest.booking_id }], rowCount: 1 };
+      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }], rowCount: 1 };
+      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [guest], rowCount: 1 };
+      if (sql.includes('FROM payments WHERE client_id') && sql.includes('FOR UPDATE')) {
+        const active = db.payment && ['draft', 'checkout_created'].includes(db.payment.status);
+        return { rows: active ? [paymentRow()] : [], rowCount: active ? 1 : 0 };
+      }
+      if (sql.includes('INSERT INTO payments')) {
+        db.inserts += 1;
+        if (db.payment && ['draft', 'checkout_created'].includes(db.payment.status)) { db.conflicts += 1; return { rows: [], rowCount: 0 }; }
+        db.payment = { id: '33333333-3333-3333-3333-333333333333', status: 'draft', amount: args[4],
+          metadata: JSON.parse(args[5]), sessionId: null, url: null };
+        return { rows: [paymentRow()], rowCount: 1 };
+      }
+      if (sql.includes('SET metadata=metadata ||')) { Object.assign(db.payment.metadata, JSON.parse(args[1])); return { rows: [], rowCount: 1 }; }
+      if (sql.includes("SET status='checkout_created'")) {
+        if (!db.payment || !['draft', 'checkout_created'].includes(db.payment.status) || db.payment.metadata.provider_idempotency_key !== args[5]) return { rows: [], rowCount: 0 };
+        db.payment.status = 'checkout_created'; db.payment.sessionId = args[0]; db.payment.url = args[1]; return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('UPDATE booking_guests SET payment_id')) { db.guestPaymentId = args[0]; return { rows: [], rowCount: 1 }; }
       throw new Error('unexpected SQL: ' + sql);
     } };
     const store = checkout.createSqlStore((fn) => fn(pg), guestId, 'client-a', 'staff-1');
-    const prepared = await store.prepare('deposit');
-    assert.strictEqual(prepared.authoritative, false, 'mismatched winner must not become authoritative');
-    assert(db.metadata.provider_idempotency_key, 'provider key must be durable during preflight');
-    const op = { ...prepared.operation, target: 'deposit', amount: 4000 };
-    await store.finalize(op, { id: 'cs_sql', url: 'https://checkout.stripe.com/c/pay/sql', expires_at: 9999999999 }, 'deposit', 4000);
-    assert.strictEqual(db.finalized, 1);
-    db.failFinalize = true;
-    await assert.rejects(store.finalize(op, { id: 'cs_sql', url: 'https://checkout.stripe.com/c/pay/sql', expires_at: 9999999999 }, 'deposit', 4000), /checkout_finalize_precondition_failed/);
-    db.failFinalize = false;
-    await store.retire(op, 'test_retirement');
-    assert.strictEqual(db.retired, 1);
+    const first = await store.prepare('deposit');
+    const second = await store.prepare('deposit');
+    assert.deepStrictEqual(second.operation, first.operation, 'sequential prepares must observe the same SQL winner');
+    assert.strictEqual(db.inserts, 1);
+    assert(db.payment.metadata.provider_idempotency_key, 'provider key must be durably written by prepare');
+
+    // Simulate the ON CONFLICT loser path while still using prepare's SQL: hide
+    // the winner from the first active read, expose it when INSERT loses, then
+    // let the production winner SELECT return it.
+    const originalQuery = pg.query.bind(pg); let hideOnce = true;
+    pg.query = async (sql, args) => {
+      if (hideOnce && sql.includes('FROM payments WHERE client_id') && sql.includes('FOR UPDATE')) { hideOnce = false; return { rows: [], rowCount: 0 }; }
+      return originalQuery(sql, args);
+    };
+    const loser = await store.prepare('deposit');
+    assert.deepStrictEqual(loser.operation, first.operation);
+    assert.strictEqual(db.conflicts, 1, 'ON CONFLICT DO NOTHING must expose a zero-row loser');
+
+    await store.finalize(first.operation, { id: 'cs_sql', url: 'https://checkout.stripe.com/c/pay/sql', expires_at: 9999999999 }, 'deposit', 4000);
+    assert.strictEqual(db.guestPaymentId, first.operation.paymentId);
+    const wrong = { ...first.operation, key: first.operation.key + '-wrong' };
+    await assert.rejects(store.finalize(wrong, { id: 'cs_wrong', url: 'https://checkout.stripe.com/c/pay/wrong' }, 'deposit', 4000), /checkout_finalize_precondition_failed/);
+    assert.strictEqual(db.payment.sessionId, 'cs_sql', 'failed conditional finalize must rollback its transaction snapshot');
+    assert.strictEqual(db.rollbacks, 1);
   }
 
   // Execute the production staff wrapper: URL tenant A/body tenant B is
@@ -253,6 +299,51 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
     assert.strictEqual(stripeCreates, 1);
     assert.strictEqual(sent[0].status, 200);
     assert.strictEqual(sent[0].body.amount_due_cents, 4000);
+  }
+
+  // A paid provider session traversing the real staff wrapper returns a safe,
+  // typed 409 while preserving the original SQL row and provider identity.
+  {
+    const { handleStaffGenerateGuestPaymentLink } = require('./lib/staff-guest-payment-link-handler');
+    const g = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
+      booking_code: 'BK-PAID', guest_name: 'Paid Guest', guest_number: 3, booking_status: 'confirmed',
+      deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 1000 };
+    const original = { payment_id: '44444444-4444-4444-4444-444444444444', amount_due_cents: 4000, currency: 'EUR',
+      metadata: { source: 'bot_guest_payment_link_slice_a', payment_target: 'deposit', intent_target: 'deposit',
+        intent_amount_cents: 4000, intent_currency: 'EUR', intent_generation: 'pay-paid', provider_idempotency_key: 'key-paid' },
+      stripe_checkout_session_id: 'cs_paid', checkout_url: 'https://checkout.stripe.com/c/pay/paid' };
+    let mutations = 0; let creates = 0; let expires = 0;
+    const pg = { async query(sql) {
+      if (/^BEGIN|^COMMIT|^ROLLBACK/.test(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes('SELECT bg.booking_id::text AS booking_id')) return { rows: [{ booking_id: g.booking_id }] };
+      if (sql.includes('SELECT id FROM bookings') || sql.includes('SELECT id FROM booking_guests')) return { rows: [{ id: 'lock' }] };
+      if (sql.includes('FROM booking_guests bg JOIN bookings')) return { rows: [g] };
+      if (sql.includes('FROM payments WHERE client_id') && sql.includes('FOR UPDATE')) return { rows: [{ ...original, metadata: { ...original.metadata } }] };
+      if (/UPDATE|INSERT/.test(sql)) { mutations += 1; throw new Error('blocked state attempted SQL mutation'); }
+      throw new Error('unexpected paid SQL: ' + sql);
+    } };
+    const sent = [];
+    await handleStaffGenerateGuestPaymentLink({ url: '/staff/bookings/generate-guest-payment-link?client=A' }, {},
+      { allowed_clients: ['A'], staff_user_id: 'staff-1' }, {
+        STAFF_ACTIONS_ENABLED: true, UUID_VALIDATE_RE: /^[0-9a-f-]{36}$/i, DEFAULT_CLIENT: 'default',
+        readBody: async () => JSON.stringify({ booking_guest_id: guestId, client_slug: 'A', payment_target: 'deposit' }),
+        send400() { throw new Error('unexpected send400'); }, assertStaffClientAccess: () => true,
+        sendJSON(r, status, body) { sent.push({ status, body }); }, delegatedHandler: routes.handleBotGuestPaymentCreateLink,
+        delegatedContext: { sendJSON(r, status, body) { sent.push({ status, body }); }, send400() {}, readBody: async () => '',
+          withPgClient: (fn) => fn(pg), BOT_BOOKING_ENABLED: false, STAFF_ACTIONS_ENABLED: true,
+          STRIPE_LINKS_ENABLED: true, STRIPE_SECRET_KEY: '***', DEFAULT_CLIENT: 'default',
+          stripeCheckoutRedirectUrlsConfigured: () => true, stripeCheckoutSessionSuccessUrl: () => 'https://example.test/success',
+          stripeCheckoutSessionCancelUrl: () => 'https://example.test/cancel', stripe: { checkout: { sessions: {
+            create: async () => { creates += 1; },
+            retrieve: async () => ({ id: 'cs_paid', status: 'complete', payment_status: 'paid', expires_at: 9999999999 }),
+            expire: async () => { expires += 1; },
+          } } } },
+      });
+    assert.strictEqual(creates, 0); assert.strictEqual(expires, 0); assert.strictEqual(mutations, 0);
+    assert.strictEqual(sent[0].status, 409);
+    assert.deepStrictEqual(sent[0].body, { success: false, error: 'payment_processing_refresh_required',
+      message: 'Payment may already be processing. Refresh payment status before creating another link.' });
+    assert.strictEqual(original.stripe_checkout_session_id, 'cs_paid');
   }
 
   // UI/server agreement: deposit is capped by share; unknown is not zero.
