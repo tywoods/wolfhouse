@@ -39562,12 +39562,12 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
-      var canGenBalLink = !overview && !bcBookingStatusIsCancelled(bk.status);
+      var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span style="display:inline-flex;align-items:center;gap:8px">' +
           '<span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' +
-          (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.payments.generateBalanceLink')) + '">' + escHtml(t('drawer.payments.generateBalanceLink')) + '</button>' : '') +
+          (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.invoice.createLink')) + '">' + escHtml(t('drawer.invoice.createLink')) + '</button>' : '') +
         '</span>' +
         '</div>';
       if (canGenBalLink) {
@@ -39815,7 +39815,7 @@ function bcInitPaymentLinkShell(data){
         if (resultEl) {
           var balanceLink = (res.data && (res.data.payment_short_url || res.data.checkout_url || res.data.guest_payment_url)) || '';
           resultEl.innerHTML = balanceLink && /^https?:\/\//i.test(balanceLink)
-            ? '<a href="' + escHtml(balanceLink) + '" target="_blank" rel="noopener">' + escHtml(balanceLink) + '</a>'
+            ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(balanceLink) + '" target="_blank" rel="noopener">' + escHtml(balanceLink) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(balanceLink) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
             : escHtml(t('drawer.payments.linkReady'));
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
@@ -39858,10 +39858,16 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
       }
       if (resultEl) {
         var link = (res.data && (res.data.payment_short_url || res.data.guest_payment_url)) || '';
-        resultEl.innerHTML = link && /^https?:\/\//i.test(link)
-          ? '<a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a>'
-          : escHtml(t('drawer.payments.linkReady'));
-        resultEl.style.display = 'block';
+        if (link && /^https?:\/\//i.test(link) && btn) {
+          btn.outerHTML = '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>';
+          resultEl.innerHTML = '';
+          resultEl.style.display = 'none';
+        } else {
+          resultEl.innerHTML = link && /^https?:\/\//i.test(link)
+            ? '<span class="bc-inline-payment-link" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap"><a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a><button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(link) + '" title="' + escHtml(t('drawer.invoice.copyLink')) + '" aria-label="' + escHtml(t('drawer.invoice.copyLink')) + '">' + escHtml(t('drawer.invoice.copyLink')) + '</button></span>'
+            : escHtml(t('drawer.payments.linkReady'));
+          resultEl.style.display = 'block';
+        }
       }
     })
     .catch(function(err){
