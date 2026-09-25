@@ -3659,6 +3659,12 @@ def register(ctx):
     # for any other tenant — the swap only happens under the sunset tenant.
     if _is_sunset_tenant():
         tools = _sunset_tools() + _sunset_write_tools()
+        # Shared read-only Stormglass surface. _post_bot binds location_id from
+        # verified inbound routing; the model cannot select Somo/Sardinero.
+        tools += [
+            ("get_surf_report", "Get the Stormglass-backed forecast for this verified Sunset school when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON; never hand off for forecast failure alone.", get_surf_report,
+             {"day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
+        ]
 
     # Wrappers stay discoverable, but every call rechecks the authenticated tenant's
     # default-OFF Staff setting. Never enable Hermes' unrestricted web/browser set.
