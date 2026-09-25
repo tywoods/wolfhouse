@@ -19099,10 +19099,13 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .customers-detail-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;overflow-y:auto;min-height:0}
 .customers-detail-empty{color:var(--text-3);font-size:13px;padding:20px 8px;text-align:center}
 .customers-profile-summary{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
-.customers-profile-summary-hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
-.customers-profile-hdr-actions{display:flex;flex-wrap:wrap;gap:6px;flex:0 0 auto;align-items:center}
-.customers-profile-hdr-actions .btn{font-size:12px;padding:6px 10px}
-@media(max-width:640px){.customers-profile-summary-hdr{flex-wrap:wrap}.customers-profile-hdr-actions{width:100%;margin-top:4px}.customers-profile-hdr-actions .btn{flex:1 1 auto;justify-content:center;min-height:36px}}
+.customers-profile-summary-hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.customers-profile-name-row{display:flex;align-items:center;gap:8px;min-width:0}
+.customers-profile-back{flex:0 0 auto;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;line-height:1}
+.customers-profile-back:hover{background:var(--surface);color:var(--text)}
+.customers-profile-hdr-actions{display:flex;flex-wrap:nowrap;gap:6px;flex:1 1 100%;width:100%;align-items:center}
+.customers-profile-hdr-actions .btn{flex:1 1 0;min-width:0;white-space:nowrap;justify-content:center;font-size:11px;padding:7px 4px}
+@media(max-width:640px){.customers-profile-summary-hdr{flex-wrap:wrap}.customers-profile-hdr-actions{width:100%;margin-top:4px;flex-wrap:nowrap}.customers-profile-hdr-actions .btn{flex:1 1 0;min-width:0;justify-content:center;min-height:36px;white-space:nowrap}}
 .customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--text-2);letter-spacing:.02em}
 .customers-profile-identity{min-width:0;flex:1}
 .customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:700;color:var(--text);line-height:1.25;letter-spacing:-.01em}

@@ -152,6 +152,7 @@ const STAFF_PORTAL_STRINGS = {
     'customers.addFailed': 'Could not add customer:',
     'customers.save': 'Save',
     'customers.cancel': 'Cancel',
+    'customers.profile.back': 'Back',
     'customers.editProfile': 'Edit profile',
     'customers.openCustomerCard': 'Open customer card',
     'customers.conversation.open': 'Open conversation',

@@ -543,6 +543,7 @@ module.exports = {
   'customers.detail.error': 'No se pudieron cargar los detalles del cliente.',
   'customers.detail.handoffs': 'Derivaciones abiertas',
   'customers.detail.language': 'Idioma',
+  'customers.profile.back': 'Volver',
   'customers.detail.createBooking': 'Crear reserva',
   'customers.detail.lastSetup': 'Última configuración',
   'customers.detail.linkedBookings': 'Reservas vinculadas',

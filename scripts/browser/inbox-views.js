@@ -171,6 +171,7 @@ function inboxViewsPaintPersonCustomerCard(row) {
 
 function inboxViewsOpenGuestCustomerCard(row, targetEl) {
   if (row && row._inbox_view_key) selectedConvId = row._inbox_view_key;
+  if (typeof showInboxMobileThread === 'function') showInboxMobileThread();
   inboxViewsPaintEmptyPersonDetail(row, targetEl);
   inboxViewsPaintPersonCustomerCard(row);
 }
