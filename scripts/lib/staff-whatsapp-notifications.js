@@ -321,9 +321,8 @@ function buildNotificationMessage(notificationType, ctx) {
 }
 
 function handoffEventKeyForType(notificationType, handoffEventKey) {
-  if (notificationType === 'new_conversation') return 'initial';
-  const key = trimStr(handoffEventKey);
-  return key || `handoff:${Date.now()}`;
+  if (!NOTIFICATION_TYPES.includes(trimStr(notificationType))) return null;
+  return trimStr(handoffEventKey) || null;
 }
 
 function validateStaffAlertCanaryAuthorization(env = process.env, input = {}, now = new Date()) {
@@ -550,6 +549,7 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
   if (!pg || !requestedClientSlug || !requestedConversationId || !NOTIFICATION_TYPES.includes(notificationType)) {
     return { ...baseSkip, reason: 'invalid_input' };
   }
+  if (!handoffKey) return { ...baseSkip, reason: 'event_identity_missing' };
   if (inp.suppress_notifications === true) return { ...baseSkip, reason: 'explicit_no_send' };
 
   const stored = await resolveStoredConversationTruth(pg, {

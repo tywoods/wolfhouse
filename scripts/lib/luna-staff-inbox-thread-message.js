@@ -346,14 +346,22 @@ async function persistHermesLunaInboundThreadMessage(pg, input) {
       let initialAlertClaimError = false;
       try {
         const claimed = await pg.query(
-          `UPDATE conversations
-              SET metadata = COALESCE(metadata, '{}'::jsonb)
-                || jsonb_build_object('staff_alert_initial_event_key', $2::text),
+          `UPDATE conversations conv
+              SET first_eligible_inbound_message_id = $3::uuid,
                   updated_at = NOW()
-            WHERE id = $1::uuid
-              AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'staff_alert_initial_event_key')
-          RETURNING metadata->>'staff_alert_initial_event_key' AS initial_alert_event_key`,
-          [conversationId, messageId],
+             FROM clients c, messages m
+            WHERE conv.client_id = c.id
+              AND c.slug = $1
+              AND conv.id = $2::uuid
+              AND conv.first_eligible_inbound_message_id IS NULL
+              AND m.id = $3::uuid
+              AND m.conversation_id = conv.id
+              AND m.client_id = conv.client_id
+              AND m.direction = 'inbound'
+              AND m.source = 'hermes_luna_whatsapp_inbound'
+              AND COALESCE((conv.metadata->>'simulator_synthetic')::boolean, FALSE) = FALSE
+          RETURNING conv.first_eligible_inbound_message_id::text AS initial_alert_event_key`,
+          [clientSlug, conversationId, messageId],
         );
         initialAlertEventKey = claimed.rows[0] && claimed.rows[0].initial_alert_event_key || null;
       } catch (_) {

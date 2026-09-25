@@ -268,6 +268,18 @@ async function runAsyncTests() {
   ok('inbox link falls back to relative path without base URL', relativeLink.startsWith('/staff/inbox?'));
 
   console.log('\n── dispatch / dedupe / gates ──');
+  const missingInitialIdentity = await dispatchStaffWhatsAppNotifications(createMockPg({ clients: ['wolfhouse-somo'] }), env, {
+    client_slug: 'wolfhouse-somo', conversation_id: convId, notification_type: 'new_conversation',
+  });
+  ok('new conversation dispatch rejects missing durable event identity',
+    missingInitialIdentity.skipped === true && missingInitialIdentity.reason === 'event_identity_missing');
+  const missingHandoffIdentity = await dispatchStaffWhatsAppNotifications(createMockPg({ clients: ['wolfhouse-somo'] }), env, {
+    client_slug: 'wolfhouse-somo', conversation_id: convId, notification_type: 'human_needed',
+  });
+  ok('Needs Human dispatch rejects missing durable event identity',
+    missingHandoffIdentity.skipped === true && missingHandoffIdentity.reason === 'event_identity_missing');
+  ok('event identity helper has no process-clock fallback',
+    !fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-whatsapp-notifications.js'), 'utf8').includes('handoff:${Date.now()}'));
   let metaCalls = 0;
   const mockSend = {
     async sendMessage() {
@@ -293,6 +305,7 @@ async function runAsyncTests() {
     client_slug: 'wolfhouse-somo',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
     guest_name: 'Alex',
   }, mockSend);
@@ -300,6 +313,7 @@ async function runAsyncTests() {
     client_slug: 'wolfhouse-somo',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
     guest_name: 'Alex',
   }, mockSend);
@@ -338,7 +352,7 @@ async function runAsyncTests() {
     LUNA_DEPLOYMENT: 'sunset-staging', WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
   }, {
     client_slug: 'wolfhouse-somo', conversation_id: '33333333-3333-4333-8333-333333333333',
-    notification_type: 'new_conversation', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
+    notification_type: 'new_conversation', handoff_event_key: '33333333-3333-4333-8333-333333333333', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
   }, {
     async sendMessage() {
       liveDirectoryProviderCalls += 1;
@@ -354,6 +368,7 @@ async function runAsyncTests() {
     client_slug: 'unknown-client-slug',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
   }, mockSend);
   ok('unknown/unresolved client sends no notification', unknown.skipped === true && unknown.reason === 'conversation_not_found');
@@ -489,7 +504,7 @@ async function runAsyncTests() {
     STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
   }, {
     client_slug: 'wolfhouse-somo', conversation_id: '22222222-2222-4222-8222-222222222222',
-    notification_type: 'new_conversation', guest_phone: '+34900000099', guest_name: 'Fixture guest',
+    notification_type: 'new_conversation', handoff_event_key: '22222222-2222-4222-8222-222222222222', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
   }, { async sendMessage(){ liveProviderCalls += 1; return { success: true, whatsapp_message_id: 'wamid.NEVER' }; } });
   ok('live dispatch without a canary authorization calls no provider', liveProviderCalls === 0 && liveDenied.results[0].status === 'skipped' && liveDenied.results[0].reason === 'canary_authorization_missing');
 

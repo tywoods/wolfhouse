@@ -27,7 +27,6 @@ const {
 } = require('./sunset-school-locations');
 const {
   maybeNotifyNewConversation,
-  maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
 } = require('./staff-whatsapp-notifications');
 const {
@@ -35,6 +34,7 @@ const {
   upsertCustomerFromInboundTouch,
 } = require('./staff-customer-queries');
 const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
+const { markConversationNeedsHuman } = require('./luna-guest-handoff-persist');
 
 const SQL_CLIENT_WHATSAPP_MODE = `
 SELECT c.id::text AS client_id,
@@ -594,41 +594,17 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   });
   if (i.needs_human === true) {
     const reason = trimStr(i.handoff_reason) || 'luna_team_review_reply';
-    const handoffAt = new Date().toISOString();
-    const prior = await pg.query(
-      `SELECT needs_human FROM conversations WHERE id = $1::uuid LIMIT 1`,
-      [conversationId],
-    );
-    const wasNeedsHuman = prior.rows[0] && prior.rows[0].needs_human === true;
-    await pg.query(
-      `UPDATE conversations
-          SET needs_human = TRUE,
-              metadata = COALESCE(metadata, '{}'::jsonb)
-                || jsonb_build_object('needs_human_reason', $2::text, 'luna_handoff_at', to_jsonb($3::text)),
-              updated_at = NOW()
-        WHERE id = $1`,
-      [conversationId, reason, handoffAt],
-    );
-    if (!wasNeedsHuman) {
-      if (i.suppress_notifications === true) {
-        staff_notification = { suppressed: true, reason: 'simulator_synthetic' };
-      } else {
-        try {
-          staff_notification = await maybeNotifyHumanNeeded(pg, env, {
-            transitioned: true,
-            handoff_event_key: handoffAt,
-            client_slug: i.client_slug,
-            location_id: ensured.location_id,
-            conversation_id: conversationId,
-            guest_phone: ensured.guest_phone,
-            guest_name: ensured.guest_name,
-            reason,
-          }, notifyContext);
-        } catch (_) {
-          staff_notification = { failed: true, reason: 'staff_alert_dispatch_failed' };
-        }
-      }
-    }
+    const handoff = await markConversationNeedsHuman(pg, {
+      conversation_id: conversationId,
+      client_slug: i.client_slug,
+      reason,
+    }, {
+      env,
+      notify_context: notifyContext,
+      handoff_source: 'luna_whatsapp_thread_mirror',
+      skip_notify: i.suppress_notifications === true,
+    });
+    staff_notification = handoff && handoff.staff_notification || null;
   }
   return {
     ok: true,
