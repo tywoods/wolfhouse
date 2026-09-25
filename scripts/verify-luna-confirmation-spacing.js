@@ -93,7 +93,7 @@ check('B5 no two adjacent labels on the same line',
   msg.replace(/\n/g, '⏎'));
 // Blank line before the maps/location link, if a maps link is present.
 if (/Location:/.test(msg)) {
-  check('B6 blank line before the Location/maps block', /\n\nLocation:/.test(msg), msg.replace(/\n/g, '⏎'));
+  check('B6 blank line before the Location/maps block', /\n\n(?:📍 )?(?:Here is our )?Location:/.test(msg), msg.replace(/\n/g, '⏎'));
 } else {
   check('B6 blank line before the Location/maps block (n/a — no maps link configured)', true);
 }

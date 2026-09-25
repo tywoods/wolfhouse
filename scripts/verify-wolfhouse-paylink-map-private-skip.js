@@ -4,7 +4,7 @@
  * Wolfhouse Luna: titled pay-link map line + private-room skips gender mix ask.
  *
  * Locks:
- *   1. guest_location_line is "📍 Wolfhouse: <maps URL>" (not a bare pin+URL).
+ *   1. guest_location_line is "📍 Here is our Location: <maps URL>" (not a bare pin+URL).
  *   2. SOUL forbids girls/guys/mix when private / couple_private / room_supplement.
  *   3. Sunset map lines stay pin+URL (no Wolfhouse title regression).
  *
@@ -41,7 +41,7 @@ function ok(name, cond, detail) {
 
 console.log('verify:wolfhouse-paylink-map-private-skip\n');
 
-const expectedLine = '📍 Wolfhouse: https://maps.app.goo.gl/6KdamJ66roaMugJD8';
+const expectedLine = '📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16';
 const constMatch = pluginSrc.match(/_WOLFHOUSE_GUEST_LOCATION_LINE\s*=\s*"([^"]+)"/);
 ok('plugin constant exists', !!constMatch);
 ok('Wolfhouse map line has cute title + pin + URL',

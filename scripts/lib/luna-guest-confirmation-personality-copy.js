@@ -26,7 +26,7 @@ function trimStr(v) {
 // languages available in the Cami personality reply_templates. Unknown languages
 // fall back to English. (Translations are brand-neutral; review if tone matters.)
 const CONFIRMATION_LABELS = {
-  en: { booking: 'Booking', paid: 'Paid', balance: 'Balance', location: 'Location', gate_code: 'Gate code', room: 'Room' },
+  en: { booking: 'Booking', paid: 'Paid', balance: 'Balance', location: '📍 Here is our Location', gate_code: 'Gate code', room: 'Room' },
   it: { booking: 'Prenotazione', paid: 'Pagato', balance: 'Saldo', location: 'Posizione', gate_code: 'Codice cancello', room: 'Camera' },
   de: { booking: 'Buchung', paid: 'Bezahlt', balance: 'Restbetrag', location: 'Standort', gate_code: 'Torcode', room: 'Zimmer' },
   es: { booking: 'Reserva', paid: 'Pagado', balance: 'Saldo pendiente', location: 'Ubicación', gate_code: 'Código de la puerta', room: 'Habitación' },
