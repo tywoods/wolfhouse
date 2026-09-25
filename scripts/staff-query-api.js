@@ -36970,6 +36970,15 @@ function bcCalendarBlockPaymentState(blk){
 }
 
 function bcCalendarPaymentTooltipHint(blk){
+  if (blk && Number(blk.calendar_group_size) > 1) {
+    var guestHint = '';
+    if (blk.calendar_guest_link_sent) guestHint += ' | Link sent';
+    if (blk.calendar_guest_share_cents != null && blk.calendar_guest_paid_cents != null
+        && Number(blk.calendar_guest_share_cents) > Number(blk.calendar_guest_paid_cents)) {
+      guestHint += ' | ' + bcCalendarFormatEur(Number(blk.calendar_guest_share_cents) - Number(blk.calendar_guest_paid_cents));
+    }
+    return guestHint;
+  }
   if (blk && blk.calendar_show_payment_pills === false) return '';
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
@@ -37062,45 +37071,83 @@ function bcFormatTransferSummaryLabel(summary){
   return '';
 }
 
+function bcCalendarGuestPackageCode(blk){
+  if (!blk) return '';
+  function clean(code){
+    var c = code ? String(code).trim().toLowerCase() : '';
+    if (!c || c === 'no_package' || c === 'package_none' || c === 'none') return '';
+    return c;
+  }
+  var num = blk.calendar_guest_number != null ? Number(blk.calendar_guest_number) : null;
+  var list = blk.guest_packages;
+  if (num && Array.isArray(list)) {
+    for (var i = 0; i < list.length; i++) {
+      if (Number(list[i] && list[i].guest_number) === num) return clean(list[i].package_code);
+    }
+  }
+  if (blk.calendar_guest_package_code) return clean(blk.calendar_guest_package_code);
+  var multi = Number(blk.calendar_group_size || 0) > 1 || (Array.isArray(list) && list.length > 1 && num);
+  if (multi || Number(blk.calendar_group_size || 0) > 1) return '';
+  if (blk.package_code) return clean(blk.package_code);
+  if (Array.isArray(list) && list.length === 1) return clean(list[0].package_code);
+  return '';
+}
+
+function bcCalendarGuestRowPebblesHtml(blk){
+  if (!blk) return '';
+  if (String(blk.status || '').toLowerCase() === 'blocked') return '';
+  if (String(blk.color_type || '').toLowerCase() === 'blocked') return '';
+  var html = '';
+  var pkg = bcCalendarGuestPackageCode(blk);
+  if (pkg) {
+    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(pkg) + ' bc-block-package-pebble">' +
+      escHtml(bcFieldEditPackageDisplayLabel(pkg)) + '</span>';
+  }
+  var linkSent = blk.calendar_guest_link_sent === true
+    || (blk.calendar_guest_link_sent == null && blk.calendar_show_payment_pills !== false && !!blk.has_active_payment_link);
+  if (linkSent) html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
+  html += bcTransferPebbleHtml(blk);
+  var multi = Number(blk.calendar_group_size || 0) > 1 || blk.calendar_guest_number != null;
+  var share = blk.calendar_guest_share_cents != null ? Number(blk.calendar_guest_share_cents) : null;
+  var paid = blk.calendar_guest_paid_cents != null ? Number(blk.calendar_guest_paid_cents) : null;
+  var deposit = blk.calendar_guest_deposit_cents != null ? Number(blk.calendar_guest_deposit_cents) : null;
+  if (!multi && share == null) {
+    share = blk.invoice_total_cents != null ? Number(blk.invoice_total_cents) : null;
+    if (paid == null) {
+      paid = blk.ledger_paid_cents != null ? Number(blk.ledger_paid_cents)
+        : (blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null);
+    }
+    if (deposit == null && blk.deposit_required_cents != null) deposit = Number(blk.deposit_required_cents);
+  }
+  if (share != null && paid != null && share > paid) {
+    html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
+      escHtml(bcCalendarFormatEur(share - paid)) + '</span>';
+  } else if (!multi && share == null && blk.calendar_payment_primary === 'balance_due' && Number(blk.calendar_payment_amount_cents) > 0) {
+    html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
+      escHtml(bcCalendarFormatEur(blk.calendar_payment_amount_cents)) + '</span>';
+  }
+  var depositPaid = deposit != null && deposit > 0 && paid != null && paid >= deposit;
+  if (!depositPaid && !multi && blk.calendar_show_deposit_paid) depositPaid = true;
+  if (depositPaid) html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
+  var fullPaid = share != null && share > 0 && paid != null && paid >= share;
+  if (!fullPaid && !multi && blk.calendar_payment_primary === 'paid') fullPaid = true;
+  if (fullPaid) html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+  return html;
+}
+
 function bcCalendarPackagePebbleHtml(blk){
   if (!blk) return '';
   if (String(blk.status || '').toLowerCase() === 'blocked') return '';
   if (String(blk.color_type || '').toLowerCase() === 'blocked') return '';
   if (blk.calendar_show_payment_pills === false) return '';
-  var guestPackages = bcGuestPackages({
-    guest_count: blk.guest_count,
-    package_code: blk.package_code,
-    metadata: { guest_packages: blk.guest_packages || (blk.metadata && blk.metadata.guest_packages) || null },
-  });
-  var groups = {};
-  var order = [];
-  var hasPackage = false;
-  guestPackages.forEach(function(gp){
-    var code = gp && gp.package_code ? String(gp.package_code).trim().toLowerCase() : 'no_package';
-    if (!code || code === 'no_package' || code === 'package_none') code = 'no_package';
-    else hasPackage = true;
-    if (!groups[code]) {
-      groups[code] = 0;
-      order.push(code);
-    }
-    groups[code]++;
-  });
-  if (!hasPackage) {
-    return '<span class="pkg-pebble pkg-pebble-stone bc-block-package-pebble">no pebble</span>';
-  }
-  var html = '';
-  order.forEach(function(code){
-    if (!code || code === 'no_package' || code === 'package_none') return;
-    var count = groups[code];
-    var label = bcFieldEditPackageDisplayLabel(code);
-    if (count > 1) label += ' x' + count;
-    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(code) + ' bc-block-package-pebble">' + escHtml(label) + '</span>';
-  });
-  return html;
+  var code = bcCalendarGuestPackageCode(blk);
+  if (!code) return '';
+  return '<span class="pkg-pebble ' + bcPackagePebbleClass(code) + ' bc-block-package-pebble">' +
+    escHtml(bcFieldEditPackageDisplayLabel(code)) + '</span>';
 }
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcTransferPebbleHtml(blk) + bcCalendarPackagePebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcCalendarGuestRowPebblesHtml(blk);
 }
 
 /** SCHEDULE-GROUP-BOOKING-UI-001 — stable key for multi-room group paint. */
@@ -50117,6 +50164,13 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows, trans
     };
     const links = linksById[row.booking_id] || [];
     const hasActiveLink = paymentLedgerHasActiveValidLink(links, ledgerCtx);
+    const activeGuestIds = [];
+    let hasBookingLevelLink = false;
+    for (const pr of links) {
+      if (!paymentLedgerIsActiveUnpaidLinkRow(pr) || paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
+      if (pr.booking_guest_id) activeGuestIds.push(String(pr.booking_guest_id));
+      else hasBookingLevelLink = true;
+    }
     row.invoice_total_cents = totals.invoice_total_cents;
     row.ledger_paid_cents = totals.paid_total_cents;
     row.balance_due_cents = totals.balance_due_cents;
@@ -50124,6 +50178,8 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows, trans
     row.amount_paid_cents = totals.paid_total_cents;
     row.total_amount_cents = totals.invoice_total_cents;
     row.has_active_payment_link = hasActiveLink;
+    row.active_link_guest_ids = activeGuestIds;
+    row.has_booking_level_active_link = hasBookingLevelLink;
   }
 }
 
@@ -50211,6 +50267,8 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       amount_paid_cents:  row.ledger_paid_cents != null ? Number(row.ledger_paid_cents) : null,
       balance_due_cents:  row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
       has_active_payment_link: !!row.has_active_payment_link,
+      active_link_guest_ids: Array.isArray(row.active_link_guest_ids) ? row.active_link_guest_ids.slice() : [],
+      has_booking_level_active_link: !!row.has_booking_level_active_link,
       calendar_payment_primary: payState ? payState.kind : null,
       calendar_payment_amount_cents: payState ? payState.amount_cents : null,
       calendar_show_deposit_paid: payState ? !!payState.show_deposit_paid : false,
@@ -50313,10 +50371,15 @@ async function handleBedCalendar(query, res, user) {
       calendarGuestRows = await withPgClient(async (pg) => {
         const guestRes = await pg.query(
           `SELECT bg.booking_id::text AS booking_id,
+                  bg.id::text AS booking_guest_id,
                   bg.guest_number,
                   bg.guest_name,
                   bg.assigned_bed_code,
-                  bg.assigned_room_code
+                  bg.assigned_room_code,
+                  bg.deposit_amount_cents,
+                  bg.amount_paid_cents,
+                  bg.payment_status,
+                  bg.metadata
              FROM booking_guests bg
              INNER JOIN clients c ON c.id = bg.client_id
             WHERE c.slug = $2
