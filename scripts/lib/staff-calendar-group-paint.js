@@ -74,6 +74,53 @@ function resolveBedDisplayName(row, guest) {
   return '';
 }
 
+function guestMetaObject(guest) {
+  if (!guest) return {};
+  const raw = guest.metadata != null ? guest.metadata : guest.guest_metadata;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+function storedGuestShareCents(guest) {
+  const n = Number(guestMetaObject(guest).subtotal_cents);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Copy the matched guest's stored share onto the bar. Does not recompute a quote.
+ * Link flags are set only when the block already carries link ids from the
+ * existing payment-link rows.
+ */
+function applyCalendarGuestPebbleFields(block, guest, isPrimary) {
+  if (!block) return;
+  if (guest) {
+    block.calendar_guest_id = guest.booking_guest_id ? String(guest.booking_guest_id) : null;
+    block.calendar_guest_number = guest.guest_number != null ? Number(guest.guest_number) : null;
+    block.calendar_guest_share_cents = storedGuestShareCents(guest);
+    block.calendar_guest_deposit_cents = guest.deposit_amount_cents != null
+      ? Number(guest.deposit_amount_cents) : null;
+    block.calendar_guest_paid_cents = guest.amount_paid_cents != null
+      ? Number(guest.amount_paid_cents) : null;
+    const pkg = String(guestMetaObject(guest).package_code || '').trim().toLowerCase();
+    block.calendar_guest_package_code = pkg && pkg !== 'no_package' && pkg !== 'package_none' ? pkg : null;
+  }
+  const hasLinkList = Array.isArray(block.active_link_guest_ids);
+  const bookingLinkKnown = block.has_booking_level_active_link != null;
+  if (!hasLinkList && !bookingLinkKnown) return;
+  const guestId = guest && guest.booking_guest_id ? String(guest.booking_guest_id) : '';
+  const ownLink = !!(guestId && hasLinkList && block.active_link_guest_ids.map(String).includes(guestId));
+  const unscopedOnPrimary = !ownLink && !!isPrimary && block.has_booking_level_active_link === true;
+  block.calendar_guest_link_sent = ownLink || unscopedOnPrimary;
+}
+
 /**
  * @param {object[]} blocks calendar blocks (one per booking_beds row)
  * @param {object[]} guestRows booking_guests rows for those bookings
@@ -129,6 +176,7 @@ function annotateCalendarBlocks(blocks, guestRows) {
       block.calendar_group_size = size;
       block.calendar_group_accent = accent;
       block.calendar_show_payment_pills = size <= 1 || block === primary;
+      applyCalendarGuestPebbleFields(block, guest, block === primary);
     });
   });
 
@@ -147,5 +195,6 @@ module.exports = {
   GROUP_ACCENTS,
   accentForGroupKey,
   annotateCalendarBlocks,
+  applyCalendarGuestPebbleFields,
   groupHoverTargets,
 };
