@@ -445,8 +445,13 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     // collected or counted twice.
     if (lockedPayment.booking_guest_id && Number(lockedPayment.amount_paid_cents || 0) > 0) {
       await pg.query(
-        `UPDATE booking_guests
-            SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
+        `UPDATE booking_guests bg
+            SET amount_paid_cents = (SELECT COALESCE(SUM(amount_paid_cents), 0)
+                                       FROM payments p
+                                      WHERE p.booking_guest_id = bg.id
+                                        AND p.client_id = bg.client_id
+                                        AND p.booking_id = bg.booking_id
+                                        AND p.status = 'paid'),
                 payment_status = 'paid',
                 updated_at = NOW()
           WHERE id = $2::uuid
@@ -652,8 +657,13 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   const guestId = lockedPayment.booking_guest_id || null;
   if (guestId) {
     const gUpd = await pg.query(
-      `UPDATE booking_guests
-           SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
+      `UPDATE booking_guests bg
+           SET amount_paid_cents = (SELECT COALESCE(SUM(amount_paid_cents), 0)
+                                      FROM payments p
+                                     WHERE p.booking_guest_id = bg.id
+                                       AND p.client_id = bg.client_id
+                                       AND p.booking_id = bg.booking_id
+                                       AND p.status = 'paid'),
                payment_status = 'paid',
                updated_at = NOW()
          WHERE id = $2::uuid

@@ -1424,8 +1424,20 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /staff/bot/booking-guests/:guest_id/create-payment-link  (Slice A3)
-// Body: { client_slug, payment_target: 'deposit' | 'full_share' }
+// Body: { client_slug, payment_target: 'deposit' | 'full_share' | 'remaining_share' }
 // ─────────────────────────────────────────────────────────────────────────────
+function computeGuestPayableAmounts({ shareCents, depositCents, receivedCents }) {
+  const share = Number(shareCents);
+  const deposit = Number(depositCents);
+  const received = Number(receivedCents);
+  if (!Number.isInteger(share) || share <= 0) throw new Error('authoritative_share_not_available');
+  if (![deposit, received].every((n) => Number.isInteger(n) && n >= 0)) throw new Error('invalid_guest_money');
+  return {
+    depositRemainingCents: Math.max(0, Math.min(deposit, share) - received),
+    remainingShareCents: Math.max(0, share - received),
+  };
+}
+
 async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode, ctx) {
   const {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
@@ -1460,6 +1472,9 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const paymentTarget = String(body.payment_target || 'deposit').trim().toLowerCase();
+  if (!['deposit', 'full_share', 'remaining_share'].includes(paymentTarget)) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_payment_target' });
+  }
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
 
   let stripe;
@@ -1477,7 +1492,11 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
                 bg.guest_number,
                 bg.guest_name,
                 bg.deposit_amount_cents,
-                bg.amount_paid_cents,
+                COALESCE((SELECT SUM(p.amount_paid_cents) FROM payments p
+                           WHERE p.booking_guest_id = bg.id
+                             AND p.client_id = bg.client_id
+                             AND p.booking_id = bg.booking_id
+                             AND p.status = 'paid'), 0) AS amount_paid_cents,
                 bg.payment_status,
                 bg.payment_id::text AS payment_id,
                 bg.metadata AS guest_metadata,
@@ -1518,15 +1537,25 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   guestMeta = guestMeta || {};
   const subtotalCents = Number(guestMeta.subtotal_cents || 0);
   const depositCents = Number(guestRow.deposit_amount_cents || 0);
-  const amountDueCents = paymentTarget === 'full_share'
-    ? (subtotalCents > 0 ? subtotalCents : depositCents)
-    : depositCents;
+  let payable;
+  try {
+    payable = computeGuestPayableAmounts({
+      shareCents: subtotalCents,
+      depositCents,
+      receivedCents: Number(guestRow.amount_paid_cents || 0),
+    });
+  } catch (err) {
+    return sendJSON(res, 422, { success: false, error: err.message });
+  }
+  const amountDueCents = paymentTarget === 'deposit'
+    ? payable.depositRemainingCents
+    : (paymentTarget === 'remaining_share' ? payable.remainingShareCents : subtotalCents);
 
   if (!amountDueCents || amountDueCents <= 0) {
     return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0 for this guest' });
   }
 
-  const paymentKind = paymentTarget === 'full_share' ? 'full_amount' : 'deposit_only';
+  const paymentKind = paymentTarget === 'deposit' ? 'deposit_only' : 'full_amount';
   const shortUrl = buildPaymentShortLink({
     booking_code: guestRow.booking_code,
     guest_number: guestRow.guest_number,
@@ -1536,6 +1565,9 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   try {
     const result = await withPgClient(async (pg) => {
+      // Serialize all targets for one guest.  This closes the two-tab duplicate
+      // window without introducing a schema-level lock or changing other links.
+      await pg.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`guest-payment:${clientSlug}:${guestId}`]);
       let paymentId = guestRow.payment_id;
       let checkoutUrl = null;
       let sessionId = null;
@@ -1544,18 +1576,31 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       if (paymentId) {
         const existing = await pg.query(
           `SELECT id::text AS payment_id, status::text AS payment_status,
-                  checkout_url, stripe_checkout_session_id, amount_due_cents
-             FROM payments WHERE id = $1::uuid`,
-          [paymentId],
+                  checkout_url, stripe_checkout_session_id, amount_due_cents,
+                  currency, metadata
+             FROM payments
+            WHERE id = $1::uuid AND booking_guest_id = $2::uuid`,
+          [paymentId, guestId],
         );
         const ex = existing.rows[0];
-        if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url) {
+        const exMeta = ex && (typeof ex.metadata === 'string' ? JSON.parse(ex.metadata) : (ex.metadata || {}));
+        if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url
+            && exMeta.payment_target === paymentTarget
+            && Number(ex.amount_due_cents) === amountDueCents
+            && String(ex.currency || '').toUpperCase() === 'EUR') {
           idempotent = true;
           checkoutUrl = ex.checkout_url;
           sessionId = ex.stripe_checkout_session_id;
           paymentId = ex.payment_id;
-        } else if (ex && ex.payment_status === 'paid') {
-          return { already_paid: true, payment_id: paymentId };
+        } else if (ex && ex.payment_status === 'checkout_created' && ex.stripe_checkout_session_id) {
+          // Never leave an overlapping old checkout collectible. Stripe expiry
+          // happens before its local record is retired; failure aborts creation.
+          await stripe.checkout.sessions.expire(ex.stripe_checkout_session_id);
+          await pg.query(
+            `UPDATE payments SET status = 'expired'::payment_record_status,
+                    metadata = metadata || $2::jsonb WHERE id = $1::uuid`,
+            [ex.payment_id, JSON.stringify({ superseded_by_guest_target: paymentTarget })],
+          );
         }
       }
 
@@ -1596,7 +1641,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
               currency: 'eur',
               product_data: {
                 name: `Booking ${guestRow.booking_code} — ${guestRow.guest_name}`,
-                description: `${paymentTarget === 'full_share' ? 'Full share' : 'Deposit'} | Guest ${guestRow.guest_number}`,
+                description: `${paymentTarget === 'deposit' ? 'Deposit' : 'Remaining share'} | Guest ${guestRow.guest_number}`,
               },
               unit_amount: amountDueCents,
             },
@@ -1800,5 +1845,6 @@ module.exports = {
   handleBotPackagePricePreview,
   handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus,
+  computeGuestPayableAmounts,
   evaluateWolfhouseSimulatorEffectBudget,
 };
