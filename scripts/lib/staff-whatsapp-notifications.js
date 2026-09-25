@@ -128,13 +128,23 @@ function validateNotificationTypeConfig(raw, typeLabel) {
 
   const recipients = [];
   const phones = new Set();
+  const staffNumberIds = new Set();
   for (const r of recipientsIn) {
     const norm = normalizeRecipient(r);
-    if (norm.enabled && !norm.phone) {
-      return { ok: false, error: `${typeLabel}: phone required when recipient enabled` };
+    if (norm.staff_number_id && !UUID_RE.test(norm.staff_number_id)) {
+      return { ok: false, error: `${typeLabel}: invalid staff_number_id` };
+    }
+    if (norm.enabled && !norm.staff_number_id && !norm.phone) {
+      return { ok: false, error: `${typeLabel}: staff_number_id or phone required when recipient enabled` };
     }
     if (norm.phone && !PHONE_RE.test(norm.phone)) {
       return { ok: false, error: `${typeLabel}: invalid phone (use E.164, e.g. +346...)` };
+    }
+    if (norm.staff_number_id) {
+      if (staffNumberIds.has(norm.staff_number_id)) {
+        return { ok: false, error: `${typeLabel}: duplicate staff_number_id ${norm.staff_number_id}` };
+      }
+      staffNumberIds.add(norm.staff_number_id);
     }
     if (norm.phone) {
       if (phones.has(norm.phone)) {
@@ -491,7 +501,7 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
     return { ...baseSkip, reason: 'notifications_disabled_for_type' };
   }
 
-  const enabledRecipients = (typeCfg.recipients || []).filter((r) => r.enabled && r.phone);
+  const enabledRecipients = (typeCfg.recipients || []).filter((r) => r.enabled && (r.staff_number_id || r.phone));
   if (!enabledRecipients.length) {
     return { ...baseSkip, reason: 'no_enabled_recipients' };
   }
@@ -507,7 +517,28 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
   });
 
   const results = [];
-  for (const recipient of enabledRecipients) {
+  for (const configuredRecipient of enabledRecipients) {
+    let recipient = configuredRecipient;
+    if (configuredRecipient.staff_number_id) {
+      const resolvedRecipient = await resolveActiveStaffAlertRecipient(
+        pg,
+        clientSlug,
+        configuredRecipient.staff_number_id,
+      );
+      if (!resolvedRecipient.ok) {
+        results.push({
+          staff_number_id: configuredRecipient.staff_number_id,
+          status: 'skipped',
+          reason: resolvedRecipient.reason,
+        });
+        continue;
+      }
+      recipient = {
+        ...configuredRecipient,
+        ...resolvedRecipient,
+        directory_revision: resolvedRecipient.phone_version,
+      };
+    }
     if (!globallyEnabled) {
       const audit = await insertNotificationEvent(pg, {
         client_slug: clientSlug,
@@ -555,9 +586,10 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
     const canary = validateStaffAlertCanaryAuthorization(env, {
       client_slug: clientSlug,
       location_id: locationId,
-      recipient_id: recipient.staff_number_id,
+      staff_number_id: recipient.staff_number_id,
       phone: recipient.phone,
-      phone_version: recipient.phone_version,
+      directory_revision: recipient.directory_revision,
+      guest_phone: inp.guest_phone,
       notification_type: notificationType,
     });
     if (!canary.ok) {

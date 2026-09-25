@@ -38,6 +38,7 @@ function ok(name, cond) {
 
 function createMockPg(seed = {}) {
   const clients = new Set(seed.clients || ['wolfhouse-somo', 'sunset']);
+  const directoryRows = Array.isArray(seed.directoryRows) ? seed.directoryRows : [];
   const settings = new Map();
   const events = [];
 
@@ -60,7 +61,18 @@ function createMockPg(seed = {}) {
     events,
     async query(sql, params = []) {
       const q = String(sql);
-      if (/FROM clients WHERE slug/i.test(q)) {
+      if (q.includes('FROM wolfhouse_staff_whatsapp_numbers')) {
+        const [clientSlug, staffNumberId] = params;
+        const row = directoryRows.find((entry) => entry.client_slug === clientSlug
+          && entry.staff_number_id === staffNumberId && entry.active !== false);
+        return { rows: row ? [{
+          id: row.staff_number_id,
+          name: row.name || 'Fixture desk',
+          phone: row.phone,
+          updated_at: row.updated_at || '2026-09-25T11:24:00.000Z',
+        }] : [] };
+      }
+      if (q.includes('FROM clients WHERE slug = $1')) {
         const slug = params[0];
         return { rows: clients.has(slug) ? [{ id: 'client-1' }] : [] };
       }
@@ -158,6 +170,13 @@ async function runAsyncTests() {
   }, 'new_conversation');
   ok('settings preserve directory recipient ID', directoryRecipient.ok === true
     && directoryRecipient.recipients[0].staff_number_id === '11111111-1111-4111-8111-111111111111');
+  const idOnlyDirectoryRecipient = validateNotificationTypeConfig({
+    enabled: true,
+    recipients: [{ staff_number_id: '11111111-1111-4111-8111-111111111111', enabled: true }],
+  }, 'new_conversation');
+  ok('settings accept an enabled directory ID without copied phone data', idOnlyDirectoryRecipient.ok === true
+    && idOnlyDirectoryRecipient.recipients[0].staff_number_id === '11111111-1111-4111-8111-111111111111'
+    && idOnlyDirectoryRecipient.recipients[0].phone === null);
   const directoryPg = {
     async query(sql, params) {
       if (/FROM wolfhouse_staff_whatsapp_numbers/.test(String(sql))
@@ -269,6 +288,47 @@ async function runAsyncTests() {
   ok('dry-run does not call Meta', metaCalls === 0);
   ok('dry-run records audit row', pgB.events.some((e) => e.status === 'dry_run'));
   ok('dry-run returns message payload shape', !!(first.results && first.results[0] && first.results[0].message));
+
+  const liveDirectoryPg = createMockPg({
+    clients: ['wolfhouse-somo'],
+    directoryRows: [{
+      client_slug: 'wolfhouse-somo', staff_number_id: '11111111-1111-4111-8111-111111111111',
+      phone: '+' + '34900000003', updated_at: '2026-09-25T11:24:00.000Z',
+    }],
+  });
+  await putNotificationSettings(liveDirectoryPg, {
+    clientSlug: 'wolfhouse-somo', locationId: null,
+    settings: {
+      new_conversation: { enabled: true, recipients: [{
+        staff_number_id: '11111111-1111-4111-8111-111111111111', enabled: true,
+      }] },
+      human_needed: { enabled: false, recipients: [] },
+    },
+  });
+  const liveDirectoryAuth = {
+    authorization_id: 'ty-canary-001', deployment: 'sunset-staging', sender_phone_number_id: 'sender-001',
+    client_slug: 'wolfhouse-somo', location_id: null,
+    staff_number_id: '11111111-1111-4111-8111-111111111111', recipient_phone: '+' + '34900000003',
+    directory_revision: '2026-09-25T11:24:00.000Z', approved_guest_phone: '+' + '34900000099',
+    alert_types: ['new_conversation'], expires_at: '2099-01-01T00:00:00.000Z', max_attempts: 2,
+  };
+  let liveDirectoryProviderCalls = 0;
+  const liveDirectoryResult = await dispatchStaffWhatsAppNotifications(liveDirectoryPg, {
+    STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
+    STAFF_ALERT_CANARY_AUTHORIZATION: JSON['stringify'](liveDirectoryAuth),
+    LUNA_DEPLOYMENT: 'sunset-staging', WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
+  }, {
+    client_slug: 'wolfhouse-somo', conversation_id: '33333333-3333-4333-8333-333333333333',
+    notification_type: 'new_conversation', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
+  }, {
+    async sendMessage() {
+      liveDirectoryProviderCalls += 1;
+      return { success: true, whatsapp_message_id: 'wamid.fixture' };
+    },
+  });
+  ok('live dispatch resolves ID-only settings through the active tenant directory row',
+    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0].status === 'sent');
+
   ok('dedupe prevents duplicate sends', second.results[0].status === 'duplicate');
 
   const unknown = await dispatchStaffWhatsAppNotifications(pgB, env, {
