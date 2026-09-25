@@ -389,12 +389,15 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-summary-hdr">' +
       '<div class="customers-profile-avatar" aria-hidden="true">' + escHtml(customerProfileInitials(displayName)) + '</div>' +
       '<div class="customers-profile-identity">' +
+      '<div class="customers-profile-name-row">' +
+      '<button type="button" class="customers-profile-back" id="cust-profile-back" aria-label="' + escHtml(portalT('customers.profile.back')) + '"><span aria-hidden="true">&#8592;</span></button>' +
       '<h3 class="customers-profile-name">' + escHtml(displayName) + '</h3>' +
+      '</div>' +
       '<div class="customers-profile-contact">' + escHtml(contactBits.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       '</div>' +
       '<div class="customers-profile-hdr-actions">' +
-      '<button type="button" class="btn btn-ghost" id="cust-profile-create-booking">' + escHtml(portalT('customers.detail.createBooking')) + '</button>' +
-      '<button type="button" class="btn btn-primary" id="cust-conversation-btn"' + (convDisabled ? ' disabled title="' + escHtml(convDisabledText) + '"' : '') + '>' + escHtml(convLabel) + '</button>' +
+      '<button type="button" class="btn btn-primary" id="cust-profile-create-booking">' + escHtml(portalT('customers.detail.createBooking')) + '</button>' +
+      '<button type="button" class="btn btn-ghost" id="cust-conversation-btn"' + (convDisabled ? ' disabled title="' + escHtml(convDisabledText) + '"' : '') + '>' + escHtml(convLabel) + '</button>' +
       '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
@@ -425,7 +428,26 @@ function renderCustomerProfileSection(data, editing) {
     '</div>';
 }
 
+function customerProfileBackToList() {
+  selectedCustomerPhone = null;
+  customerDetailState = { phone: null, data: null, editing: false, tagsEditing: false };
+  var box = el('cust-detail');
+  if (box) {
+    box.innerHTML = '<div class="customers-detail-empty"><p class="main-msg">' + escHtml(portalT('customers.detail.select')) + '</p></div>';
+  }
+  if (typeof renderCustomersList === 'function' && typeof getCustomersVisibleRows === 'function') {
+    renderCustomersList(getCustomersVisibleRows());
+  }
+  var listCol = document.querySelector('#tab-customers .customers-list-col');
+  if (listCol && listCol.scrollIntoView) listCol.scrollIntoView({ block: 'start' });
+}
+
 function wireCustomerProfileActions(data) {
+  var backBtn = el('cust-profile-back');
+  if (backBtn) backBtn.addEventListener('click', function(ev) {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    customerProfileBackToList();
+  });
   var editBtn = el('cust-profile-edit-btn');
   if (editBtn) editBtn.addEventListener('click', function(){ customerEnterEditMode(); });
   var convBtn = el('cust-conversation-btn');

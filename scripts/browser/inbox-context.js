@@ -90,7 +90,10 @@ var INBOX_CONTEXT_CSS = [
   '}',
   '.inbox-customer-card.is-full{padding:16px 18px;gap:14px}',
   '.inbox-customer-card .customers-profile-summary{margin-bottom:0;padding-bottom:12px}',
-  '.inbox-customer-card .customers-profile-hdr-actions{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}',
+  '.inbox-customer-card .customers-profile-summary-hdr{flex-wrap:wrap}',
+  '.inbox-customer-card .customers-profile-name-row{display:flex;align-items:center;gap:8px;min-width:0}',
+  '.inbox-customer-card .customers-profile-hdr-actions{flex:1 1 100%;width:100%;margin-left:0;display:flex;flex-wrap:nowrap;gap:6px}',
+  '.inbox-customer-card .customers-profile-hdr-actions .btn{flex:1 1 0;min-width:0;white-space:nowrap;justify-content:center;font-size:11px;padding:7px 4px}',
   '.inbox-customer-card .customers-section{margin-top:4px}',
   '.inbox-customer-card .customers-section-hdr{font-size:11px}',
   '.inbox-customer-head{display:flex;align-items:flex-start;gap:10px;min-width:0}',
@@ -1367,12 +1370,15 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-summary-hdr">';
   html += '<div class="customers-profile-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="customers-profile-identity">';
+  html += '<div class="customers-profile-name-row">';
+  html += '<button type="button" class="customers-profile-back" id="inbox-guest-profile-back" aria-label="' +
+    inboxContextEsc(inboxContextT('customers.profile.back', 'Back')) + '"><span aria-hidden="true">&#8592;</span></button>';
   html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
-  html += '</div>';
+  html += '</div></div>';
   html += '<div class="customers-profile-hdr-actions">';
-  html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
+  html += '<button type="button" class="btn btn-primary" id="inbox-create-booking-for-guest">' +
     inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
-  html += '<button type="button" class="btn btn-primary" id="cust-conversation-btn"' +
+  html += '<button type="button" class="btn btn-ghost" id="cust-conversation-btn"' +
     (convDisabled ? ' disabled title="' + inboxContextEsc(convDisabledText) + '"' : '') + '>' +
     inboxContextEsc(convLabel) + '</button>';
   html += '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' +
@@ -1974,10 +1980,26 @@ function inboxCustomerOpenOrStartConversation(sidebar, data, opts) {
   });
 }
 
+function inboxGuestProfileBackToList() {
+  if (typeof hideInboxMobileThread === 'function') hideInboxMobileThread();
+  var list = typeof document !== 'undefined' ? document.getElementById('conv-list') : null;
+  if (list && list.querySelectorAll) {
+    list.querySelectorAll('.conv-card.selected').forEach(function(card) { card.classList.remove('selected'); });
+  }
+}
+
 function inboxCustomerWireFull(sidebar, data, opts) {
   // Bind to the rendered card, not whatever thread is selected at click time.
   // People-only cards explicitly pass conv:null and cannot inherit a thread.
   var conversationOpts = { conv: opts ? opts.conv : inboxContextLastConv };
+  var back = sidebar && sidebar.querySelector('#inbox-guest-profile-back');
+  if (back && back.dataset.inboxCustomerWired !== '1') {
+    back.dataset.inboxCustomerWired = '1';
+    back.addEventListener('click', function(ev) {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      inboxGuestProfileBackToList();
+    });
+  }
   var edit = sidebar && (sidebar.querySelector('#cust-profile-edit-btn') || sidebar.querySelector('#inbox-customer-edit-profile'));
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
     edit.dataset.inboxCustomerWired = '1';
