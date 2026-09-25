@@ -491,14 +491,18 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     if (i.suppress_notifications === true) {
       staff_notification = { suppressed: true, reason: 'simulator_synthetic' };
     } else {
-      staff_notification = await maybeNotifyNewConversation(pg, env, {
-        created: ensured.created === true,
-        client_slug: i.client_slug,
-        location_id: ensured.location_id,
-        conversation_id: conversationId,
-        guest_phone: ensured.guest_phone,
-        guest_name: ensured.guest_name,
-      }, notifyContext);
+      try {
+        staff_notification = await maybeNotifyNewConversation(pg, env, {
+          created: ensured.created === true,
+          client_slug: i.client_slug,
+          location_id: ensured.location_id,
+          conversation_id: conversationId,
+          guest_phone: ensured.guest_phone,
+          guest_name: ensured.guest_name,
+        }, notifyContext);
+      } catch (_) {
+        staff_notification = { failed: true, reason: 'staff_alert_dispatch_failed' };
+      }
     }
     return {
       ok: true,
@@ -608,16 +612,20 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       if (i.suppress_notifications === true) {
         staff_notification = { suppressed: true, reason: 'simulator_synthetic' };
       } else {
-        staff_notification = await maybeNotifyHumanNeeded(pg, env, {
-          transitioned: true,
-          handoff_event_key: handoffAt,
-          client_slug: i.client_slug,
-          location_id: ensured.location_id,
-          conversation_id: conversationId,
-          guest_phone: ensured.guest_phone,
-          guest_name: ensured.guest_name,
-          reason,
-        }, notifyContext);
+        try {
+          staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+            transitioned: true,
+            handoff_event_key: handoffAt,
+            client_slug: i.client_slug,
+            location_id: ensured.location_id,
+            conversation_id: conversationId,
+            guest_phone: ensured.guest_phone,
+            guest_name: ensured.guest_name,
+            reason,
+          }, notifyContext);
+        } catch (_) {
+          staff_notification = { failed: true, reason: 'staff_alert_dispatch_failed' };
+        }
       }
     }
   }

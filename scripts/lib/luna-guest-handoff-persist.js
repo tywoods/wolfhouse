@@ -266,16 +266,20 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const skipNotify = opts.skip_notify === true || reasonCode === 'staff_manual_handoff';
   if (!wasNeedsHuman && !skipNotify) {
     const locationId = extractLocationFromMetadata(priorRow.metadata);
-    staff_notification = await maybeNotifyHumanNeeded(pg, env, {
-      transitioned: true,
-      handoff_event_key: handoffAt,
-      client_slug: clientSlug,
-      location_id: locationId,
-      conversation_id: row.conversation_id,
-      guest_phone: priorRow.phone,
-      guest_name: priorRow.display_name,
-      reason: reasonCode,
-    }, notifyContext);
+    try {
+      staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+        transitioned: true,
+        handoff_event_key: handoffAt,
+        client_slug: clientSlug,
+        location_id: locationId,
+        conversation_id: row.conversation_id,
+        guest_phone: priorRow.phone,
+        guest_name: priorRow.display_name,
+        reason: reasonCode,
+      }, notifyContext);
+    } catch (_) {
+      staff_notification = { failed: true, reason: 'staff_alert_dispatch_failed' };
+    }
   }
 
   return {

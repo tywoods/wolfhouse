@@ -19,6 +19,7 @@ const {
   isStaffNotificationsDryRun,
   validateStaffAlertCanaryAuthorization,
   resolveActiveStaffAlertRecipient,
+  resolveStoredConversationTruth,
   PHONE_RE,
 } = require('./lib/staff-whatsapp-notifications');
 
@@ -39,6 +40,7 @@ function ok(name, cond) {
 function createMockPg(seed = {}) {
   const clients = new Set(seed.clients || ['wolfhouse-somo', 'sunset']);
   const directoryRows = Array.isArray(seed.directoryRows) ? seed.directoryRows : [];
+  const conversationRows = Array.isArray(seed.conversationRows) ? seed.conversationRows : null;
   const settings = new Map();
   const events = [];
 
@@ -61,6 +63,22 @@ function createMockPg(seed = {}) {
     events,
     async query(sql, params = []) {
       const q = String(sql);
+      if (q.includes('FROM conversations conv') && q.includes('JOIN clients c')) {
+        if (seed.conversationLookupError) throw new Error('fixture conversation lookup failure');
+        const [clientSlug, conversationId] = params;
+        const rows = conversationRows === null
+          ? (clients.has(clientSlug) ? [{
+            conversation_id: conversationId,
+            client_slug: clientSlug,
+            guest_phone: seed.defaultGuestPhone || ('+' + '34900000099'),
+            guest_name: seed.defaultGuestName || 'Stored fixture guest',
+            guest_id: null,
+            customer_id: null,
+            metadata: seed.defaultMetadata || {},
+          }] : [])
+          : conversationRows.filter((row) => row.client_slug === clientSlug && row.conversation_id === conversationId);
+        return { rows, rowCount: rows.length };
+      }
       if (q.includes('FROM wolfhouse_staff_whatsapp_numbers')) {
         const [clientSlug, staffNumberId] = params;
         const row = directoryRows.find((entry) => entry.client_slug === clientSlug
@@ -152,6 +170,7 @@ function createMockPg(seed = {}) {
 
 async function runAsyncTests() {
   console.log('\n── validation ──');
+  ok('stored conversation truth resolver exported', typeof resolveStoredConversationTruth === 'function');
   const badPhone = validateNotificationTypeConfig({
     enabled: true,
     recipients: [{ name: 'Desk', phone: '+123', enabled: true }],
@@ -327,9 +346,9 @@ async function runAsyncTests() {
     },
   });
   ok('live dispatch resolves ID-only settings through the active tenant directory row',
-    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0].status === 'sent');
+    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0] && liveDirectoryResult.results[0].status === 'sent');
 
-  ok('dedupe prevents duplicate sends', second.results[0].status === 'duplicate');
+  ok('dedupe prevents duplicate sends', !!(second.results[0] && second.results[0].status === 'duplicate'));
 
   const unknown = await dispatchStaffWhatsAppNotifications(pgB, env, {
     client_slug: 'unknown-client-slug',
@@ -337,7 +356,39 @@ async function runAsyncTests() {
     notification_type: 'new_conversation',
     guest_phone: '+34900000099',
   }, mockSend);
-  ok('unknown/unresolved client sends no notification', unknown.skipped === true && unknown.reason === 'unknown_client');
+  ok('unknown/unresolved client sends no notification', unknown.skipped === true && unknown.reason === 'conversation_not_found');
+
+  const missingTruth = await resolveStoredConversationTruth(createMockPg({ conversationRows: [] }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('stored truth fails closed when conversation is missing', missingTruth.ok === false
+    && missingTruth.reason === 'conversation_not_found');
+  const lookupFailureTruth = await resolveStoredConversationTruth(createMockPg({ conversationLookupError: true }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('stored truth fails closed on lookup error', lookupFailureTruth.ok === false
+    && lookupFailureTruth.reason === 'conversation_lookup_failed');
+  const syntheticTruth = await resolveStoredConversationTruth(createMockPg({
+    defaultMetadata: { simulator_synthetic: true },
+  }), { client_slug: 'wolfhouse-somo', conversation_id: convId });
+  ok('stored synthetic provenance vetoes alerts', syntheticTruth.ok === false
+    && syntheticTruth.reason === 'synthetic_conversation');
+  const reservedTruth = await resolveStoredConversationTruth(createMockPg({ defaultGuestPhone: '+' + '999000000001' }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('reserved simulator guest identity vetoes alerts', reservedTruth.ok === false
+    && reservedTruth.reason === 'synthetic_conversation');
+  const malformedSunsetTruth = await resolveStoredConversationTruth(createMockPg({
+    clients: ['sunset'], defaultMetadata: { location_id: 'sunset-unknown' },
+  }), { client_slug: 'sunset', conversation_id: convId });
+  ok('stored Sunset location must be canonical', malformedSunsetTruth.ok === false
+    && malformedSunsetTruth.reason === 'conversation_location_invalid');
+  const ordinaryTruth = await resolveStoredConversationTruth(createMockPg({
+    defaultGuestPhone: '+' + '34900000099', defaultGuestName: 'Stored Name',
+  }), { client_slug: 'wolfhouse-somo', conversation_id: convId });
+  ok('stored ordinary conversation provides authoritative guest identity', ordinaryTruth.ok === true
+    && ordinaryTruth.conversation.guest_phone === '+' + '34900000099'
+    && ordinaryTruth.conversation.guest_name === 'Stored Name');
 
   ok('env gate defaults disabled', isStaffNotificationsEnabled({}) === false);
   ok('env gate dry-run defaults true', isStaffNotificationsDryRun({}) === true);

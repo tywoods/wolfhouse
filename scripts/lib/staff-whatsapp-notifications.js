@@ -21,6 +21,7 @@ const NAME_MAX = 80;
 const PHONE_RE = /^\+[1-9]\d{7,14}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SCOPE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SUNSET_LOCATION_IDS = new Set(['sunset-somo', 'sunset-sardinero']);
 const CLIENTS_JSON = path.join(__dirname, '..', '..', 'config', 'clients', 'clients.json');
 
 let clientsRegistryCache = null;
@@ -470,12 +471,73 @@ async function insertNotificationEvent(pg, row) {
  * @param {object} input
  * @param {{ sendMessage?: Function }} [context]
  */
+async function resolveStoredConversationTruth(pg, input) {
+  const i = input || {};
+  const clientSlug = typeof i.client_slug === 'string' ? i.client_slug.trim() : '';
+  const conversationId = typeof i.conversation_id === 'string' ? i.conversation_id.trim() : '';
+  if (!pg || typeof pg.query !== 'function' || !SCOPE_ID_RE.test(clientSlug)
+    || !UUID_RE.test(conversationId)) {
+    return { ok: false, reason: 'conversation_identity_invalid' };
+  }
+  let result;
+  try {
+    result = await pg.query(
+      `SELECT conv.id::text AS conversation_id,
+              c.slug AS client_slug,
+              conv.phone AS guest_phone,
+              conv.display_name AS guest_name,
+              conv.guest_id::text AS guest_id,
+              conv.customer_id::text AS customer_id,
+              conv.metadata
+         FROM conversations conv
+         JOIN clients c ON c.id = conv.client_id
+        WHERE c.slug = $1
+          AND conv.id = $2::uuid
+        LIMIT 1`,
+      [clientSlug, conversationId],
+    );
+  } catch (error) {
+    return { ok: false, reason: 'conversation_lookup_failed', error };
+  }
+  const row = result && result.rows && result.rows[0];
+  if (!row) return { ok: false, reason: 'conversation_not_found' };
+  let metadata = row.metadata;
+  if (typeof metadata === 'string') {
+    try { metadata = JSON.parse(metadata); } catch (_) { return { ok: false, reason: 'conversation_metadata_invalid' }; }
+  }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+  const guestPhone = typeof row.guest_phone === 'string' ? row.guest_phone.trim() : '';
+  if (!PHONE_RE.test(guestPhone)) return { ok: false, reason: 'conversation_guest_phone_invalid' };
+  if (metadata.simulator_synthetic === true || /^\+999/.test(guestPhone)) {
+    return { ok: false, reason: 'synthetic_conversation' };
+  }
+  let locationId = null;
+  if (clientSlug === 'sunset') {
+    locationId = typeof metadata.location_id === 'string' ? metadata.location_id : '';
+    if (!SUNSET_LOCATION_IDS.has(locationId)) return { ok: false, reason: 'conversation_location_invalid' };
+  } else if (metadata.location_id != null) {
+    return { ok: false, reason: 'conversation_location_invalid' };
+  }
+  return {
+    ok: true,
+    conversation: {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      location_id: locationId,
+      guest_phone: guestPhone,
+      guest_name: typeof row.guest_name === 'string' ? row.guest_name.trim() : '',
+      guest_id: row.guest_id || null,
+      customer_id: row.customer_id || null,
+      metadata,
+    },
+  };
+}
+
 async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) {
-  const inp = input || {};
-  const clientSlug = trimStr(inp.client_slug);
-  const conversationId = trimStr(inp.conversation_id);
+  let inp = input || {};
+  const requestedClientSlug = trimStr(inp.client_slug);
+  const requestedConversationId = trimStr(inp.conversation_id);
   const notificationType = trimStr(inp.notification_type);
-  const locationId = normalizeLocationId(inp.location_id);
   const handoffKey = handoffEventKeyForType(notificationType, inp.handoff_event_key);
 
   const baseSkip = {
@@ -485,13 +547,28 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
     results: [],
   };
 
-  if (!pg || !clientSlug || !conversationId || !NOTIFICATION_TYPES.includes(notificationType)) {
+  if (!pg || !requestedClientSlug || !requestedConversationId || !NOTIFICATION_TYPES.includes(notificationType)) {
     return { ...baseSkip, reason: 'invalid_input' };
   }
+  if (inp.suppress_notifications === true) return { ...baseSkip, reason: 'explicit_no_send' };
 
-  if (!(await clientExists(pg, clientSlug))) {
-    return { ...baseSkip, reason: 'unknown_client' };
+  const stored = await resolveStoredConversationTruth(pg, {
+    client_slug: requestedClientSlug,
+    conversation_id: requestedConversationId,
+  });
+  if (!stored.ok) return { ...baseSkip, reason: stored.reason };
+  const truth = stored.conversation;
+  const requestedLocation = Object.prototype.hasOwnProperty.call(inp, 'location_id')
+    ? normalizeLocationId(inp.location_id)
+    : truth.location_id;
+  if (requestedLocation !== truth.location_id) return { ...baseSkip, reason: 'conversation_location_mismatch' };
+  if (inp.guest_phone != null && trimStr(inp.guest_phone) !== truth.guest_phone) {
+    return { ...baseSkip, reason: 'conversation_guest_mismatch' };
   }
+  inp = { ...inp, ...truth };
+  const clientSlug = truth.client_slug;
+  const conversationId = truth.conversation_id;
+  const locationId = truth.location_id;
 
   await ensureNotificationTables(pg);
 
@@ -695,6 +772,7 @@ module.exports = {
   isStaffNotificationsDryRun,
   validateStaffAlertCanaryAuthorization,
   resolveActiveStaffAlertRecipient,
+  resolveStoredConversationTruth,
   validateNotificationSettingsPayload,
   validateNotificationTypeConfig,
   buildStaffInboxDeepLink,
