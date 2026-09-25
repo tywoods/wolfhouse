@@ -39813,11 +39813,13 @@ function bcInitPaymentLinkShell(data){
           return;
         }
         if (resultEl) {
-          resultEl.innerHTML = escHtml(t('drawer.payments.linkReady'));
+          var balanceLink = (res.data && (res.data.payment_short_url || res.data.checkout_url || res.data.guest_payment_url)) || '';
+          resultEl.innerHTML = balanceLink && /^https?:\/\//i.test(balanceLink)
+            ? '<a href="' + escHtml(balanceLink) + '" target="_blank" rel="noopener">' + escHtml(balanceLink) + '</a>'
+            : escHtml(t('drawer.payments.linkReady'));
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
         }
-        bcRefreshPaymentsTab(bk);
       })
       .catch(function(err){
         genBtn.disabled = false;
@@ -39856,12 +39858,11 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
       }
       if (resultEl) {
         var link = (res.data && (res.data.payment_short_url || res.data.guest_payment_url)) || '';
-        resultEl.innerHTML = link
-          ? escHtml(t('drawer.payments.linkReady') + ' ' + link)
+        resultEl.innerHTML = link && /^https?:\/\//i.test(link)
+          ? '<a href="' + escHtml(link) + '" target="_blank" rel="noopener">' + escHtml(link) + '</a>'
           : escHtml(t('drawer.payments.linkReady'));
         resultEl.style.display = 'block';
       }
-      bcRefreshPaymentsTab((data && data.booking) || {});
     })
     .catch(function(err){
       if (btn) btn.disabled = false;
