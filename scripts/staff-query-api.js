@@ -39880,7 +39880,9 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
 }
 
 function bcBindCreateGuestPaymentLinkButtons(data){
-  var root = el('bc-detail') || document;
+  // The live lodging drawer may be mounted outside #bc-detail. Bind across the
+  // document and rely on the per-button marker to keep this idempotent.
+  var root = document;
   if (!root || !root.querySelectorAll) return;
   root.querySelectorAll('.bc-create-guest-payment-link-btn').forEach(function(btn){
     if (btn.getAttribute('data-bc-paylink-bound') === '1') return;
