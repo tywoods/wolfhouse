@@ -84,6 +84,8 @@ const NAMES = [
   'bcRenderPerGuestPaymentsHtml',
   'bcRenderRunningInvoiceHtml',
   'bcRequestGuestPaymentLink',
+  'bcInitPaymentLinkShell',
+  'bcNewPaymentLinkIdempotencyKey',
   'bcBindCreateGuestPaymentLinkButtons',
   'bcInitGuestPaymentLinkShell',
 ];
@@ -359,5 +361,91 @@ let unknown = null;
 try { unknown = sandbox.bcInvoicePaymentRequestDisplay('payment_link_sent'); } catch (err) { unknown = null; }
 check('I5', unknown && unknown.createLink === false && unknown.label === 'Payment link sent', unknown && unknown.label);
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+function fakeInlineNode() {
+  return {
+    innerHTML: '',
+    style: { display: 'none' },
+    disabled: false,
+    addEventListener(type, listener) {
+      this.listeners = this.listeners || {};
+      this.listeners[type] = listener;
+    },
+    classList: {
+      values: new Set(),
+      add(value) { this.values.add(value); },
+      remove(value) { this.values.delete(value); },
+    },
+  };
+}
+
+async function verifyInlinePaymentLinkResults() {
+  const originalFetch = sandbox.fetch;
+  const originalRefresh = sandbox.bcRefreshPaymentsTab;
+  let refreshes = 0;
+  sandbox.bcRefreshPaymentsTab = () => { refreshes += 1; };
+
+  const perGuestResult = fakeInlineNode();
+  const perGuestBtn = fakeInlineNode();
+  sandbox.fetch = () => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ success: true, payment_short_url: 'https://pay.example/guest-inline' }),
+  });
+  sandbox.bcRequestGuestPaymentLink('guest-inline', perGuestResult, perGuestBtn, { booking: { booking_id: 'b1' } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('UX1', perGuestResult.innerHTML.includes('<a href="https://pay.example/guest-inline"')
+    && perGuestResult.innerHTML.includes('https://pay.example/guest-inline'), 'per-guest success renders an inline payment-link anchor');
+  check('UX2', refreshes === 0, 'per-guest success does not jump to Payments');
+  refreshes = 0;
+
+  const failureResult = fakeInlineNode();
+  const failureBtn = fakeInlineNode();
+  sandbox.fetch = () => Promise.resolve({
+    ok: false,
+    json: () => Promise.resolve({ success: false, error: 'Stripe unavailable' }),
+  });
+  sandbox.bcRequestGuestPaymentLink('guest-failure', failureResult, failureBtn, { booking: { booking_id: 'b1' } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('UX3', failureResult.innerHTML.includes('Stripe unavailable'), 'per-guest failure remains inline');
+  check('UX4', !failureResult.innerHTML.includes('Payment link ready'), 'per-guest failure never claims a ready link');
+  check('UX5', refreshes === 0, 'per-guest failure does not jump to Payments');
+
+  const balanceResult = fakeInlineNode();
+  const balanceBtn = fakeInlineNode();
+  sandbox.el = (id) => (id === 'bc-generate-payment-link-btn' ? balanceBtn : (id === 'bc-payment-link-result' ? balanceResult : null));
+  sandbox.fetch = () => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ success: true, payment_short_url: 'https://pay.example/balance-inline' }),
+  });
+  sandbox.bcInitPaymentLinkShell({ booking: { booking_id: 'b1', booking_code: 'B1' } });
+  check('UX6', !!(balanceBtn.listeners && balanceBtn.listeners.click), 'balance button has an executable inline action');
+  balanceBtn.listeners.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('UX7', balanceResult.innerHTML.includes('<a href="https://pay.example/balance-inline"')
+    && balanceResult.innerHTML.includes('https://pay.example/balance-inline'), 'balance success renders an inline payment-link anchor');
+  check('UX8', refreshes === 0, 'balance success does not jump to Payments');
+
+  const balanceFailureResult = fakeInlineNode();
+  const balanceFailureBtn = fakeInlineNode();
+  sandbox.el = (id) => (id === 'bc-generate-payment-link-btn' ? balanceFailureBtn : (id === 'bc-payment-link-result' ? balanceFailureResult : null));
+  sandbox.fetch = () => Promise.resolve({
+    ok: false,
+    json: () => Promise.resolve({ success: false, error: 'Stripe unavailable' }),
+  });
+  sandbox.bcInitPaymentLinkShell({ booking: { booking_id: 'b1', booking_code: 'B1' } });
+  balanceFailureBtn.listeners.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('UX9', balanceFailureResult.innerHTML.includes('Stripe unavailable'), 'balance failure remains inline');
+  check('UX10', !balanceFailureResult.innerHTML.includes('Payment link ready'), 'balance failure never claims a ready link');
+  check('UX11', refreshes === 0, 'balance failure does not jump to Payments');
+
+  sandbox.fetch = originalFetch;
+  sandbox.bcRefreshPaymentsTab = originalRefresh;
+}
+
+verifyInlinePaymentLinkResults().then(() => {
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  process.exit(fail ? 1 : 0);
+}).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
