@@ -19730,9 +19730,11 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1));font-size:calc(12px * var(--bc-zoom, 1))}
 .bc-grid-shell{display:none;position:relative}
 .bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.bc-grid-resize-handle{height:10px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
-.bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#B8A99A;opacity:.85}
-.bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
+/* Shared Schedule/drawer chrome; intentionally not the Inbox resize handle. */
+.bc-grid-resize-handle,.bc-drawer-file-tabs{--bc-inactive-chrome:#3A3A3C;--bc-inactive-label:#F5F5F7;--bc-inactive-border:#626265}
+.bc-grid-resize-handle{height:10px;cursor:ns-resize;background:var(--bc-inactive-chrome);border:1px solid var(--bc-inactive-border);border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
+.bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#D1D1D6}
+.bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:var(--bc-inactive-label)}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
 .bc-room-hdr{background:var(--room-bar,#4A4540);color:var(--room-bar-fg,#fff);font-weight:700;font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));letter-spacing:.02em}
 .bc-room-hdr-inner{display:inline;align-items:baseline}
@@ -20015,8 +20017,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
 .bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.bc-drawer-tab{position:relative;padding:10px 14px;font-size:13px;font-weight:500;white-space:nowrap;flex:0 0 auto;border:1px solid var(--border-soft);border-bottom:none;background:#F3EBE0;color:var(--text-2);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
-.bc-drawer-tab:hover{background:#FAF6EF;color:var(--text)}
+.bc-drawer-tab{position:relative;padding:10px 14px;font-size:13px;font-weight:500;white-space:nowrap;flex:0 0 auto;border:1px solid var(--bc-inactive-border);border-bottom:none;background:var(--bc-inactive-chrome);color:var(--bc-inactive-label);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
+.bc-drawer-tab:hover{background:var(--bc-inactive-chrome);color:#fff}
 .bc-drawer-tab:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .bc-drawer-tab.is-active{background:var(--surface-soft);color:var(--text);font-weight:600;border-color:var(--border-soft);box-shadow:none;z-index:3;margin-bottom:-1px;padding-bottom:11px}
 .bc-drawer-tab-content-panel{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:0 var(--radius-sm) var(--radius-sm) var(--radius-sm);padding:14px 16px 16px;min-height:680px}
@@ -20402,8 +20404,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .oi-details-body dd{margin:0}
 /* ── Dark mode — booking calendar polish ─────────────────────────────────── */
 [data-theme="dark"] .bc-grid-wrap-inner{background:linear-gradient(180deg,var(--cream) 0%,var(--surface) 100%);border-color:var(--border-soft)}
-[data-theme="dark"] .bc-grid-resize-handle{background:linear-gradient(180deg,#333 0%,#3c3c3c 100%);border-color:var(--border-soft)}
-[data-theme="dark"] .bc-grid-resize-handle::after{background:#6e6e6e}
+
 [data-theme="dark"] .bc-grid thead th{background:#2d2d2d;color:var(--text-2)}
 [data-theme="dark"] .bc-grid thead th.bc-bed-head{background:linear-gradient(180deg,#3c3c3c 0%,#2d2d2d 100%);border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-room-hdr{background:var(--room-bar,var(--sand));color:var(--room-bar-fg,var(--text))}
@@ -20479,8 +20480,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .lgs-out{background:var(--surface-soft);border-color:var(--border);color:var(--text)}
 [data-theme="dark"] .lgs-safety{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
 /* ── Dark mode — booking drawer (overview + tabs) ───────────────────────── */
-[data-theme="dark"] .bc-drawer-tab{background:#2d2d2d;color:#858585;border-color:#3c3c3c}
-[data-theme="dark"] .bc-drawer-tab:hover{background:var(--border-soft);color:var(--text)}
+
 [data-theme="dark"] .bc-drawer-tab.is-active{background:var(--surface);color:var(--text);border-color:var(--border)}
 [data-theme="dark"] .bc-drawer-tab-content-panel{background:var(--surface);border-color:var(--border)}
 [data-theme="dark"] .bc-drawer-overview-card{background:#2d2d2d;border-color:#3c3c3c;box-shadow:none}
@@ -20833,9 +20833,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:0}
 #bc-side-drawer .bc-drawer-tabs{width:100%;gap:4px;padding:0;overflow:visible}
 #bc-side-drawer .bc-drawer-tab{
-  flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px;
-  text-align:center;border:1px solid var(--border-soft);
+  flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px 8px 0 0;
+  text-align:center;
 }
+#bc-side-drawer .bc-drawer-tab.is-active{margin-bottom:-1px;padding-bottom:8px}
 #bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px;position:relative}
 #bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing){padding-bottom:56px}
 #bc-side-drawer #bc-field-group-guests.is-editing .btn-bc-field-edit{display:none!important}
