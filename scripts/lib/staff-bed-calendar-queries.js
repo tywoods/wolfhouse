@@ -103,6 +103,8 @@ SELECT
   b.guest_name,
   b.phone,
   b.guest_count,
+  b.package_code,
+  b.metadata->'guest_packages' AS guest_packages,
   b.check_in::text          AS check_in,
   b.check_out::text         AS check_out,
   b.status::text            AS booking_status,

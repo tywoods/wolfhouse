@@ -20627,6 +20627,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .bc-block{font-size:12px;padding:2px 6px 2px 7px;gap:3px 5px}
 #tab-bed-calendar .bc-block-label{font-size:12px;font-weight:700;line-height:1.2}
 #tab-bed-calendar .bc-block-pay-badge{font-size:12px;padding:1px 4px}
+#tab-bed-calendar .bc-block .bc-block-package-pebble{font-size:12px;padding:1px 4px;margin:0;border-radius:8px;line-height:1.25}
 #tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 #tab-bed-calendar .toolbar h2{flex:1 1 100%;font-size:15px;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;margin:0 0 2px}
 #tab-bed-calendar .toolbar label{flex:1 1 auto;flex-direction:row;align-items:center;gap:4px;font-size:12px;font-weight:600;margin:0;padding:0;min-width:0!important}
@@ -36950,7 +36951,7 @@ function bcCalendarPaymentTooltipHint(blk){
   if (st.kind === 'balance_due') {
     var hint = '';
     if (st.show_deposit_paid) hint += ' | Deposit paid';
-    hint += ' | Balance due ' + bcCalendarFormatEur(st.amount_cents);
+    hint += ' | ' + bcCalendarFormatEur(st.amount_cents);
     if (st.has_active_payment_link) hint += ' | Link sent';
     return hint;
   }
@@ -36973,7 +36974,7 @@ function bcCalendarPaymentBadgesHtml(blk){
     if (st.show_deposit_paid) {
       html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
     }
-    html += '<span class="bc-block-pay-badge bc-block-pay-balance">Balance due ' +
+    html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
     if (st.has_active_payment_link) {
       html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
@@ -37036,8 +37037,45 @@ function bcFormatTransferSummaryLabel(summary){
   return '';
 }
 
+function bcCalendarPackagePebbleHtml(blk){
+  if (!blk) return '';
+  if (String(blk.status || '').toLowerCase() === 'blocked') return '';
+  if (String(blk.color_type || '').toLowerCase() === 'blocked') return '';
+  if (blk.calendar_show_payment_pills === false) return '';
+  var guestPackages = bcGuestPackages({
+    guest_count: blk.guest_count,
+    package_code: blk.package_code,
+    metadata: { guest_packages: blk.guest_packages || (blk.metadata && blk.metadata.guest_packages) || null },
+  });
+  var groups = {};
+  var order = [];
+  var hasPackage = false;
+  guestPackages.forEach(function(gp){
+    var code = gp && gp.package_code ? String(gp.package_code).trim().toLowerCase() : 'no_package';
+    if (!code || code === 'no_package' || code === 'package_none') code = 'no_package';
+    else hasPackage = true;
+    if (!groups[code]) {
+      groups[code] = 0;
+      order.push(code);
+    }
+    groups[code]++;
+  });
+  if (!hasPackage) {
+    return '<span class="pkg-pebble pkg-pebble-stone bc-block-package-pebble">no pebble</span>';
+  }
+  var html = '';
+  order.forEach(function(code){
+    if (!code || code === 'no_package' || code === 'package_none') return;
+    var count = groups[code];
+    var label = bcFieldEditPackageDisplayLabel(code);
+    if (count > 1) label += ' x' + count;
+    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(code) + ' bc-block-package-pebble">' + escHtml(label) + '</span>';
+  });
+  return html;
+}
+
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcTransferPebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcTransferPebbleHtml(blk) + bcCalendarPackagePebbleHtml(blk) + bcCalendarPaymentBadgesHtml(blk);
 }
 
 /** SCHEDULE-GROUP-BOOKING-UI-001 — stable key for multi-room group paint. */
@@ -50044,6 +50082,20 @@ function calendarBlockDisplayLabel(row) {
   return pickCalendarGuestDisplayName(row);
 }
 
+function calendarGuestPackagesFromRow(row) {
+  const raw = row && row.guest_packages;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
 function buildCalendarBlocks(blockRows, startDate, endDate) {
   return blockRows
     .filter(row => !bookingStatusIsCancelled(row.booking_status))
@@ -50057,6 +50109,8 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       booking_code:      row.booking_code,
       guest_name:        displayGuestOrNull,
       guest_count:       row.guest_count != null ? Number(row.guest_count) : null,
+      package_code:      row.package_code || null,
+      guest_packages:    calendarGuestPackagesFromRow(row),
       bed_guest_name:    String(row.bed_guest_name || '').trim() || null,
       planning_row_label: row.planning_row_label || null,
       assignment_label:  row.assignment_label || null,
