@@ -24928,6 +24928,7 @@ function buildGuestPaymentAmountsMap(bookingGuests, perPerson){
         : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
       subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
         : pgPayGuestSubtotalFromMetadata(g.metadata || g.guest_metadata),
+      amount_paid_cents: Number(g.amount_paid_cents || 0),
     };
   }
   return map;
@@ -24938,6 +24939,7 @@ function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
   var kind = String((pr && pr.payment_kind) || '').toLowerCase();
   var depositCents = pr && pr.guest_deposit_amount_cents != null ? Number(pr.guest_deposit_amount_cents) : null;
   var subtotalCents = pr && pr.guest_subtotal_cents != null ? Number(pr.guest_subtotal_cents) : null;
+  var receivedCents = pr && pr.guest_amount_paid_cents != null ? Number(pr.guest_amount_paid_cents) : 0;
   if (subtotalCents == null && pr && pr.guest_metadata != null){
     subtotalCents = pgPayGuestSubtotalFromMetadata(pr.guest_metadata);
   }
@@ -24946,8 +24948,15 @@ function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
   if (guestId && guestMap && guestMap[guestId]){
     if (depositCents == null) depositCents = guestMap[guestId].deposit_cents;
     if (subtotalCents == null) subtotalCents = guestMap[guestId].subtotal_cents;
+    receivedCents = Number(guestMap[guestId].amount_paid_cents || 0);
   }
-  if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit') return depositCents;
+  if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit'){
+    return depositCents == null || subtotalCents == null ? null
+      : Math.max(0, Math.min(depositCents, subtotalCents) - receivedCents);
+  }
+  if (paymentTarget === 'remaining_share'){
+    return subtotalCents == null ? null : Math.max(0, subtotalCents - receivedCents);
+  }
   if (kind === 'full_amount' || paymentTarget === 'full_share'){
     if (subtotalCents != null && subtotalCents > 0) return subtotalCents;
     return depositCents;
@@ -24961,7 +24970,7 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx){
   var kind = String(pr.payment_kind || '').toLowerCase();
   if (pgPayIsPerGuestLinkRow(pr, md)){
     var guestIntended = pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md);
-    if (guestIntended != null && guestIntended > 0) return guestIntended;
+    if (guestIntended != null) return guestIntended;
     if (pr.amount_due_cents != null) return Number(pr.amount_due_cents);
     return null;
   }
@@ -24977,7 +24986,9 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx){
 function paymentLedgerIsStaleUnpaidLinkRowCore(pr, isActiveUnpaid, ledgerCtx){
   if (!isActiveUnpaid(pr)) return false;
   var intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
+  if (intended == null) return false;
+  if (intended === 0 && pgPayIsPerGuestLinkRow(pr)) return true;
+  if (intended <= 0) return false;
   return Number(pr.amount_due_cents) !== Number(intended);
 }
 function bcQuoteNotRunHtml(){
