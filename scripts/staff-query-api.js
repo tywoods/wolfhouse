@@ -464,6 +464,8 @@ const {
 const { hasStormglassConfig } = require('./lib/staff-stormglass-config');
 const {
   fetchSurfForecastForStaff,
+  fetchStormglassForecast,
+  getMadridCalendarYmd,
   resolveAskLunaSurfForecastIntentKey,
   fetchSurfForecastForAskLuna,
   SURF_FORECAST_TODAY_KEY,
@@ -474,6 +476,7 @@ const {
   fetchGuestSurfReportData,
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
+const { factualForecastReply } = require('./lib/luna-stormglass-guest-turn');
 const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
 const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman, clearStaffNeedsHuman } = require('./lib/luna-guest-handoff-persist');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
@@ -49576,40 +49579,78 @@ async function handleBotSurfReport(req, res, user, authMode) {
     preserve_booking_context: false,
   });
 
+  const tonight = /\b(?:tonight|esta noche)\b/i.test(messageText);
+  const explicitDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : null;
+  const date = explicitDate || getMadridCalendarYmd(day);
+  let structured = null;
+  let outcome = null;
   try {
-    const data   = await fetchGuestSurfReportData({ clientSlug: forecastLocationId, day });
-    const result = buildReply(data);
-    return sendJSON(res, 200, {
-      success:        true,
-      tool:           'get_surf_report',
-      reply:          result.reply,
-      day:            result.day,
-      unavailable:    !!result.unavailable,
-      configured:     hasStormglassConfig(),
-      forecast_source: data.source || null,
-      forecast_error: data.unavailable ? (data.error || 'forecast_unavailable') : null,
-      forecast_error_code: data.unavailable ? (data.error_code || null) : null,
-      upstream_status: data.unavailable ? (data.upstream_status || null) : null,
-      no_payment_write: true,
-      no_whatsapp:    true,
-      no_n8n:         true,
+    structured = await fetchStormglassForecast({
+      locationId: forecastLocationId,
+      date,
+      startHour: tonight ? 18 : 0,
+      endHour: 24,
+      timeoutMs: 8000,
     });
   } catch (err) {
-    // Degrade gracefully — a surf question must never dead-end the guest.
+    outcome = (err && err.code) || 'UPSTREAM_ERROR';
+  }
+
+  if (!structured) {
     const fb = buildReply({ unavailable: true });
     return sendJSON(res, 200, {
-      success:     true,
-      tool:        'get_surf_report',
-      reply:       fb.reply,
+      success: true,
+      tool: 'get_surf_report',
+      reply: fb.reply,
       day,
       unavailable: true,
-      configured:  false,
-      detail:      err.message,
+      coverage: 'unavailable',
+      missing_fields: [],
+      outcome,
+      fallback_reason: outcome,
+      location: null,
+      provenance: { source: 'stormglass', retrieved_at: null, cache_hit: false },
+      configured: hasStormglassConfig(),
+      forecast_source: 'stormglass',
+      forecast_error_code: outcome,
+      needs_human: false,
+      staff_review_needed: false,
       no_payment_write: true,
       no_whatsapp: true,
-      no_n8n:      true,
+      no_n8n: true,
     });
   }
+
+  const reply = factualForecastReply(structured, lang);
+  return sendJSON(res, 200, {
+    success: structured.coverage !== 'unavailable',
+    tool: 'get_surf_report',
+    reply,
+    day,
+    unavailable: structured.coverage === 'unavailable',
+    coverage: structured.coverage,
+    missing_fields: structured.missing_fields,
+    outcome: structured.coverage,
+    fallback_reason: structured.fallback_reason,
+    location: structured.location,
+    provenance: {
+      source: structured.source,
+      retrieved_at: structured.retrieved_at,
+      cache_hit: structured.cache_hit === true,
+      validity: structured.validity,
+    },
+    units: structured.units,
+    hourly: structured.hourly,
+    configured: true,
+    forecast_source: structured.source,
+    forecast_error: null,
+    forecast_error_code: null,
+    needs_human: false,
+    staff_review_needed: false,
+    no_payment_write: true,
+    no_whatsapp: true,
+    no_n8n: true,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

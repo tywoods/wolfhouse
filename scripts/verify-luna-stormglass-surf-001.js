@@ -81,6 +81,69 @@ async function main() {
 
   setStormglassFetchForTests(null);
   if (oldKey) process.env.STORMGLASS_API_KEY = oldKey; else delete process.env.STORMGLASS_API_KEY;
-  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/7)`);
+
+  const { runStormglassGuestTurn } = require('./lib/luna-stormglass-guest-turn');
+  const complete = await runStormglassGuestTurn({
+    tenant: 'wolfhouse-somo',
+    message: 'how are the waves and is it raining today?',
+    lang: 'en',
+    intelligenceEnabled: true,
+    forecast: {
+      coverage: 'complete',
+      missing_fields: [],
+      location: { label: 'Somo', location_id: 'wolfhouse-somo' },
+      source: 'stormglass',
+      retrieved_at: '2026-10-24T08:00:00.000Z',
+      hourly: [{ precipitation_mm_per_h: 0, wave_height_m: 1.1 }],
+    },
+  });
+  check('SGS8 complete coverage makes zero public-research calls', () => {
+    assert.equal(complete.trace.tools[0], 'get_surf_report');
+    assert.equal(complete.trace.public_research_calls, 0);
+    assert.equal(complete.trace.provenance.source, 'stormglass');
+    assert.equal(complete.trace.provenance.retrieved_at, '2026-10-24T08:00:00.000Z');
+    assert.equal(complete.trace.coverage, 'complete');
+    assert.equal(complete.needs_human, false);
+    assert.equal(complete.forecast.hourly[0].precipitation_mm_per_h, 0);
+  });
+  const partial = await runStormglassGuestTurn({
+    tenant: 'sunset',
+    locationId: 'sunset-sardinero',
+    message: 'llueve en El Sardinero y hay marea?',
+    lang: 'es',
+    intelligenceEnabled: true,
+    booking: { payment_status: 'deposit_paid', balance_due_cents: 4000 },
+    forecast: {
+      coverage: 'partial',
+      missing_fields: ['tide_height_m'],
+      location: { label: 'El Sardinero', location_id: 'sunset-sardinero' },
+      source: 'stormglass',
+      retrieved_at: '2026-10-24T08:00:00.000Z',
+      hourly: [{ precipitation_mm_per_h: 0.4, wave_height_m: null }],
+    },
+  });
+  check('SGS9 partial keeps Stormglass facts and researches only the missing field', () => {
+    assert.equal(partial.trace.location.label, 'El Sardinero');
+    assert.notEqual(partial.trace.location.label, 'Somo');
+    assert.deepEqual(partial.trace.public_research_fields, ['tide_height_m']);
+    assert.equal(partial.trace.public_research_calls, 1);
+    assert.equal(partial.booking_truth.payment_status, 'deposit_paid');
+    assert.equal(partial.booking_truth.balance_due_cents, 4000);
+    assert.equal(partial.needs_human, false);
+  });
+  const quota = await runStormglassGuestTurn({
+    tenant: 'sunset',
+    locationId: 'sunset-somo',
+    message: 'what is the temperature tonight?',
+    intelligenceEnabled: false,
+    forecastError: { code: 'ENTITLEMENT_DENIED', status: 402 },
+  });
+  check('SGS10 quota failure is typed and Intelligence OFF does no web fallback', () => {
+    assert.equal(quota.trace.outcome, 'ENTITLEMENT_DENIED');
+    assert.equal(quota.trace.public_research_calls, 0);
+    assert.equal(quota.needs_human, false);
+    assert.equal(quota.invented_forecast, false);
+  });
+  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/10)`);
 }
 main().catch((err) => { console.error(err); process.exitCode = 1; });

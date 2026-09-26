@@ -96,5 +96,30 @@ class IntelligenceTests(unittest.TestCase):
             worker.assert_not_called()
             li.clear_guest_turn()
 
+    def test_stormglass_complete_blocks_forecast_search_but_not_other_public_questions(self):
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp', user_id='synthetic-user', chat_id='synthetic-chat')
+        with patch.dict(os.environ, env), patch.object(li, 'fetch_setting', return_value={'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}), patch.object(li, 'run_bounded') as worker:
+            li.bind_guest_turn(source)
+            skipped = json.loads(li.search_public_info({'query': 'waves and rain today'}))
+            self.assertEqual(skipped['error'], 'stormglass_required_first')
+            self.assertFalse(skipped['staff_review_needed'])
+            worker.assert_not_called()
+            li.record_stormglass_result({
+                'coverage': 'complete', 'missing_fields': [], 'outcome': 'complete',
+                'source': 'stormglass', 'retrieved_at': '2026-10-24T08:00:00.000Z',
+                'location': {'location_id': 'wolfhouse-somo', 'label': 'Somo'},
+            })
+            blocked = json.loads(li.search_public_info({'query': 'waves and rain today'}))
+            self.assertEqual(blocked['error'], 'stormglass_complete')
+            self.assertEqual(blocked['public_research_calls'], 0)
+            worker.return_value = {'success': True, 'results': [{'url': 'https://example.org/museum', 'title': 'Museum', 'description': 'Hours'}]}
+            museum = json.loads(li.search_public_info({'query': 'museum hours in Santander'}))
+            self.assertTrue(museum['success'])
+            self.assertEqual(worker.call_count, 1)
+            li.clear_guest_turn()
+
 if __name__ == '__main__':
     unittest.main()

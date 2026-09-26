@@ -610,7 +610,9 @@ async function fetchStormglassForecast(opts) {
   const window = getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour);
   const cacheKey = JSON.stringify([locationId, window.start, window.end]);
   const cached = forecastCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < FORECAST_CACHE_TTL_MS) return cached.value;
+  if (cached && Date.now() - cached.cachedAt < FORECAST_CACHE_TTL_MS) {
+    return { ...cached.value, cache_hit: true };
+  }
   const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: window.start, end: window.end });
   let response;
   try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
@@ -631,6 +633,7 @@ async function fetchStormglassForecast(opts) {
     retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
     missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
     units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
+    cache_hit: false,
   };
   forecastCache.set(cacheKey, { cachedAt: Date.now(), value });
   return value;
