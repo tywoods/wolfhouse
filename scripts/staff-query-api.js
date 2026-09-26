@@ -39456,10 +39456,13 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson){
   else if (row && row.deposit_amount_cents != null) depositRaw = row.deposit_amount_cents;
   else if (match && match.deposit_amount_cents != null) depositRaw = match.deposit_amount_cents;
   else if (match && match.deposit_cents != null) depositRaw = match.deposit_cents;
-  var shareRaw = row && row.subtotal_cents != null ? row.subtotal_cents : (match && match.subtotal_cents);
+  var storedShare = row && pgPayGuestSubtotalFromMetadata(row.metadata || row.guest_metadata);
+  var shareRaw = row && row.subtotal_cents != null ? row.subtotal_cents
+    : (storedShare != null ? storedShare : (match && match.subtotal_cents));
   var status = String((row && row.payment_status) || (match && match.payment_status) || '').toLowerCase();
-  if (status === 'paid' || status === 'paid_in_full') return 'paid';
-  if (shareRaw != null && !isNaN(Number(shareRaw)) && paid >= Number(shareRaw)) return 'paid';
+  // A settled receipt (payment_status=paid) need not settle the guest's share.
+  // Keep unknown shares distinct from zero; full-payment chrome requires amounts.
+  if (shareRaw != null && Number.isFinite(Number(shareRaw)) && Number(shareRaw) >= 0 && paid >= Number(shareRaw)) return 'paid';
   var depositN = depositRaw == null || isNaN(Number(depositRaw)) ? null : Number(depositRaw);
   var shareN = shareRaw == null || isNaN(Number(shareRaw)) ? null : Number(shareRaw);
   var depositDue = depositN == null ? null : (shareN == null ? depositN : Math.min(depositN, shareN));

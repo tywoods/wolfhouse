@@ -22,6 +22,7 @@ const calendar = { success: true,
   blocks: [{ ...booking, room_code: 'R1', bed_code: 'R1-B1', start_date: '2026-09-24', end_date: '2026-09-29', source: 'staff', start_offset: 0, span: 5 }], warnings: [] };
 const GUEST = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const detail = { success: true, booking, rooming: { assignments: [] }, booking_guests: [{booking_guest_id:GUEST, guest_number:1, guest_name:'Tom (test)', metadata:{subtotal_cents:30000}, deposit_amount_cents:9000, amount_paid_cents:0, payment_status:'not_requested'}], per_person: [],
+  guest_accommodation_lines: [{guest_number:1,accommodation_cents:30000,nights:5},{guest_number:2,accommodation_cents:30000,nights:5}],
   service_records: [], transfers: [], payments: { paid_total_cents: 0, rows: [] }, pending_manual_services: [], conversation: null };
 
 function emit(tenant) {
@@ -51,7 +52,7 @@ async function main() {
       other.booking.booking_id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
       other.booking.booking_code = 'WH-OTHER';
       other.booking.total_amount_cents = other.booking.balance_due_cents = 99000;
-      other.booking.guest_name = 'Other booking'; other.booking_guests = [];
+      other.booking.guest_name = 'Other booking'; other.booking_guests = []; other.guest_accommodation_lines = [];
       const cal = JSON.parse(JSON.stringify(calendar));
       cal.blocks.push({...cal.blocks[0],...other.booking,bed_code:'R1-B2'});
       await ctx.route('**/*', async route => {
@@ -178,6 +179,7 @@ async function main() {
         assert.equal(receipts[0].payment_scope,'guest');
         assert.equal(receipts[0].booking_id,booking.booking_id);
         await page.waitForFunction(() => document.getElementById('bc-invoice-feedback').textContent.includes('Payment recorded'));
+        assert.equal(await page.locator('#bc-inv-accommodation .bc-accom-pay-pebble').first().innerText(),'Unpaid','partial receipt is not a paid accommodation share');
         assert.equal(await page.locator('#bc-inv-totals .ctx-inv-total-amount.paid').innerText(),'€12.34');
         assert.equal(await page.locator('#bc-inv-totals .ctx-inv-total-amount.owing').innerText(),'€587.66');
         await page.locator('#bc-record-payment-btn').click(); await page.locator('#bc-payment-scope').selectOption(GUEST);
@@ -316,6 +318,7 @@ async function main() {
     }
   } finally { await browser.close(); }
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ results, failures }, null, 2));
+  if (results.length !== 14) failures.push('Expected 14 complete cases, got '+results.length);
   console.log(JSON.stringify({ cases: results.length, failures, out: OUT }, null, 2));
   if (failures.length) process.exitCode = 1;
 }
