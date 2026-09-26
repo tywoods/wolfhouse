@@ -23,6 +23,7 @@ function extractFunction(src, name) {
 }
 
 const sandbox = {
+  ...require('./lib/booking-invoice-totals'),
   EDIT_PREVIEW_ACCOMM_LINE_CODES: Object.freeze({
     package: true, package_proration: true, room_supplement: true,
     accommodation_only: true, manual_accommodation: true,
@@ -34,9 +35,6 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext([
-  extractFunction(apiSrc, 'bookingLedgerParseMetadata'),
-  extractFunction(apiSrc, 'bookingLedgerAccommodationCents'),
-  extractFunction(apiSrc, 'bookingLedgerInvoicePaidBalance'),
   extractFunction(apiSrc, 'paymentLedgerNormalizeCtx'),
   extractFunction(apiSrc, 'paymentLedgerParseMetadata'),
   extractFunction(apiSrc, 'paymentLedgerIsCancelledLinkStatus'),

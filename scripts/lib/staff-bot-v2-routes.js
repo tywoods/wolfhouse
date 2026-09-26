@@ -1533,6 +1533,9 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       error: 'payment_processing_refresh_required',
       message: err.publicMessage || 'Payment may already be processing. Refresh payment status before creating another link.',
     });
+    if (err.message === 'guest_payment_unallocated_booking_receipt') return sendJSON(res, 409, {
+      success: false, error: err.message, message: err.publicMessage,
+    });
     const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
     return sendJSON(res, status, { success: false, error: err.message });
   }

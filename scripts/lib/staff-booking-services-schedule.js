@@ -34,6 +34,7 @@ function parseMetadata(raw) {
 /** Billable cents for display/totals (handles legacy combo rows with amount 0 in DB). */
 function serviceRecordBillableCents(row) {
   const meta = parseMetadata(row && row.metadata);
+  if (meta.invoice_total_inclusion === 'additional' && !isAdditionalInvoiceService(row)) return 0;
   let due = row && row.amount_due_cents != null ? Number(row.amount_due_cents) : 0;
   if (due > 0) return due;
   if (meta.combo_line_total_cents != null
@@ -41,6 +42,15 @@ function serviceRecordBillableCents(row) {
     return Number(meta.combo_line_total_cents) || 0;
   }
   return due;
+}
+
+// Only newly persisted, explicitly additional charges opt in. Do not infer
+// allocation for historical or package-embedded rows from their type/label.
+function isAdditionalInvoiceService(row) {
+  let md = row && row.metadata || {};
+  if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
+  return md.invoice_total_inclusion === 'additional'
+    && !['cancelled', 'canceled', 'void', 'removed', 'expired'].includes(String(row && row.status || '').toLowerCase());
 }
 
 function addDaysToDateOnly(dateStr, deltaDays) {
@@ -492,6 +502,7 @@ function buildBookingServicesSchedule(opts = {}) {
 }
 
 module.exports = {
+  isAdditionalInvoiceService,
   buildStayDates,
   buildBookingServicesSchedule,
   buildPaidRequestedSummaryLines,
