@@ -35,7 +35,7 @@ async function verifyRenderedPaymentTruth(fixtures) {
       const page = await browser.newPage();
       await page.route('**/*', (route) => route.abort());
       await page.setContent('<main id="fixture"></main>');
-      const names = ['staffPaymentDisplayStatus', 'bcRunningInvoiceAccommodationCents', 'bcComputeBookingInvoiceTotals',
+      const names = ['isAdditionalInvoiceService', 'staffPaymentDisplayStatus', 'bcRunningInvoiceAccommodationCents', 'bcComputeBookingInvoiceTotals',
         'bcServiceRecordBillableCents', 'bcInvoiceAccCentsWithSupplement', 'bcPaymentLedgerPaidTotalCents',
         'bcPaymentLedgerIsPaidStatus', 'bcSumActiveTransferChargesCents', 'bcIsActiveTransferForInvoice',
         'inboxCustomerGuestBookingsHtml', 'inboxCustomerPaymentStatusLabel'];
@@ -77,7 +77,7 @@ async function verifyRawInvoiceTruth(fixtures) {
       await page.setContent('<main id="fixture"></main>');
       const names = client === 'sunset'
         ? ['scheduleRenderMoneyHeadlineHtml', 'scheduleDrawerEur', 'scheduleDrawerPaidMethodLabel']
-        : ['staffPaymentDisplayStatus', 'bcRunningInvoiceAccommodationCents', 'bcComputeBookingInvoiceTotals',
+        : ['isAdditionalInvoiceService', 'staffPaymentDisplayStatus', 'bcRunningInvoiceAccommodationCents', 'bcComputeBookingInvoiceTotals',
           'bcServiceRecordBillableCents', 'bcInvoiceAccCentsWithSupplement', 'bcPaymentLedgerPaidTotalCents',
           'bcPaymentLedgerIsPaidStatus', 'bcSumActiveTransferChargesCents', 'bcIsActiveTransferForInvoice',
           'bcQuoteRoomSupplementCents', 'bcQuoteRoomSupplementLine'];
