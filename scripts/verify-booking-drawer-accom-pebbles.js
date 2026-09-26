@@ -2,6 +2,7 @@
 
 /**
  * BOOKING-DRAWER-ACCOM-PEBBLES-PER-GUEST-STRIP-001
+ * plus guest-header move: Name · bed · Unpaid/Deposit Paid/Paid on one line.
  *
  * Display only. Does not recompute deposits, shares, or invoice totals.
  * Run: node scripts/verify-booking-drawer-accom-pebbles.js
@@ -67,20 +68,28 @@ check('L4', markupFn.includes('bcInlinePaymentLinkMarkup(link, linkLabel)'), 'la
 check('L5', apiSrc.includes('function bcInlinePaymentLinkMarkup(url, label)'), 'markup accepts an explicit label');
 check('L6', apiSrc.includes('btn-bc-copy-link-icon') && apiSrc.includes('bcCopyLinkIconSvg'), 'copy icon remains');
 
-check('R1', accFn.includes('bc-accom-guest-line'), 'accommodation row is a pebble row');
-check('R2', accFn.includes("parts.join(' \\u2014 ')"), 'row text stays name — room/package — nights — price');
-check('R3', accFn.includes('bcAccommodationPayPebbleHtml(line.guest_number, bookingGuests, perPerson)'), 'pebble is per person');
+check('R1', accFn.includes("parts.join(' \\u2014 ')"), 'accommodation row stays name — room/package — nights — price');
+check('R2', !accFn.includes('bcAccommodationPayPebbleHtml('), 'accommodation row does not render the status pebble');
+check('R3', !accFn.includes('bc-accom-guest-line') && !accFn.includes('bc-accom-guest-text'), 'accommodation row is plain text, not a pebble row');
 check('R4', accFn.includes('bcNightsLabel(lineNights)') && accFn.includes('eur(cents)'), 'nights and price stay on the row');
 check('R5', !accFn.includes('bcComputeBookingInvoiceTotals ='), 'renderer does not replace totals');
 check('M1', /svcRows\.reduce\(function\(s, r\)\{ return s \+ bcServiceRecordBillableCents\(r\); \}, 0\)/.test(totalsFn), 'invoice total still sums stored cents');
 
-check('C1', apiSrc.includes('.ctx-inv-line.bc-accom-guest-line{display:flex;align-items:center;justify-content:space-between;gap:8px}'), 'pebble stays on the same row, right aligned');
+const headerFn = extractFunctionSource(apiSrc, 'bcGuestNameBedDisplayHtml');
+check('H1', headerFn.includes('bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [])'), 'header pebble is per guest');
+check('H2', headerFn.includes('bc-guest-name-line') && headerFn.includes('bc-guest-bed') && headerFn.includes('bc-guest-sep'), 'header is name, bed, separator');
+check('H3', headerFn.includes("\\u00b7"), 'header uses a middot between name, bed, and pebble');
+check('H4', apiSrc.includes('bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [])'), 'overview header passes per-person status inputs');
+check('H5', !/deposit_amount_cents|amount_paid_cents|stripe/i.test(headerFn), 'header helper does not recompute money');
+
+check('C1', apiSrc.includes('.bc-guest-name-row{display:flex;align-items:center;flex-wrap:nowrap;white-space:nowrap;min-width:0;max-width:100%;gap:0;line-height:1.4}'), 'guest header row is one line');
 check('C2', apiSrc.includes('.bc-accom-pay-pebble.is-unpaid{background:#3A3A3C;color:#fff}'), 'Unpaid uses sun-mode drawer-tab gray and white text');
 check('C3', apiSrc.includes('.bc-accom-pay-pebble.is-deposit{background:#D7EBE6;color:#1F4F48}'), 'Deposit Paid is soft teal');
 check('C4', apiSrc.includes('.bc-accom-pay-pebble.is-paid{background:#DCEAD2;color:#3d6130}'), 'Paid is soft green');
-check('C5', apiSrc.includes('.bc-accom-pay-pebble{flex:0 0 auto;margin-left:auto;border-radius:999px;padding:0 8px;font-size:10px;font-weight:600;line-height:16px;white-space:nowrap}'), 'pebble does not add row padding');
-check('C6', !/\.bc-accom-guest-line\{[^}]*padding:\s*(?:[1-9]\d|8)/.test(apiSrc), 'no extra vertical padding on the accommodation row');
+check('C5', apiSrc.includes('.bc-accom-pay-pebble{flex:0 0 auto;border-radius:999px;padding:0 8px;font-size:10px;font-weight:600;line-height:16px;white-space:nowrap}'), 'pebble does not add row padding');
+check('C6', apiSrc.includes('.bc-guest-name-row .bc-accom-pay-pebble{margin-left:0;flex:0 0 auto}'), 'pebble sits immediately right of the bed, not on the far edge');
 check('C7', apiSrc.includes('[data-theme="dark"] .bc-accom-pay-pebble.is-unpaid'), 'night rule exists and does not replace the day fill');
+check('C8', !apiSrc.includes('.ctx-inv-line.bc-accom-guest-line{'), 'accommodation row no longer reserves a pebble column');
 
 check('I1', i18n.includes("'drawer.invoice.accomStatus.unpaid': 'Unpaid'"), 'EN Unpaid');
 check('I2', i18n.includes("'drawer.invoice.accomStatus.depositPaid': 'Deposit Paid'"), 'EN Deposit Paid');
@@ -128,6 +137,7 @@ const names = [
   'bcRenderPerGuestPaymentsHtml',
   'bcAccommodationPayPebbleKey',
   'bcAccommodationPayPebbleHtml',
+  'bcGuestNameBedDisplayHtml',
   'bcInlinePaymentLinkMarkup',
   'bcCopyLinkIconSvg',
 ];
@@ -153,6 +163,15 @@ check('P3', sandbox.bcAccommodationPayPebbleKey(3, guests, []) === 'paid', 'shar
 check('P4', sandbox.bcAccommodationPayPebbleKey(1, [{ guest_number: 1, deposit_amount_cents: 10000, amount_paid_cents: 4000, subtotal_cents: 32500 }], []) === 'unpaid', 'partial deposit stays Unpaid');
 const pebble = sandbox.bcAccommodationPayPebbleHtml(2, guests, []);
 check('P5', pebble.includes('bc-accom-pay-pebble is-deposit') && pebble.includes('>Deposit Paid<'), pebble);
+
+const headerGuests = guests.map((g, i) => Object.assign({}, g, { assigned_bed_code: ['R3-B1', 'R3-B2', 'R4-B1'][i] }));
+const header = sandbox.bcGuestNameBedDisplayHtml(headerGuests, 'Ada', []);
+check('H6', (header.match(/bc-guest-name-row/g) || []).length === 3, 'one header row per guest');
+check('H7', header.indexOf('>Ada<') < header.indexOf('>R3-B1<') && header.indexOf('>R3-B1<') < header.indexOf('is-unpaid'), 'Ada row is name, bed, Unpaid');
+check('H8', header.indexOf('>Bea<') < header.indexOf('>R3-B2<') && header.indexOf('>R3-B2<') < header.indexOf('is-deposit'), 'Bea row is name, bed, Deposit Paid');
+check('H9', header.indexOf('>Cy<') < header.indexOf('>R4-B1<') && header.indexOf('>R4-B1<') < header.indexOf('is-paid'), 'Cy row is name, bed, Paid');
+check('H10', !header.includes('bc-accom-guest-line') && header.includes('bc-accom-pay-pebble is-unpaid') && header.includes('>Unpaid<'), header.slice(0, 280));
+check('H11', header.includes('\\u00b7') || header.includes('·'), 'rendered header includes the middot');
 
 const depositMarkup = sandbox.bcInlinePaymentLinkMarkup('https://checkout.stripe.com/c/pay/cs_test', 'Deposit Link');
 const payMarkup = sandbox.bcInlinePaymentLinkMarkup('https://checkout.stripe.com/c/pay/cs_bal', 'Payment Link');
