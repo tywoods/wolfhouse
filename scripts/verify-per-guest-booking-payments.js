@@ -240,9 +240,11 @@ section('H. Per-guest create path — guest_name + payment_choice');
   check('H5', bookingCreateSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
   check('H6', botRoutesSrc.includes('&& splitPaymentRequested'),
     'named guests do not mint individual links without explicit split choice');
-  check('H7', fs.readFileSync(path.join(__dirname, 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
-    .includes('GREATEST(COALESCE(amount_paid_cents, 0), $1)'),
-  'paid guest projection cannot be overwritten by an older zero snapshot');
+  const truthWriter = fs.readFileSync(path.join(__dirname, 'lib', 'stripe-hold-promote-policy.js'), 'utf8');
+  check('H7', truthWriter.includes('SELECT COALESCE(SUM(amount_paid_cents), 0)')
+      && truthWriter.includes("p.status = 'paid'")
+      && !truthWriter.includes('GREATEST(COALESCE(amount_paid_cents, 0), $1)'),
+  'paid guest projection is replay-safe cumulative truth from distinct paid ledger rows');
 }
 
 section('F. Routes & migration wiring');

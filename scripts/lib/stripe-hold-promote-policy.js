@@ -420,6 +420,23 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
+  // Global lock order for both receipt writers and checkout creators is booking,
+  // then guest, then payment. This prevents the guest aggregate update racing a
+  // newly-priced checkout without introducing a payment↔guest lock inversion.
+  if (pm.booking_guest_id) {
+    const guestLock = await pg.query(
+      `SELECT id FROM booking_guests
+        WHERE id = $1::uuid AND client_id = $2 AND booking_id = $3::uuid
+        FOR UPDATE`,
+      [pm.booking_guest_id, pm.client_id, pm.booking_id],
+    );
+    if (!guestLock.rows[0]) {
+      const err = new Error('booking_guest_lock_miss');
+      err.code = 'booking_guest_lock_miss';
+      throw err;
+    }
+  }
+
   const lockedPayment = await lockPaymentForStripePaymentTruth(pg, {
     paymentId: pm.payment_id,
     clientId: pm.client_id,
@@ -445,8 +462,13 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     // collected or counted twice.
     if (lockedPayment.booking_guest_id && Number(lockedPayment.amount_paid_cents || 0) > 0) {
       await pg.query(
-        `UPDATE booking_guests
-            SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
+        `UPDATE booking_guests bg
+            SET amount_paid_cents = (SELECT COALESCE(SUM(amount_paid_cents), 0)
+                                       FROM payments p
+                                      WHERE p.booking_guest_id = bg.id
+                                        AND p.client_id = bg.client_id
+                                        AND p.booking_id = bg.booking_id
+                                        AND p.status = 'paid'),
                 payment_status = 'paid',
                 updated_at = NOW()
           WHERE id = $2::uuid
@@ -652,8 +674,13 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   const guestId = lockedPayment.booking_guest_id || null;
   if (guestId) {
     const gUpd = await pg.query(
-      `UPDATE booking_guests
-           SET amount_paid_cents = GREATEST(COALESCE(amount_paid_cents, 0), $1),
+      `UPDATE booking_guests bg
+           SET amount_paid_cents = (SELECT COALESCE(SUM(amount_paid_cents), 0)
+                                      FROM payments p
+                                     WHERE p.booking_guest_id = bg.id
+                                       AND p.client_id = bg.client_id
+                                       AND p.booking_id = bg.booking_id
+                                       AND p.status = 'paid'),
                payment_status = 'paid',
                updated_at = NOW()
          WHERE id = $2::uuid

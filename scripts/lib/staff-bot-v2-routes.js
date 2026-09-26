@@ -1424,8 +1424,39 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /staff/bot/booking-guests/:guest_id/create-payment-link  (Slice A3)
-// Body: { client_slug, payment_target: 'deposit' | 'full_share' }
+// Body: { client_slug, payment_target: 'deposit' | 'full_share' | 'remaining_share' }
 // ─────────────────────────────────────────────────────────────────────────────
+function computeGuestPayableAmounts({ shareCents, depositCents, receivedCents }) {
+  const share = Number(shareCents);
+  const deposit = Number(depositCents);
+  const received = Number(receivedCents);
+  if (!Number.isInteger(share) || share < 0) throw new Error('authoritative_share_not_available');
+  if (![deposit, received].every((n) => Number.isInteger(n) && n >= 0)) throw new Error('invalid_guest_money');
+  return {
+    depositRemainingCents: Math.max(0, Math.min(deposit, share) - received),
+    remainingShareCents: Math.max(0, share - received),
+  };
+}
+
+async function inTransaction(pg, work) {
+  await pg.query('BEGIN');
+  try {
+    const value = await work(pg);
+    await pg.query('COMMIT');
+    return value;
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (rollbackErr) { err.rollback_error = rollbackErr.message; }
+    throw err;
+  }
+}
+
+function approvedStripeCheckoutUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' && ['checkout.stripe.com', 'billing.stripe.com'].includes(url.hostname);
+  } catch (_) { return false; }
+}
+
 async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode, ctx) {
   const {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
@@ -1453,22 +1484,61 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   let body = {};
   try {
-    body = JSON.parse((await readBody(req)) || '{}');
+    body = ctx.parsedBody || JSON.parse((await readBody(req)) || '{}');
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
   }
 
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
   const paymentTarget = String(body.payment_target || 'deposit').trim().toLowerCase();
+  if (!['deposit', 'full_share', 'remaining_share'].includes(paymentTarget)
+      || (authMode === 'staff_portal' && paymentTarget === 'full_share')) {
+    return sendJSON(res, 400, { success: false, error: 'invalid_payment_target' });
+  }
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
 
   let stripe;
   try {
-    stripe = require('stripe')(STRIPE_SECRET_KEY);
+    stripe = ctx.stripe || require('stripe')(STRIPE_SECRET_KEY);
   } catch (e) {
     return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message });
   }
 
+  // The checkout coordinator owns short, exception-safe DB transactions. No
+  // pooled client remains in a transaction while Stripe is called.
+  try {
+    const checkout = await require('./per-guest-checkout').run({
+      withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId,
+      successUrl: stripeCheckoutSessionSuccessUrl(),
+      cancelUrl: stripeCheckoutSessionCancelUrl(),
+    });
+    if (checkout.missing) return sendJSON(res, 404, { success: false, error: 'booking guest not found' });
+    if (checkout.zero) return sendJSON(res, 422, { success: false, error: 'nothing_due', amount_due_cents: 0 });
+    const guest = checkout.guest;
+    const shortUrl = buildPaymentShortLink({ booking_code: guest.booking_code, guest_number: guest.guest_number,
+      client_slug: clientSlug, env: process.env });
+    if (appendAuditLog) appendAuditLog({ ts: new Date().toISOString(), intent: 'api:bot_guest_payment_link',
+      category: 'bot_guest_payment_link_create', success: true, booking_guest_id: guestId,
+      payment_id: checkout.paymentId, auth_mode: authMode });
+    return sendJSON(res, 200, { success: true, idempotent: checkout.idempotent, source: 'luna_bot_guest_payment_link',
+      booking_guest_id: guestId, guest_number: guest.guest_number, guest_name: guest.guest_name,
+      booking_id: guest.booking_id, booking_code: guest.booking_code, payment_id: checkout.paymentId,
+      payment_target: paymentTarget, amount_due_cents: checkout.amount, checkout_url: checkout.session.url,
+      stripe_checkout_session_id: checkout.session.id, guest_payment_url: shortUrl || checkout.session.url,
+      payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
+      uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });
+  } catch (err) {
+    if (err.providerBlocked) return sendJSON(res, err.httpStatus || 409, {
+      success: false,
+      error: 'payment_processing_refresh_required',
+      message: err.publicMessage || 'Payment may already be processing. Refresh payment status before creating another link.',
+    });
+    const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
+    return sendJSON(res, status, { success: false, error: err.message });
+  }
+
+  /* Legacy implementation retained temporarily below for source-history clarity;
+     the coordinator above always returns. */
   let guestRow;
   try {
     guestRow = await withPgClient(async (pg) => {
@@ -1477,7 +1547,11 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
                 bg.guest_number,
                 bg.guest_name,
                 bg.deposit_amount_cents,
-                bg.amount_paid_cents,
+                COALESCE((SELECT SUM(p.amount_paid_cents) FROM payments p
+                           WHERE p.booking_guest_id = bg.id
+                             AND p.client_id = bg.client_id
+                             AND p.booking_id = bg.booking_id
+                             AND p.status = 'paid'), 0) AS amount_paid_cents,
                 bg.payment_status,
                 bg.payment_id::text AS payment_id,
                 bg.metadata AS guest_metadata,
@@ -1518,15 +1592,25 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   guestMeta = guestMeta || {};
   const subtotalCents = Number(guestMeta.subtotal_cents || 0);
   const depositCents = Number(guestRow.deposit_amount_cents || 0);
-  const amountDueCents = paymentTarget === 'full_share'
-    ? (subtotalCents > 0 ? subtotalCents : depositCents)
-    : depositCents;
+  let payable;
+  try {
+    payable = computeGuestPayableAmounts({
+      shareCents: subtotalCents,
+      depositCents,
+      receivedCents: Number(guestRow.amount_paid_cents || 0),
+    });
+  } catch (err) {
+    return sendJSON(res, 422, { success: false, error: err.message });
+  }
+  const amountDueCents = paymentTarget === 'deposit'
+    ? payable.depositRemainingCents
+    : (paymentTarget === 'remaining_share' ? payable.remainingShareCents : subtotalCents);
 
   if (!amountDueCents || amountDueCents <= 0) {
     return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0 for this guest' });
   }
 
-  const paymentKind = paymentTarget === 'full_share' ? 'full_amount' : 'deposit_only';
+  const paymentKind = paymentTarget === 'deposit' ? 'deposit_only' : 'full_amount';
   const shortUrl = buildPaymentShortLink({
     booking_code: guestRow.booking_code,
     guest_number: guestRow.guest_number,
@@ -1536,30 +1620,72 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
 
   try {
     const result = await withPgClient(async (pg) => {
-      let paymentId = guestRow.payment_id;
+      // Serialize with receipt writers on the durable booking/guest domain.
+      await pg.query('BEGIN');
+      await pg.query('SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE', [guestRow.booking_id]);
+      await pg.query('SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE', [guestId, guestRow.booking_id]);
+      const paidNow = await pg.query(
+        `SELECT COALESCE(SUM(amount_paid_cents), 0)::bigint AS paid
+           FROM payments
+          WHERE client_id = (SELECT id FROM clients WHERE slug = $1)
+            AND booking_id = $2::uuid AND booking_guest_id = $3::uuid
+            AND status = 'paid'`,
+        [clientSlug, guestRow.booking_id, guestId],
+      );
+      if (Number(paidNow.rows[0].paid) !== Number(guestRow.amount_paid_cents || 0)) {
+        await pg.query('ROLLBACK');
+        const changed = new Error('guest_payment_snapshot_changed_retry');
+        changed.code = 'PAYMENT_SNAPSHOT_CHANGED';
+        throw changed;
+      }
+      let paymentId = null;
       let checkoutUrl = null;
       let sessionId = null;
       let idempotent = false;
 
-      if (paymentId) {
+      {
         const existing = await pg.query(
           `SELECT id::text AS payment_id, status::text AS payment_status,
-                  checkout_url, stripe_checkout_session_id, amount_due_cents
-             FROM payments WHERE id = $1::uuid`,
-          [paymentId],
+                  checkout_url, stripe_checkout_session_id, amount_due_cents,
+                  currency, metadata, expires_at
+             FROM payments
+            WHERE client_id = (SELECT id FROM clients WHERE slug = $1)
+              AND booking_id = $2::uuid AND booking_guest_id = $3::uuid
+              AND metadata->>'source' = 'bot_guest_payment_link_slice_a'
+              AND metadata->>'payment_target' = $4
+              AND amount_due_cents = $5 AND currency = 'EUR'
+              AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)
+            ORDER BY created_at ASC LIMIT 1`,
+          [clientSlug, guestRow.booking_id, guestId, paymentTarget, amountDueCents],
         );
         const ex = existing.rows[0];
-        if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url) {
+        const exMeta = ex && (typeof ex.metadata === 'string' ? JSON.parse(ex.metadata) : (ex.metadata || {}));
+        if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url
+            && (!ex.expires_at || new Date(ex.expires_at).getTime() > Date.now())
+            && exMeta.payment_target === paymentTarget
+            && Number(ex.amount_due_cents) === amountDueCents
+            && String(ex.currency || '').toUpperCase() === 'EUR') {
           idempotent = true;
           checkoutUrl = ex.checkout_url;
           sessionId = ex.stripe_checkout_session_id;
           paymentId = ex.payment_id;
-        } else if (ex && ex.payment_status === 'paid') {
-          return { already_paid: true, payment_id: paymentId };
+        } else if (ex && ex.payment_status === 'draft') {
+          // Provider success + DB-finalize failure recovery: this durable row and
+          // its deterministic provider key are reused on the retry.
+          paymentId = ex.payment_id;
+        } else if (ex && ex.payment_status === 'checkout_created' && ex.stripe_checkout_session_id) {
+          // Never leave an overlapping old checkout collectible. Stripe expiry
+          // happens before its local record is retired; failure aborts creation.
+          await stripe.checkout.sessions.expire(ex.stripe_checkout_session_id);
+          await pg.query(
+            `UPDATE payments SET status = 'expired'::payment_record_status,
+                    metadata = metadata || $2::jsonb WHERE id = $1::uuid`,
+            [ex.payment_id, JSON.stringify({ superseded_by_guest_target: paymentTarget })],
+          );
         }
       }
 
-      if (!checkoutUrl) {
+      if (!checkoutUrl && !paymentId) {
         const ins = await pg.query(
           `INSERT INTO payments (
              client_id, booking_id, booking_guest_id, status, payment_kind,
@@ -1587,6 +1713,16 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
           ],
         );
         paymentId = ins.rows[0].payment_id;
+      }
+
+      // Provider creation occurs only after the durable recovery anchor commits.
+      await pg.query('COMMIT');
+
+      if (!checkoutUrl) {
+        const stripeIdempotencyKey = [
+          'guest-checkout-v1', clientSlug, guestRow.booking_id, guestId,
+          paymentTarget, amountDueCents, 'EUR', paymentId,
+        ].join(':');
 
         const session = await stripe.checkout.sessions.create({
           mode: 'payment',
@@ -1596,7 +1732,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
               currency: 'eur',
               product_data: {
                 name: `Booking ${guestRow.booking_code} — ${guestRow.guest_name}`,
-                description: `${paymentTarget === 'full_share' ? 'Full share' : 'Deposit'} | Guest ${guestRow.guest_number}`,
+                description: `${paymentTarget === 'deposit' ? 'Deposit' : 'Remaining share'} | Guest ${guestRow.guest_number}`,
               },
               unit_amount: amountDueCents,
             },
@@ -1614,11 +1750,19 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
           },
           success_url: stripeCheckoutSessionSuccessUrl(),
           cancel_url: stripeCheckoutSessionCancelUrl(),
-        });
+        }, { idempotencyKey: stripeIdempotencyKey });
+
+        if (!session || !session.id
+            || !/^https:\/\/(checkout|billing)\.stripe\.com\//i.test(String(session.url || ''))) {
+          throw new Error('stripe_checkout_url_invalid');
+        }
 
         checkoutUrl = session.url;
         sessionId = session.id;
 
+        await pg.query('BEGIN');
+        await pg.query('SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE', [guestRow.booking_id]);
+        await pg.query('SELECT id FROM booking_guests WHERE id = $1::uuid AND booking_id = $2::uuid FOR UPDATE', [guestId, guestRow.booking_id]);
         await pg.query(
           `UPDATE payments
              SET status = 'checkout_created'::payment_record_status,
@@ -1642,6 +1786,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
            WHERE id = $2::uuid`,
           [paymentId, guestId],
         );
+        await pg.query('COMMIT');
       }
 
       return {
@@ -1800,5 +1945,6 @@ module.exports = {
   handleBotPackagePricePreview,
   handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus,
+  computeGuestPayableAmounts,
   evaluateWolfhouseSimulatorEffectBudget,
 };

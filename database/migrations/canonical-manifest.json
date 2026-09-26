@@ -1579,6 +1579,15 @@
       "inForwardChain": true,
       "rationale": "PRICING-DEPOSIT-ADD-500-001: widen only the Wolfhouse pricing-item type CHECK to the deposit and supplement identities already accepted by Staff API validation; absent Wolfhouse tables are a no-op.",
       "sha256": "32ed302289b79a8cb2f89be5fd7292c0666007a3159895e1103a7ea372a57f13"
+    },
+    {
+      "id": "107_per_guest_checkout_authoritative_intent",
+      "filename": "107_per_guest_checkout_authoritative_intent.sql",
+      "order": 103,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted single active collectible checkout identity across tenant, booking and guest.",
+      "sha256": "eb35b5ee40c05d25dccef53bf02342d59942c1d471846e707ef213a7cb684ed6"
     }
   ]
 }

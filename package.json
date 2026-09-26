@@ -750,6 +750,7 @@
     "capture:sunset-live-schema-observation": "node scripts/capture-sunset-live-schema-observation.js",
     "compare:sunset-canonical-vs-live-evidence": "node scripts/compare-sunset-canonical-vs-live-evidence.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
+    "verify:browser-per-guest-stale-links": "node scripts/verify-browser-per-guest-stale-links.js",
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
     "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",

@@ -42,6 +42,7 @@ function buildGuestPaymentAmountsMap(bookingGuests, perPerson) {
         : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
       subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
         : guestSubtotalFromMetadata(g.metadata || g.guest_metadata),
+      amount_paid_cents: Number(g.amount_paid_cents || 0),
     };
   }
   return map;
@@ -56,6 +57,8 @@ function paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md) {
     ? Number(pr.guest_deposit_amount_cents) : null;
   let subtotalCents = pr && pr.guest_subtotal_cents != null
     ? Number(pr.guest_subtotal_cents) : null;
+  let receivedCents = pr && pr.guest_amount_paid_cents != null
+    ? Number(pr.guest_amount_paid_cents) : 0;
   if (subtotalCents == null && pr && pr.guest_metadata != null) {
     subtotalCents = guestSubtotalFromMetadata(pr.guest_metadata);
   }
@@ -65,10 +68,17 @@ function paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md) {
   if (guestId && guestMap && guestMap[guestId]) {
     if (depositCents == null) depositCents = guestMap[guestId].deposit_cents;
     if (subtotalCents == null) subtotalCents = guestMap[guestId].subtotal_cents;
+    receivedCents = Number(guestMap[guestId].amount_paid_cents || 0);
   }
 
   if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit') {
-    return depositCents;
+    // A configured deposit can exceed a discounted guest share. Both values
+    // are required so unknown money does not become zero or an over-collection.
+    return depositCents == null || subtotalCents == null ? null
+      : Math.max(0, Math.min(depositCents, subtotalCents) - receivedCents);
+  }
+  if (paymentTarget === 'remaining_share') {
+    return subtotalCents == null ? null : Math.max(0, subtotalCents - receivedCents);
   }
   if (kind === 'full_amount' || paymentTarget === 'full_share') {
     if (subtotalCents != null && subtotalCents > 0) return subtotalCents;
@@ -85,7 +95,8 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
 
   if (paymentLedgerIsPerGuestLinkRow(pr, md)) {
     const guestIntended = paymentGuestLinkIntendedAmountCents(pr, ledgerCtx, md);
-    if (guestIntended != null && guestIntended > 0) return guestIntended;
+    // Zero is authoritative (fully paid); only null means unavailable.
+    if (guestIntended != null) return guestIntended;
     if (pr.amount_due_cents != null) return Number(pr.amount_due_cents);
     return null;
   }
@@ -109,7 +120,8 @@ function paymentLedgerIsStaleUnpaidLinkRow(pr, isActiveUnpaid, ledgerCtx) {
     if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return true;
   }
   const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
+  if (intended == null) return false;
+  if (intended === 0) return Number(pr.amount_due_cents) !== 0;
   return Number(pr.amount_due_cents) !== Number(intended);
 }
 

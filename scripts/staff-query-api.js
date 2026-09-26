@@ -15890,33 +15890,15 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode) {
 }
 
 async function handleStaffGenerateGuestPaymentLink(req, res, user) {
-  if (!STAFF_ACTIONS_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
-      staff_actions_enabled: false,
-    });
-  }
-  let body = {};
-  try {
-    body = JSON.parse((await readBody(req)) || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
-  }
-  const guestId = String(body.booking_guest_id || body.guest_id || '').trim();
-  if (!guestId || !UUID_VALIDATE_RE.test(guestId)) {
-    return send400(res, 'booking_guest_id must be a valid UUID');
-  }
-  return _handleBotGuestPaymentCreateLink(guestId, req, res, user, 'staff_portal', {
-    sendJSON, send400, readBody, withPgClient, appendAuditLog,
-    guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED: false,
-    STAFF_ACTIONS_ENABLED: true,
-    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
-    DEFAULT_CLIENT,
-    stripeCheckoutRedirectUrlsConfigured,
-    stripeCheckoutSessionSuccessUrl,
-    stripeCheckoutSessionCancelUrl,
+  return require('./lib/staff-guest-payment-link-handler').handleStaffGenerateGuestPaymentLink(req, res, user, {
+    STAFF_ACTIONS_ENABLED, sendJSON, send400, readBody, UUID_VALIDATE_RE, DEFAULT_CLIENT,
+    assertStaffClientAccess, delegatedHandler: _handleBotGuestPaymentCreateLink,
+    delegatedContext: {
+      sendJSON, send400, readBody, withPgClient, appendAuditLog, guestPaymentLinkObservability,
+      BOT_BOOKING_ENABLED: false, STAFF_ACTIONS_ENABLED: true, STRIPE_LINKS_ENABLED,
+      STRIPE_SECRET_KEY, DEFAULT_CLIENT, stripeCheckoutRedirectUrlsConfigured,
+      stripeCheckoutSessionSuccessUrl, stripeCheckoutSessionCancelUrl,
+    },
   });
 }
 
@@ -24954,6 +24936,7 @@ function buildGuestPaymentAmountsMap(bookingGuests, perPerson){
         : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
       subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
         : pgPayGuestSubtotalFromMetadata(g.metadata || g.guest_metadata),
+      amount_paid_cents: Number(g.amount_paid_cents || 0),
     };
   }
   return map;
@@ -24964,6 +24947,7 @@ function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
   var kind = String((pr && pr.payment_kind) || '').toLowerCase();
   var depositCents = pr && pr.guest_deposit_amount_cents != null ? Number(pr.guest_deposit_amount_cents) : null;
   var subtotalCents = pr && pr.guest_subtotal_cents != null ? Number(pr.guest_subtotal_cents) : null;
+  var receivedCents = pr && pr.guest_amount_paid_cents != null ? Number(pr.guest_amount_paid_cents) : 0;
   if (subtotalCents == null && pr && pr.guest_metadata != null){
     subtotalCents = pgPayGuestSubtotalFromMetadata(pr.guest_metadata);
   }
@@ -24972,8 +24956,15 @@ function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
   if (guestId && guestMap && guestMap[guestId]){
     if (depositCents == null) depositCents = guestMap[guestId].deposit_cents;
     if (subtotalCents == null) subtotalCents = guestMap[guestId].subtotal_cents;
+    receivedCents = Number(guestMap[guestId].amount_paid_cents || 0);
   }
-  if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit') return depositCents;
+  if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit'){
+    return depositCents == null || subtotalCents == null ? null
+      : Math.max(0, Math.min(depositCents, subtotalCents) - receivedCents);
+  }
+  if (paymentTarget === 'remaining_share'){
+    return subtotalCents == null ? null : Math.max(0, subtotalCents - receivedCents);
+  }
   if (kind === 'full_amount' || paymentTarget === 'full_share'){
     if (subtotalCents != null && subtotalCents > 0) return subtotalCents;
     return depositCents;
@@ -24987,7 +24978,7 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx){
   var kind = String(pr.payment_kind || '').toLowerCase();
   if (pgPayIsPerGuestLinkRow(pr, md)){
     var guestIntended = pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md);
-    if (guestIntended != null && guestIntended > 0) return guestIntended;
+    if (guestIntended != null) return guestIntended;
     if (pr.amount_due_cents != null) return Number(pr.amount_due_cents);
     return null;
   }
@@ -25003,7 +24994,9 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx){
 function paymentLedgerIsStaleUnpaidLinkRowCore(pr, isActiveUnpaid, ledgerCtx){
   if (!isActiveUnpaid(pr)) return false;
   var intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
+  if (intended == null) return false;
+  if (intended === 0 && pgPayIsPerGuestLinkRow(pr)) return true;
+  if (intended <= 0) return false;
   return Number(pr.amount_due_cents) !== Number(intended);
 }
 function bcQuoteNotRunHtml(){
@@ -39552,9 +39545,11 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
   };
   var html = '<div class="ctx-inv-group" id="bc-inv-per-guest">';
   html += '<div class="ctx-inv-group-title">Per guest</div>';
-  var rows = (perPerson.length ? perPerson : bookingGuests).map(function(row){
+  // Only durable booking_guests rows are eligible for checkout actions. Quote
+  // per-person rows may enrich amounts/names but must never invent an identity.
+  var rows = bookingGuests.map(function(row){
     var match = null;
-    (bookingGuests || []).forEach(function(g){
+    (perPerson || []).forEach(function(g){
       if (Number(g.guest_number) === Number(row.guest_number)) match = g;
     });
     return {
@@ -39562,6 +39557,7 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
       guest_name: row.guest_name || (match && match.guest_name) || '',
       deposit_cents: row.deposit_cents != null ? row.deposit_cents : (row.deposit_amount_cents != null ? row.deposit_amount_cents : (match && match.deposit_amount_cents)),
       amount_paid_cents: row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents),
+      subtotal_cents: row.subtotal_cents != null ? row.subtotal_cents : (match && match.subtotal_cents),
       payment_status: row.payment_status || (match && match.payment_status),
       booking_guest_id: row.booking_guest_id || (match && match.booking_guest_id) || '',
     };
@@ -39569,15 +39565,29 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
   rows.forEach(function(row){
     var name = bcInvoiceGuestStaffLabel(row.guest_number, row.guest_name, leadName);
     var paid = Number(row.amount_paid_cents || 0);
-    var deposit = Number(row.deposit_cents != null ? row.deposit_cents : 0);
+    var deposit = row.deposit_cents == null ? null : Number(row.deposit_cents);
+    var share = row.subtotal_cents == null ? null : Number(row.subtotal_cents);
+    var depositRemaining = (deposit == null || share == null) ? null : Math.max(0, Math.min(deposit, share) - paid);
+    var shareRemaining = share == null ? null : Math.max(0, share - paid);
     var pay = bcInvoicePaymentRequestDisplay(row.payment_status);
     html += '<div class="ctx-inv-line ctx-inv-guest-line" data-guest-number="' + escHtml(String(row.guest_number)) + '"';
     if (row.booking_guest_id) html += ' data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '"';
     html += '>' + escHtml(name) + ' \u2014 deposit ' + escHtml(eur(deposit));
     html += ' \u2014 paid ' + escHtml(eur(paid));
-    if (pay.createLink && row.booking_guest_id) {
-      html += ' \u2014 <button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
-      html += '<span class="bc-guest-pay-link-result" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" aria-live="polite"></span>';
+    if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
+      if (depositRemaining > 0) {
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
+        html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
+      }
+      if (shareRemaining == null) {
+        html += ' \u2014 <span class="muted">' + escHtml(t('drawer.payments.linkFailed')) + '</span>';
+      } else if (shareRemaining > 0) {
+        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
+        html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
+      }
+    } else if (pay.createLink && row.booking_guest_id) {
+      html += ' \u2014 <button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
+      html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span>';
     } else if (!pay.createLink && pay.label) {
       html += ' \u2014 ' + escHtml(pay.label);
     }
@@ -39782,7 +39792,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
   html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
-  html += bcRenderGuestPaymentLinkControlsHtml(bookingGuests);
+  if (getClient() !== 'wolfhouse-somo') html += bcRenderGuestPaymentLinkControlsHtml(bookingGuests);
 
   html += '</div></div>';
 
@@ -40022,22 +40032,45 @@ function bcInitPaymentLinkShell(data){
   });
 }
 
-function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
+function bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data){
   if (!guestId) return;
+  var requestNumber = Number((btn && btn._bcGuestPayRequestNumber) || 0) + 1;
+  if (btn) btn._bcGuestPayRequestNumber = requestNumber;
+  var mountedParent = btn && btn.parentNode;
+  var requestClient = getClient();
+  var requestBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+  var drawer = document.querySelector && document.querySelector('#bc-side-drawer');
+  var requestGeneration = drawer && drawer.getAttribute('data-booking-view-generation');
+  function requestStillCurrent(){
+    if (getClient() !== requestClient) return false;
+    if (!btn || !document.contains(btn)) return false;
+    if (resultEl && !document.contains(resultEl)) return false;
+    var liveDrawer = document.querySelector && document.querySelector('#bc-side-drawer');
+    if (!liveDrawer || !document.contains(liveDrawer)) return false;
+    if (liveDrawer.getAttribute('data-booking-view-generation') !== requestGeneration) return false;
+    if (liveDrawer.getAttribute('data-mounted-booking-id') !== requestBooking) return false;
+    if (btn && btn._bcGuestPayRequestNumber !== requestNumber) return false;
+    if (btn && btn.parentNode !== mountedParent) return false;
+    if (btn && btn.getAttribute('data-booking-guest-id') !== String(guestId)) return false;
+    if (btn && (btn.getAttribute('data-payment-target') || 'deposit') !== paymentTarget) return false;
+    var nowBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+    return nowBooking === requestBooking;
+  }
   if (btn) btn.disabled = true;
   if (resultEl){ resultEl.innerHTML = ''; resultEl.style.display = 'none'; }
-  var client = getClient();
+  var client = requestClient;
   fetch('/staff/bookings/generate-guest-payment-link?client=' + encodeURIComponent(client), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
       client_slug: client,
       booking_guest_id: guestId,
-      payment_target: 'deposit',
+      payment_target: paymentTarget,
     }),
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!requestStillCurrent()) return;
       if (btn) btn.disabled = false;
       if (!res.ok || !res.data.success){
         if (resultEl){
@@ -40047,20 +40080,25 @@ function bcRequestGuestPaymentLink(guestId, resultEl, btn, data){
         return;
       }
       if (resultEl) {
-        var link = (res.data && (res.data.payment_short_url || res.data.guest_payment_url)) || '';
-        if (link && (/^https:/i.test(link) || /^http:/i.test(link)) && btn) {
+        var link = (res.data && res.data.checkout_url) || '';
+        var approvedStripeUrl = false;
+        try {
+          var parsedCheckoutUrl = new URL(link);
+          approvedStripeUrl = parsedCheckoutUrl.protocol === 'https:' &&
+            (parsedCheckoutUrl.hostname === 'checkout.stripe.com' || parsedCheckoutUrl.hostname === 'billing.stripe.com');
+        } catch (_) { approvedStripeUrl = false; }
+        if (approvedStripeUrl && btn) {
           btn.outerHTML = bcInlinePaymentLinkMarkup(link);
           resultEl.innerHTML = '';
           resultEl.style.display = 'none';
         } else {
-          resultEl.innerHTML = link && (/^https:/i.test(link) || /^http:/i.test(link))
-            ? bcInlinePaymentLinkMarkup(link)
-            : escHtml(t('drawer.payments.linkReady'));
+          resultEl.innerHTML = escHtml(t('drawer.payments.linkFailed'));
           resultEl.style.display = 'block';
         }
       }
     })
     .catch(function(err){
+      if (!requestStillCurrent()) return;
       if (btn) btn.disabled = false;
       if (resultEl){
         resultEl.innerHTML = escHtml(err.message || 'Network error');
@@ -40074,6 +40112,13 @@ function bcBindCreateGuestPaymentLinkButtons(data){
   // document and rely on the per-button marker to keep this idempotent.
   var root = document;
   if (!root || !root.querySelectorAll) return;
+  var drawer = root.querySelector('#bc-side-drawer');
+  var mountedBooking = String((data && (data.booking_id || (data.booking && data.booking.booking_id) || data.id)) || '');
+  if (drawer) {
+    var generation = Number(drawer.getAttribute('data-booking-view-generation') || 0) + 1;
+    drawer.setAttribute('data-booking-view-generation', String(generation));
+    drawer.setAttribute('data-mounted-booking-id', mountedBooking);
+  }
   root.querySelectorAll('.bc-create-guest-payment-link-btn').forEach(function(btn){
     if (btn.getAttribute('data-bc-paylink-bound') === '1') return;
     btn.setAttribute('data-bc-paylink-bound', '1');
@@ -40083,10 +40128,11 @@ function bcBindCreateGuestPaymentLinkButtons(data){
     }
     btn.addEventListener('click', function(){
       var guestId = btn.getAttribute('data-booking-guest-id');
+      var paymentTarget = btn.getAttribute('data-payment-target') || 'deposit';
       var resultEl = btn.parentNode && btn.parentNode.querySelector
         ? btn.parentNode.querySelector('.bc-guest-pay-link-result')
         : null;
-      bcRequestGuestPaymentLink(guestId, resultEl, btn, data);
+      bcRequestGuestPaymentLink(guestId, paymentTarget, resultEl, btn, data);
     });
   });
 }
@@ -40107,7 +40153,7 @@ function bcInitGuestPaymentLinkShell(data){
   genBtn.disabled = false;
   genBtn.addEventListener('click', function(){
     var guestId = selectEl ? selectEl.value : '';
-    bcRequestGuestPaymentLink(guestId, resultEl, genBtn, data);
+    bcRequestGuestPaymentLink(guestId, 'deposit', resultEl, genBtn, data);
   });
 }
 
