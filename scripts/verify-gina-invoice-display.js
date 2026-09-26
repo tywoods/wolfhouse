@@ -85,6 +85,8 @@ const NAMES = [
   'bcInvoiceRolledServiceLineText',
   'bcRollupInvoiceServiceDisplay',
   'bcRenderPerGuestPaymentsHtml',
+  'bcAccommodationPayPebbleKey',
+  'bcAccommodationPayPebbleHtml',
   'bcRenderRunningInvoiceHtml',
   'bcRequestGuestPaymentLink',
   'bcInlinePaymentLinkMarkup',
