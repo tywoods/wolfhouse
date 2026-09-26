@@ -179,14 +179,20 @@ async function main() {
         assert.equal(receipts[0].payment_scope,'guest');
         assert.equal(receipts[0].booking_id,booking.booking_id);
         await page.waitForFunction(() => document.getElementById('bc-invoice-feedback').textContent.includes('Payment recorded'));
-        assert.equal(await page.locator('#bc-inv-accommodation .bc-accom-pay-pebble').first().innerText(),'Unpaid','partial receipt is not a paid accommodation share');
+        assert.match(await page.locator('#bc-invoice-feedback').innerText(), /Payment recorded/);
+        // Master moved the existing pebble into the guest header. Preserve that lane.
+        // Reopen normally so this asserts a fresh persisted-shaped context, not stale header text.
+        await page.locator('#bc-side-close').click();
+        await page.locator('.bc-block').first().click();
+        await page.mouse.move(1300, 500);
+        await page.waitForFunction(() => document.querySelector('#bc-inv-totals .ctx-inv-total-amount.paid')?.textContent === '€12.34');
+        assert.equal(await page.locator('#bc-field-group-guests .bc-accom-pay-pebble').first().innerText(),'Unpaid','partial receipt is not a paid accommodation share');
         assert.equal(await page.locator('#bc-inv-totals .ctx-inv-total-amount.paid').innerText(),'€12.34');
         assert.equal(await page.locator('#bc-inv-totals .ctx-inv-total-amount.owing').innerText(),'€587.66');
         await page.locator('#bc-record-payment-btn').click(); await page.locator('#bc-payment-scope').selectOption(GUEST);
         await page.locator('#bc-payment-use-outstanding').click();
         assert.equal(await page.locator('#bc-payment-amount').inputValue(),'287.66','named remaining share uses the receipt projection');
         await page.locator('#bc-payment-cancel').click();
-        assert.match(await page.locator('#bc-invoice-feedback').innerText(), /Payment recorded/);
         assert.equal(await page.locator('[data-tab=overview].bc-drawer-tab').getAttribute('aria-selected'),'true');
         assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false');
         results.push({name:'named-cash-payload-and-read-refresh', localSynthetic:true});
