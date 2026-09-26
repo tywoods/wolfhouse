@@ -19936,9 +19936,7 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-running-invoice .ctx-inv-group:first-child{margin-top:0;padding-top:0;border-top:none}
 .ctx-inv-group-title{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
 .ctx-inv-line{font-size:12px;line-height:1.5;color:var(--text);padding:2px 0}
-.ctx-inv-line.bc-accom-guest-line{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.bc-accom-guest-text{min-width:0}
-.bc-accom-pay-pebble{flex:0 0 auto;margin-left:auto;border-radius:999px;padding:0 8px;font-size:10px;font-weight:600;line-height:16px;white-space:nowrap}
+.bc-accom-pay-pebble{flex:0 0 auto;border-radius:999px;padding:0 8px;font-size:10px;font-weight:600;line-height:16px;white-space:nowrap}
 .bc-accom-pay-pebble.is-unpaid{background:#3A3A3C;color:#fff}
 .bc-accom-pay-pebble.is-deposit{background:#D7EBE6;color:#1F4F48}
 .bc-accom-pay-pebble.is-paid{background:#DCEAD2;color:#3d6130}
@@ -20930,9 +20928,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-count{display:none}
 .bc-guest-names{display:block;margin-top:0;font-size:14px;font-weight:600;text-decoration:none!important;white-space:normal;line-height:1.4}
 .bc-guest-name-line{display:block}
-.bc-guest-name-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.bc-guest-name-row .bc-guest-name-line{display:inline}
-.bc-guest-bed{font-weight:500;color:var(--text-2)}
+.bc-guest-name-row{display:flex;align-items:center;flex-wrap:nowrap;white-space:nowrap;min-width:0;max-width:100%;gap:0;line-height:1.4}
+.bc-guest-name-row .bc-guest-name-line{display:inline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.bc-guest-sep{flex:0 0 auto;padding:0 6px;font-weight:500;color:var(--text-2)}
+.bc-guest-bed{flex:0 0 auto;white-space:nowrap;font-weight:500;color:var(--text-2)}
+.bc-guest-name-row .bc-accom-pay-pebble{margin-left:0;flex:0 0 auto}
 .bc-guest-services{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2)}
 #bc-side-drawer .ctx-field-edit{display:none!important}
 #bc-side-drawer .bc-inline-input{
@@ -39759,7 +39759,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       } else {
         parts.push(t('drawer.invoice.notAvailable'));
       }
-      html += '<div class="ctx-inv-line bc-accom-guest-line"><span class="bc-accom-guest-text">' + escHtml(parts.join(' \u2014 ')) + '</span>' + bcAccommodationPayPebbleHtml(line.guest_number, bookingGuests, perPerson) + '</div>';
+      html += '<div class="ctx-inv-line">' + escHtml(parts.join(' \u2014 ')) + '</div>';
     });
   } else {
     var accLine = null;
@@ -41280,7 +41280,7 @@ function bcFieldEditFormatContactLine(obj){
   return parts.join(' \u00b7 ');
 }
 
-function bcGuestNameBedDisplayHtml(guests, leadName){
+function bcGuestNameBedDisplayHtml(guests, leadName, perPerson){
   var rows = [];
   (guests || []).forEach(function(g){
     if (!g) return;
@@ -41299,9 +41299,16 @@ function bcGuestNameBedDisplayHtml(guests, leadName){
     var name = String(g.guest_name || '').trim();
     var bed = String(g.assigned_bed_code || g.bed_code || '').trim();
     if (!bed) bed = String(g.assigned_room_code || '').trim();
-    var html = '<span class="bc-guest-name-row">' +
-      '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
-    if (bed) html += '<span class="bc-guest-bed">' + escHtml(bed) + '</span>';
+    var html = '<span class="bc-guest-name-row">';
+    html += '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
+    if (bed) {
+      html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
+      html += '<span class="bc-guest-bed">' + escHtml(bed) + '</span>';
+    }
+    if (typeof bcAccommodationPayPebbleHtml === 'function' && g.guest_number != null && g.guest_number !== '') {
+      html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
+      html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || []);
+    }
     return html + '</span>';
   }).join('');
 }
@@ -41350,7 +41357,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name);
+  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || []);
   if (!namesHtml) {
     namesHtml = guestNames.filter(Boolean).map(function(n){
       return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
