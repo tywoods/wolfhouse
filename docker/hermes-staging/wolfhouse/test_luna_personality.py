@@ -66,6 +66,126 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertFalse(other["applied"])
         self.assertEqual(lp.apply_personality_to_soul_text("Email rules."), "Email rules.")
 
+    def test_sunny_and_conversationalist_match_approved_soft_chat_and_js(self) -> None:
+        sunny = (
+            "Luna Personality this turn: sunny (DEFAULT). Upbeat, lightly playful surf-host warmth; "
+            "bright, brisk WhatsApp cadence. On soft chat, meet the guest's specific detail with a "
+            "short buoyant reaction or gentle playful observation, not an interview. Light emoji "
+            "(usually 0–2), never required. No stock celebration, repeated-letter hype or forced "
+            "positivity when someone is upset. No invented conditions or personal experiences. Keep "
+            "the required next step; do not create booking intake or a follow-up question just to "
+            "prolong social chat. Wording/cadence/warmth/emoji only. Never change facts, prices, "
+            "availability, open spots, permissions, tool choice or results, identity, booking/payment "
+            "state, URLs, confirmations, handoff decisions, or language."
+        )
+        conversationalist = (
+            "Luna Personality this turn: conversationalist. Interested, easygoing conversation, not a "
+            "reception script. On soft chat, pick up one specific detail the guest volunteered and "
+            "respond to its meaning; add one small relevant observation or, when welcome and no "
+            "required question is pending, one natural follow-up. Plain spoken cadence, understated "
+            "warmth, sparse emoji; no pep rally, stock empathy or therapy talk. Do not invent facts, "
+            "feelings or personal experiences. Resume any required next step without delay; never "
+            "re-ask known details or turn social chat into booking intake. Wording/cadence/warmth/emoji "
+            "only. Never change facts, prices, availability, open spots, permissions, tool choice or "
+            "results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language."
+        )
+        calm = (
+            "Luna Personality this turn: calm. Patient, reassuring, low-key. Soft warmth, fewer emoji, "
+            "no hype, no elongated openers. Steady WhatsApp cadence. One clear next step. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        )
+        concise = (
+            "Luna Personality this turn: concise. Friendly but short. Tight sentences, minimal emoji, "
+            "no extra cheer. Keep the same next step in fewer words. Wording/cadence/warmth/emoji only. "
+            "Never change facts, prices, availability, open spots, permissions, tool choice or results, "
+            "identity, booking/payment state, URLs, confirmations, handoff decisions, or language."
+        )
+        extra = (
+            "Luna Personality this turn: extra. Ultra bright, over-the-top friendly surf-host energy. "
+            "More emoji than sunny, still readable. Celebratory cadence without inventing facts. For "
+            "English and Spanish warmth/date replies, be more expressive than concise and warmer than "
+            "calm; use at least two colorful emoji (for example, 🌊 and 😊), still readable. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        )
+        self.assertEqual(lp.get_personality_pack("sunny")["instruction"], sunny)
+        self.assertEqual(lp.get_personality_pack("conversationalist")["instruction"], conversationalist)
+        self.assertLess(len(sunny), 900)
+        self.assertLess(len(conversationalist), 900)
+        self.assertNotEqual(sunny, conversationalist)
+        self.assertNotIn("current live Wolf-House tone", sunny)
+        self.assertEqual(lp.get_personality_pack("calm")["instruction"], calm)
+        self.assertEqual(lp.get_personality_pack("concise")["instruction"], concise)
+        self.assertEqual(lp.get_personality_pack("extra")["instruction"], extra)
+        self.assertEqual(lp.CLOSED_PERSONALITY_IDS, ("sunny", "calm", "concise", "extra", "conversationalist"))
+        self.assertEqual(lp.DEFAULT_PERSONALITY_ID, "sunny")
+
+        import json
+        import subprocess
+
+        repo = STAGING.parent.parent
+        script = (
+            "const packs = require('./scripts/lib/luna-guest-personality-packs');"
+            "const ids = ['sunny','calm','concise','extra','conversationalist'];"
+            "const out = {};"
+            "for (const id of ids) out[id] = packs.getPersonalityPack(id).instruction;"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        proc = subprocess.run(
+            ["node", "-e", script],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        js_packs = json.loads(proc.stdout)
+        self.assertEqual(js_packs["sunny"], sunny)
+        self.assertEqual(js_packs["conversationalist"], conversationalist)
+        self.assertEqual(js_packs["calm"], calm)
+        self.assertEqual(js_packs["concise"], concise)
+        self.assertNotEqual(js_packs["extra"], extra)
+        self.assertIn("Celebratory cadence without inventing facts.", js_packs["extra"])
+        self.assertNotIn("at least two colorful emoji", js_packs["extra"])
+
+    def test_selected_pack_switch_injects_once_and_keeps_policy(self) -> None:
+        soul_path = STAGING / "SOUL.md"
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp"))
+        stored = {"id": "sunny"}
+
+        def fetch(_tid: str) -> dict:
+            return {"personality_id": stored["id"]}
+
+        original_read = Path.read_text
+        lp.install_soul_append_runtime_patch()
+        try:
+            with mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna"}):
+                prompts = []
+                for pid in ("sunny", "conversationalist", "sunny"):
+                    stored["id"] = pid
+                    lp.clear_bound_personality()
+                    bound = lp.bind_whatsapp_turn_personality(source, fetch_setting=fetch)
+                    text = soul_path.read_text(encoding="utf-8")
+                    self.assertEqual(bound["pack"]["id"], pid)
+                    self.assertEqual(text.count(lp.INJECTION_MARK), 1)
+                    self.assertIn(bound["pack"]["instruction"], text)
+                    self.assertIn("ONE €100 deposit locks the whole group booking", text)
+                    self.assertIn("ask composition at room step (shared dorm only)", text)
+                    self.assertIn("Are you thinking about a stay, or can I help with some info?", text)
+                    prompts.append(text)
+                sunny_instruction = lp.get_personality_pack("sunny")["instruction"]
+                conversationalist_instruction = lp.get_personality_pack("conversationalist")["instruction"]
+                self.assertNotIn(conversationalist_instruction, prompts[0])
+                self.assertNotIn(sunny_instruction, prompts[1])
+                self.assertNotIn(conversationalist_instruction, prompts[2])
+                self.assertNotEqual(prompts[0], prompts[1])
+        finally:
+            lp.clear_bound_personality()
+            Path.read_text = original_read
+            lp._soul_patch_installed = False
+
     def test_extra_explicitly_outpaces_concise_and_calm_for_en_es_warmth_dates(self) -> None:
         instruction = lp.get_personality_pack("extra")["instruction"].lower()
         self.assertIn("english and spanish warmth/date replies", instruction)
@@ -304,6 +424,7 @@ class LunaPersonalityTests(unittest.TestCase):
             calls["n"] += 1
             return {"personality_id": stored["id"]}
 
+        original_read = Path.read_text
         lp.install_soul_append_runtime_patch()
         source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"))
 
@@ -379,6 +500,9 @@ class LunaPersonalityTests(unittest.TestCase):
                     should_evict,
                     f"role={role} platform={plat}",
                 )
+        lp.clear_bound_personality()
+        Path.read_text = original_read
+        lp._soul_patch_installed = False
 
 
 if __name__ == "__main__":
