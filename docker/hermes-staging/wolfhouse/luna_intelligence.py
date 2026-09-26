@@ -39,6 +39,7 @@ class Turn:
     lock: LockType = field(default_factory=threading.Lock)
     closed: bool = False
     public_failure: bool = False
+    stormglass: dict | None = None
 
 _current: ContextVar[Turn | None] = ContextVar('luna_public_research_turn', default=None)
 
@@ -223,7 +224,90 @@ def _without_calendar_dates(query):
     return re.sub(r'(?<![\w+.-])\d{4}-\d{2}-\d{2}(?![\w.-])', calendar, query)
 
 
+_FORECAST_QUERY = re.compile(
+    r'\b(?:waves?|swell|wind|raining|rain|temperature|temp|clouds?|tides?|forecast|weather|olas|llueve|lluvia|marea|viento|temperatura|nubes)\b',
+    re.I)
+
+
+def record_stormglass_result(result):
+    """Server-owned forecast for this turn. Model arguments cannot set this."""
+    turn = _current.get()
+    if turn is None or turn.closed or not isinstance(result, dict):
+        return
+    location = result.get('location') if isinstance(result.get('location'), dict) else {}
+    with turn.lock:
+        turn.stormglass = {
+            'coverage': result.get('coverage'),
+            'missing_fields': tuple(result.get('missing_fields') or ()),
+            'outcome': result.get('outcome'),
+            'source': result.get('source') or 'stormglass',
+            'retrieved_at': result.get('retrieved_at'),
+            'location_id': location.get('location_id') or result.get('location_id'),
+        }
+
+
+def _forecast_query(query):
+    return isinstance(query, str) and _FORECAST_QUERY.search(query) is not None
+
+
+_ASKED_FORECAST_FIELDS = (
+    ('wave_height_m', re.compile(r'\b(?:waves?|surf|olas|onde)\b', re.I)),
+    ('wind_speed_mps', re.compile(r'\b(?:wind|viento)\b', re.I)),
+    ('precipitation_mm_per_h', re.compile(r'\b(?:rain|raining|llueve|lluvia|precip)\b', re.I)),
+    ('air_temperature_c', re.compile(r'\b(?:temp|temperature|temperatura)\b', re.I)),
+    ('cloud_cover_pct', re.compile(r'\b(?:clouds?|nubes)\b', re.I)),
+    ('tide_height_m', re.compile(r'\b(?:tides?|marea)\b', re.I)),
+    ('current_speed_mps', re.compile(r'\b(?:current|corriente)\b', re.I)),
+)
+
+
+def _asked_forecast_fields(query):
+    text = query or ''
+    return [name for name, pattern in _ASKED_FORECAST_FIELDS if pattern.search(text)]
+
+
+def _policy_block(error, guidance):
+    return json.dumps({
+        'success': False, 'error': error, 'staff_review_needed': False,
+        'do_not_escalate': True, 'public_research_calls': 0, 'guidance': guidance,
+    })
+
+
+def _stormglass_public_block(params):
+    if not isinstance(params, dict):
+        return None
+    query = params.get('query')
+    if not _forecast_query(query):
+        return None
+    turn = _current.get()
+    recorded = getattr(turn, 'stormglass', None) if turn is not None and not turn.closed else None
+    if not recorded:
+        return _policy_block(
+            'stormglass_required_first',
+            'Call get_surf_report first. Public research cannot supply forecast facts before Stormglass.')
+    if recorded.get('coverage') == 'complete':
+        return _policy_block(
+            'stormglass_complete',
+            'Stormglass coverage is complete. Answer from those facts. Do not search or read.')
+    if recorded.get('coverage') != 'partial':
+        return None
+    missing = set(recorded.get('missing_fields') or ())
+    asked = _asked_forecast_fields(query)
+    if asked and missing.isdisjoint(asked):
+        return _policy_block(
+            'stormglass_complete',
+            'Those forecast facts are already covered. Research only named missing_fields.')
+    if recorded.get('coverage') == 'partial' and not asked:
+        return _policy_block(
+            'stormglass_partial_named_only',
+            'Stormglass is partial. Search only a named missing field, not the covered forecast.')
+    return None
+
+
 def search_public_info(params, **kwargs):
+    blocked = _stormglass_public_block(params)
+    if blocked:
+        return blocked
     turn = _current.get()
     result = _search_public_info_once(params)
     if json.loads(result).get('error') == 'public_search_unavailable' and turn is not None:
