@@ -339,10 +339,10 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
 
   // A paid provider session traversing the real staff wrapper returns a safe,
   // typed 409 while preserving the original SQL row and provider identity.
-  {
+  for (const unallocated of [false, true]) {
     const { handleStaffGenerateGuestPaymentLink } = require('./lib/staff-guest-payment-link-handler');
     const g = { client_id: '11111111-1111-1111-1111-111111111111', booking_id: '22222222-2222-2222-2222-222222222222',
-      booking_code: 'BK-PAID', guest_name: 'Paid Guest', guest_number: 3, booking_status: 'confirmed',
+      booking_code: 'BK-PAID', guest_name: 'Paid Guest', guest_number: 3, booking_status: 'confirmed', has_unallocated_booking_payment: unallocated,
       deposit_amount_cents: 10000, guest_metadata: { subtotal_cents: 5000 }, amount_paid_cents: 1000 };
     const original = { payment_id: '44444444-4444-4444-4444-444444444444', amount_due_cents: 4000, currency: 'EUR',
       metadata: { source: 'bot_guest_payment_link_slice_a', payment_target: 'deposit', intent_target: 'deposit',
@@ -377,7 +377,9 @@ assert(portal.includes("t('drawer.invoice.paymentLink')"), 'visible Payment Link
       });
     assert.strictEqual(creates, 0); assert.strictEqual(expires, 0); assert.strictEqual(mutations, 0);
     assert.strictEqual(sent[0].status, 409);
-    assert.deepStrictEqual(sent[0].body, { success: false, error: 'payment_processing_refresh_required',
+    assert.deepStrictEqual(sent[0].body, unallocated
+      ? {success:false,error:'guest_payment_unallocated_booking_receipt',message:'This booking has a payment not allocated to a guest. Use the booking balance instead of creating a guest payment link.'}
+      : { success: false, error: 'payment_processing_refresh_required',
       message: 'Payment may already be processing. Refresh payment status before creating another link.' });
     assert.strictEqual(original.stripe_checkout_session_id, 'cs_paid');
   }

@@ -767,6 +767,7 @@ const {
 const {
   distributeSpanScheduleDates,
   serviceRecordBillableCents,
+  isAdditionalInvoiceService,
 } = require('./lib/staff-booking-services-schedule');
 const { buildManualBookingServiceRecordRows, isMissingBookingServiceRecordsTable, tryInsertManualBookingServiceRecords } = require('./lib/manual-booking-service-records');
 const { loadWolfhouseRentalDayRates } = require('./lib/service-record-invoice-line');
@@ -807,6 +808,10 @@ const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
   transferInvoiceLineItems,
+  EDIT_PREVIEW_ACCOMM_LINE_CODES,
+  bookingLedgerParseMetadata,
+  bookingLedgerAccommodationCents,
+  bookingLedgerInvoicePaidBalance,
 } = require('./lib/booking-invoice-totals');
 const { getAeroDataBoxStatus } = require('./lib/aerodatabox-flight-lookup');
 const {
@@ -4955,14 +4960,6 @@ async function handleBookingDateChangePreview(req, res, user) {
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
 const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room']);
-const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({
-  package: true, package_proration: true, room_supplement: true,
-  accommodation_only: true, manual_accommodation: true,
-  // Per-guest package lines (multi-guest bookings with guest_packages). Without
-  // these the quote_snapshot accommodation lines aren't recognized, so the
-  // running invoice falls back to "total - services" and added services net out.
-  guest_package: true, guest_package_proration: true, guest_accommodation_only: true,
-});
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
 const EDIT_PREVIEW_BOOKING_BY_ID_SQL = `
@@ -5036,71 +5033,8 @@ function paymentLedgerPaidTotalCents(rows) {
 }
 
 /* Phase 10.6g.2 — invoice + ledger payment truth (calendar, drawer, stale links) */
-function bookingLedgerParseMetadata(raw) {
-  if (raw && typeof raw === 'object') return raw;
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch (_) { return {}; }
-}
 
-function bookingLedgerAccommodationCents(bookingRow, svcDueCents, quoteSnap) {
-  const svcSum = Number(svcDueCents || 0);
-  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
-    let sum = 0;
-    let any = false;
-    for (const li of quoteSnap.line_items) {
-      if (li.code && EDIT_PREVIEW_ACCOMM_LINE_CODES[li.code] && li.total_cents != null) {
-        sum += Number(li.total_cents);
-        any = true;
-      }
-    }
-    const bookingTotal = bookingRow && bookingRow.total_amount_cents != null
-      ? Number(bookingRow.total_amount_cents) : null;
-    // If quote lines already equal the authoritative booking total, package
-    // services are embedded there. Subtract their operational service rows so
-    // adding svcSum below counts them exactly once.
-    if (any && sum > 0 && bookingTotal != null && bookingTotal > 0 && sum >= bookingTotal) {
-      return Math.max(bookingTotal - svcSum, 0);
-    }
-    // A zero-valued original quote snapshot must not erase later authoritative
-    // booking totals. Fall through to total-minus-services when the booking
-    // total proves that accommodation value exists.
-    if (any && (sum > 0
-      || bookingTotal == null
-      || bookingTotal <= svcSum)) return sum;
-  }
-  if (bookingRow && bookingRow.total_amount_cents != null) {
-    const total = Number(bookingRow.total_amount_cents);
-    const derived = total - svcSum;
-    return derived >= 0 ? derived : total;
-  }
-  return null;
-}
 
-function bookingLedgerInvoicePaidBalance(bookingRow, svcDueCents, ledgerPaidCents, transferDueCents) {
-  const bk = bookingRow || {};
-  const md = bookingLedgerParseMetadata(bk.metadata);
-  const quoteSnap = md.quote_snapshot || null;
-  const svcSum = Number(svcDueCents || 0);
-  const transferSum = Number(transferDueCents || 0);
-  const accCents = bookingLedgerAccommodationCents(bk, svcSum, quoteSnap);
-  const invoiceTotal = accCents != null ? accCents + svcSum + transferSum : null;
-  const paidTotal = ledgerPaidCents != null ? Number(ledgerPaidCents) : 0;
-  const depositRequired = bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0;
-  let balanceDue = null;
-  let needsRefund = false;
-  if (invoiceTotal != null) {
-    if (invoiceTotal > paidTotal) balanceDue = invoiceTotal - paidTotal;
-    else if (invoiceTotal < paidTotal) { needsRefund = true; balanceDue = 0; }
-    else balanceDue = 0;
-  }
-  return {
-    invoice_total_cents: invoiceTotal,
-    paid_total_cents: paidTotal,
-    balance_due_cents: balanceDue,
-    deposit_required_cents: depositRequired,
-    needs_refund: needsRefund,
-  };
-}
 
 function paymentLedgerNormalizeCtx(ctxOrBalance, bookingRow) {
   if (ctxOrBalance != null && typeof ctxOrBalance === 'object' && !Array.isArray(ctxOrBalance)) {
@@ -5245,12 +5179,14 @@ function bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows, transfer
   const svcDue = editPreviewSvcSum(svcRows);
   const paidCents = paymentLedgerPaidTotalCents(paymentRows);
   const transferDue = sumActiveTransferChargesCents(transferRows);
-  const totals = bookingLedgerInvoicePaidBalance(bookingRow, svcDue, paidCents, transferDue);
+  const additionalSvc = editPreviewSvcSum((svcRows || []).filter(isAdditionalInvoiceService));
+  const totals = bookingLedgerInvoicePaidBalance(bookingRow, svcDue, paidCents, transferDue, additionalSvc);
   const line_items = editPreviewBuildLineItems(
     bookingLedgerAccommodationCents(
       bookingRow,
       svcDue,
       (bookingLedgerParseMetadata(bookingRow.metadata).quote_snapshot) || null,
+      additionalSvc,
     ),
     svcRows,
     null,
@@ -8751,213 +8687,50 @@ async function handleBookingCreateConversation(req, res, user) {
 
 async function handleBookingRecordCashPayment(req, res, user) {
   const started = Date.now();
-
-  let body = {};
-  try {
-    const raw = await readBody(req);
-    body = JSON.parse(raw || '{}');
-  } catch (_) {
-    return send400(res, 'invalid or missing JSON body');
-  }
-
-  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
-  const bookingId      = String(body.booking_id   || '').trim();
-  const bookingCode    = String(body.booking_code || '').trim();
-  const idempotencyKey = String(body.idempotency_key || '').trim();
-  const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
-  const paymentDateIn  = String(body.payment_date || '').trim();
-  const amountCents    = Math.floor(Number(body.amount_cents));
-  // Optional staff payment method from a safe allowlist; defaults to cash. Does not affect payment math.
-  const STAFF_MANUAL_METHODS = { cash: 'staff_cash', bank_transfer: 'staff_bank_transfer', in_store: 'staff_in_store' };
-  const methodIn       = String(body.method || 'cash').trim().toLowerCase();
-  const method         = STAFF_MANUAL_METHODS[methodIn] ? methodIn : 'cash';
-  const methodSource   = STAFF_MANUAL_METHODS[method];
-
+  if (!STAFF_ACTIONS_ENABLED) return sendJSON(res, 403, {
+    success: false, error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.', staff_actions_enabled: false,
+  });
+  let body;
+  try { body = JSON.parse((await readBody(req)) || '{}'); }
+  catch (_) { return send400(res, 'invalid or missing JSON body'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return send400(res, 'JSON object required');
+  const { bindStaffGuestPaymentClient } = require('./lib/staff-guest-payment-link-auth');
+  const clientSlug = bindStaffGuestPaymentClient({ req, body, user, defaultClient: DEFAULT_CLIENT,
+    assertStaffClientAccess, res, sendJSON });
+  if (!clientSlug) return;
+  if (body.client != null && String(body.client).trim() !== clientSlug) return sendJSON(res, 403, { success:false, error:'client_scope_mismatch' });
+  const bookingId = String(body.booking_id || '').trim();
+  const bookingCode = String(body.booking_code || '').trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!clientSlug) return send400(res, 'client_slug is required');
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
-  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
-  if (!amountCents || amountCents <= 0) return send400(res, 'amount_cents must be greater than zero');
-
-  let paymentDate = paymentDateIn;
-  if (!paymentDate || !DATE_RE.test(paymentDate) || !parseCalendarDate(paymentDate)) {
-    paymentDate = new Date().toISOString().slice(0, 10);
-  }
-
-  const actorId    = user ? user.staff_user_id : 'dev-cash-pay-local';
-  const actorRole  = user ? user.role          : 'operator';
-  const actorLabel = user ? (user.email || user.staff_user_id) : actorId;
-
-  const auditBase = {
-    ts:              new Date().toISOString(),
-    intent:          'api:booking_record_cash_payment',
-    category:        'booking_cash_payment_write',
-    client_slug:     clientSlug,
-    booking_id:      bookingId || null,
-    booking_code:    bookingCode || null,
-    amount_cents:    amountCents,
-    idempotency_key: idempotencyKey,
-    staff_user_id:   actorId,
-    staff_role:      actorRole,
-  };
-
-  let bookingRow;
+  const actorId = user ? user.staff_user_id : 'dev-cash-pay-local';
+  const auditBase = { ts:new Date().toISOString(), intent:'api:booking_record_cash_payment',
+    category:'booking_cash_payment_write', client_slug:clientSlug, booking_id:bookingId || null,
+    booking_code:bookingCode || null, amount_cents:body.amount_cents, idempotency_key:body.idempotency_key,
+    staff_user_id:actorId, staff_role:user ? user.role : 'operator' };
   try {
-    bookingRow = await withPgClient(async (pg) => {
-      const bookingRes = await pg.query(
-        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
-        [clientSlug, bookingId || bookingCode]
-      );
-      return bookingRes.rows[0] || null;
+    const booking = await withPgClient(async pg => {
+      const rows = await pg.query(bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]);
+      return rows.rows[0] || null;
     });
-  } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'booking lookup failed', detail: err.message });
-  }
-
-  if (!bookingRow) {
-    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
-    return sendJSON(res, 404, { success: false, error: 'booking not found' });
-  }
-
-  if (bookingStatusIsCancelled(bookingRow.status)) {
-    return sendJSON(res, 400, {
-      success: false,
-      error: 'booking_not_active',
-      message: 'Cannot record cash payment on a cancelled or expired booking.',
-    });
-  }
-
-  const pmMeta = {
-    source: methodSource,
-    method: method,
-    idempotency_key: idempotencyKey,
-    note: note,
-    payment_date: paymentDate,
-    recorded_by: actorLabel,
-    staff_portal: true,
-  };
-
-  try {
-    const result = await withPgClient(async (pg) => {
-      const idem = await pg.query(
-        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
-                p.amount_due_cents, p.amount_paid_cents, p.paid_at, p.metadata
-           FROM payments p
-          INNER JOIN bookings b ON b.id = p.booking_id
-          INNER JOIN clients c ON c.id = b.client_id
-          WHERE p.booking_id = $1::uuid
-            AND c.slug = $2
-            AND p.metadata->>'idempotency_key' = $3
-          LIMIT 1`,
-        [bookingRow.booking_id, clientSlug, idempotencyKey]
-      );
-      if (idem.rows[0]) {
-        const sumIdem = await pg.query(
-          `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS total
-             FROM payments p
-            INNER JOIN bookings b ON b.id = p.booking_id
-            INNER JOIN clients c ON c.id = b.client_id
-            WHERE p.booking_id = $1::uuid
-              AND c.slug = $2
-              AND p.status = 'paid'::payment_record_status`,
-          [bookingRow.booking_id, clientSlug]
-        );
-        const paidTotal = Number(sumIdem.rows[0].total || 0);
-        const bkTotal = Number(bookingRow.total_amount_cents || 0);
-        return {
-          idempotent: true,
-          payment: idem.rows[0],
-          booking_paid_cents: paidTotal,
-          balance_due_cents: bkTotal > 0 ? Math.max(bkTotal - paidTotal, 0) : 0,
-        };
-      }
-
-      const clientRes = await pg.query(
-        'SELECT id FROM clients WHERE slug = $1 LIMIT 1',
-        [clientSlug]
-      );
-      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-      if (!clientId) throw new Error('client not found');
-
-      await pg.query('BEGIN');
-      try {
-        const paidAt = paymentDate + 'T12:00:00.000Z';
-        const ins = await pg.query(
-          `INSERT INTO payments (
-             client_id, booking_id, status, payment_kind, currency,
-             amount_due_cents, amount_paid_cents, paid_at, metadata
-           ) VALUES (
-             $1, $2::uuid, 'paid'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-             $3, $3, $4::timestamptz, $5::jsonb
-           )
-           RETURNING id::text AS payment_id, status::text AS payment_status,
-                     amount_due_cents, amount_paid_cents, paid_at`,
-          [clientId, bookingRow.booking_id, amountCents, paidAt, JSON.stringify(pmMeta)]
-        );
-        const payment = ins.rows[0];
-
-        const sumRes = await pg.query(
-          `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS total
-             FROM payments p
-            INNER JOIN bookings b ON b.id = p.booking_id
-            INNER JOIN clients c ON c.id = b.client_id
-            WHERE p.booking_id = $1::uuid
-              AND c.slug = $2
-              AND p.status = 'paid'::payment_record_status`,
-          [bookingRow.booking_id, clientSlug]
-        );
-        const newBkPaid = Number(sumRes.rows[0].total || 0);
-        const bkTotal = Number(bookingRow.total_amount_cents || 0);
-        const newBalance = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
-        let newBkPayStatus = bookingRow.payment_status;
-        if (bkTotal > 0 && newBalance === 0) newBkPayStatus = 'paid';
-        else if (newBkPaid > 0 && newBkPayStatus === 'not_requested') newBkPayStatus = 'deposit_paid';
-
-        await pg.query(
-          `UPDATE bookings
-              SET amount_paid_cents = $1,
-                  balance_due_cents = $2,
-                  payment_status = $3::payment_status
-            WHERE id = $4::uuid`,
-          [newBkPaid, newBalance, newBkPayStatus, bookingRow.booking_id]
-        );
-
-        await pg.query('COMMIT');
-        return { idempotent: false, payment: payment, booking_paid_cents: newBkPaid, balance_due_cents: newBalance };
-      } catch (e) {
-        try { await pg.query('ROLLBACK'); } catch (_) {}
-        throw e;
-      }
-    });
-
+    if (!booking) return sendJSON(res, 404, { success:false, error:'booking_not_found' });
+    if (bookingCode && booking.booking_code !== bookingCode) return sendJSON(res, 409, {success:false,error:'booking_identity_mismatch'});
+    const result = await withPgClient(pg => require('./lib/staff-manual-payment').recordStaffManualPayment(pg, {
+      clientSlug, bookingId:booking.booking_id, paymentScope:body.payment_scope, bookingGuestId:body.booking_guest_id,
+      amountCents:body.amount_cents, method:body.method, idempotencyKey:body.idempotency_key,
+      paymentDate:body.payment_date, note:body.note, actorLabel:user ? (user.email || user.staff_user_id) : actorId,
+    }));
     const elapsed = Date.now() - started;
-    appendAuditLog({
-      ...auditBase,
-      success: true,
-      idempotent: !!result.idempotent,
-      payment_id: result.payment && result.payment.payment_id,
-      elapsed_ms: elapsed,
-    });
-
-    return sendJSON(res, 200, {
-      success: true,
-      idempotent: !!result.idempotent,
-      payment: result.payment,
-      booking_paid_cents: result.booking_paid_cents,
-      balance_due_cents: result.balance_due_cents,
-      message: result.idempotent
-        ? 'Cash payment already recorded (idempotent).'
-        : 'Cash payment recorded. No Stripe, payment link, WhatsApp, or n8n action was taken.',
-      no_stripe: true,
-      no_whatsapp: true,
-      no_n8n: true,
-      elapsed_ms: elapsed,
-    });
+    appendAuditLog({...auditBase,success:true,idempotent:!!result.idempotent,payment_id:result.payment && result.payment.payment_id,elapsed_ms:elapsed});
+    return sendJSON(res, 200, {success:true,...result,
+      message:result.idempotent ? 'Payment already recorded (idempotent).' : 'Payment recorded. No payment request was sent.',
+      no_stripe:true,no_whatsapp:true,no_n8n:true,elapsed_ms:elapsed});
   } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'cash payment failed', detail: err.message });
+    appendAuditLog({...auditBase,success:false,error:err.message,elapsed_ms:Date.now()-started});
+    return sendJSON(res, err.httpStatus || 500, {success:false,error:err.code || 'manual_payment_failed',
+      message:err.publicMessage || 'Payment could not be confirmed. Retry with the same idempotency key.'});
   }
 }
 
@@ -9758,6 +9531,10 @@ async function handleBookingAddService(req, res, user) {
   const serviceMeta = {
     staff_portal: true,
     staff_ui_service_type: uiServiceType,
+    // This mutation does not update the saved base total. Mark new Wolfhouse
+    // add-ons explicitly; legacy/embedded rows are never reclassified.
+    ...(clientSlug === 'wolfhouse-somo' && bookingRow.total_amount_cents != null
+      ? { invoice_total_inclusion: 'additional' } : {}),
     schedule_mode: scheduleMode,
     pricing_addon_code: pricing.pricing_addon_code,
     pricing_unit: pricing.pricing_unit,
@@ -21013,13 +20790,13 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-running-invoice{
   max-width:none;margin:0;padding:14px 16px;box-shadow:none;
 }
-#bc-move-bed .bc-card-collapse{
+:is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse{
   display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
   padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
 }
-#bc-move-bed .bc-card-collapse .bc-drawer-card-title{margin:0}
-#bc-move-bed .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
-#bc-move-bed:not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
+:is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse .bc-drawer-card-title{margin:0}
+:is(#bc-move-bed,#bc-payment-history-card) .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
+:is(#bc-move-bed,#bc-payment-history-card):not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
 #bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
 #tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
   width:calc(100% - 419px)!important;
@@ -21057,7 +20834,7 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 }
 @media (prefers-reduced-motion:reduce){
   #bc-side-drawer{transition:none}
-  #bc-move-bed .bc-card-chevron{transition:none}
+  :is(#bc-move-bed,#bc-payment-history-card) .bc-card-chevron{transition:none}
 }
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
@@ -38804,6 +38581,7 @@ function bcServiceRecordBillableCents(sr){
   if (typeof meta === 'string') {
     try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
   }
+  if (meta.invoice_total_inclusion === 'additional' && !isAdditionalInvoiceService(sr)) return 0;
   var due = sr.amount_due_cents != null ? Number(sr.amount_due_cents) : 0;
   if (due > 0) return due;
   if (meta.combo_line_total_cents != null
@@ -38898,8 +38676,9 @@ function bcRunningInvoicePackageLabel(code){
   return c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, ' ') + ' package';
 }
 
+${isAdditionalInvoiceService.toString()}
 function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
-  var svcSum = (svcRows || []).reduce(function(s, r){
+  var svcSum = (svcRows || []).filter(function(row){ return !isAdditionalInvoiceService(row); }).reduce(function(s, r){
     return s + bcServiceRecordBillableCents(r);
   }, 0);
   if (quoteSnap && Array.isArray(quoteSnap.line_items)){
@@ -38945,7 +38724,8 @@ function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccL
   // Without a quote allocation, the context total already includes persisted
   // active services (and signed custom lines). Never add raw/history rows twice.
   if ((!quoteSnap || !Array.isArray(quoteSnap.line_items) || !quoteSnap.line_items.length)
-    && bk.total_amount_cents != null) invoiceTotal = Number(bk.total_amount_cents) + transferSum;
+    && bk.total_amount_cents != null) invoiceTotal = Number(bk.total_amount_cents) + transferSum
+      + svcRows.filter(isAdditionalInvoiceService).reduce(function(sum,row){ return sum + bcServiceRecordBillableCents(row); }, 0);
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
   var settledRows = ledgerRows.filter(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status); });
   var paidCents = settledRows.length ? bcPaymentLedgerPaidTotalCents(settledRows)
@@ -39583,7 +39363,7 @@ function bcRollupInvoiceServiceDisplay(svcRows){
   };
 }
 
-function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
+function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collectionBlocked){
   bookingGuests = bookingGuests || [];
   perPerson = perPerson || [];
   if (!bookingGuests.length && !perPerson.length) return '';
@@ -39596,12 +39376,13 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
     (perPerson || []).forEach(function(g){
       if (Number(g.guest_number) === Number(row.guest_number)) match = g;
     });
+    var storedShare = pgPayGuestSubtotalFromMetadata(row.metadata || row.guest_metadata);
     return {
       guest_number: row.guest_number,
       guest_name: row.guest_name || (match && match.guest_name) || '',
       deposit_cents: row.deposit_cents != null ? row.deposit_cents : (row.deposit_amount_cents != null ? row.deposit_amount_cents : (match && match.deposit_amount_cents)),
       amount_paid_cents: row.amount_paid_cents != null ? row.amount_paid_cents : (match && match.amount_paid_cents),
-      subtotal_cents: row.subtotal_cents != null ? row.subtotal_cents : (match && match.subtotal_cents),
+      subtotal_cents: row.subtotal_cents != null ? row.subtotal_cents : (storedShare != null ? storedShare : (match && match.subtotal_cents)),
       payment_status: row.payment_status || (match && match.payment_status),
       booking_guest_id: row.booking_guest_id || (match && match.booking_guest_id) || '',
     };
@@ -39617,7 +39398,9 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName){
     html += '<div class="ctx-inv-line ctx-inv-guest-line" data-guest-number="' + escHtml(String(row.guest_number)) + '"';
     if (row.booking_guest_id) html += ' data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '"';
     html += '>' + escHtml(name);
-    if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
+    if (collectionBlocked) {
+      html += ' — <span class="muted">' + escHtml(t('drawer.invoice.unallocated')) + '</span>';
+    } else if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
       if (depositRemaining > 0) {
         html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
@@ -39676,10 +39459,13 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson){
   else if (row && row.deposit_amount_cents != null) depositRaw = row.deposit_amount_cents;
   else if (match && match.deposit_amount_cents != null) depositRaw = match.deposit_amount_cents;
   else if (match && match.deposit_cents != null) depositRaw = match.deposit_cents;
-  var shareRaw = row && row.subtotal_cents != null ? row.subtotal_cents : (match && match.subtotal_cents);
+  var storedShare = row && pgPayGuestSubtotalFromMetadata(row.metadata || row.guest_metadata);
+  var shareRaw = row && row.subtotal_cents != null ? row.subtotal_cents
+    : (storedShare != null ? storedShare : (match && match.subtotal_cents));
   var status = String((row && row.payment_status) || (match && match.payment_status) || '').toLowerCase();
-  if (status === 'paid' || status === 'paid_in_full') return 'paid';
-  if (shareRaw != null && !isNaN(Number(shareRaw)) && paid >= Number(shareRaw)) return 'paid';
+  // A settled receipt (payment_status=paid) need not settle the guest's share.
+  // Keep unknown shares distinct from zero; full-payment chrome requires amounts.
+  if (shareRaw != null && Number.isFinite(Number(shareRaw)) && Number(shareRaw) >= 0 && paid >= Number(shareRaw)) return 'paid';
   var depositN = depositRaw == null || isNaN(Number(depositRaw)) ? null : Number(depositRaw);
   var shareN = shareRaw == null || isNaN(Number(shareRaw)) ? null : Number(shareRaw);
   var depositDue = depositN == null ? null : (shareN == null ? depositN : Math.min(depositN, shareN));
@@ -39701,6 +39487,8 @@ function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson){
 function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson, opts){
   opts = opts || {};
   var overview = !!opts.overview;
+  var invoiceWorkspace = getClient() === 'wolfhouse-somo';
+  if (invoiceWorkspace && !overview) return '<div class="ctx-none">' + escHtml(t('drawer.invoice.moved')) + '</div>';
   var html = '';
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -39853,9 +39641,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   html += '</div>';
 
-  html += bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name);
+  var collectionBlocked = invoiceWorkspace && ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; });
+  html += bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
 
-  if (overview) {
+  if (overview && !invoiceWorkspace) {
     html += '</div>';
     return html;
   }
@@ -39871,18 +39660,21 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
-  html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
+  if (invoiceWorkspace) html += bcInvoiceActionsHtml(bk);
+  else html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
   html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
   if (getClient() !== 'wolfhouse-somo') html += bcRenderGuestPaymentLinkControlsHtml(bookingGuests);
 
-  html += '</div></div>';
+  if (!overview) html += '</div></div>';
 
-  html += '<div class="ctx-payments-col-history">';
-  html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card" id="bc-payment-history-card">';
+  html += overview ? '<div class="bc-invoice-history">' : '<div class="ctx-payments-col-history">';
+  html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card is-collapsed" id="bc-payment-history-card">';
 
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
-  html += '<div class="ctx-inv-subtitle">' + escHtml(t('drawer.invoice.paymentHistory')) + '</div>';
+  if (overview) {
+    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><span class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</span><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button><div id="bc-payment-history-body" hidden>';
+  } else html += '<div class="ctx-inv-subtitle">' + escHtml(t('drawer.invoice.paymentHistory')) + '</div>';
   if (sortedLedgerRows.length > 0){
     sortedLedgerRows.forEach(function(pr){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
@@ -39924,6 +39716,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.created')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.created_at)) + '</span></div>';
       if (pr.paid_at)
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.paidAt')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+      if (invoiceWorkspace && md.payment_scope) {
+        var receiptGuest = bookingGuests.filter(function(g){ return g.booking_guest_id === pr.booking_guest_id; })[0];
+        html += '<div class="ctx-pay-row">' + escHtml(receiptGuest ? bcInvoiceGuestStaffLabel(receiptGuest.guest_number, receiptGuest.guest_name, bk.guest_name) : t('drawer.invoice.all')) + '</div>';
+      }
       if (md.note)
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.note')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(String(md.note)) + '</span></div>';
       if (pr.payment_id)
@@ -39976,8 +39772,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   html += '</div>';
 
+  if (overview) html += '</div>';
   html += '</div></div></div>';
-  html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
+  if (!overview) html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
   return html;
 }
 
@@ -40047,7 +39844,8 @@ function bcNewPaymentLinkIdempotencyKey(){
 function bcInitPaymentLinkShell(data){
   var bk = (data && data.booking) || {};
   var genBtn = el('bc-generate-payment-link-btn');
-  if (!genBtn) return;
+  if (!genBtn || genBtn._bcBalanceBound) return;
+  genBtn._bcBalanceBound = true;
   var resultEl = el('bc-payment-link-result');
 
   if (!BC_STAFF_ACTIONS || !BC_STRIPE_LINKS) {
@@ -40260,12 +40058,21 @@ function bcUpdateOverviewPaymentSummary(data){
   } else {
     html = bcRenderPaymentSummaryBriefHtml(bk, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
   }
+  var history = el('bc-payment-history-toggle');
+  var expanded = history && history.getAttribute('aria-expanded') === 'true';
   card.outerHTML = html;
   bcBindCreateGuestPaymentLinkButtons(data);
+  if (getClient() === 'wolfhouse-somo') {
+    bcInitCashPaymentShell(data);
+    bcInitPaymentLinkShell(data);
+    bcInitCancelPaymentLinkShell(data);
+    if (expanded && el('bc-payment-history-toggle')) el('bc-payment-history-toggle').click();
+  }
 }
 
 function bcRefreshPaymentsTab(bk){
   if (!bk || !bk.booking_code) return Promise.resolve();
+  if (getClient() === 'wolfhouse-somo') return bcRefreshInvoice({booking:bk}).catch(function(){ return null; });
   var client = getBcClient();
   var url = '/staff/bookings/' + encodeURIComponent(bk.booking_code) + '/context?client=' + encodeURIComponent(client);
   return fetch(url)
@@ -40301,7 +40108,8 @@ function bcNewCancelPaymentLinkIdempotencyKey(){
 function bcInitCancelPaymentLinkShell(data){
   var bk = (data && data.booking) || {};
   var wrap = el('bc-inv-payment-records');
-  if (!wrap) return;
+  if (!wrap || wrap._bcCancelBound) return;
+  wrap._bcCancelBound = true;
 
   function hideAllConfirmPanels(exceptPid){
     wrap.querySelectorAll('.ctx-cancel-link-confirm').forEach(function(panel){
@@ -40349,10 +40157,15 @@ function bcInitCancelPaymentLinkShell(data){
         .then(function(res){
           btn.disabled = false;
           if (!res.ok || !res.data.success) return;
+          if (!document.contains(wrap) || getClient() !== client) return;
           hideAllConfirmPanels();
+          if (client === 'wolfhouse-somo') {
+            bcRefreshInvoice(data).catch(function(){}); // Guard the GET response, not just its start.
+            return;
+          }
           bcRefreshBookingFinancialSummary({
             booking_code: bk.booking_code,
-            activeTab: 'payments',
+            activeTab: getClient() === 'wolfhouse-somo' ? bcActiveDrawerTab : 'payments',
             refreshPayments: true,
           });
         })
@@ -40388,7 +40201,20 @@ function bcNewCashPaymentIdempotencyKey(){
   return 'bc-cash-pay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
+/* INJECT:booking-invoice */
+
 function bcInitCashPaymentShell(data){
+  bcInitInvoiceWorkspace(data);
+  var historyToggle = el('bc-payment-history-toggle');
+  if (historyToggle && !historyToggle._invoiceBound) {
+    historyToggle._invoiceBound = true;
+    historyToggle.addEventListener('click', function(){
+      var expanded = historyToggle.getAttribute('aria-expanded') !== 'true';
+      historyToggle.setAttribute('aria-expanded', String(expanded));
+      el('bc-payment-history-body').hidden = !expanded;
+      el('bc-payment-history-card').classList.toggle('is-collapsed', !expanded);
+    });
+  }
   var bk = (data && data.booking) || {};
   var openBtn = el('bc-record-cash-btn');
   var wrap = el('bc-cash-payment-form-wrap');
@@ -43700,7 +43526,7 @@ function renderBookingContextDrawer(data){
 
   html += '<div class="bc-drawer-file-tabs" id="bc-drawer-file-tabs">';
   html += '<div class="bc-drawer-tabs" id="bc-drawer-tabs" role="tablist">';
-  html += bcDrawerTabBtn('overview', t('drawer.tab.overview'), activeTab === 'overview');
+  html += bcDrawerTabBtn('overview', t(getClient() === 'wolfhouse-somo' ? 'drawer.tab.invoice' : 'drawer.tab.overview'), activeTab === 'overview');
   html += bcDrawerTabBtn('services', t('drawer.tab.services'), activeTab === 'services');
   if (!hideTransfers) {
     html += bcDrawerTabBtn('transfers', t('drawer.tab.transfers'), activeTab === 'transfers');
@@ -45196,7 +45022,8 @@ function lgsCreateStripeLink(){
 </script>
 </body>
 </html>`;
-  return injectSunsetSchedulePortalModule(injectInboxBrowserModules(html));
+  const invoiceHtml = html.replace('/* INJECT:booking-invoice */', function(){ return fs.readFileSync(path.join(__dirname, 'browser', 'booking-invoice.js'), 'utf8'); });
+  return injectSunsetSchedulePortalModule(injectInboxBrowserModules(invoiceHtml));
 }
 
 function handleUI(res, port, req) {
@@ -50318,7 +50145,8 @@ SELECT b.id::text AS booking_id,
        b.deposit_required_cents,
        b.metadata,
        COALESCE(paid.paid_cents, 0)::bigint AS ledger_paid_cents,
-       COALESCE(svc.svc_due_cents, 0)::bigint AS svc_due_cents
+       COALESCE(svc.svc_due_cents, 0)::bigint AS svc_due_cents,
+       COALESCE(svc.additional_services, '[]'::jsonb) AS additional_services
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
   LEFT JOIN (
@@ -50332,7 +50160,11 @@ SELECT b.id::text AS booking_id,
      GROUP BY p.booking_id
   ) paid ON paid.booking_id = b.id
   LEFT JOIN (
-    SELECT bsr.booking_id, SUM(bsr.amount_due_cents)::bigint AS svc_due_cents
+    SELECT bsr.booking_id, SUM(bsr.amount_due_cents)::bigint AS svc_due_cents,
+           jsonb_agg(jsonb_build_object('amount_due_cents', bsr.amount_due_cents,
+             'status', bsr.status, 'metadata', bsr.metadata))
+             FILTER (WHERE bsr.metadata->>'invoice_total_inclusion' = 'additional'
+               AND bsr.client_slug = sc.slug) AS additional_services
       FROM booking_service_records bsr
       INNER JOIN bookings sb ON sb.id = bsr.booking_id
       INNER JOIN clients sc ON sc.id = sb.client_id
@@ -50396,9 +50228,12 @@ function mergeBedCalendarPaymentSnapshots(blockRows, ledgerRows, linkRows, trans
     };
     const totals = bookingLedgerInvoicePaidBalance(
       bookingRow,
-      snap.svc_due_cents,
+      Number(snap.svc_due_cents || 0)
+        - (snap.additional_services || []).reduce((sum,row)=>sum+Number(row.amount_due_cents || 0),0)
+        + editPreviewSvcSum(snap.additional_services || []),
       snap.ledger_paid_cents,
       transferById[row.booking_id] || 0,
+      editPreviewSvcSum((snap.additional_services || []).filter(isAdditionalInvoiceService)),
     );
     const ledgerCtx = {
       balance_due_cents: totals.balance_due_cents,

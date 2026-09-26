@@ -131,6 +131,8 @@ function escHtml(v) {
 }
 
 const names = [
+  'pgPayParseMetadata',
+  'pgPayGuestSubtotalFromMetadata',
   'bcInvoiceGuestStaffLabel',
   'bcInvoicePaymentRequestDisplay',
   'bcInvoiceTitleCaseStatus',
@@ -161,6 +163,13 @@ check('P1', sandbox.bcAccommodationPayPebbleKey(1, guests, []) === 'unpaid', 'no
 check('P2', sandbox.bcAccommodationPayPebbleKey(2, guests, []) === 'deposit', 'deposit covered, balance open is Deposit Paid');
 check('P3', sandbox.bcAccommodationPayPebbleKey(3, guests, []) === 'paid', 'share covered is Paid');
 check('P4', sandbox.bcAccommodationPayPebbleKey(1, [{ guest_number: 1, deposit_amount_cents: 10000, amount_paid_cents: 4000, subtotal_cents: 32500 }], []) === 'unpaid', 'partial deposit stays Unpaid');
+// Receipt paid != guest share paid. Production context stores the share in metadata.
+const partial = {guest_number:1,deposit_amount_cents:2000,amount_paid_cents:1500,payment_status:'paid',metadata:{subtotal_cents:5000}};
+check('P6', sandbox.bcAccommodationPayPebbleKey(1,[partial],[])==='unpaid','partial receipt cannot mark full share paid');
+check('P7', sandbox.bcAccommodationPayPebbleKey(1,[{...partial,amount_paid_cents:2000}],[])==='deposit','deposit receipt leaves balance open');
+check('P8', sandbox.bcAccommodationPayPebbleKey(1,[{...partial,amount_paid_cents:5000}],[])==='paid','full persisted share is paid');
+check('P9', sandbox.bcAccommodationPayPebbleKey(1,[{...partial,metadata:{},subtotal_cents:5000}],[])==='unpaid','known top-level share also overrides receipt status');
+check('P10', sandbox.bcAccommodationPayPebbleKey(1,[{...partial,metadata:{}}],[])!=='paid','unknown share does not imply fully paid');
 const pebble = sandbox.bcAccommodationPayPebbleHtml(2, guests, []);
 check('P5', pebble.includes('bc-accom-pay-pebble is-deposit') && pebble.includes('>Deposit Paid<'), pebble);
 
