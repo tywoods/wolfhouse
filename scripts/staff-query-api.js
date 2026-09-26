@@ -21095,6 +21095,42 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   font-size:12px;
   font-weight:700;
 }
+/* SCHEDULE-PEBBLE-SAME-HEIGHT-001 — one outer height for every Schedule bar pebble.
+   The compact package rule lives inside the phone media query, so desktop still
+   paints .pkg-pebble (padding 2px 10px, margin 2px, 0.78rem). That chip is taller
+   and wider than Link sent / Transfer / € / Deposit paid / Paid, and the extra
+   size grows the booking bar. This rule is outside that media query so desktop
+   and phone share it. Drawer .pkg-pebble and .transfer-pebble-drawer are not
+   inside .bc-block, so they stay untouched. Fill and existing borders stay;
+   no new outline. */
+#tab-bed-calendar .bc-block{
+  flex-wrap:nowrap;
+  align-items:center;
+  min-width:0;
+  max-width:100%;
+}
+#tab-bed-calendar .bc-block .bc-block-pay-badge,
+#tab-bed-calendar .bc-block .transfer-pebble,
+#tab-bed-calendar .bc-block .bc-block-package-pebble{
+  box-sizing:border-box;
+  display:inline-block;
+  height:calc(19px * var(--bc-zoom, 1));
+  max-height:calc(19px * var(--bc-zoom, 1));
+  min-height:0;
+  margin:0;
+  padding:0 calc(5px * var(--bc-zoom, 1));
+  border-radius:calc(8px * var(--bc-zoom, 1));
+  font-size:calc(12px * var(--bc-zoom, 1));
+  font-weight:700;
+  line-height:calc(17px * var(--bc-zoom, 1));
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  vertical-align:middle;
+  flex:0 1 auto;
+  min-width:0;
+  max-width:100%;
+}
 /* ===== END book-ui ===== */
 
 /* ═══ luna-header-ui ══════════════════════════════════════════════════════
