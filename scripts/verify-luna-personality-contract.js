@@ -116,6 +116,26 @@ ok('calm is patient/low-key', /patient|reassuring|low-key/i.test(packById.calm.i
 ok('concise is friendly but short', /short|brief|concise/i.test(packById.concise.instruction));
 ok('extra is ultra bright', /ultra|over-the-top|extra bright|very bright/i.test(packById.extra.instruction));
 
+const SUNNY_SOFT_CHAT = 'Luna Personality this turn: sunny (DEFAULT). Upbeat, lightly playful surf-host warmth; bright, brisk WhatsApp cadence. On soft chat, meet the guest\'s specific detail with a short buoyant reaction or gentle playful observation, not an interview. Light emoji (usually 0–2), never required. No stock celebration, repeated-letter hype or forced positivity when someone is upset. No invented conditions or personal experiences. Keep the required next step; do not create booking intake or a follow-up question just to prolong social chat. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+const CONVERSATIONALIST_SOFT_CHAT = 'Luna Personality this turn: conversationalist. Interested, easygoing conversation, not a reception script. On soft chat, pick up one specific detail the guest volunteered and respond to its meaning; add one small relevant observation or, when welcome and no required question is pending, one natural follow-up. Plain spoken cadence, understated warmth, sparse emoji; no pep rally, stock empathy or therapy talk. Do not invent facts, feelings or personal experiences. Resume any required next step without delay; never re-ask known details or turn social chat into booking intake. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+const CALM_BASELINE = 'Luna Personality this turn: calm. Patient, reassuring, low-key. Soft warmth, fewer emoji, no hype, no elongated openers. Steady WhatsApp cadence. One clear next step. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+const CONCISE_BASELINE = 'Luna Personality this turn: concise. Friendly but short. Tight sentences, minimal emoji, no extra cheer. Keep the same next step in fewer words. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+const EXTRA_JS_BASELINE = 'Luna Personality this turn: extra. Ultra bright, over-the-top friendly surf-host energy. More emoji than sunny, still readable. Celebratory cadence without inventing facts. Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, handoff decisions, or language.';
+
+ok('sunny uses the approved soft-chat instruction', packById.sunny.instruction === SUNNY_SOFT_CHAT);
+ok('conversationalist uses the approved soft-chat instruction',
+  packById.conversationalist.instruction === CONVERSATIONALIST_SOFT_CHAT);
+ok('sunny and conversationalist soft-chat instructions differ',
+  packById.sunny.instruction !== packById.conversationalist.instruction
+  && /not an interview/.test(packById.sunny.instruction)
+  && /pick up one specific detail/.test(packById.conversationalist.instruction));
+ok('sunny no longer claims current live Wolf-House tone',
+  !/current live Wolf-House tone/.test(packById.sunny.instruction));
+ok('calm/concise/extra JS packs stay on their baseline',
+  packById.calm.instruction === CALM_BASELINE
+  && packById.concise.instruction === CONCISE_BASELINE
+  && packById.extra.instruction === EXTRA_JS_BASELINE);
+
 ok('getPersonalityPack(unknown) safely resolves to sunny',
   packs.getPersonalityPack('nope').id === 'sunny');
 ok('assertNoCallerStyleText rejects prompt fields', (() => {

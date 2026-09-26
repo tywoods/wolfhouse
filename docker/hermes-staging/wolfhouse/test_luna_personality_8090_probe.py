@@ -87,6 +87,47 @@ class Wolfhouse8090PersonalityProbeTests(unittest.TestCase):
         self.assertNotIn("warm, bubbly, ONE friendly ask", soul)
         self.assertNotIn("bubbly surfer-girl voice", soul)
         self.assertNotIn("sunny, emoji-warm welcome", soul)
+        forbidden = (
+            "So happy you're here",
+            "Hey! 🌊 I'm Luna",
+            "Lovely! Is your group all girls",
+            'just "Hey! 🤙"',
+            '"Ciao! 🌊"',
+            "one warm message",
+            "share the answer warmly",
+            "your own warm voice",
+            "`reply_draft` warmly",
+            "warmly mention they can add",
+            "hand off warmly",
+            "one warm line",
+            "greet them warmly",
+            "Warmly welcome",
+            "one friendly question",
+            "welcome them warmly",
+            "warmly offer shared",
+            "placement warmly",
+        )
+        for phrase in forbidden:
+            self.assertNotIn(phrase, soul, phrase)
+        protected = (
+            "You are Luna, the WhatsApp front-desk host for Wolf-House in Somo, Cantabria.",
+            "Are you thinking about a stay, or can I help with some info?",
+            "ask exactly one booking-vs-information question",
+            "Benvenuto/Benvenuti **alla** Wolf-House",
+            "list_my_bookings",
+            "ask composition at room step (shared dorm only)",
+            "Private room = no composition ask",
+            "gender mix does not matter for a private room",
+            "ONE €100 deposit locks the whole group booking",
+            "📍 Here is our Location:",
+            "Pay in full, or a payment link for each person?",
+            "yoga or a meal",
+            "keep the emoji bullets",
+            "deposit_required_cents",
+            "guest_location_line",
+        )
+        for phrase in protected:
+            self.assertIn(phrase, soul, phrase)
 
     def test_gateway_patcher_registers_the_probe_without_registering_sunset_route(self) -> None:
         import apply_whatsapp_fresh_start_route as patcher
