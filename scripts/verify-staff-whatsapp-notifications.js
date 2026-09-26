@@ -346,21 +346,31 @@ async function runAsyncTests() {
     alert_types: ['new_conversation'], expires_at: '2099-01-01T00:00:00.000Z', max_attempts: 2,
   };
   let liveDirectoryProviderCalls = 0;
+  let liveDirectoryReservations = 0;
   const liveDirectoryResult = await dispatchStaffWhatsAppNotifications(liveDirectoryPg, {
     STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
     STAFF_ALERT_CANARY_AUTHORIZATION: JSON['stringify'](liveDirectoryAuth),
     LUNA_DEPLOYMENT: 'sunset-staging', WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
+    STAFF_ALERT_TEMPLATES_JSON: JSON.stringify({
+      new_conversation: { name: 'staff_alert_fixture', language_code: 'en', components: [] },
+    }),
   }, {
     client_slug: 'wolfhouse-somo', conversation_id: '33333333-3333-4333-8333-333333333333',
     notification_type: 'new_conversation', handoff_event_key: '33333333-3333-4333-8333-333333333333', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
   }, {
-    async sendMessage() {
+    async reserveAttempt() {
+      liveDirectoryReservations += 1;
+      return { reserved: true, event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' };
+    },
+    async sendTemplate(input) {
       liveDirectoryProviderCalls += 1;
-      return { success: true, whatsapp_message_id: 'wamid.fixture' };
+      return { success: input.template_name === 'staff_alert_fixture', send_performed: true,
+        whatsapp_message_id: 'wamid.fixture' };
     },
   });
+  ok('live dispatch reserves one durable attempt before provider access', liveDirectoryReservations === 1);
   ok('live dispatch resolves ID-only settings through the active tenant directory row',
-    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0] && liveDirectoryResult.results[0].status === 'sent');
+    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0] && liveDirectoryResult.results[0].status === 'accepted');
 
   ok('dedupe prevents duplicate sends', !!(second.results[0] && second.results[0].status === 'duplicate'));
 

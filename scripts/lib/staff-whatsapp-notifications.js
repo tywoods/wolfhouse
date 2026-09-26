@@ -11,10 +11,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
+const crypto = require('crypto');
+const { sendStaffWhatsAppTemplate } = require('./luna-whatsapp-provider');
 
 const SETTINGS_TABLE = 'client_notification_settings';
 const EVENTS_TABLE = 'client_notification_events';
+const AUTHORIZATIONS_TABLE='staff_alert_authorizations';
 const NOTIFICATION_TYPES = ['new_conversation', 'human_needed'];
 const MAX_RECIPIENTS = 10;
 const NAME_MAX = 80;
@@ -196,15 +198,20 @@ async function ensureNotificationTables(pg) {
       handoff_event_key   TEXT NOT NULL DEFAULT 'initial',
       recipient_phone     TEXT NOT NULL,
       recipient_name      TEXT NULL,
-      status              TEXT NOT NULL CHECK (status IN ('dry_run', 'sent', 'failed', 'skipped')),
+      authorization_id    TEXT NULL,
+      staff_number_id     UUID NULL,
+      directory_revision  TEXT NULL,
+      status              TEXT NOT NULL CHECK (status IN ('dry_run', 'pending', 'accepted', 'sent', 'failed', 'unknown', 'skipped')),
       reason              TEXT NULL,
       message_preview     TEXT NULL,
       provider_message_id TEXT NULL,
       error               TEXT NULL,
-      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      reserved_at         TIMESTAMPTZ NULL,
+      accepted_at         TIMESTAMPTZ NULL,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
   await pg.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_client_notification_events_dedupe
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_client_notification_events_audit_dedupe
       ON ${EVENTS_TABLE} (
         client_slug,
         COALESCE(location_id, ''),
@@ -212,7 +219,74 @@ async function ensureNotificationTables(pg) {
         notification_type,
         handoff_event_key,
         recipient_phone
-      )`);
+      ) WHERE authorization_id IS NULL`);
+  await pg.query(`CREATE TABLE IF NOT EXISTS ${AUTHORIZATIONS_TABLE} (
+    authorization_id TEXT PRIMARY KEY,
+    binding_fingerprint TEXT NOT NULL,
+    binding JSONB NOT NULL,
+    max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 2),
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ NULL,
+    spent_total INTEGER NOT NULL DEFAULT 0,
+    spent_new_conversation INTEGER NOT NULL DEFAULT 0,
+    spent_human_needed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+  )`);
+  await pg.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_alert_live_claim
+    ON ${EVENTS_TABLE} (authorization_id, client_slug, COALESCE(location_id, ''), conversation_id,
+      notification_type, handoff_event_key, staff_number_id) WHERE authorization_id IS NOT NULL`);
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function reserveStaffAlertAttempt(pg, row) {
+  const ownClient = pg && typeof pg.connect === 'function';
+  const client = ownClient ? await pg.connect() : pg;
+  if (!client || typeof client.query !== 'function') throw new Error('PostgreSQL client required');
+  const binding = row.authorization_scope || {};
+  const fingerprint = crypto.createHash('sha256').update(stableJson(binding)).digest('hex');
+  let began = false;
+  try {
+    await client.query('BEGIN'); began = true;
+    await client.query(`INSERT INTO ${AUTHORIZATIONS_TABLE}
+      (authorization_id, binding_fingerprint, binding, max_attempts, expires_at)
+      VALUES ($1,$2,$3::jsonb,$4,$5::timestamptz) ON CONFLICT (authorization_id) DO NOTHING`,
+    [row.authorization_id, fingerprint, JSON.stringify(binding), row.max_attempts, row.expires_at]);
+    const locked = await client.query(`SELECT *, (expires_at > clock_timestamp()) AS unexpired
+      FROM ${AUTHORIZATIONS_TABLE} WHERE authorization_id=$1 FOR UPDATE`, [row.authorization_id]);
+    const auth = locked.rows[0];
+    if (!auth || auth.binding_fingerprint !== fingerprint || Number(auth.max_attempts) !== row.max_attempts) {
+      await client.query('ROLLBACK'); began=false; return { reserved:false, reason:'canary_authorization_reused' };
+    }
+    const prior = await client.query(`SELECT id::text AS id FROM ${EVENTS_TABLE}
+      WHERE authorization_id=$1 AND client_slug=$2 AND COALESCE(location_id,'')=COALESCE($3::text,'')
+        AND conversation_id=$4::uuid AND notification_type=$5 AND handoff_event_key=$6
+        AND staff_number_id=$7::uuid LIMIT 1`,
+    [row.authorization_id,row.client_slug,normalizeLocationId(row.location_id),row.conversation_id,row.notification_type,row.handoff_event_key,row.staff_number_id]);
+    if (prior.rows[0]) { await client.query('COMMIT'); began=false; return {reserved:false,duplicate:true,event_id:prior.rows[0].id}; }
+    if (auth.revoked_at || !auth.unexpired) { await client.query('ROLLBACK'); began=false; return {reserved:false,reason:auth.revoked_at?'canary_revoked':'canary_expired'}; }
+    if (Number(auth.spent_total) >= Number(auth.max_attempts)) { await client.query('ROLLBACK'); began=false; return {reserved:false,reason:'canary_budget_exhausted'}; }
+    const typeSpent=row.notification_type==='new_conversation'?Number(auth.spent_new_conversation):Number(auth.spent_human_needed);
+    if (typeSpent>=1) { await client.query('ROLLBACK'); began=false; return {reserved:false,reason:'canary_type_budget_exhausted'}; }
+    const ins=await client.query(`INSERT INTO ${EVENTS_TABLE}
+      (authorization_id,client_slug,location_id,conversation_id,notification_type,handoff_event_key,staff_number_id,
+       recipient_phone,recipient_name,directory_revision,status,message_preview,reserved_at)
+      VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::uuid,$8,$9,$10,'pending',$11,clock_timestamp()) RETURNING id::text AS id`,
+    [row.authorization_id,row.client_slug,normalizeLocationId(row.location_id),row.conversation_id,row.notification_type,row.handoff_event_key,row.staff_number_id,row.recipient_phone,row.recipient_name||null,row.directory_revision,row.message_preview||null]);
+    await client.query(`UPDATE ${AUTHORIZATIONS_TABLE} SET spent_total=spent_total+1,
+      spent_new_conversation=spent_new_conversation+CASE WHEN $2='new_conversation' THEN 1 ELSE 0 END,
+      spent_human_needed=spent_human_needed+CASE WHEN $2='human_needed' THEN 1 ELSE 0 END,
+      updated_at=clock_timestamp() WHERE authorization_id=$1`,[row.authorization_id,row.notification_type]);
+    await client.query('COMMIT'); began=false; return {reserved:true,duplicate:false,event_id:ins.rows[0].id};
+  } catch(error) { if(began) await client.query('ROLLBACK').catch(()=>{}); throw error; }
+  finally { if(ownClient) client.release(); }
 }
 
 async function getNotificationSettings(pg, { clientSlug, locationId }) {
@@ -674,56 +748,93 @@ async function dispatchStaffWhatsAppNotifications(pg, env, input, context = {}) 
       continue;
     }
 
-    const dedupeProbe = await insertNotificationEvent(pg, {
-      client_slug: clientSlug,
-      location_id: locationId,
-      conversation_id: conversationId,
-      notification_type: notificationType,
-      handoff_event_key: handoffKey,
-      recipient_phone: recipient.phone,
-      recipient_name: recipient.name,
-      status: 'sent',
-      message_preview: message,
-    });
-    if (!dedupeProbe.inserted) {
-      results.push({
+    let templateConfig;
+    try {
+      const allTemplates = JSON.parse(env.STAFF_ALERT_TEMPLATES_JSON || '{}');
+      templateConfig = allTemplates[notificationType];
+    } catch (_) { templateConfig = null; }
+    if (!templateConfig || !trimStr(templateConfig.name) || !trimStr(templateConfig.language_code)
+      || !Array.isArray(templateConfig.components)) {
+      results.push({ recipient_phone: recipient.phone, status: 'skipped', reason: 'staff_template_config_missing' });
+      continue;
+    }
+    let authorizationScope;
+    try { authorizationScope = JSON.parse(env.STAFF_ALERT_CANARY_AUTHORIZATION); } catch (_) { authorizationScope = null; }
+    const reserveAttempt = typeof context.reserveAttempt === 'function'
+      ? context.reserveAttempt : reserveStaffAlertAttempt;
+    let reservation;
+    try {
+      reservation = await reserveAttempt(pg, {
+        authorization_id: canary.authorization_id,
+        authorization_scope: authorizationScope,
+        max_attempts: canary.max_attempts,
+        expires_at: canary.expires_at,
+        client_slug: clientSlug,
+        location_id: locationId,
+        conversation_id: conversationId,
+        notification_type: notificationType,
+        handoff_event_key: handoffKey,
+        staff_number_id: recipient.staff_number_id,
         recipient_phone: recipient.phone,
-        status: 'duplicate',
-        duplicate: true,
+        recipient_name: recipient.name,
+        directory_revision: recipient.directory_revision,
+        message_preview: message,
       });
+    } catch (error) {
+      results.push({ recipient_phone: recipient.phone, status: 'unknown', reason: 'reservation_failed' });
+      continue;
+    }
+    if (!reservation.reserved) {
+      results.push({ recipient_phone: recipient.phone,
+        status: reservation.duplicate ? 'duplicate' : 'skipped',
+        duplicate: reservation.duplicate === true, reason: reservation.reason || null });
+      continue;
+    }
+
+    // Re-resolve mutable authority after the durable reservation and immediately before transport.
+    const currentRecipient = await resolveActiveStaffAlertRecipient(pg, clientSlug, recipient.staff_number_id);
+    const currentCanary = currentRecipient.ok ? validateStaffAlertCanaryAuthorization(env, {
+      client_slug: clientSlug, location_id: locationId, staff_number_id: currentRecipient.staff_number_id,
+      phone: currentRecipient.phone, directory_revision: currentRecipient.phone_version,
+      guest_phone: inp.guest_phone, notification_type: notificationType,
+    }) : currentRecipient;
+    if (!currentRecipient.ok || !currentCanary.ok) {
+      await pg.query(`UPDATE ${EVENTS_TABLE} SET status='failed', error=$2 WHERE id=$1::uuid`,
+        [reservation.event_id, currentRecipient.reason || currentCanary.reason]);
+      results.push({ recipient_phone: recipient.phone, status: 'failed', reason: currentRecipient.reason || currentCanary.reason });
       continue;
     }
 
     const sendEnv = { ...(env || process.env), WHATSAPP_DRY_RUN: 'false' };
-    const sendOut = await sendLunaWhatsAppMessage({
-      to: recipient.phone,
-      message,
-      client_slug: clientSlug,
-      idempotency_key: `staff-notify:${notificationType}:${conversationId}:${handoffKey}:${recipient.phone}`,
-    }, sendEnv, context);
+    const sendTemplate = typeof context.sendTemplate === 'function'
+      ? context.sendTemplate : sendStaffWhatsAppTemplate;
+    let sendOut;
+    let finalStatus;
+    try {
+      sendOut = await sendTemplate({
+        to: currentRecipient.phone,
+        sender_phone_number_id: trimStr(env.WHATSAPP_PHONE_NUMBER_ID),
+        template_name: templateConfig.name,
+        language_code: templateConfig.language_code,
+        components: templateConfig.components,
+        client_slug: clientSlug,
+        idempotency_key: `staff-notify:${notificationType}:${conversationId}:${handoffKey}:${recipient.staff_number_id}`,
+      }, sendEnv, context);
+      finalStatus = sendOut.send_performed ? 'accepted'
+        : (sendOut.outcome === 'ambiguous' ? 'unknown' : 'failed');
+    } catch (error) {
+      sendOut = { send_performed: false, provider_error: error.message };
+      finalStatus = 'unknown';
+    }
+    await pg.query(`UPDATE ${EVENTS_TABLE}
+      SET status=$2, provider_message_id=$3, error=$4,
+          accepted_at=CASE WHEN $2='accepted' THEN clock_timestamp() ELSE accepted_at END
+      WHERE id=$1::uuid`, [reservation.event_id, finalStatus, sendOut.whatsapp_message_id || null,
+      sendOut.send_performed ? null : trimStr(sendOut.blocked_reason || sendOut.provider_error) || 'send_failed']);
 
-    const finalStatus = sendOut.send_performed ? 'sent' : 'failed';
-    await pg.query(
-      `UPDATE ${EVENTS_TABLE}
-          SET status = $2,
-              provider_message_id = $3,
-              error = $4
-        WHERE id = $1::uuid`,
-      [
-        dedupeProbe.id,
-        finalStatus,
-        sendOut.whatsapp_message_id || null,
-        sendOut.send_performed ? null : trimStr(sendOut.blocked_reason || sendOut.provider_error) || 'send_failed',
-      ],
-    );
-
-    results.push({
-      recipient_phone: recipient.phone,
-      status: finalStatus,
-      provider_message_id: sendOut.whatsapp_message_id || null,
-      message,
-      send_performed: sendOut.send_performed === true,
-    });
+    results.push({ recipient_phone: currentRecipient.phone, status: finalStatus,
+      provider_message_id: sendOut.whatsapp_message_id || null, message,
+      send_performed: sendOut.send_performed === true });
   }
 
   return {
@@ -767,6 +878,7 @@ module.exports = {
   PHONE_RE,
   SETTINGS_TABLE,
   EVENTS_TABLE,
+  AUTHORIZATIONS_TABLE,
   trimStr,
   normalizePhoneE164,
   isStaffNotificationsEnabled,
@@ -782,6 +894,7 @@ module.exports = {
   buildNotificationMessage,
   resolveClientDisplayName,
   ensureNotificationTables,
+  reserveStaffAlertAttempt,
   getNotificationSettings,
   putNotificationSettings,
   dispatchStaffWhatsAppNotifications,
