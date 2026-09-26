@@ -22,9 +22,10 @@
 const {
   listStaffWhatsappNumbers,
   upsertStaffWhatsappNumber,
+  updateStaffWhatsappNumberById,
   ensureStaffWhatsappNumbersTable,
 } = require('./luna-staff-whatsapp-numbers');
-const { upsertStaffPhoneAccess } = require('./staff-phone-access');
+const { upsertStaffPhoneAccess, deactivateStaffPhoneAccess } = require('./staff-phone-access');
 
 const WHATSAPP_NUMBERS_PATH = '/staff/whatsapp-numbers';
 const WHATSAPP_NUMBERS_MIN_ROLE = 'admin';
@@ -104,33 +105,50 @@ function createWhatsappNumbersRoutes(deps) {
     try {
       const result = await withPgClient(async (pg) => {
         await ensureStaffWhatsappNumbersTable(pg);
-        const up = await upsertStaffWhatsappNumber(pg, {
-          clientSlug,
-          phone: body.phone,
-          permissionGroup: body.permission_group,
-          displayName: body.display_name,
-          active: body.active,
-        });
-        // Sync into staff_phone_access (the table WhatsApp recognition reads) so the number
-        // is recognized over WhatsApp: owner -> owner Command Center (owner insights + ops),
-        // staff -> operator ops. Best-effort; never fails the portal save.
-        if (up.ok) {
-          try {
-            await upsertStaffPhoneAccess(pg, {
-              client_slug: clientSlug,
+        await pg.query('BEGIN');
+        try {
+          const up = body.id
+            ? await updateStaffWhatsappNumberById(pg, {
+              clientSlug,
+              id: body.id,
               phone: body.phone,
-              display_name: body.display_name,
-              role: body.permission_group === 'owner' ? 'owner' : 'operator',
-              channel: 'whatsapp',
-              is_active: body.active !== false,
+              permissionGroup: body.permission_group,
+              displayName: body.display_name,
+              active: body.active,
+            })
+            : await upsertStaffWhatsappNumber(pg, {
+              clientSlug,
+              phone: body.phone,
+              permissionGroup: body.permission_group,
+              displayName: body.display_name,
+              active: body.active,
             });
-            up._whatsapp_synced = true;
-          } catch (syncErr) {
-            console.error('[staff.whatsapp_numbers.sync] failed:', syncErr && syncErr.message);
-            up._whatsapp_synced = false;
+          if (!up.ok) {
+            await pg.query('ROLLBACK');
+            return up;
           }
+          if (body.id && up.old_phone && up.old_phone !== up.row.phone) {
+            await deactivateStaffPhoneAccess(pg, {
+              client_slug: clientSlug,
+              phone: up.old_phone,
+              channel: 'whatsapp',
+            });
+          }
+          await upsertStaffPhoneAccess(pg, {
+            client_slug: clientSlug,
+            phone: up.row.phone,
+            display_name: up.row.display_name,
+            role: up.row.permission_group === 'owner' ? 'owner' : 'operator',
+            channel: 'whatsapp',
+            is_active: up.row.active === true,
+          });
+          await pg.query('COMMIT');
+          up._whatsapp_synced = true;
+          return up;
+        } catch (err) {
+          try { await pg.query('ROLLBACK'); } catch (_) { /* original error wins */ }
+          throw err;
         }
-        return up;
       });
       appendAuditLog({
         ts: new Date().toISOString(),

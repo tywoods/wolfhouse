@@ -18,6 +18,7 @@ const ROOT = path.join(__dirname, '..');
 const EXPLICIT = path.join(ROOT, 'docker/hermes-staging/wolfhouse/explicit_human_handoff.py');
 const COALESCE = path.join(ROOT, 'docker/hermes-staging/wolfhouse/whatsapp_burst_coalesce.py');
 const PERSIST = path.join(ROOT, 'scripts/lib/luna-guest-handoff-persist.js');
+const MIRROR = path.join(ROOT, 'scripts/lib/luna-hermes-whatsapp-thread-mirror.js');
 const API = path.join(ROOT, 'scripts/staff-query-api.js');
 
 let pass = 0;
@@ -37,6 +38,7 @@ console.log('\nverify-luna-handoff-lifecycle\n');
 const explicitSrc = fs.readFileSync(EXPLICIT, 'utf8');
 const coalesceSrc = fs.readFileSync(COALESCE, 'utf8');
 const persistSrc = fs.readFileSync(PERSIST, 'utf8');
+const mirrorSrc = fs.readFileSync(MIRROR, 'utf8');
 const apiSrc = fs.readFileSync(API, 'utf8');
 
 console.log('[1] Source contracts — ack before pause');
@@ -239,6 +241,14 @@ try {
       || typeof persist.resolveStaffNeedsHuman === 'function'
       || typeof persist.clearConversationNeedsHuman === 'function',
   );
+  assert('Needs Human transition uses one conditional false-to-true update',
+    persistSrc.includes('AND conv.needs_human = FALSE') && persistSrc.includes('needs_human_transition_id = gen_random_uuid()'));
+  assert('Needs Human notification uses persisted transition identity', persistSrc.includes('handoff_event_key: row.transition_id'));
+  assert('manual portal transitions are excluded inside the canonical owner',
+    persistSrc.includes("reasonCode === 'staff_manual_handoff'") && persistSrc.includes("handoffSource === 'staff_manual_handoff'"));
+  assert('clear paths retire the current transition identity', persistSrc.includes('needs_human_transition_id = NULL'));
+  assert('mirror delegates Needs Human transitions to canonical owner',
+    mirrorSrc.includes('markConversationNeedsHuman(pg') && !mirrorSrc.includes('const handoffAt = new Date().toISOString()'));
 } catch (e) {
   assert('persist module load', false, e.message);
 }

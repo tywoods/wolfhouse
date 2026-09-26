@@ -341,11 +341,39 @@ async function persistHermesLunaInboundThreadMessage(pg, input) {
       [conv.client_id, conversationId, messageText, HERMES_LUNA_INBOUND_SOURCE, waId, JSON.stringify(metadata)],
     );
     if (insert.rows[0]) {
+      const messageId = insert.rows[0].message_id;
+      let initialAlertEventKey = null;
+      let initialAlertClaimError = false;
+      try {
+        const claimed = await pg.query(
+          `UPDATE conversations conv
+              SET first_eligible_inbound_message_id = $3::uuid,
+                  updated_at = NOW()
+             FROM clients c, messages m
+            WHERE conv.client_id = c.id
+              AND c.slug = $1
+              AND conv.id = $2::uuid
+              AND conv.first_eligible_inbound_message_id IS NULL
+              AND m.id = $3::uuid
+              AND m.conversation_id = conv.id
+              AND m.client_id = conv.client_id
+              AND m.direction = 'inbound'
+              AND m.source = 'hermes_luna_whatsapp_inbound'
+              AND COALESCE((conv.metadata->>'simulator_synthetic')::boolean, FALSE) = FALSE
+          RETURNING conv.first_eligible_inbound_message_id::text AS initial_alert_event_key`,
+          [clientSlug, conversationId, messageId],
+        );
+        initialAlertEventKey = claimed.rows[0] && claimed.rows[0].initial_alert_event_key || null;
+      } catch (_) {
+        initialAlertClaimError = true;
+      }
       return {
         ok: true,
         persisted: true,
         duplicate: false,
-        message_id: insert.rows[0].message_id,
+        message_id: messageId,
+        initial_alert_event_key: initialAlertEventKey,
+        initial_alert_claim_error: initialAlertClaimError,
         whatsapp_message_id: insert.rows[0].whatsapp_message_id || waId,
         source: insert.rows[0].source,
         direction: insert.rows[0].direction,

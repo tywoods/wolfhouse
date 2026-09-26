@@ -564,7 +564,10 @@ print(json.dumps({"ok": True, "sunset": p, "wolfhouse": p3, "missing_slug": p2 i
   const threadSrc = read(THREAD_MIRROR);
   assert('thread mirror exports assertHermesMirrorTenantScope', threadSrc.includes('assertHermesMirrorTenantScope'));
   assert('thread mirror parses location_id', threadSrc.includes('location_id'));
+  assert('first inbound alert is keyed by a durable conversation claim', threadSrc.includes('initial_alert_event_key: thread.initial_alert_event_key'));
+  assert('first inbound alert does not rely on conversation row creation', !threadSrc.includes('created: ensured.created === true'));
   const msgSrc = read(THREAD_MSG);
+  assert('inbound persistence atomically claims one initial event identity', msgSrc.includes('first_eligible_inbound_message_id') && msgSrc.includes('initial_alert_event_key'));
   assert('persist uses hermes inbound source', msgSrc.includes('hermes_luna_whatsapp_inbound'));
   assert('persist uses hermes reply source', msgSrc.includes('hermes_luna_whatsapp_reply'));
 

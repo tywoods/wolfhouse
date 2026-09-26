@@ -35,6 +35,7 @@ const {
   WHATSAPP_NUMBERS_MIN_ROLE,
   createWhatsappNumbersRoutes,
 } = require('./lib/staff-whatsapp-numbers-routes');
+const { updateStaffWhatsappNumberById } = require('./lib/luna-staff-whatsapp-numbers');
 
 let pass = 0;
 let fail = 0;
@@ -91,12 +92,15 @@ function makeDeps(overrides = {}) {
   const audit = [];
   /** @type {Map<string, object>} */
   const numbersByPhone = new Map();
+  const phoneAccess = new Map();
+  let nextNumber = 1;
 
   const deps = {
     DEFAULT_CLIENT: 'wolfhouse-somo',
     SQL_INJECT_RE: /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i,
     audit,
     numbersByPhone,
+    phoneAccess,
     sendJSON(res, status, body) {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
@@ -128,43 +132,71 @@ function makeDeps(overrides = {}) {
       audit.push(entry);
     },
     async withPgClient(fn) {
-      const phoneAccess = [];
+      let numbersSnapshot = null;
+      let accessSnapshot = null;
       const pg = {
-        phoneAccess,
         async query(sql, params = []) {
-          const q = String(sql);
-          if (/CREATE TABLE IF NOT EXISTS wolfhouse_staff_whatsapp_numbers/i.test(q)
-            || /CREATE UNIQUE INDEX/i.test(q)
-            || /CREATE INDEX/i.test(q)
-            || /CREATE TABLE IF NOT EXISTS/i.test(q)) {
+          const q = String(sql).trim();
+          if (q === 'BEGIN') {
+            numbersSnapshot = new Map([...numbersByPhone].map(([k, v]) => [k, { ...v }]));
+            accessSnapshot = new Map([...phoneAccess].map(([k, v]) => [k, { ...v }]));
             return { rows: [], rowCount: 0 };
           }
-          // list
-          if (/FROM wolfhouse_staff_whatsapp_numbers/i.test(q) && /SELECT id, client_slug, phone/i.test(q) && /WHERE client_slug/i.test(q) && !/DELETE/i.test(q) && !/INSERT/i.test(q)) {
-            const slug = params[0];
-            const rows = [...numbersByPhone.values()].filter((r) => r.client_slug === slug);
-            return { rows, rowCount: rows.length };
+          if (q === 'COMMIT') { numbersSnapshot = null; accessSnapshot = null; return { rows: [], rowCount: 0 }; }
+          if (q === 'ROLLBACK') {
+            if (numbersSnapshot) { numbersByPhone.clear(); for (const [k, v] of numbersSnapshot) numbersByPhone.set(k, v); }
+            if (accessSnapshot) { phoneAccess.clear(); for (const [k, v] of accessSnapshot) phoneAccess.set(k, v); }
+            numbersSnapshot = null; accessSnapshot = null;
+            return { rows: [], rowCount: 0 };
           }
-          // upsert insert...on conflict
-          if (/INSERT INTO wolfhouse_staff_whatsapp_numbers/i.test(q)) {
-            const [slug, phone, group, displayName, active] = params;
-            const row = {
-              id: numbersByPhone.has(phone) ? numbersByPhone.get(phone).id : `id-${phone.slice(-4)}`,
-              client_slug: slug,
-              phone,
-              permission_group: group,
-              display_name: displayName,
-              active: active === true,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            };
+          if (/CREATE TABLE|CREATE UNIQUE INDEX|CREATE INDEX/i.test(q)) return { rows: [], rowCount: 0 };
+          if (/SELECT id, phone FROM wolfhouse_staff_whatsapp_numbers/i.test(q) && /FOR UPDATE/i.test(q)) {
+            const [slug, id] = params;
+            const row = [...numbersByPhone.values()].find((entry) => entry.client_slug === slug && entry.id === id);
+            return { rows: row ? [{ id: row.id, phone: row.phone }] : [], rowCount: row ? 1 : 0 };
+          }
+          if (/UPDATE wolfhouse_staff_whatsapp_numbers/i.test(q)) {
+            const [slug, id, phone, group, displayName, active] = params;
+            const old = [...numbersByPhone.values()].find((entry) => entry.client_slug === slug && entry.id === id);
+            if (!old) return { rows: [], rowCount: 0 };
+            const collision = [...numbersByPhone.values()].find((entry) => entry.client_slug === slug && entry.phone === phone && entry.id !== id);
+            if (collision) { const err = new Error('duplicate phone'); err.code = '23505'; throw err; }
+            numbersByPhone.delete(old.phone);
+            const row = { ...old, phone, permission_group: group, display_name: displayName, active: active === true,
+              updated_at: new Date(Date.parse(old.updated_at) + 1000).toISOString() };
             numbersByPhone.set(phone, row);
             return { rows: [row], rowCount: 1 };
           }
-          // staff_phone_access upsert (recognition sync) — accept anything
-          if (/staff_phone_access/i.test(q) || /INSERT INTO/i.test(q) || /UPDATE/i.test(q)) {
-            phoneAccess.push({ sql: q.slice(0, 80), params });
-            return { rows: [{ ok: true }], rowCount: 1 };
+          if (/FROM wolfhouse_staff_whatsapp_numbers/i.test(q) && /SELECT id, client_slug, phone/i.test(q)) {
+            const rows = [...numbersByPhone.values()].filter((entry) => entry.client_slug === params[0]);
+            return { rows, rowCount: rows.length };
+          }
+          if (/INSERT INTO wolfhouse_staff_whatsapp_numbers/i.test(q)) {
+            const [slug, phone, group, displayName, active] = params;
+            const prior = [...numbersByPhone.values()].find((entry) => entry.client_slug === slug && entry.phone === phone);
+            const n = String(nextNumber++).padStart(12, '0');
+            const row = { id: prior ? prior.id : `11111111-1111-4111-8111-${n}`, client_slug: slug, phone,
+              permission_group: group, display_name: displayName, active: active === true,
+              created_at: prior ? prior.created_at : new Date().toISOString(), updated_at: new Date().toISOString() };
+            numbersByPhone.set(phone, row);
+            return { rows: [row], rowCount: 1 };
+          }
+          if (/UPDATE staff_phone_access SET is_active = false/i.test(q)) {
+            const [slug, phone, channel] = params; const key = `${slug}|${phone}|${channel}`;
+            const prior = phoneAccess.get(key); if (prior) phoneAccess.set(key, { ...prior, is_active: false });
+            return { rows: [], rowCount: prior ? 1 : 0 };
+          }
+          if (/INSERT INTO staff_phone_access/i.test(q)) {
+            if (deps.failRecognition) throw new Error('fixture recognition failure');
+            const [slug, phoneE164, phoneNormalized, displayName, role, channel, active] = params;
+            phoneAccess.set(`${slug}|${phoneNormalized}|${channel}`, {
+              client_slug: slug, phone: phoneE164, phone_normalized: phoneNormalized, channel, role,
+              display_name: displayName, is_active: active,
+            });
+            return { rows: [{
+              client_slug: slug, phone_e164: phoneE164, phone_normalized: phoneNormalized,
+              display_name: displayName, role, channel, is_active: active,
+            }], rowCount: 1 };
           }
           return { rows: [], rowCount: 0 };
         },
@@ -234,6 +266,7 @@ ok('helper lib exists (no duplication target)', fs.existsSync(HELPER_PATH));
 ok('PATH constant', WHATSAPP_NUMBERS_PATH === '/staff/whatsapp-numbers');
 ok('MIN_ROLE admin', WHATSAPP_NUMBERS_MIN_ROLE === 'admin');
 ok('createWhatsappNumbersRoutes exported', typeof createWhatsappNumbersRoutes === 'function');
+ok('stable-ID update helper exported', typeof updateStaffWhatsappNumberById === 'function');
 
 const deps = makeDeps();
 const routes = createWhatsappNumbersRoutes(deps);
@@ -302,6 +335,103 @@ console.log('\n── handler response contracts ──');
     ok('POST number row', body && body.number && body.number.phone);
     ok('POST whatsapp_recognition flag present', body && typeof body.whatsapp_recognition === 'boolean');
     ok('POST audit intent', deps.audit.some((e) => e.intent === 'api:staff.whatsapp_numbers.upsert'));
+  }
+
+  // POST edit preserves stable identity and atomically rotates recognition.
+  {
+    const original = [...deps.numbersByPhone.values()][0];
+    const oldPhone = original.phone;
+    const oldRevision = original.updated_at;
+    const newPhone = e164('00111333');
+    const res = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: original.id,
+      phone: newPhone,
+      permission_group: 'owner',
+      display_name: 'Owner desk',
+      active: true,
+    }), res, { staff_user_id: 'admin-1', role: 'admin' });
+    const body = parseBody(res.out);
+    const rows = [...deps.numbersByPhone.values()];
+    ok('POST edit returns 200 with the original stable ID', res.out.statusCode === 200
+      && body.number.id === original.id);
+    ok('POST phone edit keeps one directory row and retires the old phone', rows.length === 1
+      && !deps.numbersByPhone.has(oldPhone) && deps.numbersByPhone.has(newPhone));
+    ok('POST edit advances directory revision', body.number.updated_at !== oldRevision);
+    const oldAccess = deps.phoneAccess.get(`wolfhouse-somo|${oldPhone.replace(/\D/g, '')}|whatsapp`);
+    const newAccess = deps.phoneAccess.get(`wolfhouse-somo|${newPhone.replace(/\D/g, '')}|whatsapp`);
+    ok('POST phone edit deactivates old recognition', oldAccess && oldAccess.is_active === false);
+    ok('POST phone edit activates new recognition with mapped owner role', newAccess
+      && newAccess.is_active === true && newAccess.role === 'owner');
+  }
+
+  // Unknown/foreign stable IDs must not fall back to insert.
+  {
+    const before = deps.numbersByPhone.size;
+    const res = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: '22222222-2222-4222-8222-222222222222',
+      phone: e164('00444000'), permission_group: 'staff', active: true,
+    }), res, { staff_user_id: 'admin-1', role: 'admin' });
+    const body = parseBody(res.out);
+    ok('POST unknown stable ID returns not_found without insert', res.out.statusCode === 400
+      && body.error === 'not_found' && deps.numbersByPhone.size === before);
+  }
+
+  // Recognition failure rolls back the directory edit.
+  {
+    const original = [...deps.numbersByPhone.values()][0];
+    const beforePhone = original.phone;
+    const failedPhone = e164('00555000');
+    deps.failRecognition = true;
+    const res = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: original.id, phone: failedPhone, permission_group: 'staff', active: true,
+    }), res, { staff_user_id: 'admin-1', role: 'admin' });
+    deps.failRecognition = false;
+    ok('POST recognition failure returns 500 and rolls directory change back', res.out.statusCode === 500
+      && deps.numbersByPhone.has(beforePhone) && !deps.numbersByPhone.has(failedPhone));
+  }
+
+  // Phone collision must roll back without changing either stable row.
+  {
+    const original = [...deps.numbersByPhone.values()][0];
+    const collisionPhone = e164('00666000');
+    const addRes = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      phone: collisionPhone, permission_group: 'staff', active: true,
+    }), addRes, { staff_user_id: 'admin-1', role: 'admin' });
+    const before = [...deps.numbersByPhone.values()].map((row) => ({ ...row }));
+    const editRes = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: original.id, phone: collisionPhone, permission_group: 'owner', active: true,
+    }), editRes, { staff_user_id: 'admin-1', role: 'admin' });
+    ok('POST phone collision returns 500 with both rows unchanged', editRes.out.statusCode === 500
+      && deps.numbersByPhone.size === before.length
+      && deps.numbersByPhone.get(original.phone).id === original.id);
+  }
+
+  // Deactivation/reactivation updates recognition and advances revision each time.
+  {
+    const original = [...deps.numbersByPhone.values()][0];
+    const deactivateRes = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: original.id, phone: original.phone, permission_group: 'staff', active: false,
+    }), deactivateRes, { staff_user_id: 'admin-1', role: 'admin' });
+    const inactive = deps.numbersByPhone.get(original.phone);
+    const inactiveRevision = inactive.updated_at;
+    const inactiveAccess = deps.phoneAccess.get(`wolfhouse-somo|${original.phone.replace(/\D/g, '')}|whatsapp`);
+    ok('POST deactivation disables directory and recognition together', deactivateRes.out.statusCode === 200
+      && inactive.active === false && inactiveAccess.is_active === false);
+    const reactivateRes = mockRes();
+    await routes.handleStaffWhatsappNumbersPost({ client: 'wolfhouse-somo' }, mockReq({
+      id: original.id, phone: original.phone, permission_group: 'staff', active: true,
+    }), reactivateRes, { staff_user_id: 'admin-1', role: 'admin' });
+    const reactivated = deps.numbersByPhone.get(original.phone);
+    const reactivatedAccess = deps.phoneAccess.get(`wolfhouse-somo|${original.phone.replace(/\D/g, '')}|whatsapp`);
+    ok('POST reactivation preserves ID, reenables recognition, and advances revision', reactivateRes.out.statusCode === 200
+      && reactivated.id === original.id && reactivated.active === true && reactivatedAccess.is_active === true
+      && reactivated.updated_at !== inactiveRevision);
   }
 
   // POST validation error (invalid group)

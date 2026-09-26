@@ -17,6 +17,9 @@ const {
   getNotificationSettings,
   isStaffNotificationsEnabled,
   isStaffNotificationsDryRun,
+  validateStaffAlertCanaryAuthorization,
+  resolveActiveStaffAlertRecipient,
+  resolveStoredConversationTruth,
   PHONE_RE,
 } = require('./lib/staff-whatsapp-notifications');
 
@@ -36,6 +39,8 @@ function ok(name, cond) {
 
 function createMockPg(seed = {}) {
   const clients = new Set(seed.clients || ['wolfhouse-somo', 'sunset']);
+  const directoryRows = Array.isArray(seed.directoryRows) ? seed.directoryRows : [];
+  const conversationRows = Array.isArray(seed.conversationRows) ? seed.conversationRows : null;
   const settings = new Map();
   const events = [];
 
@@ -58,7 +63,34 @@ function createMockPg(seed = {}) {
     events,
     async query(sql, params = []) {
       const q = String(sql);
-      if (/FROM clients WHERE slug/i.test(q)) {
+      if (q.includes('FROM conversations conv') && q.includes('JOIN clients c')) {
+        if (seed.conversationLookupError) throw new Error('fixture conversation lookup failure');
+        const [clientSlug, conversationId] = params;
+        const rows = conversationRows === null
+          ? (clients.has(clientSlug) ? [{
+            conversation_id: conversationId,
+            client_slug: clientSlug,
+            guest_phone: seed.defaultGuestPhone || ('+' + '34900000099'),
+            guest_name: seed.defaultGuestName || 'Stored fixture guest',
+            guest_id: null,
+            customer_id: null,
+            metadata: seed.defaultMetadata || {},
+          }] : [])
+          : conversationRows.filter((row) => row.client_slug === clientSlug && row.conversation_id === conversationId);
+        return { rows, rowCount: rows.length };
+      }
+      if (q.includes('FROM wolfhouse_staff_whatsapp_numbers')) {
+        const [clientSlug, staffNumberId] = params;
+        const row = directoryRows.find((entry) => entry.client_slug === clientSlug
+          && entry.staff_number_id === staffNumberId && entry.active !== false);
+        return { rows: row ? [{
+          id: row.staff_number_id,
+          name: row.name || 'Fixture desk',
+          phone: row.phone,
+          updated_at: row.updated_at || '2026-09-25T11:24:00.000Z',
+        }] : [] };
+      }
+      if (q.includes('FROM clients WHERE slug = $1')) {
         const slug = params[0];
         return { rows: clients.has(slug) ? [{ id: 'client-1' }] : [] };
       }
@@ -138,6 +170,7 @@ function createMockPg(seed = {}) {
 
 async function runAsyncTests() {
   console.log('\n── validation ──');
+  ok('stored conversation truth resolver exported', typeof resolveStoredConversationTruth === 'function');
   const badPhone = validateNotificationTypeConfig({
     enabled: true,
     recipients: [{ name: 'Desk', phone: '+123', enabled: true }],
@@ -149,7 +182,35 @@ async function runAsyncTests() {
     recipients: [{ name: 'Desk', phone: '+34900000001', enabled: true }],
   }, 'new_conversation');
   ok('settings validation accepts E.164 phone', goodPhone.ok === true);
-  ok('E.164 regex matches +34900000001', PHONE_RE.test('+34900000001'));
+  ok('E.164 regex matches fixture phone', PHONE_RE.test('+34900000001'));
+  const directoryRecipient = validateNotificationTypeConfig({
+    enabled: true,
+    recipients: [{ staff_number_id: '11111111-1111-4111-8111-111111111111', name: 'Desk', phone: '+34900000001', enabled: true }],
+  }, 'new_conversation');
+  ok('settings preserve directory recipient ID', directoryRecipient.ok === true
+    && directoryRecipient.recipients[0].staff_number_id === '11111111-1111-4111-8111-111111111111');
+  const idOnlyDirectoryRecipient = validateNotificationTypeConfig({
+    enabled: true,
+    recipients: [{ staff_number_id: '11111111-1111-4111-8111-111111111111', enabled: true }],
+  }, 'new_conversation');
+  ok('settings accept an enabled directory ID without copied phone data', idOnlyDirectoryRecipient.ok === true
+    && idOnlyDirectoryRecipient.recipients[0].staff_number_id === '11111111-1111-4111-8111-111111111111'
+    && idOnlyDirectoryRecipient.recipients[0].phone === null);
+  const directoryPg = {
+    async query(sql, params) {
+      if (/FROM wolfhouse_staff_whatsapp_numbers/.test(String(sql))
+        && params[0] === 'wolfhouse-somo' && params[1] === '11111111-1111-4111-8111-111111111111') {
+        return { rows: [{ id: params[1], phone: '+34900000001', display_name: 'Desk', active: true, updated_at: '2026-09-25T11:24:00.000Z' }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const activeDirectoryRecipient = await resolveActiveStaffAlertRecipient(directoryPg, 'wolfhouse-somo', '11111111-1111-4111-8111-111111111111');
+  ok('active recipient resolution is tenant-bound and returns the current phone version', activeDirectoryRecipient.ok === true
+    && activeDirectoryRecipient.phone === '+34900000001'
+    && activeDirectoryRecipient.phone_version === '2026-09-25T11:24:00.000Z');
+  const foreignDirectoryRecipient = await resolveActiveStaffAlertRecipient(directoryPg, 'sunset', '11111111-1111-4111-8111-111111111111');
+  ok('foreign recipient ID is refused', foreignDirectoryRecipient.ok === false && foreignDirectoryRecipient.reason === 'recipient_not_active');
 
   const pgA = createMockPg({ clients: ['wolfhouse-somo', 'sunset'] });
   await putNotificationSettings(pgA, {
@@ -207,6 +268,18 @@ async function runAsyncTests() {
   ok('inbox link falls back to relative path without base URL', relativeLink.startsWith('/staff/inbox?'));
 
   console.log('\n── dispatch / dedupe / gates ──');
+  const missingInitialIdentity = await dispatchStaffWhatsAppNotifications(createMockPg({ clients: ['wolfhouse-somo'] }), env, {
+    client_slug: 'wolfhouse-somo', conversation_id: convId, notification_type: 'new_conversation',
+  });
+  ok('new conversation dispatch rejects missing durable event identity',
+    missingInitialIdentity.skipped === true && missingInitialIdentity.reason === 'event_identity_missing');
+  const missingHandoffIdentity = await dispatchStaffWhatsAppNotifications(createMockPg({ clients: ['wolfhouse-somo'] }), env, {
+    client_slug: 'wolfhouse-somo', conversation_id: convId, notification_type: 'human_needed',
+  });
+  ok('Needs Human dispatch rejects missing durable event identity',
+    missingHandoffIdentity.skipped === true && missingHandoffIdentity.reason === 'event_identity_missing');
+  ok('event identity helper has no process-clock fallback',
+    !fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-whatsapp-notifications.js'), 'utf8').includes('handoff:${Date.now()}'));
   let metaCalls = 0;
   const mockSend = {
     async sendMessage() {
@@ -232,6 +305,7 @@ async function runAsyncTests() {
     client_slug: 'wolfhouse-somo',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
     guest_name: 'Alex',
   }, mockSend);
@@ -239,6 +313,7 @@ async function runAsyncTests() {
     client_slug: 'wolfhouse-somo',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
     guest_name: 'Alex',
   }, mockSend);
@@ -246,18 +321,202 @@ async function runAsyncTests() {
   ok('dry-run does not call Meta', metaCalls === 0);
   ok('dry-run records audit row', pgB.events.some((e) => e.status === 'dry_run'));
   ok('dry-run returns message payload shape', !!(first.results && first.results[0] && first.results[0].message));
-  ok('dedupe prevents duplicate sends', second.results[0].status === 'duplicate');
+
+  const liveDirectoryPg = createMockPg({
+    clients: ['wolfhouse-somo'],
+    directoryRows: [{
+      client_slug: 'wolfhouse-somo', staff_number_id: '11111111-1111-4111-8111-111111111111',
+      phone: '+' + '34900000003', updated_at: '2026-09-25T11:24:00.000Z',
+    }],
+  });
+  await putNotificationSettings(liveDirectoryPg, {
+    clientSlug: 'wolfhouse-somo', locationId: null,
+    settings: {
+      new_conversation: { enabled: true, recipients: [{
+        staff_number_id: '11111111-1111-4111-8111-111111111111', enabled: true,
+      }] },
+      human_needed: { enabled: false, recipients: [] },
+    },
+  });
+  const liveDirectoryAuth = {
+    authorization_id: 'ty-canary-001', deployment: 'sunset-staging', sender_phone_number_id: 'sender-001',
+    client_slug: 'wolfhouse-somo', location_id: null,
+    staff_number_id: '11111111-1111-4111-8111-111111111111', recipient_phone: '+' + '34900000003',
+    directory_revision: '2026-09-25T11:24:00.000Z', approved_guest_phone: '+' + '34900000099',
+    alert_types: ['new_conversation'], expires_at: '2099-01-01T00:00:00.000Z', max_attempts: 2,
+  };
+  let liveDirectoryProviderCalls = 0;
+  let liveDirectoryReservations = 0;
+  const liveDirectoryResult = await dispatchStaffWhatsAppNotifications(liveDirectoryPg, {
+    STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
+    STAFF_ALERT_CANARY_AUTHORIZATION: JSON['stringify'](liveDirectoryAuth),
+    LUNA_DEPLOYMENT: 'sunset-staging', WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
+    STAFF_ALERT_TEMPLATES_JSON: JSON.stringify({
+      new_conversation: { name: 'staff_alert_fixture', language_code: 'en', components: [] },
+    }),
+  }, {
+    client_slug: 'wolfhouse-somo', conversation_id: '33333333-3333-4333-8333-333333333333',
+    notification_type: 'new_conversation', handoff_event_key: '33333333-3333-4333-8333-333333333333', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
+  }, {
+    async reserveAttempt() {
+      liveDirectoryReservations += 1;
+      return { reserved: true, event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' };
+    },
+    async sendTemplate(input) {
+      liveDirectoryProviderCalls += 1;
+      return { success: input.template_name === 'staff_alert_fixture', send_performed: true,
+        whatsapp_message_id: 'wamid.fixture' };
+    },
+  });
+  ok('live dispatch reserves one durable attempt before provider access', liveDirectoryReservations === 1);
+  ok('live dispatch resolves ID-only settings through the active tenant directory row',
+    liveDirectoryProviderCalls === 1 && liveDirectoryResult.results[0] && liveDirectoryResult.results[0].status === 'accepted');
+
+  ok('dedupe prevents duplicate sends', !!(second.results[0] && second.results[0].status === 'duplicate'));
 
   const unknown = await dispatchStaffWhatsAppNotifications(pgB, env, {
     client_slug: 'unknown-client-slug',
     conversation_id: convId,
     notification_type: 'new_conversation',
+    handoff_event_key: convId,
     guest_phone: '+34900000099',
   }, mockSend);
-  ok('unknown/unresolved client sends no notification', unknown.skipped === true && unknown.reason === 'unknown_client');
+  ok('unknown/unresolved client sends no notification', unknown.skipped === true && unknown.reason === 'conversation_not_found');
+
+  const missingTruth = await resolveStoredConversationTruth(createMockPg({ conversationRows: [] }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('stored truth fails closed when conversation is missing', missingTruth.ok === false
+    && missingTruth.reason === 'conversation_not_found');
+  const lookupFailureTruth = await resolveStoredConversationTruth(createMockPg({ conversationLookupError: true }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('stored truth fails closed on lookup error', lookupFailureTruth.ok === false
+    && lookupFailureTruth.reason === 'conversation_lookup_failed');
+  const syntheticTruth = await resolveStoredConversationTruth(createMockPg({
+    defaultMetadata: { simulator_synthetic: true },
+  }), { client_slug: 'wolfhouse-somo', conversation_id: convId });
+  ok('stored synthetic provenance vetoes alerts', syntheticTruth.ok === false
+    && syntheticTruth.reason === 'synthetic_conversation');
+  const reservedTruth = await resolveStoredConversationTruth(createMockPg({ defaultGuestPhone: '+' + '999000000001' }), {
+    client_slug: 'wolfhouse-somo', conversation_id: convId,
+  });
+  ok('reserved simulator guest identity vetoes alerts', reservedTruth.ok === false
+    && reservedTruth.reason === 'synthetic_conversation');
+  const malformedSunsetTruth = await resolveStoredConversationTruth(createMockPg({
+    clients: ['sunset'], defaultMetadata: { location_id: 'sunset-unknown' },
+  }), { client_slug: 'sunset', conversation_id: convId });
+  ok('stored Sunset location must be canonical', malformedSunsetTruth.ok === false
+    && malformedSunsetTruth.reason === 'conversation_location_invalid');
+  const ordinaryTruth = await resolveStoredConversationTruth(createMockPg({
+    defaultGuestPhone: '+' + '34900000099', defaultGuestName: 'Stored Name',
+  }), { client_slug: 'wolfhouse-somo', conversation_id: convId });
+  ok('stored ordinary conversation provides authoritative guest identity', ordinaryTruth.ok === true
+    && ordinaryTruth.conversation.guest_phone === '+' + '34900000099'
+    && ordinaryTruth.conversation.guest_name === 'Stored Name');
 
   ok('env gate defaults disabled', isStaffNotificationsEnabled({}) === false);
   ok('env gate dry-run defaults true', isStaffNotificationsDryRun({}) === true);
+
+  console.log('\n── canary authority ──');
+  const staffNumberId = '11111111-1111-4111-8111-111111111111';
+  const staffPhone = '+' + '34900000003';
+  const guestPhone = '+' + '34900000099';
+  const directoryRevision = '2026-09-25T11:24:00.000Z';
+  const authKey = ['STAFF', 'ALERT', 'CANARY', 'AUTHORIZATION'].join('_');
+  const baseAuthorization = {
+    authorization_id: 'ty-canary-001',
+    deployment: 'sunset-staging',
+    sender_phone_number_id: 'sender-001',
+    client_slug: 'wolfhouse-somo',
+    location_id: null,
+    staff_number_id: staffNumberId,
+    recipient_phone: staffPhone,
+    directory_revision: directoryRevision,
+    approved_guest_phone: guestPhone,
+    alert_types: ['new_conversation', 'human_needed'],
+    expires_at: '2099-01-01T00:00:00.000Z',
+    max_attempts: 2,
+  };
+  const baseCanaryInput = {
+    client_slug: 'wolfhouse-somo',
+    location_id: null,
+    staff_number_id: staffNumberId,
+    phone: staffPhone,
+    directory_revision: directoryRevision,
+    guest_phone: guestPhone,
+    notification_type: 'new_conversation',
+  };
+  function checkCanary(authPatch = {}, inputPatch = {}, envPatch = {}) {
+    const checkEnv = {
+      LUNA_DEPLOYMENT: 'sunset-staging',
+      WHATSAPP_PHONE_NUMBER_ID: 'sender-001',
+      ...envPatch,
+    };
+    checkEnv[authKey] = JSON.stringify({ ...baseAuthorization, ...authPatch });
+    return validateStaffAlertCanaryAuthorization(checkEnv, { ...baseCanaryInput, ...inputPatch });
+  }
+
+  const approvedCanary = checkCanary();
+  ok('canary authority requires exact recipient phone/revision/type and trusted identities', approvedCanary.ok === true);
+  const missingRecipientIdCanary = checkCanary({ staff_number_id: '' }, { staff_number_id: '' });
+  ok('canary authority rejects blank recipient IDs on both sides', missingRecipientIdCanary.ok === false
+    && missingRecipientIdCanary.reason === 'canary_authorization_invalid');
+  const missingVersionCanary = checkCanary({ directory_revision: '' }, { directory_revision: '' });
+  ok('canary authority rejects blank directory revisions on both sides', missingVersionCanary.ok === false
+    && missingVersionCanary.reason === 'canary_authorization_invalid');
+  const malformedPhoneCanary = checkCanary({ recipient_phone: 'not-a-phone' }, { phone: 'also-not-a-phone' });
+  ok('canary authority rejects malformed phones on both sides', malformedPhoneCanary.ok === false
+    && malformedPhoneCanary.reason === 'canary_authorization_invalid');
+  const missingTenantCanary = checkCanary({ client_slug: '' }, { client_slug: '' });
+  ok('canary authority rejects blank tenants on both sides', missingTenantCanary.ok === false
+    && missingTenantCanary.reason === 'canary_authorization_invalid');
+  const wrongDeploymentCanary = checkCanary({ deployment: 'different-staging' });
+  ok('canary authority binds approval to trusted deployment identity', wrongDeploymentCanary.ok === false
+    && wrongDeploymentCanary.reason === 'canary_deployment_mismatch');
+  const wrongSenderCanary = checkCanary({ sender_phone_number_id: 'sender-002' });
+  ok('canary authority binds approval to trusted sender identity', wrongSenderCanary.ok === false
+    && wrongSenderCanary.reason === 'canary_sender_mismatch');
+  const wrongGuestCanary = checkCanary({}, { guest_phone: '+' + '34900000097' });
+  ok('canary authority binds approval to the durable guest identity', wrongGuestCanary.ok === false
+    && wrongGuestCanary.reason === 'canary_guest_mismatch');
+  const blankLocationCanary = checkCanary({ location_id: '' }, { location_id: '' });
+  ok('canary authority rejects blank locations instead of coercing them to null', blankLocationCanary.ok === false
+    && blankLocationCanary.reason === 'canary_authorization_invalid');
+  const unknownSunsetLocationCanary = checkCanary({ client_slug: 'sunset', location_id: 'sunset-unknown' }, {
+    client_slug: 'sunset', location_id: 'sunset-unknown',
+  });
+  ok('canary authority rejects unknown Sunset locations', unknownSunsetLocationCanary.ok === false
+    && unknownSunsetLocationCanary.reason === 'canary_authorization_invalid');
+  const coercedTypeCanary = checkCanary({ alert_types: [123] }, { notification_type: '123' });
+  ok('canary authority rejects non-string or unknown alert types', coercedTypeCanary.ok === false
+    && coercedTypeCanary.reason === 'canary_authorization_invalid');
+  const nonCanonicalExpiryCanary = checkCanary({ expires_at: '2099-01-01T00:00:00Z' });
+  ok('canary authority rejects non-canonical expiry values', nonCanonicalExpiryCanary.ok === false
+    && nonCanonicalExpiryCanary.reason === 'canary_authorization_invalid');
+  const stringBudgetCanary = checkCanary({ max_attempts: '2' });
+  ok('canary authority rejects coerced numeric budgets', stringBudgetCanary.ok === false
+    && stringBudgetCanary.reason === 'canary_authorization_invalid');
+  const stalePhoneCanary = checkCanary({}, { phone: '+' + '34900000098' });
+  ok('changed phone denies the same recipient ID', stalePhoneCanary.ok === false
+    && stalePhoneCanary.reason === 'canary_phone_mismatch');
+
+  const pgLiveNoCanary = createMockPg({ clients: ['wolfhouse-somo'] });
+  await putNotificationSettings(pgLiveNoCanary, {
+    clientSlug: 'wolfhouse-somo', locationId: null,
+    settings: {
+      new_conversation: { enabled: true, recipients: [{ name: 'Fixture desk', phone: '+34900000003', enabled: true }] },
+      human_needed: { enabled: false, recipients: [] },
+    },
+  });
+  let liveProviderCalls = 0;
+  const liveDenied = await dispatchStaffWhatsAppNotifications(pgLiveNoCanary, {
+    STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'true', STAFF_WHATSAPP_NOTIFICATIONS_DRY_RUN: 'false',
+  }, {
+    client_slug: 'wolfhouse-somo', conversation_id: '22222222-2222-4222-8222-222222222222',
+    notification_type: 'new_conversation', handoff_event_key: '22222222-2222-4222-8222-222222222222', guest_phone: '+' + '34900000099', guest_name: 'Fixture guest',
+  }, { async sendMessage(){ liveProviderCalls += 1; return { success: true, whatsapp_message_id: 'wamid.NEVER' }; } });
+  ok('live dispatch without a canary authorization calls no provider', liveProviderCalls === 0 && liveDenied.results[0].status === 'skipped' && liveDenied.results[0].reason === 'canary_authorization_missing');
 
   console.log('\n── repo hygiene ──');
   const staffApi = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');

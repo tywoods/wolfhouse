@@ -132,28 +132,15 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const reasonCode = trimStr(inp.reason)
     || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
 
-  const prior = await pg.query(
-    `SELECT conv.needs_human, conv.phone, conv.display_name, conv.metadata
-       FROM conversations conv
-       JOIN clients c ON c.id = conv.client_id
-      WHERE c.slug = $1 AND conv.id = $2::uuid
-      LIMIT 1`,
-    [clientSlug, conversationId],
-  );
-  const priorRow = prior.rows[0];
-  if (!priorRow) {
-    return { ok: false, needs_human: false, reason: 'conversation_not_found' };
-  }
-  const wasNeedsHuman = priorRow.needs_human === true;
   const handoffAt = new Date().toISOString();
-
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = TRUE,
+            needs_human_transition_id = gen_random_uuid(),
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
               || jsonb_build_object(
-                'luna_handoff_at', to_jsonb($4::text),
+                'luna_handoff_at', to_jsonb(NOW()::text),
                 'luna_handoff_reason', to_jsonb($3::text),
                 'needs_human_reason', to_jsonb($3::text)
               )
@@ -161,14 +148,32 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
       WHERE conv.client_id = c.id
         AND c.slug = $1
         AND conv.id = $2::uuid
-      RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-    [clientSlug, conversationId, reasonCode.slice(0, 200), handoffAt],
+        AND conv.needs_human = FALSE
+      RETURNING conv.id::text AS conversation_id, conv.needs_human,
+                conv.needs_human_transition_id::text AS transition_id,
+                conv.phone, conv.display_name, conv.metadata`,
+    [clientSlug, conversationId, reasonCode.slice(0, 200)],
   );
 
-  const row = res.rows[0];
+  let row = res.rows[0];
+  const transitioned = !!row;
+  if (!row) {
+    const current = await pg.query(
+      `SELECT conv.id::text AS conversation_id, conv.needs_human,
+              conv.needs_human_transition_id::text AS transition_id,
+              conv.phone, conv.display_name, conv.metadata
+         FROM conversations conv
+         JOIN clients c ON c.id = conv.client_id
+        WHERE c.slug = $1 AND conv.id = $2::uuid
+        LIMIT 1`,
+      [clientSlug, conversationId],
+    );
+    row = current.rows[0];
+  }
   if (!row) {
     return { ok: false, needs_human: false, reason: 'conversation_not_found' };
   }
+  const priorRow = row;
 
   // Sunset-only: Needs Human is an Inbox / handoff flag — do NOT pause Luna.
   // All other clients (Wolfhouse, etc.): keep needs_human=true → effective pause.
@@ -263,24 +268,31 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   }
 
   let staff_notification = null;
-  const skipNotify = opts.skip_notify === true || reasonCode === 'staff_manual_handoff';
-  if (!wasNeedsHuman && !skipNotify) {
+  const manual = reasonCode === 'staff_manual_handoff' || handoffSource === 'staff_manual_handoff';
+  const skipNotify = opts.skip_notify === true || manual;
+  if (transitioned && !skipNotify && row.transition_id) {
     const locationId = extractLocationFromMetadata(priorRow.metadata);
-    staff_notification = await maybeNotifyHumanNeeded(pg, env, {
-      transitioned: true,
-      handoff_event_key: handoffAt,
-      client_slug: clientSlug,
-      location_id: locationId,
-      conversation_id: row.conversation_id,
-      guest_phone: priorRow.phone,
-      guest_name: priorRow.display_name,
-      reason: reasonCode,
-    }, notifyContext);
+    try {
+      staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+        transitioned: true,
+        handoff_event_key: row.transition_id,
+        client_slug: clientSlug,
+        location_id: locationId,
+        conversation_id: row.conversation_id,
+        guest_phone: priorRow.phone,
+        guest_name: priorRow.display_name,
+        reason: reasonCode,
+      }, notifyContext);
+    } catch (_) {
+      staff_notification = { failed: true, reason: 'staff_alert_dispatch_failed' };
+    }
   }
 
   return {
     ok: true,
     needs_human: row.needs_human === true,
+    transitioned,
+    transition_id: row.transition_id || null,
     conversation_id: row.conversation_id,
     handoff_reason: reasonCode,
     conversation_paused: !!(pause_state && pause_state.paused),
@@ -342,6 +354,7 @@ async function clearStaffNeedsHuman(pg, input) {
   const updated = await pg.query(
     `UPDATE conversations conv
         SET needs_human = FALSE,
+            needs_human_transition_id = NULL,
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
               - 'luna_handoff_at'
@@ -430,6 +443,7 @@ async function clearLunaAutoHandoffIfPresent(pg, input) {
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = FALSE,
+            needs_human_transition_id = NULL,
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
               - 'luna_handoff_at'

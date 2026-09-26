@@ -205,6 +205,63 @@ async function sendLunaWhatsAppMessage(input, env = process.env, context = {}) {
   };
 }
 
+async function sendStaffWhatsAppTemplate(input, env = process.env, context = {}) {
+  const src = input || {};
+  const cfg = resolveWhatsappProviderConfig(env);
+  const to = trimStr(src.to);
+  const senderId = trimStr(src.sender_phone_number_id);
+  const templateName = trimStr(src.template_name);
+  const languageCode = trimStr(src.language_code);
+  const components = Array.isArray(src.components) ? src.components : null;
+  const base = { success: false, send_performed: false, sends_whatsapp: false,
+    would_send_whatsapp: true, to, provider: 'whatsapp_cloud_api' };
+  if (isWhatsappDryRun(env)) return { ...base, blocked_reason: 'whatsapp_dry_run_active' };
+  if (!senderId || senderId !== cfg.phone_number_id) return { ...base, blocked_reason: 'staff_template_sender_mismatch' };
+  if (!templateName || !languageCode || !components) return { ...base, blocked_reason: 'staff_template_metadata_invalid' };
+  if (providerConfigMissing(cfg)) return { ...base, blocked_reason: 'whatsapp_provider_config_missing' };
+  const fetchFn = context.fetch || global.fetch;
+  if (typeof fetchFn !== 'function') return { ...base, blocked_reason: 'whatsapp_provider_fetch_unavailable' };
+  const url = `${cfg.api_base_url.replace(/\/$/, '')}/${senderId}/messages`;
+  const payload = { messaging_product: 'whatsapp', to: normalizeWhatsAppTo(to), type: 'template',
+    template: { name: templateName, language: { code: languageCode }, components } };
+  const controller = new AbortController();
+  const timeoutMs = Number.isFinite(Number(context.timeout_ms)) ? Number(context.timeout_ms) : 8000;
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      const error = new Error('staff template provider timeout');
+      error.name = 'AbortError';
+      reject(error);
+    }, timeoutMs);
+  });
+  let res;
+  try {
+    res = await Promise.race([fetchFn(url, { method: 'POST', headers: {
+      Authorization: 'Bearer ' + cfg.access_token, 'Content-Type': 'application/json',
+      ...(trimStr(src.idempotency_key) ? { 'X-Idempotency-Key': trimStr(src.idempotency_key) } : {}),
+    }, body: JSON.stringify(payload), signal: controller.signal }), timeoutPromise]);
+  } catch (error) {
+    clearTimeout(timeout);
+    return { ...base, outcome: 'ambiguous', blocked_reason: error && error.name === 'AbortError'
+      ? 'staff_template_provider_timeout' : 'staff_template_provider_unknown', provider_error: error.message };
+  }
+  let body = {};
+  try {
+    body = await Promise.race([res.json(), timeoutPromise]);
+  } catch (error) {
+    return { ...base, outcome: 'ambiguous', blocked_reason: error && error.name === 'AbortError'
+      ? 'staff_template_provider_timeout' : 'staff_template_provider_response_invalid', provider_error: error.message };
+  } finally { clearTimeout(timeout); }
+  if (!res.ok) return { ...base, outcome: 'definitive_failure', blocked_reason: 'staff_template_provider_rejected',
+    provider_status: res.status, provider_error: body.error || body };
+  const messageId = (body.messages && body.messages[0] && body.messages[0].id) || body.message_id || null;
+  if (!trimStr(messageId)) return { ...base, outcome: 'ambiguous', blocked_reason: 'staff_template_provider_response_invalid',
+    provider_status: res.status };
+  return { ...base, success: true, outcome: 'accepted', send_performed: true, sends_whatsapp: true,
+    whatsapp_message_id: messageId, provider_status: res.status };
+}
+
 /**
  * Show WhatsApp typing dots (+ mark inbound message read) while Luna prepares a reply.
  * @param {{ message_id: string, phone_number_id?: string }} input
@@ -323,6 +380,7 @@ async function sendLunaWhatsAppTypingIndicator(input, env = process.env, context
 
 module.exports = {
   sendLunaWhatsAppMessage,
+  sendStaffWhatsAppTemplate,
   sendLunaWhatsAppTypingIndicator,
   shouldSendLunaWhatsAppTypingIndicator,
   isWhatsappTypingIndicatorEnabled,

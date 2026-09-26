@@ -28,6 +28,12 @@ assert.ok(api.includes('function staffWhatsappNumbersPendingLoad'), 'pending-loa
 assert.ok(api.includes('staffWhatsappNumbersPendingLoad()'), 'empty paint defers while pending');
 assert.ok(api.includes('staffWhatsappNumbersLoadSeq'), 'numbers load seq guard');
 assert.ok(api.includes('staffNotificationSettingsLoadSeq'), 'settings load seq guard');
+assert.ok(
+  /function staffWhatsappNumberUpdate\(id,[\s\S]{0,700}?JSON\.stringify\(\{\s*id:\s*id,/.test(api),
+  'number editor POST preserves stable directory id',
+);
+assert.ok(!/function staffWhatsappNumberAdd[\s\S]{0,500}?JSON\.stringify\(\{\s*id:/.test(api),
+  'number add POST remains id-free');
 assert.ok(!/if \(staffNotificationSettingsFetchInFlight\) return;/.test(api),
   'settings load must not drop overlapping school-switch fetches');
 assert.ok(

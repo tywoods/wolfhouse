@@ -19,6 +19,7 @@
 'use strict';
 
 const TABLE = 'wolfhouse_staff_whatsapp_numbers';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Operations categories every recognized staff/owner number can use. */
 const STAFF_OPERATIONS_CATEGORIES = ['bookings', 'payments', 'rooming', 'handoffs', 'addons'];
@@ -189,6 +190,36 @@ async function upsertStaffWhatsappNumber(pg, opts) {
   }
 }
 
+async function updateStaffWhatsappNumberById(pg, opts) {
+  const o = opts || {};
+  const slug = typeof o.clientSlug === 'string' ? o.clientSlug.trim() : '';
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  const group = typeof o.permissionGroup === 'string' ? o.permissionGroup.trim() : '';
+  const phone = normalizeStaffPhone(o.phone);
+  if (!slug) return { ok: false, error: 'client_slug_required' };
+  if (!UUID_RE.test(id)) return { ok: false, error: 'invalid_id' };
+  if (!phone) return { ok: false, error: 'invalid_phone' };
+  if (group !== 'staff' && group !== 'owner') return { ok: false, error: 'invalid_permission_group' };
+  const displayName = o.displayName == null || String(o.displayName).trim() === ''
+    ? null : String(o.displayName).trim();
+  const active = o.active === undefined ? true : o.active === true;
+  const current = await pg.query(
+    `SELECT id, phone FROM ${TABLE} WHERE client_slug = $1 AND id = $2::uuid FOR UPDATE`,
+    [slug, id],
+  );
+  if (!current.rows.length) return { ok: false, error: 'not_found' };
+  const oldPhone = normalizeStaffPhone(current.rows[0].phone);
+  const updated = await pg.query(
+    `UPDATE ${TABLE}
+        SET phone = $3, permission_group = $4, display_name = $5, active = $6, updated_at = NOW()
+      WHERE client_slug = $1 AND id = $2::uuid
+      RETURNING id, client_slug, phone, permission_group, display_name, active, created_at, updated_at`,
+    [slug, id, phone, group, displayName, active],
+  );
+  if (!updated.rows.length) return { ok: false, error: 'not_found' };
+  return { ok: true, row: rowToPublic(updated.rows[0]), old_phone: oldPhone };
+}
+
 /**
  * Delete a number by id within a tenant.
  *
@@ -262,6 +293,7 @@ module.exports = {
   mapGroupToAccess,
   listStaffWhatsappNumbers,
   upsertStaffWhatsappNumber,
+  updateStaffWhatsappNumberById,
   deleteStaffWhatsappNumber,
   resolveStaffWhatsappEntry,
 };
