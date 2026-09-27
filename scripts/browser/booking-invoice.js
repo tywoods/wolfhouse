@@ -1,4 +1,9 @@
 /* Wolfhouse Invoice workspace. Injected into the existing portal closure. */
+function bcInvoiceBookingFullyPaid(data){
+  data = data || {};
+  var fin = bcComputeBookingInvoiceTotals(data.booking || {}, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
+  return Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
+}
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
   var required = bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents);
   var known = Number.isSafeInteger(required) && required >= 0;

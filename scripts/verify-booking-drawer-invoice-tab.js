@@ -128,7 +128,22 @@ async function main() {
           results.push({ name: 'sunset-native-profile', defaultTab: 'portal-home', lodgingCalendarHidden: true, note: 'No four-tab lodging drawer in ordinary Sunset entrypoint; not live staging evidence.' });
           continue;
         }
-        await page.locator('.bc-block').first().click();
+        // Keep the real mouseenter -> click sequence, but control the 220ms hover
+        // deadline so it cannot randomly fall between the three collapse checks.
+        await page.clock.install({time:new Date('2026-09-27T12:00:00Z')});
+        await page.clock.pauseAt(new Date('2026-09-27T12:01:00Z'));
+        const blockBox=await page.locator('.bc-block').first().boundingBox();
+        await page.mouse.move(blockBox.x+blockBox.width/2,blockBox.y+blockBox.height/2);
+        await page.clock.runFor(220);
+        await page.locator('#bc-payment-history-toggle').waitFor({state:'attached'});
+        assert.equal(await page.locator('#bc-side-drawer').getAttribute('data-pinned')==='1',false,'ordinary hover preview remains unpinned');
+        assert.equal(await page.locator('#bc-side-drawer').evaluate(e=>e.classList.contains('is-open')),true,'ordinary hover still opens booking');
+        await page.mouse.move(10,10);
+        await page.clock.runFor(560);
+        assert.equal(await page.locator('#bc-side-drawer').evaluate(e=>e.classList.contains('is-open')),false,'ordinary hover leave still closes preview');
+        assert.equal(ledger.filter(e=>e.method!=='GET').length,0,'hover navigation is read-only');
+        results.push({name:'ordinary-unpinned-hover-open-and-leave',zeroMutations:true});
+        await page.mouse.click(blockBox.x+blockBox.width/2,blockBox.y+blockBox.height/2);
         await page.locator('#bc-side-drawer .bc-drawer-tab').first().waitFor();
         const tabs = await page.locator('#bc-side-drawer .bc-drawer-tab').evaluateAll(els => els.map(e => e.dataset.tab));
         assert.deepEqual(tabs, ['overview', 'services', 'transfers']);
@@ -139,17 +154,41 @@ async function main() {
         const toggleStyles = await page.locator('#bc-payment-history-toggle, #bc-move-bed-toggle').evaluateAll(es=>es.map(e=>{const s=getComputedStyle(e);return [s.display,s.borderWidth,s.backgroundColor,s.justifyContent];}));
         assert.deepEqual(toggleStyles[0],toggleStyles[1],'history header matches Move Bed chrome');
         assert.equal(await page.locator('#bc-payment-history-card').count(), 1, 'one mounted history');
-        assert.equal(await history.getAttribute('aria-expanded'), 'false');
-        assert(await page.locator('#bc-payment-history-card').evaluate(el=>el.classList.contains('is-collapsed')),'history shares Move Bed collapsed chevron state');
-        assert.equal(await page.locator('#bc-payment-history-body').isVisible(), false);
-        await history.focus(); await page.keyboard.press('Enter');
-        assert.equal(await history.getAttribute('aria-expanded'), 'true');
+        assert.equal(await history.getAttribute('aria-expanded'), 'true','history line items visible by default');
         assert.equal(await page.locator('#bc-payment-history-body').isVisible(), true);
         assert.match(await page.locator('#bc-payment-history-body').innerText(), /No payments/i);
+        const mountedHistory=await page.locator('#bc-payment-history-card').elementHandle();
+        await history.focus(); await page.keyboard.press('Enter');
+        assert.equal(await history.getAttribute('aria-expanded'), 'false');
+        assert.equal(await page.locator('#bc-payment-history-body').isVisible(), false);
+        async function collapseSnapshot(){return mountedHistory.evaluate(old=>({
+          sameNode:old===document.getElementById('bc-payment-history-card'),oldConnected:old.isConnected,
+          aria:document.getElementById('bc-payment-history-toggle')?.getAttribute('aria-expanded'),
+          hidden:document.getElementById('bc-payment-history-body')?.hidden,
+          cls:document.getElementById('bc-payment-history-card')?.className,
+          pinned:document.getElementById('bc-side-drawer').dataset.pinned
+        }));}
+        const beforeHover=await collapseSnapshot();
+        const contextReadsBefore=ledger.filter(e=>new URL(e.url).pathname.endsWith('/context')).length;
+        await page.clock.runFor(219);
+        const beforeDeadline=await collapseSnapshot();
+        await page.clock.runFor(1);
+        // If the old timer remounts, retain the completed replacement too, rather
+        // than mistaking its transient loading DOM for a CSS animation failure.
+        await history.waitFor({state:'attached'});
+        const afterHover=await collapseSnapshot();
+        const contextReadsAfter=ledger.filter(e=>new URL(e.url).pathname.endsWith('/context')).length;
+        fs.writeFileSync(path.join(OUT,'hover-collapse-observation.json'),JSON.stringify({beforeHover,beforeDeadline,afterHover,contextReadsBefore,contextReadsAfter},null,2));
+        assert.deepEqual(beforeDeadline,beforeHover,'history stable before hover deadline');
+        assert.deepEqual(afterHover,beforeHover,'pinned click must not remount or expand history at pending hover deadline');
+        assert.equal(contextReadsAfter,contextReadsBefore,'click must cancel the pending hover context read');
+        assert(await page.locator('#bc-payment-history-card').evaluate(el=>el.classList.contains('is-collapsed')),'history shares Move Bed collapsed chevron state');
+        await page.clock.resume();
+        results.push({name:'pinned-click-cancels-hover-preserves-collapsed-node',zeroMutations:true});
         assert.equal(await page.locator('#bc-move-bed-toggle').getAttribute('aria-expanded'), 'false');
         await page.keyboard.press('Space');
-        assert.equal(await history.getAttribute('aria-expanded'), 'false');
-        assert(await page.locator('#bc-payment-history-card').evaluate(el=>el.classList.contains('is-collapsed')),'history shares Move Bed collapsed chevron state');
+        assert.equal(await history.getAttribute('aria-expanded'), 'true');
+        assert.equal(await page.locator('#bc-payment-history-body').isVisible(), true);
         await page.locator('#bc-side-drawer').screenshot({path:path.join(OUT,'invoice-local-synthetic.png')});
         results.push({name:'invoice-history', paymentTabRemoved:true, localSynthetic:true});
         assert.equal(await page.locator('#bc-record-payment-btn').count(), 1, 'Record Payment below Per Guest');
@@ -194,7 +233,7 @@ async function main() {
         assert.equal(await page.locator('#bc-payment-amount').inputValue(),'287.66','named remaining share uses the receipt projection');
         await page.locator('#bc-payment-cancel').click();
         assert.equal(await page.locator('[data-tab=overview].bc-drawer-tab').getAttribute('aria-selected'),'true');
-        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false');
+        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true');
         results.push({name:'named-cash-payload-and-read-refresh', localSynthetic:true});
         const create = page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').first();
         await create.click();
@@ -207,7 +246,8 @@ async function main() {
         assert.equal(await page.locator('#bc-inv-per-guest .bc-inline-payment-link').count(),0);
         assert.equal(await page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').count(),1);
         assert.equal(ledger.filter(e=>e.method==='POST').length,beforeRefreshWrites,'refresh is GET only');
-        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true');
+        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false','refresh preserves explicit collapse');
+        await page.locator('#bc-payment-history-toggle').click();
         assert.equal(await page.locator('#bc-generate-payment-link-btn').count(),1,'one balance action owner');
         results.push({name:'refresh-restores-create-read-only-preserves-history',localSynthetic:true});
         deferGuest = true;
@@ -268,6 +308,7 @@ async function main() {
         await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
         await page.locator('#bc-generate-payment-link-btn').click();
         await page.locator('#bc-payment-link-result a').waitFor();
+        await page.locator('.bc-history-item').filter({has:page.locator('.btn-bc-cancel-link-icon')}).locator('summary').click();
         await page.locator('#bc-payment-history-body .btn-bc-cancel-link-icon').click();
         await page.locator('#bc-payment-history-body .btn-bc-cancel-link-confirm').click();
         await page.waitForResponse(r=>r.url().includes('/context'));
@@ -275,6 +316,7 @@ async function main() {
         assert.equal(await page.locator('[data-tab=overview].bc-drawer-tab').getAttribute('aria-selected'),'true','cancel refresh must not jump to Payment');
         results.push({name:'visible-balance-create-history-cancel-in-invoice'});
         deferContext = true;
+        await page.locator('.bc-history-item').filter({has:page.locator('.btn-bc-cancel-link-icon')}).locator('summary').click();
         await page.locator('#bc-payment-history-body .btn-bc-cancel-link-icon').click();
         await page.locator('#bc-payment-history-body .btn-bc-cancel-link-confirm').click();
         const deadline = Date.now()+3000;
@@ -292,7 +334,7 @@ async function main() {
         await page.locator('#bc-side-close').click();
         await page.locator('.bc-block').first().click();
         await page.locator('#bc-record-payment-btn').waitFor();
-        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false','new open is collapsed');
+        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true','new open shows history line items');
         for (const [size,width,height] of [['desktop',1440,1000],['phone',390,844]]) {
           await page.setViewportSize({width,height});
           for (const theme of ['light','dark']) {
@@ -324,7 +366,7 @@ async function main() {
     }
   } finally { await browser.close(); }
   fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ results, failures }, null, 2));
-  if (results.length !== 14) failures.push('Expected 14 complete cases, got '+results.length);
+  if (results.length !== 16) failures.push('Expected 16 complete cases, got '+results.length);
   console.log(JSON.stringify({ cases: results.length, failures, out: OUT }, null, 2));
   if (failures.length) process.exitCode = 1;
 }
