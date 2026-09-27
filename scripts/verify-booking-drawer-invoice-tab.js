@@ -131,7 +131,7 @@ async function main() {
         await page.locator('.bc-block').first().click();
         await page.locator('#bc-side-drawer .bc-drawer-tab').first().waitFor();
         const tabs = await page.locator('#bc-side-drawer .bc-drawer-tab').evaluateAll(els => els.map(e => e.dataset.tab));
-        assert.deepEqual(tabs, ['overview', 'services', 'transfers', 'payments']);
+        assert.deepEqual(tabs, ['overview', 'services', 'transfers']);
         assert.equal(await page.locator('[data-tab="overview"].bc-drawer-tab').innerText(), 'Invoice');
         const history = page.locator('#bc-drawer-tab-overview #bc-payment-history-toggle');
         await history.waitFor({state:'attached',timeout:8000});
@@ -151,7 +151,7 @@ async function main() {
         assert.equal(await history.getAttribute('aria-expanded'), 'false');
         assert(await page.locator('#bc-payment-history-card').evaluate(el=>el.classList.contains('is-collapsed')),'history shares Move Bed collapsed chevron state');
         await page.locator('#bc-side-drawer').screenshot({path:path.join(OUT,'invoice-local-synthetic.png')});
-        results.push({name:'invoice-history', paymentTabRetained:true, localSynthetic:true});
+        results.push({name:'invoice-history', paymentTabRemoved:true, localSynthetic:true});
         assert.equal(await page.locator('#bc-record-payment-btn').count(), 1, 'Record Payment below Per Guest');
         await page.locator('#bc-record-payment-btn').click();
         const dialog = page.locator('#bc-record-payment-dialog');

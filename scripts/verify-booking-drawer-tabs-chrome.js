@@ -20,14 +20,19 @@ const calendar = { success: true,
   rooms: Array.from({ length: 4 }, (_, i) => ({ room_code: `R${i + 1}`, room_name: `Room ${i + 1}`,
     beds: Array.from({ length: 4 }, (_, j) => ({ bed_code: `R${i + 1}-B${j + 1}`, bed_label: `Bed ${j + 1}` })) })),
   blocks: [{ ...booking, room_code: 'R1', bed_code: 'R1-B1', start_date: '2026-09-24', end_date: '2026-09-29', source: 'staff', start_offset: 0, span: 5 }], warnings: [] };
-const detail = { success: true, booking, rooming: { assignments: [] }, booking_guests: [], per_person: [],
+const detail = { success: true, booking, rooming: { assignments: [] }, booking_guests: [
+  {guest_number:1, guest_name:'Tom (test)', assigned_bed_code:'R1-B1', metadata:{subtotal_cents:30000}, deposit_amount_cents:9000, amount_paid_cents:0, payment_status:'not_requested'},
+  {guest_number:2, guest_name:'Ada & Bea (test)', assigned_bed_code:'R1-B2', metadata:{subtotal_cents:30000}, deposit_amount_cents:9000, amount_paid_cents:9000, payment_status:'paid'},
+  {guest_number:3, guest_name:'Lucía (test)', assigned_bed_code:'R1-B3', metadata:{subtotal_cents:30000}, deposit_amount_cents:9000, amount_paid_cents:30000, payment_status:'paid'},
+], per_person: [],
   service_records: [], transfers: [], payments: { paid_total_cents: 0, ledger: [] }, pending_manual_services: [], conversation: null };
 
 function emit(tenant) {
   const dest = path.join(OUT, `${tenant}.html`);
   const r = spawnSync(process.execPath, ['scripts/verify-inbox-ui-parity.js', '--emit', tenant, dest], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
-  return fs.readFileSync(dest, 'utf8');
+  // Expose the unchanged closure-private restore/render owners only in this offline fixture.
+  return fs.readFileSync(dest, 'utf8').replace('function bcRestoreActiveDrawerTab(tabId){', 'window.__drawerLegacyRestore = bcRestoreActiveDrawerTab; window.__drawerLegacyRender = function(d){ bcActiveDrawerTab = \'payments\'; return renderBookingContextDrawer(d); }; function bcRestoreActiveDrawerTab(tabId){');
 }
 function luminance(rgb) {
   const c = rgb.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => v / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
@@ -46,6 +51,8 @@ async function main() {
       await ctx.route('**/*', async route => {
         const req = route.request(), url = new URL(req.url());
         const entry = { method: req.method(), url: req.url() }; ledger.push(entry);
+        // Production requests an optional Google stylesheet; keep it offline and use fallback fonts.
+        if (req.method() === 'GET' && url.origin === 'https://fonts.googleapis.com' && url.pathname === '/css2') { entry.expectedOfflineFont = true; return route.abort(); }
         if (req.method() !== 'GET' || url.origin !== ORIGIN) { entry.blocked = true; return route.abort(); }
         const p = url.pathname;
         if (p === '/staff/ui') return route.fulfill({ contentType: 'text/html', body: html });
@@ -76,6 +83,7 @@ async function main() {
         else { entry.unknown = true; return route.abort(); }
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
       });
+      await ctx.addInitScript(() => localStorage.setItem('wh_staff_portal_locale', 'en'));
       const page = await ctx.newPage();
       page.on('pageerror', e => errors.push(String(e)));
       try {
@@ -83,19 +91,26 @@ async function main() {
         await page.waitForFunction(t => typeof window.switchToTab === 'function' && document.getElementById('c-client').value === t, tenant);
         await page.evaluate(() => window.switchToTab('bed-calendar'));
         if (tenant === 'sunset') {
-          // Source profile hides the lodging calendar and its four-tab drawer.
+          // Source profile hides the lodging calendar and its drawer.
           // Do not spoof Wolfhouse's profile to manufacture Sunset acceptance.
           await page.waitForFunction(() => document.getElementById('tab-portal-home').classList.contains('active'));
           assert.equal(await page.locator('#bc-grid-resize-handle').isVisible(), false);
           assert.equal(await page.locator('#bc-side-drawer .bc-drawer-tab').count(), 0);
           await page.screenshot({ path: path.join(OUT, 'sunset-desktop-native-profile.png') });
-          results.push({ name: 'sunset-native-profile', defaultTab: 'portal-home', lodgingCalendarHidden: true, note: 'No four-tab lodging drawer in ordinary Sunset entrypoint; not live staging evidence.' });
+          results.push({ name: 'sunset-native-profile', defaultTab: 'portal-home', lodgingCalendarHidden: true, note: 'No lodging drawer in ordinary Sunset entrypoint; not live staging evidence.' });
           continue;
         }
         await page.locator('.bc-block').first().click();
         await page.locator('#bc-side-drawer .bc-drawer-tab').first().waitFor();
         const tabs = await page.locator('#bc-side-drawer .bc-drawer-tab').evaluateAll(els => els.map(e => e.dataset.tab));
-        assert.deepEqual(tabs, ['overview', 'services', 'transfers', 'payments']);
+        assert.deepEqual(tabs, ['overview', 'services', 'transfers']);
+        assert.equal(await page.locator('#bc-drawer-tab-payments').count(), 0, 'no retired Payment panel/stub');
+        assert.equal(await page.locator('.bc-drawer-tab[data-tab=overview]').innerText(), 'Invoice');
+        await page.evaluate(() => window.__drawerLegacyRestore('payments'));
+        assert.equal(await page.locator('.bc-drawer-tab.is-active').getAttribute('data-tab'), 'overview', 'legacy restore lands on Invoice');
+        const legacyHtml = await page.evaluate(d => window.__drawerLegacyRender(d), detail);
+        assert.match(legacyHtml, /bc-drawer-tab-panel is-active" id="bc-drawer-tab-overview/);
+        await page.evaluate(() => window.__drawerLegacyRestore('overview'));
         for (const theme of ['light', 'dark']) {
           await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
           for (const tab of tabs) {
@@ -132,6 +147,39 @@ async function main() {
             check(!m.overflow && m.title.includes('Tom'), 'drawer stays bounded and keeps booking');
           }
         }
+        for (const width of [1440, 390, 320]) {
+          await page.setViewportSize({width, height:1000});
+          for (const theme of ['light', 'dark']) {
+            await page.evaluate(t => document.documentElement.setAttribute('data-theme',t),theme);
+            await page.locator('.bc-drawer-tab[data-tab=overview]').click();
+            await page.locator('#bc-guest-names').scrollIntoViewIfNeeded();
+            const rows = await page.locator('#bc-guest-names .bc-guest-name-row').evaluateAll(es => es.map(e => {
+              const n=e.querySelector('.bc-guest-name-line'), b=e.querySelector('.bc-guest-bed'), p=e.querySelector('.bc-accom-pay-pebble');
+              const box=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width};};
+              return {name:n.textContent,bed:b.textContent,status:p.textContent,n:box(n),b:box(b),p:box(p),row:box(e)};
+            }));
+            results.push({name:`names-${width}-${theme}`,rows});
+            await page.locator('#bc-side-drawer').screenshot({path:path.join(OUT,`names-${width}-${theme}.png`)});
+            assert.deepEqual(rows.map(r=>[r.name,r.bed,r.status]), [
+              ['Tom (test)','R1-B1','Unpaid'], ['Ada & Bea (test)','R1-B2','Deposit Paid'], ['Lucía (test)','R1-B3','Paid']
+            ]);
+            for (const r of rows) {
+              assert(r.n.width >= 40, `visible durable name at ${width}: ${JSON.stringify(r)}`);
+              assert(r.n.right <= r.b.left && r.b.right <= r.p.left, 'name then bed then status');
+              assert(r.p.right <= width && r.row.left >= 0, 'row stays within viewport');
+            }
+            assert(Math.max(...rows.map(r=>r.p.right))-Math.min(...rows.map(r=>r.p.right)) < 2, 'status pebbles right-aligned');
+          }
+        }
+        await page.setViewportSize({width:1440,height:1000});
+        // Ordinary close/reopen re-reads the same persisted-shaped context; no invented names.
+        await page.locator('#bc-side-close').click();
+        await page.locator('.bc-block').first().click();
+        await page.mouse.move(1300,500);
+        await page.locator('#bc-guest-names .bc-guest-name-line').first().waitFor();
+        assert.deepEqual(await page.locator('#bc-guest-names .bc-guest-name-line').allTextContents(), detail.booking_guests.map(g=>g.guest_name));
+        assert.equal(await page.locator('.bc-drawer-tab[data-tab=payments]').count(),0);
+        results.push({name:'durable-names-ordinary-reopen',localSynthetic:true});
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
         await page.locator('#bc-side-drawer .bc-drawer-tab[data-tab="services"]').click();
         await page.mouse.move(20, 20);
@@ -150,6 +198,7 @@ async function main() {
       finally {
         fs.writeFileSync(path.join(OUT, `${tenant}-network.json`), JSON.stringify({ ledger, errors }, null, 2));
         if (errors.length) failures.push(`${tenant}: JS errors: ${errors.join('; ')}`);
+        if (ledger.some(e => e.blocked)) failures.push(`${tenant}: blocked network attempt`);
         if (ledger.some(e => e.method !== 'GET')) failures.push(`${tenant}: unexpected mutation attempt`);
         if (ledger.some(e => e.unknown || e.missingAsset)) failures.push(`${tenant}: unmocked paths: ${[...new Set(ledger.filter(e => e.unknown || e.missingAsset).map(e => e.url))].join(', ')}`);
         if (ledger.some(e => /[?&]client(?:_slug)?=undefined/.test(e.url))) failures.push(`${tenant}: invalid tenant in request`);
