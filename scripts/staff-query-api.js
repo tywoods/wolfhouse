@@ -21482,8 +21482,8 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
     box-shadow:var(--shadow);pointer-events:auto;z-index:8600;
     flex-direction:column;flex-wrap:nowrap;align-items:stretch;overflow-x:hidden;overflow-y:auto;
   }
-  body.nav-menu-open .luna-header-ui #tabs,
-  body.nav-menu-open .luna-header-ui.luna-hdr-compact #tabs{
+  body.nav-menu-open.luna-header-ui #tabs,
+  body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs{
     display:flex;
   }
   .luna-header-ui #tabs .tab-btn,
