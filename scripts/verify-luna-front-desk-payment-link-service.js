@@ -355,7 +355,7 @@ async function main() {
     assert('tenant mismatch rejected', built.ok === false && built.body.reason_code === 'tenant_mismatch');
   }
 
-  console.log('[7] Stripe failure rolls back draft (balance link)');
+  console.log('[7] Ambiguous staff Stripe failure preserves pending reservation (balance link)');
   {
     const booking = {
       booking_id: BOOKING_ID,
@@ -381,7 +381,9 @@ async function main() {
       createStripeCheckoutSession: async () => { throw new Error('stripe_down'); },
     }));
     assert('stripe failure not ok', !result.ok);
-    assert('draft deleted on stripe failure', pg.draftDeleted());
+    assert('draft retained after ambiguous provider failure', !pg.draftDeleted());
+    assert('pending reservation returned for reconciliation', result.status === 503 && result.body.reason_code === 'checkout_pending' && result.body.payment_id === 'pay-draft-rollback');
+    assert('no checkout URL disclosed on unknown provider outcome', !result.body.checkout_url && !result.body.payment_link_url);
   }
 
   console.log('[8] Wolfhouse vs Sunset Stripe mode isolation');

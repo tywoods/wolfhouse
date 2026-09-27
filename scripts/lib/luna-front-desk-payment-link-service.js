@@ -10,6 +10,7 @@
  */
 
 const crypto = require('crypto');
+const { bookingDepositLinkAmount } = require('./booking-deposit-payment-link');
 const { SUNSET_CLIENT_SLUG } = require('./sunset-stripe-payment-links');
 const {
   paymentLinkIntendedAmountCents,
@@ -276,10 +277,15 @@ function buildPaymentLinkCommand(opts = {}) {
   }
 
   const transportBody = opts.transportBody || {};
+  const paymentTarget = transportBody.payment_target === undefined ? 'balance' : transportBody.payment_target;
+  if (paymentTarget !== 'balance' && paymentTarget !== 'deposit') {
+    return fail(400, 'invalid_payment_target', 'payment_target must be deposit or balance');
+  }
   return {
     ok: true,
     command: {
       operation,
+      paymentTarget,
       channel: opts.channel || PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
       trustedClientSlug: tenant.clientSlug,
       clientSlug: tenant.clientSlug,
@@ -322,7 +328,7 @@ async function loadPaymentRowsForBooking(pg, clientSlug, bookingCode) {
   const res = await pg.query(
     `SELECT p.id::text AS payment_id, p.status::text AS payment_status, p.payment_kind::text AS payment_kind,
             p.currency, p.amount_due_cents, p.amount_paid_cents, p.checkout_url,
-            p.stripe_checkout_session_id, p.metadata, p.created_at, p.booking_guest_id::text AS booking_guest_id
+            p.stripe_checkout_session_id, p.metadata, p.created_at, p.expires_at, p.booking_guest_id::text AS booking_guest_id
        FROM payments p
        INNER JOIN bookings b ON b.id = p.booking_id
        INNER JOIN clients c ON c.id = b.client_id
@@ -350,6 +356,18 @@ async function loadPaymentById(pg, paymentId, clientSlug) {
     [paymentId, clientSlug],
   );
   return res.rows[0] || null;
+}
+
+function bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents) {
+  const md = parsePaymentMetadata(row.metadata);
+  return row.payment_kind === paymentKind
+    && (md.payment_target || (row.payment_kind === 'full_amount' ? 'balance' : null)) === paymentTarget
+    && !row.booking_guest_id && !md.booking_guest_id
+    && Number(row.amount_due_cents) === amountDueCents
+    && String(row.currency || '').toUpperCase() === 'EUR'
+    && !paymentStatusIsPaid(row.payment_status, row.amount_paid_cents)
+    && CANCELLABLE_LINK_STATUSES.has(String(row.payment_status).toLowerCase())
+    && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now());
 }
 
 function pickLatestActionablePaymentRow(paymentRows, bookingRow, ledgerCtx) {
@@ -560,6 +578,16 @@ async function createPaymentLink(pg, command, execOpts = {}) {
   const tenant = assertTrustedTenant(command);
   if (!tenant.ok) return tenant;
 
+  if (command.paymentTarget === 'deposit' && (
+    tenant.clientSlug !== WOLFHOUSE_CLIENT_SLUG
+    || command.channel !== PAYMENT_LINK_CHANNELS.STAFF_PORTAL
+    || command.paymentId || (command.target && command.target !== 'booking')
+    || command.bookingGuestId || command.guestId
+    || (command.transportBody && (command.transportBody.booking_guest_id || command.transportBody.guest_id))
+  )) {
+    return fail(400, 'unsupported_payment_scope', 'Deposit target requires a Wolfhouse staff booking, not a draft or guest payment.');
+  }
+
   if (command.clientSlug === SUNSET_CLIENT_SLUG) {
     const { createSunsetScheduleStripeLink } = require('./sunset-stripe-payment-links');
     return createSunsetScheduleStripeLink(pg, {
@@ -726,6 +754,31 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
   }
 }
 
+// Caller owns the transaction. Lock booking before payment rows everywhere.
+async function loadLockedDepositCheckout(pg, command, booking, execOpts) {
+  await pg.query('SELECT id FROM bookings WHERE id = $1::uuid AND client_id = $2 FOR UPDATE',
+    [booking.booking_id, booking.client_id]);
+  await pg.query('SELECT id FROM payments WHERE booking_id = $1::uuid AND client_id = $2 FOR UPDATE',
+    [booking.booking_id, booking.client_id]);
+  const freshBooking = await loadBookingRow(pg, command.clientSlug, booking.booking_id, null);
+  if (!freshBooking || bookingStatusIsCancelled(freshBooking.status)) {
+    return fail(409, 'booking_not_active', 'Booking is no longer active.');
+  }
+  const rows = await loadPaymentRowsForBooking(pg, command.clientSlug, freshBooking.booking_code);
+  const amount = await bookingDepositLinkAmount(pg, freshBooking, rows, execOpts, command.paymentTarget || 'balance');
+  return amount.ok ? { ...amount, booking: freshBooking, rows } : amount;
+}
+
+function reusedBookingCheckout(booking, row, paymentTarget) {
+  return { ok: true, status: 200, body: {
+    success: true, created: false, idempotent: true, payment_target: paymentTarget,
+    booking_code: booking.booking_code, payment_id: row.payment_id,
+    amount_due_cents: Number(row.amount_due_cents), payment_status: 'payment_link_created',
+    checkout_url: row.checkout_url, payment_link_url: row.checkout_url,
+    lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
+  } };
+}
+
 async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   const stripeCheck = assertStripeRuntime(command.clientSlug, execOpts);
   if (!stripeCheck.ok) return stripeCheck;
@@ -744,7 +797,13 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   }
 
   const paymentRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
-  const amountDueCents = computeAuthoritativeBalanceDueCents(booking, command);
+  const paymentTarget = command.paymentTarget || 'balance';
+  const paymentKind = paymentTarget === 'deposit' ? 'deposit_only' : 'full_amount';
+  const useFreshLedger = paymentTarget === 'deposit' || (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL && typeof execOpts.loadBookingPaymentLedger === 'function');
+  const depositAmount = useFreshLedger
+    ? await bookingDepositLinkAmount(pg, booking, paymentRows, execOpts, paymentTarget) : null;
+  if (depositAmount && !depositAmount.ok) return depositAmount;
+  const amountDueCents = depositAmount ? depositAmount.amountDueCents : computeAuthoritativeBalanceDueCents(booking, command);
 
   if (execOpts.needsRefund === true) {
     return fail(409, 'refund_review_needed', 'Refund / credit review needed before creating a payment link.');
@@ -768,7 +827,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
     const md = parsePaymentMetadata(pr.metadata);
     return md.idempotency_key === command.idempotencyKey && pr.checkout_url;
   });
-  if (existingByKey) {
+  if (existingByKey && !useFreshLedger) {
+    if (!bookingLinkMatchesIntent(existingByKey, paymentTarget, paymentKind, amountDueCents)) {
+      return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable. Refresh and use a new key.');
+    }
     return {
       ok: true,
       status: 200,
@@ -790,8 +852,9 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
     balance_due_cents: amountDueCents,
     deposit_required_cents: booking.deposit_required_cents != null ? Number(booking.deposit_required_cents) : null,
   };
-  const activeLink = pickLatestActionablePaymentRow(paymentRows, booking, ledgerCtx);
-  if (activeLink && activeLink.checkout_url && Number(activeLink.amount_due_cents) === amountDueCents) {
+  const activeLink = pickLatestActionablePaymentRow(paymentRows.filter((row) =>
+    bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents)), booking, ledgerCtx);
+  if (!useFreshLedger && activeLink && activeLink.checkout_url && Number(activeLink.amount_due_cents) === amountDueCents) {
     return {
       ok: true,
       status: 200,
@@ -816,6 +879,8 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
 
   const pmMeta = {
     source: 'staff_payment_link',
+    checkout_preparation: command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL ? 'pending' : null,
+    payment_target: paymentTarget,
     method: 'payment_link',
     idempotency_key: command.idempotencyKey,
     booking_code: booking.booking_code,
@@ -829,8 +894,45 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   let draftPaymentId;
   await pg.query('BEGIN');
   try {
+    if (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL) {
+      // Serialize prepare across all booking targets/keys; commit the durable
+      // reservation before invoking the provider, never hold a lock over HTTP.
+      await pg.query('SELECT id FROM bookings WHERE id = $1::uuid AND client_id = $2 FOR UPDATE',
+        [booking.booking_id, booking.client_id]);
+      const latestRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
+      const pending = latestRows.some((row) => {
+        const md = parsePaymentMetadata(row.metadata);
+        return md.checkout_preparation === 'pending'
+          || (!row.checkout_url && ['draft', 'pending'].includes(row.payment_status)
+            && (md.source === 'staff_payment_link' || md.idempotency_key));
+      });
+      if (pending) {
+        await pg.query('ROLLBACK');
+        return fail(409, 'checkout_pending', 'Checkout creation is pending or requires reconciliation.');
+      }
+    }
+    if (useFreshLedger) {
+      const fresh = await loadLockedDepositCheckout(pg, command, booking, execOpts);
+      if (!fresh.ok || fresh.amountDueCents !== amountDueCents) {
+        await pg.query('ROLLBACK');
+        return fresh.ok ? fail(409, 'checkout_state_changed', 'Amount changed. Refresh before creating a checkout.') : fresh;
+      }
+      const keyed = fresh.rows.find((row) => parsePaymentMetadata(row.metadata).idempotency_key === command.idempotencyKey);
+      if (keyed && (!keyed.checkout_url || !bookingLinkMatchesIntent(keyed, paymentTarget, paymentKind, amountDueCents))) {
+        await pg.query('ROLLBACK');
+        return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable.');
+      }
+      const reusable = keyed || fresh.rows.find((row) => row.checkout_url
+        && bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents));
+      if (reusable) {
+        await pg.query('COMMIT');
+        return reusedBookingCheckout(fresh.booking, reusable, paymentTarget);
+      }
+    }
     const idem = await pg.query(
-      `SELECT p.id::text AS payment_id, p.checkout_url, p.status::text AS payment_status, p.amount_due_cents
+      `SELECT p.id::text AS payment_id, p.checkout_url, p.status::text AS payment_status, p.amount_due_cents,
+              p.payment_kind::text AS payment_kind, p.metadata, p.currency, p.amount_paid_cents,
+              p.booking_guest_id::text AS booking_guest_id, p.expires_at
          FROM payments p
         WHERE p.booking_id = $1::uuid AND p.client_id = $2
           AND p.metadata->>'idempotency_key' = $3
@@ -838,6 +940,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       [booking.booking_id, booking.client_id, command.idempotencyKey],
     );
     if (idem.rows[0] && idem.rows[0].checkout_url) {
+      if (!bookingLinkMatchesIntent(idem.rows[0], paymentTarget, paymentKind, amountDueCents)) {
+        await pg.query('ROLLBACK');
+        return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable. Refresh and use a new key.');
+      }
       await pg.query('COMMIT');
       const row = idem.rows[0];
       return {
@@ -860,9 +966,9 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       `INSERT INTO payments (
          client_id, booking_id, status, payment_kind, currency, amount_due_cents, amount_paid_cents, metadata
        ) VALUES (
-         $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR', $3, 0, $4::jsonb
+         $1, $2::uuid, 'draft'::payment_record_status, $5::payment_kind, 'EUR', $3, 0, $4::jsonb
        ) RETURNING id::text AS payment_id`,
-      [booking.client_id, booking.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+      [booking.client_id, booking.booking_id, amountDueCents, JSON.stringify(pmMeta), paymentKind],
     );
     draftPaymentId = ins.rows[0].payment_id;
     await pg.query('COMMIT');
@@ -872,7 +978,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   }
 
   const productName = `Booking ${booking.booking_code || draftPaymentId} — ${booking.guest_name || 'Guest'}`;
-  const productDesc = `Outstanding balance | ${booking.check_in || ''} – ${booking.check_out || ''} | ${command.clientSlug}`;
+  const productDesc = `${paymentTarget === 'deposit' ? 'Remaining deposit' : 'Outstanding balance'} | ${booking.check_in || ''} – ${booking.check_out || ''} | ${command.clientSlug}`;
 
   let session;
   try {
@@ -886,12 +992,18 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         booking_id: booking.booking_id,
         booking_code: booking.booking_code || '',
         payment_id: draftPaymentId,
-        payment_kind: 'full_amount',
+        payment_kind: paymentKind,
+        payment_target: paymentTarget,
         source: 'staff_payment_link',
         idempotency_key: command.idempotencyKey,
       },
     });
   } catch (stripeErr) {
+    if (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL) {
+      // An HTTP failure does not prove the provider failed to create a session.
+      // Keep the durable reservation; manual reconciliation must settle it.
+      return fail(503, 'checkout_pending', 'Provider outcome unknown; reconciliation required.', { payment_id: draftPaymentId });
+    }
     await pg.query('DELETE FROM payments WHERE id = $1::uuid AND status = \'draft\'::payment_record_status', [draftPaymentId]);
     return fail(500, 'stripe_session_failed', stripeErr.message || 'Stripe session creation failed', { no_db_write: true });
   }
@@ -899,6 +1011,17 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   const expiresAt = session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null;
   await pg.query('BEGIN');
   try {
+    if (useFreshLedger) {
+      const fresh = await loadLockedDepositCheckout(pg, command, booking, execOpts);
+      const reserved = fresh.ok && fresh.rows.find((row) => row.payment_id === draftPaymentId);
+      if (!fresh.ok || fresh.amountDueCents !== amountDueCents
+        || !reserved || !bookingLinkMatchesIntent(reserved, paymentTarget, paymentKind, amountDueCents)
+        || reserved.payment_status !== 'draft' || reserved.checkout_url
+        || parsePaymentMetadata(reserved.metadata).checkout_preparation !== 'pending') {
+        await pg.query('ROLLBACK');
+        return fail(409, 'checkout_state_changed', 'Booking or payment changed during checkout; reconciliation required.', { payment_id: draftPaymentId });
+      }
+    }
     await pg.query(
       `UPDATE payments
           SET status = 'checkout_created'::payment_record_status,
@@ -916,6 +1039,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
           stripe_livemode: session.livemode,
           payment_link_url: session.url,
           source: 'staff_payment_link',
+          checkout_preparation: 'complete',
         }),
         draftPaymentId,
         booking.client_id,
@@ -928,6 +1052,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       body: {
         success: true,
         created: true,
+        payment_target: paymentTarget,
         booking_code: booking.booking_code,
         payment_id: draftPaymentId,
         amount_due_cents: amountDueCents,
@@ -939,6 +1064,9 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
     };
   } catch (dbErr) {
     await pg.query('ROLLBACK');
+    if (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL) {
+      return fail(503, 'checkout_pending', 'Checkout persistence failed; reconciliation required.', { payment_id: draftPaymentId });
+    }
     await pg.query('DELETE FROM payments WHERE id = $1::uuid AND status = \'draft\'::payment_record_status', [draftPaymentId]);
     return fail(500, 'payment_update_failed', dbErr.message);
   }
