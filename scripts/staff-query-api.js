@@ -20832,6 +20832,22 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-running-invoice{
   max-width:none;margin:0;padding:14px 16px;box-shadow:none;
 }
+#bc-overview-invoice .bc-invoice-history{margin:12px 0 16px}
+#bc-overview-invoice #bc-payment-history-card{padding:0;border:0;box-shadow:none;background:transparent}
+#bc-overview-invoice #bc-payment-history-toggle{padding-right:4px}
+#bc-overview-invoice .bc-history-item{border-bottom:1px solid var(--border-soft)}
+#bc-overview-invoice .bc-history-item:last-child{border-bottom:0}
+#bc-overview-invoice .bc-history-item summary{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:4px 12px;padding:10px 4px;cursor:pointer;list-style:none;font-size:12px;line-height:1.45}
+#bc-overview-invoice .bc-history-item summary::-webkit-details-marker{display:none}
+#bc-overview-invoice .bc-history-item summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+#bc-overview-invoice .bc-history-label{min-width:0;overflow-wrap:anywhere;font-weight:600}
+#bc-overview-invoice .bc-history-label:before{content:'›';display:inline-block;width:12px;color:var(--text-2)}
+#bc-overview-invoice .bc-history-item[open] .bc-history-label:before{content:'⌄'}
+#bc-overview-invoice .bc-history-amount{text-align:right;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums}
+#bc-overview-invoice .bc-history-amount.paid{color:#3d6130}
+[data-theme="dark"] #bc-overview-invoice .bc-history-amount.paid{color:#9ee0a8}
+#bc-overview-invoice .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
+#bc-overview-invoice .bc-history-item .ctx-pay-record{margin:0 4px 10px}
 :is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse{
   display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
   padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
@@ -36975,6 +36991,11 @@ function bcCalendarGuestRowPebblesHtml(blk){
     || (blk.calendar_guest_link_sent == null && blk.calendar_show_payment_pills !== false && !!blk.has_active_payment_link);
   if (linkSent) html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
   html += bcTransferPebbleHtml(blk);
+  if (getClient() === 'wolfhouse-somo' && blk.invoice_total_cents != null && Number(blk.invoice_total_cents) > 0
+      && Number.isFinite(Number(blk.invoice_total_cents)) && blk.ledger_paid_cents != null
+      && Number.isFinite(Number(blk.ledger_paid_cents)) && Number(blk.ledger_paid_cents) >= Number(blk.invoice_total_cents)) {
+    return html + '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+  }
   var multi = Number(blk.calendar_group_size || 0) > 1 || blk.calendar_guest_number != null;
   var share = blk.calendar_guest_share_cents != null ? Number(blk.calendar_guest_share_cents) : null;
   var paid = blk.calendar_guest_paid_cents != null ? Number(blk.calendar_guest_paid_cents) : null;
@@ -36996,9 +37017,9 @@ function bcCalendarGuestRowPebblesHtml(blk){
   }
   var depositPaid = deposit != null && deposit > 0 && paid != null && paid >= deposit;
   if (!depositPaid && !multi && blk.calendar_show_deposit_paid) depositPaid = true;
-  if (depositPaid) html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
   var fullPaid = share != null && share > 0 && paid != null && paid >= share;
   if (!fullPaid && !multi && blk.calendar_payment_primary === 'paid') fullPaid = true;
+  if (depositPaid && (!fullPaid || getClient() !== 'wolfhouse-somo')) html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
   if (fullPaid) html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
   return html;
 }
@@ -37928,7 +37949,10 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
       : (blk.deposit_required_cents != null ? blk.deposit_required_cents : bk.deposit_required_cents),
     has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
   });
-  if (calPay && calPay.kind === 'refund_review') {
+  if (getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
+    html += '<span class="pill pill-green">Paid</span>';
+    if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+  } else if (calPay && calPay.kind === 'refund_review') {
     html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'balance_due') {
     if (calPay.show_deposit_paid) {
@@ -37983,7 +38007,7 @@ function updateBcDetailHeader(data){
   var bk = (data && data.booking) || {};
   bcPaintSideStayMeta(bk, bcLastOpenedBlock, (data && data.booking_guests) || []);
   var meta = el('bc-detail-meta');
-  if (!meta) return;
+  if (!meta && getClient() !== 'wolfhouse-somo') return;
   var transferRows = (data && data.transfers) || [];
   var ledger = bcBookingLedgerBalance(
     bk,
@@ -37991,6 +38015,17 @@ function updateBcDetailHeader(data){
     (data && data.payments && data.payments.rows) || [],
     transferRows,
   );
+  if (getClient() === 'wolfhouse-somo') {
+    // Header, calendar refresh and guest pebbles use the same totals as Invoice.
+    var fin = bcComputeBookingInvoiceTotals(bk, data.service_records || [], data.payments || {}, transferRows, data.guest_accommodation_lines || []);
+    ledger.invoice_total_cents = fin.invoiceTotal;
+    ledger.paid_cents = ledger.paid_total_cents = fin.paidCents;
+    ledger.balance_due_cents = fin.balanceDue;
+    var names = el('bc-guest-names');
+    if (names && (data.booking_guests || []).some(function(g){ return g.guest_name; })) {
+      names.innerHTML = bcGuestNameBedDisplayHtml(data.booking_guests, bk.guest_name, data.per_person || [], bcInvoiceBookingFullyPaid(data));
+    }
+  }
   var guestAmountsMap = buildGuestPaymentAmountsMap(data.booking_guests || [], data.per_person || []);
   var ledgerCtx = Object.assign({}, ledger, { guest_amounts_by_id: guestAmountsMap });
   var hasActiveLink = bcPaymentLedgerHasActiveValidLinkClient(
@@ -38004,7 +38039,7 @@ function updateBcDetailHeader(data){
     bcLastOpenedBlock.has_active_payment_link = hasActiveLink;
     bcApplyCalendarPaymentFieldsFromLedger(bcLastOpenedBlock, ledger, hasActiveLink);
   }
-  meta.innerHTML = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, Object.assign({}, ledger, {
+  var paymentMetaHtml = bcDetailHeaderMetaHtml(bcLastOpenedBlock, bk, Object.assign({}, ledger, {
     has_active_payment_link: hasActiveLink,
     calendar_payment_primary: (bcLastOpenedBlock && bcLastOpenedBlock.calendar_payment_primary) || null,
     calendar_payment_amount_cents: (bcLastOpenedBlock && bcLastOpenedBlock.calendar_payment_amount_cents) != null
@@ -38012,6 +38047,10 @@ function updateBcDetailHeader(data){
       : ledger.balance_due_cents,
     calendar_show_deposit_paid: !!(bcLastOpenedBlock && bcLastOpenedBlock.calendar_show_deposit_paid),
   }));
+  if (meta) meta.innerHTML = paymentMetaHtml;
+  if (getClient() === 'wolfhouse-somo' && el('bc-side-meta')) {
+    el('bc-side-meta').insertAdjacentHTML('beforeend', ' <span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>');
+  }
   bcRefreshCalendarBlockPaymentPebbles(bk.booking_code, ledger, hasActiveLink);
 }
 
@@ -38061,18 +38100,33 @@ function bcRefreshCalendarBlockPaymentPebbles(bookingCode, ledger, hasActiveLink
   });
 }
 
+var bcFinancialRefreshNumber = 0;
 function bcRefreshBookingFinancialSummary(opts){
   opts = opts || {};
   var code = opts.booking_code || (opts.booking && opts.booking.booking_code);
   if (!code) return Promise.resolve(null);
+  // Latest request owns finance, even if it fails. Older reads cannot replace
+  // the shared context/totals and thereby invalidate a later same-mount read.
+  var request = ++bcFinancialRefreshNumber;
   var preserveTab = opts.preserveTab !== false ? (opts.activeTab || bcActiveDrawerTab || 'overview') : (opts.activeTab || null);
   var client = getBcClient();
+  var context = bcLastBookingContext;
+  var bookingId = context && context.booking && context.booking.booking_id;
+  var mount = el('bc-inv-totals') || el('bc-ctx-body');
+  var drawer = el('bc-side-drawer');
+  var generation = drawer && drawer.getAttribute('data-booking-view-generation');
+  function currentFinancialMount(){
+    return request === bcFinancialRefreshNumber && getBcClient() === client && bcLastBookingContext === context && mount && document.contains(mount) &&
+      (!drawer || drawer.getAttribute('data-booking-view-generation') === generation);
+  }
   var url = '/staff/bookings/' + encodeURIComponent(code) + '/context?client=' + encodeURIComponent(client);
   return fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!currentFinancialMount()) return null;
       if (!res.ok || !res.data || !res.data.success) return null;
       var data = res.data;
+      if (!data.booking || data.booking.booking_id !== bookingId || data.booking.booking_code !== code) return null;
       bcLastBookingContext = data;
       updateBcDetailHeader(data);
       bcUpdateOverviewPaymentSummary(data);
@@ -39441,24 +39495,23 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     html += '<div class="ctx-inv-line ctx-inv-guest-line" data-guest-number="' + escHtml(String(row.guest_number)) + '"';
     if (row.booking_guest_id) html += ' data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '"';
     html += '>' + escHtml(name);
-    if (collectionBlocked) {
-      html += ' — <span class="muted">' + escHtml(t('drawer.invoice.unallocated')) + '</span>';
-    } else if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
-      if (depositRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
-        html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
+    // Keep collection fenced without repeating internal accounting prose.
+    if (!collectionBlocked) {
+      if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
+        if (depositRemaining > 0) {
+          html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
+          html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
+        }
+        if (shareRemaining > 0) {
+          html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
+          html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
+        }
+      } else if (pay.createLink && row.booking_guest_id) {
+        html += ' \u2014 <button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
+        html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span>';
+      } else if (getClient() !== 'wolfhouse-somo' && !pay.createLink && pay.label) {
+        html += ' \u2014 ' + escHtml(pay.label);
       }
-      if (shareRemaining == null) {
-        html += ' \u2014 <span class="muted">' + escHtml(t('drawer.payments.linkFailed')) + '</span>';
-      } else if (shareRemaining > 0) {
-        html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
-        html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
-      }
-    } else if (pay.createLink && row.booking_guest_id) {
-      html += ' \u2014 <button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
-      html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span>';
-    } else if (!pay.createLink && pay.label) {
-      html += ' \u2014 ' + escHtml(pay.label);
     }
     html += '</div>';
   });
@@ -39486,7 +39539,8 @@ function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
   return html;
 }
 
-function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson){
+function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid){
+  if (bookingFullyPaid === true) return 'paid';
   var row = null;
   (bookingGuests || []).forEach(function(g){
     if (g && Number(g.guest_number) === Number(guestNumber)) row = g;
@@ -39519,8 +39573,8 @@ function bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson){
   return 'unpaid';
 }
 
-function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson){
-  var key = bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson);
+function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson, bookingFullyPaid){
+  var key = bcAccommodationPayPebbleKey(guestNumber, bookingGuests, perPerson, bookingFullyPaid);
   var labelKey = key === 'paid' ? 'drawer.invoice.accomStatus.paid'
     : (key === 'deposit' ? 'drawer.invoice.accomStatus.depositPaid' : 'drawer.invoice.accomStatus.unpaid');
   var cls = key === 'paid' ? 'is-paid' : (key === 'deposit' ? 'is-deposit' : 'is-unpaid');
@@ -39689,8 +39743,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   html += '</div>';
 
-  var collectionBlocked = invoiceWorkspace && ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; });
-  html += bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
+  var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
+  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
+  if (!invoiceWorkspace) html += perGuestHtml;
 
   if (overview && !invoiceWorkspace) {
     html += '</div>';
@@ -39708,20 +39763,21 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
-  if (invoiceWorkspace) html += bcInvoiceActionsHtml(bk);
-  else html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
-  html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  if (!invoiceWorkspace) {
+    html += bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund);
+    html += bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  }
   if (getClient() !== 'wolfhouse-somo') html += bcRenderGuestPaymentLinkControlsHtml(bookingGuests);
 
   if (!overview) html += '</div></div>';
 
   html += overview ? '<div class="bc-invoice-history">' : '<div class="ctx-payments-col-history">';
-  html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card is-collapsed" id="bc-payment-history-card">';
+  html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card' + (invoiceWorkspace ? '' : ' is-collapsed') + '" id="bc-payment-history-card">';
 
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
   if (overview) {
-    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><span class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</span><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button><div id="bc-payment-history-body" hidden>';
+    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="' + (invoiceWorkspace ? 'true' : 'false') + '" aria-controls="bc-payment-history-body"><span class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</span><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button><div id="bc-payment-history-body"' + (invoiceWorkspace ? '' : ' hidden') + '>';
   } else html += '<div class="ctx-inv-subtitle">' + escHtml(t('drawer.invoice.paymentHistory')) + '</div>';
   if (sortedLedgerRows.length > 0){
     sortedLedgerRows.forEach(function(pr){
@@ -39739,6 +39795,17 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       else if (isCreated) recCls += ' ctx-pay-record-checkout';
       var md = bcPaymentLedgerParseMetadata(pr.metadata);
       var pid = pr.payment_id || '';
+      if (invoiceWorkspace) {
+        var historyGuest = bookingGuests.filter(function(g){ return g.booking_guest_id === pr.booking_guest_id; })[0];
+        var historyScope = pr.booking_guest_id
+          ? (historyGuest ? bcInvoiceGuestStaffLabel(historyGuest.guest_number, historyGuest.guest_name, bk.guest_name) : t('drawer.invoice.guest'))
+          : t('drawer.invoice.all');
+        var historyDate = (isPaid && pr.paid_at) || pr.created_at;
+        var historyAmount = isPaid ? pr.amount_paid_cents : pr.amount_due_cents;
+        html += '<details class="bc-history-item"><summary><span class="bc-history-label">' + escHtml(displayLabel) + '</span>' +
+          '<span class="bc-history-amount' + (isPaid ? ' paid' : '') + '">' + escHtml(eur(historyAmount)) + '</span>' +
+          '<span class="bc-history-caption">' + escHtml((historyDate ? fmtDate(historyDate) + ' · ' : '') + historyScope) + '</span></summary>';
+      }
       html += '<div class="' + recCls + '" data-payment-id="' + escHtml(pid) + '">';
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">';
       var badgeCls = isPaid ? 'ctx-pay-record-badge ctx-pay-record-badge-paid' :
@@ -39814,6 +39881,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         html += '</div></div>';
       }
       html += '</div>';
+      if (invoiceWorkspace) html += '</details>';
     });
   } else {
     html += '<div class="ctx-none" style="margin-top:4px">' + escHtml(t('drawer.payments.noPayments')) + '</div>';
@@ -39821,7 +39889,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   if (overview) html += '</div>';
-  html += '</div></div></div>';
+  html += '</div></div>';
+  if (invoiceWorkspace) html += perGuestHtml + bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  html += '</div>';
   if (!overview) html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
   return html;
 }
@@ -40115,7 +40185,8 @@ function bcUpdateOverviewPaymentSummary(data){
     bcInitCashPaymentShell(data);
     bcInitPaymentLinkShell(data);
     bcInitCancelPaymentLinkShell(data);
-    if (expanded && el('bc-payment-history-toggle')) el('bc-payment-history-toggle').click();
+    var newHistory = el('bc-payment-history-toggle');
+    if (history && newHistory && (newHistory.getAttribute('aria-expanded') === 'true') !== expanded) newHistory.click();
   }
 }
 
@@ -41158,7 +41229,7 @@ function bcFieldEditFormatContactLine(obj){
   return parts.join(' \u00b7 ');
 }
 
-function bcGuestNameBedDisplayHtml(guests, leadName, perPerson){
+function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid){
   var rows = [];
   (guests || []).forEach(function(g){
     if (!g) return;
@@ -41185,7 +41256,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson){
     }
     if (typeof bcAccommodationPayPebbleHtml === 'function' && g.guest_number != null && g.guest_number !== '') {
       html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
-      html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || []);
+      html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [], bookingFullyPaid);
     }
     return html + '</span>';
   }).join('');
@@ -41235,7 +41306,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || []);
+  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data));
   if (!namesHtml) {
     namesHtml = guestNames.filter(Boolean).map(function(n){
       return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
@@ -42983,15 +43054,38 @@ function bcClearTransferForm(direction){
   bcTransferUpdateScheduledUi(direction, null);
 }
 
-function bcRefreshTransferPebbleSummary(){
+function bcRefreshTransferPebbleSummary(transfers){
   if (!bcLastOpenedBlock) return;
-  bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(bcTransferLocalActiveRows());
-  updateBcDetailHeader({ booking: (bcTransferCtx.data && bcTransferCtx.data.booking) || {} });
+  bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(transfers || bcTransferLocalActiveRows());
+  // Transfer payloads do not own finance. Keep the current financial fields
+  // until an authoritative context read succeeds; never replay an opening snapshot.
+  var transferLabel = bcFormatTransferSummaryLabel(bcLastOpenedBlock.transfer_summary);
+  document.querySelectorAll('#bc-detail-meta, #bc-side-payment-meta').forEach(function(meta){
+    meta.querySelectorAll('.transfer-pebble-drawer').forEach(function(pebble){ pebble.remove(); });
+    if (transferLabel) meta.insertAdjacentHTML('beforeend', '<span class="transfer-pebble transfer-pebble-drawer">' + escHtml(transferLabel) + '</span>');
+  });
+  var blockIndex = bcCalendarBlocks.indexOf(bcLastOpenedBlock);
+  document.querySelectorAll('.bc-block[data-bidx="' + blockIndex + '"]').forEach(function(blockEl){
+    var label = blockEl.querySelector('.bc-block-label');
+    blockEl.innerHTML = bcCalendarBlockInnerHtml(bcLastOpenedBlock, label ? escHtml(label.textContent) : '');
+  });
+}
+
+function bcCaptureTransferMount(){
+  var cards = el('bc-transfer-cards');
+  var client = bcTransferCtx.clientSlug;
+  var bookingId = bcTransferCtx.bookingId;
+  return function(){
+    return getBcClient() === client && cards && document.contains(cards) && el('bc-transfer-cards') === cards &&
+      bcTransferCtx.bookingId === bookingId && bcLastBookingContext && bcLastBookingContext.booking &&
+      bcLastBookingContext.booking.booking_id === bookingId;
+  };
 }
 
 function bcRemoveTransfer(direction){
   if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
   if (!window.confirm('Remove this transfer from the booking?')) return;
+  var currentTransferMount = bcCaptureTransferMount();
   var btn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
   if (btn) btn.disabled = true;
   bcTransferShowResult(direction, 'Removing\u2026', false);
@@ -43000,6 +43094,7 @@ function bcRemoveTransfer(direction){
   fetch(url, { method: 'DELETE' })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!currentTransferMount()) return;
       if (!res.ok || !res.data.success){
         if (btn) btn.disabled = false;
         bcTransferShowResult(direction, escHtml((res.data && res.data.error) || 'Remove failed'), true);
@@ -43022,6 +43117,7 @@ function bcRemoveTransfer(direction){
       }
     })
     .catch(function(e){
+      if (!currentTransferMount()) return;
       if (btn) btn.disabled = false;
       bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
     });
@@ -43035,6 +43131,7 @@ function bcSaveTransfer(direction){
     return;
   }
   var btn = document.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
+  var currentTransferMount = bcCaptureTransferMount();
   if (btn) btn.disabled = true;
   bcTransferShowResult(direction, 'Saving\u2026', false);
   fetch('/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers', {
@@ -43044,6 +43141,7 @@ function bcSaveTransfer(direction){
   })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!currentTransferMount()) return;
       if (!res.ok || !res.data.success){
         if (btn) btn.disabled = false;
         bcTransferShowResult(direction, escHtml((res.data && res.data.message) || (res.data && res.data.error) || 'Save failed'), true);
@@ -43071,6 +43169,7 @@ function bcSaveTransfer(direction){
       }
     })
     .catch(function(e){
+      if (!currentTransferMount()) return;
       if (btn) btn.disabled = false;
       bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
     });
@@ -43087,10 +43186,7 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
   });
   cardsEl.innerHTML = bcRenderTransferCards(payload);
   cardsEl.classList.remove('ctx-loading');
-  if (bcLastOpenedBlock){
-    bcLastOpenedBlock.transfer_summary = bcBuildTransferSummaryFromTransfers(payload.transfers);
-    updateBcDetailHeader(contextData);
-  }
+  bcRefreshTransferPebbleSummary(payload.transfers || []);
   document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
     btn.addEventListener('click', function(){
       bcSaveTransfer(btn.getAttribute('data-direction'));
@@ -43121,6 +43217,15 @@ function bcInitTransferShell(contextData){
   var cardsEl = el('bc-transfer-cards');
   if (!cardsEl) return;
 
+  var client = bcTransferCtx.clientSlug;
+  // The cards node is the Transfer mount generation: Invoice-only refresh keeps
+  // it, but a booking switch, reopen or locale remount replaces it.
+  function currentTransferMount(){
+    return getBcClient() === client && document.contains(cardsEl) && el('bc-transfer-cards') === cardsEl &&
+      bcTransferCtx.bookingId === bk.booking_id && bcLastBookingContext &&
+      bcLastBookingContext.booking && bcLastBookingContext.booking.booking_id === bk.booking_id;
+  }
+
   var embedded = contextData && contextData.transfers_drawer;
   if (embedded && embedded.success){
     bcApplyTransferDrawerPayload(embedded, contextData, cardsEl);
@@ -43132,6 +43237,7 @@ function bcInitTransferShell(contextData){
   fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
+      if (!currentTransferMount()) return;
       if (!res.ok || !res.data.success){
         cardsEl.innerHTML = '<div class="state-msg error">' + escHtml((res.data && res.data.error) || 'Failed to load transfers') + '</div>';
         return;
@@ -43139,6 +43245,7 @@ function bcInitTransferShell(contextData){
       bcApplyTransferDrawerPayload(res.data, contextData, cardsEl);
     })
     .catch(function(e){
+      if (!currentTransferMount()) return;
       cardsEl.innerHTML = '<div class="state-msg error">' + escHtml(e.message) + '</div>';
     });
 }
@@ -44259,6 +44366,9 @@ function bcSideDrawerLive(){
 
 function bcSetSidePinned(on){
   bcSidePinned = !!on;
+  // A click pins the drawer after mouseenter has already scheduled a preview.
+  // Do not let that pending preview reopen/remount the clicked booking.
+  if (bcSidePinned) clearTimeout(bcSideHoverTimer);
   var rail = el('bc-side-drawer');
   var pinBtn = el('bc-side-pin');
   var tab = el('tab-bed-calendar');
