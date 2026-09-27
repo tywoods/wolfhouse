@@ -20737,6 +20737,12 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-field-group-guests .btn-bc-field-edit:hover{
   background:transparent;color:var(--text);
 }
+/* Guest rows need the whole read grid; one column collapses names behind beds/status. */
+#bc-side-drawer #bc-field-guests-kv-only{grid-column:1 / -1}
+#bc-side-drawer #bc-field-guests-kv-only .bc-guest-name-line{flex:1 1 auto}
+@media(max-width:400px){
+  #bc-side-drawer #bc-field-guests-kv-only .bc-guest-sep{padding:0}
+}
 #bc-side-drawer #bc-field-guests-kv-only .k{display:none}
 #bc-side-drawer #bc-field-guests-kv-only .v{
   font-size:14px;font-weight:600;text-decoration:none;white-space:normal;
@@ -38200,6 +38206,7 @@ function bcScrollToBookingOverview(){
 
 function bcRestoreActiveDrawerTab(tabId){
   tabId = tabId || bcActiveDrawerTab || 'overview';
+  if (getClient() === 'wolfhouse-somo' && tabId === 'payments') tabId = 'overview';
   bcActiveDrawerTab = tabId;
   var bar = el('bc-drawer-tabs');
   if (!bar) return;
@@ -43562,6 +43569,8 @@ function renderBookingContextDrawer(data){
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   var activeTab = bcActiveDrawerTab || 'overview';
+  var isWolfhouse = getClient() === 'wolfhouse-somo';
+  if (isWolfhouse && activeTab === 'payments') activeTab = 'overview';
   var isSurf = getPortalProfile(getClient()).is_surf_vertical;
   var hideTransfers = isDrawerTabHiddenForClient('transfers', getClient());
   if (hideTransfers && activeTab === 'transfers') activeTab = 'overview';
@@ -43573,7 +43582,7 @@ function renderBookingContextDrawer(data){
   if (!hideTransfers) {
     html += bcDrawerTabBtn('transfers', t('drawer.tab.transfers'), activeTab === 'transfers');
   }
-  html += bcDrawerTabBtn('payments', t('drawer.tab.payments'), activeTab === 'payments');
+  if (!isWolfhouse) html += bcDrawerTabBtn('payments', t('drawer.tab.payments'), activeTab === 'payments');
   html += '</div>';
   html += '<div class="bc-drawer-tab-content-panel" id="bc-drawer-tab-content-panel">';
 
@@ -43681,11 +43690,13 @@ function renderBookingContextDrawer(data){
     html += '</div>';
   }
 
-  /* ── Payments tab ─────────────────────────────────────────────────────── */
+  /* Other tenants retain their existing Payments workspace. */
+  if (!isWolfhouse) {
   html += '<div class="bc-drawer-tab-panel' + (activeTab === 'payments' ? ' is-active' : '') +
     '" id="bc-drawer-tab-payments" data-tab="payments" role="tabpanel">';
   html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || [], data.booking_guests || [], data.per_person || []);
   html += '</div>';
+  }
 
   html += '</div></div>';
 
