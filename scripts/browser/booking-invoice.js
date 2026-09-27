@@ -1,4 +1,55 @@
 /* Wolfhouse Invoice workspace. Injected into the existing portal closure. */
+function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
+  var required = bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents);
+  var known = Number.isSafeInteger(required) && required >= 0;
+  var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
+  var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
+  var amount = known ? '€' + (required / 100).toFixed(2) : '—';
+  var canCreate = state === 'unpaid' && Number.isSafeInteger(invoiceTotal) && invoiceTotal > paidCents && !bcBookingStatusIsCancelled(bk.status);
+  return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.deposit')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + state + '" title="' + escHtml(state === 'paid' ? bcInvoiceText('paidInFull') : (state === 'unpaid' ? bcInvoiceText('outstanding') : bcInvoiceText('notAvailable'))) + '">' + escHtml(amount) + '</span>' + (canCreate ? bcInvoiceTotalLinkActionHtml('deposit') : '') + '</div>';
+}
+function bcInvoiceTotalLinkActionHtml(target){
+  var deposit = target === 'deposit', label = bcInvoiceText(deposit ? 'depositLink' : 'paymentLink');
+  return '<span class="bc-total-link-action"><button type="button" class="btn btn-ghost bc-total-create-link" id="' + (deposit ? 'bc-generate-deposit-link-btn' : 'bc-generate-payment-link-btn') + '" data-payment-target="' + target + '">' + escHtml(label) + '</button><span id="' + (deposit ? 'bc-deposit-link-result' : 'bc-payment-link-result') + '" aria-live="polite"></span></span>';
+}
+function bcInitInvoiceTotalLinks(data){
+  var bk = data.booking || {}, client = getClient();
+  bcInitDetailCopyDelegation();
+  document.querySelectorAll('#bc-inv-totals .bc-total-create-link').forEach(function(btn){
+    if (btn._bcTotalBound) return;
+    btn._bcTotalBound = true;
+    var target = btn.getAttribute('data-payment-target');
+    var result = el(target === 'deposit' ? 'bc-deposit-link-result' : 'bc-payment-link-result');
+    if (!BC_STAFF_ACTIONS || !BC_STRIPE_LINKS) { btn.disabled = true; btn.title = t('drawer.payments.stripeDisabled'); return; }
+    var intent = null;
+    btn.addEventListener('click', async function(){
+      if (btn.disabled) return;
+      var drawer = el('bc-side-drawer'), generation = drawer && drawer.getAttribute('data-booking-view-generation');
+      function current(){ return getClient() === client && document.contains(btn) && document.contains(result) && drawer && drawer.getAttribute('data-booking-view-generation') === generation && drawer.getAttribute('data-mounted-booking-id') === bk.booking_id; }
+      if (!current()) return;
+      btn.disabled = true; result.textContent = '';
+      // Keep the same intent on an ambiguous retry. A read/reset remounts the controls.
+      if (!intent) intent = bcNewPaymentLinkIdempotencyKey();
+      try {
+        var response = await fetch('/staff/bookings/generate-payment-link?client=' + encodeURIComponent(client), {
+          method:'POST', headers:{'Content-Type':'application/json',Accept:'application/json'},
+          body:JSON.stringify({client_slug:client,booking_id:bk.booking_id,booking_code:bk.booking_code,payment_target:target,idempotency_key:intent})
+        });
+        var payload = await response.json();
+        if (!current()) return;
+        if (!response.ok || !payload.success) throw new Error(payload.message || payload.error || t('drawer.payments.linkFailed'));
+        var link = payload.payment_short_url || payload.checkout_url || payload.guest_payment_url || payload.payment_link_url;
+        var parsed = new URL(link);
+        if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error(t('drawer.payments.linkFailed'));
+        result.innerHTML = bcInlinePaymentLinkMarkup(link, bcInvoiceText(target === 'deposit' ? 'depositLink' : 'paymentLink'));
+        btn.remove();
+      } catch (error) {
+        if (current()) { result.textContent = error.message || t('drawer.payments.linkFailed'); btn.disabled = false; }
+      }
+    });
+  });
+}
+
 var bcInvoiceReceiptIntents = Object.create(null);
 var bcInvoiceRefreshNumber = 0;
 function bcInvoiceParseCents(value){

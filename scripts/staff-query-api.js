@@ -8783,7 +8783,16 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
   }
-  const gateSlug = gateClientSlug(body.client_slug || body.client);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return send400(res, 'JSON object required');
+  const routeClient = String(new URL(req.url || '/', 'http://staff.local').searchParams.get('client') || DEFAULT_CLIENT).trim();
+  for (const alias of ['client_slug', 'client']) {
+    if (body[alias] != null && String(body[alias]).trim() !== routeClient) return send400(res, 'client_scope_mismatch');
+  }
+  const { bindStaffGuestPaymentClient } = require('./lib/staff-guest-payment-link-auth');
+  const clientSlug = bindStaffGuestPaymentClient({ req, body, user, defaultClient: DEFAULT_CLIENT,
+    assertStaffClientAccess, res, sendJSON });
+  if (!clientSlug) return;
+  const gateSlug = gateClientSlug(clientSlug);
 
   if (!staffActionsGate(gateSlug)) {
     return sendJSON(res, 403, {
@@ -8814,7 +8823,6 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     });
   }
 
-  const clientSlug     = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
   const bookingId      = String(body.booking_id   || '').trim();
   const bookingCode    = String(body.booking_code || '').trim();
   const idempotencyKey = String(body.idempotency_key || '').trim();
@@ -8928,7 +8936,16 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     return sendJSON(res, built.status || 400, errBody);
   }
 
-  const execOpts = { ...paymentLinkServiceExecOpts(stripe), needsRefund: ledger.needs_refund };
+  const execOpts = {
+    ...paymentLinkServiceExecOpts(stripe), needsRefund: ledger.needs_refund,
+    // Reuse this route's invoice owner for the deposit service; never use caller cents.
+    loadBookingPaymentLedger: async (pg, booking) => {
+      const services = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      const payments = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, booking.booking_code]);
+      const transfers = await listBookingTransfersForBooking(pg, { client_slug: clientSlug, booking_id: booking.booking_id });
+      return bookingLedgerBalanceFromRows(booking, services.rows, payments.rows, transfers);
+    },
+  };
   let result;
   try {
     result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
@@ -19805,6 +19822,25 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-drawer-overview-card{padding:14px 16px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow-soft)}
 #bc-overview-invoice,#bc-running-invoice{overflow:hidden;max-width:100%;min-width:0;box-sizing:border-box}
 .ctx-inv-guest-line,.ctx-inv-totals,.ctx-inv-total-row{max-width:100%;min-width:0}
+.bc-invoice-totals{display:grid;grid-template-columns:minmax(0,1fr) max-content minmax(0,110px);column-gap:8px;row-gap:6px;align-items:center}
+.bc-invoice-totals .ctx-inv-group-title{grid-column:1/-1}
+.bc-invoice-totals .ctx-inv-total-row,.bc-invoice-totals .bc-balance-link-slot{display:contents}
+.bc-invoice-totals .ctx-inv-total-label{grid-column:1;min-width:0}
+.bc-invoice-totals .ctx-inv-total-amount{grid-column:2;text-align:right;white-space:nowrap}
+.bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#b33434}
+.bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="paid"]{color:#2d6a42}
+[data-theme="dark"] .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#ffaaaa}
+[data-theme="dark"] .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="paid"]{color:#9ee0a8}
+.bc-invoice-totals .ctx-inv-status-msg{display:block;grid-column:1/-1}
+.bc-invoice-totals .bc-total-link-action{grid-column:3;min-width:0;font-size:11px;overflow-wrap:anywhere}
+.bc-invoice-totals .bc-total-create-link{padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap;max-width:100%}
+.bc-invoice-totals .bc-total-link-action .bc-inline-payment-link{gap:4px}
+.bc-invoice-totals .bc-total-link-action .btn-bc-copy-link-icon{padding:2px}
+@media(max-width:768px){
+  /* Keep the Wolfhouse Totals actions visible; pinned desktop sizing otherwise wins. */
+  #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer.is-open:has(.bc-invoice-totals){min-width:0;width:calc(100vw - 16px);max-width:calc(100vw - 16px)}
+  .bc-invoice-totals{grid-template-columns:minmax(0,1fr) max-content 100px;column-gap:5px}
+}
 .bc-balance-link-slot{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-end}
 #bc-payment-link-result,.bc-guest-pay-link-result{max-width:100%;min-width:0;overflow:hidden}
 .bc-inline-payment-link{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;vertical-align:middle;box-sizing:border-box}
@@ -39609,17 +39645,21 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   /* Totals / payment status */
-  html += '<div class="ctx-inv-group ctx-inv-totals" id="bc-inv-totals">';
+  html += '<div class="ctx-inv-group ctx-inv-totals' + (getClient() === 'wolfhouse-somo' ? ' bc-invoice-totals' : '') + '" id="bc-inv-totals">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.totals')) + '</div>';
   if (invoiceTotal != null){
     html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.invoiceTotal')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(invoiceTotal)) + '</span></div>';
   }
+  if (getClient() === 'wolfhouse-somo') html += bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal);
   if (paidCents != null){
     html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
       var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
+      if (getClient() === 'wolfhouse-somo') {
+        html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' + (canGenBalLink ? bcInvoiceTotalLinkActionHtml('balance') : '') + '</div>';
+      } else {
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span class="bc-balance-link-slot">' +
@@ -39629,6 +39669,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         '</div>';
       if (canGenBalLink) {
         html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite" style="text-align:right;margin-top:2px;font-size:11px;max-width:100%;overflow:hidden"></div>';
+      }
       }
     } else if (invoiceTotal === paidCents){
       html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
@@ -39842,6 +39883,7 @@ function bcNewPaymentLinkIdempotencyKey(){
 }
 
 function bcInitPaymentLinkShell(data){
+  if (getClient() === 'wolfhouse-somo') return bcInitInvoiceTotalLinks(data);
   var bk = (data && data.booking) || {};
   var genBtn = el('bc-generate-payment-link-btn');
   if (!genBtn || genBtn._bcBalanceBound) return;
