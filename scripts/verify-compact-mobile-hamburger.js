@@ -42,7 +42,7 @@ async function main() {
       bannerHeight: Math.round(document.getElementById('banner').getBoundingClientRect().height),
     }));
     if (!initial.compact) throw new Error(`compact is not the default: ${JSON.stringify(initial)}`);
-    if (initial.bannerHeight !== 0) throw new Error(`compact mobile top bar is still visible: ${JSON.stringify(initial)}`);
+    if (initial.bannerHeight < 48) throw new Error(`persistent compact mobile menu bar is unavailable before Schedule renders: ${JSON.stringify(initial)}`);
 
     await page.addStyleTag({ content: '@media(max-width:768px){.ck-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"date date" "nav nav" "range create" "legend legend";gap:10px 8px;padding:16px 12px 12px;align-items:center}.ck-bar .ck-date{grid-area:date;padding-right:54px;align-self:start}.ck-bar__right{display:contents}}' });
     await page.evaluate(() => {
@@ -52,11 +52,20 @@ async function main() {
       const mount = document.getElementById('ps-day-cockpit');
       mount.className = 'cockpit ps-day-cockpit-host';
       mount.innerHTML = '<div class="ck-bar"><div class="ck-date"><b>September 2026</b><span>Monthly schedule</span></div><div class="ck-bar__right"></div></div>';
-      mount.querySelector('.ck-bar').appendChild(document.getElementById('nav-menu-toggle'));
+      const globalMenu = document.getElementById('nav-menu-toggle');
+      const scheduleMenu = globalMenu.cloneNode(true);
+      scheduleMenu.id = 'schedule-nav-menu-toggle';
+      scheduleMenu.classList.add('nav-menu-toggle--schedule');
+      scheduleMenu.addEventListener('click', (event) => {
+        event.preventDefault();
+        globalMenu.click();
+        scheduleMenu.setAttribute('aria-expanded', document.body.classList.contains('nav-menu-open') ? 'true' : 'false');
+      });
+      mount.querySelector('.ck-bar').appendChild(scheduleMenu);
     });
     const cockpit = page.locator('#ps-day-cockpit');
     await cockpit.waitFor({ state: 'visible', timeout: 15000 });
-    await page.waitForSelector('#ps-day-cockpit .ck-bar > #nav-menu-toggle', { timeout: 15000 });
+    await page.waitForSelector('#ps-day-cockpit .ck-bar > #schedule-nav-menu-toggle', { timeout: 15000 });
     const docked = await page.evaluate(() => {
       const card = document.getElementById('ps-day-cockpit').getBoundingClientRect();
       const bar = document.querySelector('#ps-day-cockpit .ck-bar').getBoundingClientRect();
@@ -64,9 +73,9 @@ async function main() {
       const headingRange = document.createRange();
       headingRange.selectNodeContents(headingEl);
       const heading = headingRange.getBoundingClientRect();
-      const button = document.getElementById('nav-menu-toggle').getBoundingClientRect();
+      const button = document.getElementById('schedule-nav-menu-toggle').getBoundingClientRect();
       return {
-        parentClass: document.getElementById('nav-menu-toggle').parentElement.className,
+        parentClass: document.getElementById('schedule-nav-menu-toggle').parentElement.className,
         insideCard: button.left >= card.left && button.right <= card.right
           && button.top >= card.top && button.bottom <= card.bottom,
         insideBar: button.left >= bar.left && button.right <= bar.right
@@ -84,11 +93,11 @@ async function main() {
     const before = await page.locator('#tabs').evaluate((el) => getComputedStyle(el).display);
     if (before !== 'none') throw new Error(`expected compact mobile menu closed initially, got display=${before}`);
 
-    await page.click('#nav-menu-toggle');
+    await page.click('#schedule-nav-menu-toggle');
     await page.waitForFunction(() => document.body.classList.contains('nav-menu-open'));
 
     const state = await page.evaluate(() => {
-      const button = document.getElementById('nav-menu-toggle');
+      const button = document.getElementById('schedule-nav-menu-toggle');
       const tabs = document.getElementById('tabs');
       return {
         bodyOpen: document.body.classList.contains('nav-menu-open'),
@@ -105,6 +114,27 @@ async function main() {
     }
 
     console.log(`PASS compact mobile hamburger opens menu: ${JSON.stringify(state)}`);
+
+    await page.evaluate(() => {
+      window.__closeStaffNavMenu();
+      document.querySelectorAll('.tab-panel.active').forEach((el) => el.classList.remove('active'));
+      document.getElementById('tab-bed-calendar').classList.add('active');
+    });
+    const persistent = await page.evaluate(() => {
+      const button = document.getElementById('nav-menu-toggle');
+      const banner = document.getElementById('banner');
+      return {
+        parentClass: button.parentElement.className,
+        bannerHeight: Math.round(banner.getBoundingClientRect().height),
+        buttonVisible: button.getBoundingClientRect().height > 0,
+      };
+    });
+    if (!persistent.buttonVisible || persistent.bannerHeight < 48 || persistent.parentClass !== 'banner-actions') {
+      throw new Error(`persistent hamburger unavailable after leaving Schedule: ${JSON.stringify(persistent)}`);
+    }
+    await page.click('#nav-menu-toggle');
+    await page.waitForFunction(() => document.body.classList.contains('nav-menu-open'));
+    console.log(`PASS persistent hamburger remains usable after leaving Schedule: ${JSON.stringify(persistent)}`);
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));
