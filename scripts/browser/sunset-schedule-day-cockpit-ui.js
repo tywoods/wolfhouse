@@ -615,6 +615,15 @@ function scheduleRenderDayCockpit(mount, data) {
   var spanMin = (win[1] - win[0]) * 60;
   var pct = function (min) { return scheduleCockpitPct(min, win[0], spanMin); };
 
+  // Compact is the chrome-free default: retain the single global menu button
+  // while this repaint clears the cockpit, then dock it in the card's top-right.
+  var compactMenu = null;
+  try {
+    if (doc.body && doc.body.classList.contains('luna-hdr-compact')) {
+      compactMenu = doc.getElementById('nav-menu-toggle');
+    }
+  } catch (_compactMenu) { compactMenu = null; }
+
   // Keep host class — margin/spacing selectors live on .ps-day-cockpit-host.
   mount.className = 'cockpit ps-day-cockpit-host';
   mount.innerHTML = '';
@@ -735,6 +744,7 @@ function scheduleRenderDayCockpit(mount, data) {
   create.type = 'button';
   if (on.create) create.addEventListener('click', function () { on.create(null); });
   right.appendChild(create);
+  if (compactMenu) right.appendChild(compactMenu);
   bar.appendChild(right);
   mount.appendChild(bar);
 
