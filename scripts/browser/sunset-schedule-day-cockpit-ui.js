@@ -615,13 +615,26 @@ function scheduleRenderDayCockpit(mount, data) {
   var spanMin = (win[1] - win[0]) * 60;
   var pct = function (min) { return scheduleCockpitPct(min, win[0], spanMin); };
 
-  // Compact is chrome-free on mobile: retain the single global menu button
-  // while this repaint clears the cockpit, then dock it beside the date heading.
+  // Keep the global hamburger in its persistent banner host. Schedule gets a
+  // proxy button beside the date heading so leaving this panel cannot strand
+  // the only menu control inside a hidden tab.
   var compactMenu = null;
   try {
     if (doc.body && doc.body.classList.contains('luna-hdr-compact')
       && (!doc.defaultView || !doc.defaultView.matchMedia || doc.defaultView.matchMedia('(max-width:768px)').matches)) {
-      compactMenu = doc.getElementById('nav-menu-toggle');
+      var globalMenu = doc.getElementById('nav-menu-toggle');
+      if (globalMenu) {
+        compactMenu = globalMenu.cloneNode(true);
+        compactMenu.id = 'schedule-nav-menu-toggle';
+        compactMenu.classList.add('nav-menu-toggle--schedule');
+        compactMenu.removeAttribute('aria-controls');
+        compactMenu.addEventListener('click', function (event) {
+          event.preventDefault();
+          globalMenu.click();
+          compactMenu.setAttribute('aria-expanded',
+            doc.body.classList.contains('nav-menu-open') ? 'true' : 'false');
+        });
+      }
     }
   } catch (_compactMenu) { compactMenu = null; }
 

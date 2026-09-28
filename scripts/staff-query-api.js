@@ -21545,14 +21545,14 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
     height:auto;min-height:56px;flex-basis:auto;
     border-bottom:1px solid rgba(74,55,37,.25);box-shadow:0 2px 12px rgba(43,36,31,.14);
   }
-  .luna-header-ui.luna-hdr-compact #banner{
+  .luna-header-ui.luna-hdr-compact:has(#tab-portal-home.active #ps-day-cockpit .ck-bar) #banner{
     height:0;min-height:0;flex-basis:0;padding:0;border:0;box-shadow:none;
   }
   .luna-header-ui.luna-hdr-compact #tabs{
     margin-top:0;height:100vh;height:100dvh;min-height:100dvh;
   }
   .luna-header-ui.luna-hdr-compact #tab-portal-home.active .portal-schedule-wrap{padding-top:0}
-  .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle{
+  .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle--schedule{
     display:inline-flex!important;position:relative;grid-area:date;align-self:start;justify-self:end;
     z-index:20;pointer-events:auto;width:40px;height:40px;flex:0 0 40px;
     color:var(--luna-teal-dark,#2c5f56);background:rgba(44,95,86,.14);
