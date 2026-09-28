@@ -20853,6 +20853,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-bed{flex:0 0 auto;white-space:nowrap;font-weight:500;color:var(--text-2)}
 .bc-guest-name-row .bc-accom-pay-pebble{margin-left:0;flex:0 0 auto}
 .bc-guest-services{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2)}
+#bc-side-meta > .bc-guest-services,.bc-booking-header-lines > .bc-guest-services{overflow-wrap:anywhere}
+.bc-booking-header-lines > .bc-side-meta{display:block}
 #bc-side-drawer .ctx-field-edit{display:none!important}
 #bc-side-drawer .bc-inline-input{
   width:100%;max-width:100%;min-width:0;height:28px;font-size:13px;padding:3px 8px;
@@ -38178,8 +38180,17 @@ function updateBcDetailHeader(data){
     calendar_show_deposit_paid: !!(bcLastOpenedBlock && bcLastOpenedBlock.calendar_show_deposit_paid),
   }));
   if (meta) meta.innerHTML = paymentMetaHtml;
-  if (getClient() === 'wolfhouse-somo' && el('bc-side-meta')) {
-    el('bc-side-meta').insertAdjacentHTML('beforeend', ' <span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>');
+  if (getClient() === 'wolfhouse-somo') {
+    var servicesText = bcBookingServicesQtyLabel((data && data.service_records) || []);
+    var servicesHtml = servicesText ? '<span class="bc-guest-services">' + escHtml(servicesText) + '</span>' : '';
+    if (bcSideDrawerLive() && el('bc-side-meta')) {
+      el('bc-side-meta').insertAdjacentHTML('beforeend', servicesHtml + ' <span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>');
+    } else if (meta) {
+      var mobileHeader = meta.closest('.bc-booking-header-lines') || meta;
+      mobileHeader.outerHTML = '<span class="bc-booking-header-lines"><span class="bc-side-meta">' +
+        bcSideStayMetaHtml(bk.check_in, bk.check_out, bcGuestCountFrom(bk, bcLastOpenedBlock, data.booking_guests || [])) +
+        '</span>' + servicesHtml + ' <span class="bc-detail-meta" id="bc-detail-meta">' + paymentMetaHtml + '</span></span>';
+    }
   }
   bcRefreshCalendarBlockPaymentPebbles(bk.booking_code, ledger, hasActiveLink);
 }
@@ -41509,7 +41520,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
       return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
     }).join('');
   }
-  var servicesText = bcBookingServicesQtyLabel((data && data.service_records) || []);
+  var servicesText = getClient() === 'wolfhouse-somo' ? '' : bcBookingServicesQtyLabel((data && data.service_records) || []);
   var servicesHtml = servicesText
     ? '<div class="bc-guest-services">' + escHtml(servicesText) + '</div>'
     : '';
