@@ -19891,6 +19891,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-drawer-overview-card{padding:14px 16px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow-soft)}
 #bc-overview-invoice,#bc-running-invoice{overflow:hidden;max-width:100%;min-width:0;box-sizing:border-box}
 .ctx-inv-guest-line,.ctx-inv-totals,.ctx-inv-total-row{max-width:100%;min-width:0}
+#bc-overview-invoice .bc-invoice-section-total{grid-template-columns:minmax(0,1fr) max-content}
+#bc-overview-invoice .bc-invoice-section-total :is(.ctx-inv-total-label,.ctx-inv-total-amount){text-align:right}
 .bc-invoice-totals{display:grid;grid-template-columns:minmax(0,1fr) max-content minmax(0,110px);column-gap:8px;row-gap:6px;align-items:center}
 .bc-invoice-totals .ctx-inv-group-title{grid-column:1/-1}
 .bc-invoice-totals .ctx-inv-total-row,.bc-invoice-totals .bc-balance-link-slot{display:contents}
@@ -20953,8 +20955,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 [data-theme="dark"] :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#9ee0a8}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item .ctx-pay-record{margin:0 4px 10px}
-.bc-guest-pay-row{display:flex;flex-wrap:nowrap;align-items:baseline;gap:8px;min-width:0}
-.bc-guest-pay-name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.bc-guest-pay-row{display:grid;grid-template-columns:max-content max-content minmax(0,1fr);align-items:baseline;gap:4px 12px;min-width:0}
+.bc-guest-pay-name{grid-column:1/-1;min-width:0;overflow-wrap:anywhere}
+.bc-guest-pay-column{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+.bc-guest-pay-title{font-size:10px;color:var(--text-2);font-weight:500}
+.bc-guest-pay-price{color:#000;background:#fff;border-radius:3px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bc-guest-pay-paid,.bc-guest-pay-owed{flex:0 0 auto;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bc-guest-pay-paid{color:#5C7350}
 .bc-guest-pay-owed{color:#9C5742}
@@ -39620,7 +39625,7 @@ function bcRollupInvoiceServiceDisplay(svcRows){
   };
 }
 
-function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collectionBlocked){
+function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collectionBlocked, bookingFullyPaid){
   bookingGuests = bookingGuests || [];
   perPerson = perPerson || [];
   if (!bookingGuests.length && !perPerson.length) return '';
@@ -39657,11 +39662,14 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     html += '>';
     if (getClient() === 'wolfhouse-somo') {
       var paidShown = Number.isFinite(paid) && paid > 0 ? paid : 0;
-      var owedShown = Number.isFinite(shareRemaining) ? shareRemaining : 0;
+      // Settlement is display-only: never allocate booking receipts to guest Paid.
+      var owedShown = bookingFullyPaid === true ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
       html += '<div class="bc-guest-pay-row"><span class="bc-guest-pay-name">' + escHtml(name) + '</span>';
-      html += '<span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span>';
-      html += '<span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></div>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span>';
+      var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Price</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span></div>';
       if (!collectionBlocked && row.booking_guest_id && (depositRemaining > 0 || shareRemaining > 0)) {
         html += '<div class="bc-guest-pay-links">';
         if (depositRemaining > 0) {
@@ -39882,7 +39890,8 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
-  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
+  var bookingFullyPaid = Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
+  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid);
   if (invoiceWorkspace) html += perGuestHtml;
 
   /* Totals / payment status */
