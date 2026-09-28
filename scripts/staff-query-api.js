@@ -43011,6 +43011,10 @@ function bcTransferPricingHtml(pricing){
       escHtml(pricing.pricing_note || pricing.error_code || t('drawer.transfers.unavailable')) + '</div>';
   }
   if (pricing.included_in_package) return '<div class="bc-transfer-pricing">' + escHtml(t('drawer.transfers.includedInPackage')) + '</div>';
+  if (pricing.saved_charge && pricing.price_cents != null){
+    var amount = (pricing.currency === 'EUR' ? '\u20ac' : (pricing.currency || 'EUR') + ' ') + (Number(pricing.price_cents) / 100).toFixed(2);
+    return '<div class="bc-transfer-pricing">' + escHtml(amount + (pricing.pricing_note ? ' · ' + pricing.pricing_note : '')) + '</div>';
+  }
   return '<div class="bc-transfer-pricing">' +
     escHtml(pricing.pricing_note || ('\u20ac' + (Number(pricing.price_cents || 0) / 100).toFixed(2))) + '</div>';
 }
@@ -43063,7 +43067,28 @@ function bcTransferOverrideEurosFromTransfer(transfer){
   return String(Number(cents) / 100);
 }
 
-function bcRenderTransferCard(direction, label, transfer, airports, defaults){
+// Display the authoritative airport rate and booking quote separately from a
+// historical/custom saved charge. Eligibility and totals are server-owned.
+function bcTransferAdminPriceHtml(price){
+  var html = '<label class="ctx-field-label">' + escHtml(t('drawer.transfers.price')) + '</label>';
+  if (!price) return html + '<div class="bc-transfer-pricing">' + escHtml(t('drawer.transfers.unavailable')) + '</div>';
+  if (price.amount_cents != null){
+    var unit = price.unit === 'per_person' ? t('drawer.transfers.perPerson') : t('drawer.transfers.perGroup');
+    html += '<div class="bc-transfer-pricing">' + escHtml((price.currency === 'EUR' ? '\u20ac' : (price.currency || 'EUR') + ' ') +
+      (Number(price.amount_cents) / 100).toFixed(2) + ' · ' + unit) + '</div>';
+  }
+  return html + bcTransferPricingHtml(price);
+}
+
+function bcTransferUpdateAdminPrice(direction){
+  var prefix = 'bc-transfer-' + direction;
+  var airport = el(prefix + '-airport');
+  var priceEl = el(prefix + '-admin-price');
+  var prices = (bcTransferCtx.data && bcTransferCtx.data.admin_prices) || {};
+  if (priceEl) priceEl.innerHTML = bcTransferAdminPriceHtml(airport && prices[airport.value]);
+}
+
+function bcRenderTransferCard(direction, label, transfer, airports, defaults, adminPrices){
   var xfer = transfer || {};
   var prefix = 'bc-transfer-' + direction;
   var airportCode = xfer.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
@@ -43087,6 +43112,7 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, airportCode) + '</select></div>';
   html += '<div><label class="ctx-field-label">' + escHtml(t('drawer.transfers.dateTime')) + '</label>';
   html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '"></div>';
+  html += '<div id="' + prefix + '-admin-price" aria-live="polite">' + bcTransferAdminPriceHtml(adminPrices && adminPrices[airportCode]) + '</div>';
   html += '<div class="bc-transfer-override-block">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-override-toggle" data-direction="' + direction + '" aria-expanded="' +
     (hasOverride ? 'true' : 'false') + '">' + escHtml(t('drawer.transfers.exceptionOverride')) + '</button>';
@@ -43123,8 +43149,8 @@ function bcRenderTransferCards(data){
     if (t.direction === 'arrival') arrival = t;
     if (t.direction === 'departure') departure = t;
   });
-  return bcRenderTransferCard('arrival', t('drawer.transfers.arrivalShort'), arrival, data.airports, data.defaults) +
-    bcRenderTransferCard('departure', t('drawer.transfers.departureShort'), departure, data.airports, data.defaults);
+  return bcRenderTransferCard('arrival', t('drawer.transfers.arrivalShort'), arrival, data.airports, data.defaults, data.admin_prices) +
+    bcRenderTransferCard('departure', t('drawer.transfers.departureShort'), departure, data.airports, data.defaults, data.admin_prices);
 }
 
 function bcTransferCollectPayload(direction){
@@ -43223,6 +43249,7 @@ function bcClearTransferForm(direction){
   var defaults = (bcTransferCtx.data && bcTransferCtx.data.defaults) || {};
   var airportEl = el(prefix + '-airport');
   if (airportEl) airportEl.value = defaults.default_airport_code || 'SDR';
+  bcTransferUpdateAdminPrice(direction);
   var flightEl = el(prefix + '-flight');
   if (flightEl) flightEl.value = '';
   var schedEl = el(prefix + '-scheduled');
@@ -43380,6 +43407,10 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
     if (t.direction === 'departure') bcTransferCtx.existingStatus.departure = t.status;
   });
   cardsEl.innerHTML = bcRenderTransferCards(payload);
+  ['arrival', 'departure'].forEach(function(direction){
+    var airport = el('bc-transfer-' + direction + '-airport');
+    if (airport) airport.addEventListener('change', function(){ bcTransferUpdateAdminPrice(direction); });
+  });
   cardsEl.classList.remove('ctx-loading');
   bcRefreshTransferPebbleSummary(payload.transfers || []);
   document.querySelectorAll('.bc-transfer-save').forEach(function(btn){
@@ -52662,8 +52693,11 @@ async function handleBookingContext(bookingCode, query, res, user) {
 
   let transfersDrawer = null;
   try {
+    const { loadStaffTransferConfig } = require('./lib/staff-transfer-pricing');
+    const resolvedConfig = await withPgClient(pg => loadStaffTransferConfig(pg, clientSlug));
     transfersDrawer = buildTransfersDrawerPayload(clientSlug, bk, transferRecordRows, {
       transfers_available: transfersAvailable,
+      resolvedConfig,
     });
   } catch (_) {
     transfersDrawer = null;

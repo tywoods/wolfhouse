@@ -726,9 +726,9 @@
       + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
       + '<select id="wh-price-transfer-unit">'
       + '<option value="flat"' + (unit === 'flat' ? ' selected' : '') + '>'
-      + whEsc(unitLabel('flat')) + '</option>'
+      + whEsc(whT('drawer.transfers.perGroup', 'Per group')) + '</option>'
       + '<option value="per_person"' + (unit === 'per_person' ? ' selected' : '') + '>'
-      + whEsc(unitLabel('per_person')) + '</option>'
+      + whEsc(whT('drawer.transfers.perPerson', 'Per person')) + '</option>'
       + '</select></div>'
       + amountField('wh-price-transfer-amount', v.price ? v.price.amount_cents : null)
       + '<div class="portal-admin-edit-field wh-price-check-field">'
@@ -796,7 +796,7 @@
         + '<div><div class="portal-admin-price-title">'
         + whEsc(tr.label || tr.airport_code) + ' (' + whEsc(tr.airport_code) + ')</div>'
         + '<div class="portal-admin-price-meta">'
-        + (tr.price ? whEsc(unitLabel(tr.price.unit)) + ' · ' + sourceBadge(tr.price.source)
+        + (tr.price ? whEsc(tr.price.unit === 'flat' ? whT('drawer.transfers.perGroup', 'Per group') : whT('drawer.transfers.perPerson', 'Per person')) + ' · ' + sourceBadge(tr.price.source)
           : whEsc(whT('admin.wh.pricing.noPrice', 'no price')))
         + (facts.length ? ' · ' + whEsc(facts.join(' · ')) : '')
         + '</div></div>'

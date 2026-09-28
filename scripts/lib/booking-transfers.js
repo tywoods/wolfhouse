@@ -150,20 +150,23 @@ function resolveGuestCount(booking, transfer) {
  * @param {{ client_slug: string, booking: object, transfer: object }} opts
  * @returns {object}
  */
-function priceBookingTransfer({ client_slug, booking, transfer }) {
+function priceBookingTransfer({ client_slug, booking, transfer, resolvedConfig }) {
   const clientSlug = trimStr(client_slug);
-  const cfg = getClientTransferConfig(clientSlug);
+  const cfg = resolvedConfig || getClientTransferConfig(clientSlug);
   const airportInput = transfer && transfer.airport_code;
-  const airportCode = normalizeAirportCode(clientSlug, airportInput);
+  const airportCode = normalizeAirportCode(clientSlug, airportInput, resolvedConfig);
   const guestCount = resolveGuestCount(booking, transfer);
   const packageBooking = isPackageBooking(booking);
+  const rule = getTransferRuleForAirport(clientSlug, airportCode, resolvedConfig);
+  // Only Staff's resolved ADMIN path can override the static client currency.
+  const currency = (resolvedConfig && rule && rule.price && rule.price.currency) || cfg.currency;
 
   const unavailable = (errorCode, pricingNote) => ({
     available: false,
     error_code: errorCode,
     included_in_package: false,
     price_cents: null,
-    currency: cfg.currency,
+    currency,
     pricing_note: pricingNote,
     guest_count: guestCount,
     airport_code: airportCode,
@@ -176,8 +179,7 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
     );
   }
 
-  const rule = getTransferRuleForAirport(clientSlug, airportCode);
-  const airport = getClientAirportOption(clientSlug, airportCode);
+  const airport = getClientAirportOption(clientSlug, airportCode, resolvedConfig);
   if (!rule || !airport) {
     return unavailable('airport_not_supported', `Airport ${airportCode} is not configured for transfers.`);
   }
@@ -204,7 +206,7 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
       error_code: null,
       included_in_package: true,
       price_cents: 0,
-      currency: cfg.currency,
+      currency,
       pricing_note: `${airport.label} transfer included in package.`,
       guest_count: guestCount,
       airport_code: airportCode,
@@ -212,15 +214,24 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
     };
   }
 
+  if (resolvedConfig && rule.flat_price_cents == null && rule.per_person_extra_cents == null) {
+    return unavailable('transfer_price_unavailable', `${airport.label} transfer price is not configured.`);
+  }
+
   let priceCents = 0;
   let pricingNote = '';
+  // Staff quotes (and newly saved notes) retain exact cents and ADMIN currency.
+  // Direct internal/Luna callers keep their existing static whole-euro copy.
+  const formatPrice = (cents) => resolvedConfig
+    ? `${currency === 'EUR' ? '€' : currency + ' '}${(cents / 100).toFixed(2)}`
+    : `€${(cents / 100).toFixed(0)}`;
 
   if (rule.per_person_extra_cents != null) {
     priceCents = rule.per_person_extra_cents * guestCount;
-    pricingNote = `${airport.label} transfer: €${(rule.per_person_extra_cents / 100).toFixed(0)}/person × ${guestCount} = €${(priceCents / 100).toFixed(0)} extra.`;
+    pricingNote = `${airport.label} transfer: ${formatPrice(rule.per_person_extra_cents)}/person × ${guestCount} = ${formatPrice(priceCents)} extra.`;
   } else if (rule.flat_price_cents != null) {
     priceCents = rule.flat_price_cents;
-    pricingNote = `${airport.label} transfer: €${(priceCents / 100).toFixed(0)} flat.`;
+    pricingNote = `${airport.label} transfer: ${formatPrice(priceCents)} flat.`;
   }
 
   return {
@@ -228,7 +239,7 @@ function priceBookingTransfer({ client_slug, booking, transfer }) {
     error_code: null,
     included_in_package: false,
     price_cents: priceCents,
-    currency: cfg.currency,
+    currency,
     pricing_note: pricingNote,
     guest_count: guestCount,
     airport_code: airportCode,
@@ -249,10 +260,10 @@ function assertTransferGroupOverrideAllowed(opts = {}) {
   const booking = opts.booking || {};
   const pricing = opts.pricing || {};
   const manualOverride = opts.manualOverride || null;
-  const airportCode = normalizeAirportCode(clientSlug, input.airport_code);
+  const airportCode = normalizeAirportCode(clientSlug, input.airport_code, opts.resolvedConfig);
   if (!airportCode) return;
 
-  const rule = getTransferRuleForAirport(clientSlug, airportCode);
+  const rule = getTransferRuleForAirport(clientSlug, airportCode, opts.resolvedConfig);
   if (!rule || rule.min_guest_count == null) return;
 
   const guestCount = resolveGuestCount(booking, input);
@@ -309,7 +320,7 @@ function resolveManualTransferOverride({ client_slug, transferInput }) {
  * @param {{ client_slug: string, booking: object, transferInput: object, source?: string }} opts
  * @returns {object}
  */
-function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput, source = 'staff' }) {
+function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput, source = 'staff', resolvedConfig }) {
   const clientSlug = trimStr(client_slug);
   const input = transferInput || {};
   const direction = normalizeTransferDirection(input.direction);
@@ -320,9 +331,9 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
   }
 
   const airportCode = input.airport_code != null
-    ? normalizeAirportCode(clientSlug, input.airport_code)
+    ? normalizeAirportCode(clientSlug, input.airport_code, resolvedConfig)
     : null;
-  const airport = airportCode ? getClientAirportOption(clientSlug, airportCode) : null;
+  const airport = airportCode ? getClientAirportOption(clientSlug, airportCode, resolvedConfig) : null;
   const lookupDate = input.lookup_date != null
     ? normalizeBookingDateOnly(input.lookup_date)
     : defaultTransferLookupDate({ direction, booking });
@@ -331,6 +342,7 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
     : resolveGuestCount(booking, input);
 
   let pricing = priceBookingTransfer({
+    resolvedConfig,
     client_slug: clientSlug,
     booking,
     transfer: { airport_code: airportCode || input.airport_code, guest_count: guestCount },
@@ -341,6 +353,7 @@ function buildBookingTransferUpsertPayload({ client_slug, booking, transferInput
 
   if (status !== 'not_needed') {
     assertTransferGroupOverrideAllowed({
+      resolvedConfig,
       client_slug: clientSlug,
       booking,
       transferInput: input,
@@ -397,6 +410,7 @@ async function upsertBookingTransfer(pg, opts = {}) {
   }
 
   const payload = buildBookingTransferUpsertPayload({
+    resolvedConfig: opts.resolvedConfig,
     client_slug: clientSlug,
     booking,
     transferInput,

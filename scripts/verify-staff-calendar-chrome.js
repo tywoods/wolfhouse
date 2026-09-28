@@ -97,7 +97,7 @@ assert.match(api, /function bcRenderTransferCard/);
 assert.match(api, /drawer\.transfers\.flightOptional/);
 assert.match(api, /class="btn btn-primary bc-transfer-save"/);
 assert.match(api, /\.bc-transfer-card-footer\{display:flex;align-items:center;justify-content:flex-end/);
-assert.match(i18n, /'drawer\.transfers\.exceptionOverride': 'Price Override'/);
+assert.match(i18n, /'drawer\.transfers\.exceptionOverride': 'Custom Price'/);
 assert.match(api, /#bc-field-group-guests\.is-editing \.btn-bc-field-edit\{display:none/);
 assert.match(api, /#bc-drawer-card-booking #bc-inline-edit-bar/);
 assert.doesNotMatch(api, /bc-transfer-lookup/);
