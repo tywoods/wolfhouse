@@ -21350,8 +21350,9 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
 }
 .luna-header-ui.luna-hdr-compact #tab-portal-home.active .portal-schedule-wrap{padding-top:0}
+.luna-header-ui.luna-hdr-compact #ps-day-cockpit{position:relative}
 .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle{
-  display:inline-flex;position:relative;z-index:20;pointer-events:auto;
+  display:inline-flex;position:absolute;top:12px;right:12px;z-index:20;pointer-events:auto;
   width:40px;height:40px;flex:0 0 40px;color:var(--luna-teal-dark,#2c5f56);
   background:rgba(44,95,86,.14);border:1px solid rgba(44,95,86,.45);
 }
