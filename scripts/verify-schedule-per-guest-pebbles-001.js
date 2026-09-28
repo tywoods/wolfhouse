@@ -21,7 +21,7 @@ const vm = require('vm');
 const { annotateCalendarBlocks } = require('./lib/staff-calendar-group-paint');
 
 const ROOT = path.join(__dirname, '..');
-const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+const apiSrc = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 
 let pass = 0;
 let fail = 0;
@@ -76,6 +76,7 @@ ok('phone and desktop share the bar painter', apiSrc.includes('bcCalendarBlockIn
 
 console.log('\n[2] Guest rows carry that guest only');
 const sandbox = {
+  getClient: () => 'wolfhouse-somo',
   escHtml: (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -85,6 +86,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 const pieces = [
+  'bcCalendarBookingFullyPaid',
   'bcCalendarFormatEur',
   'bcFieldEditPackageDisplayLabel',
   'bcPackagePebbleClass',
@@ -166,7 +168,7 @@ if (ran) {
   }));
   ok('Tyler full share shows Paid', tyler.includes('>Paid<') || tyler.includes('bc-block-pay-paid'), tyler);
   ok('Tyler paid does not invent a zero balance chip', !/€0\.00/.test(tyler) && !/€1300/.test(tyler), tyler);
-  ok('Tyler deposit stays separate from Paid', tyler.includes('Deposit paid') && /Paid/.test(tyler));
+  ok('Tyler full share shows only Paid, not an extra deposit badge', !tyler.includes('Deposit paid') && tyler.includes('>Paid<'));
   ok('Tyler missing package is absent', !/pkg-pebble/.test(tyler) && !/no pebble/i.test(tyler));
 
   const orderHtml = sandbox.bcCalendarGuestRowPebblesHtml(row({
@@ -182,8 +184,8 @@ if (ran) {
   const transferAt = indexOfPebble(orderHtml, 'Transfer');
   const depositAt = indexOfPebble(orderHtml, 'Deposit paid');
   const paidAt = indexOfPebble(orderHtml, 'bc-block-pay-paid');
-  ok('pebble order is package, link, transfer, deposit, paid',
-    packageAt >= 0 && packageAt < linkAt && linkAt < transferAt && transferAt < depositAt && depositAt < paidAt,
+  ok('fully settled share order is package, link, transfer, paid without deposit',
+    packageAt >= 0 && packageAt < linkAt && linkAt < transferAt && transferAt < paidAt && depositAt === -1,
     orderHtml);
 
   const unknownShare = sandbox.bcCalendarGuestRowPebblesHtml(row({
