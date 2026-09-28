@@ -109,7 +109,23 @@ async function main() {
         observations.push({width,theme,paid,rows});
         await page.screenshot({path:path.join(OUT,`names-${width}-${theme}-${paid?'paid':'partial'}.png`)});
         assert.equal(rows.length,4);assert.deepEqual(rows.map(r=>r.name),names);
-        for(const r of rows){assert(r.n.width>=100,'readable name width');assert(r.n.left>=0&&r.s.right<=width+1,'viewport containment');assert(Math.abs(r.b.right-rows[0].b.right)<=1,'bed right edges align across guest rows');assert(Math.abs(r.s.right-rows[0].s.right)<=1,'status right edges align across guest rows');assert(Math.abs(r.b.top-r.s.top)<=2,'bed and status share aligned right-hand line');}
+        for(const [index,r] of rows.entries()){
+          if(width<=768){
+            const readable=await page.locator('#bc-guest-names .bc-guest-name-row').nth(index).evaluate(e=>{
+              const n=e.querySelector('.bc-guest-name-line'),style=getComputedStyle(n),ctx=document.createElement('canvas').getContext('2d');
+              ctx.font=style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+              const textFits=selector=>{const el=e.querySelector(selector),range=document.createRange();range.selectNodeContents(el);const text=range.getBoundingClientRect(),box=el.getBoundingClientRect();return text.left>=box.left-1&&text.right<=box.right+1&&el.scrollWidth<=el.clientWidth+1;};
+              return {shortNameWidth:ctx.measureText('Tyler').width,whiteSpace:style.whiteSpace,overflow:style.overflow,textOverflow:style.textOverflow,bedFits:textFits('.bc-guest-bed'),statusFits:textFits('.bc-accom-pay-pebble')};
+            });
+            assert(r.n.width>=readable.shortNameWidth,'mobile name allocation can display a basic short name');
+            assert.deepEqual([readable.whiteSpace,readable.overflow,readable.textOverflow],['nowrap','hidden','ellipsis'],'mobile long names use safe ellipsis; full names retained above');
+            assert(readable.bedFits&&readable.statusFits,'mobile bed and payment labels remain fully readable');
+            assert(r.n.right<=r.b.left+1&&r.b.right<=r.s.left+1,'mobile name, bed and payment never overlap');
+            const center=box=>(box.top+box.bottom)/2;
+            assert(Math.abs(center(r.n)-center(r.b))<=1&&Math.abs(center(r.n)-center(r.s))<=1,'mobile name, bed and payment share one centered line');
+          }else{assert(r.n.width>=100,'readable name width');}
+          assert(r.n.left>=0&&r.s.right<=width+1,'viewport containment');assert(Math.abs(r.b.right-rows[0].b.right)<=1,'bed right edges align across guest rows');assert(Math.abs(r.s.right-rows[0].s.right)<=1,'status right edges align across guest rows');assert(Math.abs(r.b.top-r.s.top)<=2,'bed and status share aligned right-hand line');
+        }
         assert.deepEqual(rows.map(r=>r.status),paid?['Paid','Paid','Paid','Paid']:['Unpaid','Deposit Paid','Unpaid','Unpaid']);
         cases.push(`layout-${width}-${theme}-${paid?'paid':'partial'}`);
       }

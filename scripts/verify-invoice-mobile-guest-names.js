@@ -259,7 +259,16 @@ async function main(){
      assert.equal(rows.length,3,'all saved names represented');
      assert.deepEqual(rows.map(r=>r.name),names);
      assert.deepEqual(rows.map(r=>r.status),paid?['Paid','Paid','Paid']:['Unpaid','Deposit Paid','Unpaid']);
-     for(const r of rows){assert(r.n.width>=100,'readable guest name width >=100px: '+JSON.stringify(r));assert(!r.nameOverflow,'full guest name is readable rather than single-letter ellipsis');assert(!r.rowOverflow&&r.row.left>=0&&r.row.right<=width+1,'guest row fits viewport');assert(r.n.left<r.b.left&&(r.b.right<=r.s.left+1||r.s.top>=r.n.bottom),'name left of bed; status follows on same or next line');}
+     for(const r of rows){
+      if(width<=768){
+       assert(r.n.width>=40,'mobile name has readable allocation, not single-letter ellipsis: '+JSON.stringify(r));
+       assert(r.n.right<=r.b.left+1&&r.b.right<=r.s.left+1,'mobile name, bed and status never overlap');
+       assert(Math.abs((r.n.top+r.n.bottom-r.s.top-r.s.bottom)/2)<=1&&Math.abs((r.n.top+r.n.bottom-r.b.top-r.b.bottom)/2)<=1,'mobile name, bed and status share one centered line');
+       const style=await page.locator('#bc-guest-names .bc-guest-name-line').first().evaluate(e=>({whiteSpace:getComputedStyle(e).whiteSpace,overflow:getComputedStyle(e).overflow,textOverflow:getComputedStyle(e).textOverflow}));
+       assert.deepEqual(style,{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'},'safe mobile ellipsis preserves full DOM text');
+      }else{assert(r.n.width>=100,'readable guest name width >=100px: '+JSON.stringify(r));assert(!r.nameOverflow,'full guest name is readable rather than single-letter ellipsis');}
+      assert(!r.rowOverflow&&r.row.left>=0&&r.row.right<=width+1,'guest row fits viewport');assert(r.n.left<r.b.left&&(r.b.right<=r.s.left+1||r.s.top>=r.n.bottom),'name left of bed; status follows on same or next line');
+     }
      cases.push(`layout-${width}-${theme}-${paid}`);
     }
    }
