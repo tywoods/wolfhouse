@@ -20833,8 +20833,12 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
 [data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
 @media(max-width:768px){
-  #bc-drawer-card-booking .bc-guest-name-row{grid-template-columns:minmax(0,1fr) auto}
-  #bc-drawer-card-booking .bc-guest-name-row .bc-accom-pay-pebble{grid-column:1 / -1;justify-self:end}
+  /* Override the injected Invoice subgrid's two-row phone layout, read mode only. */
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names{column-gap:0}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-row{align-items:center;column-gap:0}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-line{grid-column:1;grid-row:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-bed{grid-column:2;grid-row:1}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-accom-pay-pebble{grid-column:3;grid-row:1;justify-self:end}
 
   #bc-drawer-card-booking .bc-inline-input{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
   #bc-drawer-card-booking .bc-inline-guest-name{display:block;margin:0 0 8px}
