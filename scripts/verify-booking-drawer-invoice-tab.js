@@ -25,8 +25,8 @@ const detail = { success: true, booking, rooming: { assignments: [] }, booking_g
   guest_accommodation_lines: [{guest_number:1,accommodation_cents:30000,nights:5},{guest_number:2,accommodation_cents:30000,nights:5}],
   service_records: [], transfers: [], payments: { paid_total_cents: 0, rows: [] }, pending_manual_services: [], conversation: null };
 
-function emit(tenant) {
-  const dest = path.join(OUT, `${tenant}.html`);
+function emit(tenant, out = OUT) {
+  const dest = path.join(out, `${tenant}.html`);
   const r = spawnSync(process.execPath, ['scripts/verify-inbox-ui-parity.js', '--emit', tenant, dest], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, STAFF_ACTIONS_ENABLED: 'true', STRIPE_LINKS_ENABLED: 'true' } });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   return fs.readFileSync(dest, 'utf8');
@@ -202,7 +202,8 @@ async function main() {
         await page.locator('#bc-record-payment-btn').click();
         const dialog = page.locator('#bc-record-payment-dialog');
         assert.equal(await dialog.isVisible(), true);
-        assert.equal(await page.locator('#bc-payment-scope').inputValue(), '');
+        assert.equal(await page.locator('#bc-payment-scope').inputValue(), 'booking', 'fresh Guest defaults to All');
+        assert.equal(await page.locator('#bc-payment-scope option[value=""]').count(), 0, 'no empty scope placeholder');
         assert.equal(await page.locator('#bc-payment-amount').inputValue(), '');
         assert.equal(await page.locator('input[name="bc-payment-method"]:checked').count(), 0);
         await page.keyboard.press('Escape');
@@ -376,4 +377,5 @@ async function main() {
   console.log(JSON.stringify({ cases: results.length, failures, out: OUT }, null, 2));
   if (failures.length) process.exitCode = 1;
 }
-main().catch(e => { console.error(e); process.exitCode = 1; });
+module.exports = { booking, calendar, detail, GUEST, CODE, emit };
+if (require.main === module) main().catch(e => { console.error(e); process.exitCode = 1; });
