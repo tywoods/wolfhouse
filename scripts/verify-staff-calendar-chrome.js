@@ -106,7 +106,9 @@ assert.doesNotMatch(api, /function bcTransferWireLookupControls/);
 assert.doesNotMatch(api, /drawer\.transfers\.lookupFlight/);
 assert.match(api, /id="bc-luna-notes-edit"/);
 assert.match(api, /· ' \+ escHtml\(String\(nights\)/);
-assert.match(api, /placeholder = 'Guest ' \+ \(i \+ 1\)/);
+// Labels follow saved guest slots, not the incidental order of rendered inputs.
+assert.match(api, /placeholder = 'Guest ' \+ guest\.guest_number/);
+assert.match(api, /setAttribute\('data-booking-guest-id', guest\.booking_guest_id/);
 assert.match(api, /grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)!important/);
 assert.match(api, /guest' : ' guests'/);
 assert.match(api, /header-collapsed #bc-side-drawer/);
