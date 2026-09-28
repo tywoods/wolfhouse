@@ -214,8 +214,9 @@ function bcInitInvoiceWorkspace(data){
   if (refresh && !refresh._invoiceBound) {
     refresh._invoiceBound = true;
     refresh.addEventListener('click', async function(){
-      refresh.disabled = true; bcInvoiceFeedback(bcInvoiceText('refreshing'));
-      try { if (await bcRefreshInvoice(data)) bcInvoiceFeedback(bcInvoiceText('refreshed')); }
+      refresh.disabled = true;
+      bcInvoiceFeedback('');
+      try { await bcRefreshInvoice(data); }
       catch (_) { if (document.contains(refresh)) bcInvoiceFeedback(bcInvoiceText('refreshFailed')); }
       finally { if (document.contains(refresh)) refresh.disabled = false; }
     });

@@ -20909,19 +20909,27 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-overview-invoice .bc-invoice-history{margin:12px 0 16px}
 #bc-overview-invoice #bc-payment-history-card{padding:0;border:0;box-shadow:none;background:transparent}
 #bc-overview-invoice #bc-payment-history-toggle{padding-right:4px}
-#bc-overview-invoice .bc-history-item{border-bottom:1px solid var(--border-soft)}
-#bc-overview-invoice .bc-history-item:last-child{border-bottom:0}
-#bc-overview-invoice .bc-history-item summary{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:4px 12px;padding:10px 4px;cursor:pointer;list-style:none;font-size:12px;line-height:1.45}
-#bc-overview-invoice .bc-history-item summary::-webkit-details-marker{display:none}
-#bc-overview-invoice .bc-history-item summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-#bc-overview-invoice .bc-history-label{min-width:0;overflow-wrap:anywhere;font-weight:600}
-#bc-overview-invoice .bc-history-label:before{content:'›';display:inline-block;width:12px;color:var(--text-2)}
-#bc-overview-invoice .bc-history-item[open] .bc-history-label:before{content:'⌄'}
-#bc-overview-invoice .bc-history-amount{text-align:right;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums}
-#bc-overview-invoice .bc-history-amount.paid{color:#3d6130}
-[data-theme="dark"] #bc-overview-invoice .bc-history-amount.paid{color:#9ee0a8}
-#bc-overview-invoice .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
-#bc-overview-invoice .bc-history-item .ctx-pay-record{margin:0 4px 10px}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item{border-bottom:1px solid var(--border-soft)}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item:last-child{border-bottom:0}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item summary{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:4px 12px;padding:10px 4px;cursor:pointer;list-style:none;font-size:12px;line-height:1.45}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item summary::-webkit-details-marker{display:none}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-label{min-width:0;overflow-wrap:anywhere;font-weight:600}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-label:before{content:'›';display:inline-block;width:12px;color:var(--text-2)}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item[open] .bc-history-label:before{content:'⌄'}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount{text-align:right;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#3d6130}
+[data-theme="dark"] :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#9ee0a8}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
+:is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item .ctx-pay-record{margin:0 4px 10px}
+.bc-guest-pay-row{display:flex;flex-wrap:nowrap;align-items:baseline;gap:8px;min-width:0}
+.bc-guest-pay-name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.bc-guest-pay-paid,.bc-guest-pay-owed{flex:0 0 auto;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bc-guest-pay-paid{color:#5C7350}
+.bc-guest-pay-owed{color:#9C5742}
+[data-theme="dark"] .bc-guest-pay-paid{color:#9ee0a8}
+[data-theme="dark"] .bc-guest-pay-owed{color:#ffb896}
+.bc-guest-pay-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 :is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse{
   display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
   padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
@@ -20929,7 +20937,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 :is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse .bc-drawer-card-title{margin:0}
 :is(#bc-move-bed,#bc-payment-history-card) .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
 :is(#bc-move-bed,#bc-payment-history-card):not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
-#bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
+#bc-move-bed.is-collapsed .bc-move-bed-body,#bc-payment-history-card.is-collapsed #bc-payment-history-body{display:none}
 #tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
   width:calc(100% - 419px)!important;
   max-width:calc(100% - 419px)!important;
@@ -39600,24 +39608,37 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
     var pay = bcInvoicePaymentRequestDisplay(row.payment_status);
     html += '<div class="ctx-inv-line ctx-inv-guest-line" data-guest-number="' + escHtml(String(row.guest_number)) + '"';
     if (row.booking_guest_id) html += ' data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '"';
-    html += '>' + escHtml(name);
-    // Keep collection fenced without repeating internal accounting prose.
-    if (!collectionBlocked) {
-      if (row.booking_guest_id && getClient() === 'wolfhouse-somo') {
+    html += '>';
+    if (getClient() === 'wolfhouse-somo') {
+      var paidShown = Number.isFinite(paid) && paid > 0 ? paid : 0;
+      var owedShown = Number.isFinite(shareRemaining) ? shareRemaining : 0;
+      var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
+      html += '<div class="bc-guest-pay-row"><span class="bc-guest-pay-name">' + escHtml(name) + '</span>';
+      html += '<span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span>';
+      html += '<span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></div>';
+      if (!collectionBlocked && row.booking_guest_id && (depositRemaining > 0 || shareRemaining > 0)) {
+        html += '<div class="bc-guest-pay-links">';
         if (depositRemaining > 0) {
-          html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
+          html += '<span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.depositLink')) + '</button>';
           html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span></span>';
         }
         if (shareRemaining > 0) {
-          html += ' \u2014 <span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
+          html += '<span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="remaining_share" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.paymentLink')) + '</button>';
           html += '<span class="bc-guest-pay-link-result" data-payment-target="remaining_share" aria-live="polite"></span></span>';
         }
-      } else if (pay.createLink && row.booking_guest_id) {
+        html += '</div>';
+      }
+    } else {
+    html += escHtml(name);
+    // Keep collection fenced without repeating internal accounting prose.
+    if (!collectionBlocked) {
+      if (pay.createLink && row.booking_guest_id) {
         html += ' \u2014 <button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn" data-payment-target="deposit" data-booking-guest-id="' + escHtml(String(row.booking_guest_id)) + '" style="padding:2px 9px;font-size:11px;line-height:1.5">' + escHtml(t('drawer.invoice.createLink')) + '</button>';
         html += '<span class="bc-guest-pay-link-result" data-payment-target="deposit" aria-live="polite"></span>';
       } else if (getClient() !== 'wolfhouse-somo' && !pay.createLink && pay.label) {
         html += ' \u2014 ' + escHtml(pay.label);
       }
+    }
     }
     html += '</div>';
   });
@@ -39877,14 +39898,23 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   if (!overview) html += '</div></div>';
 
+  var historyOwnCard = overview && invoiceWorkspace;
+  if (historyOwnCard) {
+    html += perGuestHtml + bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+    html += '</div>';
+    html += '<div class="bc-invoice-history ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-payment-history-card">';
+    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><h3 class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>';
+    html += '<div id="bc-payment-history-body" hidden><div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
+  } else {
   html += overview ? '<div class="bc-invoice-history">' : '<div class="ctx-payments-col-history">';
   html += '<div class="ctx-pay-box ctx-payment-history-card bc-drawer-overview-card' + (invoiceWorkspace ? '' : ' is-collapsed') + '" id="bc-payment-history-card">';
 
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
   if (overview) {
-    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="' + (invoiceWorkspace ? 'true' : 'false') + '" aria-controls="bc-payment-history-body"><span class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</span><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button><div id="bc-payment-history-body"' + (invoiceWorkspace ? '' : ' hidden') + '>';
+    html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><span class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</span><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button><div id="bc-payment-history-body" hidden>';
   } else html += '<div class="ctx-inv-subtitle">' + escHtml(t('drawer.invoice.paymentHistory')) + '</div>';
+  }
   if (sortedLedgerRows.length > 0){
     sortedLedgerRows.forEach(function(pr){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
@@ -39993,11 +40023,14 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     html += '<div class="ctx-none" style="margin-top:4px">' + escHtml(t('drawer.payments.noPayments')) + '</div>';
   }
   html += '</div>';
-
+  if (historyOwnCard) {
+    html += '</div></div>';
+  } else {
   if (overview) html += '</div>';
   html += '</div></div>';
   if (invoiceWorkspace) html += perGuestHtml + bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
   html += '</div>';
+  }
   if (!overview) html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
   return html;
 }
@@ -40285,6 +40318,10 @@ function bcUpdateOverviewPaymentSummary(data){
   }
   var history = el('bc-payment-history-toggle');
   var expanded = history && history.getAttribute('aria-expanded') === 'true';
+  var historyCard = el('bc-payment-history-card');
+  // Only the Wolfhouse overview sibling. Payments-tab history uses the same id
+  // and must survive a Sunset cash refresh that also updates the overview card.
+  if (historyCard && card.parentElement && historyCard.parentElement === card.parentElement) historyCard.remove();
   card.outerHTML = html;
   bcBindCreateGuestPaymentLinkButtons(data);
   if (getClient() === 'wolfhouse-somo') {
@@ -43883,30 +43920,6 @@ function renderBookingContextDrawer(data){
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
-  html += '<div class="bc-conv-handoff-block">';
-  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.conversation')) + '</h3>';
-  if (data.conversation){
-    var conv = data.conversation;
-    if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">' + escHtml(t('drawer.conversation.needsHuman')) + '</span></div>';
-    html += '<div class="kv-grid">';
-    html += bcDrawerConvModeRowHtml(conv);
-    if (conv.pending_action)        html += kvBC(t('drawer.kv.pending'), conv.pending_action);
-    if (conv.last_message_preview)  html += kvBC(t('drawer.kv.lastMessage'), conv.last_message_preview);
-    html += '</div>';
-  } else {
-    html += '<div class="ctx-none">' + escHtml(t('drawer.conversation.none')) + '</div>';
-  }
-  if (data.handoff){
-      var hf = data.handoff;
-      html += '<div class="kv-grid" style="margin-top:' + (data.conversation ? '12' : '0') + 'px">';
-      html += kvBC(t('drawer.kv.handoffReason'), hf.reason_code);
-      html += kvBC(t('drawer.kv.priority'), hf.priority);
-      html += kvBC(t('drawer.kv.status'), hf.status);
-      if (hf.assigned_staff) html += kvBC(t('drawer.kv.assignedTo'), hf.assigned_staff);
-      if (hf.opened_at)      html += kvBC(t('drawer.kv.opened'), new Date(hf.opened_at).toLocaleString());
-      html += '</div>';
-  }
-  html += '</div>';
   html += bcRenderLunaGuestNotesHtml(data);
   html += '</div>';
 

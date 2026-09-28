@@ -154,13 +154,19 @@ async function main() {
         const toggleStyles = await page.locator('#bc-payment-history-toggle, #bc-move-bed-toggle').evaluateAll(es=>es.map(e=>{const s=getComputedStyle(e);return [s.display,s.borderWidth,s.backgroundColor,s.justifyContent];}));
         assert.deepEqual(toggleStyles[0],toggleStyles[1],'history header matches Move Bed chrome');
         assert.equal(await page.locator('#bc-payment-history-card').count(), 1, 'one mounted history');
-        assert.equal(await history.getAttribute('aria-expanded'), 'true','history line items visible by default');
-        assert.equal(await page.locator('#bc-payment-history-body').isVisible(), true);
-        assert.match(await page.locator('#bc-payment-history-body').innerText(), /No payments/i);
-        const mountedHistory=await page.locator('#bc-payment-history-card').elementHandle();
-        await history.focus(); await page.keyboard.press('Enter');
-        assert.equal(await history.getAttribute('aria-expanded'), 'false');
+        assert.equal(await history.getAttribute('aria-expanded'), 'false','history collapsed by default');
         assert.equal(await page.locator('#bc-payment-history-body').isVisible(), false);
+        assert.match(await page.locator('#bc-payment-history-body').evaluate(e=>e.textContent), /No payments/i);
+        assert.equal(await page.locator('#bc-payment-history-card').evaluate(el=>!!el.closest('#bc-overview-invoice')), false, 'history is outside Invoice card');
+        assert.equal(await page.locator('#bc-payment-history-card').evaluate(el=>el.nextElementSibling && el.nextElementSibling.id), 'bc-move-bed', 'history sits above Move Bed');
+        assert.notEqual(await page.locator('#bc-payment-history-card').evaluate(el=>getComputedStyle(el).maxWidth), '340px', 'history card matches Move Bed width, not the narrow payments box');
+        assert.equal(await page.locator('.bc-conv-handoff-block').count(), 0, 'Conversation / Handoff removed');
+        assert.equal(await page.locator('#bc-luna-notes-wrap').count(), 1, 'Notes remain');
+        assert.equal(await page.locator('.bc-guest-pay-paid').first().innerText(), '€0.00', 'zero paid is never blank');
+        assert.match(await page.locator('.bc-guest-pay-owed').first().innerText(), /^€\d+\.\d{2}$/, 'owed amount is never blank');
+        assert.equal(await page.locator('.bc-guest-pay-row .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not on the name row');
+        assert(await page.locator('.bc-guest-pay-links .bc-create-guest-payment-link-btn').count() > 0, 'Deposit Link / Payment Link sit one row down');
+        const mountedHistory=await page.locator('#bc-payment-history-card').elementHandle();
         async function collapseSnapshot(){return mountedHistory.evaluate(old=>({
           sameNode:old===document.getElementById('bc-payment-history-card'),oldConnected:old.isConnected,
           aria:document.getElementById('bc-payment-history-toggle')?.getAttribute('aria-expanded'),
@@ -186,9 +192,10 @@ async function main() {
         await page.clock.resume();
         results.push({name:'pinned-click-cancels-hover-preserves-collapsed-node',zeroMutations:true});
         assert.equal(await page.locator('#bc-move-bed-toggle').getAttribute('aria-expanded'), 'false');
-        await page.keyboard.press('Space');
+        await history.focus(); await page.keyboard.press('Enter');
         assert.equal(await history.getAttribute('aria-expanded'), 'true');
         assert.equal(await page.locator('#bc-payment-history-body').isVisible(), true);
+        assert.match(await page.locator('#bc-payment-history-body').innerText(), /No payments/i);
         await page.locator('#bc-side-drawer').screenshot({path:path.join(OUT,'invoice-local-synthetic.png')});
         results.push({name:'invoice-history', paymentTabRemoved:true, localSynthetic:true});
         assert.equal(await page.locator('#bc-record-payment-btn').count(), 1, 'Record Payment below Per Guest');
@@ -233,16 +240,15 @@ async function main() {
         assert.equal(await page.locator('#bc-payment-amount').inputValue(),'287.66','named remaining share uses the receipt projection');
         await page.locator('#bc-payment-cancel').click();
         assert.equal(await page.locator('[data-tab=overview].bc-drawer-tab').getAttribute('aria-selected'),'true');
-        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true');
+        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false','fresh open keeps history collapsed');
         results.push({name:'named-cash-payload-and-read-refresh', localSynthetic:true});
         const create = page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').first();
         await create.click();
         await page.locator('#bc-inv-per-guest .bc-inline-payment-link').waitFor();
         assert.equal(await page.locator('#bc-refresh-links-btn').count(),1,'Refresh Links exists');
-        await page.locator('#bc-payment-history-toggle').click();
         const beforeRefreshWrites = ledger.filter(e=>e.method==='POST').length;
         await page.locator('#bc-refresh-links-btn').click();
-        await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+        await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
         assert.equal(await page.locator('#bc-inv-per-guest .bc-inline-payment-link').count(),0);
         assert.equal(await page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').count(),1);
         assert.equal(ledger.filter(e=>e.method==='POST').length,beforeRefreshWrites,'refresh is GET only');
@@ -255,7 +261,7 @@ async function main() {
         await page.waitForRequest(r=>false,{timeout:20}).catch(()=>{}); // bounded yield; response deliberately held below
         assert.equal(typeof releaseGuest,'function','provider-double response is held');
         await page.locator('#bc-refresh-links-btn').click();
-        await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+        await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
         const lateResponse = page.waitForResponse(r=>r.url().includes('generate-guest-payment-link'));
         releaseGuest(); await lateResponse;
         await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
@@ -299,13 +305,13 @@ async function main() {
         assert.equal(receipts[2].method,'bank_transfer');
         assert.equal(receipts[2].amount_cents,4001);
         await page.locator('#bc-refresh-links-btn').click();
-        await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+        await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
         assert.equal(receipts.length,3,'read retry never records again');
         assert.equal(await page.locator('.bc-create-guest-payment-link-btn').count(),0,'unallocated receipt blocks unsafe guest collection');
         results.push({name:'all-bank-transfer-stable-retry-recorded-read-failure',localSynthetic:true});
         state.payments.rows.push({payment_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',payment_status:'checkout_created',amount_due_cents:1000,checkout_url:'https://checkout.stripe.com/c/pay/history-test',stripe_checkout_session_id:'cs_test_history',metadata:{source:'staff_payment_link'}});
         await page.locator('#bc-refresh-links-btn').click();
-        await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+        await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
         await page.locator('#bc-generate-payment-link-btn').click();
         await page.locator('#bc-payment-link-result a').waitFor();
         await page.locator('.bc-history-item').filter({has:page.locator('.btn-bc-cancel-link-icon')}).locator('summary').click();
@@ -334,7 +340,7 @@ async function main() {
         await page.locator('#bc-side-close').click();
         await page.locator('.bc-block').first().click();
         await page.locator('#bc-record-payment-btn').waitFor();
-        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true','new open shows history line items');
+        assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false','new open keeps Payment History collapsed');
         for (const [size,width,height] of [['desktop',1440,1000],['phone',390,844]]) {
           await page.setViewportSize({width,height});
           for (const theme of ['light','dark']) {
