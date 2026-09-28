@@ -19674,7 +19674,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .bc-controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .bc-legend-row{display:flex;align-items:center;gap:10px;flex:0 0 auto;flex-wrap:wrap}
-.bc-zoom-bar{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);height:32px;min-height:32px;box-sizing:border-box}
+.bc-zoom-bar{display:none;align-items:center;gap:3px;padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);height:32px;min-height:32px;box-sizing:border-box}
 .bc-zoom-btn{width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;line-height:1;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .bc-zoom-btn:hover:not(:disabled){background:var(--surface-soft);border-color:var(--tan)}
 .bc-zoom-btn:disabled{opacity:.4;cursor:not-allowed}
@@ -19688,7 +19688,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider:before{transform:translateX(14px)}
 .bc-zoom-lock-switch input:focus-visible + .bc-zoom-lock-slider{outline:2px solid rgba(175,195,163,.45);outline-offset:2px}
 /* ── Bed calendar legend (Stage 8.3a / 26h.5 compact right) ─────────────── */
-.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;height:32px;min-height:32px;box-sizing:border-box}
+.bc-legend{display:none;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;height:32px;min-height:32px;box-sizing:border-box}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
 .bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}
@@ -20491,8 +20491,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 /* staff-portal-mobile:calendar-card — near full-width grid with inner horizontal scroll */
 #tab-bed-calendar .card{width:calc(100vw - 16px);max-width:none;margin:8px auto;padding:12px 10px;box-sizing:border-box}
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
-#tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
-#tab-bed-calendar .bc-grid{min-width:840px}
+#tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:hidden;overflow-y:auto}
+#tab-bed-calendar .bc-grid{width:100%;min-width:0;table-layout:fixed}
 /* staff-portal-calendar:sunset-fonts — every booking-cal glyph uses sunset type */
 #tab-bed-calendar,
 #tab-bed-calendar *,
@@ -20540,7 +20540,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar #bc-load{flex:0 0 auto;min-height:32px;height:32px;padding:6px 12px;font-size:12px;line-height:1.2}
 #tab-bed-calendar .bc-controls-row{gap:8px}
 #tab-bed-calendar .bc-chips{flex-wrap:wrap;gap:6px}
-#tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{height:auto;min-height:32px;max-width:100%}
+#tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{display:none}
 /* staff-portal-mobile:inbox — dense full-width conversation cards + sticky filter bar */
 .inbox-left-toolbar{position:sticky;top:0;z-index:5;background:var(--surface-soft);border-bottom:1px solid var(--border-soft)}
 .inbox-toolbar-top{width:100%;gap:8px}
@@ -20656,11 +20656,19 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .bc-range-wrap{flex:0 0 auto;order:3}
   #tab-bed-calendar #bc-load{flex:0 0 auto;order:3}
   #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:4}
+  #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:hidden}
+  #tab-bed-calendar .bc-grid{width:100%;min-width:0;table-layout:fixed}
   #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
 }
 @media (max-width:768px){
   #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
+  #tab-bed-calendar .toolbar{position:relative;padding-top:2px}
+  #tab-bed-calendar .toolbar h2{padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar #bc-load{position:absolute;top:0;right:0;width:44px;height:44px;min-height:44px;padding:0;z-index:2}
+  #tab-bed-calendar #bc-load svg{width:26px;height:26px;stroke-width:2.4}
+  #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #tab-bed-calendar .bc-grid{width:auto;min-width:840px;table-layout:auto}
 }
 /* Schedule date shortcuts: one scroll lane, with end space for true centering. */
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
@@ -20668,7 +20676,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{content:'';flex:0 0 50%}
 @media (min-width:769px){
   #tab-bed-calendar .toolbar{flex-wrap:wrap}
-  #tab-bed-calendar .bc-chips{flex:1 1 240px}
+  #tab-bed-calendar .bc-chips{flex:1 1 240px;overflow:visible}
+  #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{display:none}
 }
 /* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
 #bc-side-drawer{
