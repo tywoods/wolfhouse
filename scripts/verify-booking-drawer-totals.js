@@ -115,7 +115,7 @@ async function main() {
     assert(await deposit.evaluate(e=>e.parentElement.previousElementSibling.textContent.includes('Invoice total')));
     async function refresh(){
       await page.locator('#bc-refresh-links-btn').click();
-      await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+      await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     }
     for(const [amount,depositState,balanceText] of [[5000,'unpaid','€550.00'],[18000,'paid','€420.00']]){
       state.payments.paid_total_cents=amount;state.payments.rows=[{payment_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',payment_status:'paid',amount_paid_cents:amount}];

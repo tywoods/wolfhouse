@@ -127,7 +127,7 @@ async function main() {
     await page.waitForFunction(()=>{const r=document.getElementById('bc-side-drawer').getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth+1;});
     async function refresh(){
       await page.locator('#bc-refresh-links-btn').click();
-      await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+      await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     }
     state.payments.rows=[{payment_id:'receipt-all',payment_status:'paid',amount_paid_cents:60000,created_at:'2026-09-26T10:00:00Z',paid_at:'2026-09-26T10:01:00Z',metadata:{method:'bank_transfer',payment_scope:'booking'}}];
     await refresh();
@@ -178,11 +178,17 @@ async function main() {
     await page.locator('#bc-refresh-links-btn').waitFor();
     assert.deepEqual(await page.locator('#bc-guest-names .bc-accom-pay-pebble').allTextContents(),['Paid','Paid'],'reopen uses same authoritative receipt');
     cases.push('full-booking-paid-all-guests-beds-header-refresh-and-reopen');
-    assert.deepEqual(await page.locator('#bc-inv-per-guest .ctx-inv-guest-line').allTextContents(),['Tom (test)','Ada & Bea (test)'],'Per Guest contains names/actions only, no internal payment prose');
+    const guestRows=await page.locator('#bc-inv-per-guest .bc-guest-pay-row').evaluateAll(els=>els.map(e=>({name:e.querySelector('.bc-guest-pay-name').textContent,paid:e.querySelector('.bc-guest-pay-paid').textContent,owed:e.querySelector('.bc-guest-pay-owed').textContent})));
+    assert.deepEqual(guestRows.map(r=>r.name),['Tom (test)','Ada & Bea (test)'],'Per Guest names stay, with no internal payment prose');
+    assert(guestRows.every(r=>/^€\d+\.\d{2}$/.test(r.paid)&&/^€\d+\.\d{2}$/.test(r.owed)),'paid and owed always show an amount');
     assert.equal(await page.locator('#bc-inv-per-guest .bc-create-guest-payment-link-btn').count(),0,'removing explanation must not remove collection fence');
     cases.push('per-guest-clean-with-collection-fence-intact');
-    assert.equal(await page.locator('.bc-invoice-history').evaluate(e=>e.previousElementSibling.id),'bc-inv-totals','history immediately beneath Totals');
-    assert.equal(await page.locator('#bc-payment-history-body').isVisible(),true,'line items visible without extra opening');
+    assert.equal(await page.locator('#bc-payment-history-card').evaluate(el=>el.parentElement.classList.contains('bc-drawer-overview-panel')),true,'history is its own card');
+    assert.equal(await page.locator('#bc-payment-history-card').evaluate(el=>!!el.closest('#bc-overview-invoice')),false,'history left the Invoice card');
+    assert.equal(await page.locator('#bc-payment-history-card').evaluate(el=>el.nextElementSibling&&el.nextElementSibling.id),'bc-move-bed','history sits above Move Bed');
+    assert.equal(await page.locator('#bc-payment-history-body').isVisible(),false,'history collapsed until opened');
+    await page.locator('#bc-payment-history-toggle').click();
+    assert.equal(await page.locator('#bc-payment-history-body').isVisible(),true);
     assert.equal(await page.locator('.bc-history-item').count(),1);
     const summary=page.locator('.bc-history-item summary');
     assert.match(await summary.innerText(),/Paid bank transfer/);
@@ -221,7 +227,10 @@ async function main() {
     cases.push('transfer-cancelled-transfer-unknown-total-pending-no-false-paid');
     const savedGuest=JSON.parse(JSON.stringify(state.booking_guests[1]));
     delete state.booking_guests[1].booking_guest_id;state.booking_guests[1].payment_status='deposit_paid';await refresh();
-    assert.equal(await page.locator('#bc-inv-per-guest .ctx-inv-guest-line').nth(1).innerText(),'Ada & Bea (test)','unlinked guest has no internal fallback prose');
+    const ada=page.locator('#bc-inv-per-guest .ctx-inv-guest-line').nth(1);
+    assert.equal(await ada.locator('.bc-guest-pay-name').innerText(),'Ada & Bea (test)','unlinked guest has no internal fallback prose');
+    assert.match(await ada.locator('.bc-guest-pay-paid').innerText(),/^€\d+\.\d{2}$/);
+    assert.match(await ada.locator('.bc-guest-pay-owed').innerText(),/^€\d+\.\d{2}$/);
     state.booking_guests[1]=savedGuest;
     state.booking_guests[0].amount_paid_cents=9000;state.booking_guests[0].payment_status='paid';
     state.payments.rows=[

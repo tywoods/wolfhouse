@@ -141,7 +141,7 @@ async function main(){
       if(d===detail)assert.match(beforeRefresh[index].title,/Link sent/,'unpaid group opening has original guest link');
       d.payments.rows=[{payment_id:'receipt-all',payment_status:'paid',amount_paid_cents:60000,created_at:'2026-09-26T10:00:00Z',paid_at:'2026-09-26T10:01:00Z',metadata:{method:'bank_transfer',payment_scope:'booking'}}];
       await page.locator('#bc-refresh-links-btn').click();
-      await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+      await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
       const afterRefresh=await readBlocks();
       for(const i of indices){assert.deepEqual(afterRefresh[i].badges,['Paid']);assert(!/link sent/i.test(afterRefresh[i].title),'Invoice refresh must also remove stale Link sent tooltip');assert.equal(afterRefresh[i].package,'Uluwatu');assert.equal(afterRefresh[i].transfer,'Transfer');}
       assert.match(await page.locator('#bc-inv-totals').textContent(),/Invoice total€600.00.*Paid€600.00.*Paid in full/);
@@ -201,7 +201,7 @@ async function main(){
     await page.locator('#bc-side-drawer #bc-inv-totals').waitFor();
     detail.payments.rows=[{payment_id:'receipt-turnover-outgoing',payment_status:'paid',amount_paid_cents:60000,created_at:'2026-09-26T10:00:00Z',paid_at:'2026-09-26T10:01:00Z',metadata:{method:'bank_transfer',payment_scope:'booking'}}];
     await page.locator('#bc-refresh-links-btn').click();
-    await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+    await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     const turnoverOutgoing=await readTurnover();
     observations.push({name:'turnover-outgoing-invoice-refresh',rows:turnoverOutgoing});
     for(const row of turnoverOutgoing.filter(r=>r.regular&&r.index!=='2')){
@@ -232,7 +232,7 @@ async function main(){
     assert.match(beforeIncoming.find(r=>r.marker).title,/Link sent/,'independent outgoing marker remains unpaid');
     single.payments.rows.push({payment_id:'receipt-turnover-incoming',payment_status:'paid',amount_paid_cents:60000,created_at:'2026-09-26T10:00:00Z',paid_at:'2026-09-26T10:01:00Z',metadata:{method:'bank_transfer',payment_scope:'booking'}});
     await page.locator('#bc-refresh-links-btn').click();
-    await page.waitForFunction(()=>document.getElementById('bc-invoice-feedback').textContent.includes('Amounts refreshed'));
+    await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     const turnoverIncoming=await readTurnover();
     observations.push({name:'turnover-incoming-invoice-refresh',rows:turnoverIncoming});
     const paidIncoming=turnoverIncoming.find(r=>r.index==='2'&&r.regular);
