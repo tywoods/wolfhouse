@@ -24,7 +24,7 @@ const { getBedCalendarBlocksQuery } = require('./lib/staff-bed-calendar-queries'
 const { loadClientPortalProfile } = require('./lib/staff-portal-clients');
 
 const ROOT = path.join(__dirname, '..');
-const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+const apiSrc = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 
 let pass = 0;
 let fail = 0;
@@ -101,6 +101,7 @@ ok('drawer balance label key still present', apiSrc.includes("'drawer.invoice.ba
   || apiSrc.includes('drawer.invoice.balanceDue'));
 
 const sandbox = {
+  getClient: () => 'wolfhouse-somo',
   escHtml: (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -110,6 +111,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 const pieces = [
+  'bcCalendarBookingFullyPaid',
   'bcCalendarFormatEur',
   'bcCalendarBlockPaymentState',
   'bcCalendarPaymentBadgesHtml',

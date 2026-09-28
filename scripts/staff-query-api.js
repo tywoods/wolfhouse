@@ -36937,10 +36937,17 @@ function bcCalendarBlockPaymentState(blk){
   return null;
 }
 
+function bcCalendarBookingFullyPaid(blk){
+  return !!blk && getClient() === 'wolfhouse-somo' && blk.invoice_total_cents != null && Number(blk.invoice_total_cents) > 0
+    && Number.isFinite(Number(blk.invoice_total_cents)) && blk.ledger_paid_cents != null
+    && Number.isFinite(Number(blk.ledger_paid_cents)) && Number(blk.ledger_paid_cents) >= Number(blk.invoice_total_cents);
+}
+
 function bcCalendarPaymentTooltipHint(blk){
+  var bookingFullyPaid = bcCalendarBookingFullyPaid(blk);
   if (blk && Number(blk.calendar_group_size) > 1) {
     var guestHint = '';
-    if (blk.calendar_guest_link_sent) guestHint += ' | Link sent';
+    if (blk.calendar_guest_link_sent && !bookingFullyPaid) guestHint += ' | Link sent';
     if (blk.calendar_guest_share_cents != null && blk.calendar_guest_paid_cents != null
         && Number(blk.calendar_guest_share_cents) > Number(blk.calendar_guest_paid_cents)) {
       guestHint += ' | ' + bcCalendarFormatEur(Number(blk.calendar_guest_share_cents) - Number(blk.calendar_guest_paid_cents));
@@ -36954,14 +36961,14 @@ function bcCalendarPaymentTooltipHint(blk){
     var hint = '';
     if (st.show_deposit_paid) hint += ' | Deposit paid';
     hint += ' | ' + bcCalendarFormatEur(st.amount_cents);
-    if (st.has_active_payment_link) hint += ' | Link sent';
+    if (st.has_active_payment_link && !bookingFullyPaid) hint += ' | Link sent';
     return hint;
   }
   if (st.kind === 'refund_review') return ' | Refund review ' + bcCalendarFormatEur(st.amount_cents);
   if (st.kind === 'paid') {
-    return st.has_active_payment_link ? ' | Paid | Link sent' : ' | Paid';
+    return st.has_active_payment_link && !bookingFullyPaid ? ' | Paid | Link sent' : ' | Paid';
   }
-  if (st.kind === 'payment_link_created') return ' | Payment link sent';
+  if (st.kind === 'payment_link_created' && !bookingFullyPaid) return ' | Payment link sent';
   return '';
 }
 
@@ -36971,6 +36978,7 @@ function bcCalendarPaymentBadgesHtml(blk){
   if (blk && String(blk.color_type || '').toLowerCase() === 'blocked') return '';
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
+  var bookingFullyPaid = bcCalendarBookingFullyPaid(blk);
   var html = '<span class="bc-block-pay-wrap">';
   if (st.kind === 'balance_due') {
     if (st.show_deposit_paid) {
@@ -36978,18 +36986,18 @@ function bcCalendarPaymentBadgesHtml(blk){
     }
     html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
-    if (st.has_active_payment_link) {
+    if (st.has_active_payment_link && !bookingFullyPaid) {
       html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
     }
   } else if (st.kind === 'paid') {
     html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
-    if (st.has_active_payment_link) {
+    if (st.has_active_payment_link && !bookingFullyPaid) {
       html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
     }
   } else if (st.kind === 'refund_review') {
     html += '<span class="bc-block-pay-badge bc-block-pay-refund">Refund review ' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
-  } else if (st.kind === 'payment_link_created') {
+  } else if (st.kind === 'payment_link_created' && !bookingFullyPaid) {
     html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
   }
   html += '</span>';
@@ -37073,11 +37081,10 @@ function bcCalendarGuestRowPebblesHtml(blk){
   }
   var linkSent = blk.calendar_guest_link_sent === true
     || (blk.calendar_guest_link_sent == null && blk.calendar_show_payment_pills !== false && !!blk.has_active_payment_link);
-  if (linkSent) html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
+  var bookingFullyPaid = bcCalendarBookingFullyPaid(blk);
+  if (linkSent && !bookingFullyPaid) html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
   html += bcTransferPebbleHtml(blk);
-  if (getClient() === 'wolfhouse-somo' && blk.invoice_total_cents != null && Number(blk.invoice_total_cents) > 0
-      && Number.isFinite(Number(blk.invoice_total_cents)) && blk.ledger_paid_cents != null
-      && Number.isFinite(Number(blk.ledger_paid_cents)) && Number(blk.ledger_paid_cents) >= Number(blk.invoice_total_cents)) {
+  if (bookingFullyPaid) {
     return html + '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
   }
   var multi = Number(blk.calendar_group_size || 0) > 1 || blk.calendar_guest_number != null;
@@ -38180,6 +38187,21 @@ function bcRefreshCalendarBlockPaymentPebbles(bookingCode, ledger, hasActiveLink
       var labelEl = blockEl.querySelector('.bc-block-label');
       var labelText = labelEl ? labelEl.textContent : bcBlockLabel(blk, blk.span_days || 1, 'checkin');
       blockEl.innerHTML = bcCalendarBlockInnerHtml(blk, labelText);
+      // Refresh the existing tooltip as well as pebbles, retaining turnover context.
+      var checkout = blockEl.parentNode.querySelector('.bc-block-checkout-marker');
+      var checkoutIdx = checkout ? Number(checkout.getAttribute('data-bidx')) : -1;
+      var tooltip = document.createElement('span');
+      tooltip.innerHTML = checkout && bcCalendarBlocks[checkoutIdx] ? bcTurnoverCellTooltip([
+        { blk: bcCalendarBlocks[checkoutIdx], idx: checkoutIdx, layer: 'checkout' },
+        { blk: blk, idx: idx, layer: 'checkin' },
+      ]) : bcBlockTooltip(blk);
+      blockEl.title = tooltip.textContent;
+    });
+    // Checkout markers own a separate tooltip, not regular block content.
+    document.querySelectorAll('.bc-block-checkout-marker[data-bidx="' + idx + '"]').forEach(function(markerEl){
+      var tooltip = document.createElement('span');
+      tooltip.innerHTML = bcBlockTooltip(blk);
+      markerEl.title = tooltip.textContent;
     });
   });
 }
