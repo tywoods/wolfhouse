@@ -615,11 +615,12 @@ function scheduleRenderDayCockpit(mount, data) {
   var spanMin = (win[1] - win[0]) * 60;
   var pct = function (min) { return scheduleCockpitPct(min, win[0], spanMin); };
 
-  // Compact is the chrome-free default: retain the single global menu button
-  // while this repaint clears the cockpit, then dock it in the card's top-right.
+  // Compact is chrome-free on mobile: retain the single global menu button
+  // while this repaint clears the cockpit, then dock it beside the date heading.
   var compactMenu = null;
   try {
-    if (doc.body && doc.body.classList.contains('luna-hdr-compact')) {
+    if (doc.body && doc.body.classList.contains('luna-hdr-compact')
+      && (!doc.defaultView || !doc.defaultView.matchMedia || doc.defaultView.matchMedia('(max-width:768px)').matches)) {
       compactMenu = doc.getElementById('nav-menu-toggle');
     }
   } catch (_compactMenu) { compactMenu = null; }
@@ -744,8 +745,8 @@ function scheduleRenderDayCockpit(mount, data) {
   create.type = 'button';
   if (on.create) create.addEventListener('click', function () { on.create(null); });
   right.appendChild(create);
-  if (compactMenu) right.appendChild(compactMenu);
   bar.appendChild(right);
+  if (compactMenu) bar.appendChild(compactMenu);
   mount.appendChild(bar);
 
   /* ----- body ----- */

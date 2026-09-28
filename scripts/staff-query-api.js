@@ -21402,18 +21402,18 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   background-image:url('/staff/assets/luna-header-banner-dark.png?v=2');
 }
 
-/* ── COMPACT mode: ONE slim white row — bigger logo · nav tabs · controls ────
+/* ── COMPACT mode: desktop slim menu row; mobile chrome moves into Schedule ──
    #tabs is a sibling of #banner in the column body, so to fold the nav up INTO
    the banner we lift #tabs onto the banner row with a negative top margin and
    pad it clear of the logo (left) and the controls cluster (right). #banner
    keeps the logo + controls; the tab buttons float in the open middle band. */
 .luna-header-ui.luna-hdr-compact #banner{
-  height:0;flex:0 0 0;min-height:0;
+  height:52px;flex:0 0 52px;min-height:52px;
   background-image:none;
   background:var(--surface);
-  border:0;
-  padding:0;
-  box-shadow:none;
+  border-bottom:1px solid var(--border-soft);
+  padding:0 clamp(12px,1.6vw,22px);
+  box-shadow:var(--shadow-soft);
   align-items:center;
   position:relative;
   z-index:1; /* the bar surface — the lifted nav floats above this */
@@ -21439,19 +21439,13 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
    through as the single bar. pointer-events:none on the container lets the empty
    middle pass clicks down to the logo/controls; the tab buttons re-enable it. */
 .luna-header-ui.luna-hdr-compact #tabs{
-  margin-top:0;height:0;min-height:0;
+  margin-top:-52px;height:52px;min-height:52px;
   background:transparent;border-bottom:none;box-shadow:none;
   align-items:center;position:relative;z-index:7;pointer-events:none;
   padding-left:clamp(12px,1.6vw,22px);
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
 }
-.luna-header-ui.luna-hdr-compact #tab-portal-home.active .portal-schedule-wrap{padding-top:0}
-.luna-header-ui.luna-hdr-compact #ps-day-cockpit{position:relative}
-.luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle{
-  display:inline-flex;position:absolute;top:12px;right:12px;z-index:20;pointer-events:auto;
-  width:40px;height:40px;flex:0 0 40px;color:var(--luna-teal-dark,#2c5f56);
-  background:rgba(44,95,86,.14);border:1px solid rgba(44,95,86,.45);
-}
+
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
 .luna-header-ui.luna-hdr-compact #tabs .inbox-layout-controls{pointer-events:auto}
@@ -21553,6 +21547,16 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   }
   .luna-header-ui.luna-hdr-compact #banner{
     height:0;min-height:0;flex-basis:0;padding:0;border:0;box-shadow:none;
+  }
+  .luna-header-ui.luna-hdr-compact #tabs{
+    margin-top:0;height:100vh;height:100dvh;min-height:100dvh;
+  }
+  .luna-header-ui.luna-hdr-compact #tab-portal-home.active .portal-schedule-wrap{padding-top:0}
+  .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle{
+    display:inline-flex!important;position:relative;grid-area:date;align-self:start;justify-self:end;
+    z-index:20;pointer-events:auto;width:40px;height:40px;flex:0 0 40px;
+    color:var(--luna-teal-dark,#2c5f56);background:rgba(44,95,86,.14);
+    border:1px solid rgba(44,95,86,.45);
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
   .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
