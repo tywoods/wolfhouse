@@ -20910,8 +20910,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #tab-bed-calendar .bc-legend-row{display:flex;align-items:center;gap:8px}
 #tab-bed-calendar .bc-range-wrap{order:3}
 #tab-bed-calendar .bc-legend-row{order:4}
-#bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
-#bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
+#bc-side-drawer .bc-drawer-footer{flex-direction:row;align-items:flex-start;flex-wrap:nowrap}
+#bc-side-drawer .bc-drawer-footer-left{flex:1 1 auto}
+#bc-side-drawer .bc-drawer-footer-right{align-items:flex-end;margin-left:auto;flex:0 0 auto}
+#bc-side-drawer #bc-cancel-reservation-btn{width:auto;align-self:flex-end;white-space:nowrap}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
 #bc-side-drawer .bc-transfer-cards,
 #bc-side-drawer .bc-transfer-grid,
