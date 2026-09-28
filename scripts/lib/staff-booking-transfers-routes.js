@@ -10,6 +10,7 @@
 'use strict';
 
 const { withPgClient } = require('./pg-connect');
+const { loadStaffTransferConfig } = require('./staff-transfer-pricing');
 const { getClientTransferConfig, getClientAirports, getClientAirportOption, normalizeAirportCode } = require('./client-transfer-config');
 const {
   normalizeBookingDateOnly,
@@ -54,9 +55,9 @@ function trimStr(v) {
 
 function isMissingBookingTransfersTable(err) {
   if (!err) return false;
-  if (err.code === '42P01') return true;
   const msg = String(err.message || '');
-  return /booking_transfers/.test(msg) && /does not exist|undefined table/i.test(msg);
+  return /booking_transfers/.test(msg)
+    && (err.code === '42P01' || /does not exist|undefined table/i.test(msg));
 }
 
 function clientTimezone(clientSlug) {
@@ -134,16 +135,17 @@ function bookingForPricing(row) {
   };
 }
 
-function formatAirportsForApi(clientSlug) {
-  return getClientAirports(clientSlug).map((a) => ({
+function formatAirportsForApi(clientSlug, resolvedConfig) {
+  return getClientAirports(clientSlug, resolvedConfig).map((a) => ({
     code: a.code,
     label: a.label,
     iata: a.iata,
   }));
 }
 
-function formatTransferPricing(clientSlug, booking, transferRow) {
+function formatTransferPricing(clientSlug, booking, transferRow, resolvedConfig) {
   return priceBookingTransfer({
+    resolvedConfig,
     client_slug: clientSlug,
     booking,
     transfer: {
@@ -244,10 +246,23 @@ function buildSuggestedTransferPatch(opts = {}) {
   };
 }
 
-function formatTransferForApi(row, booking, clientSlug, timezone) {
+function formatTransferForApi(row, booking, clientSlug, timezone, resolvedConfig) {
   if (!row) return null;
   const bookingObj = bookingForPricing(booking);
-  const pricing = formatTransferPricing(clientSlug, bookingObj, row);
+  const pricing = formatTransferPricing(clientSlug, bookingObj, row, resolvedConfig);
+  // Staff references live in admin_prices; a saved charge is a durable snapshot.
+  // Keep the legacy internal/Luna response contract when no Staff config is supplied.
+  if (resolvedConfig) {
+    Object.assign(pricing, {
+      saved_charge: true,
+      available: row.price_cents != null || row.included_in_package === true,
+      price_cents: row.price_cents,
+      currency: row.currency,
+      included_in_package: row.included_in_package,
+      pricing_note: row.pricing_note,
+      error_code: row.price_cents != null || row.included_in_package === true ? null : pricing.error_code,
+    });
+  }
   let flightLookupSummary = row.flight_lookup_summary;
   if (flightLookupSummary && typeof flightLookupSummary === 'string') {
     try { flightLookupSummary = JSON.parse(flightLookupSummary); } catch { flightLookupSummary = null; }
@@ -424,11 +439,12 @@ async function loadBooking(pg, clientSlug, bookingId) {
 
 /** Build the transfers drawer payload (same shape as GET /transfers). */
 function buildTransfersDrawerPayload(clientSlug, booking, transferRows, opts = {}) {
+  const resolvedConfig = opts.resolvedConfig;
   const timezone = clientTimezone(clientSlug);
   const transfersAvailable = opts.transfers_available !== false;
   const rows = transferRows || [];
   const transfers = rows
-    .map((row) => formatTransferForApi(row, booking, clientSlug, timezone))
+    .map((row) => formatTransferForApi(row, booking, clientSlug, timezone, resolvedConfig))
     .filter(Boolean);
   return {
     success: true,
@@ -437,7 +453,15 @@ function buildTransfersDrawerPayload(clientSlug, booking, transferRows, opts = {
     booking_code: booking.booking_code,
     timezone,
     transfers_available: transfersAvailable,
-    airports: formatAirportsForApi(clientSlug),
+    airports: formatAirportsForApi(clientSlug, resolvedConfig),
+    ...(resolvedConfig ? { admin_prices: Object.fromEntries(resolvedConfig.rules.map((rule) => [
+      rule.airport_code,
+      { ...formatTransferPricing(clientSlug, bookingForPricing(booking),
+        { airport_code: rule.airport_code }, resolvedConfig),
+      amount_cents: rule.price ? rule.price.amount_cents : null,
+      unit: rule.price ? rule.price.unit : null,
+      source: rule.price ? rule.price.source : null },
+    ])) } : {}),
     transfers,
     defaults: buildDefaults(booking, timezone),
   };
@@ -454,6 +478,7 @@ async function handleGetBookingTransfers(bookingId, query, res) {
       const booking = await loadBooking(pg, clientSlug, bookingId);
       if (!booking) return { notFound: true };
 
+      const resolvedConfig = await loadStaffTransferConfig(pg, clientSlug);
       let rows = [];
       let transfersAvailable = true;
       try {
@@ -465,7 +490,7 @@ async function handleGetBookingTransfers(bookingId, query, res) {
 
       return {
         notFound: false,
-        payload: buildTransfersDrawerPayload(clientSlug, booking, rows, { transfers_available: transfersAvailable }),
+        payload: buildTransfersDrawerPayload(clientSlug, booking, rows, { transfers_available: transfersAvailable, resolvedConfig }),
       };
     });
 
@@ -486,7 +511,7 @@ async function readJsonBody(req) {
   return JSON.parse(raw);
 }
 
-async function handlePostBookingTransfer(bookingId, req, res) {
+async function handlePostBookingTransfer(bookingId, req, res, opts = {}) {
   let body;
   try {
     body = await readJsonBody(req);
@@ -517,6 +542,8 @@ async function handlePostBookingTransfer(bookingId, req, res) {
       const booking = await loadBooking(pg, clientSlug, bookingId);
       if (!booking) return { notFound: true };
 
+      const resolvedConfig = opts.resolveAdminPricing
+        ? await loadStaffTransferConfig(pg, clientSlug) : undefined;
       let existingStatus = null;
       try {
         const rows = await listBookingTransfersForBooking(pg, {
@@ -534,7 +561,7 @@ async function handlePostBookingTransfer(bookingId, req, res) {
         : inferTransferStatusFromInput(body, existingStatus);
 
       const airportInput = trimStr(body.airport_code || body.airport);
-      const resolvedAirportCode = normalizeAirportCode(clientSlug, airportInput)
+      const resolvedAirportCode = normalizeAirportCode(clientSlug, airportInput, resolvedConfig)
         || trimStr(body.airport_code).toUpperCase()
         || null;
 
@@ -563,6 +590,7 @@ async function handlePostBookingTransfer(bookingId, req, res) {
       };
 
       const saved = await upsertBookingTransfer(pg, {
+        resolvedConfig,
         client_slug: clientSlug,
         booking_id: bookingId,
         direction,
@@ -571,14 +599,15 @@ async function handlePostBookingTransfer(bookingId, req, res) {
         source: trimStr(body.source) || 'staff',
       });
 
-      const pricing = formatTransferPricing(clientSlug, bookingForPricing(booking), saved);
+      const transfer = formatTransferForApi(saved, booking, clientSlug, timezone, resolvedConfig);
+      const pricing = transfer.pricing;
       return {
         notFound: false,
         payload: {
           success: true,
           client_slug: clientSlug,
           booking_id: bookingId,
-          transfer: formatTransferForApi(saved, booking, clientSlug, timezone),
+          transfer,
           pricing,
           no_payment_write: true,
         },
@@ -856,7 +885,7 @@ async function dispatchBookingTransfersRoute(req, res, pathname, query) {
     return true;
   }
   if (req.method === 'POST') {
-    await handlePostBookingTransfer(bookingId, req, jsonRes);
+    await handlePostBookingTransfer(bookingId, req, jsonRes, { resolveAdminPricing: true });
     return true;
   }
 

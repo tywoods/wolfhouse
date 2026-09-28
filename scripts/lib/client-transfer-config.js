@@ -82,8 +82,8 @@ function getClientTransferConfig(clientSlug) {
  * @param {string} clientSlug
  * @returns {object[]}
  */
-function getClientAirports(clientSlug) {
-  return getClientTransferConfig(clientSlug).airports;
+function getClientAirports(clientSlug, resolvedConfig) {
+  return (resolvedConfig || getClientTransferConfig(clientSlug)).airports;
 }
 
 /**
@@ -91,10 +91,10 @@ function getClientAirports(clientSlug) {
  * @param {string} airportCode
  * @returns {object|null}
  */
-function getClientAirportOption(clientSlug, airportCode) {
-  const code = normalizeAirportCode(clientSlug, airportCode);
+function getClientAirportOption(clientSlug, airportCode, resolvedConfig) {
+  const code = normalizeAirportCode(clientSlug, airportCode, resolvedConfig);
   if (!code) return null;
-  return getClientAirports(clientSlug).find((a) => a.code === code) || null;
+  return getClientAirports(clientSlug, resolvedConfig).find((a) => a.code === code) || null;
 }
 
 /**
@@ -104,12 +104,12 @@ function getClientAirportOption(clientSlug, airportCode) {
  * @param {string} input
  * @returns {string|null}
  */
-function normalizeAirportCode(clientSlug, input) {
+function normalizeAirportCode(clientSlug, input, resolvedConfig) {
   const raw = trimStr(input);
   if (!raw) return null;
   const upper = raw.toUpperCase();
   const lower = raw.toLowerCase();
-  for (const airport of getClientAirports(clientSlug)) {
+  for (const airport of getClientAirports(clientSlug, resolvedConfig)) {
     if (airport.code === upper || airport.iata === upper) return airport.code;
     if (airport.label && airport.label.toLowerCase() === lower) return airport.code;
     if (Array.isArray(airport.aliases) && airport.aliases.includes(lower)) return airport.code;
@@ -121,8 +121,8 @@ function normalizeAirportCode(clientSlug, input) {
  * @param {string} clientSlug
  * @returns {object[]}
  */
-function getTransferRules(clientSlug) {
-  return getClientTransferConfig(clientSlug).rules;
+function getTransferRules(clientSlug, resolvedConfig) {
+  return (resolvedConfig || getClientTransferConfig(clientSlug)).rules;
 }
 
 /**
@@ -130,10 +130,10 @@ function getTransferRules(clientSlug) {
  * @param {string} airportCode
  * @returns {object|null}
  */
-function getTransferRuleForAirport(clientSlug, airportCode) {
-  const code = normalizeAirportCode(clientSlug, airportCode);
+function getTransferRuleForAirport(clientSlug, airportCode, resolvedConfig) {
+  const code = normalizeAirportCode(clientSlug, airportCode, resolvedConfig);
   if (!code) return null;
-  return getTransferRules(clientSlug).find((r) => r.airport_code === code) || null;
+  return getTransferRules(clientSlug, resolvedConfig).find((r) => r.airport_code === code) || null;
 }
 
 module.exports = {
