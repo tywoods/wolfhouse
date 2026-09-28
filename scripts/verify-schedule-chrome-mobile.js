@@ -61,8 +61,9 @@ async function pills(page,key='sep-oct'){
  observations.push({name:'initial-pills',key,...m});
  assert.equal(m.chips.length,9,'all existing date pills retained');
  assert(m.chips.every(c=>Math.abs(c.y-m.chips[0].y)<1),'all date pills must occupy ONE horizontal line');
- assert.equal(m.overflow,'auto','pill row must allow horizontal scrolling');
- assert(Math.abs(m.target.x+m.target.width/2-(m.x+m.width/2))<2,'current-month relevant pill must genuinely center');
+ const mobile=await page.evaluate(()=>innerWidth<=768);
+ assert.equal(m.overflow,mobile?'auto':'visible',mobile?'mobile pill row keeps horizontal scrolling':'desktop pill row has no horizontal scrolling');
+ if(mobile)assert(Math.abs(m.target.x+m.target.width/2-(m.x+m.width/2))<2,'current-month relevant pill must genuinely center');
  assert.equal(m.active,'30days','centering must NOT select seasonal range');
  return m;
 }
@@ -70,11 +71,13 @@ async function sticky(page,label='sticky'){
  // Geometry scrolling is not a booking-hover test; park the real pointer off the grid.
  await page.mouse.move(0,0);
  await page.locator('#bc-grid-wrap').evaluate(w=>{w.scrollTop=0;w.scrollLeft=0;});await settle(page);
- const initial=await page.evaluate(()=>{const w=document.getElementById('bc-grid-wrap'),r=w.getBoundingClientRect();return {left:r.left,top:r.top,height:w.clientHeight,scrollHeight:w.scrollHeight,width:w.clientWidth,scrollWidth:w.scrollWidth,headLeft:w.querySelector('.bc-bed-head').getBoundingClientRect().left,bedLeft:w.querySelector('.bc-bed-cell').getBoundingClientRect().left,rooms:[...w.querySelectorAll('.bc-room-hdr-row')].map(e=>({room:e.dataset.room,top:e.getBoundingClientRect().top-r.top-1}))};});
- assert(initial.scrollHeight>initial.height+400&&initial.scrollWidth>initial.width+400,'fixture must overflow both axes');
+ const initial=await page.evaluate(()=>{const w=document.getElementById('bc-grid-wrap'),r=w.getBoundingClientRect();return {mobile:innerWidth<=768,left:r.left,top:r.top,height:w.clientHeight,scrollHeight:w.scrollHeight,width:w.clientWidth,scrollWidth:w.scrollWidth,headLeft:w.querySelector('.bc-bed-head').getBoundingClientRect().left,bedLeft:w.querySelector('.bc-bed-cell').getBoundingClientRect().left,rooms:[...w.querySelectorAll('.bc-room-hdr-row')].map(e=>({room:e.dataset.room,top:e.getBoundingClientRect().top-r.top-1}))};});
+ assert(initial.scrollHeight>initial.height+400,'fixture must overflow vertically');
+ if(initial.mobile)assert(initial.scrollWidth>initial.width+400,'mobile fixture must overflow horizontally');
+ else assert.equal(await page.locator('#bc-grid-wrap').evaluate(e=>getComputedStyle(e).overflowX),'hidden','desktop grid hides the horizontal scroll lane');
  await page.locator('#bc-grid-wrap').evaluate(w=>{w.scrollLeft=440;});await settle(page);
  const locked=await page.evaluate(()=>{const w=document.getElementById('bc-grid-wrap');return {head:w.querySelector('.bc-bed-head').getBoundingClientRect().left,bed:w.querySelector('.bc-bed-cell').getBoundingClientRect().left};});
- assert(Math.abs(locked.head-initial.headLeft)<1,'existing Room/Bed head locks horizontally');assert(Math.abs(locked.bed-initial.bedLeft)<1,'existing bed labels lock horizontally');
+ if(initial.mobile){assert(Math.abs(locked.head-initial.headLeft)<1,'existing Room/Bed head locks horizontally');assert(Math.abs(locked.bed-initial.bedLeft)<1,'existing bed labels lock horizontally');}
  for(const room of initial.rooms){
   await page.locator('#bc-grid-wrap').evaluate((w,top)=>{w.scrollTop=top+80;},room.top);await settle(page);
   const m=await page.evaluate(code=>{const w=document.getElementById('bc-grid-wrap'),wr=w.getBoundingClientRect(),head=w.querySelector('.bc-bed-head').getBoundingClientRect(),row=w.querySelector('.bc-room-hdr-row[data-room="'+code+'"]'),inner=row.querySelector('.bc-room-hdr-inner'),r=inner.getBoundingClientRect(),hit=document.elementFromPoint(wr.left+25,head.bottom+12);return {room:code,scrollTop:w.scrollTop,scrollLeft:w.scrollLeft,wrap:{left:wr.left,right:wr.right,top:wr.top,bottom:wr.bottom},headBottom:head.bottom,label:{x:r.x,y:r.y,width:r.width,height:r.height,text:inner.textContent},hitRoom:hit?.closest('.bc-room-hdr-row')?.dataset.room||null,hitText:hit?.textContent,headers:[...w.querySelectorAll('.bc-room-hdr-row')].map(e=>({room:e.dataset.room,bottom:e.getBoundingClientRect().bottom}))};},room.room);
@@ -106,7 +109,8 @@ async function refreshProbe(page){
 }
 async function interactions(page,width,label){
  const chips=page.locator('#bc-chips'),grid=page.locator('#bc-grid-wrap');
- for(const selector of ['#bc-zoom-bar','#bc-legend','#bc-range-btn'])assert.equal(await page.locator(selector).isVisible(),width>768,selector+' respects 768 breakpoint');
+ for(const selector of ['#bc-zoom-bar','#bc-legend'])assert.equal(await page.locator(selector).isVisible(),false,selector+' is removed');
+ assert.equal(await page.locator('#bc-range-btn').isVisible(),width>768,'desktop keeps custom date picker');
  const fit=await page.locator('#bc-load').evaluate(e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,hit:e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),overflow:document.documentElement.scrollWidth>innerWidth};});
  assert(fit.left>=0&&fit.right<=width&&fit.hit&&!fit.overflow,'Refresh reachable and no page horizontal overflow');
  await chips.evaluate(e=>{e.scrollLeft=123;});
@@ -115,7 +119,7 @@ async function interactions(page,width,label){
  await refresh(page);
  const after=await grid.evaluate(e=>({x:e.scrollLeft,y:e.scrollTop}));
  observations.push({name:'refresh-history',label,before,after,chipLeft:await chips.evaluate(e=>e.scrollLeft)});
- assert.equal(await chips.evaluate(e=>e.scrollLeft),123,'Refresh must not recenter pill history');
+ assert.equal(await chips.evaluate(e=>e.scrollLeft),width<=768?123:0,width<=768?'Refresh must not recenter mobile pill history':'desktop pill row stays non-scrollable');
  // Untouched-base diagnostic proves deferred height measurement resets vertical history.
  // This is an inherited limitation, NOT passing preservation coverage or a chrome requirement.
  observations.push({name:'known-baseline-limitation',label,issue:'Refresh resets vertical grid history',before,after});
@@ -132,15 +136,16 @@ async function interactions(page,width,label){
  assert.equal(await page.locator('.bc-block').count(),8,'group bed blocks preserved');
  assert.equal(await page.locator('.bc-group-parent-row').count(),1,'multiroom group parent preserved');
  if(width>768){
-  const pct=await page.locator('#bc-zoom-pct').textContent();await page.locator('#bc-zoom-in').click();assert.notEqual(await page.locator('#bc-zoom-pct').textContent(),pct,'desktop zoom works');
-  await page.locator('.bc-zoom-lock-slider').click();assert(await page.locator('#bc-zoom-lock').isChecked(),'zoom lock works');
+  assert.equal(await page.locator('#bc-zoom-bar').isVisible(),false,'desktop zoom controls are removed');
+  assert.equal(await page.locator('#bc-legend').isVisible(),false,'desktop legend is removed');
+  assert.equal(await grid.evaluate(e=>getComputedStyle(e).overflowX),'hidden','desktop grid has no horizontal scroll lane');
+  assert.equal(await page.locator('.bc-chips').evaluate(e=>getComputedStyle(e).overflowX),'visible','desktop month shortcuts have no horizontal scroll lane');
   await page.locator('#bc-range-btn').click();assert(await page.locator('#bc-range-pop').isVisible(),'desktop picker opens');
   await page.locator('[data-bc-range-day="2026-10-05"]').click();
   const requested=page.waitForRequest(r=>new URL(r.url()).pathname==='/staff/bed-calendar');
   await page.locator('[data-bc-range-day="2026-10-12"]').click();const custom=new URL((await requested).url());
   assert.equal(custom.searchParams.get('start'),'2026-10-05');assert.equal(custom.searchParams.get('end'),'2026-10-12');
   await page.waitForFunction(()=>!document.getElementById('bc-load').disabled);await settle(page);
-  assert.equal(await page.locator('#bc-zoom-pct').textContent(),String(parseInt(pct)+10)+'%','locked zoom survives range change');
  }
  await sticky(page,label+'-after-controls');
  observations.push({name:'controls-complete',label,width});
@@ -198,6 +203,10 @@ async function main(){
    assert.equal(await page.locator('#bc-zoom-bar').isVisible(),false,'mobile zoom controls must be hidden');
    assert.equal(await page.locator('#bc-legend').isVisible(),false,'mobile legend must be hidden');
    assert(await page.locator('#bc-load').isVisible(),'Refresh remains visible');
+   const refreshBox=await page.locator('#bc-load').boundingBox();const titleBox=await page.locator('#bc-calendar-title').boundingBox();
+   assert(refreshBox.x>titleBox.x+titleBox.width/2&&refreshBox.y<=titleBox.y+4,'mobile Refresh is top-right beside the title');
+   assert((await page.locator('#bc-load svg').boundingBox()).width>=25,'mobile Refresh arrows are enlarged');
+   assert.equal(await page.locator('#bc-grid-wrap').evaluate(e=>getComputedStyle(e).overflowX),'auto','mobile grid keeps horizontal scroll');
   }
   if(['picker','sticky','all'].includes(SLICE))assert.equal(await page.locator('#bc-range-btn').isVisible(),false,'mobile custom range opener must be hidden');
   if(['sticky','all'].includes(SLICE))await sticky(page);
