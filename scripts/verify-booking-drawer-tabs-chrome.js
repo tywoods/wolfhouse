@@ -155,7 +155,7 @@ async function main() {
             await page.locator('#bc-guest-names').scrollIntoViewIfNeeded();
             const rows = await page.locator('#bc-guest-names .bc-guest-name-row').evaluateAll(es => es.map(e => {
               const n=e.querySelector('.bc-guest-name-line'), b=e.querySelector('.bc-guest-bed'), p=e.querySelector('.bc-accom-pay-pebble');
-              const box=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width};};
+              const box=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,top:r.top,bottom:r.bottom};};
               return {name:n.textContent,bed:b.textContent,status:p.textContent,n:box(n),b:box(b),p:box(p),row:box(e)};
             }));
             results.push({name:`names-${width}-${theme}`,rows});
@@ -165,7 +165,10 @@ async function main() {
             ]);
             for (const r of rows) {
               assert(r.n.width >= 40, `visible durable name at ${width}: ${JSON.stringify(r)}`);
-              assert(r.n.right <= r.b.left && r.b.right <= r.p.left, 'name then bed then status');
+              assert(r.n.right <= r.b.left, 'name before bed without overlap');
+              // Phone names may wrap with the status on its own right-aligned line.
+              // Preserve the desktop row contract and reject overlapping phone rows.
+              assert(r.b.right <= r.p.left || (width <= 768 && r.p.top >= Math.max(r.n.bottom, r.b.bottom)), 'status follows name/bed horizontally or below on mobile');
               assert(r.p.right <= width && r.row.left >= 0, 'row stays within viewport');
             }
             assert(Math.max(...rows.map(r=>r.p.right))-Math.min(...rows.map(r=>r.p.right)) < 2, 'status pebbles right-aligned');

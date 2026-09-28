@@ -4959,7 +4959,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
-const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room', 'guest_names']);
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
 const EDIT_PREVIEW_BOOKING_BY_ID_SQL = `
@@ -7759,6 +7759,68 @@ async function handleBookingEditWritePrivateRoom(
   }
 }
 
+// Names-only extension of the existing staff booking-edit route. No repricing or CRM writes.
+async function handleBookingEditWriteGuestNames(res, body, auditBase, started, clientSlug, bookingId, bookingCode, user) {
+  if (!STAFF_ACTIONS_ENABLED) return sendJSON(res, 403, { success: false, error: 'Staff write actions are disabled.' });
+  if (body.client && String(body.client).trim() !== clientSlug) return send400(res, 'conflicting client aliases');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const edits = body.guest_names;
+  if (!Array.isArray(edits) || !edits.length || edits.length > 100) return send400(res, 'guest_names must contain 1 to 100 edits');
+  const ids = new Set();
+  for (const edit of edits) {
+    if (!edit || typeof edit.booking_guest_id !== 'string' || !UUID_VALIDATE_RE.test(edit.booking_guest_id)) return send400(res, 'each guest needs a valid booking_guest_id');
+    if (ids.has(edit.booking_guest_id.toLowerCase())) return send400(res, 'duplicate booking_guest_id');
+    ids.add(edit.booking_guest_id.toLowerCase());
+    if (typeof edit.guest_name !== 'string' || !edit.guest_name.trim() || edit.guest_name.trim().length > 200) return send400(res, 'guest names must be between 1 and 200 characters');
+  }
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const br = await pg.query(`SELECT b.id::text AS booking_id, b.client_id, b.booking_code, b.guest_name
+          FROM bookings b JOIN clients c ON c.id = b.client_id
+          WHERE c.slug = $1 AND ($2::text = '' OR b.id::text = $2) AND ($3::text = '' OR b.booking_code = $3)
+          FOR UPDATE OF b`, [clientSlug, bookingId, bookingCode]);
+        const booking = br.rows[0];
+        if (!booking) { const e = new Error('booking not found'); e.httpStatus = 404; throw e; }
+        const gr = await pg.query(`SELECT id::text AS booking_guest_id, guest_number, guest_name FROM booking_guests
+          WHERE booking_id = $1::uuid AND client_id = $2::uuid ORDER BY guest_number FOR UPDATE`, [booking.booking_id, booking.client_id]);
+        const before = [], after = [];
+        for (const edit of edits) {
+          const guest = gr.rows.find(g => g.booking_guest_id === edit.booking_guest_id.toLowerCase());
+          if (!guest) { const e = new Error('guest does not belong to this booking'); e.httpStatus = 404; throw e; }
+          before.push({ booking_guest_id: guest.booking_guest_id, guest_name: guest.guest_name });
+          after.push({ booking_guest_id: guest.booking_guest_id, guest_name: edit.guest_name.trim() });
+        }
+        let updated = false;
+        for (let i = 0; i < after.length; i++) {
+          if (before[i].guest_name === after[i].guest_name) continue;
+          await pg.query(`UPDATE booking_guests SET guest_name = $4
+            WHERE id = $1::uuid AND booking_id = $2::uuid AND client_id = $3::uuid`,
+          [after[i].booking_guest_id, booking.booking_id, booking.client_id, after[i].guest_name]);
+          updated = true;
+        }
+        // Slot 1 is the stable lead identity; never infer the lead from name equality or display order.
+        const lead = gr.rows.find(g => Number(g.guest_number) === 1);
+        const leadEdit = lead && after.find(g => g.booking_guest_id === lead.booking_guest_id);
+        if (leadEdit && booking.guest_name !== leadEdit.guest_name) {
+          await pg.query('UPDATE bookings SET guest_name = $3 WHERE id = $1::uuid AND client_id = $2::uuid',
+            [booking.booking_id, booking.client_id, leadEdit.guest_name]);
+          updated = true;
+        }
+        await pg.query('COMMIT');
+        return { before, after, updated, booking_id: booking.booking_id, booking_code: booking.booking_code };
+      } catch (err) { try { await pg.query('ROLLBACK'); } catch (_) {} throw err; }
+    });
+    appendAuditLog({ ...auditBase, ...result, success: true, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, { success: true, edit_type: 'guest_names', ...result, idempotent: !result.updated,
+      invoice_impact: { requires_reprice: false, payment_mutation: false, stripe_mutation: false } });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, updated: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, err.httpStatus || 500, { success: false, updated: false, error: err.httpStatus ? err.message : 'guest names update failed' });
+  }
+}
+
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
 
@@ -7842,6 +7904,10 @@ async function handleBookingEditWrite(req, res, user) {
     return handleBookingEditWritePrivateRoom(
       res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
     );
+  }
+
+  if (editType === 'guest_names') {
+    return handleBookingEditWriteGuestNames(res, body, auditBase, started, clientSlug, bookingId, bookingCode, user);
   }
 
   const contactPatch = editWriteParseContactPatch(body);
@@ -20738,10 +20804,18 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   background:transparent;color:var(--text);
 }
 /* Guest rows need the whole read grid; one column collapses names behind beds/status. */
-#bc-side-drawer #bc-field-guests-kv-only{grid-column:1 / -1}
-#bc-side-drawer #bc-field-guests-kv-only .bc-guest-name-line{flex:1 1 auto}
-@media(max-width:400px){
-  #bc-side-drawer #bc-field-guests-kv-only .bc-guest-sep{padding:0}
+#bc-drawer-card-booking #bc-field-guests-kv-only{grid-column:1 / -1}
+#bc-drawer-card-booking .bc-guest-name-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 8px;align-items:start;margin-bottom:6px;white-space:normal}
+#bc-drawer-card-booking .bc-guest-name-line{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
+#bc-drawer-card-booking .bc-guest-sep{display:none}
+[data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
+@media(max-width:768px){
+  #bc-drawer-card-booking .bc-guest-name-row{grid-template-columns:minmax(0,1fr) auto}
+  #bc-drawer-card-booking .bc-guest-name-row .bc-accom-pay-pebble{grid-column:1 / -1;justify-self:end}
+
+  #bc-drawer-card-booking .bc-inline-input{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+  #bc-drawer-card-booking .bc-inline-guest-name{display:block;margin:0 0 8px}
+  #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing) #bc-inline-edit-bar{display:flex;justify-content:flex-end;margin-top:12px}
 }
 #bc-side-drawer #bc-field-guests-kv-only .k{display:none}
 #bc-side-drawer #bc-field-guests-kv-only .v{
@@ -41576,6 +41650,9 @@ function bcFieldEditRestoreForms(){
 }
 
 function bcFieldEditCloseAll(){
+  bcFieldEditState.inlineSession = (bcFieldEditState.inlineSession || 0) + 1;
+  var inlineSave = el('bc-inline-save');
+  if (inlineSave) inlineSave.disabled = false;
   bcFieldEditState.activeGroup = null;
   document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
     root.classList.remove('is-editing');
@@ -41612,10 +41689,12 @@ function bcFieldEditShowGroup(group){
   root.classList.add('is-editing');
   var read = root.querySelector('.ctx-field-read');
   var edit = root.querySelector('.ctx-field-edit');
-  var inRail = !!(el('bc-side-drawer') && el('bc-side-drawer').contains(root));
-  if (inRail) {
+  var inRail = !!root.closest('#bc-side-drawer');
+  var mobileNames = !inRail && group === 'guests' && !!root.closest('#bc-drawer-card-booking');
+  if (inRail || mobileNames) {
     if (read) read.style.display = '';
-    if (edit) edit.style.display = 'none';
+    // Keep the phone's existing count/contact/date/package forms available.
+    if (edit) edit.style.display = mobileNames ? '' : 'none';
     bcFieldEditPaintInline(group);
   } else {
     if (read) read.style.display = 'none';
@@ -41659,29 +41738,20 @@ function bcFieldEditPaintInline(group){
     if (wrap && !wrap.dataset.bcInline) {
       wrap.dataset.bcInline = '1';
       wrap.dataset.bcReadHtml = wrap.innerHTML;
-      var names = [];
-      wrap.querySelectorAll('.bc-guest-name-line').forEach(function(n){ names.push(n.textContent.trim()); });
-      var count = Math.max(1, parseInt(bcFieldEditState.guestCount, 10) || names.length || 1);
-      while (names.length < count) names.push('');
-      if (names.length > count) names = names.slice(0, count);
+      var guests = (bcFieldEditState.snapshot.guest_names || []).slice();
       wrap.innerHTML = '';
-      names.forEach(function(name, i){
+      guests.forEach(function(guest, i){
         var inp = document.createElement('input');
         inp.type = 'text';
         inp.className = 'bk-input bk-input-sm bc-inline-input bc-inline-guest-name';
-        inp.value = name;
-        inp.placeholder = 'Guest ' + (i + 1);
-        inp.setAttribute('aria-label', 'Guest ' + (i + 1));
+        inp.value = guest.guest_name;
+        inp.maxLength = 200;
+        inp.placeholder = 'Guest ' + guest.guest_number;
+        inp.setAttribute('aria-label', 'Guest ' + guest.guest_number + (guest.bed_code ? ' · ' + guest.bed_code : ''));
+        inp.setAttribute('data-booking-guest-id', guest.booking_guest_id || '');
         inp.setAttribute('data-guest-i', String(i));
-        if (i === 0) {
-          inp.addEventListener('input', function(){
-            var n = el('bc-field-contact-name');
-            if (n) n.value = inp.value;
-            var title = el('bc-side-title');
-            if (title && inp.value) title.textContent = inp.value;
-            bcFieldEditUpdateContactSaveState();
-          });
-        }
+        inp.disabled = !guest.booking_guest_id;
+        if (inp.disabled) inp.title = 'Guest has no saved identity; name editing is unavailable.';
         wrap.appendChild(inp);
       });
     }
@@ -41705,7 +41775,7 @@ function bcFieldEditEnablePrivateRoomInline(){
 }
 
 function bcFieldEditRestoreInline(){
-  document.querySelectorAll('#bc-side-drawer .bc-inline-input').forEach(function(input){
+  document.querySelectorAll('#bc-drawer-card-booking .bc-inline-input').forEach(function(input){
     if (input._bcHome) input._bcHome.appendChild(input);
     input.classList.remove('bc-inline-input');
   });
@@ -41740,12 +41810,20 @@ function bcFieldEditPostEdit(body){
 }
 
 function bcFieldEditSaveInlineAll(){
-  var name0 = document.querySelector('#bc-side-drawer .bc-inline-guest-name');
+  var mount = el('bc-drawer-card-booking');
+  var session = bcFieldEditState.inlineSession;
+  var client = bcFieldEditState.clientSlug;
+  var bookingId = bcFieldEditState.bookingId;
+  var code = bcFieldEditState.bookingCode;
+  function ownsEditor(){
+    return mount && mount.isConnected && el('bc-drawer-card-booking') === mount &&
+      bcFieldEditState.inlineSession === session && bcFieldEditState.clientSlug === client &&
+      getBcClient() === client && bcFieldEditState.bookingId === bookingId;
+  }
   var nameEl = el('bc-field-contact-name');
-  if (name0 && nameEl) nameEl.value = String(name0.value || '').trim();
   var prRead = el('bc-field-private-room-read-switch');
   var prEdit = el('bc-field-private-room-switch');
-  if (prRead && prEdit) prEdit.checked = prRead.checked;
+  if (prRead && prEdit && prRead.closest('#bc-side-drawer')) prEdit.checked = prRead.checked;
   var s = bcFieldEditState.snapshot || {};
   var phoneEl = el('bc-field-contact-phone');
   var emailEl = el('bc-field-contact-email');
@@ -41761,39 +41839,61 @@ function bcFieldEditSaveInlineAll(){
     coutEl.value !== String(s.check_out || '')
   ));
   var prDirty = !!(prEdit && !!prEdit.checked !== !!s.private_room);
-  var jobs = Promise.resolve();
+  var guestNames = [];
+  document.querySelectorAll('#bc-drawer-card-booking .bc-inline-guest-name').forEach(function(input){
+    var original = (s.guest_names || [])[Number(input.getAttribute('data-guest-i'))];
+    if (!input.disabled && original && input.value.trim() !== original.guest_name) {
+      guestNames.push({ booking_guest_id: original.booking_guest_id, guest_name: input.value.trim() });
+    }
+  });
+  if (guestNames.some(function(g){ return !g.guest_name || g.guest_name.length > 200; })) {
+    alert('Guest names must be between 1 and 200 characters.'); return;
+  }
+  // Validate and capture every payload before the first asynchronous dispatch.
+  var bodies = [];
+  if (guestNames.length) {
+    var namesBody = {
+      client_slug: bcFieldEditState.clientSlug, booking_id: bcFieldEditState.bookingId,
+      booking_code: bcFieldEditState.bookingCode, edit_type: 'guest_names', guest_names: guestNames,
+      idempotency_key: bcNewContactEditIdempotencyKey(), reason: 'Staff portal guest names edit',
+    };
+    bodies.push(namesBody);
+  }
   if (contactDirty) {
     var c = bcFieldEditBuildContactWritePayload();
     if (c.error) { alert(c.error); return; }
-    jobs = jobs.then(function(){ return bcFieldEditPostEdit(c); });
+    // The names write owns the lead projection. Do not replay an unchanged hidden
+    // contact name over it; keep an explicitly edited contact name authoritative.
+    if (c.guest_name === String(s.guest_name || '').trim()) delete c.guest_name;
+    bodies.push(c);
   }
   if (datesDirty) {
-    jobs = jobs.then(function(){
-      var d = bcFieldEditBuildDatesWritePayload();
-      if (d.error) throw new Error(d.error);
-      return bcFieldEditPostEdit(d);
-    });
+    var d = bcFieldEditBuildDatesWritePayload();
+    if (d.error) { alert(d.error); return; }
+    bodies.push(d);
   }
   if (prDirty) {
-    jobs = jobs.then(function(){
-      return bcFieldEditPostEdit({
-        client_slug: bcFieldEditState.clientSlug || getBcClient(),
-        booking_id: bcFieldEditState.bookingId,
-        booking_code: bcFieldEditState.bookingCode,
+    bodies.push({
+        client_slug: client,
+        booking_id: bookingId,
+        booking_code: code,
         edit_type: 'private_room',
         private_room_enabled: !!prEdit.checked,
         idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
         reason: 'Staff portal private room toggle',
-      });
     });
   }
   var saveBtn = el('bc-inline-save');
   if (saveBtn) saveBtn.disabled = true;
+  var jobs = bodies.reduce(function(chain, body){
+    return chain.then(function(){ return bcFieldEditPostEdit(body); });
+  }, Promise.resolve());
   jobs.then(function(){
-    var code = bcFieldEditState.bookingCode;
+    if (!ownsEditor()) return;
     bcFieldEditCloseAll();
     if (code) loadBlockDetail(code);
   }).catch(function(err){
+    if (!ownsEditor()) return;
     if (saveBtn) saveBtn.disabled = false;
     alert(err && err.message ? err.message : 'Save failed');
   });
@@ -42670,6 +42770,10 @@ function bcInitFieldEditShell(data){
   bcFieldEditState.guestCount = Math.max(1, parseInt(bk.guest_count, 10) || 1);
   bcFieldEditState.snapshot = {
     guest_name: bk.guest_name || '',
+    guest_names: (data.booking_guests || []).filter(Boolean).map(function(g){
+      return { booking_guest_id: g.booking_guest_id || null, guest_number: g.guest_number,
+        guest_name: String(g.guest_name || '').trim(), bed_code: g.assigned_bed_code || g.bed_code || '' };
+    }).sort(function(a,b){ return Number(a.guest_number) - Number(b.guest_number); }),
     phone: bk.phone || '',
     email: bk.email || '',
     check_in: bk.check_in || '',
