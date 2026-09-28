@@ -15,11 +15,34 @@ async function main() {
   const browser = await playwright.chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    await page.addInitScript(() => {
-      localStorage.setItem('wh_staff_header_mode', 'compact');
-    });
     await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('body.luna-header-ui.luna-hdr-compact #nav-menu-toggle', { timeout: 15000 });
+
+    const initial = await page.evaluate(() => ({
+      compact: document.body.classList.contains('luna-hdr-compact'),
+      bannerHeight: Math.round(document.getElementById('banner').getBoundingClientRect().height),
+    }));
+    if (!initial.compact) throw new Error(`compact is not the default: ${JSON.stringify(initial)}`);
+    if (initial.bannerHeight !== 0) throw new Error(`compact top bar is still visible: ${JSON.stringify(initial)}`);
+
+    const cockpit = page.locator('#ps-day-cockpit');
+    if (await cockpit.isVisible()) {
+      await page.waitForSelector('#ps-day-cockpit .ck-bar__right #nav-menu-toggle', { timeout: 15000 });
+      const docked = await page.evaluate(() => {
+        const card = document.getElementById('ps-day-cockpit').getBoundingClientRect();
+        const button = document.getElementById('nav-menu-toggle').getBoundingClientRect();
+        return {
+          parentClass: document.getElementById('nav-menu-toggle').parentElement.className,
+          insideCard: button.left >= card.left && button.right <= card.right
+            && button.top >= card.top && button.bottom <= card.bottom,
+          nearTopRight: Math.abs(card.right - button.right) <= 24 && (button.top - card.top) <= 24,
+        };
+      });
+      if (!docked.insideCard || !docked.nearTopRight) {
+        throw new Error(`hamburger is not docked at schedule card top-right: ${JSON.stringify(docked)}`);
+      }
+      console.log(`PASS hamburger docked in schedule card top-right: ${JSON.stringify(docked)}`);
+    }
 
     const before = await page.locator('#tabs').evaluate((el) => getComputedStyle(el).display);
     if (before !== 'none') throw new Error(`expected compact mobile menu closed initially, got display=${before}`);

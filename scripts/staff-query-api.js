@@ -21312,12 +21312,12 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
    pad it clear of the logo (left) and the controls cluster (right). #banner
    keeps the logo + controls; the tab buttons float in the open middle band. */
 .luna-header-ui.luna-hdr-compact #banner{
-  height:52px;flex:0 0 52px;min-height:52px;
+  height:0;flex:0 0 0;min-height:0;
   background-image:none;
   background:var(--surface);
-  border-bottom:1px solid var(--border-soft);
-  padding:0 clamp(12px,1.6vw,22px);
-  box-shadow:var(--shadow-soft);
+  border:0;
+  padding:0;
+  box-shadow:none;
   align-items:center;
   position:relative;
   z-index:1; /* the bar surface — the lifted nav floats above this */
@@ -21343,11 +21343,17 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
    through as the single bar. pointer-events:none on the container lets the empty
    middle pass clicks down to the logo/controls; the tab buttons re-enable it. */
 .luna-header-ui.luna-hdr-compact #tabs{
-  margin-top:-52px;height:52px;min-height:52px;
+  margin-top:0;height:0;min-height:0;
   background:transparent;border-bottom:none;box-shadow:none;
   align-items:center;position:relative;z-index:7;pointer-events:none;
   padding-left:clamp(12px,1.6vw,22px);
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
+}
+.luna-header-ui.luna-hdr-compact #tab-portal-home.active .portal-schedule-wrap{padding-top:0}
+.luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-menu-toggle{
+  display:inline-flex;position:relative;z-index:20;pointer-events:auto;
+  width:40px;height:40px;flex:0 0 40px;color:var(--luna-teal-dark,#2c5f56);
+  background:rgba(44,95,86,.14);border:1px solid rgba(44,95,86,.45);
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
@@ -21447,6 +21453,9 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
     overflow:visible;pointer-events:auto;
     height:auto;min-height:56px;flex-basis:auto;
     border-bottom:1px solid rgba(74,55,37,.25);box-shadow:0 2px 12px rgba(43,36,31,.14);
+  }
+  .luna-header-ui.luna-hdr-compact #banner{
+    height:0;min-height:0;flex-basis:0;padding:0;border:0;box-shadow:none;
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
   .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
@@ -23177,22 +23186,22 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 /* Header mode controller: Compact | Sunset | Moonlight | Sunset/Moonlight.
    Exposes window.__lunaHeaderMode.{apply,current,MODES}. The Admin > header
    style picker calls apply(); on load we apply ?mode= (persisting it) or the
-   stored preference, defaulting to Sunset/Moonlight (theme-aware). */
+   stored preference, defaulting to Compact. */
 (function(){
   var MODES=['normal','compact','sunset','moonlight','sunsetmoonlight'];
   var ALIAS={auto:'sunsetmoonlight','sunset-moonlight':'sunsetmoonlight','sunset/moonlight':'sunsetmoonlight'};
   var LABELS={normal:'Normal',compact:'Compact',sunset:'Sunset',moonlight:'Moonlight',sunsetmoonlight:'Sunset & Moonlight'};
   var KEY='wh_staff_header_mode';
-  function norm(m){m=(''+(m||'')).toLowerCase();m=ALIAS[m]||m;return MODES.indexOf(m)<0?'sunsetmoonlight':m;}
+  function norm(m){m=(''+(m||'')).toLowerCase();m=ALIAS[m]||m;return MODES.indexOf(m)<0?'compact':m;}
   function reflect(m){try{var els=document.querySelectorAll('[data-header-mode]');for(var i=0;i<els.length;i++){var on=els[i].getAttribute('data-header-mode')===m;els[i].classList.toggle('is-active',on);els[i].setAttribute('aria-pressed',on?'true':'false');}var cur=document.getElementById('luna-header-mode-current');if(cur)cur.textContent=LABELS[m]||m;}catch(e){}}
   /* Normal = the original portal header (colored gradient bar). It drops the
      whole .luna-header-ui redesign scope so every ".luna-header-ui …" rule goes
      inert, exactly like STAFF_PORTAL_LUNA_HEADER=false. Every other mode ensures
      the redesign scope is on and adds its luna-hdr-<mode> variant. */
   function apply(m,persist){m=norm(m);var b=document.body;if(b){MODES.forEach(function(x){b.classList.remove('luna-hdr-'+x);});if(m==='normal'){b.classList.remove('luna-header-ui');}else{b.classList.add('luna-header-ui');b.classList.add('luna-hdr-'+m);}}if(persist){try{localStorage.setItem(KEY,m);}catch(e){}}reflect(m);return m;}
-  function current(){try{return norm(localStorage.getItem(KEY));}catch(e){return 'sunsetmoonlight';}}
+  function current(){try{return norm(localStorage.getItem(KEY));}catch(e){return 'compact';}}
   window.__lunaHeaderMode={apply:apply,current:current,MODES:MODES,label:function(m){return LABELS[norm(m)]||norm(m);}};
-  try{var q=new URL(location.href).searchParams.get('mode');apply(q||current(),!!q);}catch(e){apply('sunsetmoonlight',false);}
+  try{var q=new URL(location.href).searchParams.get('mode');apply(q||current(),!!q);}catch(e){apply('compact',false);}
   document.addEventListener('DOMContentLoaded',function(){reflect(current());});
 })();
 </script>
