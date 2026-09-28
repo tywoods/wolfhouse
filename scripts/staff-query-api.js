@@ -39827,6 +39827,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     html += '<div class="ctx-inv-line">' + escHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
   }
   html += bcRenderPrivateRoomSupplementLineHtml(suppLi, nights, eur);
+  if (invoiceWorkspace) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(accCents)) + '</span></div>';
   html += '</div>';
 
   /* Services — booking_service_records only */
@@ -39848,6 +39849,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       });
     }
   }
+  if (invoiceWorkspace && svcSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(svcSum)) + '</span></div>';
   html += '</div>';
 
   /* Transfers — booking_transfers charge lines */
@@ -39861,7 +39863,12 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         escHtml(line.label + ' \u2014 ' + eur(line.price_cents)) + '</div>';
     });
   }
+  if (invoiceWorkspace && transferSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(transferSum)) + '</span></div>';
   html += '</div>';
+
+  var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
+  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
+  if (invoiceWorkspace) html += perGuestHtml;
 
   /* Totals / payment status */
   html += '<div class="ctx-inv-group ctx-inv-totals' + (getClient() === 'wolfhouse-somo' ? ' bc-invoice-totals' : '') + '" id="bc-inv-totals">';
@@ -39901,8 +39908,6 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   html += '</div>';
 
-  var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
-  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked);
   if (!invoiceWorkspace) html += perGuestHtml;
 
   if (overview && !invoiceWorkspace) {
@@ -39931,7 +39936,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   var historyOwnCard = overview && invoiceWorkspace;
   if (historyOwnCard) {
-    html += perGuestHtml + bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+    html += bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
     html += '</div>';
     html += '<div class="bc-invoice-history ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-payment-history-card">';
     html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><h3 class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>';
@@ -40059,7 +40064,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   } else {
   if (overview) html += '</div>';
   html += '</div></div>';
-  if (invoiceWorkspace) html += perGuestHtml + bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
+  if (invoiceWorkspace) html += bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
   html += '</div>';
   }
   if (!overview) html += '<div class="bc-payments-tab-spacer" aria-hidden="true"></div>';
@@ -41439,6 +41444,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
 function bcBookingServicesQtyLabel(records){
   var counts = {};
   var order = [];
+  var splitRentals = {};
   (records || []).forEach(function(sr){
     if (!sr) return;
     var meta = sr.metadata;
@@ -41453,10 +41459,27 @@ function bcBookingServicesQtyLabel(records){
       .trim();
     if (!name) name = 'Service';
     var qty = Math.max(1, parseInt(sr.quantity, 10) || 1);
+    var rental = sr.service_type === 'surfboard' || sr.service_type === 'wetsuit';
+    var people = rental ? bcResolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type) : null;
+    var days = Number(meta.rental_days) || bcResolveRentalInvoiceDisplayQty(sr, meta);
+    if (rental && people > 0 && days > 0) {
+      // Only siblings with explicit split provenance share days, never people.
+      // The invoice rollup's label-only grouping would merge distinct rentals.
+      var key = meta.split_from ? JSON.stringify([sr.client_slug || '', sr.booking_id || sr.booking_code || '', meta.split_from, sr.service_type, name, meta.board_variant || '', meta.source_addon_code || '', people]) : null;
+      if (key && splitRentals[key]) {
+        splitRentals[key].days += days;
+      } else {
+        var entry = { name: name, days: days, people: people };
+        order.push(entry);
+        if (key) splitRentals[key] = entry;
+      }
+      return;
+    }
     if (!counts[name]) { counts[name] = 0; order.push(name); }
     counts[name] += qty;
   });
   return order.map(function(name){
+    if (typeof name === 'object') return bcFormatRentalPeopleDaysLine(name.name, name.days, name.people, null, null);
     var q = counts[name];
     return q > 1 ? (String(q) + '\u00d7 ' + name) : name;
   }).join(', ');
