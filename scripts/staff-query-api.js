@@ -19589,7 +19589,10 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:var(--bc-inactive-label)}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
 .bc-room-hdr{background:var(--room-bar,#4A4540);color:var(--room-bar-fg,#fff);font-weight:700;font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));letter-spacing:.02em}
-.bc-room-hdr-inner{display:inline;align-items:baseline}
+.bc-room-hdr-row{position:sticky;top:var(--bc-day-header-height,0px);z-index:5;transform:translateY(var(--bc-room-push,0px))}
+.bc-grid thead th{z-index:7}
+.bc-grid thead th.bc-bed-head{z-index:8}
+.bc-room-hdr-inner{display:inline-block;position:sticky;left:10px;max-width:calc(var(--bc-viewport-width,100vw) - 28px);white-space:normal;vertical-align:middle}
 .bc-room-hide-btn{font-size:10px;font-weight:400;letter-spacing:.02em;background:none;border:none;color:rgba(255,255,255,.92);padding:0;margin-left:6px;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:rgba(255,255,255,.55)}
 .bc-room-hide-btn:hover{color:#fff;text-decoration-color:#fff}
 tr.bc-room-bed-row.bc-room-collapsed{display:none}
@@ -20655,6 +20658,17 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:4}
   #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
+}
+@media (max-width:768px){
+  #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
+}
+/* Schedule date shortcuts: one scroll lane, with end space for true centering. */
+#tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
+#tab-bed-calendar .bc-chip{flex:0 0 auto}
+#tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{content:'';flex:0 0 50%}
+@media (min-width:769px){
+  #tab-bed-calendar .toolbar{flex-wrap:wrap}
+  #tab-bed-calendar .bc-chips{flex:1 1 240px}
 }
 /* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
 #bc-side-drawer{
@@ -37395,10 +37409,10 @@ function renderBedCalendar(data){
   });
   html += '</tr></thead>';
 
-  html += '<tbody>';
   var totalCols = N + 1;
 
   rooms.forEach(function(room){
+    html += '<tbody class="bc-room-section">';
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
     /* Parent bar once, above the first display-order room that hosts the group */
@@ -37498,9 +37512,10 @@ function renderBedCalendar(data){
       }
       html += '</tr>';
     });
+    html += '</tbody>';
   });
 
-  html += '</tbody></table>';
+  html += '</table>';
 
   var wrap = el('bc-grid-wrap');
   var shell = el('bc-grid-shell');
@@ -37512,6 +37527,7 @@ function renderBedCalendar(data){
     bcGridContentHeight = bcMeasureGridContentHeight();
   });
   if (shell) shell.style.display = 'block';
+  bcObserveStickyRoomGeometry();
   el('bc-state').style.display = 'none';
 
   /* Wire block clicks (primary bars + turnover checkout markers) */
@@ -44723,7 +44739,63 @@ function bcInitSideDrawer(){
   }
 }
 
+/* Table sticky rows are table-bounded in Chromium, not tbody-bounded.
+   Push each old room out at its section end; keep a single passive listener. */
+var bcStickyRoomObserver = null;
+var bcStickyRoomScroll = null;
+var bcStickyRoomFrame = null;
+function bcObserveStickyRoomGeometry(){
+  if (bcStickyRoomObserver) bcStickyRoomObserver.disconnect();
+  if (bcStickyRoomFrame !== null) cancelAnimationFrame(bcStickyRoomFrame);
+  bcStickyRoomFrame = null;
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  if (bcStickyRoomScroll) wrap.removeEventListener('scroll', bcStickyRoomScroll);
+  var head = wrap.querySelector('thead');
+  if (!head) return;
+  var sections = Array.prototype.map.call(wrap.querySelectorAll('.bc-room-section'), function(section){
+    return { section:section, row:section.querySelector('.bc-room-hdr-row') };
+  }).filter(function(item){ return item.row; });
+  function measure(){
+    var headerHeight = head.getBoundingClientRect().height;
+    wrap.style.setProperty('--bc-day-header-height', headerHeight + 'px');
+    wrap.style.setProperty('--bc-viewport-width', wrap.clientWidth + 'px');
+    var top = wrap.getBoundingClientRect().top + wrap.clientTop + headerHeight;
+    var pushes = sections.map(function(item){
+      return Math.min(0, item.section.getBoundingClientRect().bottom - top - item.row.getBoundingClientRect().height);
+    });
+    sections.forEach(function(item, i){ item.row.style.setProperty('--bc-room-push', pushes[i] + 'px'); });
+  }
+  bcStickyRoomScroll = function(){
+    if (bcStickyRoomFrame !== null) return;
+    bcStickyRoomFrame = requestAnimationFrame(function(){ bcStickyRoomFrame = null; measure(); });
+  };
+  wrap.addEventListener('scroll', bcStickyRoomScroll, {passive:true});
+  measure();
+  bcStickyRoomObserver = new ResizeObserver(measure);
+  bcStickyRoomObserver.observe(head);
+  bcStickyRoomObserver.observe(wrap);
+  bcStickyRoomObserver.observe(head.parentNode);
+}
+
+function bcCenterInitialMonthChip(){
+  var chips = el('bc-chips');
+  if (!chips || chips.dataset.initialCentered === '1') return;
+  requestAnimationFrame(function(){
+    if (!chips.clientWidth || chips.dataset.initialCentered === '1') return;
+    var month = new Date().getMonth();
+    var keys = {3:'apr-may',4:'may-jun',5:'jun-jul',6:'jul-aug',7:'aug-sept',8:'sep-oct',9:'oct-nov',10:'oct-nov'};
+    var chip = chips.querySelector('[data-chip="' + (keys[month] || '30days') + '"]');
+    if (!chip) return;
+    var box = chips.getBoundingClientRect();
+    var target = chip.getBoundingClientRect();
+    chips.scrollLeft += target.left + target.width / 2 - box.left - chips.clientWidth / 2;
+    chips.dataset.initialCentered = '1';
+  });
+}
+
 function bcOnBedCalendarTabOpen(){
+  bcCenterInitialMonthChip();
   bcInitCalendarResize();
   bcInitCalendarZoom();
   bcInitDetailCopyDelegation();
