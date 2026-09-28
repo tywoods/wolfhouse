@@ -62,7 +62,7 @@ async function pills(page,key='sep-oct'){
  assert.equal(m.chips.length,9,'all existing date pills retained');
  assert(m.chips.every(c=>Math.abs(c.y-m.chips[0].y)<1),'all date pills must occupy ONE horizontal line');
  const mobile=await page.evaluate(()=>innerWidth<=768);
- assert.equal(m.overflow,mobile?'auto':'visible',mobile?'mobile pill row keeps horizontal scrolling':'desktop pill row has no horizontal scrolling');
+ assert.equal(m.overflow,'auto','pill row scrolls inside its lane and does not cover date or refresh');
  if(mobile)assert(Math.abs(m.target.x+m.target.width/2-(m.x+m.width/2))<2,'current-month relevant pill must genuinely center');
  assert.equal(m.active,'30days','centering must NOT select seasonal range');
  return m;
@@ -119,7 +119,7 @@ async function interactions(page,width,label){
  await refresh(page);
  const after=await grid.evaluate(e=>({x:e.scrollLeft,y:e.scrollTop}));
  observations.push({name:'refresh-history',label,before,after,chipLeft:await chips.evaluate(e=>e.scrollLeft)});
- assert.equal(await chips.evaluate(e=>e.scrollLeft),width<=768?123:0,width<=768?'Refresh must not recenter mobile pill history':'desktop pill row stays non-scrollable');
+ assert.equal(await chips.evaluate(e=>e.scrollLeft),123,'Refresh must not recenter pill history');
  // Untouched-base diagnostic proves deferred height measurement resets vertical history.
  // This is an inherited limitation, NOT passing preservation coverage or a chrome requirement.
  observations.push({name:'known-baseline-limitation',label,issue:'Refresh resets vertical grid history',before,after});
@@ -134,12 +134,13 @@ async function interactions(page,width,label){
  await refresh(page);assert.equal(await page.locator('.bc-room-bed-row[data-room="R1"]:visible').count(),0,'Refresh retains room collapse');
  await grid.evaluate(e=>{e.scrollTop=0;});await hide.click();assert.equal(await page.locator('.bc-room-bed-row[data-room="R1"]:visible').count(),32,'real Show expands room');
  assert.equal(await page.locator('.bc-block').count(),8,'group bed blocks preserved');
- assert.equal(await page.locator('.bc-group-parent-row').count(),1,'multiroom group parent preserved');
+ assert.equal(await page.locator('.bc-group-parent-row').count(),0,'above-room group banner removed');
+ assert(await page.locator('.bc-block .bc-group-chip').count()>=1,'Group pebble stays inside split booking bars');
  if(width>768){
   assert.equal(await page.locator('#bc-zoom-bar').isVisible(),false,'desktop zoom controls are removed');
   assert.equal(await page.locator('#bc-legend').isVisible(),false,'desktop legend is removed');
   assert.equal(await grid.evaluate(e=>getComputedStyle(e).overflowX),'hidden','desktop grid has no horizontal scroll lane');
-  assert.equal(await page.locator('.bc-chips').evaluate(e=>getComputedStyle(e).overflowX),'visible','desktop month shortcuts have no horizontal scroll lane');
+  assert.equal(await page.locator('.bc-chips').evaluate(e=>getComputedStyle(e).overflowX),'auto','desktop month shortcuts scroll inside the toolbar and do not cover date or refresh');
   await page.locator('#bc-range-btn').click();assert(await page.locator('#bc-range-pop').isVisible(),'desktop picker opens');
   await page.locator('[data-bc-range-day="2026-10-05"]').click();
   const requested=page.waitForRequest(r=>new URL(r.url()).pathname==='/staff/bed-calendar');

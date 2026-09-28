@@ -19635,6 +19635,8 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-group-parent-bar{height:calc(8px * var(--bc-zoom, 1));border-radius:999px;background:linear-gradient(90deg,rgba(227,215,240,.95) 0%,rgba(213,222,232,.88) 100%);border:1px solid rgba(212,196,224,.95);box-shadow:0 1px 2px rgba(83,64,102,.08);cursor:pointer}
 .bc-group-parent-bar.bc-group-parent-bar-hover,.bc-group-parent-row.bc-group-parent-row-hover .bc-group-parent-bar{filter:brightness(.97);box-shadow:0 2px 8px rgba(83,64,102,.18)}
 .bc-group-parent-pad{background:transparent!important}
+/* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — no above-room group banner. Group pebble stays on bars. */
+.bc-group-parent-row{display:none!important}
 .bc-legend-sw-group{background:#E3D7F0;border-left-color:#B39BCB}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
@@ -20292,13 +20294,16 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .oi-details-body dt{font-weight:600;color:var(--text-3)}
 .oi-details-body dd{margin:0}
 /* ── Dark mode — booking calendar polish ─────────────────────────────────── */
-[data-theme="dark"] .bc-grid-wrap-inner{background:linear-gradient(180deg,var(--cream) 0%,var(--surface) 100%);border-color:var(--border-soft)}
+/* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — no darker cream band behind bed/booking rows.
+   Room-header strips keep --room-bar. */
+[data-theme="dark"] .bc-grid-wrap-inner{background:#2A2A2C;border-color:var(--border-soft)}
 
 [data-theme="dark"] .bc-grid thead th{background:#2d2d2d;color:var(--text-2)}
 [data-theme="dark"] .bc-grid thead th.bc-bed-head{background:linear-gradient(180deg,#3c3c3c 0%,#2d2d2d 100%);border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-room-hdr{background:var(--room-bar,var(--sand));color:var(--room-bar-fg,var(--text))}
-[data-theme="dark"] .bc-bed-cell{background:#2d2d2d;border-right-color:var(--staff-green-border)}
+[data-theme="dark"] .bc-bed-cell{background:#2A2A2C;border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-day-cell:not(:has(.bc-block)){background:#2A2A2C}
+[data-theme="dark"] .bc-day-cell:has(.bc-block),[data-theme="dark"] tr.bc-room-bed-row{background:#2A2A2C}
 [data-theme="dark"] .bc-day-cell[data-date]:hover{background:rgba(74,124,89,.14)}
 [data-theme="dark"] .bc-day-cell.bc-sel{background:rgba(74,124,89,.22);outline-color:rgba(106,154,114,.55)}
 [data-theme="dark"] .bc-day-cell.bc-sel-anchor{outline-color:var(--sage)}
@@ -20677,9 +20682,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .bc-chip{flex:0 0 auto}
 #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{content:'';flex:0 0 50%}
 @media (min-width:769px){
-  #tab-bed-calendar .toolbar{flex-wrap:wrap}
-  #tab-bed-calendar .bc-chips{flex:1 1 240px;overflow:visible}
+  #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center}
+  #tab-bed-calendar .bc-chips{flex:1 1 240px;min-width:0;overflow-x:auto;overflow-y:hidden}
   #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{display:none}
+  /* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — date range and refresh stay distinct. */
+  #tab-bed-calendar .bc-range-wrap,
+  #tab-bed-calendar .bc-legend-row{flex:0 0 auto;position:relative;z-index:2}
+  #tab-bed-calendar #bc-load{position:static;flex:0 0 auto;margin-left:8px}
+  #tab-bed-calendar #bc-calendar-title{flex:0 0 auto;max-width:12em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
 /* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
 #bc-side-drawer{
@@ -21095,6 +21105,22 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   flex:0 1 auto;
   min-width:0;
   max-width:100%;
+}
+/* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — thin last-day bars keep a readable name.
+   Pebbles stay in the bar; the name no longer collapses to clock/€ icons only. */
+#tab-bed-calendar .bc-block.bc-block-thin{
+  flex-wrap:nowrap;
+  gap:2px;
+  padding-left:4px;
+  padding-right:2px;
+}
+#tab-bed-calendar .bc-block.bc-block-thin .bc-block-label{
+  flex:1 0 auto;
+  min-width:2.6em;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 /* ===== END book-ui ===== */
 
@@ -37250,34 +37276,9 @@ function bcGroupChipHtml(blk){
   return '<span class="bc-group-chip" title="' + escHtml(title) + '">' + escHtml(t('calendar.group.chip')) + '</span>';
 }
 
-function bcRenderGroupParentRow(g, days){
-  days = days || [];
-  var N = days.length;
-  if (!g || N < 1 || !g.start_date || !g.end_date) return '';
-  var startIdx = -1;
-  var endIdx = -1;
-  for (var i = 0; i < N; i++){
-    var d = (days[i] || {}).date || '';
-    if (d >= g.start_date && d < g.end_date){
-      if (startIdx < 0) startIdx = i;
-      endIdx = i + 1;
-    }
-  }
-  if (startIdx < 0 || endIdx <= startIdx) return '';
-  var name = g.guest_name || g.booking_code || t('calendar.group.chip');
-  var roomsLabel = t('calendar.group.rooms', { count: g.roomCount });
-  var tip = escHtml(name + ' · ' + roomsLabel);
-  var html = '<tr class="bc-group-parent-row" data-group-key="' + escHtml(g.key) + '">';
-  html += '<td class="bc-group-parent-label">' +
-    '<span class="bc-group-chip">' + escHtml(t('calendar.group.chip')) + '</span> ' +
-    '<span class="bc-group-parent-name">' + escHtml(name) + '</span>' +
-    '<span class="bc-group-parent-meta">' + escHtml(roomsLabel) + '</span></td>';
-  for (var e = 0; e < startIdx; e++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
-  html += '<td colspan="' + (endIdx - startIdx) + '" class="bc-group-parent-bar-cell">' +
-    '<div class="bc-group-parent-bar" data-group-key="' + escHtml(g.key) + '" data-bidx="' + (g.idxs[0] != null ? g.idxs[0] : '') + '" title="' + tip + '"></div></td>';
-  for (var a = endIdx; a < N; a++) html += '<td class="bc-day-cell bc-group-parent-pad"></td>';
-  html += '</tr>';
-  return html;
+function bcRenderGroupParentRow(){
+  /* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — banner removed. Do not paint another above-room group row. */
+  return '';
 }
 
 function bcSetGroupHover(groupKey, on){
@@ -37358,15 +37359,32 @@ function bcFormatServiceScheduleDayLabel(dateStr) {
   return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + bcFormatIsoDateDisplay(dateStr);
 }
 
+function bcCalendarHeaderDayCount(){
+  var start = bcReadDateField(el('bc-start'));
+  var end = bcReadDateField(el('bc-end'));
+  if (start && end && BC_YEAR_PREFIX_RE.test(start) && BC_YEAR_PREFIX_RE.test(end)) {
+    var s = new Date(start.slice(0, 10) + 'T00:00:00Z');
+    var e = new Date(end.slice(0, 10) + 'T00:00:00Z');
+    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
+      return Math.round((e.getTime() - s.getTime()) / 86400000);
+    }
+  }
+  var n = (typeof bcData !== 'undefined' && bcData && bcData.days) ? bcData.days.length : 0;
+  return n;
+}
+
 function bcFormatCalendarDayLabel(day) {
   if (!day || !day.date) return (day && day.label) || '';
   var d = new Date(day.date + 'T00:00:00Z');
   if (isNaN(d.getTime())) return day.label || day.date;
+  var num = String(d.getUTCDate()).padStart(2, '0');
+  /* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — ranges over 30 days: day number only. */
+  if (bcCalendarHeaderDayCount() > 30) return num;
   var keys = [
     'calendar.day.sun', 'calendar.day.mon', 'calendar.day.tue', 'calendar.day.wed',
     'calendar.day.thu', 'calendar.day.fri', 'calendar.day.sat',
   ];
-  return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + String(d.getUTCDate()).padStart(2, '0');
+  return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + num;
 }
 
 function bcFormatRoomMetaLabel(room) {
@@ -37388,25 +37406,9 @@ function renderBedCalendar(data){
   /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
   rooms = bcSortRoomsForDisplay(rooms);
 
-  /* SCHEDULE-GROUP-BOOKING-UI-001 — detect multi-room groups before paint */
-  var multiRoomGroups = bcBuildMultiRoomGroups(blocks);
-  var roomOrderIndex = {};
-  rooms.forEach(function(room, ri){
-    roomOrderIndex[String(room.room_code || '')] = ri;
-  });
-  multiRoomGroups.forEach(function(g){
-    var firstIdx = Infinity;
-    var firstCode = null;
-    g.roomCodes.forEach(function(rc){
-      var ri = roomOrderIndex[rc];
-      if (ri != null && ri < firstIdx) {
-        firstIdx = ri;
-        firstCode = rc;
-      }
-    });
-    g.firstRoomCode = firstCode;
-  });
-  var groupParentInserted = {};
+  /* SCHEDULE-GROUP-BOOKING-UI-001 — mark multi-room groups; pebble stays on bars.
+     SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — do not insert an above-room banner. */
+  bcBuildMultiRoomGroups(blocks);
 
   /* Warnings */
   if (data.warnings && data.warnings.length > 0){
@@ -37429,7 +37431,7 @@ function renderBedCalendar(data){
 
   /* Date header row */
   html += '<thead><tr>';
-  html += '<th class="bc-bed-head">' + escHtml(t('calendar.grid.roomBed')) + '</th>';
+  html += '<th class="bc-bed-head"></th>';
   days.forEach(function(day){
     html += '<th class="bc-day-head">' + escHtml(bcFormatCalendarDayLabel(day)) + '</th>';
   });
@@ -37441,13 +37443,6 @@ function renderBedCalendar(data){
     html += '<tbody class="bc-room-section">';
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
-    /* Parent bar once, above the first display-order room that hosts the group */
-    multiRoomGroups.forEach(function(g){
-      if (g.firstRoomCode !== roomCode) return;
-      if (groupParentInserted[g.key]) return;
-      groupParentInserted[g.key] = true;
-      html += bcRenderGroupParentRow(g, days);
-    });
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     /* Strip any non-alphanumerics (stray spaces / zero-width chars / dashes) before
        matching so an R# code with hidden junk still becomes "Room N". */
@@ -37747,6 +37742,7 @@ function bcBlockTooltip(blk){
 function bcBlockLabel(blk, spanDays, layer){
   var label = bcCalendarBlockDisplayLabel(blk);
   var span = spanDays != null ? spanDays : blk.span_days;
+  if (span === 1) return escHtml(label);
   if (span < 3 && label.length > 16) label = label.slice(0, 14) + '\u2026';
   return escHtml(label);
 }
@@ -37787,7 +37783,7 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
 
   var priColor = bcColorClass(primary.blk.color_type);
   var priGroup = bcGroupPaintBits(primary.blk);
-  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
+  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
@@ -37797,6 +37793,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   spanDays = spanDays != null ? spanDays : blk.span_days;
   var colorCls = bcColorClass(blk.color_type);
   var groupBits = bcGroupPaintBits(blk);
+  var thinCls = spanDays === 1 ? ' bc-block-thin' : '';
   var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
   var markerHtml = '';
   var tip;
@@ -37816,7 +37813,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + groupBits.cls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
@@ -44444,11 +44441,11 @@ function bcUpdateCalendarTitle(){
   if (!titleEl) return;
   titleEl.removeAttribute('data-i18n');
   var start = bcReadDateField(el('bc-start'));
-  var end = bcReadDateField(el('bc-end'));
+  /* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — viewed month is the range start.
+     Aug–Sep is August '26, not today-if-in-range and not a second range string. */
   var pick = start;
   var today = new Date();
   var todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-  if (start && end && todayIso >= start && todayIso <= end) pick = todayIso;
   if (!pick || !BC_YEAR_PREFIX_RE.test(pick)) {
     pick = todayIso;
   }

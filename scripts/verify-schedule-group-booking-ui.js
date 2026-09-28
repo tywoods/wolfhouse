@@ -39,7 +39,8 @@ ok('legend swatch', /bc-legend-sw-group/.test(api));
 ok('legend i18n key in HTML', /data-i18n="calendar\.legend\.group"/.test(api));
 ok('helper bcBuildMultiRoomGroups', /function bcBuildMultiRoomGroups\(/.test(api));
 ok('helper bcRenderGroupParentRow', /function bcRenderGroupParentRow\(/.test(api));
-ok('renderBedCalendar calls group builder', /var multiRoomGroups = bcBuildMultiRoomGroups\(blocks\)/.test(api));
+ok('renderBedCalendar marks groups without a parent banner', /bcBuildMultiRoomGroups\(blocks\)/.test(api) && !/html \+= bcRenderGroupParentRow\(/.test(api));
+ok('above-room group banner hidden', /\.bc-group-parent-row\{display:none!important\}/.test(api));
 ok('renderBookingBlock adds bc-block-group', /bc-block-group/.test(api) && /_bc_is_group/.test(api));
 ok('EN i18n group keys', /'calendar\.legend\.group': 'Group'/.test(i18n) && /'calendar\.group\.chip': 'Group'/.test(i18n));
 ok('ES i18n group keys', /"calendar\.legend\.group": "Grupo"/.test(es));
@@ -133,12 +134,8 @@ ok('marks multi-room blocks as group', blocks[0]._bc_is_group === true && blocks
 ok('does not mark single-room multi-bed as group', blocks[2]._bc_is_group !== true && blocks[3]._bc_is_group !== true);
 
 const parentHtml = ctx.bcRenderGroupParentRow(groups[0], days);
-ok('parent row class present', /bc-group-parent-row/.test(parentHtml));
-ok('parent bar element present', /class="bc-group-parent-bar"/.test(parentHtml));
-ok('parent bar spans stay nights (3 days)', /colspan="3"/.test(parentHtml));
-ok('parent bar carries group key', /data-group-key="id:g1"/.test(parentHtml));
-ok('parent label includes Group chip', /bc-group-chip/.test(parentHtml) && /River Group/.test(parentHtml));
-ok('parent meta shows room count', /2 rooms/.test(parentHtml));
+ok('above-room parent banner is not painted', parentHtml === '');
+ok('no Group · rooms banner markup', !/bc-group-parent-row/.test(parentHtml) && !/2 rooms/.test(parentHtml));
 
 const chipHtml = ctx.bcGroupChipHtml(blocks[0]);
 ok('block chip HTML for group', /bc-group-chip/.test(chipHtml) && /Group/.test(chipHtml));
@@ -162,6 +159,6 @@ ok('solo block has neither group class nor chip',
   painted.split('Solo Guest')[1].indexOf('bc-group-chip') < 0);
 
 console.log('\n[3] Proof summary');
-console.log('  Multi-room booking GRP-001 → parent bar colspan=3 + Group chip + bc-block-group accent');
+console.log('  Multi-room booking GRP-001 → Group chip on bars, no above-room banner');
 console.log('  Single-room multi-bed SOLO-1 (Room 8) → no group paint');
 console.log('\nPASS ' + passed + ' checks — schedule group booking UI');
