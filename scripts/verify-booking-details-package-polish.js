@@ -47,8 +47,8 @@ ok('top save posts guest-packages', apiSrc.includes("fetch('/staff/bookings/' + 
 ok('reload after inline save', /bcFieldEditPostGuestPackages\(packagePackages\)[\s\S]{0,180}loadBlockDetail\(code\)/.test(apiSrc));
 ok('menu label uses the guest name', apiSrc.includes('function bcPackageGuestMenuLabel(gn, guests)'));
 ok('select id kept for the standalone editor', apiSrc.includes("id=\"bc-field-package-select-' + gn + '\""));
-ok('chip is column 1 row 2, not a fourth column', apiSrc.includes('#bc-drawer-card-booking .bc-guest-package-pebble{grid-column:1;grid-row:2'));
-ok('name row stays three columns', apiSrc.includes('grid-template-columns:minmax(0,1fr) auto auto'));
+ok('chip sits on the pebble line under the name', apiSrc.includes('bc-guest-pebble-line') && apiSrc.includes('#bc-drawer-card-booking .bc-guest-pebble-line{display:flex'));
+ok('name is its own line', apiSrc.includes('#bc-drawer-card-booking .bc-guest-name-row{display:flex;flex-direction:column'));
 ok('phone stacks contact and dates', apiSrc.includes('#bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid') && apiSrc.includes('grid-template-columns:minmax(0,1fr)!important'));
 ok('services tab may still group pebbles', apiSrc.includes('bc-svc-summary-pebbles'));
 
@@ -78,6 +78,15 @@ ok('lead still first', html.indexOf('Alexandra') < html.indexOf('Sam'), html);
 ok('name span is the name only', /<span class="bc-guest-name-line">Alexandra<\/span>/.test(html));
 const alex = html.slice(html.indexOf('Alexandra'), html.indexOf('Sam'));
 const sam = html.slice(html.indexOf('Sam'));
+const row = html.slice(html.indexOf('bc-guest-name-row'), html.indexOf('Sam'));
+ok('pebbles follow the name', row.indexOf('bc-guest-name-line') < row.indexOf('bc-guest-pebble-line'));
+ok('package then bed on the pebble line', (() => {
+  const line = row.slice(row.indexOf('bc-guest-pebble-line'));
+  const pkg = line.indexOf('bc-guest-package-pebble');
+  const bed = line.indexOf('bc-guest-bed');
+  const pay = line.indexOf('bc-accom-pay-pebble');
+  return pkg >= 0 && bed > pkg && (pay < 0 || pay > bed);
+})());
 ok('uluwatu stays with guest 1 even though she is sorted first', alex.includes('Uluwatu') && alex.includes('bc-guest-package-pebble') && !alex.includes('Malibu'), alex);
 ok('malibu stays with guest 2, not row order', sam.includes('Malibu') && !sam.includes('Uluwatu'), sam);
 ok('no times-count grouping on the guest chip', !/×\d|x\d/.test(html) && !html.includes('\\u00d7'), html);

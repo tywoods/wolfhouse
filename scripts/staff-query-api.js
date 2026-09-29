@@ -20864,21 +20864,22 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 /* Guest rows need the whole read grid; one column collapses names behind beds/status. */
 #bc-drawer-card-booking #bc-field-guests-kv-only{grid-column:1 / -1}
-#bc-drawer-card-booking .bc-guest-name-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 8px;align-items:start;margin-bottom:6px;white-space:normal}
-#bc-drawer-card-booking .bc-guest-name-line{display:block;grid-column:1;grid-row:1;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;cursor:pointer}
+#bc-drawer-card-booking .bc-guest-name-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:8px;white-space:normal}
+#bc-drawer-card-booking .bc-guest-name-line{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;cursor:pointer}
 #bc-drawer-card-booking .bc-guest-name-line.is-active,
 #bc-drawer-card-booking .bc-inline-guest-name.is-editing{text-decoration:underline;text-underline-offset:2px}
-#bc-drawer-card-booking .bc-guest-package-pebble{grid-column:1;grid-row:2;justify-self:start;align-self:start;margin:2px 0 0;max-width:100%}
+#bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
+#bc-drawer-card-booking .bc-guest-package-pebble{margin:0;max-width:100%}
+#bc-drawer-card-booking .bc-guest-bed{display:inline-flex;align-items:center;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;margin:0}
+[data-theme="dark"] #bc-drawer-card-booking .bc-guest-bed{background:#16384a;color:#d6eef8;border-color:#4da3d4}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
+#bc-drawer-card-booking #bc-package-assignments,
+#bc-drawer-card-booking #bc-field-package-edit .bc-field-package-guest-row{display:none!important}
 [data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
 @media(max-width:768px){
   /* Override the injected Invoice subgrid's two-row phone layout, read mode only. */
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names{column-gap:0}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-row{align-items:center;column-gap:0}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-line{grid-column:1;grid-row:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-bed{grid-column:2;grid-row:1}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-accom-pay-pebble{grid-column:3;grid-row:1;justify-self:end}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-package-pebble{grid-column:1;grid-row:2}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-line{white-space:normal;overflow:visible;text-overflow:clip}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
   #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid,
   #bc-drawer-card-booking #bc-field-group-dates .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)!important}
   #bc-drawer-card-booking #bc-field-group-contact .kv,
@@ -41975,6 +41976,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
     if (!bed) bed = String(g.assigned_room_code || '').trim();
     var html = '<span class="bc-guest-name-row">';
     html += '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
+    html += '<span class="bc-guest-pebble-line">';
     if (g.guest_number != null && g.guest_number !== '' && typeof bcGuestPackageChipHtml === 'function') {
       html += bcGuestPackageChipHtml(g.guest_number, guestPackages);
     }
@@ -41986,7 +41988,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
       html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
       html += bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [], bookingFullyPaid);
     }
-    return html + '</span>';
+    return html + '</span></span>';
   }).join('');
 }
 
@@ -42127,15 +42129,6 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
-  var assignments = bcGuestPackages(bk);
-  if (assignments.some(function(gp){ return gp.package_code !== assignments[0].package_code; })) {
-    html += '<details id="bc-package-assignments" class="booking-body-package-assignments"><summary>' + escHtml(t('drawer.field.package')) + '</summary>';
-    assignments.forEach(function(gp){
-      html += '<div>' + escHtml(bcInvoiceGuestNameByNumber(gp.guest_number, data.booking_guests || [], data.per_person || [], bk.guest_name)) +
-        ' — ' + escHtml(bcFieldEditPackageDisplayLabel(gp.package_code)) + '</div>';
-    });
-    html += '</details>';
-  }
   var included = (data.service_records || []).filter(function(sr){
     var price = sr.amount_due_cents;
     return bcParseServiceRecordMeta(sr.metadata).included_equipment === true &&

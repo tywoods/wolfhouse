@@ -193,8 +193,8 @@ async function main(){
         assert(observations.guestRows.length,'protected Details guest rows present');
         for(const row of observations.guestRows){
           assert(row.name.width>=40,'protected guest name retains readable allocation');
-          if(row.status)assert(Math.abs((row.name.top+row.name.bottom-row.status.top-row.status.bottom)/2)<=1,'protected guest/status remain one line');
-          if(row.bed&&row.status)assert(row.name.right<=row.bed.left+1&&row.bed.right<=row.status.left+1,'protected name/bed/payment do not overlap');
+          if(row.status)assert(row.status.top>=row.name.bottom-1,'protected guest status sits under the name');
+          if(row.bed&&row.status)assert(row.bed.top>=row.name.bottom-1&&row.bed.right<=row.status.left+1,'protected bed then payment on the line under the name');
         }
       }
       if(MODE==='finish'||MODE==='full'){
@@ -359,37 +359,33 @@ async function main(){
         const ids=['bc-per-guest-toggle','bc-payment-history-toggle','bc-move-bed-toggle'];
         for(const close of [true,false]){
           for(const id of ids)await page.locator('#'+id).click();
-          await page.locator('.booking-body-package-assignments summary').click();
+          assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'bottom package dropdown is gone');
           if(close)await page.locator('#bc-side-close').click();
           const old=await page.locator('#bc-inv-totals').elementHandle();
           await page.locator('.bc-block').first().click();await page.mouse.move(10,500);
           await page.waitForFunction(e=>!e.isConnected,old);await page.locator('#bc-inv-totals').waitFor();
           for(const id of ids)assert.equal(await page.locator('#'+id).getAttribute('aria-expanded'),'false','fresh native open resets '+id+' close='+close);
-          assert.equal(await page.locator('.booking-body-package-assignments').evaluate(e=>e.open),false,'fresh native open resets packages');
+          assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'bottom package dropdown stays gone');
         }
       }
       if(MODE==='package-refresh'&&!sunset){
-        const disclosure=page.locator('.booking-body-package-assignments');
-        await disclosure.locator('summary').click();
-        assert(await disclosure.evaluate(e=>e.open),'native summary opens package assignments');
+        assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'bottom package dropdown is gone');
         await page.locator('#bc-refresh-detail').click();await page.locator('#bc-inv-totals').waitFor();
-        assert(await disclosure.evaluate(e=>e.open),'same-booking refresh retains package assignments');
+        assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'refresh does not restore the package dropdown');
         await page.locator('.bc-block').nth(1).click();await page.mouse.move(10,500);
         await page.waitForFunction(()=>document.querySelector('#bc-field-contact-name')?.value==='Other booking');
-        assert.equal(await disclosure.evaluate(e=>e.open),false,'different booking starts collapsed');
-        await page.locator('.bc-block').first().click();await page.mouse.move(10,500);await page.locator('#bc-inv-totals').waitFor();
-        assert.equal(await disclosure.evaluate(e=>e.open),false,'returning booking has no stale open state');
+        assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'other booking has no package dropdown');
       }
       if(MODE==='facts'){
         const included=page.locator('.booking-body-included');
         assert.equal(await included.count(),1,'explicit equipment inclusion is visible and not a second charged rental');
         assert((await included.innerText()).includes('Included'),'inclusion uses factual, translated label');
         if(!sunset){
-          const summary=page.locator('.booking-body-package-assignments summary');
-          assert.equal(await summary.count(),1,'mixed package assignments have read-only expansion');
-          await summary.click();
-          const text=await page.locator('.booking-body-package-assignments').innerText();
-          assert(text.includes('Tom (test)')&&text.includes('Second Guest')&&text.includes('Malibu')&&text.includes('Waimea'),'existing package assignment belongs to identifiable guest');
+          assert.equal(await page.locator('.booking-body-package-assignments').count(),0,'bottom package dropdown is gone');
+          const names=(await page.locator('#bc-guest-names .bc-guest-name-line').allTextContents()).join(' ');
+          const pebbles=(await page.locator('#bc-guest-names .bc-guest-pebble-line').allTextContents()).join(' ');
+          assert(names.includes('Tom (test)')&&names.includes('Second Guest'),'guest names stay on the name line');
+          assert(pebbles.includes('Malibu')&&pebbles.includes('Waimea'),'package pebbles stay with the guests');
         }
       }
       if(MODE==='invoice'||MODE==='full'){

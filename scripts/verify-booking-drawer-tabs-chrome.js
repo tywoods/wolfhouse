@@ -165,13 +165,11 @@ async function main() {
             ]);
             for (const r of rows) {
               assert(r.n.width >= 40, `visible durable name at ${width}: ${JSON.stringify(r)}`);
-              assert(r.n.right <= r.b.left, 'name before bed without overlap');
-              // Phone names may wrap with the status on its own right-aligned line.
-              // Preserve the desktop row contract and reject overlapping phone rows.
-              assert(r.b.right <= r.p.left || (width <= 768 && r.p.top >= Math.max(r.n.bottom, r.b.bottom)), 'status follows name/bed horizontally or below on mobile');
+              assert(r.b.top >= r.n.bottom - 1, 'bed sits on the line under the name');
+              assert(r.b.right <= r.p.left + 1, 'bed then Paid/Unpaid');
               assert(r.p.right <= width && r.row.left >= 0, 'row stays within viewport');
             }
-            assert(Math.max(...rows.map(r=>r.p.right))-Math.min(...rows.map(r=>r.p.right)) < 2, 'status pebbles right-aligned');
+            assert(rows.every(r => r.b.left >= r.n.left - 1), 'beds start with the name, not a right column');
           }
         }
         await page.setViewportSize({width:1440,height:1000});
