@@ -16,6 +16,7 @@
  * The supporting schema is deliberately minimal, NOT a full migration-stack
  * integration test. Occupants and CRM use the complete committed migrations 024
  * and 031, including real FKs, uniqueness constraints and customer-link triggers.
+ * Add-on service readback uses committed migrations 010 and 018 (unscheduled dates).
  * Inventory is seeded from the committed CSV, not current/live availability.
  * No payment is collected: the ordinary create path writes a draft payment only.
  * Bed mapping is checked against the actual booking_beds read order; production
@@ -151,12 +152,17 @@ const allowedSql = new Map([
     amount_due_cents = $2, metadata = metadata || $3::jsonb
     WHERE booking_id = $4 AND client_id = (SELECT id FROM clients WHERE slug = $5 LIMIT 1)
     RETURNING id AS payment_id`],
+  ['service_insert', `INSERT INTO booking_service_records (
+    client_slug, booking_id, booking_code, guest_name,
+    service_type, service_date, quantity, status,
+    amount_due_cents, amount_paid_cents, payment_status, source, notes, metadata
+    ) VALUES ( $1, $2::uuid, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $13, $14::jsonb )`],
   ['begin', 'BEGIN'], ['commit', 'COMMIT'], ['rollback', 'ROLLBACK'],
 ].map(([kind, sql]) => [normalizeSql(sql), kind]));
 
 async function seed(db, payload) {
   await db.exec(SCHEMA);
-  for (const migration of ['024_booking_guests.sql', '031_customers.sql']) {
+  for (const migration of ['010_booking_service_records.sql', '018_booking_service_records_nullable_service_date.sql', '024_booking_guests.sql', '031_customers.sql']) {
     await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
   }
   await db.query('INSERT INTO clients VALUES ($1, $2)', [CLIENT_ID, WOLFHOUSE_CLIENT_SLUG]);
@@ -302,16 +308,21 @@ async function runPayload(payload) {
     assert.equal(bookings[0].deposit_required_cents, built.command.quote.deposit_required_cents);
     assert.equal(bookings[0].balance_due_cents, built.command.quote.balance_due_cents);
     assert.ok(occupants.every((row) => row.amount_paid_cents === 0 && row.payment_id === null));
+    const services = (await db.query(`SELECT service_type, quantity, amount_due_cents,
+      amount_paid_cents, payment_status, metadata FROM booking_service_records
+      WHERE booking_id = $1 AND client_slug = $2 ORDER BY service_type`,
+    [bookings[0].id, WOLFHOUSE_CLIENT_SLUG])).rows;
+    assert.equal(services.length, pg.calls.filter((call) => call.kind === 'service_insert').length);
     assert.deepEqual(networkAttempts, []);
     return {
       ok: true, status: result.status,
-      evidence_mode: 'real PGlite SQL; minimal supporting schema; committed migrations 024 + 031',
+      evidence_mode: 'real PGlite SQL; minimal supporting schema; committed migrations 010 + 018 + 024 + 031',
       limitations: [
         'Supporting schema is a subset, not the complete production migration stack.',
         'Bed mapping follows production booking_beds ORDER BY created_at; ties may reorder input bed codes.',
         'Create-only draft payment coverage; no payment collection, checkout, or messaging.',
       ],
-      occupants,
+      occupants, services,
       contact: { crm_customer_count: customers.length, conversation_count: conversations.length,
         customer: customers[0], booking_guest_name: bookings[0].guest_name,
         booking_customer_id: bookings[0].customer_id, reused_existing_identity: true },
