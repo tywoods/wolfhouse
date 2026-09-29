@@ -20863,7 +20863,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 /* Guest rows need the whole read grid; one column collapses names behind beds/status. */
 #bc-drawer-card-booking #bc-field-guests-kv-only{grid-column:1 / -1}
 #bc-drawer-card-booking .bc-guest-name-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 8px;align-items:start;margin-bottom:6px;white-space:normal}
-#bc-drawer-card-booking .bc-guest-name-line{display:block;grid-column:1;grid-row:1;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
+#bc-drawer-card-booking .bc-guest-name-line{display:block;grid-column:1;grid-row:1;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;cursor:pointer}
+#bc-drawer-card-booking .bc-guest-name-line.is-active,
+#bc-drawer-card-booking .bc-inline-guest-name.is-editing{text-decoration:underline;text-underline-offset:2px}
 #bc-drawer-card-booking .bc-guest-package-pebble{grid-column:1;grid-row:2;justify-self:start;align-self:start;margin:2px 0 0;max-width:100%}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
 [data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
@@ -42398,6 +42400,34 @@ function bcFieldEditMoveInputToValue(vEl, input){
   input.classList.add('bc-inline-input');
 }
 
+function bcBindActiveGuestUnderline(){
+  if (document.documentElement.dataset.bcActiveGuestUnderline) return;
+  document.documentElement.dataset.bcActiveGuestUnderline = '1';
+  document.addEventListener('click', function(e){
+    var line = e.target && e.target.closest && e.target.closest('#bc-guest-names .bc-guest-name-line');
+    if (!line || line.closest('.is-editing')) return;
+    var host = line.closest('#bc-guest-names');
+    if (!host) return;
+    host.querySelectorAll('.bc-guest-name-line.is-active').forEach(function(n){
+      if (n === line) return;
+      n.classList.remove('is-active');
+      n.removeAttribute('aria-current');
+    });
+    var on = !line.classList.contains('is-active');
+    line.classList.toggle('is-active', on);
+    if (on) line.setAttribute('aria-current', 'true');
+    else line.removeAttribute('aria-current');
+  });
+  document.addEventListener('focusin', function(e){
+    var inp = e.target;
+    if (!inp || !inp.classList || !inp.classList.contains('bc-inline-guest-name')) return;
+    if (!inp.closest('#bc-drawer-card-booking')) return;
+    document.querySelectorAll('#bc-drawer-card-booking .bc-inline-guest-name.is-editing').forEach(function(n){
+      if (n !== inp) n.classList.remove('is-editing');
+    });
+    inp.classList.add('is-editing');
+  });
+}
 function bcFieldEditPaintInline(group){
   if (group === 'contact') {
     var kvs = document.querySelectorAll('#bc-field-group-contact .kv-grid > .kv');
@@ -42413,6 +42443,8 @@ function bcFieldEditPaintInline(group){
     var wrap = el('bc-guest-names');
     if (wrap && !wrap.dataset.bcInline) {
       wrap.dataset.bcInline = '1';
+      var activeLine = wrap.querySelector('.bc-guest-name-line.is-active');
+      var activeName = activeLine ? String(activeLine.textContent || '').trim() : '';
       wrap.dataset.bcReadHtml = wrap.innerHTML;
       var guests = (bcFieldEditState.snapshot.guest_names || []).slice();
       wrap.innerHTML = '';
@@ -42428,6 +42460,7 @@ function bcFieldEditPaintInline(group){
         inp.setAttribute('data-guest-i', String(i));
         inp.disabled = !guest.booking_guest_id;
         if (inp.disabled) inp.title = 'Guest has no saved identity; name editing is unavailable.';
+        if (activeName && String(guest.guest_name || '').trim() === activeName) inp.classList.add('is-editing');
         wrap.appendChild(inp);
         var pkgSel = el('bc-field-package-select-' + guest.guest_number);
         var pkgRow = pkgSel && pkgSel.closest('.bc-field-package-guest-row');
@@ -44123,6 +44156,7 @@ function bcDrawerTabBtn(id, label, active){
 }
 
 function bcInitDrawerTabs(){
+  if (typeof bcBindActiveGuestUnderline === 'function') bcBindActiveGuestUnderline();
   var bar = el('bc-drawer-tabs');
   if (!bar) return;
   bar.querySelectorAll('.bc-drawer-tab').forEach(function(btn){
