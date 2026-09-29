@@ -21733,6 +21733,20 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs{
     display:flex;
   }
+  /* MOBILE-NAV-OPAQUE-DARK-001: compact dark keeps #tabs transparent so the
+     desktop bar shows the banner. That (1,3,0) rule beats the drawer fill
+     and the schedule grid bleeds through the open hamburger. Open menu
+     only — desktop compact bar stays transparent. Light keeps --surface. */
+  body.nav-menu-open.luna-header-ui #tabs,
+  body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs{
+    background:var(--surface);background-color:var(--surface);
+    -webkit-backdrop-filter:none;backdrop-filter:none;opacity:1;
+  }
+  [data-theme="dark"] body.nav-menu-open.luna-header-ui #tabs,
+  [data-theme="dark"] body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs{
+    background:#1e1e1e;background-color:#1e1e1e;border-left-color:#3c3c3c;
+    -webkit-backdrop-filter:none;backdrop-filter:none;opacity:1;
+  }
   .luna-header-ui #tabs .tab-btn,
   .luna-header-ui.luna-hdr-compact #tabs .tab-btn{
     height:auto;line-height:1.3;width:100%;margin-right:0;
