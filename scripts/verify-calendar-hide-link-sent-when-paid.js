@@ -88,11 +88,11 @@ async function main(){
       await page.locator('.bc-block').first().waitFor();
     }
     const controls=[
-      {name:'unpaid',invoice:60000,paid:0,guestPaid:[0,0],badges:[['Link sent','€300.00'],['Link sent','€300.00'],['Link sent','€600.00']]},
-      {name:'deposit-only',invoice:60000,paid:18000,guestPaid:[9000,9000],badges:[['Link sent','€210.00','Deposit paid'],['Link sent','€210.00','Deposit paid'],['Link sent','€420.00','Deposit paid']]},
-      {name:'partial',invoice:60000,paid:59999,guestPaid:[29999,30000],badges:[['Link sent','€0.01','Deposit paid'],['Link sent','Paid'],['Link sent','€0.01','Deposit paid']]},
-      {name:'individually-paid-unpaid-booking',invoice:60000,paid:30000,guestPaid:[30000,0],badges:[['Link sent','Paid'],['Link sent','€300.00'],['Link sent','€300.00','Deposit paid']]},
-      ...[null,0,'NaN','Infinity'].map(invoice=>({name:'unknown-total-'+String(invoice),invoice,paid:60000,guestPaid:[0,0],unknown:true,badges:[['Link sent','€300.00'],['Link sent','€300.00'],invoice==='Infinity'?['Link sent','€Infinity']:['Link sent']]})),
+      {name:'unpaid',invoice:60000,paid:0,guestPaid:[0,0],badges:[['€300.00'],['€300.00'],['€600.00']]},
+      {name:'deposit-only',invoice:60000,paid:18000,guestPaid:[9000,9000],badges:[['€210.00','Deposit paid'],['€210.00','Deposit paid'],['€420.00','Deposit paid']]},
+      {name:'partial',invoice:60000,paid:59999,guestPaid:[29999,30000],badges:[['€0.01','Deposit paid'],['Paid'],['€0.01','Deposit paid']]},
+      {name:'individually-paid-unpaid-booking',invoice:60000,paid:30000,guestPaid:[30000,0],badges:[['Paid'],['€300.00'],['€300.00','Deposit paid']]},
+      ...[null,0,'NaN','Infinity'].map(invoice=>({name:'unknown-total-'+String(invoice),invoice,paid:60000,guestPaid:[0,0],unknown:true,badges:[['€300.00'],['€300.00'],invoice==='Infinity'?['€Infinity']:[]]})),
       {name:'explicit-false-link',invoice:60000,paid:0,guestPaid:[0,0],link:false,badges:[['€300.00'],['€300.00'],['€600.00']]},
       {name:'blocked',invoice:60000,paid:0,guestPaid:[0,0],blocked:true,badges:[[],[],[]]},
       {name:'full-paid',invoice:60000,paid:60000,guestPaid:[0,0],full:true,badges:[['Paid'],['Paid'],['Paid']]},
@@ -274,7 +274,7 @@ async function main(){
       const block={...original[2],...values,calendar_payment_primary:kind,calendar_payment_amount_cents:5000,calendar_show_deposit_paid:true};
       const before=JSON.stringify(block),state=JSON.stringify(sandbox.bcCalendarBlockPaymentState(block));
       const result=sandbox.bcCalendarPaymentBadgesHtml(block);
-      assert.equal(result.includes('Link sent'),kind!=='refund_review'&&!(tenant===TENANT&&values.full),'aggregate link policy '+JSON.stringify({tenant,kind,values}));
+      assert.equal(result.includes('Link sent'), false, 'Link sent pebble is gone '+JSON.stringify({tenant,kind,values}));
       if(kind==='paid')assert(result.includes('>Paid<'));
       if(kind==='refund_review')assert(result.includes('Refund review €50.00'));
       if(kind==='balance_due')assert(result.includes('€50.00')&&result.includes('Deposit paid'));

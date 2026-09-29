@@ -136,7 +136,7 @@ if (ran) {
   ok('missing package is name plus real pebbles only', !/no pebble/i.test(tomText) && !/pkg-pebble/.test(tom), tom);
   ok('Tom does not show the booking total', !tom.includes('€1300.00') && !tom.includes('€1600.00'), tom);
   ok('Tom balance is his share', tom.includes('€325.00'), tom);
-  ok('Tom shows link sent', tom.includes('Link sent'));
+  ok('Tom does not show link sent', !tom.includes('Link sent'));
   ok('Tom has no deposit or paid pebble', !tom.includes('Deposit paid') && !/>Paid</.test(tom), tom);
 
   const tim = sandbox.bcCalendarGuestRowPebblesHtml(row({
@@ -184,8 +184,8 @@ if (ran) {
   const transferAt = indexOfPebble(orderHtml, 'Transfer');
   const depositAt = indexOfPebble(orderHtml, 'Deposit paid');
   const paidAt = indexOfPebble(orderHtml, 'bc-block-pay-paid');
-  ok('fully settled share order is package, link, transfer, paid without deposit',
-    packageAt >= 0 && packageAt < linkAt && linkAt < transferAt && transferAt < paidAt && depositAt === -1,
+  ok('fully settled share order is paid, transfer, package, no link or deposit',
+    paidAt >= 0 && paidAt < transferAt && transferAt < packageAt && linkAt === -1 && depositAt === -1,
     orderHtml);
 
   const unknownShare = sandbox.bcCalendarGuestRowPebblesHtml(row({

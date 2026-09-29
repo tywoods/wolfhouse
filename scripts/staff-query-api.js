@@ -21138,10 +21138,14 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-/* SCHEDULE-DENSE-NAME-ONLY-001 — dense / crushed bars keep the guest name.
-   Pebbles stay in the DOM for the drawer and for wide bars. They must not
-   ellipsis into T… / €…. Drop the whole pebble group first. The payment
-   stripe is an absolute 3px mark inside existing padding, so it costs no width. */
+/* SCHEDULE-DENSE-NAME-ONLY-001 + SCHEDULE-PEBBLES-PRIORITY-001
+   Pebbles stay in the DOM. They must not ellipsis into T… / €….
+   Priority after the name, when they fit: Balance due (omit €0) →
+   Paid or Deposit paid → Transfer. Link sent is not a bar pebble.
+   The full guest name never shrinks to make room. If name + pebbles
+   do not fit, .bc-name-only hides the group (tight-space fallback).
+   A dense month does not blanket-hide wide bars. The payment stripe
+   is an absolute 3px mark inside existing padding, so it costs no width. */
 #tab-bed-calendar .bc-block{
   container-type:inline-size;
   container-name:bcbar;
@@ -21165,12 +21169,10 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   overflow:visible;
   text-overflow:clip;
 }
-#tab-bed-calendar .bc-block.bc-name-only,
-#tab-bed-calendar.bc-cols-dense .bc-block{
+#tab-bed-calendar .bc-block.bc-name-only{
   flex-wrap:nowrap;
 }
-#tab-bed-calendar .bc-block.bc-name-only .bc-block-label,
-#tab-bed-calendar.bc-cols-dense .bc-block .bc-block-label{
+#tab-bed-calendar .bc-block.bc-name-only .bc-block-label{
   flex:1 1 auto;
   min-width:0;
   max-width:100%;
@@ -21178,8 +21180,15 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-#tab-bed-calendar .bc-block.bc-name-only .bc-block-pebbles,
-#tab-bed-calendar.bc-cols-dense .bc-block .bc-block-pebbles{
+#tab-bed-calendar .bc-block:not(.bc-name-only):has(.bc-block-pebbles:not(:empty)) .bc-block-label{
+  flex:0 0 auto;
+  min-width:max-content;
+  max-width:none;
+  overflow:visible;
+  text-overflow:clip;
+  white-space:nowrap;
+}
+#tab-bed-calendar .bc-block.bc-name-only .bc-block-pebbles{
   display:none!important;
 }
 #tab-bed-calendar .bc-block.bc-pay-stripe{
@@ -37180,27 +37189,20 @@ function bcCalendarPaymentBadgesHtml(blk){
   if (blk && String(blk.color_type || '').toLowerCase() === 'blocked') return '';
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
-  var bookingFullyPaid = bcCalendarBookingFullyPaid(blk);
   var html = '<span class="bc-block-pay-wrap">';
   if (st.kind === 'balance_due') {
+    if (st.amount_cents > 0) {
+      html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
+        escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
+    }
     if (st.show_deposit_paid) {
       html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
     }
-    html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
-      escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
-    if (st.has_active_payment_link && !bookingFullyPaid) {
-      html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
-    }
   } else if (st.kind === 'paid') {
     html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
-    if (st.has_active_payment_link && !bookingFullyPaid) {
-      html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
-    }
   } else if (st.kind === 'refund_review') {
     html += '<span class="bc-block-pay-badge bc-block-pay-refund">Refund review ' +
       escHtml(bcCalendarFormatEur(st.amount_cents)) + '</span>';
-  } else if (st.kind === 'payment_link_created' && !bookingFullyPaid) {
-    html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
   }
   html += '</span>';
   return html;
@@ -37275,20 +37277,10 @@ function bcCalendarGuestRowPebblesHtml(blk){
   if (!blk) return '';
   if (String(blk.status || '').toLowerCase() === 'blocked') return '';
   if (String(blk.color_type || '').toLowerCase() === 'blocked') return '';
-  var html = '';
-  var pkg = bcCalendarGuestPackageCode(blk);
-  if (pkg) {
-    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(pkg) + ' bc-block-package-pebble">' +
-      escHtml(bcFieldEditPackageDisplayLabel(pkg)) + '</span>';
-  }
-  var linkSent = blk.calendar_guest_link_sent === true
-    || (blk.calendar_guest_link_sent == null && blk.calendar_show_payment_pills !== false && !!blk.has_active_payment_link);
+  /* SCHEDULE-PEBBLES-PRIORITY-001 — after the name: Balance due (omit €0)
+     → Paid or Deposit paid → Transfer. No Link sent pebble. Package stays
+     after that trio so a missing package still renders nothing. */
   var bookingFullyPaid = bcCalendarBookingFullyPaid(blk);
-  if (linkSent && !bookingFullyPaid) html += '<span class="bc-block-pay-badge bc-block-pay-link">Link sent</span>';
-  html += bcTransferPebbleHtml(blk);
-  if (bookingFullyPaid) {
-    return html + '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
-  }
   var multi = Number(blk.calendar_group_size || 0) > 1 || blk.calendar_guest_number != null;
   var share = blk.calendar_guest_share_cents != null ? Number(blk.calendar_guest_share_cents) : null;
   var paid = blk.calendar_guest_paid_cents != null ? Number(blk.calendar_guest_paid_cents) : null;
@@ -37301,19 +37293,30 @@ function bcCalendarGuestRowPebblesHtml(blk){
     }
     if (deposit == null && blk.deposit_required_cents != null) deposit = Number(blk.deposit_required_cents);
   }
-  if (share != null && paid != null && share > paid) {
+  var html = '';
+  if (!bookingFullyPaid && share != null && paid != null && share > paid) {
     html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
       escHtml(bcCalendarFormatEur(share - paid)) + '</span>';
-  } else if (!multi && share == null && blk.calendar_payment_primary === 'balance_due' && Number(blk.calendar_payment_amount_cents) > 0) {
+  } else if (!bookingFullyPaid && !multi && share == null && blk.calendar_payment_primary === 'balance_due' && Number(blk.calendar_payment_amount_cents) > 0) {
     html += '<span class="bc-block-pay-badge bc-block-pay-balance">' +
       escHtml(bcCalendarFormatEur(blk.calendar_payment_amount_cents)) + '</span>';
   }
-  var depositPaid = deposit != null && deposit > 0 && paid != null && paid >= deposit;
-  if (!depositPaid && !multi && blk.calendar_show_deposit_paid) depositPaid = true;
-  var fullPaid = share != null && share > 0 && paid != null && paid >= share;
-  if (!fullPaid && !multi && blk.calendar_payment_primary === 'paid') fullPaid = true;
-  if (depositPaid && (!fullPaid || getClient() !== 'wolfhouse-somo')) html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
-  if (fullPaid) html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+  if (bookingFullyPaid) {
+    html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+  } else {
+    var depositPaid = deposit != null && deposit > 0 && paid != null && paid >= deposit;
+    if (!depositPaid && !multi && blk.calendar_show_deposit_paid) depositPaid = true;
+    var fullPaid = share != null && share > 0 && paid != null && paid >= share;
+    if (!fullPaid && !multi && blk.calendar_payment_primary === 'paid') fullPaid = true;
+    if (fullPaid) html += '<span class="bc-block-pay-badge bc-block-pay-paid">Paid</span>';
+    else if (depositPaid) html += '<span class="bc-block-pay-badge bc-block-pay-deposit">Deposit paid</span>';
+  }
+  html += bcTransferPebbleHtml(blk);
+  var pkg = bcCalendarGuestPackageCode(blk);
+  if (pkg) {
+    html += '<span class="pkg-pebble ' + bcPackagePebbleClass(pkg) + ' bc-block-package-pebble">' +
+      escHtml(bcFieldEditPackageDisplayLabel(pkg)) + '</span>';
+  }
   return html;
 }
 
@@ -37330,12 +37333,13 @@ function bcCalendarPackagePebbleHtml(blk){
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
   return '<span class="bc-block-label">' + labelHtml + '</span>' +
-    '<span class="bc-block-pebbles">' + bcGroupChipHtml(blk) + bcCalendarGuestRowPebblesHtml(blk) + '</span>';
+    '<span class="bc-block-pebbles">' + bcCalendarGuestRowPebblesHtml(blk) + bcGroupChipHtml(blk) + '</span>';
 }
 
-/* SCHEDULE-DENSE-NAME-ONLY-001 — name wins. Dense columns (>30 days, zoomed
-   out, or a measured day column under 40px) are name-only. Wide columns keep
-   pebbles only when the name still has about 8 characters of room. */
+/* SCHEDULE-PEBBLES-PRIORITY-001 — name wins. A dense month, zoomed-out
+   view, or a narrow day column is not a blanket name-only. Keep pebbles
+   when the full guest name plus the pebble group still fits. Otherwise
+   hide the group. Never reserve only 8 characters and ellipsis the name. */
 function bcScheduleDenseFromMetrics(dayCount, zoomLevel, colWidthPx){
   if (Number(dayCount) > 30) return true;
   var zoom = Number(zoomLevel);
@@ -37345,10 +37349,10 @@ function bcScheduleDenseFromMetrics(dayCount, zoomLevel, colWidthPx){
   return false;
 }
 
-function bcBarKeepsPebbles(barInnerPx, nameReservePx, pebbleNeedPx){
+function bcBarKeepsPebbles(barInnerPx, nameWidthPx, pebbleNeedPx){
   if (!(Number(pebbleNeedPx) > 0)) return true;
-  if (!(Number(nameReservePx) > 0)) return true;
-  return Number(barInnerPx) >= (Number(nameReservePx) + Number(pebbleNeedPx));
+  if (!(Number(nameWidthPx) > 0)) return true;
+  return Number(barInnerPx) >= (Number(nameWidthPx) + Number(pebbleNeedPx));
 }
 
 function bcPayStripeKind(blk){
@@ -37423,21 +37427,19 @@ function bcScheduleDenseNameRefit(){
   else run();
 }
 
-function bcEightChPx(label){
+function bcFullNamePx(label){
+  var text = label ? (label.textContent || '') : '';
   var font = '12px sans-serif';
   try {
     if (label && window.getComputedStyle) font = window.getComputedStyle(label).font || font;
   } catch (_) { /* ignore */ }
-  if (bcEightChPx._font === font && bcEightChPx._px) return bcEightChPx._px;
   var probe = document.createElement('span');
-  probe.textContent = '00000000';
+  probe.textContent = text;
   probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font:' + font + ';';
   (document.body || document.documentElement).appendChild(probe);
   var w = probe.getBoundingClientRect().width;
   if (probe.parentNode) probe.parentNode.removeChild(probe);
-  bcEightChPx._font = font;
-  bcEightChPx._px = w || 64;
-  return bcEightChPx._px;
+  return w || 0;
 }
 
 function bcSyncDenseNameOnly(){
@@ -37454,10 +37456,6 @@ function bcSyncDenseNameOnly(){
   var dense = bcScheduleDenseFromMetrics(days, zoom, colW);
   tab.classList.toggle('bc-cols-dense', dense);
   var bars = wrap.querySelectorAll('.bc-block');
-  if (dense) {
-    Array.prototype.forEach.call(bars, function(bar){ bar.classList.add('bc-name-only'); });
-    return;
-  }
   Array.prototype.forEach.call(bars, function(bar){ bar.classList.remove('bc-name-only'); });
   Array.prototype.forEach.call(bars, function(bar){
     var label = bar.querySelector('.bc-block-label');
@@ -37469,7 +37467,7 @@ function bcSyncDenseNameOnly(){
     var pad = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
     var gap = cs ? (parseFloat(cs.columnGap || cs.gap) || 0) : 0;
     var inner = bar.clientWidth - pad - gap;
-    if (!bcBarKeepsPebbles(inner, bcEightChPx(label), pebbleNeed)) {
+    if (!bcBarKeepsPebbles(inner, bcFullNamePx(label), pebbleNeed)) {
       bar.classList.add('bc-name-only');
     }
   });
@@ -38056,8 +38054,7 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   var priColor = bcColorClass(primary.blk.color_type);
   var priGroup = bcGroupPaintBits(primary.blk);
   var priStripe = bcPayStripeClass(primary.blk);
-  var priNameOnly = bcScheduleColumnsAreDenseNow() ? ' bc-name-only' : '';
-  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin' + priStripe + priNameOnly + '" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
+  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin' + priStripe + '" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
@@ -38069,7 +38066,6 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   var groupBits = bcGroupPaintBits(blk);
   var thinCls = spanDays === 1 ? ' bc-block-thin' : '';
   var stripeCls = bcPayStripeClass(blk);
-  var nameOnlyCls = bcScheduleColumnsAreDenseNow() ? ' bc-name-only' : '';
   var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
   var markerHtml = '';
   var tip;
@@ -38089,7 +38085,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + stripeCls + nameOnlyCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + stripeCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
