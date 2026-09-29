@@ -21006,6 +21006,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-pay-column{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
 .bc-guest-pay-title{font-size:10px;color:var(--text-2);font-weight:500}
 .bc-guest-pay-price{color:#000;background:#fff;border-radius:3px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
+[data-theme="dark"] .bc-guest-pay-price{color:#fff;background:transparent;border-radius:0;font-weight:700}
 .bc-guest-pay-paid,.bc-guest-pay-owed{flex:0 0 auto;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 @media (max-width:480px){
   .bc-guest-pay-name{font-size:12px;line-height:1.25}
