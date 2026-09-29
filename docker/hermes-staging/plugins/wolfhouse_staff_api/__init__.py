@@ -166,6 +166,15 @@ def _normalize_bot_path(path):
 
 
 def _post_bot(path, payload, *, require_explicit_success=False):
+    # Payment/handoff receipts must carry literal success. Keep legacy defaults
+    # for every other route (and preserve the two-argument transport test seam).
+    payment_receipt = bool(re.fullmatch(
+        r"/staff/bot/(?:payments/(?:[^/]+/create-stripe-link|create-balance-link|status)"
+        r"|booking-guests/(?:[^/]+/create-payment-link|payment-status)"
+        r"|sunset/payment-(?:link|status)|conversation/needs-human)",
+        _normalize_bot_path(path),
+    ))
+    require_explicit_success = require_explicit_success or payment_receipt
     token = _bot_token()
     if not token:
         return {
@@ -283,12 +292,14 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             except json.JSONDecodeError:
                 data = {"raw": text}
             if isinstance(data, dict):
+                if payment_receipt:
+                    data["success"] = data.get("success") is True
                 # Only strict readers opt in; preserve legacy tool behavior.
                 if not require_explicit_success:
                     data.setdefault("success", True)
                 data.setdefault("staff_api_status", "ok")
                 return data
-            return {"success": True, "staff_api_status": "ok", "data": data}
+            return {"success": not payment_receipt, "staff_api_status": "ok", "data": data}
     except urllib.error.HTTPError as exc:
         _lr32_raw_body = exc.read()
         if _lr32_envelope is not None:
@@ -305,7 +316,15 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             data = json.loads(text or "{}")
         except json.JSONDecodeError:
             data = {"error": text}
+        # Error handlers must not raise on valid JSON with a non-object shape.
+        # Preserve the HTTP failure, not scalar/array content as a policy code.
+        if not isinstance(data, dict):
+            data = {}
         return {
+            # Only these boolean payment-policy receipts cross the error boundary;
+            # never copy arbitrary error-body identity, success or checkout fields.
+            **{key: data[key] for key in ("stripe_links_enabled", "bot_booking_enabled")
+               if payment_receipt and isinstance(data.get(key), bool)},
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
@@ -863,6 +882,8 @@ def create_booking_from_plan(params, **kwargs):
     link_data = {}
     payment_link_error = None
     uses_per_guest_model = bool(data.get("uses_per_guest_model"))
+    payment_link_failures = []
+    link_result = {}
 
     guest_payment_links = []
     if bool(data.get("success")) and bool(data.get("write_performed")) and uses_per_guest_model:
@@ -880,6 +901,11 @@ def create_booking_from_plan(params, **kwargs):
                         "booking_code": fields.get("booking_code"),
                         "guest_number": guest_num,
                     })
+                    if status.get("success") is not True:
+                        lookup_result = _payment_link_result("create_booking_from_plan", status, {}, attempt_handoff=False)
+                        if lookup_result.get("payment_operation_failed"):
+                            payment_link_failures.append({"guest_number": guest_num, "error": lookup_result.get("error")})
+                        continue
                     guest_id = _clean(status.get("booking_guest_id"))
                 if not guest_id:
                     continue
@@ -890,7 +916,16 @@ def create_booking_from_plan(params, **kwargs):
                         "payment_target": payment_target,
                     },
                 )
-                guest_url = _guest_payment_url(link_data)
+                link_result = _payment_link_result("create_booking_from_plan", link_data, {
+                    "success": link_data.get("success") is True,
+                    "secure_payment_url": _guest_payment_url(link_data),
+                }, attempt_handoff=False)
+                if link_result.get("payment_operation_failed"):
+                    payment_link_failures.append({
+                        "booking_guest_id": guest_id, "guest_number": guest_num,
+                        "error": link_result.get("error"),
+                    })
+                guest_url = link_result.get("secure_payment_url")
                 if guest_url:
                     guest_payment_links.append({
                         "guest_number": link_data.get("guest_number") or guest_num,
@@ -913,14 +948,23 @@ def create_booking_from_plan(params, **kwargs):
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
             link_payload,
         )
-        if _intentional_capability_block(link_data):
-            payment_link_error = None
-        elif link_data.get("success") and _guest_payment_url(link_data):
-            secure_url = _guest_payment_url(link_data)
-        else:
-            payment_link_error = _safe_text(
-                link_data.get("error") or link_data.get("message") or "payment_link_create_failed",
-            )
+        link_result = _payment_link_result("create_booking_from_plan", link_data, {
+            "success": link_data.get("success") is True,
+            "secure_payment_url": _guest_payment_url(link_data),
+        }, attempt_handoff=False)
+        secure_url = link_result.get("secure_payment_url")
+        if link_result.get("payment_operation_failed"):
+            payment_link_failures.append({"payment_id": payment_id, "error": link_result.get("error")})
+
+    payment_handoff = {}
+    if payment_link_failures:
+        payment_link_error = payment_link_failures[0]["error"]
+        payment_handoff = _payment_failure_handoff("create_booking_from_plan")
+        payment_handoff["guest_safe_next_action"] = (
+            "Your booking was saved. " + payment_handoff["guest_safe_next_action"]
+            + (" Only the listed payment links were created; other guest links failed." if guest_payment_links else "")
+        )
+        payment_handoff["reply_draft"] = payment_handoff["guest_safe_next_action"]
 
     blocked_reasons = data.get("blocked_reasons") or []
     if not blocked_reasons and not bool(data.get("success")):
@@ -969,12 +1013,13 @@ def create_booking_from_plan(params, **kwargs):
         "currency": link_data.get("currency") or "EUR",
         "no_payment_truth_recorded": True,  # creating a booking/link is not a receipt
         "payment_link_error": payment_link_error,
+        "payment_link_failures": payment_link_failures,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
         "next_action": "send_secure_payment_link" if secure_url else next_action,
         "staff_review_needed": (
             not _intentional_capability_block(link_data)
-            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links))
+            and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
             and not expected_missing
         ),
         "blocked_reasons": blocked_reasons,
@@ -985,6 +1030,7 @@ def create_booking_from_plan(params, **kwargs):
         "room_decision": room_decision,
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
+        **payment_handoff,
     })
 
 
@@ -1009,6 +1055,8 @@ def create_payment_link(params, **kwargs):
             lookup_payload["booking_code"] = payload.get("booking_code")
         if lookup_payload.get("booking_id") or lookup_payload.get("booking_code"):
             status_data = _post_bot("/payments/status", lookup_payload)
+            if status_data.get("success") is not True:
+                return _json_result(_payment_link_result("create_payment_link", status_data, {"tool": "create_payment_link"}))
             latest = status_data.get("latest_payment") if isinstance(status_data.get("latest_payment"), dict) else {}
             payment_id = _clean(latest.get("payment_id") or status_data.get("payment_id"))
     if not payment_id:
@@ -1054,7 +1102,7 @@ def create_payment_link(params, **kwargs):
             "guest_safe_next_action": data.get("guest_safe_next_action"),
         })
 
-    return _json_result({
+    return _json_result(_payment_link_result("create_payment_link", data, {
         "success": bool(data.get("success")),
         "tool": "create_payment_link",
         "payment_id": data.get("payment_id") or payment_id,
@@ -1071,7 +1119,7 @@ def create_payment_link(params, **kwargs):
         "next_action": data.get("next_action") or "send_secure_payment_link",
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }))
 
 
 def create_balance_payment_link(params, **kwargs):
@@ -1110,7 +1158,7 @@ def create_balance_payment_link(params, **kwargs):
             "guest_safe_next_action": "Tell the guest their booking is already fully paid — nothing left to pay online.",
         })
     ok = bool(data.get("success")) and bool(guest_url)
-    return _json_result({
+    return _json_result(_payment_link_result("create_balance_payment_link", data, {
         "success": ok,
         "tool": "create_balance_payment_link",
         "booking_id": data.get("booking_id"),
@@ -1127,7 +1175,7 @@ def create_balance_payment_link(params, **kwargs):
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not ok,
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }))
 
 
 def preview_package_prices(params, **kwargs):
@@ -1175,6 +1223,8 @@ def create_guest_payment_link(params, **kwargs):
             "booking_code": booking_code,
             "guest_number": guest_number,
         })
+        if status.get("success") is not True:
+            return _json_result(_payment_link_result("create_guest_payment_link", status, {"tool": "create_guest_payment_link"}))
         guest_id = _clean(status.get("booking_guest_id"))
     if not guest_id:
         return _json_result({
@@ -1194,7 +1244,7 @@ def create_guest_payment_link(params, **kwargs):
         },
     )
     guest_url = _guest_payment_url(data)
-    return _json_result({
+    return _json_result(_payment_link_result("create_guest_payment_link", data, {
         "success": bool(data.get("success")) and bool(guest_url),
         "tool": "create_guest_payment_link",
         "booking_guest_id": data.get("booking_guest_id") or guest_id,
@@ -1215,16 +1265,21 @@ def create_guest_payment_link(params, **kwargs):
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }))
 
 
 def get_guest_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    if not (_clean(payload.get("booking_guest_id") or payload.get("guest_id"))
+            or (_clean(payload.get("booking_code")) and payload.get("guest_number"))):
+        return _json_result({"success": False, "tool": "get_guest_payment_status",
+                             "error": "booking_guest_id_required", "do_not_escalate": True,
+                             "staff_review_needed": False, "payment_confirmed": False})
     data = _post_bot("/booking-guests/payment-status", payload)
     status = _clean(data.get("payment_status")).lower()
-    paid_confirmed = status == "paid" or int(data.get("amount_paid_cents") or 0) > 0
-    return _json_result({
+    paid_confirmed = data.get("success") is True and (status == "paid" or int(data.get("amount_paid_cents") or 0) > 0)
+    return _json_result(_payment_status_result("get_guest_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_guest_payment_status",
         "booking_guest_id": data.get("booking_guest_id"),
@@ -1241,12 +1296,16 @@ def get_guest_payment_status(params, **kwargs):
         "assigned_room_code": data.get("assigned_room_code"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }))
 
 
 def get_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    if not any(_clean(payload.get(key)) for key in ("payment_id", "paymentId", "booking_id", "bookingId", "booking_code", "bookingCode")):
+        return _json_result({"success": False, "tool": "get_payment_status",
+                             "error": "payment_id_or_booking_required", "do_not_escalate": True,
+                             "staff_review_needed": False, "payment_confirmed": False})
     data = _post_bot("/payments/status", payload)
     latest = data.get("latest_payment") if isinstance(data.get("latest_payment"), dict) else {}
     status = data.get("payment_status") or latest.get("payment_status") or latest.get("status")
@@ -1260,7 +1319,7 @@ def get_payment_status(params, **kwargs):
     if balance is None:
         balance = latest.get("balance_due_cents")
     paid_confirmed = bool(data.get("success")) and str(booking_status or status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
-    return _json_result({
+    return _json_result(_payment_status_result("get_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_payment_status",
         "payment_truth_known": bool(data.get("success")) and (bool(data.get("payment_truth_known")) or paid_confirmed),
@@ -1276,7 +1335,7 @@ def get_payment_status(params, **kwargs):
         "balance_due_cents": balance,
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    })
+    }))
 
 
 def get_surf_report(params, **kwargs):
@@ -1478,14 +1537,14 @@ def flag_needs_human(params, **kwargs):
     data = persist_ordinary_handoff(payload, lambda: _post_bot("/conversation/needs-human", payload))
     if data is None:
         data = _post_bot("/conversation/needs-human", payload)
-    ok = bool(data.get("success")) and bool(data.get("needs_human"))
+    ok = data.get("success") is True and data.get("needs_human") is True
     return _json_result({
         **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
                                      "needs_operator_reconciliation", "guest_safe_next_action",
                                      "failure_notice_sent", "error") if key in data},
         "success": ok,
         "tool": "flag_needs_human",
-        "needs_human": bool(data.get("needs_human")),
+        "needs_human": data.get("needs_human") is True,
         "conversation_id": data.get("conversation_id"),
         "conversation_paused": bool(data.get("conversation_paused")),
         "handoff_reason": data.get("handoff_reason"),
@@ -3437,6 +3496,89 @@ def _sunset_guest_location_line(location_id):
     return f"📍 {url}" if url else None
 
 
+def _payment_status_result(tool, data, result):
+    """An unsuccessful read or failed receipt is never payment confirmation."""
+    if data.get("success") is True and _clean(result.get("payment_status")).lower() != "failed":
+        return result
+    result = _payment_link_result(tool, {**data, "success": False}, result)
+    result.update(success=data.get("success") is True, payment_confirmed=False,
+                  payment_truth_known=False, booking_fully_paid=False)
+    if "paid" in result:
+        result["paid"] = False
+        result["unpaid"] = None  # failed reads are not evidence of nonpayment
+    return result
+
+
+def _payment_link_result(tool, data, result, *, attempt_handoff=True):
+    """Keep recoverable/denied checkouts separate from actual payment failure."""
+    codes = {_clean(data.get(key)).lower() for key in ("error", "reason", "reason_code")}
+    no_due = bool(codes & {"no_balance_due", "no_payment_due", "already_paid", "payment_already_paid"}) or data.get("already_paid") is True
+    # Staff policy denials are not attempted checkouts. Unknown 403s (including
+    # provider/auth outages) still enter genuine failure handling.
+    policy_denied = data.get("status") == 403 and (
+        data.get("stripe_links_enabled") is False
+        or data.get("bot_booking_enabled") is False
+        or data.get("error") in {"staff_actions_disabled", "stripe_links_disabled", "payment_provider_not_allowed"}
+    )
+    denied = policy_denied or _intentional_capability_block(data) or bool(data.get("disabled")) or data.get("staff_api_status") == "tenant_scope_denied"
+    recoverable = data.get("safe_next_step") in {"ask_missing_details", "ask_deposit_or_full_payment"} or bool(codes & {
+        "guest_name_missing", "guest_phone_missing", "payment_choice_missing",
+        "payment_id_required", "booking_id_or_code_required", "booking_guest_id_required",
+        "payment_id, booking_id, or booking_code is required",
+        "booking_guest_id or (booking_code + guest_number) is required",
+    })
+    if not (no_due or denied or recoverable) and data.get("success") is True and _guest_payment_url(data) and _clean(data.get("payment_status")).lower() != "failed":
+        return result
+    result = {**result, "success": False, "needs_human": False, "next_action": None}
+    for key in ("secure_payment_url", "guest_payment_url", "payment_short_url", "payment_short_path", "checkout_url", "guest_location_line"):
+        if key in result:
+            result[key] = None
+    if no_due or denied or recoverable:
+        result.update(
+            staff_review_needed=False, do_not_escalate=True,
+            error=data.get("error"), reason=data.get("reason") or data.get("reason_code"),
+            already_paid=data.get("already_paid") is True,
+            outcome="INTENTIONALLY_BLOCKED" if denied else data.get("outcome"),
+            guest_safe_next_action=(
+                "There is nothing to pay online for this payment step." if no_due else
+                "Please provide the missing booking details." if recoverable else
+                "This payment action is not available here."
+            ),
+        )
+    else:
+        result.update(error=_safe_text(data.get("error") or "payment_link_create_failed"),
+                      payment_operation_failed=True)
+        if attempt_handoff:
+            result.update(_payment_failure_handoff(tool))
+    return result
+
+
+def _payment_failure_handoff(tool):
+    """Attempt the ordinary handoff once; never borrow model-supplied identity."""
+    try:
+        handoff = json.loads(flag_needs_human({
+            "reason": f"business_tool_error: {tool} payment operation failed",
+        }))
+    except Exception:
+        handoff = {"success": False, "needs_human": False, "error": "handoff_unavailable"}
+    confirmed = handoff.get("success") is True and handoff.get("needs_human") is True
+    return {
+        "payment_operation_failed": True,
+        "handoff": handoff,
+        "handoff_confirmed": confirmed,
+        "needs_human": confirmed,
+        "staff_review_needed": True,
+        "do_not_escalate": confirmed,
+        "next_action": "human_handoff_confirmed" if confirmed else "contact_reception_directly",
+        "guest_safe_next_action": (
+            "I couldn’t complete the payment step. I’ve flagged this chat for the team to help."
+            if confirmed else
+            "I couldn’t complete the payment step or confirm the handoff. Please contact reception directly; "
+            "I can’t promise a teammate will see this chat."
+        ),
+    }
+
+
 def create_sunset_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -3458,21 +3600,15 @@ def create_sunset_payment_link(params, **kwargs):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
     data = _post_bot("/sunset/payment-link", body)
-    if data.get("disabled"):
-        return _json_result({
-            "success": False,
-            "tool": "create_sunset_payment_link",
-            "disabled": data.get("disabled"),
-            "staff_review_needed": True,
-        })
     # Guest-facing URL prefers compact /pay/<booking_code>; raw Stripe stays internal.
     guest_url = _guest_payment_url(data)
     checkout_url = _clean(data.get("checkout_url") or data.get("payment_link_url"))
     ok = bool(data.get("success")) and bool(guest_url)
     location_id = _clean(data.get("location_id")) or _clean(payload.get("location_id"))
-    return _json_result({
+    return _json_result(_payment_link_result("create_sunset_payment_link", data, {
         "success": ok,
         "tool": "create_sunset_payment_link",
+        "disabled": data.get("disabled"),
         "booking_id": data.get("booking_id"),
         "booking_code": data.get("booking_code"),
         "payment_id": data.get("payment_id"),
@@ -3489,8 +3625,8 @@ def create_sunset_payment_link(params, **kwargs):
         "next_action": "send_secure_payment_link" if ok else None,
         "reason": data.get("reason") or data.get("error") if not ok else None,
         "staff_review_needed": not ok,
-        "guest_safe_next_action": None if ok else "Let me sort the payment link with the team 😊",
-    })
+        "guest_safe_next_action": None,
+    }))
 
 
 def get_sunset_payment_status(params, **kwargs):
@@ -3514,8 +3650,8 @@ def get_sunset_payment_status(params, **kwargs):
         body["location_id"] = payload["location_id"]
     data = _post_bot("/sunset/payment-status", body)
     ok = bool(data.get("success"))
-    paid = bool(data.get("paid"))
-    return _json_result({
+    paid = ok and data.get("paid") is True
+    return _json_result(_payment_status_result("get_sunset_payment_status", data, {
         "success": ok,
         "tool": "get_sunset_payment_status",
         "booking_id": data.get("booking_id"),
@@ -3532,7 +3668,7 @@ def get_sunset_payment_status(params, **kwargs):
         "reason": data.get("reason") or data.get("error") if not ok else None,
         "staff_review_needed": not ok,
         "guest_safe_next_action": None,
-    })
+    }))
 
 
 def list_sunset_bookings(params, **kwargs):
