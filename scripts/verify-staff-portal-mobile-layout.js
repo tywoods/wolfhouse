@@ -36,6 +36,35 @@ check('M9', src.includes('staff-portal-mobile:staff-numbers') && src.includes('s
 check('M10', src.includes('viewport-fit=cover'), 'viewport-fit=cover on main portal');
 check('M11', src.includes('staff-portal-mobile:main-menu') && src.includes('#banner .nav-menu-toggle') && src.includes('display:inline-flex!important'), 'mobile hamburger forced visible on banner');
 
+function cssSpec(selector) {
+  const ids = (selector.match(/#[\w-]+/g) || []).length;
+  const buckets = (selector.match(/\.[\w-]+/g) || []).length + (selector.match(/\[[^\]]+\]/g) || []).length;
+  const elements = (selector.match(/(^|[\s>+~])([a-zA-Z][\w-]*)/g) || []).length;
+  return [ids, buckets, elements];
+}
+function specBeats(winner, loser) {
+  const a = cssSpec(winner);
+  const b = cssSpec(loser);
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+const opaqueDarkSel = '[data-theme="dark"] body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs';
+const compactTransparentSel = '[data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs';
+const opaqueLightSel = 'body.nav-menu-open.luna-header-ui.luna-hdr-compact #tabs';
+const menuBlock = src.slice(src.indexOf('staff-portal-mobile:main-menu'), src.indexOf('Header modes inside Style card'));
+check('M12', src.includes('MOBILE-NAV-OPAQUE-DARK-001')
+  && menuBlock.includes('MOBILE-NAV-OPAQUE-DARK-001')
+  && menuBlock.includes(opaqueDarkSel + '{')
+  && /\[data-theme="dark"\] body\.nav-menu-open\.luna-header-ui\.luna-hdr-compact #tabs\{[^}]*background:#1e1e1e/.test(menuBlock)
+  && /\[data-theme="dark"\] body\.nav-menu-open\.luna-header-ui\.luna-hdr-compact #tabs\{[^}]*backdrop-filter:none/.test(menuBlock)
+  && /body\.nav-menu-open\.luna-header-ui\.luna-hdr-compact #tabs\{[^}]*background:var\(--surface\)/.test(menuBlock)
+  && /\[data-theme="dark"\] \.luna-header-ui\.luna-hdr-compact #tabs\{background:transparent/.test(src)
+  && specBeats(opaqueDarkSel, compactTransparentSel)
+  && specBeats(opaqueLightSel, '.luna-header-ui.luna-hdr-compact #tabs'),
+  'open mobile drawer is opaque in dark and light; desktop compact bar stays transparent');
+
 // Auth POST unchanged (no accidental route edits in this slice)
 check('A1', src.includes("pathname === '/staff/auth/login'") && src.includes('handleLogin'), 'staff login POST route still present');
 check('A2', src.includes("pathname === '/staff/auth/logout'") && src.includes('handleLogout'), 'staff logout POST route still present');
