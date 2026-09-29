@@ -2929,9 +2929,11 @@ function loadConvDetail(convId, targetEl){
         html += '<div id="email-drafting-disabled" class="draft-warning" role="status">Email drafting is currently disabled. This conversation is read-only.</div>';
       } else {
         html += draftTextareaHtml;
-        html += '<div class="draft-actions">';
-        html += '<button type="button" class="btn-save-draft" id="btn-save-draft">' + escHtml(inboxT('inbox.detail.reply.saveDraft', 'Save draft')) + '</button>';
-        html += '<button type="button" class="btn-delete-draft" id="btn-delete-draft">' + escHtml(inboxT('inbox.detail.reply.deleteDraft', 'Delete draft')) + '</button>';
+        var waDraftHide = (typeof inboxWhatsAppDraftActionHiddenAttr === 'function')
+          ? inboxWhatsAppDraftActionHiddenAttr() : '';
+        html += '<div class="draft-actions" data-wa-composer-actions>';
+        html += '<button type="button" class="btn-save-draft" id="btn-save-draft"' + waDraftHide + '>' + escHtml(inboxT('inbox.detail.reply.saveDraft', 'Save draft')) + '</button>';
+        html += '<button type="button" class="btn-delete-draft" id="btn-delete-draft"' + waDraftHide + '>' + escHtml(inboxT('inbox.detail.reply.deleteDraft', 'Delete draft')) + '</button>';
         html += '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
         html += '</div>';
         html += '<div id="draft-send-status" class="draft-send-status"></div>';

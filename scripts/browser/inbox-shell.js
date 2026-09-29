@@ -873,6 +873,7 @@ function inboxMockupThemeCssText(){
     '#inbox-shell .inbox-thread-day::after{content:"";flex:1;height:1px;background:rgba(47,74,62,.16)}',
     '#inbox-shell .inbox-whatsapp-draft-in-timeline{display:flex;justify-content:flex-end;padding:4px 10px 12px}',
     '#inbox-shell .inbox-whatsapp-draft-in-timeline[hidden]{display:none!important}',
+    '#inbox-shell.is-wa-automode [data-wa-composer-actions] #btn-save-draft,#inbox-shell.is-wa-automode [data-wa-composer-actions] #btn-delete-draft,#inbox-shell [data-wa-composer-actions] #btn-save-draft[hidden],#inbox-shell [data-wa-composer-actions] #btn-delete-draft[hidden]{display:none!important}',
     '#inbox-shell .inbox-whatsapp-draft-card{',
     'max-width:min(420px,86%);background:var(--inbox-paper,var(--cream));',
     'border:1px dashed var(--inbox-forest);border-radius:16px 16px 4px 16px;',
@@ -1259,7 +1260,10 @@ function inboxShellApplyUiModes(modes){
 
 function inboxShellSyncAutonomyButtons(){
   var wrap = typeof el === 'function' ? el('inbox-shell-channel-defaults') : null;
-  if (!wrap) return;
+  if (!wrap) {
+    if (typeof inboxWhatsAppComposerSyncDraftActions === 'function') inboxWhatsAppComposerSyncDraftActions();
+    return;
+  }
   var paused = inboxShellPauseBlocksAuto();
   ['whatsapp', 'email'].forEach(function(channel){
     var sel = typeof el === 'function' ? el('inbox-shell-' + channel + '-mode') : null;
@@ -1280,6 +1284,7 @@ function inboxShellSyncAutonomyButtons(){
       }
     }
   });
+  if (typeof inboxWhatsAppComposerSyncDraftActions === 'function') inboxWhatsAppComposerSyncDraftActions();
 }
 
 function inboxShellClientQuery(){
