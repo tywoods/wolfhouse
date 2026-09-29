@@ -21138,6 +21138,70 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
   text-overflow:ellipsis;
   white-space:nowrap;
 }
+/* SCHEDULE-DENSE-NAME-ONLY-001 — dense / crushed bars keep the guest name.
+   Pebbles stay in the DOM for the drawer and for wide bars. They must not
+   ellipsis into T… / €…. Drop the whole pebble group first. The payment
+   stripe is an absolute 3px mark inside existing padding, so it costs no width. */
+#tab-bed-calendar .bc-block{
+  container-type:inline-size;
+  container-name:bcbar;
+}
+#tab-bed-calendar .bc-block .bc-block-pebbles{
+  display:inline-flex;
+  flex:0 0 auto;
+  align-items:center;
+  gap:4px;
+  min-width:max-content;
+  max-width:none;
+}
+#tab-bed-calendar .bc-block .bc-block-pebbles:empty{display:none}
+#tab-bed-calendar .bc-block .bc-block-pebbles .bc-block-pay-badge,
+#tab-bed-calendar .bc-block .bc-block-pebbles .transfer-pebble,
+#tab-bed-calendar .bc-block .bc-block-pebbles .bc-block-package-pebble,
+#tab-bed-calendar .bc-block .bc-block-pebbles .bc-group-chip{
+  flex:0 0 auto;
+  min-width:max-content;
+  max-width:none;
+  overflow:visible;
+  text-overflow:clip;
+}
+#tab-bed-calendar .bc-block.bc-name-only,
+#tab-bed-calendar.bc-cols-dense .bc-block{
+  flex-wrap:nowrap;
+}
+#tab-bed-calendar .bc-block.bc-name-only .bc-block-label,
+#tab-bed-calendar.bc-cols-dense .bc-block .bc-block-label{
+  flex:1 1 auto;
+  min-width:0;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+#tab-bed-calendar .bc-block.bc-name-only .bc-block-pebbles,
+#tab-bed-calendar.bc-cols-dense .bc-block .bc-block-pebbles{
+  display:none!important;
+}
+#tab-bed-calendar .bc-block.bc-pay-stripe{
+  position:relative;
+}
+#tab-bed-calendar .bc-block.bc-pay-stripe::before{
+  content:'';
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:3px;
+  border-radius:2px 0 0 2px;
+  background:var(--bc-pay-stripe,transparent);
+  pointer-events:none;
+}
+#tab-bed-calendar .bc-block.bc-pay-stripe-unpaid{--bc-pay-stripe:#C4783A}
+#tab-bed-calendar .bc-block.bc-pay-stripe-deposit{--bc-pay-stripe:#1B4D3E}
+#tab-bed-calendar .bc-block.bc-pay-stripe-paid{--bc-pay-stripe:#3E7A52}
+[data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-unpaid{--bc-pay-stripe:#E0A070}
+[data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-deposit{--bc-pay-stripe:#8AA396}
+[data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-paid{--bc-pay-stripe:#8FCB9A}
 /* ===== END book-ui ===== */
 
 /* ═══ luna-header-ui ══════════════════════════════════════════════════════
@@ -25942,6 +26006,7 @@ function bcApplyCalendarZoom(level){
   if (wrap) wrap.style.setProperty('--bc-zoom', String(level / 100));
   if (bcZoomState.locked) bcSaveZoomLevel(level);
   bcSyncZoomUi();
+  if (typeof bcScheduleDenseNameRefit === 'function') bcScheduleDenseNameRefit();
 }
 
 function bcPrepareCalendarZoomForRangeChange(){
@@ -37264,7 +37329,150 @@ function bcCalendarPackagePebbleHtml(blk){
 }
 
 function bcCalendarBlockInnerHtml(blk, labelHtml){
-  return '<span class="bc-block-label">' + labelHtml + '</span>' + bcGroupChipHtml(blk) + bcCalendarGuestRowPebblesHtml(blk);
+  return '<span class="bc-block-label">' + labelHtml + '</span>' +
+    '<span class="bc-block-pebbles">' + bcGroupChipHtml(blk) + bcCalendarGuestRowPebblesHtml(blk) + '</span>';
+}
+
+/* SCHEDULE-DENSE-NAME-ONLY-001 — name wins. Dense columns (>30 days, zoomed
+   out, or a measured day column under 40px) are name-only. Wide columns keep
+   pebbles only when the name still has about 8 characters of room. */
+function bcScheduleDenseFromMetrics(dayCount, zoomLevel, colWidthPx){
+  if (Number(dayCount) > 30) return true;
+  var zoom = Number(zoomLevel);
+  if (Number.isFinite(zoom) && zoom <= 80) return true;
+  var col = Number(colWidthPx);
+  if (Number.isFinite(col) && col > 0 && col < 40) return true;
+  return false;
+}
+
+function bcBarKeepsPebbles(barInnerPx, nameReservePx, pebbleNeedPx){
+  if (!(Number(pebbleNeedPx) > 0)) return true;
+  if (!(Number(nameReservePx) > 0)) return true;
+  return Number(barInnerPx) >= (Number(nameReservePx) + Number(pebbleNeedPx));
+}
+
+function bcPayStripeKind(blk){
+  if (!blk) return '';
+  var status = String(blk.status || '').toLowerCase();
+  var color = String(blk.color_type || '').toLowerCase();
+  if (status === 'blocked' || color === 'blocked' || color === 'owner_schedule_blocked') return '';
+  if (typeof bcCalendarBookingFullyPaid === 'function' && bcCalendarBookingFullyPaid(blk)) return 'paid';
+  var st = typeof bcCalendarBlockPaymentState === 'function' ? bcCalendarBlockPaymentState(blk) : null;
+  if (st && st.kind === 'paid') return 'paid';
+  if (st && st.kind === 'refund_review') return '';
+  var multi = Number(blk.calendar_group_size || 0) > 1 || blk.calendar_guest_number != null;
+  var share = blk.calendar_guest_share_cents != null ? Number(blk.calendar_guest_share_cents) : null;
+  var paid = blk.calendar_guest_paid_cents != null ? Number(blk.calendar_guest_paid_cents) : null;
+  var deposit = blk.calendar_guest_deposit_cents != null ? Number(blk.calendar_guest_deposit_cents) : null;
+  if (!multi && share == null) {
+    share = blk.invoice_total_cents != null ? Number(blk.invoice_total_cents) : null;
+    if (paid == null) {
+      paid = blk.ledger_paid_cents != null ? Number(blk.ledger_paid_cents)
+        : (blk.amount_paid_cents != null ? Number(blk.amount_paid_cents) : null);
+    }
+    if (deposit == null && blk.deposit_required_cents != null) deposit = Number(blk.deposit_required_cents);
+  }
+  var fullPaid = share != null && share > 0 && paid != null && paid >= share;
+  if (fullPaid) return 'paid';
+  var depositPaid = deposit != null && deposit > 0 && paid != null && paid >= deposit;
+  if (!depositPaid && !multi && st && st.show_deposit_paid) depositPaid = true;
+  if (depositPaid) return 'deposit';
+  if ((share != null && paid != null && share > paid) || (st && (st.kind === 'balance_due' || st.kind === 'payment_link_created'))) {
+    return 'unpaid';
+  }
+  return '';
+}
+
+function bcPayStripeClass(blk){
+  var kind = bcPayStripeKind(blk);
+  if (!kind) return '';
+  return ' bc-pay-stripe bc-pay-stripe-' + kind;
+}
+
+function bcScheduleColumnsAreDenseNow(){
+  var zoom = (typeof bcZoomState !== 'undefined' && bcZoomState) ? bcZoomState.level : 100;
+  var days = typeof bcCalendarHeaderDayCount === 'function' ? bcCalendarHeaderDayCount() : 0;
+  return bcScheduleDenseFromMetrics(days, zoom, 0);
+}
+
+function bcMarkDenseNameRoot(){
+  var dense = bcScheduleColumnsAreDenseNow();
+  var tab = document.getElementById('tab-bed-calendar');
+  if (tab) tab.classList.toggle('bc-cols-dense', dense);
+  return dense;
+}
+
+var bcDenseNameRefitQueued = false;
+var bcDenseNameResizeWired = false;
+function bcScheduleDenseNameRefit(){
+  if (typeof window !== 'undefined' && !bcDenseNameResizeWired) {
+    bcDenseNameResizeWired = true;
+    var timer = null;
+    window.addEventListener('resize', function(){
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function(){ bcSyncDenseNameOnly(); }, 80);
+    });
+  }
+  if (bcDenseNameRefitQueued) return;
+  bcDenseNameRefitQueued = true;
+  var run = function(){
+    bcDenseNameRefitQueued = false;
+    bcSyncDenseNameOnly();
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+  else run();
+}
+
+function bcEightChPx(label){
+  var font = '12px sans-serif';
+  try {
+    if (label && window.getComputedStyle) font = window.getComputedStyle(label).font || font;
+  } catch (_) { /* ignore */ }
+  if (bcEightChPx._font === font && bcEightChPx._px) return bcEightChPx._px;
+  var probe = document.createElement('span');
+  probe.textContent = '00000000';
+  probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font:' + font + ';';
+  (document.body || document.documentElement).appendChild(probe);
+  var w = probe.getBoundingClientRect().width;
+  if (probe.parentNode) probe.parentNode.removeChild(probe);
+  bcEightChPx._font = font;
+  bcEightChPx._px = w || 64;
+  return bcEightChPx._px;
+}
+
+function bcSyncDenseNameOnly(){
+  var tab = document.getElementById('tab-bed-calendar');
+  var wrap = typeof el === 'function' ? el('bc-grid-wrap') : null;
+  if (!tab || !wrap || !wrap.querySelectorAll) return;
+  var head = wrap.querySelector('.bc-day-head');
+  var colW = 0;
+  if (head && head.getBoundingClientRect) {
+    colW = head.getBoundingClientRect().width || 0;
+  }
+  var zoom = (typeof bcZoomState !== 'undefined' && bcZoomState) ? bcZoomState.level : 100;
+  var days = typeof bcCalendarHeaderDayCount === 'function' ? bcCalendarHeaderDayCount() : 0;
+  var dense = bcScheduleDenseFromMetrics(days, zoom, colW);
+  tab.classList.toggle('bc-cols-dense', dense);
+  var bars = wrap.querySelectorAll('.bc-block');
+  if (dense) {
+    Array.prototype.forEach.call(bars, function(bar){ bar.classList.add('bc-name-only'); });
+    return;
+  }
+  Array.prototype.forEach.call(bars, function(bar){ bar.classList.remove('bc-name-only'); });
+  Array.prototype.forEach.call(bars, function(bar){
+    var label = bar.querySelector('.bc-block-label');
+    var pebbles = bar.querySelector('.bc-block-pebbles');
+    if (!label || !pebbles) return;
+    var pebbleNeed = pebbles.getBoundingClientRect ? pebbles.getBoundingClientRect().width : 0;
+    if (!(pebbleNeed > 1)) return;
+    var cs = window.getComputedStyle ? window.getComputedStyle(bar) : null;
+    var pad = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
+    var gap = cs ? (parseFloat(cs.columnGap || cs.gap) || 0) : 0;
+    var inner = bar.clientWidth - pad - gap;
+    if (!bcBarKeepsPebbles(inner, bcEightChPx(label), pebbleNeed)) {
+      bar.classList.add('bc-name-only');
+    }
+  });
 }
 
 /** SCHEDULE-GROUP-BOOKING-UI-001 — stable key for multi-room group paint. */
@@ -37603,6 +37811,7 @@ function renderBedCalendar(data){
 
   var wrap = el('bc-grid-wrap');
   var shell = el('bc-grid-shell');
+  if (typeof bcMarkDenseNameRoot === 'function') bcMarkDenseNameRoot();
   wrap.innerHTML = html;
   bcApplyCalendarZoom(bcResolveCalendarZoom());
   bcGridContentHeight = bcMeasureGridContentHeight();
@@ -37846,7 +38055,9 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
 
   var priColor = bcColorClass(primary.blk.color_type);
   var priGroup = bcGroupPaintBits(primary.blk);
-  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
+  var priStripe = bcPayStripeClass(primary.blk);
+  var priNameOnly = bcScheduleColumnsAreDenseNow() ? ' bc-name-only' : '';
+  inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin' + priStripe + priNameOnly + '" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
@@ -37857,6 +38068,8 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   var colorCls = bcColorClass(blk.color_type);
   var groupBits = bcGroupPaintBits(blk);
   var thinCls = spanDays === 1 ? ' bc-block-thin' : '';
+  var stripeCls = bcPayStripeClass(blk);
+  var nameOnlyCls = bcScheduleColumnsAreDenseNow() ? ' bc-name-only' : '';
   var turnoverCls = turnoverCheckout ? ' bc-day-cell-turnover' : '';
   var markerHtml = '';
   var tip;
@@ -37876,7 +38089,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + stripeCls + nameOnlyCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
@@ -38308,6 +38521,9 @@ function bcRefreshCalendarBlockPaymentPebbles(bookingCode, ledger, hasActiveLink
       var labelEl = blockEl.querySelector('.bc-block-label');
       var labelText = labelEl ? labelEl.textContent : bcBlockLabel(blk, blk.span_days || 1, 'checkin');
       blockEl.innerHTML = bcCalendarBlockInnerHtml(blk, labelText);
+      blockEl.classList.remove('bc-pay-stripe', 'bc-pay-stripe-unpaid', 'bc-pay-stripe-deposit', 'bc-pay-stripe-paid');
+      var stripeKind = bcPayStripeKind(blk);
+      if (stripeKind) blockEl.classList.add('bc-pay-stripe', 'bc-pay-stripe-' + stripeKind);
       // Refresh the existing tooltip as well as pebbles, retaining turnover context.
       var checkout = blockEl.parentNode.querySelector('.bc-block-checkout-marker');
       var checkoutIdx = checkout ? Number(checkout.getAttribute('data-bidx')) : -1;
@@ -38325,6 +38541,7 @@ function bcRefreshCalendarBlockPaymentPebbles(bookingCode, ledger, hasActiveLink
       markerEl.title = tooltip.textContent;
     });
   });
+  if (typeof bcScheduleDenseNameRefit === 'function') bcScheduleDenseNameRefit();
 }
 
 var bcFinancialRefreshNumber = 0;
