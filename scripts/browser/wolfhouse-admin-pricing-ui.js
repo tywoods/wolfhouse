@@ -745,6 +745,10 @@
       + whEsc(whT('admin.wh.pricing.minGroup', 'Minimum group size')) + '</label>'
       + '<input type="number" id="wh-price-transfer-min" min="1" max="99" step="1" value="'
       + whEsc(v.min_guest_count == null ? '' : String(v.min_guest_count)) + '"></div>'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-transfer-max">'
+      + whEsc(whT('admin.wh.pricing.maxGroup', 'Max group size')) + '</label>'
+      + '<input type="number" id="wh-price-transfer-max" min="1" max="99" step="1" value="'
+      + whEsc(v.max_guest_count == null ? '' : String(v.max_guest_count)) + '"></div>'
       + '<div class="portal-admin-edit-field wh-price-wide-field">'
       + '<label for="wh-price-transfer-msg-package">'
       + whEsc(whT('admin.wh.pricing.msgNoPackage', 'Message when no package (shown to guests)'))
@@ -1389,6 +1393,21 @@
      * rejected amount still leaves the airport configured.
      */
     'save-transfer': function () {
+      var maxInput = node('wh-price-transfer-max');
+      if (maxInput) {
+        maxInput.setCustomValidity('');
+        if (maxInput.value !== '' && inputValue('wh-price-transfer-min') !== ''
+          && Number(maxInput.value) < Number(inputValue('wh-price-transfer-min'))) {
+          maxInput.setCustomValidity(whT('admin.wh.pricing.maxGroupBelowMin',
+            'Max group size must be at least the minimum group size.'));
+        }
+      }
+      // A malformed number (for example an incomplete exponent) also exposes
+      // value === ''. Do not mistake native badInput for an intentional clear.
+      if (maxInput && !maxInput.checkValidity()) {
+        maxInput.reportValidity();
+        return;
+      }
       var code = inputValue('wh-price-transfer-code').toUpperCase();
       var amount = inputValue('wh-price-transfer-amount');
       var unit = inputValue('wh-price-transfer-unit') || 'flat';
@@ -1398,6 +1417,8 @@
         requires_package: checkboxValue('wh-price-transfer-requires'),
         included_when_package: checkboxValue('wh-price-transfer-included'),
         min_guest_count: inputValue('wh-price-transfer-min') || null,
+        max_guest_count: inputValue('wh-price-transfer-max') === ''
+          ? null : Number(inputValue('wh-price-transfer-max')),
         unavailable_no_package_message: inputValue('wh-price-transfer-msg-package'),
         unavailable_below_min_group_message: inputValue('wh-price-transfer-msg-group'),
       };

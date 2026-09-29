@@ -492,6 +492,8 @@ module.exports = {
   "drawer.transfers.dateTime": "Fecha/hora del traslado",
   "drawer.transfers.exceptionOverride": "Precio personalizado",
   "drawer.transfers.price": "Precio",
+  "admin.wh.pricing.maxGroup": "Tamaño máximo del grupo",
+  "admin.wh.pricing.maxGroupBelowMin": "El tamaño máximo del grupo debe ser igual o mayor que el mínimo.",
   "drawer.transfers.perGroup": "Por grupo",
   "drawer.transfers.perPerson": "Por persona",
   "drawer.transfers.charge": "Cargo del traslado",

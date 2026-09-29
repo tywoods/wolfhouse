@@ -459,6 +459,7 @@ function buildTransfersDrawerPayload(clientSlug, booking, transferRows, opts = {
       { ...formatTransferPricing(clientSlug, bookingForPricing(booking),
         { airport_code: rule.airport_code }, resolvedConfig),
       amount_cents: rule.price ? rule.price.amount_cents : null,
+      max_guest_count: rule.max_guest_count == null ? null : rule.max_guest_count,
       unit: rule.price ? rule.price.unit : null,
       source: rule.price ? rule.price.source : null },
     ])) } : {}),

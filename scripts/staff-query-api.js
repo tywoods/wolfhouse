@@ -45912,6 +45912,9 @@ async function handleAutomatedNotificationsDelete(idRaw, query, req, res, user) 
   }
 }
 
+const { createBotTransferPricesHandler } = require('./lib/staff-bot-transfer-prices');
+const handleBotTransferPrices = createBotTransferPricesHandler({ withPgClient, sendJSON });
+
 // Bot read: the guest agent (Hermes) fetches house notes on demand to answer guest
 // questions about house info/policies. Read-only.
 async function handleBotHouseInfo(req, res, user) {
@@ -53879,6 +53882,23 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotOwnerInsights(req, res, user));
+  }
+
+  // Wolfhouse transfer catalog facts only: no booking writes or capacity check.
+  if (pathname === '/staff/bot/transfers/prices') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/transfers/prices' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    // This new Luna reader is service-token-only. Legacy staff-session tenant
+    // selection is not an authorization surface for the transfer catalog.
+    if (auth.auth_mode !== 'bot_token') {
+      return sendJSON(res, 403, { success: false, error: 'bot_token_required' });
+    }
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, () =>
+      handleBotTransferPrices(req, res));
   }
 
   // ── Wolfhouse v3 — Luna fetches owner house notes on demand (read-only) ────

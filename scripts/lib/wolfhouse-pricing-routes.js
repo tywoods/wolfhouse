@@ -224,6 +224,12 @@ function createWolfhousePricingRoutes(deps) {
       if (err && err.message === 'tenant_scope_violation') {
         return sendJSON(res, 403, { success: false, error: 'tenant_scope_violation' });
       }
+      // Old callers can omit max while raising min above the stored bound.
+      // The atomic DB constraint rejects that effective pair; report input error.
+      if (intent === 'transfer_save' && err && err.code === '23514'
+        && err.constraint === 'wh_pricing_transfer_rules_max_guest_count_check') {
+        return send400(res, 'max_guest_count must be between 1 and 99 and at least min_guest_count');
+      }
       return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
     }
   }

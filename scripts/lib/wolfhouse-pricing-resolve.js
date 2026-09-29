@@ -202,6 +202,7 @@ function configTransferRules(transferConfig) {
       requires_package: !!r.requires_package,
       included_when_package: !!r.included_when_package,
       min_guest_count: r.min_guest_count == null ? null : Number(r.min_guest_count),
+      max_guest_count: r.max_guest_count == null ? null : Number(r.max_guest_count),
       unavailable_no_package_message: r.unavailable_no_package_message || null,
       unavailable_below_min_group_message: r.unavailable_below_min_group_message || null,
       active: true,

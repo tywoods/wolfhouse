@@ -1215,8 +1215,11 @@ ok('every Wolfhouse route lives under /staff/admin/wh/',
 ok('no Wolfhouse pricing rule can be written against a Sunset table',
   !/tenant_price_rules|tenant_surf_pack_rules|tenant_rental_offerings/.test(
     resolveSrc + writesSrc + storeSrc));
-ok('every store table is wh_pricing-prefixed',
+ok('every business store table is wh_pricing-prefixed (constraint catalog read excepted)',
   (storeSrc.match(/(?:INTO|UPDATE|FROM|TABLE IF NOT EXISTS)\s+([a-z_]+)/g) || [])
+    // Migration-109 idempotence checks PostgreSQL metadata, never tenant rows.
+    // Exempt only FROM; INSERT/UPDATE/CREATE against pg_constraint still fail.
+    .filter((m) => m !== 'FROM pg_constraint')
     .map((m) => m.split(/\s+/).pop())
     .filter((t) => t !== 'information_schema')
     .every((t) => t.startsWith('wh_pricing_')));
