@@ -116,14 +116,13 @@ function bcInvoiceStyles(){
   if (el('bc-invoice-styles')) return;
   var style = document.createElement('style'); style.id = 'bc-invoice-styles';
   style.textContent = '.bc-invoice-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.bc-invoice-actions .btn{min-height:40px}.bc-invoice-history{margin-top:14px}#bc-payment-history-body[hidden]{display:none}#bc-record-payment-dialog{position:fixed;inset:auto 12px 12px auto;margin:0;box-sizing:border-box;width:min(460px,calc(100vw - 24px));max-height:90dvh;overflow:auto;border:1px solid var(--border-soft);border-radius:16px;padding:24px;background:var(--surface);color:var(--text);box-shadow:0 16px 64px #0005}#bc-record-payment-dialog::backdrop{background:#0006}#bc-record-payment-dialog label,#bc-record-payment-dialog legend{display:block;font-size:13px;margin:12px 0 6px}#bc-record-payment-dialog input:not([type=radio]),#bc-record-payment-dialog select{box-sizing:border-box;width:100%;min-height:42px;background:var(--surface);color:var(--text);border:1px solid var(--border-soft);border-radius:8px;padding:8px}#bc-record-payment-dialog fieldset{border:0;padding:0;margin:0}.bc-payment-methods{display:flex;gap:8px}.bc-payment-methods label{display:flex!important;align-items:center;gap:8px;flex:1;padding:12px;border:1px solid var(--border-soft);border-radius:8px}.bc-payment-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}#bc-payment-error{color:var(--danger,#b33434);font-size:13px;margin-top:8px}#bc-payment-summary,#bc-payment-outstanding{font-size:12px;margin-top:10px}#bc-record-payment-dialog h3{margin-top:0}#bc-record-payment-dialog .btn{min-height:42px}@media(max-width:600px){#bc-record-payment-dialog{inset:auto 0 0 0;width:100%;max-width:100%;max-height:90dvh;margin:0;border-radius:16px 16px 0 0;padding:20px}}';
-  // Share the read-mode columns across guests; status text length must not move beds.
-  // On phones keep names full-width and the bed/status pair together at the right.
+  // Name on its own line. Package, bed, and Paid/Unpaid share the next line.
   var guestScope = '#bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) ';
-  style.textContent += guestScope + '#bc-guest-names{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;column-gap:8px}' +
-    guestScope + '.bc-guest-name-row{grid-column:1/-1;grid-template-columns:subgrid;align-items:start}' +
-    guestScope + '.bc-guest-bed{grid-column:2;justify-self:end}' +
-    guestScope + '.bc-accom-pay-pebble{grid-column:3;justify-self:end}' +
-    '@media(max-width:768px){' + guestScope + '.bc-guest-name-line{grid-column:1/-1}' + guestScope + '.bc-guest-bed,' + guestScope + '.bc-accom-pay-pebble{grid-row:2}}';
+  style.textContent += guestScope + '#bc-guest-names{display:block}' +
+    guestScope + '.bc-guest-name-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;grid-template-columns:none}' +
+    guestScope + '.bc-guest-name-line{display:block;white-space:normal;overflow:visible;text-overflow:clip}' +
+    guestScope + '.bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px}' +
+    guestScope + '.bc-guest-bed,' + guestScope + '.bc-guest-package-pebble,' + guestScope + '.bc-accom-pay-pebble{grid-column:auto;grid-row:auto;justify-self:start}';
   document.head.appendChild(style);
 }
 function bcOpenRecordPayment(data){

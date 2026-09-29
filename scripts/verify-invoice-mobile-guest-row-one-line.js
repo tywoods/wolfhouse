@@ -100,20 +100,14 @@ async function main() {
         assert(!r.rowOverflow && r.row.left >= 0 && r.row.right <= width + 1, 'row contained');
         assert((r.s || r.n).right <= pen.box.left + 1 || r.row.top >= pen.box.bottom, 'pencil never overlaps row');
         if (width <= 768) {
-          const center = b => (b.top + b.bottom) / 2;
-          if (r.s) assert(Math.abs(center(r.n) - center(r.s)) <= 1, 'MOBILE_ONE_LINE name/status vertical centers: ' + JSON.stringify(r));
-          if (r.b) { assert(Math.abs(center(r.n) - center(r.b)) <= 1, 'same bed center'); assert(r.n.right <= r.b.left + 1 && r.b.right <= r.s.left + 1, 'name/bed/status non-overlap'); }
-          else if (r.s) assert(r.n.right <= r.s.left + 1, 'missing bed keeps status separate');
+          if (r.s) assert(r.s.top >= r.n.bottom - 1, 'status sits on the line under the name');
+          if (r.b) { assert(r.b.top >= r.n.bottom - 1, 'bed sits on the line under the name'); if (r.s) assert(r.b.right <= r.s.left + 1, 'bed then status'); }
+          else if (r.s) assert(r.s.left >= r.n.left - 1, 'missing bed keeps status on the pebble line');
           assert(r.n.width >= 40, 'readable name allocation, not a single letter');
-          assert.deepEqual(r.nameStyle, { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, 'mobile-only safe ellipsis');
+          assert.equal(r.nameStyle.textOverflow, 'clip', 'name is not ellipsized');
           if (short.includes(r.name)) assert(!r.nameOverflow, 'basic short name remains completely readable: ' + r.name);
         } else { assert(r.n.width >= 100 && !r.nameOverflow, 'desktop full names retained'); }
         for (const [box, text] of [[r.b, r.bedText], [r.s, r.statusText]]) if (box) assert(text.width <= box.width + 1 && text.height <= box.height + 1, 'bed/status complete and untruncated');
-      }
-      if (width <= 768) {
-        const beds = rows.filter(r => r.b), statuses = rows.filter(r => r.s);
-        assert(beds.every(r => Math.abs(r.b.right - beds[0].b.right) <= 1), 'shared right-aligned bed column is stable across mixed bed and status lengths');
-        assert(statuses.every(r => Math.abs(r.s.right - statuses[0].s.right) <= 1), 'shared status column, including absent bed');
       }
       cases.push(label);
     } catch (e) { failures.push({ label, message: e.message }); }
