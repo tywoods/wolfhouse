@@ -38,6 +38,70 @@ var INBOX_COLUMNS_WIDTHS = {
 /** Column 3 is flexible; this is the floor it keeps while the others snap. */
 var INBOX_COLUMNS_COL3_MIN = '480px';
 
+/**
+ * Staff chrome phone. Durable +999 wins over a live-looking sibling.
+ * Never reads display_phone or simulator_source_phone (those are the mask).
+ * Keep in step with scripts/lib/staff-durable-phone-display.js.
+ */
+function staffChromeHonestPhone(raw) {
+  var p = String(raw == null ? '' : raw).trim();
+  if (!p) return '';
+  if (p.indexOf('staff:') === 0) return '';
+  if (/^(emailcust1|emailv1|email):/i.test(p)) return '';
+  if (/[A-Za-z]/.test(p)) return '';
+  var digits = '';
+  var i;
+  for (i = 0; i < p.length; i++) {
+    var ch = p.charAt(i);
+    if (ch >= '0' && ch <= '9') digits += ch;
+  }
+  if (digits.length < 6 || digits.length > 15) return '';
+  return p;
+}
+
+function staffChromeIsDurableLabPhone(raw) {
+  var p = staffChromeHonestPhone(raw);
+  if (!p) return false;
+  var digits = '';
+  var i;
+  for (i = 0; i < p.length; i++) {
+    var ch = p.charAt(i);
+    if (ch >= '0' && ch <= '9') digits += ch;
+  }
+  var compact = '+' + digits;
+  return compact.indexOf('+999') === 0 && compact.length >= 8;
+}
+
+function staffChromeCollectPhones(src, out, depth) {
+  if (src == null || depth > 3) return;
+  if (typeof src === 'string' || typeof src === 'number') {
+    var n = staffChromeHonestPhone(src);
+    if (n) out.push(n);
+    return;
+  }
+  if (typeof src !== 'object') return;
+  var keys = ['durable_phone', 'durablePhone', 'phone', 'guest_phone', 'booking_phone', 'customer_phone'];
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    if (src[keys[i]] != null && typeof src[keys[i]] !== 'object') {
+      staffChromeCollectPhones(src[keys[i]], out, depth + 1);
+    }
+  }
+  if (src.identity) staffChromeCollectPhones(src.identity, out, depth + 1);
+  if (src.conversation) staffChromeCollectPhones(src.conversation, out, depth + 1);
+  if (src.booking) staffChromeCollectPhones(src.booking, out, depth + 1);
+}
+
+function staffChromeDurablePhone() {
+  var found = [];
+  var i;
+  for (i = 0; i < arguments.length; i++) staffChromeCollectPhones(arguments[i], found, 0);
+  for (i = 0; i < found.length; i++) {
+    if (staffChromeIsDurableLabPhone(found[i])) return found[i];
+  }
+  return found[0] || '';
+}
+
 var INBOX_COLUMNS_PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
   chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },

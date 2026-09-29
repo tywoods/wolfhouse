@@ -48,6 +48,7 @@ const {
   normalizeCustomerPhone,
 } = require('./staff-customer-queries');
 const { CONVERSATION_INBOX_CURSOR_FIELDS, isEmailInboundSubjectSchemaError } = require('./staff-conversation-queries');
+const { staffChromeDurablePhone } = require('./staff-durable-phone-display');
 
 const INBOX_VIEWS_PATH = '/staff/inbox/views';
 const INBOX_LIST_PATH = '/staff/inbox/list';
@@ -255,8 +256,12 @@ function projectConversationPersonRow(view, raw) {
   const row = personRowShell(view);
   row.key = `${INBOX_VIEW_SOURCES.CONVERSATIONS}:${raw.conversation_id || ''}`;
   row.customer_id = raw.customer_id || null;
-  row.durable_phone = raw.phone || null;
-  row.phone = raw.display_phone || raw.phone || null;
+  row.durable_phone = raw.durable_phone || raw.phone || null;
+  // Ignore display_phone / simulator_source_phone. Those mask lab guests as live numbers.
+  row.phone = staffChromeDurablePhone({
+    durable_phone: row.durable_phone,
+    phone: raw.phone,
+  }) || row.durable_phone;
   row.display_name = raw.guest_name || null;
   row.email = raw.guest_email || null;
   row.language = raw.language || null;

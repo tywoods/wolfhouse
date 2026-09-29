@@ -254,6 +254,22 @@ function inboxConversationBoundGuestId(conv, customer){
   return String(customer.guest_id || customer.customer_id || id.guest_id || id.customer_id || '').trim();
 }
 
+function inboxChromePhone() {
+  if (typeof staffChromeDurablePhone === 'function') {
+    var shown = staffChromeDurablePhone.apply(null, arguments);
+    if (shown) return shown;
+  }
+  var i;
+  for (i = 0; i < arguments.length; i++) {
+    var src = arguments[i];
+    if (!src) continue;
+    if (typeof src === 'string') return src;
+    if (src.durable_phone) return src.durable_phone;
+    if (src.phone) return src.phone;
+  }
+  return '';
+}
+
 function inboxNormalizeHonestPhone(raw){
   raw = String(raw == null ? '' : raw).trim();
   if (!raw || inboxIsOpaqueEmailIdentity(raw) || inboxIsEmailcustIdentity(raw)) return '';
@@ -267,7 +283,7 @@ function inboxNormalizeHonestPhone(raw){
 
 function inboxBoundCustomerPhone(conv, customer){
   var c = conv || {};
-  var own = inboxNormalizeHonestPhone(c.phone || c.guest_phone || '');
+  var own = inboxNormalizeHonestPhone(inboxChromePhone(c) || c.durable_phone || c.phone || c.guest_phone || '');
   if (own) return own;
   if (!customer || customer.success === false) return '';
   var convId = String(c.guest_id || c.customer_id || c.bound_guest_id || c.matched_guest_id || '').trim();
@@ -1511,8 +1527,13 @@ function bcResolveGuestPhone(data, blk) {
   data = data || bcLastBookingContext || null;
   blk = blk || bcLastOpenedBlock || null;
   var bk = (data && data.booking) || {};
+  var conv = (data && data.conversation) || null;
+  var shown = inboxChromePhone(bk, conv, blk, data);
+  if (shown) return typeof normalizeCustomerPhoneClient === 'function'
+    ? (normalizeCustomerPhoneClient(shown) || shown)
+    : shown;
   var raw = bk.phone
-    || (data && data.conversation && data.conversation.phone)
+    || (conv && conv.phone)
     || (blk && blk.phone)
     || '';
   return normalizeCustomerPhoneClient(raw);
@@ -1609,7 +1630,7 @@ function renderInboxConvCardHtml(c, profile){
     var channel = c.channel || 'whatsapp';
     var contactLine = channel === 'email'
       ? (c.guest_email || c.email || '')
-      : (c.phone || '');
+      : (inboxChromePhone(c) || '');
     var subjectText = inboxEmailSubjectOf(c);
     var subjectLine = channel === 'email' && subjectText
       ? '<div class="conv-card-subject">' + escHtml(subjectText) + '</div>'
@@ -1641,7 +1662,7 @@ function renderInboxConvCardHtml(c, profile){
       '<div class="conv-card-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>' +
       delBtn +
     '</div>' +
-    ((c.phone && !inboxIsOpaqueEmailIdentity(c.phone)) ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
+    ((inboxChromePhone(c) && !inboxIsOpaqueEmailIdentity(inboxChromePhone(c))) ? '<div class="conv-card-phone">' + escHtml(inboxChromePhone(c)) + '</div>' : '') +
     '<div class="conv-card-meta-row">' +
       (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
       '<div class="conv-card-pebbles">' +
@@ -2811,7 +2832,7 @@ function loadConvDetail(convId, targetEl){
     var missingEmail = isEmailConversation && !guestEmail;
 
     /* ── Header ── */
-    var convPhone = normalizeCustomerPhoneClient(c.phone);
+    var convPhone = normalizeCustomerPhoneClient(inboxChromePhone(c) || c.phone);
 
     /* ── Three-card layout: list | conversation | bookings ── */
     var html = '<div class="detail-layout">';
@@ -2836,7 +2857,7 @@ function loadConvDetail(convId, targetEl){
       }
     }
     html +=       '<div class="detail-meta">';
-    var contactLine = composerChannel === 'email' ? guestEmail : (c.phone || '');
+    var contactLine = composerChannel === 'email' ? guestEmail : (inboxChromePhone(c) || c.phone || '');
     var channelLabel = composerChannel === 'email' ? 'Email' : 'WhatsApp';
     if (contactLine) html += escHtml(contactLine) + ' · ';
     html += escHtml(channelLabel);
@@ -2954,7 +2975,7 @@ function loadConvDetail(convId, targetEl){
       }
     }
     else if (!isEmailConversation) {
-      wireInboxSendReply(convId, c.phone, targetEl);
+      wireInboxSendReply(convId, inboxChromePhone(c) || c.phone, targetEl);
       wireInboxWhatsAppDraft(convId, targetEl);
     }
     var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');

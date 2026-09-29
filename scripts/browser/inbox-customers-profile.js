@@ -376,14 +376,17 @@ function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
   var lastSetup = (data && data.last_setup_summary) || '';
-  var displayName = id.display_name || data.phone || 'Guest';
+  var phoneShown = (typeof staffChromeDurablePhone === 'function')
+    ? (staffChromeDurablePhone(data, id) || data.phone || '')
+    : (data.durable_phone || data.phone || '');
+  var displayName = id.display_name || phoneShown || data.phone || 'Guest';
   var convId = customerResolveConversationId(data);
   var convLabel = convId ? portalT('customers.conversation.open') : portalT('customers.conversation.start');
   var convDisabled = convId ? false : !customerHasWhatsappMessagePhone(data);
   var convDisabledText = convDisabled ? customerConversationDisabledText(data) : '';
   if (!editing) {
     var contactBits = [];
-    if (data.phone) contactBits.push(data.phone);
+    if (phoneShown) contactBits.push(phoneShown);
     if (id.email) contactBits.push(id.email);
     return '<div class="customers-profile-summary" id="cust-profile-section">' +
       '<div class="customers-profile-summary-hdr">' +
@@ -401,7 +404,7 @@ function renderCustomerProfileSection(data, editing) {
       '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value' + (data.phone ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + (data.phone ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(data.phone || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value' + (phoneShown ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + (phoneShown ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(phoneShown || '—') + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + ((id.email && data.phone) ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + ((id.email && data.phone) ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(id.email || '—') + '</span></div>' +
       (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +

@@ -607,7 +607,13 @@ function inboxViewsMatchGuestRow(row, phone, customerId) {
   if (preferredCustomerId) return String(row.customer_id || '').trim() === preferredCustomerId;
   var targetPhone = normalizeCustomerPhoneClient(phone) || String(phone || '').trim();
   if (!targetPhone) return false;
-  var rowPhone = normalizeCustomerPhoneClient(row.phone) || normalizeCustomerPhoneClient(row.durable_phone) || String(row.phone || row.durable_phone || '').trim();
+  var shown = (typeof staffChromeDurablePhone === 'function')
+    ? staffChromeDurablePhone(row)
+    : (row.durable_phone || row.phone || '');
+  var rowPhone = normalizeCustomerPhoneClient(shown)
+    || normalizeCustomerPhoneClient(row.durable_phone)
+    || normalizeCustomerPhoneClient(row.phone)
+    || String(shown || row.durable_phone || row.phone || '').trim();
   return !!rowPhone && rowPhone === targetPhone;
 }
 

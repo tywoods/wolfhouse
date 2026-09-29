@@ -22,6 +22,7 @@ const {
   enrichServiceRecordsWithCatalogLabels,
 } = require('./rental-offering-label');
 const { resolveItemDisplayName } = require('./item-display-name');
+const { staffChromeDurablePhone } = require('./staff-durable-phone-display');
 
 const { resolveTenantBusinessConfigAsync, resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
@@ -123,17 +124,22 @@ function resolveDrawerGuestPhoneFromBundle(bundle) {
   if (!bundle || !bundle.booking) return null;
   const booking = bundle.booking;
   const bookingMeta = parseMeta(booking.metadata);
-  const fromBooking = normalizeDrawerGuestPhone(
-    booking.phone || booking.guest_phone || bookingMeta.guest_phone || bookingMeta.phone,
-  );
-  if (fromBooking) return fromBooking;
   const services = Array.isArray(bundle.services) ? bundle.services : [];
+  const servicePhones = [];
   for (let i = 0; i < services.length; i += 1) {
     const srMeta = parseMeta(services[i] && services[i].metadata);
-    const fromSr = normalizeDrawerGuestPhone(srMeta.guest_phone || srMeta.phone);
-    if (fromSr) return fromSr;
+    servicePhones.push(srMeta.guest_phone || srMeta.phone || null);
   }
-  return null;
+  const shown = staffChromeDurablePhone(
+    booking.durable_phone,
+    booking.phone,
+    booking.guest_phone,
+    bookingMeta && bookingMeta.durable_phone,
+    bookingMeta && bookingMeta.guest_phone,
+    bookingMeta && bookingMeta.phone,
+    servicePhones,
+  );
+  return normalizeDrawerGuestPhone(shown);
 }
 
 function normalizeUiPayment(ps) {

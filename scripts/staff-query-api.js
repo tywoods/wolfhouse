@@ -26692,25 +26692,59 @@ function scheduleNormalizeGuestPhone(raw){
 function schedulePhoneFromSource(src){
   if (src == null) return '';
   if (typeof src === 'string' || typeof src === 'number') return scheduleNormalizeGuestPhone(src);
-  return scheduleNormalizeGuestPhone(src.phone || src.guest_phone || src.booking_phone);
+  var keys = ['durable_phone', 'phone', 'guest_phone', 'booking_phone', 'customer_phone'];
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    var hit = scheduleNormalizeGuestPhone(src[keys[i]]);
+    if (hit && scheduleIsDurableLabPhone(hit)) return hit;
+  }
+  return scheduleNormalizeGuestPhone(src.durable_phone || src.phone || src.guest_phone || src.booking_phone);
 }
 
-/** First honest guest phone across Staff API drawer ctx, schedule group, and list row. */
+function scheduleIsDurableLabPhone(raw){
+  var p = String(raw == null ? '' : raw).trim();
+  if (!p || p.indexOf('+999') !== 0) return false;
+  var digits = '';
+  var i;
+  for (i = 0; i < p.length; i++) {
+    var ch = p.charAt(i);
+    if (ch >= '0' && ch <= '9') digits += ch;
+  }
+  return digits.indexOf('999') === 0 && digits.length >= 7;
+}
+
+/** Durable +999 wins across drawer ctx, schedule group, and list row. Never blank a known phone for an opaque rewrite. */
 function scheduleResolveGuestPhone(){
-  for (var i = 0; i < arguments.length; i++){
-    var p = schedulePhoneFromSource(arguments[i]);
-    if (p) return p;
+  var found = [];
+  var i;
+  for (i = 0; i < arguments.length; i++){
+    var src = arguments[i];
+    if (src == null) continue;
+    if (typeof src === 'string' || typeof src === 'number') {
+      var direct = scheduleNormalizeGuestPhone(src);
+      if (direct) found.push(direct);
+      continue;
+    }
+    var keys = ['durable_phone', 'phone', 'guest_phone', 'booking_phone', 'customer_phone'];
+    var k;
+    for (k = 0; k < keys.length; k++) {
+      var hit = scheduleNormalizeGuestPhone(src[keys[k]]);
+      if (hit) found.push(hit);
+    }
   }
   try {
     if (typeof el === 'function') {
       var input = el('ps-drawer-phone');
       if (input && input.value) {
         var fromInput = scheduleNormalizeGuestPhone(input.value);
-        if (fromInput) return fromInput;
+        if (fromInput) found.push(fromInput);
       }
     }
   } catch (_e) { /* ignore */ }
-  return '';
+  for (i = 0; i < found.length; i++) {
+    if (scheduleIsDurableLabPhone(found[i])) return found[i];
+  }
+  return found[0] || '';
 }
 
 function scheduleGroupHasPhone(group){
@@ -35889,7 +35923,9 @@ function openCreateBookingFromContact(contact){
   if (profile && profile.is_surf_vertical) {
     psPendingCreatePrefill = {
       name: (contact.display_name || '').toString().trim(),
-      phone: (contact.phone || '').toString().trim(),
+      phone: (typeof staffChromeDurablePhone === 'function'
+        ? (staffChromeDurablePhone(contact) || contact.durable_phone || contact.phone || '')
+        : (contact.durable_phone || contact.phone || '')).toString().trim(),
       staff_notes: contactStaffNotesForBooking(contact) || null,
     };
     openScheduleCreateModal();
@@ -35897,7 +35933,9 @@ function openCreateBookingFromContact(contact){
   }
   bcPendingCreatePrefill = {
     name: (contact.display_name || "").toString().trim(),
-    phone: (contact.phone || "").toString().trim(),
+    phone: (typeof staffChromeDurablePhone === "function"
+      ? (staffChromeDurablePhone(contact) || contact.durable_phone || contact.phone || "")
+      : (contact.durable_phone || contact.phone || "")).toString().trim(),
     email: (contact.email || "").toString().trim(),
     language: contact.language || null,
     staff_notes: contactStaffNotesForBooking(contact) || null
