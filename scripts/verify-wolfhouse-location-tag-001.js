@@ -109,7 +109,7 @@ function main() {
   assert.equal(context.includes('inboxCustomerLocationTagHtml'), true, 'guest card paints the location tag');
   assert.equal(profile.includes('staffChromeLocationTagHtml'), true, 'profile paints the location tag');
   assert.equal(drawer.includes('staffChromeLocationTagHtml'), true, 'schedule drawer paints the location tag');
-  assert.equal(api.includes('data-location-id="wolfhouse-somo"') || api.includes('staffChromeLocationTagHtml'), true, 'booking drawer paints the tag');
+  assert.equal(api.includes('staffChromeLocationTagHtml'), false, 'booking drawer header does not paint the location pebble');
   assert.equal(api.includes('.staff-location-id-tag{'), true, 'tag is visible chrome');
   assert.equal(/font-weight:\s*800/.test(api.slice(api.indexOf('.staff-location-id-tag{'), api.indexOf('.staff-location-id-tag{') + 400)), false, 'tag weight stays at most 700');
   assert.equal(api.includes("@media(max-width:768px){.staff-location-id-tag{margin:4px 0 0}}"), true, 'phone tag does not keep the desktop left margin');

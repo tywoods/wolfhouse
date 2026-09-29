@@ -6,6 +6,7 @@
  */
 
 const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
+const { wolfhouseStayDepositRateCents } = require('./wolfhouse-stay-deposit');
 
 const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
 const PACKAGE_PREVIEW_CODES = ['malibu', 'uluwatu', 'waimea'];
@@ -151,15 +152,13 @@ function isCatalogPackageCode(code, config) {
  * Deposit tier for one guest (anchor: wolfhouse-quote-calculator deposit section).
  */
 function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
-  const pkg = trimStr(packageCode).toLowerCase();
-  const usesPackageDeposit = isCatalogPackageCode(pkg, config)
-    && nights >= 7
-    && !isManualOverride
-    && pkg !== 'manual_override'
-    && !isNoPackageCode(pkg);
-  return usesPackageDeposit
-    ? config.deposits.tiers.standard_package.amount_cents
-    : config.deposits.tiers.custom_or_short_stay.amount_cents;
+  // Ty locked 2026-09-29: nights only. Package and manual-override no longer
+  // pick the tier. config is kept so existing callers stay source-compatible.
+  void config;
+  void packageCode;
+  void isManualOverride;
+  const rate = wolfhouseStayDepositRateCents(nights);
+  return rate == null ? 0 : rate;
 }
 
 /**

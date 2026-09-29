@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const { bookingDepositLinkAmount } = require('./booking-deposit-payment-link');
+const { wolfhouseBookingDepositCents } = require('./wolfhouse-stay-deposit');
 const { SUNSET_CLIENT_SLUG } = require('./sunset-stripe-payment-links');
 const {
   paymentLinkIntendedAmountCents,
@@ -313,7 +314,7 @@ async function loadBookingRow(pg, clientSlug, bookingId, bookingCode) {
             b.payment_status::text AS booking_payment_status,
             b.check_in::text AS check_in, b.check_out::text AS check_out,
             b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents,
-            b.deposit_required_cents, b.metadata, c.id AS client_id, c.slug AS client_slug
+            b.deposit_required_cents, b.guest_count, b.metadata, c.id AS client_id, c.slug AS client_slug
        FROM bookings b
        INNER JOIN clients c ON c.id = b.client_id
       WHERE c.slug = $1
@@ -440,7 +441,7 @@ async function getPaymentStatus(pg, command, execOpts = {}) {
   const paymentRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
   const ledgerCtx = execOpts.ledgerContext || {
     balance_due_cents: computeAuthoritativeBalanceDueCents(booking, command),
-    deposit_required_cents: booking.deposit_required_cents != null ? Number(booking.deposit_required_cents) : null,
+    deposit_required_cents: wolfhouseBookingDepositCents(booking),
   };
   const paymentRow = pickLatestActionablePaymentRow(paymentRows, booking, ledgerCtx);
   const resolved = resolveActionableCheckoutUrl({ bookingRow: booking, paymentRow });
@@ -850,7 +851,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
 
   const ledgerCtx = {
     balance_due_cents: amountDueCents,
-    deposit_required_cents: booking.deposit_required_cents != null ? Number(booking.deposit_required_cents) : null,
+    deposit_required_cents: wolfhouseBookingDepositCents(booking),
   };
   const activeLink = pickLatestActionablePaymentRow(paymentRows.filter((row) =>
     bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents)), booking, ledgerCtx);

@@ -5,7 +5,8 @@ function bcInvoiceBookingFullyPaid(data){
   return Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
 }
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
-  var required = bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents);
+  var ruled = bcWolfhouseStayDepositCents(bk);
+  var required = ruled != null ? ruled : (bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents));
   var known = Number.isSafeInteger(required) && required >= 0;
   var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
   var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
@@ -95,6 +96,16 @@ async function bcRefreshInvoice(data){
   return fresh;
 }
 function bcInvoiceText(key){ return t('drawer.invoice.' + key); }
+function bcWolfhouseStayDepositCents(bk){
+  bk = bk || {};
+  var nights = (typeof bcStayNightsFromCheckInOut === 'function')
+    ? bcStayNightsFromCheckInOut(bk.check_in, bk.check_out) : 0;
+  if (!(nights > 0) && bk.nights != null) nights = Number(bk.nights);
+  var guests = parseInt(bk.guest_count, 10);
+  if (!(nights > 0) || !(guests > 0)) return null;
+  var total = (nights >= 6 ? 20000 : 10000) * guests;
+  return Number.isSafeInteger(total) ? total : null;
+}
 function bcInvoiceActionsHtml(bk){
   return '<div class="bc-invoice-actions" id="bc-invoice-actions">' +
     '<button type="button" class="btn btn-primary" id="bc-record-payment-btn"' + (bcBookingStatusIsCancelled(bk.status) ? ' disabled' : '') + '>' + escHtml(bcInvoiceText('recordPayment')) + '</button>' +

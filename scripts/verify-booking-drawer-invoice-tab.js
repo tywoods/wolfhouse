@@ -162,6 +162,7 @@ async function main() {
         assert.notEqual(await page.locator('#bc-payment-history-card').evaluate(el=>getComputedStyle(el).maxWidth), '340px', 'history card matches Move Bed width, not the narrow payments box');
         assert.equal(await page.locator('.bc-conv-handoff-block').count(), 0, 'Conversation / Handoff removed');
         assert.equal(await page.locator('#bc-luna-notes-wrap').count(), 1, 'Notes remain');
+        if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         assert.equal(await page.locator('.bc-guest-pay-paid').first().innerText(), '€0.00', 'zero paid is never blank');
         assert.match(await page.locator('.bc-guest-pay-owed').first().innerText(), /^€\d+\.\d{2}$/, 'owed amount is never blank');
         assert.equal(await page.locator('.bc-guest-pay-row .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not on the name row');
@@ -244,6 +245,7 @@ async function main() {
         assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'false','fresh open keeps history collapsed');
         results.push({name:'named-cash-payload-and-read-refresh', localSynthetic:true});
         const create = page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').first();
+        if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         await create.click();
         await page.locator('#bc-inv-per-guest .bc-inline-payment-link').waitFor();
         assert.equal(await page.locator('#bc-refresh-links-btn').count(),1,'Refresh Links exists');
@@ -258,6 +260,7 @@ async function main() {
         assert.equal(await page.locator('#bc-generate-payment-link-btn').count(),1,'one balance action owner');
         results.push({name:'refresh-restores-create-read-only-preserves-history',localSynthetic:true});
         deferGuest = true;
+        if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         await page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').click();
         await page.waitForRequest(r=>false,{timeout:20}).catch(()=>{}); // bounded yield; response deliberately held below
         assert.equal(typeof releaseGuest,'function','provider-double response is held');
@@ -269,6 +272,7 @@ async function main() {
         assert.equal(await page.locator('#bc-inv-per-guest .bc-inline-payment-link').count(),0,'late pre-refresh response cannot restore old URL');
         results.push({name:'late-create-fenced-after-refresh'});
         deferGuest = true; releaseGuest = null;
+        if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         await page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').click();
         // Route callback is synchronously entered by Playwright's request event.
         while (!releaseGuest) await new Promise(resolve=>setImmediate(resolve));

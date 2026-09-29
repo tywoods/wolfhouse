@@ -110,14 +110,14 @@ async function main() {
     await alignment(); cases.push('balance-create-replaces-inline');
     const deposit=page.locator('#bc-inv-totals .bc-invoice-deposit-amount');
     assert.equal(await deposit.count(),1,'Deposit row exists under Invoice total');
-    assert.equal(await deposit.innerText(),'€180.00');
+    assert.equal(await deposit.innerText(),'€200.00');
     assert.equal(await deposit.getAttribute('data-deposit-state'),'unpaid');
     assert(await deposit.evaluate(e=>e.parentElement.previousElementSibling.textContent.includes('Invoice total')));
     async function refresh(){
       await page.locator('#bc-refresh-links-btn').click();
       await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     }
-    for(const [amount,depositState,balanceText] of [[5000,'unpaid','€550.00'],[18000,'paid','€420.00']]){
+    for(const [amount,depositState,balanceText] of [[5000,'unpaid','€550.00'],[20000,'paid','€400.00']]){
       state.payments.paid_total_cents=amount;state.payments.rows=[{payment_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',payment_status:'paid',amount_paid_cents:amount}];
       await refresh();
       assert.equal(await deposit.getAttribute('data-deposit-state'),depositState);
@@ -137,7 +137,7 @@ async function main() {
     cases.push('deposit-create-replaces-inline-explicit-target');
     for(const theme of ['light','dark']){
       await page.evaluate(t=>document.documentElement.setAttribute('data-theme',t),theme);
-      for(const amount of [0,18000]){
+      for(const amount of [0,20000]){
         state.payments.paid_total_cents=amount;state.payments.rows=amount?[{payment_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',payment_status:'paid',amount_paid_cents:amount}]:[];await refresh();
         const rgb=await deposit.evaluate(e=>getComputedStyle(e).color);
         const [r,g]=rgb.match(/[\d.]+/g).map(Number);
@@ -152,6 +152,7 @@ async function main() {
       }
     }
     await createTotals();
+    if(await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded')!=='true') await page.locator('#bc-per-guest-toggle').click();
     await page.locator('.bc-create-guest-payment-link-btn[data-payment-target="remaining_share"]').click();
     await page.locator('#bc-inv-per-guest .bc-inline-payment-link').waitFor();
     for(const [result,target] of [['#bc-deposit-link-result','deposit'],['#bc-payment-link-result','balance']]){
@@ -195,12 +196,15 @@ async function main() {
     }
     cases.push('both-targets-errors-retry-url-validation-and-late-reset-fences');
     for(const required of [null,0]){
-      state.booking.deposit_required_cents=required;await refresh();
+      state.booking.deposit_required_cents=required;
+      state.booking.check_in=null;state.booking.check_out=null;state.booking.guest_count=null;
+      await refresh();
       assert.equal(await deposit.innerText(),required===null?'—':'€0.00');
       assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(),0);
     }
+    state.booking.check_in='2026-09-24';state.booking.check_out='2026-09-29';state.booking.guest_count=2;
     state.booking.deposit_required_cents=18000;
-    for(const amount of [18000,60000,65000]){
+    for(const amount of [20000,60000,65000]){
       state.payments.rows=[{payment_status:'paid',amount_paid_cents:amount}];await refresh();
       assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(),0);
       assert.equal(await page.locator('#bc-generate-payment-link-btn').count(),amount<60000?1:0);
