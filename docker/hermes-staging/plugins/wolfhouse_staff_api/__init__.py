@@ -525,6 +525,11 @@ def quote_booking(params, **kwargs):
         })
     payload = dict(params or {})
     payload.setdefault("source", "agent_luna_whatsapp")
+    # Quote identity normalization must not infer/replace the guest count or
+    # other business inputs. Preserve the existing quote validator and wire.
+    identity = dict(payload)
+    _normalize_guests_payload(identity)
+    payload.update({key: identity[key] for key in ("guest_name", "guests") if key in identity})
     data = _post_bot("/booking-preview", payload)
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
@@ -548,6 +553,7 @@ def quote_booking(params, **kwargs):
         "success": bool(data.get("success")) and not unknown_codes and not closed_season,
         "tool": "quote_booking",
         "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
+        **{key: payload[key] for key in ("guest_name", "guests") if key in payload},
         "total_cents": total,
         "deposit_required_cents": deposit,
         "balance_due_cents": balance,
@@ -579,8 +585,17 @@ def quote_booking(params, **kwargs):
     return _json_result(_suppress_gender_handoff(quote_result, quote_result.get("room_decision")))
 
 
+def _normalize_contact(payload):
+    """First present contact wins, including explicit empty; absence stays absent."""
+    for key in ('guest_name', 'name', 'booking_name', 'channel_guest_name', 'whatsapp_guest_name'):
+        if key in payload:
+            payload['guest_name'] = _clean(payload[key])
+            return
+
+
 def _normalize_guests_payload(payload):
     """Normalize occupant names without dropping unnamed guest slots."""
+    _normalize_contact(payload)
     raw = payload.get("guests")
     if not isinstance(raw, list):
         return
@@ -597,7 +612,7 @@ def _normalize_guests_payload(payload):
         payload["guests"] = normalized
         if not payload.get("guest_count"):
             payload["guest_count"] = len(normalized)
-        if not _clean(payload.get("guest_name")):
+        if "guest_name" not in payload:
             payload["guest_name"] = normalized[0]["name"]
 
 
@@ -694,11 +709,28 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
     return results
 
 
-def create_booking_from_plan(params, **kwargs):
-    del kwargs
-    payload = dict(params or {})
-    payload.setdefault("source", "agent_luna_whatsapp")
+def _complete_guest_names_result():
+    return _json_result({
+        "success": True,
+        "tool": "create_booking_from_plan",
+        "write_performed": False,
+        "booking_not_created_yet": True,
+        "next_action": "complete_guest_names",
+        "guest_safe_next_action": "complete_guest_names",
+        "missing_fields": ["guests"],
+        "guidance": (
+            "Use every guest's name already supplied in this conversation and retry "
+            "with guests:[{name}] in the same order, one entry per guest, including "
+            "for full payment. Do not re-ask names already known. If a name or the "
+            "list/count is genuinely unclear, ask one clarification; do not invent "
+            "names or repeat the booker's name for unnamed people."
+        ),
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+    })
 
+
+def _booking_count_validation(payload):
     # Validate supplied counts before roster inference, room policy or transport.
     # Python int() and JS parseInt() disagree on e.g. "4.0"; never fail open.
     supplied_count = None
@@ -718,7 +750,7 @@ def create_booking_from_plan(params, **kwargs):
             ):
                 raise ValueError("invalid integer count")
         except (TypeError, ValueError, OverflowError):
-            return _json_result({
+            return None, _json_result({
                 "success": True,
                 "tool": "create_booking_from_plan",
                 "write_performed": False,
@@ -733,6 +765,16 @@ def create_booking_from_plan(params, **kwargs):
             })
         if supplied_count is None:
             supplied_count = parsed_count
+    return supplied_count, None
+
+
+def create_booking_from_plan(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("source", "agent_luna_whatsapp")
+    supplied_count, invalid = _booking_count_validation(payload)
+    if invalid is not None:
+        return invalid
     if supplied_count is not None:
         payload["guest_count"] = supplied_count
 
@@ -747,16 +789,8 @@ def create_booking_from_plan(params, **kwargs):
         payload["phone"] = phone
         payload["guest_phone"] = phone
 
-    guest_name = _clean(
-        payload.get("guest_name")
-        or payload.get("name")
-        or payload.get("booking_name")
-        or payload.get("channel_guest_name")
-        or payload.get("whatsapp_guest_name")
-    )
     _normalize_guests_payload(payload)
-    if not guest_name:
-        guest_name = _clean(payload.get("guest_name"))
+    guest_name = _clean(payload.get("guest_name"))
     if not guest_name:
         return _json_result({
             "success": True,
@@ -781,24 +815,7 @@ def create_booking_from_plan(params, **kwargs):
         or any(not _clean(guest.get("name")) for guest in guests)
     )
     if names_incomplete or (guest_count > 1 and not isinstance(guests, list)):
-        return _json_result({
-            "success": True,
-            "tool": "create_booking_from_plan",
-            "write_performed": False,
-            "booking_not_created_yet": True,
-            "next_action": "complete_guest_names",
-            "guest_safe_next_action": "complete_guest_names",
-            "missing_fields": ["guests"],
-            "guidance": (
-                "Use every guest's name already supplied in this conversation and retry "
-                "with guests:[{name}] in the same order, one entry per guest, including "
-                "for full payment. Do not re-ask names already known. If a name or the "
-                "list/count is genuinely unclear, ask one clarification; do not invent "
-                "names or repeat the booker's name for unnamed people."
-            ),
-            "staff_review_needed": False,
-            "do_not_escalate": True,
-        })
+        return _complete_guest_names_result()
 
     # Persist the guest's language on the booking so the post-payment confirmation
     # (built server-side from templates) goes out in the same language the booking
@@ -2612,6 +2629,7 @@ def get_sunset_offering_quote(params, **kwargs):
     return _json_result({
         "success": ok,
         "tool": "get_sunset_offering_quote",
+        **({"guest_name": _clean(payload["guest_name"])} if "guest_name" in payload else {}),
         "location_id": data.get("location_id"),
         "offering_id": data.get("offering_id") or offering_id,
         "course_id": data.get("course_id"),
@@ -3064,7 +3082,8 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": "Shall I go ahead and book that for you?",
         })
     body = {"guest_confirmed_booking": True}
-    guest_name = _clean(payload.get("guest_name") or payload.get("name"))
+    _normalize_contact(payload)
+    guest_name = _clean(payload.get("guest_name"))
     if not guest_name:
         return _json_result({
             "success": False,
@@ -3781,7 +3800,7 @@ def _sunset_write_tools():
     return [
         ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has explicitly confirmed they want to book. Requires guest_confirmed_booking:true (literal boolean — quote-only interest is not consent). Accepted canonical component keys are: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. For one or multiple ordinary group-lesson dates use components.lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates; lesson.quantity is the number of surfers (NOT the number of dates). course is ONLY for an actual configured course product and MUST carry an exact authoritative course_id; never invent or omit course_id, and guest wording like 'curso cuatro días' does not itself prove a configured product was selected. Course board+wetsuit selection is the separate top-level course_equipment:{mode:'during_course'|'all_day',quantity:N}, never nested under components. For rental bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price for the catalog item the guest selected. NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
             "guest_confirmed_booking": {"type": "boolean", "description": "Must be literal true — the guest has explicitly confirmed they want to book. Quote-only interest, a name alone, or ambiguous assent must not pass."},
-            "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
+            "guest_name": {"type": "string", "description": "Contact name. May be omitted when already captured in this trusted session; create still requires a known name."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
             "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id plus tier_key (or offering_item_code) — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
             "course_equipment": {"type": "object", "description": "Guest gear intent only: {mode:'during_course'|'all_day',quantity:N}. Required when the guest selects optional or all-day gear. Omit for quote-owned included gear — plugin recovers the exact wire from quote_provenance.course_equipment. Never send a wire array through this field (schema is intent object only). Never nest under components/notes or add client prices.", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False},
@@ -3795,7 +3814,7 @@ def _sunset_write_tools():
             "notes": {"type": "string"},
             "idempotency_key": {"type": "string", "description": "Optional idempotency key to avoid duplicate bookings."},
             **loc,
-        }, ["guest_confirmed_booking", "guest_name"]),
+        }, ["guest_confirmed_booking"]),
         ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
         ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
         ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
@@ -3866,7 +3885,133 @@ def _sunset_tools():
     ]
 
 
+def _booking_name_scope():
+    location = ""
+    try:
+        from sunset_tenant_routing import get_current_location
+        location = _clean(get_current_location())
+    except ImportError:
+        pass
+    return {"tenant": _trusted_client_slug(), "phone": _session_guest_phone(),
+            "location": location or _clean(os.getenv("SUNSET_INGRESS_LOCATION_ID"))}
+
+
+def _booking_names_helper():
+    try:
+        from wolfhouse import booking_names
+        return booking_names
+    except ImportError:
+        return None
+
+
+def capture_booking_names(params, **kwargs):
+    """Structured identity only. No business operation or untrusted scope input."""
+    del kwargs
+    allowed = {"guest_name", "clear"}
+    if _trusted_client_slug() == "wolfhouse-somo":
+        allowed.update({"guests", "guest_count"})
+    invalid = not isinstance(params, dict) or bool(set(params) - allowed)
+    if not invalid:
+        invalid = (
+            ("guest_name" in params and not isinstance(params["guest_name"], str))
+            or ("clear" in params and not isinstance(params["clear"], bool))
+            or (params.get("clear") is True and len(params) != 1)
+            or ("guest_count" in params and (type(params["guest_count"]) is not int or params["guest_count"] < 1))
+            or ("guests" in params and (not isinstance(params["guests"], list) or any(
+                not isinstance(g, dict) or set(g) != {"name"} or not isinstance(g["name"], str)
+                for g in params["guests"])))
+        )
+    result = {"tool": "capture_booking_names", "success": False, "status": "not_saved"}
+    if invalid:
+        return _json_result({**result, "status": "invalid_input"})
+    helper = _booking_names_helper()
+    if helper is None:
+        return _json_result(result)
+    scope = _booking_name_scope()
+    if params.get("clear") is True:
+        payload = {"guest_name": ""}
+        if scope["tenant"] == "wolfhouse-somo":
+            payload["guests"] = []
+    else:
+        payload = {k: v for k, v in params.items() if k != "clear"}
+    saved = helper.remember_names(payload, scope)
+    if saved is None:
+        return _json_result(result)
+    return _json_result({**result, "success": True, "status": "saved",
+                         "names": {k: v for k, v in saved.get("names", {}).items()
+                                   if k in {"guest_name", "guests"}}})
+
+
+def _booking_name_handler(name, handler):
+    from functools import wraps
+    booking_names = _booking_names_helper()
+    if booking_names is None:
+        if name not in {'create_booking_from_plan', 'create_sunset_booking'}:
+            return handler
+
+        @wraps(handler)
+        def without_helper(params, **kwargs):
+            import sys
+            # No helper means no trustworthy turn marker. Only a genuinely
+            # plugin-only process is demonstrably standalone. Runtime presence
+            # is uncertainty, not permission to bypass the identity fence.
+            if 'run_agent' in sys.modules or 'agent.conversation_loop' in sys.modules:
+                return _json_result({'tool': name, 'success': False,
+                                     'write_performed': False, 'booking_not_created_yet': True,
+                                     'error': 'booking_names_unavailable',
+                                     'next_action': 'retry_booking_names',
+                                     'guest_safe_next_action': 'retry_booking_names'})
+            return handler(params, **kwargs)
+        return without_helper
+
+    @wraps(handler)
+    def scoped(params, **kwargs):
+        scope = _booking_name_scope()
+        explicit = dict(params or {})
+        if name in {'create_booking_from_plan', 'create_sunset_booking'}:
+            if name == 'create_booking_from_plan':
+                _, invalid = _booking_count_validation(explicit)
+                if invalid is not None:
+                    return invalid
+            decision = booking_names.create_decision(explicit, scope)
+            if decision['outcome'] == 'unavailable':
+                return _json_result({'tool': name, 'success': False,
+                                     'write_performed': False, 'booking_not_created_yet': True,
+                                     'error': 'booking_names_unavailable',
+                                     'next_action': 'retry_booking_names',
+                                     'guest_safe_next_action': 'retry_booking_names'})
+            result = json.loads(_complete_guest_names_result() if decision['outcome'] == 'clarify'
+                                else handler(decision['payload'], **kwargs))
+            if decision['names'] is not None:
+                result['booking_names'] = {'names': decision['names']}
+            return _json_result(result)
+        payload = booking_names.apply_names(explicit, scope)
+        # Only caller-supplied fields are authoritative for identity persistence.
+        # Legacy handler normalization belongs to the outgoing booking payload.
+        saved = booking_names.remember_names(explicit, scope)
+        result = json.loads(handler(payload, **kwargs))
+        if saved is not None:
+            result["booking_names"] = {"names": {
+                key: value for key, value in saved.get("names", {}).items()
+                if key in {"guest_name", "guests"}
+            }}
+        return _json_result(result)
+    return scoped
+
+
 def register(ctx):
+    booking_names = _booking_names_helper()
+    if booking_names is not None and hasattr(ctx, "register_hook"):
+        try:
+            booking_names.install_turn_cleanup()
+        except ImportError:
+            pass  # Standalone/plugin-only environments have no ordinary runtime.
+        def seed_booking_names(**kwargs):
+            return booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
+        ctx.register_hook("pre_llm_call", seed_booking_names)
+        ctx.register_hook("on_session_end", booking_names.end_turn)
+        if hasattr(booking_names, "reset_session"):
+            ctx.register_hook("on_session_reset", booking_names.reset_session)
     common_availability = {
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
@@ -3875,6 +4020,7 @@ def register(ctx):
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
     }
     common_booking = {
+        "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
@@ -3899,7 +4045,7 @@ def register(ctx):
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
@@ -3954,7 +4100,38 @@ def register(ctx):
         ctx.register_tool(name="get_transfer_prices", toolset=TOOLSET, schema=schema,
                           handler=get_transfer_prices, description=description)
 
+    capture_properties = {
+        "guest_name": {"type": "string", "description": "Guest-supplied contact name or correction; empty explicitly clears it."},
+        "clear": {"type": "boolean", "description": "True alone explicitly forgets all booking names in this session."},
+    }
+    if _trusted_client_slug() == "wolfhouse-somo":
+        from copy import deepcopy
+        roster = deepcopy(common_booking["guests"])
+        roster["items"]["additionalProperties"] = False
+        roster["items"]["properties"]["name"].pop("minLength", None)
+        capture_properties.update(guests=roster, guest_count={"type": "integer", "minimum": 1,
+            "description": "Roster context only; not booking count authority."})
+    description = (
+        "Capture guest-supplied booking names as soon as they are known, even before dates or quote. "
+        "Use structured names, preserve compound names, order, duplicate people and unnamed slots. "
+        "Corrections update only supplied identity fields; contact and occupants are independent. "
+        "Empty contact stays empty. Count changes retain known names for clarification, not incompatible roster auto-fill. "
+        "An empty/partial roster is not permission to reuse stale names. "
+        "Sunset accepts contact only, never an accommodation roster. For Sunset, never ask for names before quoting. "
+        "This saves identity in the current trusted session only: no Staff write, booking, consent, payment, "
+        "or identifier authority. If status is not_saved, do not claim persistence. Use clear:true alone to forget names."
+    )
+    capture_schema = _schema("capture_booking_names", description, capture_properties)
+    capture_schema["parameters"]["additionalProperties"] = False
+    ctx.register_tool(name="capture_booking_names", toolset=TOOLSET, schema=capture_schema,
+                      handler=capture_booking_names, description=description)
+
     for name, description, handler, properties, required in tools:
+        if name == "get_sunset_offering_quote":
+            properties = {**properties, "guest_name": {"type": "string", "description": "Optional known contact name; never ask before quoting."}}
+            description += " Retain an already supplied contact with guest_name, or capture_booking_names before quoting; never ask for a name just to quote."
+        if name in {"quote_booking", "create_booking_from_plan", "get_sunset_offering_quote", "create_sunset_booking"}:
+            handler = _booking_name_handler(name, handler)
         ctx.register_tool(
             name=name,
             toolset=TOOLSET,

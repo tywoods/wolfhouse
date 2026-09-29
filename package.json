@@ -376,6 +376,7 @@
     "verify:wolfhouse-paylink-map-private-skip": "node scripts/verify-wolfhouse-paylink-map-private-skip.js",
     "verify:luna-no-gender-after-pay-intent": "node scripts/verify-luna-no-gender-after-pay-intent.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
+    "verify:luna-persist-guest-names": "node scripts/verify-luna-persist-guest-names.js",
     "verify:gate-anchors": "node scripts/verify-gate-anchors.js",
     "verify:portal-fn-slice": "node scripts/verify-portal-fn-slice.js",
     "verify:gate-dates": "node scripts/verify-gate-dates.js",
