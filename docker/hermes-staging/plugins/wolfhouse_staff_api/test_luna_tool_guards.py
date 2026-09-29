@@ -435,6 +435,8 @@ created = json.loads(mod.create_booking_from_plan({
     "guest_name": "Alex",
     "guests": [{"name": "Alex"}, {"name": "Sam"}],
     "package_code": "malibu",
+    # Payment-only fixture: guest already accepted mixed; no demographic inferred.
+    "room_preference": "mixed",
     "payment_choice": "deposit",
     "phone": "+34600000001",
 }))
@@ -586,6 +588,8 @@ fake, original_post = _with_fake({
 })
 try:
     blocked = json.loads(mod.create_booking_from_plan({
+        # Reach capability honesty after satisfying the independent room boundary.
+        "room_preference": "mixed",
         "check_in": "2026-10-01",
         "check_out": "2026-10-03",
         "guest_count": 1,
@@ -616,6 +620,8 @@ short_fake, original_post = _with_fake({
 })
 try:
     short_link = json.loads(mod.create_booking_from_plan({
+        # Payment-link fixture: guest already accepted mixed; assertions unchanged.
+        "room_preference": "mixed",
         "check_in": "2026-10-01",
         "check_out": "2026-10-08",
         "guest_count": 1,

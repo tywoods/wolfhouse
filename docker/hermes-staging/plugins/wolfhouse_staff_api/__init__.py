@@ -363,28 +363,30 @@ def _availability_status(data):
     return data.get("availability_status") or "unclear"
 
 
-def _room_decision_for_tool(params, availability=None):
+def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     """Validate a model name hint. Never treats the hint as verified sex."""
     try:
         from wolfhouse.room_eligibility_policy import decide_room_eligibility
     except Exception:
         return None
     params = params if isinstance(params, dict) else {}
-    if not any(params.get(key) not in (None, "", []) for key in (
+    preference = _clean(params.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
+    room_type = _clean(params.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
+        preference = room_type
+    if not payment_intent and not preference and not any(params.get(key) not in (None, "", []) for key in (
         "name_hint", "name_confidence", "room_name_hints", "explicit_gender",
         "group_gender", "room_preference", "name_ambiguous",
     )):
         return None
     travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else None
-    available = {}
+    # Caller hints may fill gaps, never override fresh Staff API room facts.
+    available = dict(params["available_rooms"]) if isinstance(params.get("available_rooms"), dict) else {}
     if isinstance(availability, dict):
         if "girls_room_available" in availability:
             available["female_only"] = availability.get("girls_room_available")
         if "private_room_available" in availability:
             available["private"] = availability.get("private_room_available")
-    if isinstance(params.get("available_rooms"), dict):
-        available.update(params["available_rooms"])
-    preference = _clean(params.get("room_preference")).lower()
     return decide_room_eligibility(
         guest_count=params.get("guest_count") or (len(travelers) if travelers else 1),
         travelers=travelers,
@@ -393,9 +395,10 @@ def _room_decision_for_tool(params, availability=None):
         confidence=params.get("name_confidence"),
         ambiguous=params.get("name_ambiguous") is True,
         explicit_gender=params.get("explicit_gender") or params.get("group_gender"),
-        room_preference=params.get("room_preference"),
+        room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
         available=available or None,
+        payment_intent=payment_intent,
     )
 
 
@@ -565,7 +568,13 @@ def quote_booking(params, **kwargs):
             and not closed_season
         ),
         "guest_safe_next_action": data.get("guest_safe_next_action") or (data.get("reply_draft") if closed_season else None),
-        "room_decision": _room_decision_for_tool(params, data),
+        "room_decision": _room_decision_for_tool(
+            params, data,
+            # The normalizer's default deposit is not evidence of guest pay intent.
+            payment_intent=isinstance(params.get("payment_choice"), str)
+            and bool(params["payment_choice"].strip())
+            and _normalize_payment_choice(params["payment_choice"]) in {"full", "deposit", "pay_on_arrival"},
+        ),
     }
     return _json_result(_suppress_gender_handoff(quote_result, quote_result.get("room_decision")))
 
@@ -798,7 +807,20 @@ def create_booking_from_plan(params, **kwargs):
     if language:
         payload["language"] = language.lower()[:10]
 
+    # Create itself is the consent/payment boundary, even without payment_choice.
+    # Resolve missing room facts before any allocation request; never ask composition here.
+    room_decision = _room_decision_for_tool(payload, payment_intent=True)
+    preference = _clean(payload.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
+    excluded = set((room_decision or {}).get("excluded_room_preferences") or [])
+    if room_decision and (
+        room_decision.get("clarification_needed")
+        or room_decision.get("conflict")
+        or preference in {"female_only", "male_only"} and preference in excluded
+    ):
+        return _json_result(_room_recovery_result("create_booking_from_plan", room_decision))
+
     # Auto-fetch selected_bed_codes if Luna didn't pass them — required by Staff API
+    avail_data = {}
     if not payload.get("selected_bed_codes"):
         try:
             avail_data = _post_bot("/availability-check", {
@@ -816,6 +838,23 @@ def create_booking_from_plan(params, **kwargs):
                 payload["selected_bed_codes"] = bed_codes
         except Exception:
             pass
+
+    # Acceptance does not override fresh authoritative unavailability. Keep this
+    # guard outside the fetch's exception handler so recovery cannot fail open.
+    if isinstance(avail_data, dict) and _availability_status(avail_data) == "unavailable":
+        room_decision = {
+            **(room_decision or {}),
+            "clarification_needed": True,
+            "clarification_prompt": "Would you like to check another room option or different dates?",
+            "allowed_room_preferences": [],
+        }
+        return _json_result(_room_recovery_result("create_booking_from_plan", room_decision))
+
+    if isinstance(avail_data, dict) and avail_data:
+        room_decision = _room_decision_for_tool(payload, avail_data, payment_intent=True)
+        excluded = set((room_decision or {}).get("excluded_room_preferences") or [])
+        if room_decision and (room_decision.get("clarification_needed") or room_decision.get("conflict")):
+            return _json_result(_room_recovery_result("create_booking_from_plan", room_decision))
 
     # Idempotency key: stable per (phone, check_in, check_out, package).
     # Prevents duplicate bookings if the model calls this twice.
@@ -853,15 +892,6 @@ def create_booking_from_plan(params, **kwargs):
     elif pkg in ("", "accommodation_only", "no_package"):
         payload["package_code"] = "package_none"
 
-    room_decision = _room_decision_for_tool(payload)
-    preference = _clean(payload.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
-    excluded = set((room_decision or {}).get("excluded_room_preferences") or [])
-    if room_decision and (
-        room_decision.get("clarification_needed")
-        or room_decision.get("conflict")
-        or preference in {"female_only", "male_only"} and preference in excluded
-    ):
-        return _json_result(_room_recovery_result("create_booking_from_plan", room_decision))
     if room_decision:
         if excluded and payload.get("selected_bed_codes"):
             payload.pop("selected_bed_codes", None)
@@ -3850,8 +3880,8 @@ def register(ctx):
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
-        "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
-        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests on shared/dorm bookings only: female (all girls), male (all guys), or mixed. Ask at the room-preference step before create — never on availability. Do NOT ask or pass when the booking is private room (couple_private / Private room supplement already on the quote) — gender mix does not matter for a private room."},
+        "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Reuse the guest's accepted choice on repeat quote/create; mixed/shared does not establish group_gender. Never override an explicit mismatch or known unavailability."},
+        "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. Resolve any necessary composition before quote/payment; never ask after payment intent (full, split, deposit, or a payment-link request). Reuse prior answers. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
         "gender_preference": {"type": "string", "description": "Solo only: do not pass a guessed gender here. Pass name_hint plus name_confidence instead. Group composition belongs in group_gender after the guest answers."},
         "name_hint": {"type": "string", "description": "Provisional model interpretation of a guest-provided name: male, female, or unknown. Not biological sex and not a stored fact."},
         "name_confidence": {"type": "number", "description": "Uncalibrated 0-1 score for name_hint. At least 0.70 is required before a provisional gendered room hint. Below that, ask one neutral question."},
@@ -3866,10 +3896,10 @@ def register(ctx):
         },
     }
     tools = [
-        ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender — ask composition later at the room-preference step before create.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
-        ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
+        ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
+        ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),

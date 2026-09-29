@@ -127,6 +127,8 @@ wolfhouse_map = "📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBv
 for label, result in (
     ("initial booking payment", json.loads(mod.create_booking_from_plan({
         "guest_name": "Map Test",
+        # Map-copy control starts after the independent room decision is settled.
+        "room_preference": "mixed",
         "guest_phone": "+34600000000",
         "check_in": "2026-10-01",
         "check_out": "2026-10-08",

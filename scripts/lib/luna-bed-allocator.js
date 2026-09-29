@@ -90,6 +90,9 @@ function needsGenderAwareBedAssignment({
   const count = Math.max(1, Number(guestCount) || 1);
   return count < 2
     || !!explicit
+    // Accepted mixed/shared is a placement constraint, even without composition.
+    // Booking preflight uses this predicate to revalidate cached bed selections.
+    || rp === 'mixed'
     || rp === 'private'
     || rp === 'female_only'
     || rp === 'male_only';
@@ -634,7 +637,9 @@ function chooseBeds(opts) {
     allocOpts.groupGender = 'male';
   }
 
-  const useFlipFallback = groupGender === 'unknown' || groupGender === 'mixed';
+  // Unknown composition cannot make a gendered room safe by relabelling it.
+  // Keep the existing overflow policy only for explicitly mixed composition.
+  const useFlipFallback = groupGender === 'mixed';
   const operatorTierOpts = { ...allocOpts, allowOperator: true };
 
   const tierPools = buildTieredPoolsForGroup(
@@ -655,7 +660,10 @@ function chooseBeds(opts) {
   if (result && !result.handoff) return result;
   if (result && result.handoff) return result;
 
-  if (groupGender === 'unknown' || groupGender === 'mixed') {
+  if (groupGender === 'unknown') {
+    return { handoff: false, needs_clarification: true, reason: 'no_eligible_mixed_room' };
+  }
+  if (groupGender === 'mixed') {
     return { handoff: true, reason: 'no_eligible_mixed_room' };
   }
   return { handoff: true, reason: 'no_eligible_room' };
@@ -831,7 +839,9 @@ function runAvailabilityBedSelection(params) {
     };
   }
 
-  const pick = (useRules && !capacityOnly)
+  // Rollback may change ranking, not the safety of unknown mixed/shared placement.
+  const requireMixedSafety = ctx.groupGender === 'unknown' && ctx.roomPreference === 'mixed';
+  const pick = (!capacityOnly && (useRules || requireMixedSafety))
     ? chooseBeds({
       rooms,
       guestCount,
@@ -842,7 +852,7 @@ function runAvailabilityBedSelection(params) {
     })
     : chooseBedsCapacityOnly({ rooms, guestCount });
 
-  if (pick.handoff) {
+  if (pick.handoff || pick.needs_clarification) {
     return {
       ...pick,
       selected_bed_codes: [],

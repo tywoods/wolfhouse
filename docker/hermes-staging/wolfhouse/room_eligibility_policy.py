@@ -109,11 +109,13 @@ def decide_room_eligibility(
     room_preference: Any = None,
     private_room_chosen: bool = False,
     available: Optional[Dict[str, Any]] = None,
+    payment_intent: bool = False,
 ) -> Dict[str, Any]:
     """Return allowed options and whether one neutral clarification is required."""
     count = max(1, int(guest_count or 1))
     preference = _token(room_preference)
     flags = _availability_flags(available)
+    accepted_mixed = preference in {"mixed", "shared"} and flags["mixed"]
     private = private_room_chosen or preference in _PRIVATE
     rows = _traveler_rows(travelers, {
         "name": name,
@@ -144,6 +146,16 @@ def decide_room_eligibility(
     }
 
     if private:
+        # Missing private inventory is not an explicit denial. A fresh false is.
+        raw_available = available if isinstance(available, dict) else {}
+        if raw_available.get("private", raw_available.get("private_room_available")) is False:
+            return {
+                **base,
+                "clarification_needed": True,
+                "clarification_prompt": "Would you like to check another room option or different dates?",
+                "excluded_room_preferences": ["female_only", "male_only"],
+                "private_room": True,
+            }
         allowed = ["private", "couple_private"] if flags["private"] else ["mixed", "shared"]
         return {
             **base,
@@ -187,12 +199,24 @@ def decide_room_eligibility(
             "excluded_room_preferences": ["female_only" if hint_composition == "male" else "male_only"],
         }
 
+    if (preference in {"mixed", "shared"} and not flags["mixed"]) or (
+        preference in {"female_only", "male_only"} and not flags[preference]
+    ):
+        # Acceptance is not availability. Do not re-ask demographics or offer a
+        # known-unavailable mixed dorm; leave allocation to Staff after a new choice.
+        return {
+            **base,
+            "clarification_needed": True,
+            "clarification_prompt": "Would you like to check another room option or different dates?",
+            "excluded_room_preferences": ["female_only", "male_only"],
+        }
+
     if not statement and (unknown or (count >= 2 and len(known) < count)):
         return {
             **base,
             "resolved_composition": "unknown",
-            "clarification_needed": True,
-            "clarification_prompt": _NEUTRAL_PROMPT if count == 1 else _GROUP_PROMPT,
+            "clarification_needed": not accepted_mixed,
+            "clarification_prompt": None if accepted_mixed else (_NEUTRAL_PROMPT if count == 1 or payment_intent else _GROUP_PROMPT),
             "allowed_room_preferences": [item for item in ("mixed", "shared") if flags["mixed"]],
             "excluded_room_preferences": ["female_only", "male_only"],
         }
@@ -211,8 +235,8 @@ def decide_room_eligibility(
     if composition == "unknown":
         return {
             **base,
-            "clarification_needed": True,
-            "clarification_prompt": _NEUTRAL_PROMPT if count == 1 else _GROUP_PROMPT,
+            "clarification_needed": not accepted_mixed,
+            "clarification_prompt": None if accepted_mixed else (_NEUTRAL_PROMPT if count == 1 or payment_intent else _GROUP_PROMPT),
             "allowed_room_preferences": [item for item in ("mixed", "shared") if flags["mixed"]],
             "excluded_room_preferences": ["female_only", "male_only"],
         }
