@@ -165,9 +165,26 @@ async function main() {
         if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         assert.equal(await page.locator('.bc-guest-pay-paid').first().innerText(), '€0.00', 'zero paid is never blank');
         assert.match(await page.locator('.bc-guest-pay-owed').first().innerText(), /^€\d+\.\d{2}$/, 'owed amount is never blank');
-        assert(await page.locator('.bc-guest-pay-name-line .bc-create-guest-payment-link-btn').count() > 0, 'Deposit and Full sit on the name line');
-        assert.equal(await page.locator('.bc-guest-pay-money .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not on the euro line');
-        assert.deepEqual(await page.locator('.bc-guest-pay-name-line .bc-create-guest-payment-link-btn').allTextContents(), ['Deposit', 'Full']);
+        assert.equal(await page.locator('.bc-guest-pay-name-line .bc-create-guest-payment-link-btn').count(), 0, 'name line has the name only');
+        assert(await page.locator('.bc-guest-pay-price-line .bc-create-guest-payment-link-btn').count() > 0, 'Deposit and Full sit on the price line');
+        assert.equal(await page.locator('.bc-guest-pay-money .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not inside the euro columns');
+        assert.deepEqual(await page.locator('.bc-guest-pay-price-line .bc-create-guest-payment-link-btn').allTextContents(), ['Deposit', 'Full']);
+        const priceLineGeo = await page.locator('.bc-guest-pay-price-line').first().evaluate((e) => {
+          const links = e.querySelector('.bc-guest-pay-links').getBoundingClientRect();
+          const line = e.getBoundingClientRect();
+          const money = e.querySelector('.bc-guest-pay-money');
+          const name = e.parentElement.querySelector('.bc-guest-pay-name').getBoundingClientRect();
+          const moneyBox = money ? money.getBoundingClientRect() : null;
+          return {
+            left: links.left - line.left,
+            nameAbove: name.bottom <= links.top + 1,
+            sameLine: !moneyBox || Math.abs(links.top - moneyBox.top) < 10,
+            moneyAfter: !moneyBox || moneyBox.left >= links.right - 1,
+          };
+        });
+        assert(priceLineGeo.left <= 2, 'Deposit/Full are left-aligned on the price line');
+        assert(priceLineGeo.nameAbove, 'name sits above the price line');
+        assert(priceLineGeo.sameLine && priceLineGeo.moneyAfter, 'buttons share the price line and sit left of the euros');
         const mountedHistory=await page.locator('#bc-payment-history-card').elementHandle();
         async function collapseSnapshot(){return mountedHistory.evaluate(old=>({
           sameNode:old===document.getElementById('bc-payment-history-card'),oldConnected:old.isConnected,
