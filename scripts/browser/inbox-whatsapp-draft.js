@@ -62,6 +62,82 @@ function setWhatsAppComposerLocked(targetEl,locked){
   if(!targetEl)return;['#draft-textarea','#btn-save-draft','#btn-delete-draft','#btn-send-reply'].forEach(function(sel){var node=targetEl.querySelector(sel);if(node)node.disabled=!!locked;});
 }
 
+/* Channel Autonomy WhatsApp Auto — not the per-chat Luna On/Off pill. */
+function inboxWhatsAppChannelIsAutomode(){
+  var stored = 'draft';
+  var sel = null;
+  try {
+    if (typeof el === 'function') sel = el('inbox-shell-whatsapp-mode');
+    if (!sel && typeof document !== 'undefined' && document.getElementById) {
+      sel = document.getElementById('inbox-shell-whatsapp-mode');
+    }
+    if (sel) {
+      stored = typeof inboxShellNormalizeWhatsApp === 'function'
+        ? inboxShellNormalizeWhatsApp(sel.value)
+        : (sel.value === 'auto' ? 'auto' : 'draft');
+    } else if (typeof inboxShellLoadStoredModes === 'function') {
+      stored = (inboxShellLoadStoredModes() || {}).whatsapp || 'draft';
+    }
+  } catch (_e) { stored = 'draft'; }
+  var paused = false;
+  try {
+    paused = typeof inboxShellPauseBlocksAuto === 'function' && !!inboxShellPauseBlocksAuto();
+  } catch (_p) { paused = false; }
+  if (typeof inboxShellEffectiveMode === 'function') {
+    return inboxShellEffectiveMode('whatsapp', stored, paused) === 'auto';
+  }
+  return stored === 'auto' && !paused;
+}
+
+function inboxWhatsAppDraftActionHiddenAttr(){
+  return inboxWhatsAppChannelIsAutomode() ? ' hidden' : '';
+}
+
+function inboxWhatsAppComposerApplyDraftActionRow(row, auto){
+  if (!row || !row.querySelector) return;
+  if (auto) row.setAttribute('data-wa-automode', '1');
+  else row.removeAttribute('data-wa-automode');
+  ['#btn-save-draft', '#btn-delete-draft'].forEach(function(sel){
+    var btn = row.querySelector(sel);
+    if (!btn) return;
+    btn.hidden = !!auto;
+    if (auto) {
+      btn.setAttribute('hidden', '');
+      btn.setAttribute('aria-hidden', 'true');
+    } else {
+      btn.removeAttribute('hidden');
+      btn.removeAttribute('aria-hidden');
+    }
+  });
+  var send = row.querySelector('#btn-send-reply');
+  if (send) {
+    send.hidden = false;
+    send.removeAttribute('hidden');
+    send.removeAttribute('aria-hidden');
+  }
+}
+
+function inboxWhatsAppComposerSyncDraftActions(root){
+  var auto = false;
+  try { auto = inboxWhatsAppChannelIsAutomode(); } catch (_e) { auto = false; }
+  var doc = typeof document !== 'undefined' ? document : null;
+  var shell = doc && doc.getElementById ? doc.getElementById('inbox-shell') : null;
+  if (shell && shell.classList) shell.classList.toggle('is-wa-automode', !!auto);
+  var scopes = [];
+  if (root && root.querySelectorAll) scopes.push(root);
+  if (doc && doc.querySelectorAll && scopes.indexOf(doc) < 0) scopes.push(doc);
+  var seen = [];
+  for (var s = 0; s < scopes.length; s++) {
+    var rows = scopes[s].querySelectorAll('[data-wa-composer-actions]');
+    for (var i = 0; i < rows.length; i++) {
+      if (seen.indexOf(rows[i]) >= 0) continue;
+      seen.push(rows[i]);
+      inboxWhatsAppComposerApplyDraftActionRow(rows[i], auto);
+    }
+  }
+  return auto;
+}
+
 function whatsappDraftGetUrl(convId){
   return '/staff/inbox/whatsapp/draft' + inboxClientQuery() +
     '&conversation_id=' + encodeURIComponent(convId);
@@ -549,4 +625,5 @@ function wireInboxWhatsAppDraft(convId, targetEl){
   if (saveDraftBtn) saveDraftBtn.addEventListener('click', function(){ performWhatsAppComposerSave(convId, targetEl); });
   if (deleteDraftBtn) deleteDraftBtn.addEventListener('click', function(){ performWhatsAppDraftDelete(convId, targetEl); });
   loadInboxWhatsAppDraft(convId, targetEl);
+  inboxWhatsAppComposerSyncDraftActions(targetEl);
 }

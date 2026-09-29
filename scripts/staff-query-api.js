@@ -19426,6 +19426,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .btn-email-save-draft:hover{background:#7FA3B8}
 .btn-email-save-draft:disabled,.btn-email-approve-send:disabled,#inbox-shell .btn-delete-draft:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 #inbox-shell .btn-email-approve-send,#inbox-shell .btn-delete-draft{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+#inbox-shell.is-wa-automode [data-wa-composer-actions] #btn-save-draft,#inbox-shell.is-wa-automode [data-wa-composer-actions] #btn-delete-draft,#inbox-shell [data-wa-composer-actions] #btn-save-draft[hidden],#inbox-shell [data-wa-composer-actions] #btn-delete-draft[hidden]{display:none!important}
 .btn-email-approve-send:hover,#inbox-shell .btn-delete-draft:hover{background:var(--primary-hover)}
 [data-theme="dark"] .btn-email-save-draft{background:#1e4a68;color:#c8dce8}
 [data-theme="dark"] .btn-email-create-draft{background:var(--primary);color:#f0f4f0}
