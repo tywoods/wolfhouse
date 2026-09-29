@@ -395,6 +395,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-name-row">' +
       '<button type="button" class="customers-profile-back" id="cust-profile-back" aria-label="' + escHtml(portalT('customers.profile.back')) + '"><span aria-hidden="true">&#8592;</span></button>' +
       '<h3 class="customers-profile-name">' + escHtml(displayName) + '</h3>' +
+      (typeof staffChromeLocationTagHtml === 'function' ? staffChromeLocationTagHtml(getClient(), data) : '') +
       '</div>' +
       '<div class="customers-profile-contact">' + escHtml(contactBits.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       '</div>' +
@@ -406,7 +407,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-fields">' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value' + (phoneShown ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + (phoneShown ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(phoneShown || '—') + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + ((id.email && data.phone) ? ' cust-conv-link cust-detail-conv-open' : '') + '"' + ((id.email && data.phone) ? ' role="button" tabindex="0" title="' + escHtml(portalT('customers.conversation.open')) + '"' : '') + '>' + escHtml(id.email || '—') + '</span></div>' +
-      (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
+      (isSunsetSurfActive() && !(typeof staffChromeLocationTag === 'function' && staffChromeLocationTag(getClient(), data) === 'wolfhouse-somo') ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.lastSetup')) + '</span><span class="customers-profile-field-value' + (lastSetup ? '' : ' is-muted') + '">' + escHtml(lastSetup || portalT('customers.detail.noServices')) + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span></div>' +

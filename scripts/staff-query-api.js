@@ -18589,6 +18589,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-create-title{margin:0;font-size:17px;font-weight:700;line-height:1.25;color:var(--text);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-schedule-create-school-chip{display:inline-flex;align-items:center;max-width:46%;padding:3px 10px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface-soft);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .portal-schedule-create-school-chip strong{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.staff-location-id-tag{display:inline-flex;align-items:center;max-width:100%;margin:0 0 0 6px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-soft);background:var(--surface);font-size:11px;font-weight:700;color:var(--text-2);line-height:1.3;white-space:nowrap;vertical-align:middle}
+@media(max-width:768px){.staff-location-id-tag{margin:4px 0 0}}
 .portal-schedule-create-header #ps-create-close{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-header #ps-drawer-close,.portal-schedule-create-header .portal-schedule-drawer-close-btn{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 220px}
@@ -26035,7 +26037,13 @@ function adminClientQuery(){
 var STAFF_ADMIN_CONFIG_CLIENT_QS = '/staff/admin/config?client=';
 
 function scheduleResolveDrawerSchoolLabel(ctx, row){
-  var loc = (ctx && ctx.location_id) || (row && row.location_id) || getSunsetLocation();
+  var portal = (typeof getClient === 'function') ? getClient() : '';
+  var tag = (typeof staffChromeLocationTag === 'function')
+    ? staffChromeLocationTag(portal, ctx, row)
+    : '';
+  if (tag === 'wolfhouse-somo') return 'wolfhouse-somo';
+  var loc = tag || (ctx && ctx.location_id) || (row && row.location_id) || getSunsetLocation();
+  if (loc === 'wolfhouse-somo' || loc === 'wolfhouse') return 'wolfhouse-somo';
   return getSunsetLocationLabel(loc);
 }
 
@@ -38109,6 +38117,9 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   blk = blk || {};
   ledger = ledger || {};
   var html = '';
+  if (typeof staffChromeLocationTagHtml === 'function') {
+    html += staffChromeLocationTagHtml(getClient(), bk, blk);
+  }
   var calPay = bcCalendarBlockPaymentState({
     calendar_payment_primary: blk.calendar_payment_primary || bk.calendar_payment_primary || null,
     calendar_payment_amount_cents: blk.calendar_payment_amount_cents != null
@@ -38176,7 +38187,7 @@ function bcPaintSideStayMeta(bk, blk, guestRows){
   if (!meta) return;
   var cin = (bk && bk.check_in) || (blk && (blk.check_in || blk.start_date)) || '';
   var cout = (bk && bk.check_out) || (blk && (blk.check_out || blk.end_date)) || '';
-  meta.innerHTML = bcSideStayMetaHtml(cin, cout, bcGuestCountFrom(bk, blk, guestRows));
+  meta.innerHTML = bcSideStayMetaHtml(cin, cout, bcGuestCountFrom(bk, blk, guestRows), bk, blk);
 }
 
 function updateBcDetailHeader(data){
@@ -44714,7 +44725,7 @@ function bcBedIdLabel(bed){
   return String(bed.bed_code || bed.bed_label || '').trim();
 }
 
-function bcSideStayMetaHtml(cin, cout, guests){
+function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
   var dates = [cin, cout].filter(Boolean).join(' → ');
   var nights = 0;
   if (cin && cout && typeof bcStayNightsFromCheckInOut === 'function') {
@@ -44724,6 +44735,9 @@ function bcSideStayMetaHtml(cin, cout, guests){
   if (nights > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(nights) + ' nights') + '</span>';
   var gc = parseInt(guests, 10);
   if (gc > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
+  if (typeof staffChromeLocationTagHtml === 'function') {
+    extra += ' ' + staffChromeLocationTagHtml(typeof getClient === 'function' ? getClient() : '', bk, blk);
+  }
   return escHtml(dates) + extra;
 }
 

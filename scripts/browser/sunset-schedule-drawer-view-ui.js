@@ -196,7 +196,11 @@ function scheduleRenderDrawerViewBookingDetailsHtml(ctx, row){
     ? scheduleResolveGuestPhone(ctx, row)
     : ((ctx && ctx.phone) || '');
   if (!isSunsetSurfActive()) {
-    return '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>' +
+    var locTag = (typeof staffChromeLocationTagHtml === 'function')
+      ? staffChromeLocationTagHtml(typeof getClient === 'function' ? getClient() : '', ctx, row)
+      : '';
+    return (locTag ? '<p class="portal-schedule-drawer-kv"><strong>Location:</strong> ' + locTag + '</p>' : '') +
+      '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>' +
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>' +
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>' +
