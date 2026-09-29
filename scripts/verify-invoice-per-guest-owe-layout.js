@@ -86,7 +86,9 @@ async function main() {
     }
     if(MODE==='layout'||MODE==='full') {
       for(const kind of ['full','partial'])for(const width of [320,390,430,1440])for(const theme of ['light','dark']) {
-        state=fixture(kind);await open(width,theme);await money(kind);
+        state=fixture(kind);await open(width,theme);
+        if(await page.locator('#bc-per-guest-toggle').count()&&await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded')!=='true') await page.locator('#bc-per-guest-toggle').click();
+        await money(kind);
         const rows=page.locator('.bc-guest-pay-row');assert.equal(await rows.count(),4);
         for(let i=0;i<4;i++) {
           const row=rows.nth(i);
@@ -97,15 +99,19 @@ async function main() {
             const box=s=>e.querySelector(s).getBoundingClientRect().toJSON();
             const fits=s=>{const el=e.querySelector(s),r=document.createRange();r.selectNodeContents(el);const b=el.getBoundingClientRect(),rects=Array.from(r.getClientRects());return el.scrollWidth<=el.clientWidth+1&&rects.every(t=>t.left>=b.left-1&&t.right<=b.right+1&&t.top>=b.top-1&&t.bottom<=b.bottom+1);};
             const price=e.querySelector('.bc-guest-pay-price'),style=getComputedStyle(price);
-            return {row:e.getBoundingClientRect().toJSON(),name:box('.bc-guest-pay-name'),paid:box('.bc-guest-pay-paid'),owed:box('.bc-guest-pay-owed'),price:box('.bc-guest-pay-price'),color:style.color,background:style.backgroundColor,readable:['.bc-guest-pay-name','.bc-guest-pay-paid','.bc-guest-pay-owed','.bc-guest-pay-price'].every(fits)};
+            return {row:e.getBoundingClientRect().toJSON(),name:box('.bc-guest-pay-name'),paid:box('.bc-guest-pay-paid'),owed:box('.bc-guest-pay-owed'),price:box('.bc-guest-pay-price'),color:style.color,background:style.backgroundColor,priceWeight:style.fontWeight,readable:['.bc-guest-pay-name','.bc-guest-pay-paid','.bc-guest-pay-owed','.bc-guest-pay-price'].every(fits)};
           });
           observations.push({kind,width,theme,i,geometry});
           assert.equal(geometry.color,'rgb(0, 0, 0)','price is black');
           if(theme==='dark')assert.equal(geometry.background,'rgb(255, 255, 255)','black price has readable light backing');
           assert(geometry.paid.right<=geometry.owed.left&&geometry.owed.right<geometry.price.left,'Paid/Owe left of price');
-          assert(geometry.paid.left-geometry.row.left<=1&&geometry.owed.left-geometry.paid.right<=20,'Paid/Owe compact and pulled left');
-          assert(Math.abs(geometry.price.right-geometry.row.right)<=1,'price right aligned');
-          assert(geometry.name.bottom<=geometry.paid.top&&geometry.readable,'long names and amounts fully readable without overlap');
+          assert(geometry.name.right<=geometry.paid.left+1,'name does not overlap money');
+          assert(geometry.name.top<geometry.paid.bottom&&geometry.paid.top<geometry.name.bottom,'name and money share one row');
+          assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
+          assert(geometry.price.right>=geometry.row.right-1,'price sits on the right edge');
+          assert(geometry.paid.left>=geometry.name.right-1,'money shifted right for long names');
+          assert(Number(geometry.priceWeight)<700,'price is not bold');
+          assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
         }
         await page.locator('#bc-inv-per-guest').scrollIntoViewIfNeeded();
@@ -129,7 +135,7 @@ async function main() {
         }
         const totals=await page.locator('#bc-inv-totals .ctx-inv-total-amount').evaluateAll(es=>es.map(e=>({rect:e.getBoundingClientRect().toJSON(),align:getComputedStyle(e).textAlign,text:e.textContent})));
         observations.push({kind,width,theme,totals});
-        assert.deepEqual(totals.map(x=>x.text),kind==='full'?['€1200.00','€360.00','€1200.00']:['€1200.00','€360.00','€0.00','€1200.00'],'all original TOTALS monetary values');
+        assert.deepEqual(totals.map(x=>x.text),kind==='full'?['€1200.00','€400.00','€1200.00']:['€1200.00','€400.00','€0.00','€1200.00'],'deposit is nights × guests');
         for(const a of totals){assert.equal(a.align,'right');assert(Math.abs(a.rect.right-totals[0].rect.right)<=1,'every TOTALS amount shares right edge');assert(a.rect.left>=0&&a.rect.right<=width,'TOTALS amount contained');}
         const links=page.locator('#bc-inv-totals .bc-total-create-link');
         assert.equal(await links.count(),kind==='full'?0:2,'booking collection controls preserved');

@@ -95,9 +95,12 @@ async function main() {
       state=fixture();await open();
       const order=await page.locator('#bc-overview-invoice > [id]').evaluateAll(es=>es.map(e=>e.id));
       observations.push({order});
-      assert(order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-per-guest'),'Transfers before Per Guest');
-      assert(order.indexOf('bc-inv-per-guest')<order.indexOf('bc-inv-totals'),'Per Guest before Totals');
+      assert(!order.includes('bc-inv-per-guest'),'Per Guest is outside the invoice card');
+      assert(order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-totals'),'Transfers before Totals');
       assert(order.indexOf('bc-inv-totals')<order.indexOf('bc-invoice-actions'),'Totals before actions');
+      const siblings=await page.locator('#bc-overview-invoice,#bc-per-guest-card,#bc-payment-history-card').evaluateAll(es=>es.map(e=>e.id));
+      assert(siblings.indexOf('bc-overview-invoice')<siblings.indexOf('bc-per-guest-card')&&siblings.indexOf('bc-per-guest-card')<siblings.indexOf('bc-payment-history-card'),'Per Guest sits above Payment History');
+      assert.equal(await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded'),'false','Per Guest collapsed by default');
       assert.equal(await page.locator('#bc-inv-per-guest').count(),1);cases.push('transfers-per-guest-totals-actions-order');
     }
     if(MODE==='layout'||MODE==='full') {
@@ -188,7 +191,7 @@ async function main() {
           await page.screenshot({path:path.join(OUT,`${target}-${width}-${theme}.png`)});
         }
         const order=await page.locator('#bc-overview-invoice > [id]').evaluateAll(es=>es.map(e=>e.id));
-        assert(order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-per-guest')&&order.indexOf('bc-inv-per-guest')<order.indexOf('bc-inv-totals')&&order.indexOf('bc-inv-totals')<order.indexOf('bc-invoice-actions'));
+        assert(!order.includes('bc-inv-per-guest')&&order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-totals')&&order.indexOf('bc-inv-totals')<order.indexOf('bc-invoice-actions'));
         await page.locator('#bc-record-payment-btn').click();assert.equal(await page.locator('#bc-payment-scope').inputValue(),'booking');assert.equal(await page.locator('#bc-payment-amount').inputValue(),'');assert.equal(await page.locator('[name="bc-payment-method"]:checked').count(),0);await page.keyboard.press('Escape');
         observations.push({lifecycle:{width,theme,order,totals:await page.locator('#bc-inv-totals').innerText()}});cases.push(`refresh-reopen-defaults-${width}-${theme}`);
       }

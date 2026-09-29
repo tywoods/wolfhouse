@@ -20,6 +20,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { wolfhouseStayDepositRateCents, wolfhouseStayDepositCents } = require('./wolfhouse-stay-deposit');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -91,17 +92,13 @@ function isCatalogPackageCode(config, code) {
 }
 
 function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
-  const KNOWN = catalogPackageCodes(config);
-  const pkg = String(packageCode || '').trim().toLowerCase();
-  const isNoPkg = pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
-  const usesPackageDeposit = KNOWN.includes(pkg)
-    && nights >= 7
-    && !isManualOverride
-    && pkg !== 'manual_override'
-    && !isNoPkg;
-  return usesPackageDeposit
-    ? config.deposits.tiers.standard_package.amount_cents
-    : config.deposits.tiers.custom_or_short_stay.amount_cents;
+  // Ty locked 2026-09-29: >=6 nights €200/person, <=5 nights €100/person.
+  // Package name and manual override do not change the rate.
+  void config;
+  void packageCode;
+  void isManualOverride;
+  const rate = wolfhouseStayDepositRateCents(nights);
+  return rate == null ? 0 : rate;
 }
 
 // ─── Shared blocked-result builder ───────────────────────────────────────────
@@ -617,16 +614,15 @@ function calculateWolfhouseQuote(input, config) {
   const overlayDepositTier = usesPackageDeposit
     ? (config.deposits && config.deposits.tiers && config.deposits.tiers.standard_package)
     : (config.deposits && config.deposits.tiers && config.deposits.tiers.custom_or_short_stay);
-  const overlayDepositScope = overlayDepositTier && overlayDepositTier.scope;
-  let deposit_required_cents = per_guest_deposits.length > 0
-    ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
-    : singleTierDepositCents;
-  // Pricing-tab radio wins when set: per_booking is one amount, per_person is per guest.
-  if (overlayDepositScope === 'per_booking') {
-    deposit_required_cents = singleTierDepositCents;
-  } else if (overlayDepositScope === 'per_person' && per_guest_deposits.length === 0) {
-    deposit_required_cents = singleTierDepositCents * Math.max(1, guests);
-  }
+  void overlayDepositTier;
+  // Ty locked: Totals Deposit and deposit links are rate × guests.
+  // A per_booking overlay must not collapse 3 guests back to a flat €200.
+  const ruledDeposit = wolfhouseStayDepositCents(nights, guests);
+  let deposit_required_cents = ruledDeposit != null
+    ? ruledDeposit
+    : (per_guest_deposits.length > 0
+      ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
+      : singleTierDepositCents);
 
   // ── 12. Payment link amount ───────────────────────────────────────────────
   let payment_link_amount_cents = 0;

@@ -19901,7 +19901,9 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-invoice-totals .ctx-inv-group-title{grid-column:1/-1}
 .bc-invoice-totals .ctx-inv-total-row,.bc-invoice-totals .bc-balance-link-slot{display:contents}
 .bc-invoice-totals .ctx-inv-total-label{grid-column:1;min-width:0}
-.bc-invoice-totals .ctx-inv-total-amount{grid-column:2;text-align:right;white-space:nowrap}
+.bc-invoice-totals .ctx-inv-total-amount{grid-column:2;justify-self:end;text-align:right;white-space:nowrap}
+.bc-invoice-totals:not(:has(.bc-total-link-action)){grid-template-columns:minmax(0,1fr) max-content}
+.bc-invoice-totals:not(:has(.bc-total-link-action)) .ctx-inv-total-amount{grid-column:2;justify-self:end;text-align:right}
 .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#b33434}
 .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="paid"]{color:#2d6a42}
 [data-theme="dark"] .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#ffaaaa}
@@ -20734,7 +20736,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   border-bottom:1px solid var(--border-soft);
 }
 .bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text)}
+.bc-side-head-main{flex:1 1 auto;min-width:0}
+.bc-side-title-row{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
+.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc-side-header-pebbles{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
+.bc-side-header-pebbles .bc-detail-meta{margin:0}
 .bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
 .bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .bc-side-pin,.bc-side-close{
@@ -20967,25 +20973,33 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 [data-theme="dark"] :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#9ee0a8}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item .ctx-pay-record{margin:0 4px 10px}
-.bc-guest-pay-row{display:grid;grid-template-columns:max-content max-content minmax(0,1fr);align-items:baseline;gap:4px 12px;min-width:0}
-.bc-guest-pay-name{grid-column:1/-1;min-width:0;overflow-wrap:anywhere}
+.bc-guest-pay-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:center;gap:8px 12px;min-width:0}
+.bc-guest-pay-name{grid-column:1;min-width:0;overflow-wrap:break-word}
+.bc-guest-pay-money{grid-column:2;display:flex;justify-content:flex-end;align-items:center;gap:10px;min-width:0}
 .bc-guest-pay-column{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
 .bc-guest-pay-title{font-size:10px;color:var(--text-2);font-weight:500}
-.bc-guest-pay-price{color:#000;background:#fff;border-radius:3px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bc-guest-pay-price{color:#000;background:#fff;border-radius:3px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bc-guest-pay-paid,.bc-guest-pay-owed{flex:0 0 auto;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media (max-width:480px){
+  .bc-guest-pay-row{column-gap:6px}
+  .bc-guest-pay-name{font-size:12px;line-height:1.25}
+  .bc-guest-pay-money{gap:4px}
+  .bc-guest-pay-title{font-size:9px}
+  .bc-guest-pay-paid,.bc-guest-pay-owed,.bc-guest-pay-price{font-size:11px}
+}
 .bc-guest-pay-paid{color:#5C7350}
 .bc-guest-pay-owed{color:#9C5742}
 [data-theme="dark"] .bc-guest-pay-paid{color:#9ee0a8}
 [data-theme="dark"] .bc-guest-pay-owed{color:#ffb896}
 .bc-guest-pay-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-:is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse{
+:is(#bc-move-bed,#bc-payment-history-card,#bc-per-guest-card) .bc-card-collapse{
   display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
   padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
 }
-:is(#bc-move-bed,#bc-payment-history-card) .bc-card-collapse .bc-drawer-card-title{margin:0}
-:is(#bc-move-bed,#bc-payment-history-card) .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
-:is(#bc-move-bed,#bc-payment-history-card):not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
-#bc-move-bed.is-collapsed .bc-move-bed-body,#bc-payment-history-card.is-collapsed #bc-payment-history-body{display:none}
+:is(#bc-move-bed,#bc-payment-history-card,#bc-per-guest-card) .bc-card-collapse .bc-drawer-card-title{margin:0}
+:is(#bc-move-bed,#bc-payment-history-card,#bc-per-guest-card) .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
+:is(#bc-move-bed,#bc-payment-history-card,#bc-per-guest-card):not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
+#bc-move-bed.is-collapsed .bc-move-bed-body,#bc-payment-history-card.is-collapsed #bc-payment-history-body,#bc-per-guest-card.is-collapsed #bc-per-guest-body{display:none}
 #tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
   width:calc(100% - 419px)!important;
   max-width:calc(100% - 419px)!important;
@@ -21022,7 +21036,7 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 }
 @media (prefers-reduced-motion:reduce){
   #bc-side-drawer{transition:none}
-  :is(#bc-move-bed,#bc-payment-history-card) .bc-card-chevron{transition:none}
+  :is(#bc-move-bed,#bc-payment-history-card,#bc-per-guest-card) .bc-card-chevron{transition:none}
 }
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
@@ -24385,8 +24399,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <aside id="bc-side-drawer" data-mode="">
   <header class="bc-side-head">
     <div class="bc-side-head-row">
-      <div>
-        <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
+      <div class="bc-side-head-main">
+        <div class="bc-side-title-row">
+          <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
+          <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
+        </div>
         <p class="bc-side-meta" id="bc-side-meta"></p>
       </div>
       <div class="bc-side-head-actions">
@@ -38117,9 +38134,6 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   blk = blk || {};
   ledger = ledger || {};
   var html = '';
-  if (typeof staffChromeLocationTagHtml === 'function') {
-    html += staffChromeLocationTagHtml(getClient(), bk, blk);
-  }
   var calPay = bcCalendarBlockPaymentState({
     calendar_payment_primary: blk.calendar_payment_primary || bk.calendar_payment_primary || null,
     calendar_payment_amount_cents: blk.calendar_payment_amount_cents != null
@@ -38239,7 +38253,9 @@ function updateBcDetailHeader(data){
     var servicesText = bcBookingServicesQtyLabel((data && data.service_records) || []);
     var servicesHtml = servicesText ? '<span class="bc-guest-services">' + escHtml(servicesText) + '</span>' : '';
     if (bcSideDrawerLive() && el('bc-side-meta')) {
-      el('bc-side-meta').insertAdjacentHTML('beforeend', servicesHtml + ' <span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>');
+      var pebbleHost = el('bc-side-header-pebbles');
+      if (pebbleHost) pebbleHost.innerHTML = '<span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>';
+      el('bc-side-meta').insertAdjacentHTML('beforeend', servicesHtml);
     } else if (meta) {
       var mobileHeader = meta.closest('.bc-booking-header-lines') || meta;
       mobileHeader.outerHTML = '<span class="bc-booking-header-lines"><span class="bc-side-meta">' +
@@ -39671,12 +39687,13 @@ function bcRollupInvoiceServiceDisplay(svcRows){
   };
 }
 
-function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collectionBlocked, bookingFullyPaid){
+function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collectionBlocked, bookingFullyPaid, opts){
   bookingGuests = bookingGuests || [];
   perPerson = perPerson || [];
+  opts = opts || {};
   if (!bookingGuests.length && !perPerson.length) return '';
   var html = '<div class="ctx-inv-group" id="bc-inv-per-guest">';
-  html += '<div class="ctx-inv-group-title">Per guest</div>';
+  if (!opts.omitTitle) html += '<div class="ctx-inv-group-title">Per guest</div>';
   // Only durable booking_guests rows are eligible for checkout actions. Quote
   // per-person rows may enrich amounts/names but must never invent an identity.
   var rows = bookingGuests.map(function(row){
@@ -39711,11 +39728,11 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
       // Settlement is display-only: never allocate booking receipts to guest Paid.
       var owedShown = bookingFullyPaid === true ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
-      html += '<div class="bc-guest-pay-row"><span class="bc-guest-pay-name">' + escHtml(name) + '</span>';
+      html += '<div class="bc-guest-pay-row"><span class="bc-guest-pay-name">' + escHtml(name) + '</span><span class="bc-guest-pay-money">';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
       html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span>';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Price</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span></div>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Price</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span></span></div>';
       if (!collectionBlocked && row.booking_guest_id && (depositRemaining > 0 || shareRemaining > 0)) {
         html += '<div class="bc-guest-pay-links">';
         if (depositRemaining > 0) {
@@ -39744,6 +39761,13 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
   });
   html += '</div>';
   return html;
+}
+
+function bcRenderPerGuestCollapseCard(innerHtml){
+  if (!innerHtml) return '';
+  return '<div class="bc-per-guest-card ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-per-guest-card">' +
+    '<button type="button" class="bc-card-collapse" id="bc-per-guest-toggle" aria-expanded="false" aria-controls="bc-per-guest-body"><h3 class="bc-drawer-card-title">Per guest</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>' +
+    '<div id="bc-per-guest-body" hidden>' + innerHtml + '</div></div>';
 }
 
 function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
@@ -39937,8 +39961,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
   var bookingFullyPaid = Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
-  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid);
-  if (invoiceWorkspace) html += perGuestHtml;
+  var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid, invoiceWorkspace ? { omitTitle: true } : null);
 
   /* Totals / payment status */
   html += '<div class="ctx-inv-group ctx-inv-totals' + (getClient() === 'wolfhouse-somo' ? ' bc-invoice-totals' : '') + '" id="bc-inv-totals">';
@@ -39990,7 +40013,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     ? invoiceTotal - paidCents : (needsRefund ? 0 : null);
   var ledgerCtx = {
     balance_due_cents: balanceDue,
-    deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
+    deposit_required_cents: (function(){
+      var ruled = (typeof bcWolfhouseStayDepositCents === 'function') ? bcWolfhouseStayDepositCents(bk) : null;
+      return ruled != null ? ruled : (bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0);
+    })(),
     invoice_total_cents: invoiceTotal,
     guest_amounts_by_id: buildGuestPaymentAmountsMap(bookingGuests, perPerson),
   };
@@ -40008,6 +40034,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   if (historyOwnCard) {
     html += bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
     html += '</div>';
+    if (perGuestHtml) html += bcRenderPerGuestCollapseCard(perGuestHtml);
     html += '<div class="bc-invoice-history ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-payment-history-card">';
     html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><h3 class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>';
     html += '<div id="bc-payment-history-body" hidden><div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
@@ -40425,9 +40452,13 @@ function bcUpdateOverviewPaymentSummary(data){
   var history = el('bc-payment-history-toggle');
   var expanded = history && history.getAttribute('aria-expanded') === 'true';
   var historyCard = el('bc-payment-history-card');
+  var perGuestToggle = el('bc-per-guest-toggle');
+  var perGuestExpanded = perGuestToggle && perGuestToggle.getAttribute('aria-expanded') === 'true';
+  var perGuestCard = el('bc-per-guest-card');
   // Only the Wolfhouse overview sibling. Payments-tab history uses the same id
   // and must survive a Sunset cash refresh that also updates the overview card.
   if (historyCard && card.parentElement && historyCard.parentElement === card.parentElement) historyCard.remove();
+  if (perGuestCard && card.parentElement && perGuestCard.parentElement === card.parentElement) perGuestCard.remove();
   card.outerHTML = html;
   bcBindCreateGuestPaymentLinkButtons(data);
   if (getClient() === 'wolfhouse-somo') {
@@ -40436,6 +40467,8 @@ function bcUpdateOverviewPaymentSummary(data){
     bcInitCancelPaymentLinkShell(data);
     var newHistory = el('bc-payment-history-toggle');
     if (history && newHistory && (newHistory.getAttribute('aria-expanded') === 'true') !== expanded) newHistory.click();
+    var newPerGuest = el('bc-per-guest-toggle');
+    if (perGuestToggle && newPerGuest && (newPerGuest.getAttribute('aria-expanded') === 'true') !== perGuestExpanded) newPerGuest.click();
   }
 }
 
@@ -40582,6 +40615,16 @@ function bcInitCashPaymentShell(data){
       historyToggle.setAttribute('aria-expanded', String(expanded));
       el('bc-payment-history-body').hidden = !expanded;
       el('bc-payment-history-card').classList.toggle('is-collapsed', !expanded);
+    });
+  }
+  var perGuestToggle = el('bc-per-guest-toggle');
+  if (perGuestToggle && !perGuestToggle._invoiceBound) {
+    perGuestToggle._invoiceBound = true;
+    perGuestToggle.addEventListener('click', function(){
+      var expanded = perGuestToggle.getAttribute('aria-expanded') !== 'true';
+      perGuestToggle.setAttribute('aria-expanded', String(expanded));
+      el('bc-per-guest-body').hidden = !expanded;
+      el('bc-per-guest-card').classList.toggle('is-collapsed', !expanded);
     });
   }
   var bk = (data && data.booking) || {};
@@ -44735,9 +44778,6 @@ function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
   if (nights > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(nights) + ' nights') + '</span>';
   var gc = parseInt(guests, 10);
   if (gc > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
-  if (typeof staffChromeLocationTagHtml === 'function') {
-    extra += ' ' + staffChromeLocationTagHtml(typeof getClient === 'function' ? getClient() : '', bk, blk);
-  }
   return escHtml(dates) + extra;
 }
 
@@ -44794,6 +44834,8 @@ function bcOpenSideBooking(blk, opts){
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
   if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
+  var pebbles = el('bc-side-header-pebbles');
+  if (pebbles) pebbles.innerHTML = '';
   bcPaintSideStayMeta(null, blk, null);
   var code = blk.booking_code;
   if (code && bcLastBookingContext && bcLastBookingContext.booking &&

@@ -228,6 +228,7 @@ async function main() {
     const savedGuest=JSON.parse(JSON.stringify(state.booking_guests[1]));
     delete state.booking_guests[1].booking_guest_id;state.booking_guests[1].payment_status='deposit_paid';await refresh();
     const ada=page.locator('#bc-inv-per-guest .ctx-inv-guest-line').nth(1);
+    if(await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded')!=='true') await page.locator('#bc-per-guest-toggle').click();
     assert.equal(await ada.locator('.bc-guest-pay-name').innerText(),'Ada & Bea (test)','unlinked guest has no internal fallback prose');
     assert.match(await ada.locator('.bc-guest-pay-paid').innerText(),/^€\d+\.\d{2}$/);
     assert.match(await ada.locator('.bc-guest-pay-owed').innerText(),/^€\d+\.\d{2}$/);

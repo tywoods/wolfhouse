@@ -16,7 +16,7 @@ const B='10000000-0000-4000-8000-000000000001';
    CREATE TYPE payment_kind AS ENUM ('deposit_only','full_amount');
    CREATE TABLE clients(id text PRIMARY KEY,slug text UNIQUE);
    CREATE TABLE bookings(id uuid PRIMARY KEY,client_id text,booking_code text,guest_name text,status text,payment_status text,
-    check_in date,check_out date,total_amount_cents int,amount_paid_cents int,balance_due_cents int,deposit_required_cents int,metadata jsonb DEFAULT '{}');
+    check_in date,check_out date,guest_count int,total_amount_cents int,amount_paid_cents int,balance_due_cents int,deposit_required_cents int,metadata jsonb DEFAULT '{}');
    CREATE TABLE payments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),client_id text,booking_id uuid,booking_guest_id uuid,
     status payment_record_status,payment_kind payment_kind,currency text,amount_due_cents int,amount_paid_cents int DEFAULT 0,
     checkout_url text,stripe_checkout_session_id text,expires_at timestamptz,metadata jsonb DEFAULT '{}',created_at timestamptz DEFAULT now());
