@@ -258,8 +258,7 @@ function scheduleWireDrawerHeaderActions(){
   if (refreshBtn) refreshBtn.onclick = scheduleRefreshDrawer;
   var codeBtn = el('ps-drawer-copy-code');
   if (codeBtn) codeBtn.onclick = function(){
-    scheduleCopyTextFallback(codeBtn.getAttribute('data-copy') || '');
-    scheduleDrawerFlashCopied(codeBtn);
+    bcCopyBookingCode(codeBtn);
   };
 }
 

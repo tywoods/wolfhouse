@@ -53,7 +53,7 @@ function fnBody(src, name) {
 
 console.log('\nverify:sunset-booking-drawer-summary — drawer header + summary checks\n');
 
-const apiSrc = fs.existsSync(STAFF_API_PATH) ? fs.readFileSync(STAFF_API_PATH, 'utf8') : '';
+const apiSrc = require('./lib/staff-portal-ui-source').readStaffPortalUiSource();
 const viewModSrc = fs.existsSync(VIEW_MODULE_PATH) ? fs.readFileSync(VIEW_MODULE_PATH, 'utf8') : '';
 const ctrlModSrc = fs.existsSync(CTRL_MODULE_PATH) ? fs.readFileSync(CTRL_MODULE_PATH, 'utf8') : '';
 const drawerSrc = viewModSrc || apiSrc;
@@ -104,7 +104,7 @@ assert('hero source in metadata via scheduleRowSourceDrawerLabel', apiSrc.includ
 assert('refresh retains aria-label', heroFn.includes('id="ps-drawer-refresh"') && heroFn.includes('aria-label'));
 assert('close retains aria-label (Sunset icon)', heroFn.includes('id="ps-drawer-close"') && heroFn.includes('aria-label'));
 assert('close retains title', heroFn.includes('schedule.drawer.close'));
-assert('booking code subdued class', heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
+assert('Sunset booking code is primary heading, not subdued', heroFn.includes("escHtml(code) + '</h3>'") && !heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
 
 console.log('\n[4] Preserved drawer IDs + Wolfhouse fallback');
 
