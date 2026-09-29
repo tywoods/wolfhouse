@@ -354,6 +354,7 @@ module.exports = {
   "drawer.field.name": "Nombre",
   "drawer.field.phone": "Teléfono",
   "drawer.field.email": "Email",
+  "drawer.body.includedEquipment": "Equipo incluido",
   "drawer.field.language": "Idioma",
   "drawer.field.source": "Fuente",
   "drawer.field.checkIn": "Check-in",
