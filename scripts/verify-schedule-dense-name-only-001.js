@@ -57,10 +57,12 @@ const cssStart = apiSrc.indexOf('/* SCHEDULE-DENSE-NAME-ONLY-001');
 const cssEnd = apiSrc.indexOf('/* ===== END book-ui ===== */', cssStart);
 const css = cssStart > 0 && cssEnd > cssStart ? apiSrc.slice(cssStart, cssEnd) : '';
 ok('dense CSS block is present', css.length > 200);
-ok('dense view hides the pebble group', /#tab-bed-calendar\.bc-cols-dense \.bc-block \.bc-block-pebbles\{\s*display:none!important/.test(css));
-ok('crushed bar hides the pebble group', /#tab-bed-calendar \.bc-block\.bc-name-only \.bc-block-pebbles/.test(css) && /display:none!important/.test(css));
-ok('name stays one line with ellipsis', /#tab-bed-calendar \.bc-block\.bc-name-only \.bc-block-label[\s\S]{0,220}text-overflow:ellipsis/.test(css)
+ok('dense month does not blanket-hide pebbles', !/#tab-bed-calendar\.bc-cols-dense \.bc-block \.bc-block-pebbles\{\s*display:none!important/.test(css));
+ok('tight bar hides the pebble group', /#tab-bed-calendar \.bc-block\.bc-name-only \.bc-block-pebbles/.test(css) && /display:none!important/.test(css));
+ok('name-only fallback keeps one-line ellipsis', /#tab-bed-calendar \.bc-block\.bc-name-only \.bc-block-label[\s\S]{0,220}text-overflow:ellipsis/.test(css)
   && /white-space:nowrap/.test(css));
+ok('shown pebbles do not shorten the guest name', /:not\(\.bc-name-only\):has\(\.bc-block-pebbles:not\(:empty\)\) \.bc-block-label[\s\S]{0,240}min-width:max-content/.test(css)
+  && /text-overflow:clip/.test(css));
 ok('pebbles do not ellipsis-crush when shown', /min-width:max-content/.test(css) && /text-overflow:clip/.test(css));
 ok('payment stripe is absolute and 3px', /position:absolute/.test(css) && /width:3px/.test(css));
 ok('stripe does not add padding or width', !/padding-left/.test(css) && !/margin-left/.test(css));
@@ -101,13 +103,14 @@ if (ran) {
   const dense = sandbox.bcScheduleDenseFromMetrics;
   const keep = sandbox.bcBarKeepsPebbles;
   const kind = sandbox.bcPayStripeKind;
-  ok('more than 30 days is name-only', dense(31, 100, 44) === true);
+  ok('more than 30 days is a dense column metric', dense(31, 100, 44) === true);
   ok('exactly 30 days at 100% is not forced dense', dense(30, 100, 44) === false);
-  ok('zoomed-out at 80% is name-only', dense(14, 80, 50) === true);
-  ok('measured column under 40px is name-only', dense(14, 100, 28) === true);
+  ok('zoomed-out at 80% is a dense column metric', dense(14, 80, 50) === true);
+  ok('measured column under 40px is a dense column metric', dense(14, 100, 28) === true);
   ok('unknown column width does not force dense', dense(14, 100, 0) === false);
-  ok('wide bar keeps pebbles when 8 chars still fit', keep(220, 64, 90) === true);
+  ok('wide bar keeps pebbles when the full name still fits', keep(220, 64, 90) === true);
   ok('crushed bar drops pebbles first', keep(120, 64, 90) === false);
+  ok('long name drops pebbles even when 8 characters would have fit', keep(200, 150, 80) === false);
   ok('no pebbles means nothing to drop', keep(80, 64, 0) === true);
   ok('paid stripe', kind({
     invoice_total_cents: 10000,

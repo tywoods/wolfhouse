@@ -146,7 +146,7 @@ if (ran) {
   });
   ok('balance pebble is amount only', />€997\.00</.test(balanceHtml) && !/Balance due/.test(balanceHtml) && !/Saldo pendiente/.test(balanceHtml), balanceHtml);
   ok('balance pebble keeps orange/red class', balanceHtml.includes('bc-block-pay-balance'));
-  ok('deposit and link pebbles stay', balanceHtml.includes('Deposit paid') && balanceHtml.includes('Link sent'));
+  ok('deposit pebble stays and link pebble is gone', balanceHtml.includes('Deposit paid') && !balanceHtml.includes('Link sent'));
 
   const uluwatu = sandbox.bcCalendarGuestRowPebblesHtml({
     calendar_guest_number: 1,
