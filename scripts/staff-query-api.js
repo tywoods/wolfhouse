@@ -23455,6 +23455,45 @@ button.inbox-chat-guest-name:hover{opacity:.82}
   #tab-conversations.inbox-chat-showing-guest .detail-main{display:none!important}
 }
 /* ═══ END luna-header-ui ═════════════════════════════════════════════════ */
+/* Booking body only. Container width, not monitor width, owns contact reflow. */
+#bc-drawer-card-booking,.booking-body-details .portal-schedule-drawer-section{box-shadow:none;margin-bottom:12px}
+#bc-drawer-card-booking .ctx-field-edit-actions{padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));scroll-margin-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+#bc-drawer-card-booking :is(button,input,select),.booking-body-content button{border-color:var(--text-2)}
+#bc-drawer-card-booking :is(button,input,select,summary):focus-visible,.booking-body-content :is(button,a):focus-visible{outline:2px solid var(--text);outline-offset:2px}
+#bc-side-drawer #bc-drawer-card-booking :is(button,input,select,summary):focus-visible{outline:2px solid var(--text);outline-offset:2px}
+#bc-payment-history-toggle{border:1px solid var(--text-2)}
+#bc-payment-history-toggle:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+#bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .k{font-size:12px;color:var(--text-2);line-height:1.5}
+#bc-inv-accommodation > .ctx-inv-group-title,#bc-inv-services > .ctx-inv-group-title,#bc-inv-transfers > .ctx-inv-group-title{font-size:12px;line-height:1.5;color:var(--text-2)}
+.ctx-running-invoice .booking-body-bill-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:start}
+.ctx-running-invoice .booking-body-line-text{min-width:0;overflow-wrap:anywhere}
+.ctx-running-invoice .booking-body-line-detail{display:block;color:var(--text-2);font-size:12px;line-height:1.5;margin-top:2px}
+.ctx-running-invoice .booking-body-line-amount{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+.ctx-running-invoice .booking-body-empty{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:8px 0}
+.ctx-running-invoice .booking-body-empty :is(.ctx-inv-group-title,.ctx-inv-line){margin:0}
+#bc-drawer-card-booking{container-type:inline-size}
+@media(max-width:360px){
+  #bc-drawer-card-booking{padding-left:8px;padding-right:8px}
+}
+#bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .ctx-field-kv-grid{grid-template-columns:repeat(2,minmax(0,1fr));min-width:0}
+#bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .kv{grid-column:auto}
+#bc-drawer-card-booking #bc-field-group-contact .kv:last-child{grid-column:1 / -1}
+#bc-side-drawer #bc-drawer-card-booking #bc-field-group-contact .kv{min-width:0}
+#bc-side-drawer #bc-drawer-card-booking #bc-field-group-contact .v{white-space:normal;overflow-wrap:anywhere;word-break:normal}
+#bc-drawer-card-booking #bc-field-group-dates .v{white-space:nowrap;word-break:normal}
+.booking-body-details{min-width:0;overflow-wrap:anywhere}
+.booking-body-details .portal-schedule-drawer-kv{margin:6px 0;line-height:1.5}
+@container (max-width:260px){
+  #bc-drawer-card-booking #bc-field-group-package .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)}
+}
+@container (max-width:480px){
+  #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:768px){
+  #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)}
+  #bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) button,.bc-drawer-file-tabs > .bc-drawer-tabs button,.bc-drawer-overview-panel > .bc-drawer-overview-card > .bc-card-collapse,.booking-body-content button{min-height:44px;min-width:44px}
+  #bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .ctx-field-read-row .ctx-field-header{width:44px}
+}
 </style>
 </head>
 ${portalBodyOpen}
@@ -38638,9 +38677,12 @@ function bcRefreshBookingFinancialSummary(opts){
 function bcRefreshBlockDetail(){
   var blk = bcLastOpenedBlock;
   if (!blk || !blk.booking_code) return;
+  // Resolve the existing Save/Cancel flow before replacing an active editor.
+  if (bcFieldEditState.activeGroup && bcFieldEditState.bookingCode === blk.booking_code && bcFieldEditState.clientSlug === getBcClient()) return;
   var ctxEl = el('bc-ctx-body');
+  var focusId = ctxEl && ctxEl.contains(document.activeElement) ? document.activeElement.id : null;
   if (ctxEl) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(blk);
-  loadBlockDetail(blk.booking_code);
+  loadBlockDetail(blk.booking_code, { focusId: focusId });
 }
 
 function bcRenderDrawerLoadingHtml(){
@@ -38700,6 +38742,8 @@ function showBlockDetail(blk){
   }
   bcInitDetailCopyDelegation();
   bcClearSelection();
+  ++bcDetailRequestNumber;
+  bcBodyDisclosure = { key: null, open: {} };
   bcLastOpenedBlock = blk;
   bcLastBookingContext = null;
   bcActiveDrawerTab = 'overview';
@@ -38723,6 +38767,7 @@ function showBlockDetail(blk){
 /* Load enriched booking context from API */
 var bcActiveDrawerTab = 'overview';
 var bcPendingScrollToOverview = false;
+var bcDetailRequestNumber = 0;
 
 function bcScrollToBookingOverview(){
   bcRestoreActiveDrawerTab('overview');
@@ -38756,21 +38801,40 @@ function bcRestoreActiveDrawerTab(tabId){
 }
 
 function loadBlockDetail(bookingCode, opts){
+  if (bcFieldEditState.activeGroup && bcFieldEditState.bookingCode === bookingCode && bcFieldEditState.clientSlug === getBcClient()) return;
   opts = opts || {};
+  // Save reloads use the same live desktop host as the native opener.
+  var rail = el('bc-side-drawer');
+  if (!opts.host && rail && rail.classList.contains('is-open') && rail.dataset.mode === 'booking' &&
+      bcFieldEditState.clientSlug === getBcClient() && bcFieldEditState.bookingCode === bookingCode) opts.host = el('bc-side-body');
   var preserveTab = opts.preserveTab !== false;
   var tabToRestore = preserveTab ? (opts.activeTab || bcActiveDrawerTab || 'overview') : (opts.activeTab || 'overview');
   if (preserveTab) bcActiveDrawerTab = tabToRestore;
   var client = getBcClient();
+  var request = ++bcDetailRequestNumber;
+  var ctxEl = opts.host || el('bc-ctx-body');
+  var mount = ctxEl && ctxEl.firstChild;
+  var block = bcLastOpenedBlock;
+  var editorSession = bcFieldEditState.inlineSession;
+  function ownsDetailMount(){
+    return request === bcDetailRequestNumber && getBcClient() === client &&
+      bcLastOpenedBlock === block && block && block.booking_code === bookingCode &&
+      ctxEl && ctxEl.isConnected && ctxEl.firstChild === mount &&
+      bcFieldEditState.inlineSession === editorSession &&
+      !(bcFieldEditState.activeGroup && bcFieldEditState.bookingCode === bookingCode && bcFieldEditState.clientSlug === client) &&
+      (ctxEl !== el('bc-side-body') || (rail && rail.classList.contains('is-open') && rail.dataset.mode === 'booking'));
+  }
   var url = '/staff/bookings/' + encodeURIComponent(bookingCode) + '/context?client=' + encodeURIComponent(client);
   fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
-      var ctxEl = opts.host || el('bc-ctx-body');
-      if (!ctxEl) return;
-      if (!res.ok || !res.data.success){
+      if (!ownsDetailMount()) return;
+      if (!res.ok || !res.data || !res.data.success){
         ctxEl.innerHTML = '<div class="state-msg error">Context load failed: ' + escHtml((res.data && res.data.error) || 'error') + '</div>';
         return;
       }
+      if (!res.data.booking || res.data.booking.booking_code !== bookingCode ||
+          (block.booking_id && res.data.booking.booking_id !== block.booking_id)) return;
       bcLastBookingContext = res.data;
       ctxEl.innerHTML = renderBookingContextDrawer(res.data);
       updateBcDetailHeader(res.data);
@@ -38795,10 +38859,11 @@ function loadBlockDetail(bookingCode, opts){
       bcBindLunaNotesEdit();
       bcBindLunaNotesSave();
       bcBindLunaNotesDelete();
+      var focusTarget = opts.focusId && el(opts.focusId);
+      if (focusTarget && focusTarget.getClientRects().length) focusTarget.focus({ preventScroll: true });
     })
     .catch(function(e){
-      var ctxEl = opts.host || el('bc-ctx-body');
-      if (ctxEl) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
+      if (ownsDetailMount()) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
     });
 }
 
@@ -40088,6 +40153,21 @@ function bcAccommodationPayPebbleHtml(guestNumber, bookingGuests, perPerson, boo
   return '<span class="bc-accom-pay-pebble ' + cls + '">' + escHtml(t(labelKey)) + '</span>';
 }
 
+// Presentation only: move the already-formatted terminal amount, never derive money.
+// Unknown amounts and factual zero-price suffixes remain verbatim in the text.
+function bcBodyBillLineHtml(text){
+  text = String(text || '');
+  var match = text.match(/€-?[0-9]+[.][0-9]{2}$/);
+  if (!match) return '<span class="booking-body-line-text">' + escHtml(text) + '</span>';
+  var label = text.slice(0, match.index).replace(/[ =—]+$/, '');
+  var split = label.indexOf(' — ');
+  var name = split < 0 ? label : label.slice(0, split);
+  var detail = split < 0 ? '' : label.slice(split + 3);
+  return '<span class="booking-body-line-text">' + escHtml(name) +
+    (detail ? '<span class="booking-body-line-detail">' + escHtml(detail) + '</span>' : '') +
+    '</span><span class="booking-body-line-amount">' + escHtml(match[0]) + '</span>';
+}
+
 function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson, opts){
   opts = opts || {};
   var overview = !!opts.overview;
@@ -40154,7 +40234,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       } else {
         parts.push(t('drawer.invoice.notAvailable'));
       }
-      html += '<div class="ctx-inv-line">' + escHtml(parts.join(' \u2014 ')) + '</div>';
+      html += '<div class="ctx-inv-line booking-body-bill-line">' + bcBodyBillLineHtml(parts.join(' \u2014 ')) + '</div>';
     });
   } else {
     var accLine = null;
@@ -40173,14 +40253,14 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         (nights > 0 ? ' \u2014 ' + bcNightsLabel(nights) : '') +
         ' \u2014 ' + t('drawer.invoice.notAvailable');
     }
-    html += '<div class="ctx-inv-line">' + escHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
+    html += '<div class="ctx-inv-line booking-body-bill-line">' + bcBodyBillLineHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
   }
   html += bcRenderPrivateRoomSupplementLineHtml(suppLi, nights, eur);
   if (invoiceWorkspace) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(accCents)) + '</span></div>';
   html += '</div>';
 
   /* Services — booking_service_records only */
-  html += '<div class="ctx-inv-group" id="bc-inv-services">';
+  html += '<div class="ctx-inv-group' + (svcRows.length === 0 ? ' booking-body-empty' : '') + '" id="bc-inv-services">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.services')) + '</div>';
   if (svcRows.length === 0){
     html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noServices')) + '</div>';
@@ -40188,13 +40268,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     var rollup = bcRollupInvoiceServiceDisplay(svcRows);
     if (rollup.conflict || rollup.moneyChanged) {
       svcRows.forEach(function(sr){
-        html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
-          escHtml(bcRunningInvoiceSvcLineText(sr)) + '</div>';
+        html += '<div class="ctx-inv-line ctx-inv-addon-line booking-body-bill-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
+          bcBodyBillLineHtml(bcRunningInvoiceSvcLineText(sr)) + '</div>';
       });
     } else {
       rollup.lines.forEach(function(line){
-        html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(line.service_type || '') + '">' +
-          escHtml(line.text) + '</div>';
+        html += '<div class="ctx-inv-line ctx-inv-addon-line booking-body-bill-line" data-service-type="' + escHtml(line.service_type || '') + '">' +
+          bcBodyBillLineHtml(line.text) + '</div>';
       });
     }
   }
@@ -40202,14 +40282,14 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   /* Transfers — booking_transfers charge lines */
-  html += '<div class="ctx-inv-group" id="bc-inv-transfers">';
+  html += '<div class="ctx-inv-group' + (transferLines.length === 0 ? ' booking-body-empty' : '') + '" id="bc-inv-transfers">';
   html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.transfers')) + '</div>';
   if (transferLines.length === 0){
     html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noTransfers')) + '</div>';
   } else {
     transferLines.forEach(function(line){
-      html += '<div class="ctx-inv-line ctx-inv-transfer-line">' +
-        escHtml(line.label + ' \u2014 ' + eur(line.price_cents)) + '</div>';
+      html += '<div class="ctx-inv-line ctx-inv-transfer-line booking-body-bill-line">' +
+        bcBodyBillLineHtml(line.label + ' \u2014 ' + eur(line.price_cents)) + '</div>';
     });
   }
   if (invoiceWorkspace && transferSum > 0) html += '<div class="ctx-inv-total-row bc-invoice-section-total"><span class="ctx-inv-total-label">' + escHtml(t('admin.bookings.col.total')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(transferSum)) + '</span></div>';
@@ -40893,6 +40973,40 @@ function bcNewCashPaymentIdempotencyKey(){
 
 /* INJECT:booking-invoice */
 
+// One booking/tenant only; never persist disclosure state to storage or another booking.
+var bcBodyDisclosure = { key: null, open: {} };
+function bcInitBodyDisclosure(data){
+  var bk = (data && data.booking) || {};
+  var key = getBcClient() + ':' + (bk.booking_id || bk.booking_code || '');
+  if (bcBodyDisclosure.key !== key) bcBodyDisclosure = { key: key, open: {} };
+  var root = el('bc-drawer-file-tabs');
+  if (!root) return;
+  var cards = { 'bc-payment-history-toggle': 'bc-payment-history-card', 'bc-per-guest-toggle': 'bc-per-guest-card', 'bc-move-bed-toggle': 'bc-move-bed' };
+  Object.keys(cards).forEach(function(id){
+    var btn = el(id), card = el(cards[id]);
+    if (!btn || !card || !Object.prototype.hasOwnProperty.call(bcBodyDisclosure.open, id)) return;
+    var open = bcBodyDisclosure.open[id];
+    btn.setAttribute('aria-expanded', String(open));
+    card.classList.toggle('is-collapsed', !open);
+    var body = el(btn.getAttribute('aria-controls'));
+    if (body) body.hidden = !open;
+  });
+  var packages = el('bc-package-assignments');
+  if (packages && !packages._bodyDisclosureBound) {
+    packages.open = !!bcBodyDisclosure.open.packages;
+    packages._bodyDisclosureBound = true;
+    packages.addEventListener('toggle', function(){
+      if (packages.isConnected && bcBodyDisclosure.key === key) bcBodyDisclosure.open.packages = packages.open;
+    });
+  }
+  if (root._bodyDisclosureBound) return;
+  root._bodyDisclosureBound = true;
+  root.addEventListener('click', function(e){
+    var btn = e.target.closest('.bc-card-collapse');
+    if (btn && cards[btn.id] && bcBodyDisclosure.key === key) bcBodyDisclosure.open[btn.id] = btn.getAttribute('aria-expanded') === 'true';
+  });
+}
+
 function bcInitCashPaymentShell(data){
   bcInitInvoiceWorkspace(data);
   var historyToggle = el('bc-payment-history-toggle');
@@ -40917,6 +41031,7 @@ function bcInitCashPaymentShell(data){
   }
   var bk = (data && data.booking) || {};
   var openBtn = el('bc-record-cash-btn');
+  bcInitBodyDisclosure(data);
   var wrap = el('bc-cash-payment-form-wrap');
   var saveBtn = el('bc-cash-payment-save-btn');
   var cancelBtn = el('bc-cash-payment-cancel-btn');
@@ -42008,6 +42123,25 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
+  var assignments = bcGuestPackages(bk);
+  if (assignments.some(function(gp){ return gp.package_code !== assignments[0].package_code; })) {
+    html += '<details id="bc-package-assignments" class="booking-body-package-assignments"><summary>' + escHtml(t('drawer.field.package')) + '</summary>';
+    assignments.forEach(function(gp){
+      html += '<div>' + escHtml(bcInvoiceGuestNameByNumber(gp.guest_number, data.booking_guests || [], data.per_person || [], bk.guest_name)) +
+        ' — ' + escHtml(bcFieldEditPackageDisplayLabel(gp.package_code)) + '</div>';
+    });
+    html += '</details>';
+  }
+  var included = (data.service_records || []).filter(function(sr){
+    var price = sr.amount_due_cents;
+    return bcParseServiceRecordMeta(sr.metadata).included_equipment === true &&
+      (typeof price === 'number' || (typeof price === 'string' && price.trim() !== '')) &&
+      Number.isFinite(Number(price)) && Number(price) === 0 && bcServiceRecordBillableCents(sr) === 0;
+  });
+  if (included.length) {
+    html += '<div class="booking-body-included"><strong>' + escHtml(t('drawer.body.includedEquipment')) + '</strong>: ' +
+      included.map(function(sr){ return escHtml(bcRunningInvoiceSvcTypeLabel(sr.service_type, bcParseServiceRecordMeta(sr.metadata))); }).join(', ') + '</div>';
+  }
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk, (data && data.booking_guests) || []);
   html += bcRenderFieldEditActionsHtml('package');
@@ -43379,7 +43513,12 @@ function bcInitFieldEditShell(data){
   if (inlineSave) inlineSave.onclick = function(e){ e.preventDefault(); bcFieldEditSaveInlineAll(); };
   if (inlineCancel) inlineCancel.onclick = function(){ bcFieldEditCloseAll(); };
   document.querySelectorAll('[data-bc-field-cancel]').forEach(function(btn){
-    btn.onclick = function(){ bcFieldEditCloseAll(); };
+    btn.onclick = function(){
+      var root = btn.closest('.ctx-field-edit-group');
+      bcFieldEditCloseAll();
+      var trigger = root && root.querySelector('.btn-bc-field-edit');
+      if (trigger) trigger.focus({ preventScroll: true });
+    };
   });
   document.querySelectorAll('[data-bc-field-preview]').forEach(function(btn){
     btn.onclick = function(e){
@@ -44009,7 +44148,8 @@ function bcInitDrawerTabs(){
       document.querySelectorAll('.bc-drawer-tab-panel').forEach(function(panel){
         panel.classList.toggle('is-active', panel.getAttribute('data-tab') === tab);
       });
-      btn.blur();
+      // Keyboard activation retains focus; pointer mousedown still prevents scroll jumps.
+      if (e.detail === 0) btn.focus({ preventScroll: true });
       requestAnimationFrame(function(){
         window.scrollTo(0, winY);
         if (docEl) docEl.scrollTop = bodyY;
@@ -44910,6 +45050,7 @@ var bcLastBedCalendarData = null;
 
 function bcRefreshOpenDrawerI18n(){
   if (!bcLastBookingContext) return;
+  if (bcFieldEditState.activeGroup) return;
   var ctxEl = el('bc-ctx-body');
   if (!ctxEl || !ctxEl.querySelector('#bc-drawer-file-tabs')) return;
   var tabToRestore = bcActiveDrawerTab || 'overview';
@@ -45093,6 +45234,8 @@ function bcUndockCreatePanel(){
 }
 
 function bcCloseSideRail(){
+  ++bcDetailRequestNumber;
+  bcBodyDisclosure = { key: null, open: {} };
   var rail = el('bc-side-drawer');
   if (!rail) return;
   rail.classList.remove('is-open');
@@ -45143,6 +45286,7 @@ function bcDockCreatePanel(){
   var body = el('bc-side-body');
   var panel = el('bc-sel-panel');
   if (!rail || !body || !panel) return;
+  ++bcDetailRequestNumber;
   if (!el('bc-sel-panel-slot')){
     var slot = document.createElement('div');
     slot.id = 'bc-sel-panel-slot';
@@ -45179,6 +45323,16 @@ function bcOpenSideBooking(blk, opts){
   var rail = el('bc-side-drawer');
   var body = el('bc-side-body');
   if (!rail || !body || !blk) return;
+  // Reentry must resolve editor ownership before removing its live mount.
+  if (rail.classList.contains('is-open') && bcFieldEditState.activeGroup &&
+      bcFieldEditState.clientSlug === getBcClient() && bcFieldEditState.bookingCode === blk.booking_code &&
+      (!blk.booking_id || bcFieldEditState.bookingId === blk.booking_id) && body.querySelector('.ctx-field-edit-group.is-editing')) {
+    if (opts.pin) bcSetSidePinned(true);
+    return;
+  }
+  ++bcDetailRequestNumber;
+  bcFieldEditCloseAll();
+  bcBodyDisclosure = { key: null, open: {} };
   bcUndockCreatePanel();
   Array.prototype.slice.call(body.childNodes).forEach(function(node){
     if (node.id !== 'bc-sel-panel') body.removeChild(node);

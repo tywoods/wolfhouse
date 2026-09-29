@@ -152,7 +152,7 @@ async function main() {
       state=fixture();
       state.service_records=[0,1,2,3,4].map(i=>({service_record_id:'split-'+i,service_type:'surfboard',quantity:1,amount_due_cents:6000,status:'confirmed',service_date:`2026-09-${24+i}`,metadata:normalizeSplitRentalMetadata({rental_days:5,rental_people:4,board_variant:'soft',staff_ui_service_type:'soft_board',split_from:'source-rental',split_unit:i+1},'surfboard')}));
       await open();const splitText=await page.locator('#bc-inv-services .ctx-inv-addon-line').innerText();
-      assert.match(splitText,/5 rental days × 4 people = €300.00/);observations.push({rental:{splitRows:clone(state.service_records),text:splitText}});cases.push('rental-five-dates-four-people');
+      assert.equal(splitText,'Soft board\n5 rental days × 4 people\n€300.00');assert.deepEqual(await page.locator('#bc-inv-services .ctx-inv-addon-line .booking-body-line-detail').allTextContents(),['5 rental days × 4 people']);assert.deepEqual(await page.locator('#bc-inv-services .ctx-inv-addon-line .booking-body-line-amount').allTextContents(),['€300.00']);assert.deepEqual(state.service_records.map(r=>[r.quantity,r.amount_due_cents]),[[1,6000],[1,6000],[1,6000],[1,6000],[1,6000]],'split source money/quantity remains exact');observations.push({rental:{splitRows:clone(state.service_records),text:splitText}});cases.push('rental-five-dates-four-people');
       state.service_records[4].status='cancelled';await open();
       observations.push({diagnostic:'legacy cancelled rental row remains in context and display; money/count repair not authorized without reported source',text:await page.locator('#bc-inv-services').innerText(),totals:await page.locator('#bc-inv-totals').innerText()});
     }
