@@ -130,7 +130,7 @@ async function main() {
     await page.locator('#bc-generate-deposit-link-btn').click();
     await page.locator('#bc-deposit-link-result a').waitFor();
     assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(),0);
-    assert.equal(await page.locator('#bc-deposit-link-result a').innerText(),'Deposit Link');
+    assert.equal(await page.locator('#bc-deposit-link-result a').innerText(),'Deposit');
     assert(await page.locator('#bc-deposit-link-result').evaluate(e=>e.closest('.ctx-inv-total-row')?.querySelector('.bc-invoice-deposit-amount')));
     assert.equal(ledger.filter(e=>e.syntheticWrite).at(-1).body.payment_target,'deposit');
     assert.equal(ledger.filter(e=>e.syntheticWrite).at(-1).body.amount_cents,undefined,'UI never chooses provider cents');

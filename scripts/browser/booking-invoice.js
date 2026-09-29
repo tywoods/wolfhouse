@@ -15,7 +15,7 @@ function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
   return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('calendar.create.pay.deposit')) + '</span><span class="ctx-inv-total-amount bc-invoice-deposit-amount" data-deposit-state="' + state + '" title="' + escHtml(state === 'paid' ? bcInvoiceText('paidInFull') : (state === 'unpaid' ? bcInvoiceText('outstanding') : bcInvoiceText('notAvailable'))) + '">' + escHtml(amount) + '</span>' + (canCreate ? bcInvoiceTotalLinkActionHtml('deposit') : '') + '</div>';
 }
 function bcInvoiceTotalLinkActionHtml(target){
-  var deposit = target === 'deposit', label = bcInvoiceText(deposit ? 'depositLink' : 'paymentLink');
+  var deposit = target === 'deposit', label = bcInvoiceText(deposit ? 'guestDeposit' : 'guestFull');
   return '<span class="bc-total-link-action"><button type="button" class="btn btn-ghost bc-total-create-link" id="' + (deposit ? 'bc-generate-deposit-link-btn' : 'bc-generate-payment-link-btn') + '" data-payment-target="' + target + '">' + escHtml(label) + '</button><span id="' + (deposit ? 'bc-deposit-link-result' : 'bc-payment-link-result') + '" aria-live="polite"></span></span>';
 }
 function bcInitInvoiceTotalLinks(data){
@@ -47,7 +47,7 @@ function bcInitInvoiceTotalLinks(data){
         var link = payload.payment_short_url || payload.checkout_url || payload.guest_payment_url || payload.payment_link_url;
         var parsed = new URL(link);
         if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error(t('drawer.payments.linkFailed'));
-        result.innerHTML = bcInlinePaymentLinkMarkup(link, bcInvoiceText(target === 'deposit' ? 'depositLink' : 'paymentLink'));
+        result.innerHTML = bcInlinePaymentLinkMarkup(link, bcInvoiceText(target === 'deposit' ? 'guestDeposit' : 'guestFull'));
         btn.remove();
       } catch (error) {
         if (current()) { result.textContent = error.message || t('drawer.payments.linkFailed'); btn.disabled = false; }
