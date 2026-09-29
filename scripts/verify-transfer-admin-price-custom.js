@@ -66,7 +66,7 @@ async function createHarness() {
         ('10000000-0000-4000-8000-000000000002','sunset');
       INSERT INTO bookings VALUES ('${bookingId}','10000000-0000-4000-8000-000000000001','WH-TEST',3,NULL,'2026-10-01','2026-10-08','confirmed','unpaid'),
         ('${sunsetId}','10000000-0000-4000-8000-000000000002','SUN-TEST',3,NULL,'2026-10-01','2026-10-08','confirmed','unpaid');`);
-    for (const migration of ['017_booking_transfers.sql', '076_wolfhouse_pricing_admin.sql']) {
+    for (const migration of ['017_booking_transfers.sql', '076_wolfhouse_pricing_admin.sql', '109_wh_transfer_max_guest_count.sql']) {
       await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
     }
     return { db, pg, queries, routes, request, dispatch, fare, adminFare, saved, close, bookingId };
@@ -169,11 +169,26 @@ async function verifyAdminExactCents() {
 }
 
 async function main() {
-  await verifyAdminCurrency();
-  await verifyAdminExactCents();
+  // Each scenario owns a WASM database. Reclaim it at process exit instead of
+  // retaining multiple PGlite heaps on memory-constrained offline runners.
+  const cases = { currency: verifyAdminCurrency, cents: verifyAdminExactCents, snapshots: verifySnapshots };
+  const selected = process.argv[2];
+  if (selected) {
+    assert.ok(Object.hasOwn(cases, selected), 'known verification scenario');
+    return cases[selected]();
+  }
+  const { spawnSync } = require('node:child_process');
+  for (const name of Object.keys(cases)) {
+    const run = spawnSync(process.execPath, [__filename, name], { stdio: 'inherit', timeout: 120000 });
+    if (run.error) throw run.error;
+    assert.equal(run.status, 0, `${name} scenario failed`);
+  }
+}
+
+async function verifySnapshots() {
   const { db, pg, queries, routes, request, dispatch, fare, saved, close } = await createHarness();
   try {
-    console.log('Fixture: PGlite; committed migrations 017 + 076; minimal clients/bookings/staff_users.');
+    console.log('Fixture: PGlite; committed migrations 017 + 076 + 109; minimal clients/bookings/staff_users.');
     await fare('SDR', 1700, 'per_person');
     const result = await dispatch('POST');
     assert.equal(result.status, 200, JSON.stringify(result));

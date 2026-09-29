@@ -110,6 +110,24 @@ CREATE TABLE IF NOT EXISTS wh_pricing_transfer_rules (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_wh_pricing_transfer_rules_airport
   ON wh_pricing_transfer_rules (client_slug, airport_code) WHERE active = true;
+
+-- Runtime twin of additive migration 109 (also upgrades existing 076 tables).
+ALTER TABLE wh_pricing_transfer_rules
+  ADD COLUMN IF NOT EXISTS max_guest_count INTEGER;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'wh_pricing_transfer_rules'::regclass
+      AND conname = 'wh_pricing_transfer_rules_max_guest_count_check'
+  ) THEN
+    ALTER TABLE wh_pricing_transfer_rules
+      ADD CONSTRAINT wh_pricing_transfer_rules_max_guest_count_check
+      CHECK (max_guest_count IS NULL OR
+        (max_guest_count BETWEEN 1 AND 99 AND
+          (min_guest_count IS NULL OR max_guest_count >= min_guest_count)));
+  END IF;
+END $$;
 `;
 
 async function ensureWolfhousePricingTables(pg) {
@@ -178,7 +196,7 @@ async function loadTransferRules(pg, clientSlug) {
   const slug = assertWolfhouseScope(clientSlug);
   const r = await pg.query(
     `SELECT id, airport_code, label, aliases, requires_package, included_when_package,
-            min_guest_count, unavailable_no_package_message,
+            min_guest_count, max_guest_count, unavailable_no_package_message,
             unavailable_below_min_group_message, active, sort_order
        FROM wh_pricing_transfer_rules
       WHERE client_slug = $1 AND active = true
@@ -358,9 +376,13 @@ async function saveTransferRule(pg, clientSlug, transferRule, actorId) {
       `UPDATE wh_pricing_transfer_rules
           SET label = $3, aliases = $4, requires_package = $5, included_when_package = $6,
               min_guest_count = $7, unavailable_no_package_message = $8,
-              unavailable_below_min_group_message = $9, active = $10, updated_by = $11
+              unavailable_below_min_group_message = $9, active = $10, updated_by = $11,
+              max_guest_count = CASE WHEN $12::boolean THEN $13::integer ELSE max_guest_count END
         WHERE client_slug = $1 AND airport_code = $2 AND active = true RETURNING *`,
-      params,
+      // Omitted max is not a clear: old clients must preserve the stored value.
+      // The DB check validates effective min/max atomically, including this case.
+      [...params, Object.prototype.hasOwnProperty.call(transferRule, 'max_guest_count'),
+        transferRule.max_guest_count == null ? null : transferRule.max_guest_count],
     );
     return r.rows[0];
   }
@@ -368,9 +390,9 @@ async function saveTransferRule(pg, clientSlug, transferRule, actorId) {
     `INSERT INTO wh_pricing_transfer_rules
        (client_slug, airport_code, label, aliases, requires_package, included_when_package,
         min_guest_count, unavailable_no_package_message,
-        unavailable_below_min_group_message, active, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-    params,
+        unavailable_below_min_group_message, active, updated_by, max_guest_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+    [...params, transferRule.max_guest_count == null ? null : transferRule.max_guest_count],
   );
   return r.rows[0];
 }

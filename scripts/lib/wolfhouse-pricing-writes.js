@@ -327,6 +327,24 @@ function validateTransferRuleBody(body) {
     minGuestCount = n;
   }
 
+  const hasMaxGuestCount = Object.prototype.hasOwnProperty.call(body, 'max_guest_count');
+  let maxGuestCount = null;
+  if (hasMaxGuestCount) {
+    const raw = body.max_guest_count;
+    const blank = raw === null || (typeof raw === 'string' && raw.trim() === '');
+    if (!blank) {
+      if ((typeof raw !== 'number' && typeof raw !== 'string')
+        || !Number.isInteger(Number(raw)) || Number(raw) < 1 || Number(raw) > 99) {
+        return { ok: false, error: 'max_guest_count must be an integer between 1 and 99' };
+      }
+      maxGuestCount = Number(raw);
+    }
+  }
+
+  if (maxGuestCount != null && minGuestCount != null && maxGuestCount < minGuestCount) {
+    return { ok: false, error: 'max_guest_count must be at least min_guest_count' };
+  }
+
   const requiresPackage = body.requires_package === true;
   // The guest sees this text when the transfer is refused, so an unexplained
   // refusal is a support ticket. Require the copy when the rule can fire.
@@ -352,6 +370,7 @@ function validateTransferRuleBody(body) {
       requires_package: requiresPackage,
       included_when_package: body.included_when_package === true,
       min_guest_count: minGuestCount,
+      ...(hasMaxGuestCount ? { max_guest_count: maxGuestCount } : {}),
       unavailable_no_package_message:
         String(body.unavailable_no_package_message || '').trim() || null,
       unavailable_below_min_group_message:

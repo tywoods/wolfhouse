@@ -898,6 +898,8 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.transfers.dateTime': 'Transfer date/time',
     'drawer.transfers.exceptionOverride': 'Custom Price',
     'drawer.transfers.price': 'Price',
+    'admin.wh.pricing.maxGroup': 'Max group size',
+    'admin.wh.pricing.maxGroupBelowMin': 'Max group size must be at least the minimum group size.',
     'drawer.transfers.perGroup': 'Per group',
     'drawer.transfers.perPerson': 'Per person',
     'drawer.transfers.charge': 'Transfer Charge',
