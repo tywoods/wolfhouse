@@ -27,6 +27,9 @@ from typing import Any, Dict, Optional, Set
 logger = logging.getLogger(__name__)
 
 HUMAN_REQUESTED = "human_requested"
+# Both tenant SOULs use this context when a successful status read has not
+# resolved the guest's payment report. It is not a failed operation/charge.
+PAYMENT_REPORTED_UNRESOLVED = "business_tool_error: payment_reported_unresolved"
 
 # Dispatch-owned context is copied into the ordinary synchronous worker and its
 # tools. Never store an adapter/phone in process environment or a global map.
@@ -148,7 +151,13 @@ def persist_ordinary_handoff(payload, persist):
         turn.requested = True
         if not turn.ack_attempted:
             turn.ack_attempted = True
-            turn.ack_sent = send_notice(acknowledgement_for(_event_text(turn.event)))
+            payment_failure = bool(re.fullmatch(
+                r"business_tool_error: \w+ payment operation failed",
+                str(payload.get("reason") or ""),
+            ))
+            turn.ack_sent = send_notice(acknowledgement_for(
+                _event_text(turn.event), payment_failure=payment_failure,
+                payment_reported=payload.get("reason") == PAYMENT_REPORTED_UNRESOLVED))
         # Cancellation closes the dispatch while a worker may still be waiting
         # for the provider receipt. A receipt does not renew write authority.
         if not authorized():
@@ -165,7 +174,7 @@ def persist_ordinary_handoff(payload, persist):
             data = persist()
         except Exception:
             data = {"success": False, "needs_human": False, "error": "handoff_persist_failed"}
-        persisted = bool(data.get("success") and data.get("needs_human"))
+        persisted = data.get("success") is True and data.get("needs_human") is True
         result = dict(data, ack_sent=turn.ack_sent, ack_send_failed=not turn.ack_sent,
                       local_fail_closed=not persisted, needs_operator_reconciliation=not persisted)
         if persisted:
@@ -279,13 +288,26 @@ def is_explicit_human_request(message_text: Any) -> bool:
     return bool(_TRANSFER_RE.search(text))
 
 
-def acknowledgement_for(message_text: Any) -> str:
+def acknowledgement_for(message_text: Any, *, payment_failure: bool = False,
+                        payment_reported: bool = False) -> str:
     """One short, warm handoff ack — no question."""
     t = str(message_text or "").lower()
     if re.search(r"[áéíóúñ¿¡]|quiero|puedo|hablar|persona|equipo", t):
+        if payment_reported:
+            return "El problema de pago que comentas sigue sin resolverse. Estoy pidiendo ayuda al equipo."
+        if payment_failure:
+            return "No he podido completar el paso de pago. Estoy pidiendo ayuda al equipo."
         return "Claro — te paso con alguien del equipo y te atienden enseguida."
     if re.search(r"vorrei|posso|parlare|persona|qualcuno|staff", t):
+        if payment_reported:
+            return "Il problema di pagamento che hai segnalato non è ancora risolto. Sto chiedendo aiuto al team."
+        if payment_failure:
+            return "Non sono riuscita a completare il passaggio di pagamento. Sto chiedendo aiuto al team."
         return "Certo — ti passo al team e ti rispondono al più presto."
+    if payment_reported:
+        return "The payment issue you reported is still unresolved. I’m asking the team to help."
+    if payment_failure:
+        return "I couldn’t complete the payment step. I’m asking the team to help."
     return "Of course — I’m looping in a teammate now and they’ll take over from here."
 
 

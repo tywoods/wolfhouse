@@ -347,6 +347,7 @@
     "verify:luna-handoff-lifecycle": "node scripts/verify-luna-handoff-lifecycle.js",
     "verify:luna-needs-human-no-pause": "node scripts/verify-luna-needs-human-no-pause.js",
     "verify:luna-explicit-human-handoff": "node scripts/verify-luna-explicit-human-handoff.js",
+    "verify:luna-payment-failure-handoff": "node scripts/verify-luna-payment-failure-handoff.js",
     "verify:luna-personality-contract": "node scripts/verify-luna-personality-contract.js",
     "verify:luna-personality-staff-api": "node scripts/verify-luna-personality-staff-api.js",
     "verify:luna-personality-runtime": "node scripts/verify-luna-personality-runtime.js",

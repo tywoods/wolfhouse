@@ -442,7 +442,9 @@ create_calls = [c for c in create_fake.calls if "/booking-create-from-plan" in c
 check("G6 create passes guests array", len(create_calls) == 1 and len(create_calls[0][1].get("guests") or []) == 2)
 check("G7 per-guest create skips auto whole-booking link", created.get("secure_payment_url") in (None, ""))
 check("G8 per-guest create exposes per_person", isinstance(created.get("per_person"), list))
-check("G9 next_action asks link choice", created.get("next_action") == "ask_per_guest_or_whole_payment_link")
+check("G9 failed guest link uses bounded handoff, not another link-choice prompt",
+      created.get("payment_operation_failed") is True
+      and created.get("next_action") in {"human_handoff_confirmed", "contact_reception_directly"})
 
 
 print("\n== Sunset Phase 1: read-only price/availability tools ==")
