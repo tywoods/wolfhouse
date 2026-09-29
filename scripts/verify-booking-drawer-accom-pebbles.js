@@ -79,7 +79,7 @@ const headerFn = extractFunctionSource(apiSrc, 'bcGuestNameBedDisplayHtml');
 check('H1', headerFn.includes('bcAccommodationPayPebbleHtml(g.guest_number, guests, perPerson || [], bookingFullyPaid)'), 'header pebble is per guest');
 check('H2', headerFn.includes('bc-guest-name-line') && headerFn.includes('bc-guest-bed') && headerFn.includes('bc-guest-sep'), 'header is name, bed, separator');
 check('H3', headerFn.includes("\\u00b7"), 'header uses a middot between name, bed, and pebble');
-check('H4', apiSrc.includes("bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data))"), 'overview header passes per-person status inputs');
+check('H4', apiSrc.includes("bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk))"), 'overview header passes per-person status inputs');
 check('H5', !/deposit_amount_cents|amount_paid_cents|stripe/i.test(headerFn), 'header helper does not recompute money');
 
 check('C1', apiSrc.includes('.bc-guest-name-row{display:flex;align-items:center;flex-wrap:nowrap;white-space:nowrap;min-width:0;max-width:100%;gap:0;line-height:1.4}'), 'guest header row is one line');

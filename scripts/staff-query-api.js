@@ -20857,7 +20857,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 /* Guest rows need the whole read grid; one column collapses names behind beds/status. */
 #bc-drawer-card-booking #bc-field-guests-kv-only{grid-column:1 / -1}
 #bc-drawer-card-booking .bc-guest-name-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 8px;align-items:start;margin-bottom:6px;white-space:normal}
-#bc-drawer-card-booking .bc-guest-name-line{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
+#bc-drawer-card-booking .bc-guest-name-line{display:block;grid-column:1;grid-row:1;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
+#bc-drawer-card-booking .bc-guest-package-pebble{grid-column:1;grid-row:2;justify-self:start;align-self:start;margin:2px 0 0;max-width:100%}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
 [data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
 @media(max-width:768px){
@@ -20867,6 +20868,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-line{grid-column:1;grid-row:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-bed{grid-column:2;grid-row:1}
   #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-accom-pay-pebble{grid-column:3;grid-row:1;justify-self:end}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-package-pebble{grid-column:1;grid-row:2}
+  #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid,
+  #bc-drawer-card-booking #bc-field-group-dates .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)!important}
+  #bc-drawer-card-booking #bc-field-group-contact .kv,
+  #bc-drawer-card-booking #bc-field-group-dates .kv{grid-column:1!important}
 
   #bc-drawer-card-booking .bc-inline-input{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
   #bc-drawer-card-booking .bc-inline-guest-name{display:block;margin:0 0 8px}
@@ -38456,7 +38462,7 @@ function updateBcDetailHeader(data){
     ledger.balance_due_cents = fin.balanceDue;
     var names = el('bc-guest-names');
     if (names && (data.booking_guests || []).some(function(g){ return g.guest_name; })) {
-      names.innerHTML = bcGuestNameBedDisplayHtml(data.booking_guests, bk.guest_name, data.per_person || [], bcInvoiceBookingFullyPaid(data));
+      names.innerHTML = bcGuestNameBedDisplayHtml(data.booking_guests, bk.guest_name, data.per_person || [], bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk));
     }
   }
   var guestAmountsMap = buildGuestPaymentAmountsMap(data.booking_guests || [], data.per_person || []);
@@ -41612,15 +41618,25 @@ function bcGuestPackagesEqual(a, b){
   return true;
 }
 
-function bcRenderFieldEditPackageGuestSelectsHtml(bk){
+function bcPackageGuestMenuLabel(gn, guests){
+  var name = '';
+  (guests || []).forEach(function(g){
+    if (!g || Number(g.guest_number) !== Number(gn)) return;
+    var n = String(g.guest_name || '').trim();
+    if (n) name = n;
+  });
+  return name;
+}
+function bcRenderFieldEditPackageGuestSelectsHtml(bk, guests){
   var guestPackages = bcGuestPackages(bk);
   var pkgOpts = bcFieldEditPackageOptions(bk.package_code);
   var html = '';
   guestPackages.forEach(function(gp){
     var gn = gp.guest_number;
+    var menuLabel = bcPackageGuestMenuLabel(gn, guests) || ('Guest ' + gn);
     html += '<div class="bc-field-package-guest-row">';
-    html += '<label class="ctx-field-label" for="bc-field-package-select-' + gn + '">Guest ' + gn + '</label>';
-    html += '<select id="bc-field-package-select-' + gn + '" class="bk-input bk-input-sm bc-field-package-guest-select" data-guest-number="' + gn + '">';
+    html += '<label class="ctx-field-label" for="bc-field-package-select-' + gn + '">' + escHtml(menuLabel) + '</label>';
+    html += '<select id="bc-field-package-select-' + gn + '" class="bk-input bk-input-sm bc-field-package-guest-select" data-guest-number="' + gn + '" aria-label="' + escHtml(menuLabel) + '">';
     var curPkg = bcFieldEditNormalizePackageCode(gp.package_code);
     pkgOpts.forEach(function(code){
       var optVal = code;
@@ -41633,7 +41649,7 @@ function bcRenderFieldEditPackageGuestSelectsHtml(bk){
 }
 
 function bcFieldEditReadPackageGuestSelects(){
-  var selects = document.querySelectorAll('#bc-field-package-edit .bc-field-package-guest-select');
+  var selects = document.querySelectorAll('#bc-drawer-card-booking .bc-field-package-guest-select');
   if (!selects.length) {
     var pkgEl = el('bc-field-package-select');
     if (!pkgEl) return [];
@@ -41788,7 +41804,23 @@ function bcFieldEditFormatContactLine(obj){
   return parts.join(' \u00b7 ');
 }
 
-function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid){
+function bcGuestPackageChipHtml(guestNumber, guestPackages){
+  if (guestNumber == null || guestNumber === '' || !guestPackages || !guestPackages.length) return '';
+  var code = '';
+  for (var i = 0; i < guestPackages.length; i++) {
+    if (Number(guestPackages[i] && guestPackages[i].guest_number) === Number(guestNumber)) {
+      code = guestPackages[i].package_code || '';
+      break;
+    }
+  }
+  if (!code) return '';
+  var label = (typeof bcFieldEditPackageDisplayLabel === 'function')
+    ? bcFieldEditPackageDisplayLabel(code) : String(code);
+  var cls = (typeof bcPackagePebbleClass === 'function')
+    ? bcPackagePebbleClass(code) : 'pkg-pebble-stone';
+  return '<span class="pkg-pebble ' + cls + ' bc-guest-package-pebble">' + escHtml(label) + '</span>';
+}
+function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid, guestPackages){
   var rows = [];
   (guests || []).forEach(function(g){
     if (!g) return;
@@ -41809,6 +41841,9 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
     if (!bed) bed = String(g.assigned_room_code || '').trim();
     var html = '<span class="bc-guest-name-row">';
     html += '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
+    if (g.guest_number != null && g.guest_number !== '' && typeof bcGuestPackageChipHtml === 'function') {
+      html += bcGuestPackageChipHtml(g.guest_number, guestPackages);
+    }
     if (bed) {
       html += '<span class="bc-guest-sep" aria-hidden="true"> \u00b7 </span>';
       html += '<span class="bc-guest-bed">' + escHtml(bed) + '</span>';
@@ -41883,7 +41918,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data));
+  var namesHtml = bcGuestNameBedDisplayHtml((data && data.booking_guests) || [], bk.guest_name, (data && data.per_person) || [], getClient() === 'wolfhouse-somo' && bcInvoiceBookingFullyPaid(data), bcGuestPackages(bk));
   if (!namesHtml) {
     namesHtml = guestNames.filter(Boolean).map(function(n){
       return '<span class="bc-guest-name-row"><span class="bc-guest-name-line">' + escHtml(n) + '</span></span>';
@@ -41956,11 +41991,10 @@ function bcRenderFieldEditSectionsHtml(data, mode){
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
-  var packageKv = kvBCHtml(t('drawer.field.package'), bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
-  packageKv += bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
+  var packageKv = bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
-  html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
+  html += bcRenderFieldEditPackageGuestSelectsHtml(bk, (data && data.booking_guests) || []);
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
   }
@@ -42246,6 +42280,16 @@ function bcFieldEditPaintInline(group){
         inp.disabled = !guest.booking_guest_id;
         if (inp.disabled) inp.title = 'Guest has no saved identity; name editing is unavailable.';
         wrap.appendChild(inp);
+        var pkgSel = el('bc-field-package-select-' + guest.guest_number);
+        var pkgRow = pkgSel && pkgSel.closest('.bc-field-package-guest-row');
+        if (pkgRow) {
+          if (!pkgRow._bcHome) pkgRow._bcHome = pkgRow.parentNode;
+          var pkgLab = pkgRow.querySelector('label');
+          var pkgName = guest.guest_name || '';
+          if (pkgLab && pkgName) pkgLab.textContent = pkgName;
+          if (pkgSel && pkgName) pkgSel.setAttribute('aria-label', pkgName);
+          wrap.appendChild(pkgRow);
+        }
       });
     }
     var bar = el('bc-inline-edit-bar');
@@ -42268,6 +42312,10 @@ function bcFieldEditEnablePrivateRoomInline(){
 }
 
 function bcFieldEditRestoreInline(){
+  document.querySelectorAll('#bc-guest-names .bc-field-package-guest-row').forEach(function(row){
+    var home = row._bcHome || el('bc-field-package-edit');
+    if (home) home.appendChild(row);
+  });
   document.querySelectorAll('#bc-drawer-card-booking .bc-inline-input').forEach(function(input){
     if (input._bcHome) input._bcHome.appendChild(input);
     input.classList.remove('bc-inline-input');
@@ -42286,6 +42334,27 @@ function bcFieldEditRestoreInline(){
   if (swWrap) swWrap.classList.add('is-readonly');
 }
 
+function bcFieldEditPostGuestPackages(guestPackages){
+  var code = bcFieldEditState.bookingCode;
+  if (!code) return Promise.reject(new Error('booking_code missing'));
+  return fetch('/staff/bookings/' + encodeURIComponent(code) + '/guest-packages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_slug: bcFieldEditState.clientSlug || getBcClient(),
+      guest_packages: guestPackages,
+      idempotency_key: bcNewPackageEditIdempotencyKey(),
+      reason: 'Staff portal per-guest package edit',
+    }),
+  }).then(function(r){
+    return r.json().then(function(d){
+      if (!r.ok || !d || !d.success) {
+        throw new Error((d && (d.error || d.message)) || ('Save failed (HTTP ' + r.status + ')'));
+      }
+      return d;
+    });
+  });
+}
 function bcFieldEditPostEdit(body){
   return fetch('/staff/bookings/edit', {
     method: 'POST',
@@ -42376,11 +42445,16 @@ function bcFieldEditSaveInlineAll(){
         reason: 'Staff portal private room toggle',
     });
   }
+  var packagePackages = bcFieldEditReadPackageGuestSelects();
+  var packageDirty = packagePackages.length && bcFieldEditPackageChanged(packagePackages);
   var saveBtn = el('bc-inline-save');
   if (saveBtn) saveBtn.disabled = true;
   var jobs = bodies.reduce(function(chain, body){
     return chain.then(function(){ return bcFieldEditPostEdit(body); });
   }, Promise.resolve());
+  if (packageDirty) {
+    jobs = jobs.then(function(){ return bcFieldEditPostGuestPackages(packagePackages); });
+  }
   jobs.then(function(){
     if (!ownsEditor()) return;
     bcFieldEditCloseAll();
