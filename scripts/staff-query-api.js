@@ -17175,6 +17175,9 @@ html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:
 #wh-admin-pricing-body .portal-admin-section-hdr{margin-bottom:8px}
 #wh-admin-pricing-body .portal-admin-subsection{margin-top:14px}
 #wh-admin-pricing-body .portal-admin-subsection:first-child{margin-top:0}
+#wh-admin-pricing-body .portal-admin-rentals-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:stretch;margin-top:10px;min-width:0}
+#wh-admin-pricing-body .portal-admin-rentals-grid > .portal-admin-subsection{margin-top:0;min-width:0;height:100%;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px}
+#wh-admin-pricing-body .portal-admin-rentals-grid > .portal-admin-subsection:has(.is-editing){grid-column:1 / -1;height:auto}
 #wh-admin-pricing-body .portal-admin-card-grid{gap:10px;margin-top:6px}
 #wh-admin-pricing-body .portal-admin-price-card{padding:10px 12px}
 #wh-admin-pricing-body .portal-admin-edit-form{padding:12px;gap:12px;margin-top:8px}
@@ -17277,8 +17280,10 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-beach-edit-form .portal-admin-edit-field label{display:block;font-size:10px;font-weight:700;color:var(--text-2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em}
 .portal-admin-beach-edit-form input{width:100%;min-width:0;min-height:35px;height:35px;padding:4px 8px;font-size:13px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text)}
 .portal-admin-beach-edit-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
-.portal-admin-equip-list{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
+.portal-admin-equip-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-items:stretch;min-width:0;max-width:100%}
 .portal-admin-equip-row{min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-equip-row.is-editing{grid-column:1 / -1}
+.portal-admin-equip-list > .portal-admin-equip-row > .portal-admin-equip-compact{width:100%;height:100%}
 .portal-admin-equip-compact{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;box-sizing:border-box}
 .portal-admin-equip-identity{flex:0 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px}
 /* Name row: status dot left of name (dot not in meta line) */

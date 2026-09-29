@@ -544,9 +544,10 @@
         + whEsc(whT('admin.wh.pricing.noRentals', 'No rental items yet.')) + '</p>';
     }
 
+    var rentalCards = '';
     for (var i = 0; i < rentals.length; i++) {
       var r = rentals[i];
-      html += '<div class="portal-admin-subsection">'
+      rentalCards += '<div class="portal-admin-subsection">'
         + '<div class="portal-admin-subsection-title-row">'
         + '<div class="portal-admin-subsection-title">' + whEsc(r.label || humanize(r.code))
         + '</div>'
@@ -557,14 +558,14 @@
         + '</div><div class="portal-admin-card-grid">';
 
       if (!(r.durations || []).length) {
-        html += '<p class="portal-admin-muted">'
+        rentalCards += '<p class="portal-admin-muted">'
           + whEsc(whT('admin.wh.pricing.noPriceYet', 'No price set yet.')) + '</p>';
       }
       for (var j = 0; j < (r.durations || []).length; j++) {
         var d = r.durations[j];
         var key = 'price:rental:' + d.item_code;
         if (isEditing(key)) {
-          html += '<div class="portal-admin-price-card is-editing">'
+          rentalCards += '<div class="portal-admin-price-card is-editing">'
             + '<div class="portal-admin-price-title">' + whEsc(humanize(d.duration)) + '</div>'
             + amountField('wh-price-amount', d.amount_cents)
             + editActions('save-rental-price',
@@ -573,7 +574,7 @@
             + '</div>';
           continue;
         }
-        html += '<div class="portal-admin-price-card">'
+        rentalCards += '<div class="portal-admin-price-card">'
           + '<div class="portal-admin-price-card-main">'
           + '<div><div class="portal-admin-price-title">' + whEsc(humanize(d.duration)) + '</div>'
           + '<div class="portal-admin-price-meta">' + whEsc(unitLabel(d.unit)) + ' · '
@@ -587,10 +588,12 @@
             : '')
           + '</div>';
       }
-      html += '</div></div>';
+      rentalCards += '</div></div>';
     }
-
-    html += renderFullDaySubsection();
+    var fullDayHtml = renderFullDaySubsection();
+    if (rentalCards || fullDayHtml) {
+      html += '<div class="portal-admin-rentals-grid">' + rentalCards + fullDayHtml + '</div>';
+    }
 
     var headerExtra = canWrite() && !isEditing('item:rental:__new__')
       ? actionBtn('new-item', '+ ' + whT('admin.wh.pricing.addRental', 'Add rental'),
