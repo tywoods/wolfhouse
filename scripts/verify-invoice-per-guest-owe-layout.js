@@ -102,14 +102,19 @@ async function main() {
             return {row:e.getBoundingClientRect().toJSON(),name:box('.bc-guest-pay-name'),paid:box('.bc-guest-pay-paid'),owed:box('.bc-guest-pay-owed'),price:box('.bc-guest-pay-price'),color:style.color,background:style.backgroundColor,priceWeight:style.fontWeight,readable:['.bc-guest-pay-name','.bc-guest-pay-paid','.bc-guest-pay-owed','.bc-guest-pay-price'].every(fits)};
           });
           observations.push({kind,width,theme,i,geometry});
-          assert.equal(geometry.color,'rgb(0, 0, 0)','price is black');
-          if(theme==='dark')assert.equal(geometry.background,'rgb(255, 255, 255)','black price has readable light backing');
+          if(theme==='dark'){
+            assert.equal(geometry.color,'rgb(255, 255, 255)','dark price is white');
+            assert.notEqual(geometry.background,'rgb(255, 255, 255)','dark price has no white backing');
+            assert(Number(geometry.priceWeight)>=700,'dark price is bold like Paid/Owe');
+          } else {
+            assert.equal(geometry.color,'rgb(0, 0, 0)','price is black');
+            assert(Number(geometry.priceWeight)<700,'light price is not bold');
+          }
           assert(geometry.paid.right<=geometry.owed.left&&geometry.owed.right<geometry.price.left,'Paid/Owe left of price');
           assert(geometry.paid.top>=geometry.name.bottom-1,'Paid/Owe/Price sit on the next line');
           assert(geometry.name.bottom<=geometry.paid.top+1,'name does not overlap money');
           assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
           assert(geometry.price.right>=geometry.row.right-1,'price sits on the right edge');
-          assert(Number(geometry.priceWeight)<700,'price is not bold');
           assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
         }
