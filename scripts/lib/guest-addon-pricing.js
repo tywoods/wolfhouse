@@ -172,15 +172,8 @@ function normalizeLunaBookingAddOnsInput(addOns) {
   const out = [];
   for (const raw of (addOns || [])) {
     if (!raw || typeof raw !== 'object') continue;
-    let code = String(raw.code || raw.addon_code || raw.service_type || '').trim().toLowerCase();
+    const { code } = resolveRawQuoteAddOnCode(raw);
     if (!code) continue;
-    code = LUNA_ADDON_CODE_ALIASES[code] || code;
-
-    if (raw.board_type != null || raw.boardType != null) {
-      const bt = String(raw.board_type || raw.boardType).trim().toLowerCase();
-      if (bt === 'hard') code = 'hard_board_rental';
-      else if (bt === 'soft') code = 'soft_top_rental';
-    }
 
     if (code === 'wetsuit_rental' || code === 'soft_top_rental' || code === 'hard_board_rental'
       || code === 'wetsuit_soft_top_combo' || code === 'wetsuit_hard_board_combo') {
@@ -250,7 +243,10 @@ function resolveRawQuoteAddOnCode(raw) {
   if (!input) return { input: '', code: null };
   let code = input.toLowerCase();
   code = LUNA_ADDON_CODE_ALIASES[code] || code;
-  if (raw.board_type != null || raw.boardType != null) {
+  // A board variant refines a board rental, never another activity or combo.
+  // Shared by validation and normalization so an incidental hint cannot replace yoga.
+  if ((code === 'soft_top_rental' || code === 'hard_board_rental')
+    && (raw.board_type != null || raw.boardType != null)) {
     const bt = String(raw.board_type || raw.boardType).trim().toLowerCase();
     if (bt === 'hard') code = 'hard_board_rental';
     else if (bt === 'soft') code = 'soft_top_rental';

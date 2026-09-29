@@ -32,7 +32,7 @@ check('P2', /Never.*per-service checkout URL/i.test(soul),
   'SOUL: never send per-service checkout URL');
 check('P3', /one.*balance link|one.*link from.*create_balance_payment_link/i.test(soul),
   'SOUL: one balance link for guest');
-check('P4', /add_ons.*short-stay|During a short-stay booking/i.test(soul),
+check('P4', /add_ons.*short-stay|During a short-stay booking|During initial booking — both short stays and weekly packages/i.test(soul),
   'SOUL: during-booking bundling section preserved');
 check('P5', /use_balance_payment_link/.test(plugin),
   'plugin: add_service sets use_balance_payment_link');

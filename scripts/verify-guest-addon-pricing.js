@@ -273,6 +273,57 @@ section('L. Post-booking service_type aliases');
   check('L5', !bad.ok, 'unknown service_type rejected');
 }
 
+section('L1. Yoga/activity identity survives unrelated board hints on quote path');
+{
+  for (const hint of [{ board_type: 'soft' }, { boardType: 'hard' }]) {
+    for (const [input, expected] of [
+      ['yoga_class', 'yoga_class'], ['yoga', 'yoga_class'],
+      ['meal', 'meals'], ['surf_lesson', 'surf_lesson_single'],
+    ]) {
+      const raw = [{ code: input, quantity: 2, ...hint }];
+      const before = JSON.stringify(raw);
+      const prep = validateAndNormalizeQuoteAddOns(raw, 1);
+      check(`L1-${input}-${Object.keys(hint)[0]}`, prep.ok
+        && JSON.stringify(prep.add_ons) === JSON.stringify([{ code: expected, quantity: 2 }]),
+      `${input} remains ${expected}, quantity 2; got ${JSON.stringify(prep)}`);
+      check('L1-immutable', JSON.stringify(raw) === before, 'input is not mutated');
+    }
+    const unknown = validateAndNormalizeQuoteAddOns([{ code: 'not_a_service', ...hint }], 1);
+    check('L1-unknown', unknown.ok === false, 'board hint cannot turn unknown service into billable rental');
+    for (const code of ['wetsuit_soft_top_combo', 'wetsuit_hard_board_combo']) {
+      const prep = validateAndNormalizeQuoteAddOns([{ code, days: 2, quantity: 1, ...hint }], 1);
+      check('L1-combo', prep.ok && prep.add_ons[0].code === code, 'explicit combo remains intact');
+    }
+  }
+  for (const packageCode of ['package_none', 'malibu', 'waimea']) {
+    const addOnPrep = validateAndNormalizeQuoteAddOns([
+      { code: 'yoga_class', quantity: 2, board_type: 'soft' },
+      { code: 'surfboard', board_type: 'hard', days: 2, quantity: 1 },
+      { code: 'wetsuit', days: 2, quantity: 1 },
+    ], 1);
+    const fields = {
+      client_slug: 'wolfhouse-somo', check_in: '2026-08-15', check_out: '2026-08-22',
+      guest_count: 1, package_code: packageCode, room_type: 'shared', payment_choice: 'full',
+    };
+    const quote = calculateWolfhouseQuote({ ...fields, add_ons: addOnPrep.add_ons });
+    const items = buildBotQuoteIncludedItems(quote);
+    const yoga = items && items.filter((item) => item.code === 'yoga_class');
+    check(`L1-quote-${packageCode}`, quote.success && yoga && yoga.length === 1
+      && yoga[0].quantity === 2 && yoga[0].total_cents === 3000,
+    'yoga remains one priced quote line alongside gear');
+    check('L1-rental', items && items.some((item) => item.code === 'hard_board_rental'),
+      'real board hint still selects hard board');
+    check('L1-wetsuit', items && items.some((item) => item.code === 'wetsuit_rental' && item.free),
+      'board/wetsuit promo still works');
+    const removed = calculateWolfhouseQuote({ ...fields, add_ons: addOnPrep.add_ons.filter((item) => item.code !== 'yoga_class') });
+    check('L1-removal', !buildBotQuoteIncludedItems(removed).some((item) => item.code === 'yoga_class')
+      && quote.total_cents - removed.total_cents === 3000, 'explicit removal removes yoga and its charge');
+    const absent = calculateWolfhouseQuote(fields);
+    check('L1-absent', !buildBotQuoteIncludedItems(absent).some((item) => item.code === 'yoga_class'),
+      'no yoga is invented when none was requested');
+  }
+}
+
 section('M. Package quote included_items breakdown');
 {
   const prep = validateAndNormalizeQuoteAddOns([
@@ -332,6 +383,12 @@ section('N. Lesson schedule + SOUL guest-safe copy');
   const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
   check('N5', /Never expose backend mechanics/i.test(soul), 'SOUL forbids system/tool leaks');
   check('N6', /`yoga`/.test(soul) && /`surfboard`/.test(soul), 'SOUL documents post-booking service types');
+  check('L1-guidance', /both short stays and weekly packages/i.test(soul)
+    && /every re-quote/i.test(soul) && /do not add them again/i.test(soul),
+  'SOUL retains selected activities through re-quote/create without double charging');
+  const plugin = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'plugins', 'wolfhouse_staff_api', '__init__.py'), 'utf8');
+  check('L1-schema', /Guest-selected add-ons for short stays AND weekly packages/.test(plugin)
+    && /Preserve the accepted add_ons/.test(plugin), 'tool schema carries accepted activities beyond short stays');
 }
 
 section('O. Closed season — guest-safe decline (no staff handoff)');
