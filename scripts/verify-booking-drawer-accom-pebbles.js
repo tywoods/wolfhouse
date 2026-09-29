@@ -54,8 +54,8 @@ const accFn = extractFunctionSource(apiSrc, 'bcRenderRunningInvoiceHtml');
 check('A1', !guestFn.includes("deposit ' + escHtml(eur"), 'guest strip must not print deposit euros');
 check('A2', !guestFn.includes("paid ' + escHtml(eur"), 'guest strip must not print paid euros');
 check('A3', !/deposit\s*€|paid\s*€/.test(guestFn), 'no deposit/paid euro words in the guest renderer');
-check('A4', guestFn.includes("t('drawer.invoice.depositLink')"), 'Deposit Link control remains');
-check('A5', guestFn.includes("t('drawer.invoice.paymentLink')"), 'Payment Link control remains');
+check('A4', guestFn.includes("t('drawer.invoice.guestDeposit')"), 'Deposit control remains');
+check('A5', guestFn.includes("t('drawer.invoice.guestFull')"), 'Full control remains');
 check('A6', guestFn.includes('bc-create-guest-payment-link-btn'), 'create control remains');
 check('A7', guestFn.includes('bc-guest-pay-link-result'), 'copy/result slot remains');
 check('A8', guestFn.includes("data-payment-target=\"deposit\""), 'deposit target preserved');
@@ -105,6 +105,8 @@ check('I10', i18n.includes("'drawer.invoice.paymentLink': 'Payment Link'"), 'EN 
 const strings = {
   'drawer.invoice.depositLink': 'Deposit Link',
   'drawer.invoice.paymentLink': 'Payment Link',
+  'drawer.invoice.guestDeposit': 'Deposit',
+  'drawer.invoice.guestFull': 'Full',
   'drawer.invoice.createLink': 'Payment Link',
   'drawer.invoice.copyLink': 'Copy',
   'drawer.invoice.accomStatus.unpaid': 'Unpaid',
@@ -154,8 +156,8 @@ const guests = [
 ];
 const strip = sandbox.bcRenderPerGuestPaymentsHtml(guests, [], 'Ada');
 check('S1', strip.includes('Ada') && strip.includes('Bea') && strip.includes('Cy'), 'names stay');
-check('S2', strip.includes('>Deposit Link<') && strip.includes('>Payment Link<'), 'both link labels stay');
-check('S3', !/deposit €|paid €|€\d/.test(strip), `no euro amounts on the strip (${strip.slice(0, 240)})`);
+check('S2', strip.includes('>Deposit<') && strip.includes('>Full<') && !strip.includes('>Deposit Link<') && !strip.includes('>Payment Link<'), 'row labels are Deposit and Full');
+check('S3', /€\d/.test(strip) && strip.includes('bc-guest-pay-paid') && strip.includes('bc-guest-pay-owed') && strip.includes('bc-guest-pay-price'), 'Paid/Owe/Price euros stay; this slice does not strip money');
 check('S4', (strip.match(/bc-create-guest-payment-link-btn/g) || []).length === 3, 'unpaid gets both links; deposit-paid gets the balance link');
 check('S5', !strip.includes('data-payment-target="deposit" data-booking-guest-id="g3"') && strip.includes('data-booking-guest-id="g1"'), 'fully paid guest does not get a new deposit link');
 

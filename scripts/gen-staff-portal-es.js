@@ -345,6 +345,8 @@ const ES_OVERRIDES = {
   'drawer.invoice.createLink': 'Enlace de pago',
   'drawer.invoice.depositLink': 'Enlace de depósito',
   'drawer.invoice.paymentLink': 'Enlace de pago',
+  'drawer.invoice.guestDeposit': 'Deposit',
+  'drawer.invoice.guestFull': 'Full',
   'drawer.invoice.accomStatus.unpaid': 'Sin pagar',
   'drawer.invoice.accomStatus.depositPaid': 'Depósito pagado',
   'drawer.invoice.accomStatus.paid': 'Pagado',

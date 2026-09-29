@@ -105,11 +105,10 @@ async function main() {
           assert.equal(geometry.color,'rgb(0, 0, 0)','price is black');
           if(theme==='dark')assert.equal(geometry.background,'rgb(255, 255, 255)','black price has readable light backing');
           assert(geometry.paid.right<=geometry.owed.left&&geometry.owed.right<geometry.price.left,'Paid/Owe left of price');
-          assert(geometry.name.right<=geometry.paid.left+1,'name does not overlap money');
-          assert(geometry.name.top<geometry.paid.bottom&&geometry.paid.top<geometry.name.bottom,'name and money share one row');
+          assert(geometry.paid.top>=geometry.name.bottom-1,'Paid/Owe/Price sit on the next line');
+          assert(geometry.name.bottom<=geometry.paid.top+1,'name does not overlap money');
           assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
           assert(geometry.price.right>=geometry.row.right-1,'price sits on the right edge');
-          assert(geometry.paid.left>=geometry.name.right-1,'money shifted right for long names');
           assert(Number(geometry.priceWeight)<700,'price is not bold');
           assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
