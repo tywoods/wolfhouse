@@ -20544,6 +20544,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   display:none!important;
 }
 #tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:14px;font-weight:700;padding:4px 6px;white-space:normal;line-height:1.15;min-height:0;border-bottom:1px solid var(--border-soft)}
+#tab-bed-calendar .bc-bed-cell.bc-bed-col{white-space:nowrap;width:1%;min-width:44px;max-width:72px;text-align:center}
+#tab-bed-calendar .bc-grid thead th.bc-bed-head{min-width:44px;width:1%}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
 #tab-bed-calendar .bc-room-hdr{padding:6px 10px}
 #tab-bed-calendar .bc-room-hdr-row td{padding-top:4px}
@@ -26151,6 +26153,12 @@ function bcSortBedsForDisplay(beds){
     if (ao !== bo) return ao - bo;
     return bcNaturalCodeSort(a.bed_code, b.bed_code);
   });
+}
+function bcScheduleBedColumnLabel(bed){
+  var code = String(bed && bed.bed_code || '').trim();
+  var hit = code.match(/B0*(\d+)\s*$/i);
+  if (hit) return 'B' + String(Number(hit[1]));
+  return code;
 }
 
 /* INJECT:inbox-columns */
@@ -37824,15 +37832,8 @@ function renderBedCalendar(data){
       });
 
       html += '<tr class="bc-room-bed-row' + (roomCollapsed ? ' bc-room-collapsed' : '') + '" data-room="' + escHtml(roomCode) + '">';
-      /* Prefer bed_code as the primary label; show bed_label as subtitle only if different */
-      /* Show a clean "Bed N" label (prefer bed_label, else derive from the B-number
-         in bed_code); drop the raw R#-B# code from the calendar. */
-      var bedBnum = String(bed.bed_code || '').match(/B0*(\\d+)\\s*$/i);
-      var bedPrimary = (bed.bed_label && String(bed.bed_label).trim())
-        ? bed.bed_label
-        : (bedBnum ? 'Bed ' + bedBnum[1] : bed.bed_code);
-      var bedLabelHtml = escHtml(bedPrimary);
-      html += '<td class="bc-bed-cell">' + bedLabelHtml + '</td>';
+      var bedLabelHtml = escHtml(bcScheduleBedColumnLabel(bed));
+      html += '<td class="bc-bed-cell bc-bed-col">' + bedLabelHtml + '</td>';
 
       /* Selectable empty cells carry data-date/room/bed for Stage 8.3c selection model */
       var _rc = room.room_code;
