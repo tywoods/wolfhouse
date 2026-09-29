@@ -65,19 +65,19 @@ async function main() {
 
   const inboxSql = getConversationInboxQuery({ ownerLabScoped: true });
   assert.match(inboxSql, /open_phone_testing.*guest_tester_class/s, 'Owner Lab predicate remains OR contract');
-  assert.match(inboxSql, /simulator_source_phone/, 'list selects trusted simulator display phone');
-  assert.match(inboxSql, /source_owner.*crowsnest-guest-door/s, 'display phone is source-owner scoped');
+  assert.doesNotMatch(inboxSql, /simulator_source_phone/, 'list must not project source phone over durable identity');
   const detailSql = getConversationDetailQuery();
-  assert.match(detailSql, /simulator_source_phone/, 'header selects trusted simulator display phone');
-  assert.match(detailSql, /simulator_synthetic.*true/s, 'header display phone is simulator scoped');
+  assert.doesNotMatch(detailSql, /simulator_source_phone/, 'header must not project source phone over durable identity');
+  assert.match(detailSql, /conv\.phone\s+AS phone/, 'header phone is the durable conversation key');
 
   const projected = projectInboxPersonRow(
     { source: 'conversations', id: 'owner_lab' },
     { conversation_id: 'conv-sim', phone: durable, display_phone: source,
       open_phone_testing: true, guest_tester_class: 'Simulator', last_activity: new Date(0) },
   );
-  assert.equal(projected.phone, source, 'list displays staff-typed simulator phone');
+  assert.equal(projected.phone, durable, 'list displays durable lab phone, not the typed source number');
   assert.equal(projected.durable_phone, durable, 'DTO retains non-routable durable key');
+  assert.notEqual(projected.phone, source, 'opaque source phone is not the staff-visible number');
   assert.equal(projected.guest_tester_class, 'Simulator', 'Owner Lab chip input survives');
 
   const ordinary = projectInboxPersonRow(

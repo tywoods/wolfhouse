@@ -108,6 +108,7 @@ function extractFunctionSource(src, name) {
 const phoneHelpers = [
   'scheduleNormalizePhoneDigits',
   'scheduleNormalizeGuestPhone',
+  'scheduleIsDurableLabPhone',
   'schedulePhoneFromSource',
   'scheduleResolveGuestPhone',
   'scheduleGroupHasPhone',

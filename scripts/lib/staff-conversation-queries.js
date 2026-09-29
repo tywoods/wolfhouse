@@ -185,16 +185,13 @@ function sqlConversationOwnerLabPredicate(convAlias) {
   return `(COALESCE(${conv}.metadata->>'open_phone_testing' = 'true', FALSE) OR NULLIF(btrim(${conv}.metadata->>'guest_tester_class'), '') IS NOT NULL)`;
 }
 
-/** Staff-visible source phone only for provenance minted by the Crows Nest door. */
-function sqlConversationDisplayPhoneExpr(convAlias) {
-  const conv = convAlias || 'conv';
-  return `CASE
-    WHEN ${conv}.metadata->>'simulator_synthetic' = 'true'
-     AND ${conv}.metadata->>'source_owner' = 'crowsnest-guest-door'
-     AND ${conv}.metadata->>'simulator_source_phone' ~ '^\\+[0-9]{10,15}$'
-    THEN ${conv}.metadata->>'simulator_source_phone'
-    ELSE NULL
-  END`;
+/**
+ * Retired visible-phone mask. simulator_source_phone stays in metadata for
+ * provenance only. Staff chrome must show the durable conversation phone
+ * (+999 for lab guests), never a real-looking +34 rewrite.
+ */
+function sqlConversationDisplayPhoneExpr(_convAlias) {
+  return 'NULL';
 }
 
 function inboxOwnerLabWhereClause(scoped) {
@@ -269,7 +266,6 @@ LIMIT 200`;
 SELECT
   conv.id::text              AS conversation_id,
   conv.phone,
-  ${sqlConversationDisplayPhoneExpr('conv')} AS display_phone,
   COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.language,
   conv.bot_mode::text,
@@ -406,7 +402,7 @@ function getConversationDetailQuery(opts = {}) {
 SELECT
   conv.id::text              AS conversation_id,
   conv.phone                  AS durable_phone,
-  COALESCE(${sqlConversationDisplayPhoneExpr('conv')}, conv.phone) AS phone,
+  conv.phone                  AS phone,
   COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.email,
   conv.language,

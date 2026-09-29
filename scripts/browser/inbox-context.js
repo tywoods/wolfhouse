@@ -1027,9 +1027,12 @@ function inboxCustomerMerge(base, extra) {
 function inboxCustomerContact(data) {
   var id = (data && data.identity) || {};
   var cacheRow = inboxClientInfoCacheRow(data && data.phone);
+  var phone = (typeof staffChromeDurablePhone === 'function')
+    ? (staffChromeDurablePhone(data, id, cacheRow) || (data && data.phone) || '')
+    : ((data && (data.durable_phone || data.phone)) || '');
   return {
-    display_name: id.display_name || (cacheRow && cacheRow.display_name) || (data && data.phone) || 'Guest',
-    phone: (data && data.phone) || '',
+    display_name: id.display_name || (cacheRow && cacheRow.display_name) || phone || (data && data.phone) || 'Guest',
+    phone: phone,
     email: id.email || (cacheRow && cacheRow.email) || '',
     language: id.language || (cacheRow && cacheRow.language) || '',
   };
@@ -2096,6 +2099,13 @@ function inboxClientInfoMount(sidebar, conv, composite) {
 
 function inboxCustomerResolvePhone(conv, customer) {
   conv = conv || {};
+  var durableFirst = (typeof inboxChromePhone === 'function')
+    ? inboxChromePhone(conv, customer)
+    : (conv.durable_phone || '');
+  if (durableFirst && typeof staffChromeIsDurableLabPhone === 'function' && staffChromeIsDurableLabPhone(durableFirst)) {
+    return durableFirst;
+  }
+  if (durableFirst && String(durableFirst).indexOf('+999') === 0) return durableFirst;
   var linked = String(conv.customer_phone || '').trim();
   if (linked && typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(linked)) {
     linked = '';
@@ -2109,9 +2119,11 @@ function inboxCustomerResolvePhone(conv, customer) {
   } else if (linked) {
     return linked;
   }
-  var phone = (typeof inboxBoundCustomerPhone === 'function')
-    ? inboxBoundCustomerPhone(conv, customer)
-    : (conv.phone || conv.guest_phone || '');
+  var phone = (typeof inboxChromePhone === 'function')
+    ? inboxChromePhone(conv, customer)
+    : ((typeof inboxBoundCustomerPhone === 'function')
+      ? inboxBoundCustomerPhone(conv, customer)
+      : (conv.durable_phone || conv.phone || conv.guest_phone || ''));
   if (phone && typeof normalizeCustomerPhoneClient === 'function' &&
       (typeof inboxIsOpaqueEmailIdentity !== 'function' || !inboxIsOpaqueEmailIdentity(phone)) &&
       (typeof inboxIsEmailcustIdentity !== 'function' || !inboxIsEmailcustIdentity(phone))) {

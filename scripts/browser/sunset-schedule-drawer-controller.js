@@ -350,9 +350,17 @@ function scheduleHydrateDrawerCtxPhone(ctx, row){
   try {
     if (typeof scheduleFindGroupForRow === 'function') group = scheduleFindGroupForRow(row);
   } catch (_g) { group = null; }
-  var resolved = scheduleResolveGuestPhone(ctx, group, row);
-  if (resolved) ctx.phone = resolved;
-  else if (ctx.phone && String(ctx.phone).indexOf('staff:') === 0) ctx.phone = null;
+  var previous = ctx.phone;
+  var resolved = scheduleResolveGuestPhone(ctx, group, row, previous);
+  var previousDurable = typeof scheduleIsDurableLabPhone === 'function' && scheduleIsDurableLabPhone(previous);
+  var resolvedDurable = typeof scheduleIsDurableLabPhone === 'function' && scheduleIsDurableLabPhone(resolved);
+  if (previousDurable && resolved && !resolvedDurable) {
+    ctx.phone = previous;
+  } else if (resolved) {
+    ctx.phone = resolved;
+  } else if (ctx.phone && String(ctx.phone).indexOf('staff:') === 0) {
+    ctx.phone = null;
+  }
   return ctx;
 }
 

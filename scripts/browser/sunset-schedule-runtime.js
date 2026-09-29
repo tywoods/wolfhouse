@@ -174,15 +174,19 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     }
     if (r._needsReply == null) r._needsReply = false;
     if (!r.phone && meta.guest_phone) r.phone = meta.guest_phone;
-    if (!r.phone) {
-      var bookingMeta = null;
-      if (r.booking_metadata && typeof r.booking_metadata === 'object') bookingMeta = r.booking_metadata;
-      else if (r.booking_metadata) {
-        try { bookingMeta = JSON.parse(r.booking_metadata); } catch (_bm) { bookingMeta = null; }
-      }
-      if (bookingMeta && (bookingMeta.guest_phone || bookingMeta.phone)) {
-        r.phone = bookingMeta.guest_phone || bookingMeta.phone;
-      }
+    var bookingMeta = null;
+    if (r.booking_metadata && typeof r.booking_metadata === 'object') bookingMeta = r.booking_metadata;
+    else if (r.booking_metadata) {
+      try { bookingMeta = JSON.parse(r.booking_metadata); } catch (_bm) { bookingMeta = null; }
+    }
+    if (!r.phone && bookingMeta && (bookingMeta.durable_phone || bookingMeta.guest_phone || bookingMeta.phone)) {
+      r.phone = bookingMeta.durable_phone || bookingMeta.guest_phone || bookingMeta.phone;
+    }
+    if (typeof staffChromeDurablePhone === 'function') {
+      var durableShown = staffChromeDurablePhone(r, meta, bookingMeta);
+      if (durableShown) r.phone = durableShown;
+    } else if (r.phone && String(r.phone).indexOf('+999') !== 0 && bookingMeta && bookingMeta.durable_phone) {
+      r.phone = bookingMeta.durable_phone;
     }
     if (r.phone && String(r.phone).indexOf('staff:') === 0) r.phone = null;
     if (r.service_time_local && !r.service_time) r.service_time = r.service_time_local;
