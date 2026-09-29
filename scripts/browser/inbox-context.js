@@ -961,6 +961,7 @@ function inboxClientInfoHtml(data, opts) {
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  html += inboxCustomerLocationTagHtml(data, opts && opts.conv);
   if (contact.length) html += '<div class="inbox-client-info-contact">' + inboxContextEsc(contact.join(' · ')) + '</div>';
   html += '</div></div>';
   html += inboxClientInfoChipsHtml(dataForFacts, cacheRow);
@@ -1024,6 +1025,15 @@ function inboxCustomerMerge(base, extra) {
   return out;
 }
 
+function inboxCustomerLocationTagHtml(data, extra) {
+  var portal = '';
+  try {
+    if (typeof getClient === 'function') portal = getClient() || '';
+  } catch (_e) { portal = ''; }
+  if (typeof staffChromeLocationTagHtml !== 'function') return '';
+  return staffChromeLocationTagHtml(portal, data, extra);
+}
+
 function inboxCustomerContact(data) {
   var id = (data && data.identity) || {};
   var cacheRow = inboxClientInfoCacheRow(data && data.phone);
@@ -1064,6 +1074,7 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  html += inboxCustomerLocationTagHtml(data, opts && opts.conv);
   html += '</div>';
   html += '<button type="button" class="inbox-customer-hide" id="inbox-customer-hide" title="Hide guest card" aria-label="Hide guest card">';
   html += '<span class="inbox-customer-hide-arrow" aria-hidden="true">&#8594;</span>';
@@ -1073,7 +1084,9 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
-  if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  if (school && !inboxCustomerLocationTagHtml(data, opts && opts.conv)) {
+    html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  }
   html += inboxCustomerField(inboxContextT('customers.card.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div>';
@@ -1377,6 +1390,7 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<button type="button" class="customers-profile-back" id="inbox-guest-profile-back" aria-label="' +
     inboxContextEsc(inboxContextT('customers.profile.back', 'Back')) + '"><span aria-hidden="true">&#8592;</span></button>';
   html += '<h3 class="customers-profile-name">' + inboxContextEsc(name) + '</h3>';
+  html += inboxCustomerLocationTagHtml(data, opts && opts.conv);
   html += '</div></div>';
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-primary" id="inbox-create-booking-for-guest">' +
@@ -1393,7 +1407,9 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
-  if (school) html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  if (school && !inboxCustomerLocationTagHtml(data, opts && opts.conv)) {
+    html += inboxCustomerField(inboxContextT('customers.detail.school', 'Active school'), school, false);
+  }
   html += inboxCustomerInlineFieldHtml('language', inboxContextEsc(inboxContextT('customers.detail.language', 'Language')), language, '—', false);
   html += inboxCustomerField(inboxContextT('customers.card.lastSetup', 'Last setup'), lastSetup || inboxContextT('customers.detail.noServices', 'No services yet'), !lastSetup);
   html += inboxCustomerNotesFieldHtml(notes);
@@ -1451,6 +1467,7 @@ function inboxCustomerUnmatchedHtml(conv) {
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
   html += '<div class="inbox-client-info-id">';
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
+  html += inboxCustomerLocationTagHtml(conv);
   html += '</div>';
   html += '</div>';
   html += '<div class="customers-section-empty" data-inbox-guest-unmatched="1">' +

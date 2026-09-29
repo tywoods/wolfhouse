@@ -102,6 +102,68 @@ function staffChromeDurablePhone() {
   return found[0] || '';
 }
 
+/**
+ * Staff-visible location id.
+ * Wolfhouse portal or a Wolfhouse booking always shows wolfhouse-somo.
+ * A Sunset id on that guest is a bleed, not the tag. Sunset guests keep
+ * sunset-somo / sunset-sardinero. Keep in step with
+ * scripts/lib/staff-wolfhouse-location-tag.js.
+ */
+function staffChromeKeepLocationId(raw) {
+  var id = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (id === 'wolfhouse-somo' || id === 'wolfhouse') return id;
+  if (id === 'sunset-somo' || id === 'sunset-sardinero') return id;
+  return '';
+}
+
+function staffChromeCollectLocationIds(src, out, depth) {
+  if (src == null || depth > 3) return;
+  if (typeof src === 'string' || typeof src === 'number') {
+    var id = staffChromeKeepLocationId(src);
+    if (id) out.push(id);
+    return;
+  }
+  if (typeof src !== 'object') return;
+  var keys = ['location_id', 'locationId', 'location_key', 'locationKey', 'client_slug', 'clientSlug'];
+  var i;
+  for (i = 0; i < keys.length; i++) {
+    if (src[keys[i]] != null && typeof src[keys[i]] !== 'object') {
+      staffChromeCollectLocationIds(src[keys[i]], out, depth + 1);
+    }
+  }
+  if (src.metadata) staffChromeCollectLocationIds(src.metadata, out, depth + 1);
+  if (src.booking) staffChromeCollectLocationIds(src.booking, out, depth + 1);
+  if (src.identity) staffChromeCollectLocationIds(src.identity, out, depth + 1);
+  if (src.conversation) staffChromeCollectLocationIds(src.conversation, out, depth + 1);
+  if (src.bookings && src.bookings.length) {
+    for (i = 0; i < src.bookings.length; i++) staffChromeCollectLocationIds(src.bookings[i], out, depth + 1);
+  }
+}
+
+function staffChromeLocationTag(portalClient) {
+  var found = [];
+  var portal = staffChromeKeepLocationId(portalClient);
+  var i;
+  if (portal === 'wolfhouse-somo' || portal === 'wolfhouse') found.push('wolfhouse-somo');
+  for (i = 1; i < arguments.length; i++) staffChromeCollectLocationIds(arguments[i], found, 0);
+  for (i = 0; i < found.length; i++) {
+    if (found[i] === 'wolfhouse-somo' || found[i] === 'wolfhouse') return 'wolfhouse-somo';
+  }
+  for (i = 0; i < found.length; i++) {
+    if (found[i] === 'sunset-somo' || found[i] === 'sunset-sardinero') return found[i];
+  }
+  return '';
+}
+
+function staffChromeLocationTagHtml(portalClient) {
+  var sources = [portalClient];
+  var i;
+  for (i = 1; i < arguments.length; i++) sources.push(arguments[i]);
+  var tag = staffChromeLocationTag.apply(null, sources);
+  if (tag !== 'wolfhouse-somo') return '';
+  return '<span class="staff-location-id-tag" data-location-id="wolfhouse-somo">wolfhouse-somo</span>';
+}
+
 var INBOX_COLUMNS_PRESETS = {
   all4: { col1: 'full', col2: 'comfortable', col4: 'peek' },
   chat: { col1: 'full', col2: 'comfortable', col4: 'hidden' },
