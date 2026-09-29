@@ -170,13 +170,14 @@ async function chrome() {
     const paid = box('.bc-guest-pay-paid');
     const price = e.querySelector('.bc-guest-pay-price');
     return {
-      sameRow: name.top < paid.bottom && paid.top < name.bottom,
-      shifted: paid.left > name.right - 1 && paid.left >= e.getBoundingClientRect().left + e.getBoundingClientRect().width * 0.3,
+      moneyBelow: paid.top >= name.bottom - 1,
+      noOverlap: name.bottom <= paid.top + 1,
+      priceRight: price.getBoundingClientRect().right >= e.getBoundingClientRect().right - 1,
       weight: getComputedStyle(price).fontWeight,
     };
   });
-  check('guest money on one row', geo.sameRow === true, JSON.stringify(geo));
-  check('money shifted right', geo.shifted === true, JSON.stringify(geo));
+  check('guest money on next line', geo.moneyBelow === true && geo.noOverlap === true, JSON.stringify(geo));
+  check('price on the right', geo.priceRight === true, JSON.stringify(geo));
   check('price unbold', Number(geo.weight) < 700, geo.weight);
 
   const deposit = await page.locator('.bc-invoice-deposit-amount').innerText();

@@ -165,8 +165,9 @@ async function main() {
         if (await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#bc-per-guest-toggle').click();
         assert.equal(await page.locator('.bc-guest-pay-paid').first().innerText(), '€0.00', 'zero paid is never blank');
         assert.match(await page.locator('.bc-guest-pay-owed').first().innerText(), /^€\d+\.\d{2}$/, 'owed amount is never blank');
-        assert.equal(await page.locator('.bc-guest-pay-row .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not on the name row');
-        assert(await page.locator('.bc-guest-pay-links .bc-create-guest-payment-link-btn').count() > 0, 'Deposit Link / Payment Link sit one row down');
+        assert(await page.locator('.bc-guest-pay-name-line .bc-create-guest-payment-link-btn').count() > 0, 'Deposit and Full sit on the name line');
+        assert.equal(await page.locator('.bc-guest-pay-money .bc-create-guest-payment-link-btn').count(), 0, 'link buttons are not on the euro line');
+        assert.deepEqual(await page.locator('.bc-guest-pay-name-line .bc-create-guest-payment-link-btn').allTextContents(), ['Deposit', 'Full']);
         const mountedHistory=await page.locator('#bc-payment-history-card').elementHandle();
         async function collapseSnapshot(){return mountedHistory.evaluate(old=>({
           sameNode:old===document.getElementById('bc-payment-history-card'),oldConnected:old.isConnected,
