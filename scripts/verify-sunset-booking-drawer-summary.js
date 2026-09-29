@@ -86,7 +86,8 @@ const sunsetDetailsBranch = (function () {
 })();
 
 assert('view drawer uses booking details helper', viewFn.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
-assert('view details omit guest name row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.create.guestName')"));
+// Minimum body #8 places factual booker identity below the unchanged number-first hero.
+assert('view details include escaped factual booker name (Sunset branch)', sunsetDetailsBranch.includes("portalT('schedule.create.guestName')") && sunsetDetailsBranch.includes("escHtml(ctx.guest_name || (row && row.guest_name) || '—')"));
 assert('view details omit source row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.drawer.source')"));
 assert('view details show phone', viewDetailsFn.includes("portalT('schedule.drawer.phone')"));
 assert('view details include booked items row', viewDetailsFn.includes('scheduleRenderDrawerBookedItemsRow'));

@@ -206,7 +206,9 @@ function scheduleRenderDrawerViewBookingDetailsHtml(ctx, row){
       '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>' +
       '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>';
   }
-  return '<p class="portal-schedule-drawer-kv portal-schedule-drawer-summary-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
+  return '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || (row && row.guest_name) || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('drawer.field.email')) + ':</strong> ' + escHtml(ctx.email || (row && row.email) || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv portal-schedule-drawer-summary-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
     scheduleRenderDrawerViewDateRow(ctx) +
     scheduleRenderDrawerBookedItemsRow((ctx && ctx.components) || {});
 }
@@ -1081,6 +1083,17 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
         + (line.check_out ? ' data-check-out="' + escHtml(String(line.check_out).slice(0, 10)) + '"' : '')
         + '>';
       html += '<span class="ps-svc-name">' + escHtml(displayLabel);
+      // Source facts only: zero, package names and colors do not prove inclusion.
+      var memberIds = line.member_ids || [line.service_record_id];
+      var sourceMembers = items.filter(function(item){ return item.service_record_id && memberIds.indexOf(item.service_record_id) >= 0; });
+      if (sourceMembers.length && sourceMembers.every(function(item){
+        var price = item.line_cents;
+        return (item.included_equipment === true || item.during_course_policy === 'included') &&
+          (typeof price === 'number' || (typeof price === 'string' && price.trim() !== '')) &&
+          Number.isFinite(Number(price)) && Number(price) === 0;
+      })) {
+        html += '<span class="ps-svc-detail booking-body-included">' + escHtml(portalT('drawer.body.includedEquipment')) + '</span>';
+      }
       // Accommodation / course / equipment: existing ps-svc-detail as a second text line;
       // other lines keep the inline " · math" subtitle.
       if (math) {
@@ -1171,6 +1184,8 @@ function scheduleRenderSunsetViewNotesSectionHtml(ctx){
 
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
+  html += '<div class="booking-body-content">';
+  html += '<div class="booking-body-details">' + scheduleDrawerSectionHtml('schedule.drawer.section.booking', scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)) + '</div>';
   html += scheduleRenderSunsetInvoiceCardHtml(ctx);
   // Always show Notes chrome on view (same slot as Edit): under invoice, above waiver.
   html += scheduleRenderSunsetViewNotesSectionHtml(ctx);
@@ -1184,6 +1199,7 @@ function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
   html += scheduleRenderDeleteBookingRowHtml(ctx, row);
+  html += '</div>';
   return html;
 }
 
