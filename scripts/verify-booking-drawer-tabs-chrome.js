@@ -144,7 +144,7 @@ async function main() {
             check(m.active.borderBottom === '0px' || m.active.bottomColor === 'rgba(0, 0, 0, 0)' || m.active.bottomColor === m.panel.bg, 'no visible active bottom border');
             check(m.activeBottom >= m.panelTop + 1 && String(m.seamOwner).includes('bc-drawer-tab'), 'active must cover panel rail at seam');
             check(m.selected === 'true' && m.visiblePanels.length === 1 && m.visiblePanels[0] === tab, 'real tab click selects exactly its panel');
-            check(!m.overflow && m.title.includes('Tom'), 'drawer stays bounded and keeps booking');
+            check(!m.overflow && m.title === CODE, 'drawer stays bounded and keeps booking');
           }
         }
         for (const width of [1440, 390, 320]) {

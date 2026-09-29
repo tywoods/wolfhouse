@@ -1307,14 +1307,16 @@ const cancelledHtml = ctx.scheduleRenderSunsetMoneyActionsHtml(cancelledCtx);
 assert('invalidated link hidden (no checkout anchor)', !cancelledHtml.includes('checkout.stripe.com'));
 assert('create link button when no actionable url', cancelledHtml.includes('ps-drawer-stripe-link'));
 
-console.log('\n[7] XSS — guest/course labels and notes escaped');
+console.log('\n[7] XSS — booking/course labels and notes escaped');
 const xssCtx = Object.assign({}, baseCtx, {
-  guest_name: '<img onerror=alert(1)>',
+  booking_code: '<img onerror=alert(1)>',
+  guest_name: '<svg onload=alert(1)>',
   notes: '<script>x</script>',
   components: { course: { course_label: '<b>Evil</b>', quantity: 1 } },
 });
 const xssHtml = ctx.scheduleRenderSunsetViewDrawerHtml(STAFF_ROW, xssCtx, false);
-assert('guest name escaped', xssHtml.includes('&lt;img') && !xssHtml.includes('<img onerror'));
+assert('primary booking code escaped', xssHtml.includes('&lt;img') && !xssHtml.includes('<img onerror'));
+assert('unselected secondary guest line not injected', !xssHtml.includes('<svg onload') && !xssHtml.includes('&lt;svg'));
 assert('notes escaped', xssHtml.includes('&lt;script&gt;') && !xssHtml.includes('<script>x</script>'));
 assert('course label escaped when rendered', !xssHtml.includes('<b>Evil</b>'));
 

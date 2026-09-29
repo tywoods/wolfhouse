@@ -18202,6 +18202,8 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .ps-copy-icon.is-copied{color:#3F6B4F;border-color:#B9CDBD}
 .ps-code-row{display:flex;align-items:center;gap:6px}
 .ps-code-row>span{min-width:0}
+.ps-code-row>.portal-schedule-drawer-hero-title{min-width:0;margin:0}
+.ps-code-row>.ps-code-copy{flex-shrink:0;align-self:flex-start}
 .ps-code-copy{padding:3px 7px;font-size:12px;min-width:0}
 .ps-overflow-row{flex-direction:row;flex-wrap:wrap}
 .ps-overflow-row .btn{flex:1 1 auto;font-size:12px;padding:6px 8px;white-space:nowrap}
@@ -20738,9 +20740,15 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .bc-side-head-main{flex:1 1 auto;min-width:0}
 .bc-side-title-row{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
-.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
 .bc-side-header-pebbles{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
 .bc-side-header-pebbles .bc-detail-meta{margin:0}
+.bc-side-header-pebbles:not(:empty){margin-top:6px}
+.bc-booking-identity{display:inline-flex;align-items:flex-start;gap:6px;min-width:0;max-width:100%}
+.bc-booking-code{min-width:0;overflow-wrap:anywhere;white-space:normal}
+.bc-booking-code-copy{flex:0 0 auto;line-height:1;padding:4px;align-self:flex-start}
+.bc-booking-code-copy[hidden]{display:none}
+.bc-detail-title{min-width:0;max-width:100%}
 .bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
 .bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .bc-side-pin,.bc-side-close{
@@ -24489,8 +24497,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="bc-side-head-main">
         <div class="bc-side-title-row">
           <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
-          <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
+          <span id="bc-side-copy-code"></span>
         </div>
+        <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
         <p class="bc-side-meta" id="bc-side-meta"></p>
       </div>
       <div class="bc-side-head-actions">
@@ -38677,7 +38686,7 @@ function showBlockDetail(blk){
   bcLastBookingContext = null;
   bcActiveDrawerTab = 'overview';
   el('bc-detail').innerHTML =
-    '<div class="toolbar"><h2 class="bc-detail-title">' + escHtml(blk.booking_code||'\u2014') +
+    '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(blk.booking_code||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span>' +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<div class="bc-detail-toolbar-actions">' +
     '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
@@ -40438,6 +40447,31 @@ function bcCopyPaymentLinkIcon(btn){
   bcCopyTextToClipboard(u, showCopied, function(){ prompt('Payment link:', u); });
 }
 
+function bcBookingCodeCopyHtml(code){
+  if (!code) return '';
+  var label = t('schedule.drawer.copyCode');
+  return '<button type="button" class="btn btn-ghost bc-booking-code-copy" data-bc-copy-code="' + escHtml(code) + '" title="' + escHtml(label) + '" aria-label="' + escHtml(label) + '">' + bcCopyLinkIconSvg() + '</button>';
+}
+function bcCopyBookingCode(btn){
+  var code = btn.getAttribute('data-bc-copy-code') || btn.getAttribute('data-copy');
+  if (!code || btn.disabled) return;
+  var original = btn._bcCopyOriginal || { icon: btn.innerHTML, label: btn.getAttribute('aria-label') };
+  bcCopyTextToClipboard(code, function(){
+    btn.textContent = '\u2713';
+    btn.setAttribute('aria-label', t('drawer.payments.copied'));
+    btn.setAttribute('title', t('drawer.payments.copied'));
+    clearTimeout(btn._bcCopyTimer);
+    // Preserve the idle state even if an earlier feedback timer expired while copying.
+    btn._bcCopyOriginal = original;
+    btn._bcCopyTimer = setTimeout(function(){
+      btn.innerHTML = btn._bcCopyOriginal.icon;
+      btn.setAttribute('aria-label', btn._bcCopyOriginal.label);
+      btn.setAttribute('title', btn._bcCopyOriginal.label);
+      btn._bcCopyOriginal = null;
+    }, 2000);
+    btn.focus();
+  }, function(){ prompt(t('schedule.drawer.bookingCode'), code); });
+}
 var bcDetailCopyDelegationBound = false;
 function bcInitDetailCopyDelegation(){
   if (bcDetailCopyDelegationBound) return;
@@ -40447,6 +40481,12 @@ function bcInitDetailCopyDelegation(){
   if (!panel) return;
   bcDetailCopyDelegationBound = true;
   panel.addEventListener('click', function(ev){
+    var codeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bc-copy-code]') : null;
+    if (codeBtn && panel.contains(codeBtn)) {
+      ev.preventDefault();
+      bcCopyBookingCode(codeBtn);
+      return;
+    }
     var btn = ev.target && ev.target.closest ? ev.target.closest('.btn-bc-copy-link-icon') : null;
     if (!btn || !panel.contains(btn)) return;
     ev.preventDefault();
@@ -45034,6 +45074,8 @@ function bcDockCreatePanel(){
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
   if (title) title.textContent = 'New booking';
+  var copyCode = el('bc-side-copy-code');
+  if (copyCode) copyCode.innerHTML = '';
   if (meta){
     var cin = el('bc-sel-cin');
     var cout = el('bc-sel-cout');
@@ -45060,7 +45102,10 @@ function bcOpenSideBooking(blk, opts){
   bcActiveDrawerTab = 'overview';
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
-  if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
+  if (title) title.textContent = blk.booking_code || '\u2014';
+  var copyCode = el('bc-side-copy-code');
+  if (copyCode) copyCode.innerHTML = bcBookingCodeCopyHtml(blk.booking_code);
+  bcInitDetailCopyDelegation();
   var pebbles = el('bc-side-header-pebbles');
   if (pebbles) pebbles.innerHTML = '';
   bcPaintSideStayMeta(null, blk, null);

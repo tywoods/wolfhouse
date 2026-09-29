@@ -221,15 +221,14 @@ function scheduleRenderDrawerHeroHtml(ctx, row){
   var titleAttr = (sunset && code !== '—')
     ? ' title="' + escHtml(portalT('schedule.drawer.bookingCode') + ': ' + code) + '"'
     : '';
-  html += '<h3 class="portal-schedule-drawer-hero-title"' + titleAttr + '>' + escHtml(name) + '</h3>';
   if (sunset) {
-
+    html += '<div class="ps-code-row"><h3 class="portal-schedule-drawer-hero-title"' + titleAttr + '>' + escHtml(code) + '</h3>';
     if (code !== '—') {
-      html += '<div class="portal-schedule-drawer-booking-code portal-schedule-drawer-booking-code-subtle ps-code-row">' +
-        '<span>' + escHtml(code) + '</span>' +
-        '<button type="button" class="btn btn-ghost ps-copy-icon ps-code-copy" id="ps-drawer-copy-code" data-copy="' + escHtml(code) + '" title="' + escHtml(portalT('schedule.drawer.copyCode')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyCode')) + '">&#10697;</button></div>';
+      html += '<button type="button" class="btn btn-ghost ps-copy-icon ps-code-copy" id="ps-drawer-copy-code" data-copy="' + escHtml(code) + '" title="' + escHtml(portalT('schedule.drawer.copyCode')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyCode')) + '">&#10697;</button>';
     }
+    html += '</div>';
   } else {
+    html += '<h3 class="portal-schedule-drawer-hero-title">' + escHtml(name) + '</h3>';
     html += '<p class="portal-schedule-drawer-booking-code">' + escHtml(code) + '</p>';
   }
   html += '</div>';
