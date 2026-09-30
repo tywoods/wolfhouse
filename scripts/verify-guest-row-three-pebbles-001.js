@@ -22,7 +22,7 @@ ok('bed uses move-beds blue', api.includes('#bc-drawer-card-booking .bc-guest-be
 ok('dark bed stays blue', api.includes('[data-theme="dark"] #bc-drawer-card-booking .bc-guest-bed{background:#16384a;color:#d6eef8;border-color:#4da3d4}'));
 ok('bottom package list is not painted', !api.includes('booking-body-package-assignments'));
 ok('bottom package selects stay hidden', api.includes('#bc-drawer-card-booking #bc-field-package-edit .bc-field-package-guest-row{display:none!important}'));
-ok('invoice styles no longer force a side-by-side grid', invoice.includes('#bc-guest-names{display:block}') && !invoice.includes('grid-template-columns:subgrid'));
+ok('invoice read rows align name, package, bed and payment in shared columns', invoice.includes('grid-template-columns:subgrid') && invoice.includes('.bc-guest-pebble-line{display:contents}') && invoice.includes('.bc-guest-package-pebble{grid-column:2}') && invoice.includes('.bc-guest-bed{grid-column:3}') && invoice.includes('.bc-accom-pay-pebble{grid-column:4}'));
 ok('selected name underline remains', api.includes('#bc-drawer-card-booking .bc-guest-name-line.is-active'));
 console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
