@@ -1,13 +1,17 @@
 'use strict';
 
-const { wolfhouseBookingDepositCents } = require('./wolfhouse-stay-deposit');
+const { wolfhouseBookingDepositCents, loadWolfhouseDepositRates } = require('./wolfhouse-stay-deposit');
 
 // The HTTP adapter supplies its existing canonical invoice reader, never request cents.
 // Paid truth comes from payment rows, not the booking's cached paid projection.
 // Deposit due uses nights × guests when both are known, so a stored flat €200
 // cannot create a €200 link for a 7-night × 3-guest stay.
 async function bookingDepositLinkAmount(pg, booking, paymentRows, execOpts, paymentTarget = 'deposit') {
-  const depositRequired = wolfhouseBookingDepositCents(booking);
+  let rates = null;
+  if (pg) {
+    try { rates = await loadWolfhouseDepositRates(pg); } catch (_) { rates = null; }
+  }
+  const depositRequired = wolfhouseBookingDepositCents(booking, rates);
   if (paymentTarget === 'deposit' && depositRequired == null) {
     return { ok: false, status: 422, body: { success: false, reason_code: 'deposit_configuration_unknown', error: 'Deposit configuration is unknown.' } };
   }

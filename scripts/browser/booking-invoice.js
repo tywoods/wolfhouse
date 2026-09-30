@@ -103,7 +103,16 @@ function bcWolfhouseStayDepositCents(bk){
   if (!(nights > 0) && bk.nights != null) nights = Number(bk.nights);
   var guests = parseInt(bk.guest_count, 10);
   if (!(nights > 0) || !(guests > 0)) return null;
-  var total = (nights >= 6 ? 20000 : 10000) * guests;
+  var rates = bk.stay_deposit_rates || null;
+  var longRate = 20000;
+  var shortRate = 10000;
+  if (rates && Number.isSafeInteger(Number(rates.long_stay_cents)) && Number(rates.long_stay_cents) >= 0) {
+    longRate = Number(rates.long_stay_cents);
+  }
+  if (rates && Number.isSafeInteger(Number(rates.short_stay_cents)) && Number(rates.short_stay_cents) >= 0) {
+    shortRate = Number(rates.short_stay_cents);
+  }
+  var total = (nights >= 6 ? longRate : shortRate) * guests;
   return Number.isSafeInteger(total) ? total : null;
 }
 function bcInvoiceActionsHtml(bk){

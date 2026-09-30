@@ -26,6 +26,13 @@ async function money() {
   check('5n x 3 = 30000', wolfhouseStayDepositCents(5, 3) === 30000);
   check('5n x 2 = 20000', wolfhouseStayDepositCents(5, 2) === 20000);
   check('missing nights falls through', wolfhouseStayDepositCents(0, 3) == null);
+  const adminRates = { long_stay_cents: 25000, short_stay_cents: 15000 };
+  check('admin long rate 6n x 3', wolfhouseStayDepositCents(6, 3, adminRates) === 75000);
+  check('admin short rate 5n x 2', wolfhouseStayDepositCents(5, 2, adminRates) === 30000);
+  check('booking rates win over stored flat', wolfhouseBookingDepositCents({
+    check_in: '2026-09-26', check_out: '2026-10-03', guest_count: 3,
+    deposit_required_cents: 20000, stay_deposit_rates: adminRates,
+  }) === 75000);
   check('null stored stays unknown', wolfhouseBookingDepositCents({ deposit_required_cents: null }) == null);
   check('explicit zero stored stays zero', wolfhouseBookingDepositCents({ deposit_required_cents: 0 }) === 0);
 
@@ -55,6 +62,31 @@ async function money() {
     success: quote && quote.success,
     deposit: quote && quote.deposit_required_cents,
     link: quote && quote.payment_link_amount_cents,
+  }));
+  const adminQuote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-09-26',
+    check_out: '2026-10-03',
+    guest_count: 3,
+    package_code: 'uluwatu',
+    payment_choice: 'deposit',
+    stay_deposit_rates: { long_stay_cents: 25000, short_stay_cents: 15000 },
+  });
+  check('quote uses admin long rate', adminQuote && adminQuote.deposit_required_cents === 75000, JSON.stringify({
+    deposit: adminQuote && adminQuote.deposit_required_cents,
+  }));
+  const shortQuote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-09-01',
+    check_out: '2026-09-06',
+    guest_count: 2,
+    package_code: 'malibu',
+    payment_choice: 'deposit',
+    stay_deposit_rates: { long_stay_cents: 25000, short_stay_cents: 15000 },
+  });
+  check('quote uses admin short rate', shortQuote && shortQuote.deposit_required_cents === 30000, JSON.stringify({
+    nights: shortQuote && shortQuote.nights,
+    deposit: shortQuote && shortQuote.deposit_required_cents,
   }));
 }
 

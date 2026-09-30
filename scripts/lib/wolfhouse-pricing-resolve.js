@@ -537,9 +537,11 @@ function listConfigExtraSeeds(config) {
       item_type: 'deposit',
       code: tier,
       rule_code: tier,
-      label: rentalTitleFromAddon(tier, { name: humanizeCode(tier) }),
+      label: tier === 'standard_package'
+        ? '6 nights or more'
+        : (tier === 'custom_or_short_stay' ? '5 nights or fewer' : rentalTitleFromAddon(tier, { name: humanizeCode(tier) })),
       amount_cents: Number.isFinite(cents) ? cents : null,
-      unit: 'per_booking',
+      unit: (tier === 'standard_package' || tier === 'custom_or_short_stay') ? 'per_person' : 'per_booking',
     });
   }
   return out;

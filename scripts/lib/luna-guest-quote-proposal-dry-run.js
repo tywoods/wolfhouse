@@ -162,11 +162,15 @@ function mapRouterToQuoteFields(routerResult, context) {
 function buildDepositOptions(quote) {
   if (!quote || !quote.success) return null;
   const depositCents = quote.deposit_required_cents || 0;
-  const isWeekly = quote.nights === 7;
+  const rates = quote.stay_deposit_rates || {};
+  const longRate = Number.isSafeInteger(Number(rates.long_stay_cents))
+    ? Number(rates.long_stay_cents) : 20000;
+  const shortRate = Number.isSafeInteger(Number(rates.short_stay_cents))
+    ? Number(rates.short_stay_cents) : 10000;
   return {
     deposit_required_cents: depositCents,
-    weekly_package_deposit_cents: isWeekly ? depositCents : 20000,
-    custom_short_stay_deposit_cents: isWeekly ? 10000 : depositCents,
+    weekly_package_deposit_cents: longRate,
+    custom_short_stay_deposit_cents: shortRate,
     payment_options: Array.isArray(quote.payment_options) ? quote.payment_options : ['deposit', 'full'],
   };
 }
@@ -317,6 +321,8 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
   }
 
   const fields = mapRouterToQuoteFields(routerResult, context);
+  if (context && context.stay_deposit_rates) fields.stay_deposit_rates = context.stay_deposit_rates;
+  if (context && context.quote_config) fields.quote_config = context.quote_config;
   let preview;
   try {
     preview = runBookingPreviewDryRun(fields);

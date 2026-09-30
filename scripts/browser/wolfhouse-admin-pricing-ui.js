@@ -870,12 +870,18 @@
       + '</div>';
   }
 
+  function depositPolicyTitle(row) {
+    if (row && row.code === 'standard_package') return whT('admin.wh.pricing.depositLongStay', '6 nights or more');
+    if (row && row.code === 'custom_or_short_stay') return whT('admin.wh.pricing.depositShortStay', '5 nights or fewer');
+    return (row && row.label) || humanize(row && row.code);
+  }
+
   function renderExtrasRow(kind, row) {
     var key = 'price:' + kind + ':' + row.code;
     if (isEditing(key)) {
       var scopeUnit = row.unit === 'per_person' ? 'per_person' : (row.unit || 'per_booking');
       return '<div class="portal-admin-price-card is-editing">'
-        + '<div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
+        + '<div class="portal-admin-price-title">' + whEsc(depositPolicyTitle(row)) + '</div>'
         + amountField('wh-price-amount', row.amount_cents)
         + (kind === 'deposit' ? depositScopeRadiosHtml(scopeUnit) : '')
         + editActions('save-extra',
@@ -886,8 +892,8 @@
     }
     return '<div class="portal-admin-price-card">'
       + '<div class="portal-admin-price-card-main">'
-      + '<div><div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
-      + '<div class="portal-admin-price-meta">' + whEsc(unitLabel(row.unit)) + ' · '
+      + '<div><div class="portal-admin-price-title">' + whEsc(kind === 'deposit' ? depositPolicyTitle(row) : (row.label || humanize(row.code))) + '</div>'
+      + '<div class="portal-admin-price-meta">' + whEsc((kind === 'deposit' && (row.code === 'standard_package' || row.code === 'custom_or_short_stay')) ? unitLabel('per_person') : unitLabel(row.unit)) + ' · '
       + sourceBadge(row.source) + '</div></div>'
       + '<div class="portal-admin-price-amount">€' + whEsc(eurosFromCents(row.amount_cents))
       + '</div></div>'
@@ -927,7 +933,7 @@
       : '';
     return sectionShell(
       whT('admin.wh.pricing.extras', 'Extras'),
-      whT('admin.wh.pricing.extrasNote', 'Deposits taken at booking and per-night room supplements.'),
+      whT('admin.wh.pricing.extrasNote', 'Per person. 5 nights or fewer and 6 nights or more are the stay deposit rates Totals and guest quotes use.'),
       html,
       headerExtra,
     );
