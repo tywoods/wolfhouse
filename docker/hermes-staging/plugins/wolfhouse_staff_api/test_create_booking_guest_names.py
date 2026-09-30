@@ -169,7 +169,7 @@ class CreateGuestNamesTests(unittest.TestCase):
                     self.assertEqual(sent["guests"], [{"name": n} for n in NAMES])
                     self.assertEqual(sent["guest_name"], "Tom")
                     self.assertEqual(sent["guest_count"], 4)
-                    self.assertEqual(sent["payment_choice"], plugin._normalize_payment_choice(choice))
+                    self.assertEqual(sent["payment_choice"], "per_guest" if choice == "per_guest" else plugin._normalize_payment_choice(choice))
                     self.assertEqual(payload, original, "do not mutate caller input")
 
     def test_compound_and_repeated_real_names_are_not_split_or_deduplicated(self):

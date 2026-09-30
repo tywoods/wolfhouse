@@ -67,8 +67,9 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
                         "payment_status": "unpaid"}
             for guest in guests:
                 if path == f"/booking-guests/{guest['booking_guest_id']}/create-payment-link":
-                    return {"success": True, **guest, "amount_due_cents": 32500, "currency": "EUR",
-                            "payment_target": "full_share", "payment_status": "checkout_created",
+                    self.assertEqual(payload['payment_target'], 'deposit', 'fixture must assert the real requested target')
+                    return {"success": True, **guest, "amount_due_cents": 10000, "currency": "EUR",
+                            "payment_target": "deposit", "payment_status": "checkout_created",
                             "guest_payment_url": f"https://example.test/pay/GINA-OFFLINE/g{guest['guest_number']}"}
             raise AssertionError(f"unexpected API call {path}")
 
@@ -76,15 +77,15 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
             result = json.loads(plugin.create_booking_from_plan({
                 "check_in": "2026-09-01", "check_out": "2026-09-06", "guest_count": 3,
                 "guests": [{"name": g["guest_name"]} for g in guests], "group_gender": "mixed",
-                "package_code": "package_none", "payment_choice": "full", "confirm": True,
+                "package_code": "package_none", "payment_choice": "per_guest", "confirm": True,
                 "selected_bed_codes": ["M1", "M2", "M3"],
             }))
         self.assertEqual(len(calls), 4, "no extra round trips to repeat amounts or mint links")
         self.assertEqual(len(result["guest_payment_links"]), 3)
         for link in result["guest_payment_links"]:
-            self.assertEqual(link.get("amount_due_cents"), 32500)
+            self.assertEqual(link.get("amount_due_cents"), 10000)
             self.assertEqual(link.get("currency"), "EUR")
-            self.assertEqual(link.get("payment_target"), "full_share")
+            self.assertEqual(link.get("payment_target"), "deposit")
             self.assertEqual(link.get("payment_status"), "checkout_created")
         self.assertIs(result.get("no_payment_truth_recorded"), True)
         self.assertFalse(result["staff_review_needed"])
@@ -98,7 +99,7 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
         def api(path, payload):
             calls.append((path, copy.deepcopy(payload)))
             if path == "/booking-create-from-plan":
-                self.assertEqual(payload["payment_choice"], "deposit")
+                self.assertEqual(payload["payment_choice"], "per_guest")
                 return {"success": True, "write_performed": True, "booking_code": "GINA-OFFLINE",
                         "uses_per_guest_model": True, "booking_guests": guests,
                         "per_person": [{"guest_number": n, "subtotal_cents": 32500} for n in range(1, 4)]}
@@ -230,8 +231,8 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
         self.assertFalse("After each step, send ONE message and wait" in prompt,
                          "blanket per-step waiting creates unnecessary chat turns")
         self.assertIn("Never change facts, prices", prompt)
-        self.assertIn("one €100 deposit locks the booking in", prompt)
-        self.assertIn("one €200 deposit locks the booking in", prompt)
+        self.assertIn("ONE quoted per-person deposit locks the whole group booking", prompt)
+        self.assertIn("use the returned quote/link amount", prompt)
 
 
 if __name__ == "__main__":
