@@ -20887,9 +20887,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-drawer-card-booking .bc-guest-name-line{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;cursor:pointer}
 #bc-drawer-card-booking .bc-guest-name-line.is-active,
 #bc-drawer-card-booking .bc-inline-guest-name.is-editing{text-decoration:underline;text-underline-offset:2px}
-#bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;align-self:stretch;gap:6px;max-width:100%}
+#bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;align-self:stretch;gap:6px;max-width:100%;overflow-x:auto}
 #bc-drawer-card-booking #bc-field-group-guests{border-top:0}
-#bc-drawer-card-booking .bc-guest-package-pebble{margin:0;max-width:100%}
+#bc-drawer-card-booking .bc-guest-package-pebble{margin:0;max-width:none;white-space:nowrap}
 #bc-drawer-card-booking .bc-guest-bed{display:inline-flex;align-items:center;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;margin:0}
 [data-theme="dark"] #bc-drawer-card-booking .bc-guest-bed{background:#16384a;color:#d6eef8;border-color:#4da3d4}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
@@ -20897,9 +20897,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-drawer-card-booking #bc-field-package-edit .bc-field-package-guest-row{display:none!important}
 [data-theme="dark"] #bc-drawer-card-booking .bc-inline-guest-name{background:var(--surface);color:var(--text)}
 @media(max-width:768px){
-  /* Override the injected Invoice subgrid's two-row phone layout, read mode only. */
+  /* Phone must not undo the shared columns or wrap chips. A narrow drawer scrolls. */
   #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-name-line{white-space:normal;overflow:visible;text-overflow:clip}
-  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  #bc-drawer-card-booking #bc-field-group-guests:not(.is-editing) #bc-guest-names .bc-guest-pebble-line{flex-wrap:nowrap;overflow-x:auto}
   #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid,
   #bc-drawer-card-booking #bc-field-group-dates .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)!important}
   #bc-drawer-card-booking #bc-field-group-contact .kv,
