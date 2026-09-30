@@ -204,15 +204,20 @@ async function chrome() {
     const name = box('.bc-guest-pay-name');
     const paid = box('.bc-guest-pay-paid');
     const price = e.querySelector('.bc-guest-pay-price');
+    const owed = e.querySelector('.bc-guest-pay-owed');
+    const titles = [...e.querySelectorAll('.bc-guest-pay-title')].map((el) => el.textContent);
     return {
       moneyBelow: paid.top >= name.bottom - 1,
       noOverlap: name.bottom <= paid.top + 1,
-      priceRight: price.getBoundingClientRect().right >= e.getBoundingClientRect().right - 1,
+      oweRight: owed.getBoundingClientRect().right >= e.getBoundingClientRect().right - 1,
+      totalLeftOfPaid: price.getBoundingClientRect().right <= paid.left,
+      titles,
       weight: getComputedStyle(price).fontWeight,
     };
   });
   check('guest money on next line', geo.moneyBelow === true && geo.noOverlap === true, JSON.stringify(geo));
-  check('price on the right', geo.priceRight === true, JSON.stringify(geo));
+  check('owe on the right', geo.oweRight === true && geo.totalLeftOfPaid === true, JSON.stringify(geo));
+  check('titles Total Paid Owe', geo.titles.join(',') === 'Total,Paid,Owe', JSON.stringify(geo.titles));
   check('price unbold', Number(geo.weight) < 700, geo.weight);
 
   const deposit = await page.locator('.bc-invoice-deposit-amount').innerText();

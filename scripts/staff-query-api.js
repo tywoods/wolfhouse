@@ -40157,10 +40157,10 @@ function bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, leadName, collec
       var owedShown = bookingFullyPaid === true ? 0 : (Number.isFinite(shareRemaining) ? shareRemaining : 0);
       var guestMoney = function(cents){ return '\u20ac' + (Number(cents) / 100).toFixed(2); };
       html += '<div class="bc-guest-pay-row"><div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div><div class="bc-guest-pay-price-line">' + links + '<span class="bc-guest-pay-money">';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span>';
       var priceShown = Number.isSafeInteger(share) && share >= 0 ? guestMoney(share) : '\u2014';
-      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Price</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span></span></div></div>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Total</span><span class="bc-guest-pay-price">' + escHtml(priceShown) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">' + escHtml(guestMoney(paidShown)) + '</span></span>';
+      html += '<span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">' + escHtml(guestMoney(owedShown)) + '</span></span></span></div></div>';
     } else {
       html += '<div class="bc-guest-pay-name-line"><span class="bc-guest-pay-name">' + escHtml(name) + '</span></div>';
       if (links || (!collectionBlocked && !pay.createLink && pay.label)) {

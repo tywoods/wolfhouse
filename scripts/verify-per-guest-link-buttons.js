@@ -1,7 +1,7 @@
 'use strict';
 // PER-GUEST-BUTTONS-PRICE-LINE-001.
 // Name line is the name only. Deposit and Full sit on the price line, left-aligned.
-// Wolfhouse keeps Paid / Owe / Price on that same line, to the right.
+// Wolfhouse keeps Total / Paid / Owe on that same line, to the right.
 // Sunset has the same two buttons and no money row. Full only when the share is known.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -71,7 +71,14 @@ assert(wolf.includes('bc-guest-pay-name-line'), 'Wolfhouse name line');
 assert(wolf.includes('bc-guest-pay-price-line'), 'Wolfhouse price line');
 assert(wolf.includes('>Deposit<') && wolf.includes('>Full<'), 'Wolfhouse labels');
 assert(!wolf.includes('>Deposit Link<') && !wolf.includes('>Payment Link<'), 'old row labels gone');
-assert(wolf.includes('bc-guest-pay-money') && wolf.includes('>Paid<') && wolf.includes('>Owe<') && wolf.includes('>Price<'), 'money stays on the price line');
+assert(wolf.includes('bc-guest-pay-money') && wolf.includes('>Total<') && wolf.includes('>Paid<') && wolf.includes('>Owe<') && !wolf.includes('>Price<'), 'money stays on the price line as Total / Paid / Owe');
+wolf.split('bc-guest-pay-row').slice(1).forEach((row) => {
+  const totalAt = row.indexOf('>Total<');
+  const paidAt = row.indexOf('>Paid<');
+  const oweAt = row.indexOf('>Owe<');
+  assert(totalAt >= 0 && paidAt > totalAt && oweAt > paidAt, 'each guest row is Total then Paid then Owe');
+  assert(row.indexOf('bc-guest-pay-price"') < row.indexOf('bc-guest-pay-paid') && row.indexOf('bc-guest-pay-paid') < row.indexOf('bc-guest-pay-owed'), 'Total amount stays the share; Paid and Owe stay on their own amounts');
+});
 assert(wolf.indexOf('bc-guest-pay-name-line') < wolf.indexOf('bc-guest-pay-price-line'), 'name line precedes the price line');
 assert(wolf.indexOf('bc-guest-pay-price-line') < wolf.indexOf('bc-guest-pay-links'), 'buttons sit on the price line');
 assert(wolf.indexOf('bc-guest-pay-links') < wolf.indexOf('bc-guest-pay-money'), 'buttons are left of the euros');
@@ -134,7 +141,7 @@ async function layoutProof() {
   function card(width, name, money) {
     const links = '<span class="bc-guest-pay-links"><span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn">Deposit</button></span><span class="bc-guest-pay-action"><button type="button" class="btn btn-ghost bc-create-guest-payment-link-btn">Full</button></span></span>';
     const moneyHtml = money
-      ? '<span class="bc-guest-pay-money"><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">€0.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">€225.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Price</span><span class="bc-guest-pay-price">€325.00</span></span></span>'
+      ? '<span class="bc-guest-pay-money"><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Total</span><span class="bc-guest-pay-price">€325.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Paid</span><span class="bc-guest-pay-paid">€0.00</span></span><span class="bc-guest-pay-column"><span class="bc-guest-pay-title">Owe</span><span class="bc-guest-pay-owed">€225.00</span></span></span>'
       : '';
     const rowOpen = money ? '<div class="bc-guest-pay-row">' : '';
     const rowClose = money ? '</div>' : '';
@@ -161,7 +168,11 @@ async function layoutProof() {
       const money = card.querySelector('.bc-guest-pay-money');
       const moneyBox = money ? money.getBoundingClientRect() : null;
       const price = card.querySelector('.bc-guest-pay-price');
-      const priceBox = price ? price.getBoundingClientRect() : null;
+      const owed = card.querySelector('.bc-guest-pay-owed');
+      const titles = [...card.querySelectorAll('.bc-guest-pay-title')].map((el) => ({
+        text: el.textContent,
+        left: el.getBoundingClientRect().left,
+      }));
       return {
         width: Math.round(card.getBoundingClientRect().width),
         kind: card.getAttribute('data-kind'),
@@ -170,7 +181,9 @@ async function layoutProof() {
         links: links.toJSON(),
         buttons,
         money: moneyBox ? moneyBox.toJSON() : null,
-        priceRight: priceBox ? priceBox.right : null,
+        oweRight: owed ? owed.getBoundingClientRect().right : null,
+        priceLeft: price ? price.getBoundingClientRect().left : null,
+        titles,
         lineRight: line.right,
         overflow: card.scrollWidth > card.clientWidth + 1,
         nameHasButton: !!card.querySelector('.bc-guest-pay-name-line button'),
@@ -186,10 +199,13 @@ async function layoutProof() {
   const [, longPhone, tightPhone, sunsetPhone] = phone;
   function sameLine(row) {
     assert(row.money, 'Wolfhouse price line has money');
-    assert(Math.abs(row.buttons[0].top - row.money.top) < 8, 'Deposit shares the price line with Paid/Owe/Price');
+    assert(Math.abs(row.buttons[0].top - row.money.top) < 8, 'Deposit shares the price line with Total/Paid/Owe');
     assert(row.buttons[0].right <= row.money.left + 1, 'buttons sit left of the euros');
     assert(row.links.left - row.line.left <= 2, 'Deposit/Full are left-aligned');
-    assert(row.priceRight >= row.lineRight - 2, 'Price stays on the right');
+    assert(row.oweRight >= row.lineRight - 2, 'Owe stays on the right');
+    assert(row.titles.map((t) => t.text).join(',') === 'Total,Paid,Owe', 'labels read Total then Paid then Owe');
+    assert(row.titles[0].left < row.titles[1].left && row.titles[1].left < row.titles[2].left, 'Total is left of Paid is left of Owe');
+    assert(row.priceLeft < row.titles[1].left, 'Total amount stays with the Total label, left of Paid');
     assert(row.name.bottom <= row.buttons[0].top + 1, 'name line is above the price line');
     assert(Math.abs(row.buttons[0].top - row.buttons[1].top) < 2, 'Deposit and Full stay together');
     assert(!row.nameHasButton, 'name line has no buttons');
