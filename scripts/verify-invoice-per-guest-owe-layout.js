@@ -92,7 +92,7 @@ async function main() {
         const rows=page.locator('.bc-guest-pay-row');assert.equal(await rows.count(),4);
         for(let i=0;i<4;i++) {
           const row=rows.nth(i);
-          assert.deepEqual(await row.locator('.bc-guest-pay-title').allTextContents(),['Paid','Owe','Price'],'clear Paid/Owe/Price titles');
+          assert.deepEqual(await row.locator('.bc-guest-pay-title').allTextContents(),['Total','Paid','Owe'],'clear Total/Paid/Owe titles');
           assert.equal(await row.locator('.bc-guest-pay-price').innerText(),'€300.00','stored guest price');
           assert.equal(await row.locator('.bc-guest-pay-name').innerText(),names[i],'full escaped long name retained');
           const geometry=await row.evaluate(e=>{
@@ -110,11 +110,11 @@ async function main() {
             assert.equal(geometry.color,'rgb(0, 0, 0)','price is black');
             assert(Number(geometry.priceWeight)<700,'light price is not bold');
           }
-          assert(geometry.paid.right<=geometry.owed.left&&geometry.owed.right<geometry.price.left,'Paid/Owe left of price');
-          assert(geometry.paid.top>=geometry.name.bottom-1,'Paid/Owe/Price sit on the next line');
+          assert(geometry.price.right<=geometry.paid.left&&geometry.paid.right<=geometry.owed.left,'Total left of Paid left of Owe');
+          assert(geometry.paid.top>=geometry.name.bottom-1,'Total/Paid/Owe sit on the next line');
           assert(geometry.name.bottom<=geometry.paid.top+1,'name does not overlap money');
           assert(geometry.name.width>=geometry.row.width*0.32,'long names keep a readable share');
-          assert(geometry.price.right>=geometry.row.right-1,'price sits on the right edge');
+          assert(geometry.owed.right>=geometry.row.right-1,'Owe sits on the right edge');
           assert(geometry.readable,'long names and amounts fully readable without overflow');
           assert(geometry.row.left>=0&&geometry.row.right<=width+1,'contained at minimum mobile width');
         }
