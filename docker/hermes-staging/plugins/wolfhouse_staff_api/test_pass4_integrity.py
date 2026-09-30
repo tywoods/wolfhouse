@@ -58,7 +58,8 @@ class Pass4IntegrityTests(unittest.TestCase):
             tool = registry.tools[name]
             properties = tool['schema']['parameters']['properties']
             selection = properties['catalog_selections']['items']
-            self.assertIn('service_id', selection['required'])
+            self.assertEqual(selection['anyOf'], [{'required': ['service_id']}, {'required': ['service_code']}])
+            self.assertIn('service_code', selection['properties'])
             self.assertIn('service_date', selection['properties'])
             self.assertNotIn('7+', properties['package_code']['description'])
             self.assertNotIn('<7', tool['description'])

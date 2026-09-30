@@ -56,6 +56,10 @@ class StandaloneHelperTests(unittest.TestCase):
 
 class PersistNamesTests(unittest.TestCase):
     def setUp(self):
+        # Keep the real PreparedPlan, quote ledger and dispatch fence. Direct
+        # tool units use the documented owner-unit seam below; ordinary-loop
+        # tests must enter through the real patched offline ingress harness.
+        self.ingress_sequence = 0
         self.enterContext(patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo',
                                                  'SUNSET_INGRESS_LOCATION_ID': ''}))
         self.attempts = []
@@ -83,8 +87,56 @@ class PersistNamesTests(unittest.TestCase):
                     'quote_provenance': {'fingerprint': 'opaque-fixture', 'quote_lane': 'offering'}}
         return {'success': False, 'write_performed': False, 'error': 'offline_capture'}
 
+    def owner_unit_call(self, handler, args):
+        """Real ledger unit seam, NOT trusted gateway/ordinary-loop proof.
+
+        A separate SessionDB keeps ledger transactions out of identity fault and
+        transaction-count units. No PreparedPlan or capability is fabricated.
+        """
+        from types import SimpleNamespace
+        from hermes_state import SessionDB
+        from gateway.session_context import set_session_vars, clear_session_vars
+        from wolfhouse import accepted_quote
+        with tempfile.TemporaryDirectory() as home:
+            db = SessionDB(Path(home) / 'owner.db')
+            db.create_session('identity-unit-owner', source='whatsapp')
+            owner = SimpleNamespace(_session_db=db, session_id='identity-unit-owner')
+            tokens = None
+            try:
+                for message, raw in (('offer', 'Please quote this'),
+                                     ('accept', 'I accept the quote')):
+                    if tokens is not None:
+                        clear_session_vars(tokens)
+                    tokens = set_session_vars(platform='whatsapp', source='whatsapp',
+                        chat_id='identity-unit-chat', user_id='identity-unit-guest',
+                        session_key='identity-unit-key', session_id=owner.session_id,
+                        message_id=message)
+                    accepted_quote.observe_owner_turn(owner, raw)
+                    if message == 'offer':
+                        offer = copy.deepcopy(args)
+                        # Invalid-count units must reach the original validator,
+                        # not fail while serializing a non-finite fixture offer.
+                        import math
+                        for key in ('guest_count', 'num_guests', 'count'):
+                            if isinstance(offer.get(key), float) and not math.isfinite(offer[key]):
+                                offer.pop(key)
+                        prepared = accepted_quote.prepare_quote(offer)
+                        accepted_quote.record_quote(prepared, {'success': True, 'total_cents': 42000})
+                return handler(copy.deepcopy(args))
+            finally:
+                accepted_quote.close_turn()
+                if tokens is not None:
+                    clear_session_vars(tokens)
+                db.close()
+
     def invoke(self, name, args):
-        return json.loads(self.registry.tools[name]['handler'](copy.deepcopy(args)))
+        handler = self.registry.tools[name]['handler']
+        # This helper is used only by direct tool units. Ordinary dispatch below
+        # calls registered handlers directly under the installed ingress owner.
+        if name in {'quote_booking', 'get_sunset_offering_quote',
+                    'create_booking_from_plan', 'create_sunset_booking'}:
+            return json.loads(self.owner_unit_call(handler, args))
+        return json.loads(handler(copy.deepcopy(args)))
 
     def sunset(self):
         os.environ.update(LUNA_CLIENT_SLUG='sunset', SUNSET_INGRESS_LOCATION_ID='sunset-somo')
@@ -218,6 +270,10 @@ class OrdinaryNamesTests(PersistNamesTests):
             home = Path(self.enterContext(tempfile.TemporaryDirectory()))
             db = SessionDB(home / 'state.db')
             self.addCleanup(db.close)
+        # The harness stubs upstream session selection, so materialize that real
+        # WhatsApp session before the installed owner hook observes ingress.
+        if db.get_session(session) is None:
+            db.create_session(session, source='whatsapp')
         names = {'capture_booking_names', 'quote_booking', 'create_booking_from_plan',
                  'get_sunset_offering_quote', 'create_sunset_booking'}
         definitions = [{'type': 'function', 'function': t['schema']}
@@ -242,12 +298,49 @@ class OrdinaryNamesTests(PersistNamesTests):
             callback = self.registry.hooks.get(name)
             return [callback(**kwargs)] if callback else []
         self.enterContext(patch.object(hooks, 'invoke_hook', side_effect=invoke_hook))
-        self.enterContext(patch.object(run_agent, 'handle_function_call',
-                                      side_effect=lambda name, args, *a, **k: self.registry.tools[name]['handler'](args)))
+        def dispatch(name, args, *a, **k):
+            baseline = getattr(self, 'original_create_args', None)
+            if name == 'create_booking_from_plan' and baseline is not None:
+                # Compare under the SAME real accepted owner, including its
+                # owner-issued idempotency key; no separate create authority.
+                plugin.create_booking_from_plan(copy.deepcopy(baseline))
+                self.original_create_wire = next(b for p, b in self.calls
+                                                 if p == '/booking-create-from-plan')
+                self.calls.clear()
+            result = self.registry.tools[name]['handler'](args)
+            if name == 'get_sunset_offering_quote':
+                # Sunset's current registered read handler does not itself
+                # record the accommodation owner ledger. Use the real owner
+                # seam with the actual offline quote result, not a fake plan.
+                from wolfhouse import accepted_quote
+                accepted_quote.record_quote(args, json.loads(result))
+            return result
+        self.enterContext(patch.object(run_agent, 'handle_function_call', side_effect=dispatch))
         return agent, db
 
-    def scripted_turn(self, agent, calls, history=None):
+    def scripted_turn(self, agent, calls, history=None, *, raw=None, accepted_plan=None):
         from types import SimpleNamespace as NS
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        if raw is None:
+            raw = 'Please proceed'
+            if len(calls) == 1 and calls[0][0] == 'capture_booking_names':
+                identity = calls[0][1]
+                parts = []
+                if 'guest_name' in identity:
+                    parts.append('My name is ' + identity['guest_name'])
+                if 'guests' in identity:
+                    parts.append('Our names are ' + ', '.join(g['name'] for g in identity['guests']))
+                if 'guest_count' in identity:
+                    parts.append('We are ' + str(identity['guest_count']) + ' guests')
+                if identity.get('clear'):
+                    parts.append('Please forget our booking names')
+                raw = '. '.join(parts) or 'Please proceed'
+        if accepted_plan is not None:
+            quote_tool = ('get_sunset_offering_quote' if os.environ['LUNA_CLIENT_SLUG'] == 'sunset'
+                          else 'quote_booking')
+            self.scripted_turn(agent, [(quote_tool, accepted_plan)], history, raw='Please quote this')
+            self.calls.clear()
+            raw = 'I accept the quote'
         replies = [NS(output=[NS(type='function_call', id='fc-' + str(i), call_id='call-' + str(i),
                                 name=name, arguments=json.dumps(args), status='completed')
                               for i, (name, args) in enumerate(calls)], output_text='', status='completed',
@@ -260,8 +353,18 @@ class OrdinaryNamesTests(PersistNamesTests):
         def scripted(request):
             self.model_requests.append(copy.deepcopy(request))
             return replies.pop(0)
+        def model_call(text):
+            # The harness suppresses delivery hooks on its gateway edge. Restore
+            # registered runtime hooks only inside the context-preserving worker.
+            import hermes_cli.plugins as hooks
+            def invoke_hook(name, **kwargs):
+                callback = self.registry.hooks.get(name)
+                return [callback(**kwargs)] if callback else []
+            with patch.object(hooks, 'invoke_hook', side_effect=invoke_hook):
+                return agent.run_conversation(text, conversation_history=history)
+        self.ingress_sequence += 1
         with patch.object(agent, '_interruptible_api_call', side_effect=scripted):
-            result = agent.run_conversation('Structured fixture turn, not live inference.', conversation_history=history)
+            result = gateway_ingress(agent, raw, 'names-ingress-' + str(self.ingress_sequence), model_call)
         self.assertTrue(result['completed'])
         return result
 
@@ -305,7 +408,10 @@ class OrdinaryNamesTests(PersistNamesTests):
         self.assertEqual(self.calls, [], 'name-only capture has no Staff call')
         summary = [{'role': 'assistant', 'content': 'Summary: guest considering a stay. Names omitted.'}]
         rebuilt, _ = self.ordinary_agent(db)
-        self.scripted_turn(rebuilt, [('quote_booking', BASE)], summary)
+        # The offered plan must include the same add-ons later accepted for
+        # each payment route; payment choice itself is not a commercial delta.
+        self.scripted_turn(rebuilt, [('quote_booking', {**BASE,
+            'add_ons': [{'code': 'yoga_class', 'quantity': 4}]})], summary, raw='Please quote this')
         quote = self.tool_result(db, rebuilt, 'quote_booking')
         self.assertEqual(quote['guests'], ROSTER)
         self.assertIn('María José', str(self.model_requests[0]))
@@ -315,10 +421,10 @@ class OrdinaryNamesTests(PersistNamesTests):
             # Compare the whole wire to the explicitly named original handler,
             # including its existing bed-code sanitization.
             self.calls.clear()
-            plugin.create_booking_from_plan({**args, 'guest_name': NAMES[0], 'guests': ROSTER})
-            expected = next(b for p, b in self.calls if p == '/booking-create-from-plan')
-            self.calls.clear()
-            self.scripted_turn(rebuilt, [('create_booking_from_plan', args)], summary)
+            self.original_create_args = {**args, 'guest_name': NAMES[0], 'guests': ROSTER}
+            self.scripted_turn(rebuilt, [('create_booking_from_plan', args)], summary, accepted_plan=args)
+            expected = self.original_create_wire
+            self.original_create_args = None
             body = next(b for p, b in self.calls if p == '/booking-create-from-plan')
             self.assertEqual(body['guests'], ROSTER)
             self.assertEqual(body['guest_name'], NAMES[0])
@@ -332,6 +438,23 @@ class OrdinaryNamesTests(PersistNamesTests):
         print('CAPTURED TRANSPORT LOCAL SQL ONLY:', json.dumps(
             {key: proof[key] for key in ('ok', 'occupants', 'network_attempts')}, ensure_ascii=False))
 
+    def test_ordinary_accepted_unicode_contact_continuity(self):
+        """Expose owner continuity defects; do not replace real name text with OK."""
+        agent, db = self.ordinary_agent(session='accepted-unicode-contact')
+        self.scripted_turn(agent, [('capture_booking_names', {'guests': ROSTER, 'guest_count': 4})])
+        self.scripted_turn(agent, [('quote_booking', BASE)], raw='Please quote this')
+        self.scripted_turn(agent, [('capture_booking_names', {})], raw='I accept the quote')
+        self.scripted_turn(agent, [('capture_booking_names', {'guest_name': 'María José'})],
+                           raw='My name is María José')
+        self.calls.clear()
+        self.scripted_turn(agent, [('create_booking_from_plan', BASE)], raw='Please proceed')
+        result = self.tool_result(db, agent, 'create_booking_from_plan')
+        writes = [body for path, body in self.calls if path == '/booking-create-from-plan']
+        self.assertEqual(len(writes), 1, 'contact-only continuity lost accepted authority: ' + str(result))
+        self.assertEqual(writes[0]['guest_name'], 'María José')
+        self.assertEqual(writes[0]['guests'], ROSTER)
+        self.assertFalse(result['write_performed'])
+
     def test_ordinary_corrections_clear_partial_and_count_mismatch(self):
         for index, update in enumerate(({'guests': [{'name': n} for n in ['New First', 'B', 'C', 'D']]},
                                        {'guest_name': 'New Contact'}, {'guests': []},
@@ -342,7 +465,9 @@ class OrdinaryNamesTests(PersistNamesTests):
                 self.scripted_turn(agent, [('capture_booking_names', {'guests': ROSTER, 'guest_count': 4})])
                 self.scripted_turn(agent, [('capture_booking_names', update)])
                 self.calls.clear()
-                self.scripted_turn(agent, [('create_booking_from_plan', {**BASE, 'guest_count': update.get('guest_count', 4)})])
+                create_args = {**BASE, 'guest_count': update.get('guest_count', 4)}
+                self.scripted_turn(agent, [('create_booking_from_plan', create_args)],
+                                   accepted_plan=create_args if index in (0, 1) else None)
                 writes = [b for p, b in self.calls if p == '/booking-create-from-plan']
                 if index in (0, 1):
                     self.assertEqual(writes[0]['guests'], update.get('guests', ROSTER))
@@ -363,7 +488,7 @@ class OrdinaryNamesTests(PersistNamesTests):
             self.scripted_turn(agent, [('capture_booking_names', update)])
             self.assertEqual(self.tool_result(db, agent, 'capture_booking_names')['names'], expected)
             self.calls.clear()
-            self.scripted_turn(agent, [('create_booking_from_plan', BASE)])
+            self.scripted_turn(agent, [('create_booking_from_plan', BASE)], accepted_plan=BASE)
             body = next(b for p, b in self.calls if p == '/booking-create-from-plan')
             self.assertEqual({k: body[k] for k in expected}, expected)
             proof = self.local_sql_proof(body)
@@ -825,7 +950,8 @@ class OrdinaryNamesTests(PersistNamesTests):
         self.scripted_turn(rebuilt, [('create_sunset_booking', SUNSET)])
         self.assertEqual(self.tool_result(db, rebuilt, 'create_sunset_booking')['error'], 'guest_confirmed_booking_required')
         self.assertEqual(self.calls, [])
-        self.scripted_turn(rebuilt, [('create_sunset_booking', {**SUNSET, 'guest_confirmed_booking': True})])
+        self.scripted_turn(rebuilt, [('create_sunset_booking', {**SUNSET, 'guest_confirmed_booking': True})],
+                           raw='I accept the quote')
         body = next(b for p, b in self.calls if p == '/sunset/booking-create')
         self.assertEqual(body['guest_name'], 'María José')
         self.assertNotIn('guests', body)
@@ -867,7 +993,10 @@ class OrdinaryNamesTests(PersistNamesTests):
             raise KeyboardInterrupt('offline lifecycle sentinel')
         with patch.object(loop, 'build_turn_context', side_effect=fail_after_prologue):
             with self.assertRaises(KeyboardInterrupt):
-                agent.run_conversation('offline exception')
+                from wolfhouse.offline_ingress_harness import gateway_ingress
+                self.ingress_sequence += 1
+                gateway_ingress(agent, 'Please proceed',
+                    'names-exception-' + str(self.ingress_sequence), agent.run_conversation)
         result = retained[0].run(self.invoke, 'capture_booking_names', {'guest_name': 'Too late'})
         self.assertEqual(result['status'], 'not_saved')
 

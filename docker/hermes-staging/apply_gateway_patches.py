@@ -810,6 +810,16 @@ def apply_luna_personality_gateway_patches(source: str) -> tuple[str, dict]:
     """
     owner_anchor, soul_patch, indent = select_unique_soul_reload_owner(source)
     original = source
+    # Migrate ONLY the exact previously emitted owner block. Arbitrary/tag-only
+    # blocks still fail the canonical AST validator; no validator bypass.
+    pad = ' ' * indent
+    legacy = ('\n' + pad + LUNA_SOUL_RELOAD_TAG + '\n'
+        + pad + 'import os as _wolfhouse_soul_os\n'
+        + pad + '_wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))\n'
+        + pad + 'if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):\n'
+        + pad + '    self._evict_cached_agent(session_key)\n')
+    if source.count(legacy) == 1 and LUNA_PERSONALITY_BIND_TAG not in source:
+        source = source.replace(legacy, '\n', 1)
     meta = {
         "owner_indent": indent,
         "luna_personality_bind": False,
@@ -1158,6 +1168,161 @@ def apply_run_plain_reply_patch(run_path: Path) -> dict:
     }
 
 
+def _inbound_owner(tree, class_name, method):
+    classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name]
+    owners = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == method]
+    if len(classes) != 1 or len(owners) != 1 or owners[0] not in classes[0].body:
+        raise RuntimeError('original-inbound owner missing/ambiguous: ' + method)
+    return owners[0]
+
+
+def _ast_equal(left, right):
+    return ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False)
+
+
+def _canonical_once(tree, owner, code, direct=False):
+    expected = ast.parse(code).body[0]
+    candidates = owner.body if direct else list(ast.walk(owner))
+    found = [n for n in candidates if _ast_equal(n, expected)]
+    if len(found) != 1:
+        raise RuntimeError('original-inbound canonical seam missing/ambiguous: ' + code)
+    # Reject duplicates/changed calls anywhere, including another owner.
+    calls = [n for n in ast.walk(expected) if isinstance(n, ast.Call)]
+    for call in calls:
+        security_call = isinstance(call.func, ast.Name) and call.func.id in ('_wh_bind_original', 'api_original', 'api_worker_owner')
+        security_call = security_call or (isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name) and call.func.value.id == '_wh_original')
+        call_scope = tree if security_call else owner
+        actual = [n for n in ast.walk(call_scope) if isinstance(n, ast.Call) and _ast_equal(n.func, call.func)]
+        if len(actual) != 1 or not _ast_equal(actual[0], call):
+            raise RuntimeError('original-inbound call changed/duplicated: ' + code)
+    return found[0]
+
+
+def _validate_gateway_original(source):
+    tree = ast.parse(source)
+    for method, decorator in (('_handle_message', '_wh_gateway_event_owner'), ('_run_agent', '_wh_gateway_run_owner')):
+        owner = _inbound_owner(tree, 'GatewayRunner', method)
+        decorators = [d for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                      for d in n.decorator_list if isinstance(d, ast.Name) and d.id == decorator]
+        if len(decorators) != 1 or decorators[0] not in owner.decorator_list:
+            raise RuntimeError('original-inbound decorator owner changed: ' + method)
+    owner = _inbound_owner(tree, 'GatewayRunner', '_handle_message_with_agent')
+    anchor = _canonical_once(tree, owner, '_session_env_tokens = self._set_session_env(context)', True)
+    bind = _canonical_once(tree, owner, '_wh_bind_original(self._session_db, session_entry.session_id, session_key, source, event.message_id)', True)
+    index = owner.body.index(anchor)
+    expected_import = ast.parse('from wolfhouse.original_inbound import bind_gateway_session as _wh_bind_original').body[0]
+    if owner.body.index(bind) != index + 2 or not _ast_equal(owner.body[index + 1], expected_import):
+        raise RuntimeError('original-inbound bind not at pre-enrichment seam')
+    expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_run_owner as _wh_gateway_run_owner').body[0]
+    if sum(_ast_equal(n, expected) for n in tree.body) != 1:
+        raise RuntimeError('original-inbound owner imports changed')
+
+
+def _validate_api_original(source):
+    tree = ast.parse(source)
+    owner = _inbound_owner(tree, 'APIServerAdapter', '_run_agent')
+    capture = _canonical_once(tree, owner, '_wh_original = api_original(user_message, session_id)', True)
+    loop = _canonical_once(tree, owner, 'loop = asyncio.get_running_loop()', True)
+    expected_import = ast.parse('from wolfhouse.original_inbound import api_original, api_worker_owner').body[0]
+    index = owner.body.index(capture)
+    if index == 0 or not _ast_equal(owner.body[index - 1], expected_import) or owner.body.index(loop) != index + 1:
+        raise RuntimeError('API capture moved from executor seam')
+    worker = [n for n in owner.body if isinstance(n, ast.FunctionDef) and n.name == '_run']
+    if len(worker) != 1:
+        raise RuntimeError('API worker missing/ambiguous')
+    wrapped = _canonical_once(tree, worker[0], 'with api_worker_owner(_wh_original, agent):\n    result = agent.run_conversation(user_message=user_message, conversation_history=conversation_history, task_id=effective_task_id)')
+    if not any(isinstance(n, ast.Try) and wrapped in n.body for n in ast.walk(worker[0])):
+        raise RuntimeError('API worker moved out of session cleanup try')
+    closed = _canonical_once(tree, owner, '_wh_original.close()')
+    finalizers = [n for n in owner.body if isinstance(n, ast.Try) and closed in n.finalbody]
+    decrement = ast.parse('self._inflight_agent_runs -= 1').body[0]
+    if len(finalizers) != 1 or len(finalizers[0].finalbody) != 2 or finalizers[0].finalbody[0] is not closed or not _ast_equal(finalizers[0].finalbody[1], decrement):
+        raise RuntimeError('API close not in canonical executor finally')
+    expected_return = ast.parse('async def f():\n    return await loop.run_in_executor(None, _run)').body[0].body[0]
+    if len(finalizers[0].body) != 1 or not _ast_equal(finalizers[0].body[0], expected_return):
+        raise RuntimeError('API executor changed')
+
+
+def apply_original_inbound_source(source: str) -> str:
+    """Decorate exact runtime owners; missing/duplicate seams fail the build."""
+    if any(marker in source for marker in ('_wh_gateway_event_owner', '_wh_gateway_run_owner',
+                                           '_wh_bind_original', '# Wolfhouse original inbound:')):
+        # An installed/partial patch is validation-only, never silently healed.
+        _validate_gateway_original(source)
+        compile(source, '<gateway-original-inbound>', 'exec')
+        return source
+    for name, decorator in (('_handle_message', 'gateway_event_owner'),
+                            ('_run_agent', 'gateway_run_owner')):
+        tag = '    @_wh_' + decorator + '\n'
+        if tag in source:
+            if source.count(tag) != 1:
+                raise RuntimeError('duplicate original-inbound owner: ' + name)
+            continue
+        tree = ast.parse(source)
+        owners = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == name]
+        if len(owners) != 1:
+            raise RuntimeError('original-inbound owner missing/ambiguous: ' + name)
+        lines = source.splitlines(keepends=True)
+        lines.insert(owners[0].lineno - 1, tag)
+        source = ''.join(lines)
+    imports = ('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, '
+               'gateway_run_owner as _wh_gateway_run_owner\n')
+    if imports not in source:
+        anchor = 'from contextvars import copy_context\n'
+        if source.count(anchor) != 1:
+            raise RuntimeError('original-inbound import anchor missing/ambiguous')
+        source = source.replace(anchor, anchor + imports, 1)
+    bind_tag = '# Wolfhouse original inbound: bind incarnation before enrichment.'
+    if bind_tag not in source:
+        anchor = '        _session_env_tokens = self._set_session_env(context)\n'
+        if source.count(anchor) != 1:
+            raise RuntimeError('original-inbound session bind anchor missing/ambiguous')
+        source = source.replace(anchor, anchor + '        ' + bind_tag + '\n'
+            '        from wolfhouse.original_inbound import bind_gateway_session as _wh_bind_original\n'
+            '        _wh_bind_original(self._session_db, session_entry.session_id, session_key, source, event.message_id)\n', 1)
+    _validate_gateway_original(source)
+    compile(source, '<gateway-original-inbound>', 'exec')
+    return source
+
+
+def apply_api_original_inbound_patch(path: Path) -> dict:
+    source = path.read_text(encoding='utf-8')
+    tag = '# Wolfhouse original API inbound: request-owned, not model/history.'
+    if tag not in source:
+        tree = ast.parse(source)
+        owners = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == '_run_agent']
+        if len(owners) != 1:
+            raise RuntimeError('API original-inbound owner missing/ambiguous')
+        owner = owners[0]
+        lines = source.splitlines(keepends=True)
+        start, end = owner.lineno - 1, owner.end_lineno
+        block = ''.join(lines[start:end])
+        anchor = '        loop = asyncio.get_running_loop()\n'
+        if block.count(anchor) != 1:
+            raise RuntimeError('API original-inbound capture anchor missing')
+        block = block.replace(anchor, '        ' + tag + '\n'
+            '        from wolfhouse.original_inbound import api_original, api_worker_owner\n'
+            '        _wh_original = api_original(user_message, session_id)\n' + anchor, 1)
+        call = ('                result = agent.run_conversation(\n'
+                '                    user_message=user_message,\n'
+                '                    conversation_history=conversation_history,\n'
+                '                    task_id=effective_task_id,\n'
+                '                )')
+        if block.count(call) != 1:
+            raise RuntimeError('API original-inbound worker anchor missing')
+        block = block.replace(call, '                with api_worker_owner(_wh_original, agent):\n' +
+                              ''.join('    ' + line + '\n' for line in call.splitlines()).rstrip('\n'), 1)
+        anchor = '            self._inflight_agent_runs -= 1'
+        if block.count(anchor) != 1:
+            raise RuntimeError('API original-inbound finally anchor missing')
+        block = block.replace(anchor, '            _wh_original.close()\n' + anchor, 1)
+        source = ''.join(lines[:start]) + block + ''.join(lines[end:])
+    _validate_api_original(source)
+    compile(source, str(path), 'exec')
+    path.write_text(source, encoding='utf-8')
+    return {'original_api_inbound': True}
+
+
 def apply_patches(run_path: Path) -> dict:
     s = cleanup_stale_patches(run_path.read_text(encoding="utf-8"))
 
@@ -1259,6 +1424,7 @@ def apply_patches(run_path: Path) -> dict:
                 1,
             )
 
+    s = apply_original_inbound_source(s)
     run_path.write_text(s, encoding="utf-8")
     plain = apply_run_plain_reply_patch(run_path)
     final = run_path.read_text(encoding="utf-8")
@@ -1602,6 +1768,10 @@ def main() -> int:
         else:
             result["session_store"] = {"session_stale_routing_skip": False, "note": "gateway.session not found"}
         result.update(apply_patches(run_path))
+        api_spec = importlib.util.find_spec('gateway.platforms.api_server')
+        if not api_spec or not api_spec.origin:
+            raise RuntimeError('API original-inbound source missing')
+        result['api_original_inbound'] = apply_api_original_inbound_patch(Path(api_spec.origin))
         # Fix Anthropic OAuth login token endpoint (platform.claude.com fallback)
         if adapter_spec and adapter_spec.origin:
             result["anthropic_oauth"] = apply_anthropic_oauth_patch(Path(adapter_spec.origin))

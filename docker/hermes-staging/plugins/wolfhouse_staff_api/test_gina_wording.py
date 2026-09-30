@@ -67,8 +67,9 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
                         "payment_status": "unpaid"}
             for guest in guests:
                 if path == f"/booking-guests/{guest['booking_guest_id']}/create-payment-link":
-                    return {"success": True, **guest, "amount_due_cents": 32500, "currency": "EUR",
-                            "payment_target": "full_share", "payment_status": "checkout_created",
+                    self.assertEqual(payload['payment_target'], 'deposit', 'fixture must assert the real requested target')
+                    return {"success": True, **guest, "amount_due_cents": 10000, "currency": "EUR",
+                            "payment_target": "deposit", "payment_status": "checkout_created",
                             "guest_payment_url": f"https://example.test/pay/GINA-OFFLINE/g{guest['guest_number']}"}
             raise AssertionError(f"unexpected API call {path}")
 
@@ -82,9 +83,9 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
         self.assertEqual(len(calls), 4, "no extra round trips to repeat amounts or mint links")
         self.assertEqual(len(result["guest_payment_links"]), 3)
         for link in result["guest_payment_links"]:
-            self.assertEqual(link.get("amount_due_cents"), 32500)
+            self.assertEqual(link.get("amount_due_cents"), 10000)
             self.assertEqual(link.get("currency"), "EUR")
-            self.assertEqual(link.get("payment_target"), "full_share")
+            self.assertEqual(link.get("payment_target"), "deposit")
             self.assertEqual(link.get("payment_status"), "checkout_created")
         self.assertIs(result.get("no_payment_truth_recorded"), True)
         self.assertFalse(result["staff_review_needed"])

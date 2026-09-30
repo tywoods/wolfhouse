@@ -990,7 +990,16 @@ def create_booking_from_plan(params, **kwargs):
         if preference in excluded:
             payload.pop("room_preference", None)
 
-    data = _post_bot("/booking-create-from-plan", payload)
+    from wolfhouse import accepted_quote as ledger
+    ticket = ledger._dispatch_ticket.get()
+    if ticket is None:
+        # Standalone offline handler compatibility only; real agent is failclosed.
+        import sys
+        if ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules:
+            raise ledger.QuoteBoundaryError('quote_dispatch_ticket_missing')
+        data = _post_bot("/booking-create-from-plan", payload)
+    else:
+        data = ledger.dispatch_create(ticket, lambda: _post_bot("/booking-create-from-plan", payload))
     if _intentional_capability_block(data):
         blocked = _intentional_block_result(data)
         blocked["room_decision"] = room_decision
@@ -4098,7 +4107,85 @@ def _booking_name_handler(name, handler):
     return scoped
 
 
+def _quote_owner_handler(name, original):
+    """Registered and direct entrypoints share the same owner boundary."""
+    from functools import wraps
+    @wraps(original)
+    def guarded(params, **kwargs):
+        import sys
+        from wolfhouse import accepted_quote as ledger
+        active = ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules
+        canonical = dict(params or {})
+        dispatched = False
+        dispatch_token = None
+        try:
+            if active:
+                canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'
+                             else ledger.prepare_create(canonical))
+                if name != 'quote_booking':
+                    dispatch_token = ledger._dispatch_ticket.set(canonical)
+            wire = dict(canonical)
+            selections = wire.get('catalog_selections')
+            if selections:
+                supported = {'wetsuit_rental', 'soft_top_rental', 'hard_board_rental',
+                             'surf_lesson_single', 'yoga_class', 'meals'}
+                projected = []
+                for selection in selections:
+                    if not isinstance(selection, dict):
+                        break
+                    code = selection.get('service_code')
+                    # Date-specific catalog sessions do not have a verified
+                    # atomic representation in the accommodation add-on wire.
+                    if (code not in supported or selection.get('service_date')
+                            or set(selection) - {'service_code', 'quantity', 'days'}
+                            or type(selection.get('quantity', 1)) is not int
+                            or selection.get('quantity', 1) < 1
+                            or ('days' in selection and (type(selection['days']) is not int or selection['days'] < 1))):
+                        break
+                    projected.append({'code': code, **{key: selection[key] for key in ('quantity', 'days') if key in selection}})
+                else:
+                    additions = list(wire.get('add_ons') or [])
+                    # Never silently combine conflicting quantities of one code.
+                    for item in projected:
+                        same = [existing for existing in additions if existing.get('code') == item['code']]
+                        if same and same != [item]:
+                            raise ledger.QuoteBoundaryError('catalog_addon_conflict')
+                        if not same:
+                            additions.append(item)
+                    wire['add_ons'] = additions
+                    wire.pop('catalog_selections', None)
+            dispatched = True
+            result = original(wire, **kwargs)
+            if active and name == 'quote_booking':
+                ledger.record_quote(canonical, json.loads(result))
+            return result
+        except ledger.QuoteBoundaryError as error:
+            return _json_result({'success': False, 'tool': name, 'error': str(error),
+                                 'write_performed': False, 'booking_not_created_yet': True,
+                                 'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+        except Exception:
+            if active and not dispatched:
+                return _json_result({'success': False, 'tool': name, 'error': 'quote_owner_unavailable',
+                                     'write_performed': False, 'booking_not_created_yet': True,
+                                     'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+            raise
+        finally:
+            if dispatch_token is not None:
+                ledger._dispatch_ticket.reset(dispatch_token)
+    return guarded
+
+
+quote_booking = _quote_owner_handler('quote_booking', quote_booking)
+create_booking_from_plan = _quote_owner_handler('create_booking_from_plan', create_booking_from_plan)
+
+
 def register(ctx):
+    if hasattr(ctx, 'register_hook'):
+        try:
+            from wolfhouse import accepted_quote
+            accepted_quote.install_owner_hook()
+        except ImportError:
+            pass  # Standalone offline plugin-only environment, no agent loop.
     booking_names = _booking_names_helper()
     if booking_names is not None and hasattr(ctx, "register_hook"):
         try:
@@ -4134,11 +4221,11 @@ def register(ctx):
         "room_name_hints": {"type": "array", "description": "One hint per traveler, not the booker alone. Each item: name, hint, confidence, ambiguous, explicit_gender.", "items": {"type": "object"}},
         "catalog_selections": {
             "type": "array",
-            "description": "All selected Admin catalog activities, retained on every quote/create. Current API cannot atomically include these: nonempty selections return explicit no-write refusal. Never omit accepted selections to get a cheaper booking; only a guest's explicit revised choice permits a new quote without them.",
+            "description": "All selected Admin catalog activities, retained on every quote/create by the owner ledger. Exact supported accommodation add-on service_code values project atomically to add_ons; unsupported IDs or date-specific sessions clearly refuse before create. Never omit accepted selections to get a cheaper booking; only real guest revision followed by a fresh authoritative quote and acceptance can change them.",
             "items": {"type": "object", "properties": {
-                "service_id": {"type": "string"}, "name": {"type": "string"},
+                "service_id": {"type": "string"}, "service_code": {"type": "string"}, "name": {"type": "string"},
                 "service_date": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1},
-                "days": {"type": "integer", "minimum": 1}}, "required": ["service_id"]},
+                "days": {"type": "integer", "minimum": 1}}, "anyOf": [{"required": ["service_id"]}, {"required": ["service_code"]}]},
         },
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea only when preview_package_prices reports package_eligible under the current Admin package_min_nights; package_none only when the guest selects accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
