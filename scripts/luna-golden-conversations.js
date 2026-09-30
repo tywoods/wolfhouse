@@ -20,10 +20,10 @@
  *   node scripts/luna-golden-conversations.js --verbose
  *   node scripts/luna-golden-conversations.js --gate         # deploy gate: skip --allow-writes fixtures
  *
- * Exit code 0 = all genuine fixtures pass, 1 = any unexpected failure (CI-gateable
- * on every deploy). A fixture with `expect_fail` pins a known, un-fixed bug: while
- * it fails it is reported as XFAIL and does NOT break the gate; if it ever PASSES it
- * is reported as a loud ⚠ XPASS (remove the marker — the bug is fixed).
+ * Exit 0 = complete PASS; 1 = failure/XPASS; 3 = incomplete (SKIP/XFAIL).
+ * Golden turns are permanently read-only, independently of staging capability.
+ * Mutation fixtures are SKIP without invocation. Infrastructure/teardown failures
+ * cannot be classified as expected semantic failures.
  *
  * Assertion vocabulary (per turn `expect`):
  *   reply_contains:     [str|RegExp]  — every entry must appear in reply_text (str = case-insensitive substring)
@@ -50,6 +50,7 @@ const dockerArgs = (rest) => [...DOCKER.slice(1), ...rest];
 // ---- hook drivers -----------------------------------------------------------
 
 function simulate(thread, text, { lang, allowWrites } = {}) {
+  if (allowWrites) throw Error('golden is permanently read-only');
   const args = ['exec', CONTAINER, 'python3', '-m', 'wolfhouse.simulate_guest_turn',
     '--thread', thread, '--text', text, '--json'];
   if (lang) args.push('--lang', lang);
@@ -58,15 +59,12 @@ function simulate(thread, text, { lang, allowWrites } = {}) {
   return JSON.parse(out);
 }
 
-function freshStart(guestPhone) {
-  if (!guestPhone) return;
-  try {
-    execFileSync(DOCKER[0], dockerArgs(['exec', CONTAINER, 'sh', '-lc',
-      `curl -s -X POST http://127.0.0.1:8090/wolfhouse/guest-fresh-start ` +
-      `-H "X-Luna-Bot-Token: $(grep LUNA_BOT_INTERNAL_TOKEN /opt/data/.env | cut -d= -f2)" ` +
-      `-H "Content-Type: application/json" -d '{"guest_phone":"${guestPhone}","hard_delete":true}'`]),
-      { encoding: 'utf8', timeout: 30000 });
-  } catch (_) { /* teardown best-effort */ }
+function freshStart(thread) {
+  if (!/^sim:golden-[A-Za-z0-9][A-Za-z0-9-]{0,180}$/.test(thread)) throw Error('invalid golden namespace');
+  const out = execFileSync(DOCKER[0], dockerArgs(['exec', CONTAINER, 'python3', '-m',
+    'wolfhouse.simulate_guest_turn', '--thread', thread, '--cleanup', '--json']),
+    { encoding: 'utf8', timeout: 30000 });
+  if (JSON.parse(out).ok !== true) throw Error('golden teardown rejected');
 }
 
 // ---- rolling dates + private-room pre-flight --------------------------------
@@ -127,35 +125,6 @@ function privateRoomAvailable(ciISO, coISO) {
     const j = JSON.parse(out);
     return j && typeof j.private_room_available === 'boolean' ? j.private_room_available : null;
   } catch (_) { return null; }
-}
-
-// Self-teardown for --allow-writes fixtures: cancel the Stripe-TEST booking(s) the
-// run created so synthetic rows don't accumulate. POST /staff/bot/bookings/cancel is
-// guarded server-side to agent_luna / unpaid-test bookings only. Returns true
-// (cancelled) / false (not cancelled) / null (couldn't reach / parse).
-function cancelTestBooking(bookingCode) {
-  if (!bookingCode) return null;
-  try {
-    const out = execFileSync(DOCKER[0], dockerArgs(['exec', CONTAINER, 'sh', '-lc',
-      `BASE=$(grep '^WOLFHOUSE_STAFF_API_BASE_URL=' /opt/data/.env | cut -d= -f2); ` +
-      `TOK=$(grep '^LUNA_BOT_INTERNAL_TOKEN=' /opt/data/.env | cut -d= -f2); ` +
-      `curl -s -X POST "$BASE/staff/bot/bookings/cancel" -H "X-Luna-Bot-Token: $TOK" ` +
-      `-H 'Content-Type: application/json' -d '{"booking_code":"${bookingCode}"}'`]),
-      { encoding: 'utf8', timeout: 30000 });
-    const j = JSON.parse(out);
-    return j && j.cancelled === true;
-  } catch (_) { return null; }
-}
-
-// Booking codes the run actually created, scraped from tool result_summaries
-// (summarize_tool_result emits "booking_code=MB-WOLFHO-..." among "; "-joined pairs).
-function bookingCodesFrom(tools) {
-  const codes = new Set();
-  for (const t of (tools || [])) {
-    const m = /booking_code=([A-Za-z0-9-]+)/.exec((t && t.result_summary) || '');
-    if (m) codes.add(m[1]);
-  }
-  return [...codes];
 }
 
 // ---- assertion engine -------------------------------------------------------
@@ -461,10 +430,12 @@ const FIXTURES = [
 // ---- runner -----------------------------------------------------------------
 
 function runFixture(fx, { verbose }) {
+  if (fx.allow_writes) return { fails: [], skipped: true, reason: 'business mutation fixture not admitted' };
   const stamp = `${Date.now()}-${Math.floor(process.hrtime()[1] % 100000)}`;
   const thread = `sim:golden-${fx.name}-${stamp}`;
   const fails = [];
-  let guestPhone = null;
+  let infrastructureFailure = false;
+
   const allTools = [];
   const allReplies = [];
   process.stdout.write(`\n▶ ${fx.name} (${fx.lang}${fx.allow_writes ? ', writes' : ''})\n`);
@@ -496,7 +467,7 @@ function runFixture(fx, { verbose }) {
     turns.forEach((turn, i) => {
       if (i > 0) pace();
       const res = simulate(thread, turn.text, { lang: fx.lang, allowWrites: fx.allow_writes });
-      guestPhone = res.guest_phone || guestPhone;
+      if (res.ok !== true || res.whatsapp_suppressed !== true || res.transport_calls !== 0) throw Error('unsafe or failed golden response');
       allTools.push(...(res.tool_calls || []));
       allReplies.push(res.reply_text || '');
       // The output-guard scrubs leaks from reply_text, so assert leak invariants
@@ -529,22 +500,13 @@ function runFixture(fx, { verbose }) {
       for (const f of fails.slice(before)) process.stdout.write(`      - ${f}\n`);
     }
   } catch (e) {
+    infrastructureFailure = true;
     fails.push(`hook error: ${e.message.split('\n')[0]}`);
   } finally {
-    // Always tear down the simulated guest so stale context can't leak into a
-    // later fixture that reuses the same derived phone.
-    freshStart(guestPhone);
-    // For --allow-writes fixtures, also cancel the real booking(s) the run created so
-    // the suite stops accumulating synthetic Stripe-TEST rows (rolling dates + this =
-    // self-cleaning). Best-effort: a teardown miss never fails the fixture.
-    if (fx.allow_writes) {
-      for (const code of bookingCodesFrom(allTools)) {
-        const ok = cancelTestBooking(code);
-        process.stdout.write(`  ⌫ teardown: cancel ${code} → ${ok === true ? 'cancelled' : ok === false ? 'NOT cancelled' : 'error'}\n`);
-      }
-    }
+    try { freshStart(thread); }
+    catch (_) { infrastructureFailure = true; fails.push('golden teardown failed'); }
   }
-  return { fails, skipped: false };
+  return { fails, skipped: false, infrastructureFailure };
 }
 
 function main() {
@@ -578,9 +540,10 @@ function main() {
 
   let passed = 0, failed = 0, xfail = 0, xpass = 0, skipped = 0;
   for (const fx of fixtures) {
-    const { fails, skipped: sk } = runFixture(fx, { verbose });
+    const { fails, skipped: sk, infrastructureFailure } = runFixture(fx, { verbose });
     if (sk) { skipped++; continue; }
-    if (fx.expect_fail) {
+    if (infrastructureFailure) { failed++; }
+    else if (fx.expect_fail) {
       if (fails.length) { xfail++; process.stdout.write(`  ⊘ XFAIL (known bug, tracked): ${fx.expect_fail}\n`); }
       else { xpass++; process.stdout.write(`  ⚠ XPASS — ${fx.name} now PASSES! Remove its expect_fail marker (the bug is fixed).\n`); }
     } else if (fails.length) { failed++; } else { passed++; }
@@ -591,7 +554,7 @@ function main() {
   if (skipped) parts.push(`${skipped} skipped`);
   if (failed) parts.push(`${failed} FAILED`);
   console.log(`\n${failed ? '✗' : '✓'} golden conversations: ${parts.join(', ')} (${fixtures.length} run${gate ? ', gate mode' : ''})`);
-  process.exit(failed ? 1 : 0);                        // xfail/xpass never break the gate
+  process.exit(failed || xpass ? 1 : skipped || xfail ? 3 : 0); // incomplete is not PASS
 }
 
 if (require.main === module) main();

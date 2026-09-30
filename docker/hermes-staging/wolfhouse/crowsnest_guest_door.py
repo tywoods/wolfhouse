@@ -43,6 +43,53 @@ _INSTALLED_WHATSAPP: set[int] = set()
 _EXECUTOR_GUARD_INSTALLED = False
 _PENDING_SIM_REPLIES: Dict[str, str] = {}
 _PHONE_RE = re.compile(r"^\+?[0-9]{10,15}$")
+# Issued by the authenticated golden entry owner, never by JSON booleans.
+_GOLDEN_OWNER = object()
+_GOLDEN_REQUEST: ContextVar[Any] = ContextVar("golden_request_owner", default=None)
+_GOLDEN_THREAD_RE = re.compile(r"sim:golden-[A-Za-z0-9][A-Za-z0-9-]{0,180}\Z")
+_GOLDEN_READ_PATHS = frozenset('/staff/bot/' + path for path in (
+    'availability-check', 'booking-preview', 'surf-report', 'catalog',
+    'bookings/by-phone', 'payments/status', 'booking-guests/payment-status',
+))
+
+
+def golden_scope(thread: str) -> "CrowsnestGuestScope":
+    if not isinstance(thread, str) or not _GOLDEN_THREAD_RE.fullmatch(thread):
+        raise ValueError("invalid_golden_namespace")
+    digits = str(int(hashlib.sha256(thread.encode()).hexdigest()[:16], 16) % 10**12).zfill(12)
+    return CrowsnestGuestScope.create('+999' + digits)
+
+
+def _golden_runner():
+    from gateway.run import _wolfhouse_gateway_runner
+    if _wolfhouse_gateway_runner is None:
+        raise RuntimeError('gateway_runner_unavailable')
+    return _wolfhouse_gateway_runner
+
+
+async def cleanup_golden_thread(thread: str) -> Dict[str, Any]:
+    scope = golden_scope(thread)
+    lock = await _session_lock(scope.session_key)
+    async with lock:
+        if scope.session_key in _TAINTED_SESSIONS:
+            raise RuntimeError('golden_session_has_late_worker')
+        # Rotate precisely this synthetic routing entry. No phone-based deletion,
+        # SQLite history deletion, filesystem removal or shared memory clearing.
+        _golden_runner().session_store.reset_session(scope.session_key)
+        _PENDING_SIM_REPLIES.pop(scope.session_key, None)
+    return {'ok': True, 'session_key': scope.session_key, 'scope': 'golden_session_rotation'}
+
+
+async def run_golden_guest_turn(*, thread: str, text: str) -> Dict[str, Any]:
+    scope = golden_scope(thread)
+    token = _GOLDEN_REQUEST.set(_GOLDEN_OWNER)
+    async def no_business_mirror(**kwargs):
+        return None
+    try:
+        return await run_live_crowsnest_guest_turn(
+            phone=scope.synthetic_phone, text=text, mirror=no_business_mirror)
+    finally:
+        _GOLDEN_REQUEST.reset(token)
 
 
 @dataclass
@@ -59,6 +106,7 @@ class CrowsnestGuestScope:
     owned_payment_ids: set[str] = field(default_factory=set)
     owned_guest_ids: set[str] = field(default_factory=set)
     effective_capability: Optional[Dict[str, Any]] = None
+    _golden_owner: Any = field(default=None, repr=False)
 
     @classmethod
     def create(cls, phone: str) -> "CrowsnestGuestScope":
@@ -72,6 +120,7 @@ class CrowsnestGuestScope:
             synthetic_phone=normalized,
             inbox_phone=f"+999{inbox_digits}",
             session_key=f"crowsnest-sim:{digest}",
+            _golden_owner=_GOLDEN_REQUEST.get(),
         )
 
 
@@ -208,6 +257,15 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     "result_summary": summarize_tool_result(result),
                     "simulator_guard": ["request_scope_revoked"],
                 })
+                return result
+            if scope._golden_owner is _GOLDEN_OWNER:
+                norm = _normalize_staff_bot_path(path)
+                if norm not in _GOLDEN_READ_PATHS:
+                    result = synthetic_blocked_result(norm, ['blocked_golden_read_only'], allow_writes=False)
+                else:
+                    result = original_post(norm, _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone), **post_kwargs)
+                scope.tool_calls.append({'name': tool_name_from_path(norm), 'args': dict(payload or {}),
+                                         'result_summary': summarize_tool_result(result)})
                 return result
             # Sunset write authority stays an exact runtime identity. Wolfhouse
             # never receives allow_writes=True. A separate request-scoped staging
@@ -489,7 +547,9 @@ async def run_crowsnest_guest_turn(
     if not message:
         raise ValueError("text is required")
     scope = CrowsnestGuestScope.create(phone)
-    if not _sunset_staging_staff_writes_enabled():
+    if scope._golden_owner is _GOLDEN_OWNER:
+        scope.effective_capability = {'admitted': False, 'reasons': ['golden_read_only']}
+    elif not _sunset_staging_staff_writes_enabled():
         # Report server admission even on a greeting/no-tool turn. Each Staff
         # boundary still re-evaluates admission and checks revocation below.
         scope.effective_capability = evaluate_wolfhouse_staging_booking_capability(
@@ -587,8 +647,8 @@ async def run_crowsnest_guest_turn(
                 "whatsapp_suppressed": True,
                 "transport_calls": scope.transport_calls,
                 "transport_attempts": scope.transport_attempts,
-                "inbox_persisted": True,
-                "allow_writes": _sunset_staging_staff_writes_enabled(),
+                "inbox_persisted": _GOLDEN_REQUEST.get() is not _GOLDEN_OWNER,
+                "allow_writes": _GOLDEN_REQUEST.get() is not _GOLDEN_OWNER and _sunset_staging_staff_writes_enabled(),
                 "effective_capability": scope.effective_capability,
             }
         finally:
