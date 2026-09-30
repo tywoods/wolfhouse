@@ -227,6 +227,8 @@ function mapInboxPersonRowToConv(row){
     needs_attention: !!row.needs_attention,
     is_spam: !!row.is_spam,
     handoff_reason: row.handoff_reason || null,
+    needs_human_reason: row.needs_human_reason || null,
+    luna_handoff_reason: row.luna_handoff_reason || null,
     handoff_priority: row.handoff_priority || null,
     handoff_status: row.handoff_status || null,
     luna_paused: !!row.luna_paused,

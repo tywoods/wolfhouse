@@ -19313,6 +19313,11 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .inbox-needs-human-raise:hover:not(:disabled){border-color:var(--tan);color:var(--text)}
 .inbox-needs-human-raise:disabled{opacity:.45;cursor:not-allowed}
 .inbox-needs-human-raise.is-on{background:#E8893A;color:#fff;border-color:#D97706;opacity:1}
+.detail-header-id{flex-wrap:wrap}
+.inbox-needs-human-chrome{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:100%}
+.inbox-needs-human-reason{font-size:12px;font-weight:600;line-height:1.3;color:#9a5b16}
+.inbox-needs-human-reason[hidden]{display:none!important}
+[data-theme="dark"] .inbox-needs-human-reason{color:#E8A057}
 .inbox-header-switch-item{display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin:0;user-select:none}
 .inbox-header-switch-label{font-size:11px;font-weight:600;color:var(--text-2);letter-spacing:.01em;white-space:nowrap;line-height:1.1}
 .inbox-header-switch{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0}

@@ -108,6 +108,8 @@ const INBOX_PERSON_ROW_FIELDS = Object.freeze([
   'needs_attention',
   'is_spam',
   'handoff_reason',
+  'needs_human_reason',
+  'luna_handoff_reason',
   'handoff_priority',
   'handoff_status',
   'luna_paused',
@@ -275,6 +277,8 @@ function projectConversationPersonRow(view, raw) {
   row.needs_attention = !!raw.needs_human || !!raw.handoff_status;
   row.is_spam = !!raw.is_spam;
   row.handoff_reason = raw.handoff_reason || null;
+  row.needs_human_reason = raw.needs_human_reason || null;
+  row.luna_handoff_reason = raw.luna_handoff_reason || null;
   row.handoff_priority = raw.handoff_priority || null;
   row.handoff_status = raw.handoff_status || null;
   row.luna_paused = !!raw.luna_paused;

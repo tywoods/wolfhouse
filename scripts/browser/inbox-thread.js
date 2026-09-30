@@ -44,6 +44,10 @@ function detailHeaderSwitchesHtml(c, lunaGuestPaused){
     channel: c && c.channel,
     paused: !!lunaGuestPaused,
     needs_human: !!(c && c.needs_human),
+    handoff_reason: c && c.handoff_reason,
+    needs_human_reason: c && c.needs_human_reason,
+    luna_handoff_reason: c && c.luna_handoff_reason,
+    handoff_status: c && c.handoff_status,
   }) + inboxSpamButtonHtml(c && c.is_spam);
 }
 
@@ -1010,8 +1014,10 @@ function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   slot.innerHTML = detailHeaderSwitchesHtml(conv, lunaGuestPaused);
   wireInboxSpamButton(conv, slot);
   var raise = slot.querySelector('#inbox-needs-human-raise');
+  var chrome = slot.querySelector('#inbox-needs-human-chrome');
   var nh = typeof document !== 'undefined' ? document.getElementById('inbox-needs-human-slot') : null;
-  if (raise && nh && raise.parentNode !== nh) nh.appendChild(raise);
+  var move = chrome || raise;
+  if (move && nh && move.parentNode !== nh) nh.appendChild(move);
   inboxAdoptRefreshToHeader();
 }
 
@@ -1035,7 +1041,7 @@ function updateNeedsHumanBadgeInPlace(targetEl, needsHuman, opts){
   }
   updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused);
   updateLunaPausedPillInPlace(targetEl, lunaPaused);
-  syncInboxNeedsHumanRaise(targetEl, needsHuman);
+  syncInboxNeedsHumanRaise(targetEl, needsHuman, Object.assign({ needs_human: !!needsHuman }, opts));
 }
 
 function wireNeedsHumanToggle(convId, targetEl){
@@ -1065,6 +1071,9 @@ function wireNeedsHumanToggle(convId, targetEl){
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
         updateNeedsHumanBadgeInPlace(targetEl, d.needs_human === true, {
           conversation_paused: d.conversation_paused === true,
+          needs_human: d.needs_human === true,
+          handoff_reason: d.handoff_reason || null,
+          handoff_status: d.handoff_status || (d.handoff && d.handoff.status) || null,
         });
         if (inboxConversationsCache){
           inboxConversationsCache = inboxConversationsCache.map(function(row){
@@ -2861,7 +2870,9 @@ function loadConvDetail(convId, targetEl){
     var channelLabel = composerChannel === 'email' ? 'Email' : 'WhatsApp';
     if (contactLine) html += escHtml(contactLine) + ' · ';
     html += escHtml(channelLabel);
-    if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' · ' + escHtml(handoffLabel(c.handoff_reason));
+    var needsReason = (typeof inboxNeedsHumanReasonText === 'function') ? inboxNeedsHumanReasonText(c) : '';
+    if (needsReason) html += ' · ' + escHtml(needsReason);
+    else if (conversationHasOpenHandoff(c) && c.handoff_reason) html += ' · ' + escHtml(handoffLabel(c.handoff_reason));
     else if (c.needs_human) html += ' · ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=       '</div>';
     html +=     '</div>';
