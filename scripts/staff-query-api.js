@@ -21025,6 +21025,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-pay-row > .bc-guest-pay-price-line{margin-top:0}
 .bc-guest-pay-money{display:flex;justify-content:flex-end;align-items:center;gap:10px;min-width:0;margin-left:auto}
 .bc-guest-pay-column{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0}
+/* The nested overview card is narrower: preserve section width and wrap actions, never compress money. */
+#bc-overview-invoice #bc-per-guest-card{padding:12px 0 0;border-width:1px 0 0;border-radius:0;box-shadow:none;background:transparent}
+#bc-overview-invoice #bc-per-guest-card .bc-guest-pay-price-line{flex-wrap:wrap}
+#bc-overview-invoice #bc-per-guest-card .bc-guest-pay-money{flex:0 0 auto;flex-wrap:wrap;max-width:100%}
+#bc-overview-invoice #bc-per-guest-card .bc-guest-pay-column{flex:0 0 auto}
 .bc-guest-pay-title{font-size:10px;color:var(--text-2);font-weight:500}
 .bc-guest-pay-price{color:#000;background:#fff;border-radius:3px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
 [data-theme="dark"] .bc-guest-pay-price{color:#fff;background:transparent;border-radius:0;font-weight:700}
@@ -40315,6 +40320,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var collectionBlocked = invoiceWorkspace && (fin.payStatus === 'paid' || ledgerRows.some(function(row){ return bcPaymentLedgerIsPaidStatus(row.payment_status) && !row.booking_guest_id && Number(row.amount_paid_cents) > 0; }));
   var bookingFullyPaid = Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
   var perGuestHtml = bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson, bk.guest_name, collectionBlocked, bookingFullyPaid, invoiceWorkspace ? { omitTitle: true } : null);
+  if (overview && invoiceWorkspace && perGuestHtml) html += bcRenderPerGuestCollapseCard(perGuestHtml);
 
   /* Totals / payment status */
   html += '<div class="ctx-inv-group ctx-inv-totals' + (getClient() === 'wolfhouse-somo' ? ' bc-invoice-totals' : '') + '" id="bc-inv-totals">';
@@ -40387,7 +40393,6 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   if (historyOwnCard) {
     html += bcInvoiceActionsHtml(bk) + bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue, needsRefund, ledgerRows);
     html += '</div>';
-    if (perGuestHtml) html += bcRenderPerGuestCollapseCard(perGuestHtml);
     html += '<div class="bc-invoice-history ctx-payment-history-card bc-drawer-overview-card ctx-section is-collapsed" id="bc-payment-history-card">';
     html += '<button type="button" class="bc-card-collapse" id="bc-payment-history-toggle" aria-expanded="false" aria-controls="bc-payment-history-body"><h3 class="bc-drawer-card-title">' + escHtml(t('drawer.invoice.paymentHistory')) + '</h3><span class="bc-card-chevron" aria-hidden="true">&gt;</span></button>';
     html += '<div id="bc-payment-history-body" hidden><div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
