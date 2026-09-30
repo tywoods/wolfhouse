@@ -17,6 +17,7 @@ const long = ['Zoë <img src="https://escape.invalid/x"> & "Family"', 'Alexandri
 function fixture(kind) {
   const names = kind === 'long' ? long : kind === 'missing' ? ['Tom', 'Tim', ''] : kind === 'fallback' ? ['', '', ''] : short;
   const booking = { booking_id: ID, booking_code: CODE, guest_name: names[0], guest_count: 3, total_amount_cents: 90000, accommodation_total_cents: 90000, deposit_required_cents: 27000, amount_paid_cents: 9000, balance_due_cents: 81000, status: 'confirmed', check_in: '2026-09-24', check_out: '2026-09-29', nights: 5 };
+  booking.metadata = {guest_packages: ['uluwatu','no_package','mentawai'].map((package_code,i) => ({guest_number:i+1,package_code}))};
   if (kind === 'fallback') booking.guest_name = 'Tom';
   return { success: true, booking, rooming: { assignments: [] }, booking_guests: names.map((name, i) => ({ booking_guest_id: `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${i}`, guest_number: i + 1, guest_name: name, assigned_bed_code: kind === 'missing' && i === 1 ? '' : kind === 'mixed' ? ['R1-B1', 'R1-B12', 'R2-B14'][i] : 'R1-B' + (i + 1), metadata: { subtotal_cents: 30000 }, deposit_amount_cents: 9000, amount_paid_cents: i === 1 ? 9000 : 0, payment_status: i === 1 ? 'paid' : 'not_requested' })), per_person: [], guest_accommodation_lines: names.map((_, i) => ({ guest_number: i + 1, accommodation_cents: 30000, nights: 5 })), service_records: [], transfers: [], payments: { paid_total_cents: kind === 'paid' ? 90000 : 9000, rows: kind === 'paid' ? [{ payment_id: 'paid-all', payment_status: 'paid', amount_paid_cents: 90000, metadata: { payment_scope: 'booking', method: 'cash' } }] : [] }, pending_manual_services: [], conversation: null };
 }
@@ -99,14 +100,22 @@ async function main() {
         assert.equal(r.children, 0, 'escaped names stay inert text');
         assert(!r.rowOverflow && r.row.left >= 0 && r.row.right <= width + 1, 'row contained');
         assert((r.s || r.n).right <= pen.box.left + 1 || r.row.top >= pen.box.bottom, 'pencil never overlaps row');
-        if (width <= 768) {
-          if (r.s) assert(r.s.top >= r.n.bottom - 1, 'status sits on the line under the name');
-          if (r.b) { assert(r.b.top >= r.n.bottom - 1, 'bed sits on the line under the name'); if (r.s) assert(r.b.right <= r.s.left + 1, 'bed then status'); }
-          else if (r.s) assert(r.s.left >= r.n.left - 1, 'missing bed keeps status on the pebble line');
-          assert(r.n.width >= 40, 'readable name allocation, not a single letter');
-          assert.equal(r.nameStyle.textOverflow, 'clip', 'name is not ellipsized');
-          if (short.includes(r.name)) assert(!r.nameOverflow, 'basic short name remains completely readable: ' + r.name);
-        } else { assert(r.n.width >= 100 && !r.nameOverflow, 'desktop full names retained'); }
+        assert(r.n.width >= 40 && !r.nameOverflow, 'full name wraps within its readable column');
+        assert.equal(r.nameStyle.textOverflow, 'clip', 'name is not ellipsized');
+        const columns = await page.locator('#bc-guest-names .bc-guest-name-row').nth(rows.indexOf(r)).evaluate(e => {
+          const box = selector => { const n = e.querySelector(selector); if (!n) return null; const b = n.getBoundingClientRect(); return {left:b.left,right:b.right,center:(b.top+b.bottom)/2}; };
+          return {display:getComputedStyle(e).display,name:box('.bc-guest-name-line'),pkg:box('.bc-guest-package-pebble'),bed:box('.bc-guest-bed'),paid:box('.bc-accom-pay-pebble')};
+        });
+        assert.equal(columns.display, 'grid', 'structured guest row');
+        const cells = [columns.name, columns.pkg, columns.bed, columns.paid].filter(Boolean);
+        for (let i = 1; i < cells.length; i++) {
+          assert(cells[i-1].right <= cells[i].left + 1, 'name | package | bed | payment do not overlap');
+          assert(Math.abs(cells[i].center - cells[0].center) <= 1, 'all four columns share the row center');
+        }
+        for (const selector of ['.bc-guest-package-pebble','.bc-guest-bed','.bc-accom-pay-pebble']) {
+          const starts = await page.locator('#bc-guest-names ' + selector).evaluateAll(es => es.map(e => e.getBoundingClientRect().left));
+          assert(starts.every(x => Math.abs(x-starts[0]) <= 1), 'column aligned across guests, including missing bed: '+selector);
+        }
         for (const [box, text] of [[r.b, r.bedText], [r.s, r.statusText]]) if (box) assert(text.width <= box.width + 1 && text.height <= box.height + 1, 'bed/status complete and untruncated');
       }
       cases.push(label);

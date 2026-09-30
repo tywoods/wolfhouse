@@ -34,9 +34,13 @@ async function main(){
   for(const width of [390,768,1440]){
    await page.setViewportSize({width,height:900});
    await page.setContent(styles+'<div id="bc-drawer-card-booking"><div id="bc-field-group-guests" class="ctx-field-edit-group"><div id="bc-guest-names"><span class="bc-guest-name-row"><span class="bc-guest-name-line">Ada</span><span class="bc-guest-pebble-line"><span class="bc-guest-package-pebble">Uluwatu</span><span class="bc-guest-bed">R3-B1</span><span class="bc-accom-pay-pebble">Unpaid</span></span></span></div></div></div>');
+   await page.locator('#bc-drawer-card-booking').evaluate(e=>{e.style.position='static';e.style.width='360px';e.style.maxWidth='100%';});
    await page.evaluate(code=>{window.el=id=>document.getElementById(id);eval(code);bcInvoiceStyles();},invoice);
-   const result=await page.locator('.bc-guest-pebble-line').evaluate(e=>({align:getComputedStyle(e).justifyContent,right:e.getBoundingClientRect().right,parent:e.parentElement.getBoundingClientRect().right,border:getComputedStyle(document.getElementById('bc-field-group-guests')).borderTopWidth}));
-   assert.equal(result.align,'flex-end');assert(Math.abs(result.right-result.parent)<1);assert.equal(result.border,'0px');
+   const result=await page.locator('.bc-guest-name-row').evaluate(e=>({display:getComputedStyle(e).display,wrapper:getComputedStyle(e.querySelector('.bc-guest-pebble-line')).display,columns:[...e.querySelectorAll('.bc-guest-name-line,.bc-guest-package-pebble,.bc-guest-bed,.bc-accom-pay-pebble')].map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right,center:(r.top+r.bottom)/2};}),border:getComputedStyle(document.getElementById('bc-field-group-guests')).borderTopWidth}));
+   console.log('Computed guest grid',width,JSON.stringify(result));
+   assert.equal(result.display,'grid');assert.equal(result.wrapper,'contents');assert.equal(result.border,'0px');
+   assert.equal(result.columns.length,4);
+   for(let i=1;i<4;i++){assert(result.columns[i-1].right<=result.columns[i].left+1);assert(Math.abs(result.columns[i].center-result.columns[0].center)<1);}
    console.log('PASS computed guest pebbles / first guest divider',width,JSON.stringify(result));
   }
  }finally{await browser.close();}
