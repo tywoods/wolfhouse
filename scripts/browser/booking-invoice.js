@@ -145,7 +145,8 @@ function bcInvoiceStyles(){
     guestScope + '.bc-guest-bed{grid-column:3}' +
     guestScope + '.bc-accom-pay-pebble{grid-column:4}' +
     guestScope + '.bc-guest-bed,' + guestScope + '.bc-guest-package-pebble,' + guestScope + '.bc-accom-pay-pebble{grid-row:1;justify-self:start;align-self:center;width:max-content;min-width:max-content;max-width:none;box-sizing:border-box;margin:0;padding:2px 6px;white-space:nowrap;overflow:visible;overflow-wrap:normal;word-break:normal;text-overflow:clip;text-align:center}' +
-    guestScope + '.bc-guest-sep{display:none}';
+    guestScope + '.bc-guest-sep{display:none}' +
+    guestScope + '.bc-guest-package-slot{min-width:4.75em;width:auto;padding:0;background:transparent;border:0;box-shadow:none;color:transparent;visibility:hidden}';
   document.head.appendChild(style);
 }
 function bcOpenRecordPayment(data){
