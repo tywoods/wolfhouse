@@ -105,7 +105,11 @@ assert.doesNotMatch(api, /function bcLookupFlight/);
 assert.doesNotMatch(api, /function bcTransferWireLookupControls/);
 assert.doesNotMatch(api, /drawer\.transfers\.lookupFlight/);
 assert.match(api, /id="bc-luna-notes-edit"/);
-assert.match(api, /· ' \+ escHtml\(String\(nights\)/);
+assert.match(api, /class="bc-side-dates"/);
+assert.match(api, /class="bc-side-stay"/);
+assert.match(api, /escHtml\(String\(nights\) \+ ' nights'\)/);
+assert.match(api, /bc-side-title-code/);
+assert.match(api, /function bcSideHeaderDateLabel/);
 // Labels follow saved guest slots, not the incidental order of rendered inputs.
 assert.match(api, /placeholder = 'Guest ' \+ guest\.guest_number/);
 assert.match(api, /setAttribute\('data-booking-guest-id', guest\.booking_guest_id/);
