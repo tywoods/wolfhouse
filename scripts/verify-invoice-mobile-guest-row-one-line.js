@@ -86,6 +86,11 @@ async function main() {
       return { name: n.textContent, bed: b?.textContent || '', status: s?.textContent || '', row: rect(e), n: rect(n), b: rect(b), s: rect(s), nameText: text(n), bedText: text(b), statusText: text(s), nameStyle: { whiteSpace: getComputedStyle(n).whiteSpace, overflow: getComputedStyle(n).overflow, textOverflow: getComputedStyle(n).textOverflow }, nameOverflow: n.scrollWidth > n.clientWidth, rowOverflow: e.scrollWidth > e.clientWidth, children: n.children.length };
     }));
     const pen = await page.locator('#bc-field-group-guests .btn-bc-field-edit').evaluate(e => ({ box: e.getBoundingClientRect().toJSON(), fontSize: getComputedStyle(e).fontSize }));
+    const host = await page.locator('#bc-guest-names').evaluate(el => {
+      const box = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, client: el.clientWidth, scroll: el.scrollWidth, overflowX: style.overflowX };
+    });
     observations.push({ label, width, theme, kind, rows, pen });
     await page.locator('#bc-field-group-guests').screenshot({ path: path.join(OUT, label + '.png') });
     try {
@@ -98,8 +103,12 @@ async function main() {
       assert(pen.box.left >= 0 && pen.box.right <= width + 1, 'pencil contained');
       for (const r of rows) {
         assert.equal(r.children, 0, 'escaped names stay inert text');
-        assert(!r.rowOverflow && r.row.left >= 0 && r.row.right <= width + 1, 'row contained');
-        assert((r.s || r.n).right <= pen.box.left + 1 || r.row.top >= pen.box.bottom, 'pencil never overlaps row');
+        assert(host.left >= -1 && host.right <= width + 1, 'chip scroll row stays in the viewport');
+        assert.equal(host.overflowX, 'auto', 'narrow guest row scrolls instead of clipping');
+        assert(host.right <= pen.box.left + 1 || host.top >= pen.box.bottom - 1, 'pencil never overlaps the chip scroll row');
+        if (r.row.right > host.right + 1 || (r.s && r.s.right > host.right + 1)) {
+          assert(host.scroll > host.client + 1, 'overflowing chips scroll instead of clipping');
+        }
         assert(r.n.width >= 40 && !r.nameOverflow, 'full name wraps within its readable column');
         assert.equal(r.nameStyle.textOverflow, 'clip', 'name is not ellipsized');
         const columns = await page.locator('#bc-guest-names .bc-guest-name-row').nth(rows.indexOf(r)).evaluate(e => {
