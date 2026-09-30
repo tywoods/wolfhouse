@@ -20,7 +20,11 @@
 
 const fs   = require('fs');
 const path = require('path');
-const { wolfhouseStayDepositRateCents, wolfhouseStayDepositCents } = require('./wolfhouse-stay-deposit');
+const {
+  wolfhouseStayDepositRateCents,
+  wolfhouseStayDepositCents,
+  wolfhouseDepositRatesFromConfig,
+} = require('./wolfhouse-stay-deposit');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -91,13 +95,14 @@ function isCatalogPackageCode(config, code) {
   return catalogPackageCodes(config).includes(c);
 }
 
-function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
-  // Ty locked 2026-09-29: >=6 nights €200/person, <=5 nights €100/person.
-  // Package name and manual override do not change the rate.
-  void config;
+function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride, rates) {
+  // Ty locked 2026-09-29: >=6 nights uses the long Admin Pricing rate,
+  // <=5 nights uses the short rate. Package name and manual override do
+  // not pick the tier. Amounts come from config deposits when present.
   void packageCode;
   void isManualOverride;
-  const rate = wolfhouseStayDepositRateCents(nights);
+  const resolved = rates || wolfhouseDepositRatesFromConfig(config);
+  const rate = wolfhouseStayDepositRateCents(nights, resolved);
   return rate == null ? 0 : rate;
 }
 
@@ -584,9 +589,12 @@ function calculateWolfhouseQuote(input, config) {
     : KNOWN_PACKAGES.includes(normalizedPackage))
     && nights >= 7
     && !isManualOverride;
-  const singleTierDepositCents = usesPackageDeposit
-    ? config.deposits.tiers.standard_package.amount_cents
-    : config.deposits.tiers.custom_or_short_stay.amount_cents;
+  const stayDepositRates = (input && input.stay_deposit_rates)
+    || wolfhouseDepositRatesFromConfig(config);
+  const singleTierDepositCents = wolfhouseStayDepositRateCents(nights, stayDepositRates)
+    || (usesPackageDeposit
+      ? config.deposits.tiers.standard_package.amount_cents
+      : config.deposits.tiers.custom_or_short_stay.amount_cents);
 
   // Deposit is ALWAYS per guest: €200/guest for a named package (7+ nights),
   // €100/guest for no-package / short stays. Every guest is priced individually
@@ -599,14 +607,14 @@ function calculateWolfhouseQuote(input, config) {
       per_guest_deposits = normalizedGuestPackages.map((gp) => ({
         guest_number: gp.guest_number,
         package_code: gp.package_code,
-        deposit_cents: computeGuestDepositTierCents(config, gp.package_code, nights, isManualOverride),
+        deposit_cents: computeGuestDepositTierCents(config, gp.package_code, nights, isManualOverride, stayDepositRates),
       }));
     } else {
       for (let gn = 1; gn <= guests; gn++) {
         per_guest_deposits.push({
           guest_number: gn,
           package_code: effectivePackageCode,
-          deposit_cents: computeGuestDepositTierCents(config, effectivePackageCode, nights, isManualOverride),
+          deposit_cents: computeGuestDepositTierCents(config, effectivePackageCode, nights, isManualOverride, stayDepositRates),
         });
       }
     }
@@ -615,9 +623,7 @@ function calculateWolfhouseQuote(input, config) {
     ? (config.deposits && config.deposits.tiers && config.deposits.tiers.standard_package)
     : (config.deposits && config.deposits.tiers && config.deposits.tiers.custom_or_short_stay);
   void overlayDepositTier;
-  // Ty locked: Totals Deposit and deposit links are rate × guests.
-  // A per_booking overlay must not collapse 3 guests back to a flat €200.
-  const ruledDeposit = wolfhouseStayDepositCents(nights, guests);
+  const ruledDeposit = wolfhouseStayDepositCents(nights, guests, stayDepositRates);
   let deposit_required_cents = ruledDeposit != null
     ? ruledDeposit
     : (per_guest_deposits.length > 0
@@ -689,6 +695,7 @@ function calculateWolfhouseQuote(input, config) {
     discount_cents,
     total_cents,
     deposit_required_cents,
+    stay_deposit_rates: stayDepositRates,
     per_guest_deposits: per_guest_deposits.length ? per_guest_deposits : undefined,
     per_person,
     uses_per_guest_deposits: !!uses_per_guest_deposits,

@@ -23,6 +23,7 @@ const { decideConversationActionAsync, detectAccommodationOnlyAnswer } = require
 const { applyHandoffPolicyToResult } = require('./luna-guest-handoff-policy');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
+const { loadWolfhouseDepositRates } = require('./wolfhouse-stay-deposit');
 const { quoteNeedsPaymentChoice } = require('./luna-quote-payment-choice');
 const {
   runGuestPaymentChoiceDryRun,
@@ -1461,6 +1462,13 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     client_slug: trimStr(inp.client_slug) || DEFAULT_CLIENT,
     pg: ctx.pg || null,
   };
+  if (ctx.pg) {
+    try {
+      chainCtx.stay_deposit_rates = await loadWolfhouseDepositRates(ctx.pg);
+    } catch (_) {
+      chainCtx.stay_deposit_rates = null;
+    }
+  }
 
   let availability;
   if (shouldAttemptGuestAvailability(result)) {

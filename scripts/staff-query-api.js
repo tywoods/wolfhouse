@@ -840,6 +840,7 @@ const {
   calculateWolfhouseQuote,
   loadConfig,
 } = require('./lib/wolfhouse-quote-calculator');
+const { loadWolfhouseDepositRates } = require('./lib/wolfhouse-stay-deposit');
 const {
   executeWolfhouseAccommodationQuote,
 } = require('./lib/wolfhouse-accommodation-application');
@@ -13260,6 +13261,11 @@ async function handleBotGuestIntakeDryRun(req, res, user, authMode) {
       client_slug: resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT),
       room_type: body.room_type,
     };
+    try {
+      quoteContext.stay_deposit_rates = await withPgClient((pg) => loadWolfhouseDepositRates(pg));
+    } catch (_) {
+      quoteContext.stay_deposit_rates = null;
+    }
     let quote;
     if (shouldAttemptGuestQuoteProposal(result, availability)) {
       try {
@@ -53402,6 +53408,15 @@ async function handleBookingContext(bookingCode, query, res, user) {
     ? bkMetadata.quote_snapshot.per_person
     : (bkMetadata.per_person || null);
 
+  let stayDepositRates = null;
+  if (clientSlug === 'wolfhouse-somo') {
+    try {
+      stayDepositRates = await withPgClient((pg) => loadWolfhouseDepositRates(pg));
+    } catch (_) {
+      stayDepositRates = null;
+    }
+  }
+
   return sendJSON(res, 200, {
     success:      true,
     client_slug:  clientSlug,
@@ -53430,6 +53445,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
       rooming_notes:       bk.rooming_notes,
       total_amount_cents:  bookingDisplayTotal,
       deposit_required_cents: bk.deposit_required_cents,
+      stay_deposit_rates: stayDepositRates,
       amount_paid_cents:   bk.amount_paid_cents,
       balance_due_cents:   bk.balance_due_cents,
       metadata:            bkMetadata,

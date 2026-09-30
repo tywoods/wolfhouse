@@ -11,7 +11,7 @@
 
 const crypto = require('crypto');
 const { bookingDepositLinkAmount } = require('./booking-deposit-payment-link');
-const { wolfhouseBookingDepositCents } = require('./wolfhouse-stay-deposit');
+const { wolfhouseBookingDepositCents, loadWolfhouseDepositRates } = require('./wolfhouse-stay-deposit');
 const { SUNSET_CLIENT_SLUG } = require('./sunset-stripe-payment-links');
 const {
   paymentLinkIntendedAmountCents,
@@ -439,9 +439,13 @@ async function getPaymentStatus(pg, command, execOpts = {}) {
   const booking = await loadBookingRow(pg, command.clientSlug, command.bookingId, command.bookingCode);
   if (!booking) return fail(404, 'booking_not_found', 'booking not found');
   const paymentRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
+  let stayDepositRates = null;
+  if (command.clientSlug !== SUNSET_CLIENT_SLUG) {
+    try { stayDepositRates = await loadWolfhouseDepositRates(pg); } catch (_) { stayDepositRates = null; }
+  }
   const ledgerCtx = execOpts.ledgerContext || {
     balance_due_cents: computeAuthoritativeBalanceDueCents(booking, command),
-    deposit_required_cents: wolfhouseBookingDepositCents(booking),
+    deposit_required_cents: wolfhouseBookingDepositCents(booking, stayDepositRates),
   };
   const paymentRow = pickLatestActionablePaymentRow(paymentRows, booking, ledgerCtx);
   const resolved = resolveActionableCheckoutUrl({ bookingRow: booking, paymentRow });
@@ -851,7 +855,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
 
   const ledgerCtx = {
     balance_due_cents: amountDueCents,
-    deposit_required_cents: wolfhouseBookingDepositCents(booking),
+    deposit_required_cents: wolfhouseBookingDepositCents(booking, command.clientSlug === SUNSET_CLIENT_SLUG ? null : await loadWolfhouseDepositRates(pg).catch(() => null)),
   };
   const activeLink = pickLatestActionablePaymentRow(paymentRows.filter((row) =>
     bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents)), booking, ledgerCtx);

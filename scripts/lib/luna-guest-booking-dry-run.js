@@ -282,7 +282,8 @@ function runBookingPreviewDryRun(fields) {
         room_type:      fields.room_type || 'shared',
         payment_choice: fields.payment_choice || 'deposit',
         add_ons:        addOns,
-      });
+        stay_deposit_rates: fields.stay_deposit_rates || null,
+      }, fields.quote_config || null);
     } catch (err) {
       quoteError = err.message;
     }
