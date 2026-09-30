@@ -20874,7 +20874,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-drawer-card-booking .bc-guest-name-line{display:block;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;cursor:pointer}
 #bc-drawer-card-booking .bc-guest-name-line.is-active,
 #bc-drawer-card-booking .bc-inline-guest-name.is-editing{text-decoration:underline;text-underline-offset:2px}
-#bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
+#bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;align-self:stretch;gap:6px;max-width:100%}
+#bc-drawer-card-booking #bc-field-group-guests{border-top:0}
 #bc-drawer-card-booking .bc-guest-package-pebble{margin:0;max-width:100%}
 #bc-drawer-card-booking .bc-guest-bed{display:inline-flex;align-items:center;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;margin:0}
 [data-theme="dark"] #bc-drawer-card-booking .bc-guest-bed{background:#16384a;color:#d6eef8;border-color:#4da3d4}
@@ -20907,7 +20908,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-sep{flex:0 0 auto;padding:0 6px;font-weight:500;color:var(--text-2)}
 .bc-guest-bed{flex:0 0 auto;white-space:nowrap;font-weight:500;color:var(--text-2)}
 .bc-guest-name-row .bc-accom-pay-pebble{margin-left:0;flex:0 0 auto}
-.bc-guest-services{display:block;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2)}
+.bc-guest-services{display:block;white-space:pre-line;margin-top:4px;font-size:12px;font-weight:600;color:var(--text-2)}
 #bc-side-meta > .bc-guest-services,.bc-booking-header-lines > .bc-guest-services{overflow-wrap:anywhere}
 .bc-booking-header-lines > .bc-side-meta{display:block}
 #bc-side-drawer .ctx-field-edit{display:none!important}
@@ -38460,16 +38461,8 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
       html += '<span class="pill pill-green">Deposit paid</span>';
     }
     html += '<span class="pill pill-orange">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
-    if (calPay.has_active_payment_link) {
-      html += '<span class="pill pill-blue">Link sent</span>';
-    }
   } else if (calPay && calPay.kind === 'paid') {
     html += '<span class="pill pill-green">Paid</span>';
-    if (calPay.has_active_payment_link) {
-      html += '<span class="pill pill-blue">Link sent</span>';
-    }
-  } else if (calPay && calPay.kind === 'payment_link_created') {
-    html += '<span class="pill pill-blue">Link sent</span>';
   }
   var bkPay = bk.payment_status || null;
   if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
@@ -42018,28 +42011,40 @@ function bcBookingServicesQtyLabel(records){
     var qty = Math.max(1, parseInt(sr.quantity, 10) || 1);
     var rental = sr.service_type === 'surfboard' || sr.service_type === 'wetsuit';
     var people = rental ? bcResolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type) : null;
-    var days = Number(meta.rental_days) || bcResolveRentalInvoiceDisplayQty(sr, meta);
+    var days = rental ? (Number(meta.rental_days) || bcResolveRentalInvoiceDisplayQty(sr, meta)) : null;
     if (rental && people > 0 && days > 0) {
       // Only siblings with explicit split provenance share days, never people.
       // The invoice rollup's label-only grouping would merge distinct rentals.
       var key = meta.split_from ? JSON.stringify([sr.client_slug || '', sr.booking_id || sr.booking_code || '', meta.split_from, sr.service_type, name, meta.board_variant || '', meta.source_addon_code || '', people]) : null;
       if (key && splitRentals[key]) {
         splitRentals[key].days += days;
+        if (sr.status !== 'unscheduled' && sr.service_date) splitRentals[key].dates.push(String(sr.service_date).slice(0, 10));
       } else {
-        var entry = { name: name, days: days, people: people };
+        var entry = { name: name, days: days, people: people, dates: sr.status !== 'unscheduled' && sr.service_date ? [String(sr.service_date).slice(0, 10)] : [] };
         order.push(entry);
         if (key) splitRentals[key] = entry;
       }
       return;
     }
-    if (!counts[name]) { counts[name] = 0; order.push(name); }
-    counts[name] += qty;
+    if (!counts[name]) { counts[name] = { quantity: 0, dates: [] }; order.push(name); }
+    counts[name].quantity += qty;
+    if (sr.status !== 'unscheduled' && sr.service_date) counts[name].dates.push(String(sr.service_date).slice(0, 10));
   });
+  function dateLabel(dates){
+    dates = dates.filter(function(d){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d); }).sort();
+    if (!dates.length) return '';
+    function shortDate(d){
+      var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return Number(d.slice(8, 10)) + ' ' + months[Number(d.slice(5, 7)) - 1];
+    }
+    var first = dates[0], last = dates[dates.length - 1];
+    return ' · ' + shortDate(first) + (first === last ? '' : ' – ' + shortDate(last));
+  }
   return order.map(function(name){
-    if (typeof name === 'object') return bcFormatRentalPeopleDaysLine(name.name, name.days, name.people, null, null);
-    var q = counts[name];
-    return q > 1 ? (String(q) + '\u00d7 ' + name) : name;
-  }).join(', ');
+    if (typeof name === 'object') return String(name.people) + '\u00d7 ' + name.name + dateLabel(name.dates);
+    var entry = counts[name], q = entry.quantity;
+    return (q > 1 ? (String(q) + '\u00d7 ' + name) : name) + dateLabel(entry.dates);
+  }).join(String.fromCharCode(10));
 }
 
 function bcRenderFieldEditSectionsHtml(data, mode){

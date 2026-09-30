@@ -15,8 +15,8 @@ const MODE = process.argv[3] || 'full', ORIGIN = 'http://staff.test';
 const clone = x => JSON.parse(JSON.stringify(x));
 const hash = x => createHash('sha256').update(x).digest('hex');
 const LONG = 'Advanced <img src="https://escape.invalid/test"> & "Family" ' + 'Longname'.repeat(18);
-const RENTAL = 'surfboard — 5 rental days × 4 people';
-const EXPECTED = {lesson:'3× Surf lesson',rental:RENTAL,mixed:'3× Surf lesson, '+RENTAL,empty:'',long:'2× '+LONG};
+const RENTAL = '4× surfboard';
+const EXPECTED = {lesson:'3× Surf lesson',rental:RENTAL,mixed:'3× Surf lesson\n'+RENTAL,empty:'',long:'2× '+LONG};
 function fixture(kind='rental') {
   const s = clone(detail);
   const addOns=[{code:'soft_top_rental',days:5,quantity:4}];
@@ -107,14 +107,14 @@ async function main() {
         const summary=e.querySelector('.bc-guest-services');
         const meta=summary.parentElement;
         const date=document.createRange();date.selectNodeContents(meta.firstChild);
-        const payment=summary.nextElementSibling;
+        const payment=e.querySelector('.bc-detail-meta');
         const range=document.createRange();range.selectNodeContents(summary);
         return {header:e.getBoundingClientRect().toJSON(),summary:summary.getBoundingClientRect().toJSON(),textRects:Array.from(range.getClientRects(),r=>r.toJSON()),dates:date.getBoundingClientRect().toJSON(),payment:payment.getBoundingClientRect().toJSON(),paymentText:payment.textContent,summaryChildren:summary.children.length};
       });
       observations.push({name,geometry});
       assert.equal(geometry.summaryChildren,0,'escaped summary is text, never active markup');
       assert(geometry.dates.bottom<=geometry.summary.top+1,'summary below booking dates');
-      assert(geometry.summary.bottom<=geometry.payment.top+1,'summary above Paid/Transfer pebbles');
+      assert(width<=768 ? geometry.summary.bottom<=geometry.payment.top+1 : geometry.payment.bottom<=geometry.summary.top+1,'preserve existing responsive payment pebble placement');
       assert.match(geometry.paymentText,/Paid/,'paid status remains');
       assert.match(geometry.paymentText,/Transfer/,'Transfer pebble remains');
       for(const r of [geometry.summary,...geometry.textRects,geometry.payment]) {
@@ -124,6 +124,12 @@ async function main() {
       }
       assert(geometry.summary.top>=0&&geometry.summary.bottom<=1000,'summary actually visible in evidence');
     }
+    const guestLayout=await page.locator('#bc-guest-names .bc-guest-pebble-line').first().evaluate(e=>({align:getComputedStyle(e).justifyContent,right:e.getBoundingClientRect().right,rowRight:e.parentElement.getBoundingClientRect().right,border:getComputedStyle(document.getElementById('bc-field-group-guests')).borderTopWidth}));
+    assert.equal(guestLayout.align,'flex-end');
+    assert(Math.abs(guestLayout.right-guestLayout.rowRight)<1,'pebble line reaches guest row right edge');
+    assert.equal(guestLayout.border,'0px','no divider above first guest');
+    observations.push({name,guestLayout});
+    assert(!await header.locator('.bc-detail-meta').innerText().then(s=>s.includes('Link sent')));
     cases.push(name);
   }
   async function refresh(expected) {
@@ -154,7 +160,7 @@ async function main() {
         state=fixture('empty');await open(width,theme);
         state=fixture('mixed');await refresh(EXPECTED.mixed);await placement(width,EXPECTED.mixed,`refresh-populated-${width}-${theme}`);
         state=fixture();state.service_records=Array.from({length:5},(_,i)=>({service_record_id:'split-'+i,booking_id:state.booking.booking_id,service_type:'surfboard',quantity:1,status:'confirmed',amount_due_cents:2000,metadata:JSON.stringify(normalizeSplitRentalMetadata({rental_days:5,rental_people:6,split_from:'rental-source',split_unit:i+1},'surfboard'))}));
-        const updated='surfboard — 5 rental days × 6 people';
+        const updated='6× surfboard';
         await refresh(updated);await placement(width,updated,`refresh-current-count-${width}-${theme}`);
         await refresh(updated);await placement(width,updated,`refresh-repeat-${width}-${theme}`);
         state=fixture('empty');await refresh('');await placement(width,'',`refresh-cleared-${width}-${theme}`);
