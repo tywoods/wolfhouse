@@ -74,6 +74,8 @@ async function markConversationNeedsHumanByPhone(pg, input, opts = {}) {
        FROM conversations conv
       INNER JOIN clients c ON c.id = conv.client_id
       WHERE c.slug = $1
+        AND NOT (c.slug = 'wolfhouse-somo'
+          AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$')
         AND (
           regexp_replace(conv.phone, '\\D', '', 'g') = $3
           OR regexp_replace(conv.phone, '\\D', '', 'g') LIKE $2
@@ -101,6 +103,44 @@ async function markConversationNeedsHumanByPhone(pg, input, opts = {}) {
  */
 async function resolveAndMarkConversationNeedsHuman(pg, input) {
   const inp = input || {};
+  // The authenticated Python guest-door supplies these fields, never the model.
+  // A partial WH claim must fail closed, not fall through to UUID/last9 lookup.
+  const simulatorClaim = inp.wolfhouse_staging_capability !== undefined
+    || (inp.client_slug === 'wolfhouse-somo'
+      && (inp.simulator_synthetic !== undefined || inp.source_owner === 'crowsnest-guest-door'
+        || inp.suppress_notifications !== undefined || inp.suppress_approvals !== undefined
+        || [inp.phone, inp.guest_phone].some(v => /^999[0-9]{12}$/.test(trimStr(v).replace(/\D/g, '')))));
+  if (simulatorClaim) {
+    const env = process.env;
+    const key = trimStr(env.STRIPE_SECRET_KEY);
+    const modes = [env.WOLFHOUSE_STRIPE_MODE, env.STRIPE_MODE].map(v => trimStr(v).toLowerCase());
+    if (inp.client_slug !== 'wolfhouse-somo'
+      || trimStr(env.DEFAULT_CLIENT_SLUG) !== 'wolfhouse-somo'
+      || trimStr(env.PUBLIC_PAYMENT_BASE_URL).replace(/\/+$/, '').toLowerCase() !== 'https://staff-staging.lunafrontdesk.com'
+      || key.startsWith('sk_live_') || modes.includes('live')
+      || (!key.startsWith('sk_test_') && !modes.includes('test'))
+      || inp.wolfhouse_staging_capability !== 'wolfhouse_staging_booking_test_link'
+      || inp.simulator_synthetic !== true || inp.source_owner !== 'crowsnest-guest-door'
+      || inp.suppress_notifications !== true
+      || typeof inp.phone !== 'string' || !/^\+999[0-9]{12}$/.test(inp.phone)
+      || (inp.guest_phone !== undefined && inp.guest_phone !== inp.phone)
+      || (inp.conversation_id !== undefined && inp.conversation_id !== '')) {
+      return { ok: false, needs_human: false, status: 403, reason: 'invalid_wolfhouse_simulator_handoff_scope' };
+    }
+    const found = await pg.query(
+      `SELECT conv.id::text AS conversation_id
+         FROM conversations conv JOIN clients c ON c.id = conv.client_id
+        WHERE c.slug = $1 AND conv.phone = $2
+          AND conv.metadata->>'simulator_synthetic' = 'true'
+          AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+        ORDER BY conv.updated_at DESC LIMIT 1`,
+      [inp.client_slug, inp.phone],
+    );
+    if (!found.rows[0]) return { ok: false, needs_human: false, reason: 'synthetic_conversation_not_found' };
+    return markConversationNeedsHuman(pg, {
+      ...inp, conversation_id: found.rows[0].conversation_id,
+    }, { skip_notify: true, exact_simulator_phone: inp.phone });
+  }
   const convIdRaw = trimStr(inp.conversation_id);
   const uuidRe = inp.uuid_validate_re || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (convIdRaw && uuidRe.test(convIdRaw)) {
@@ -124,6 +164,9 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
   const clientSlug = trimStr(inp.client_slug) || 'wolfhouse-somo';
   const env = (opts && opts.env) || process.env;
   const notifyContext = (opts && opts.notify_context) || {};
+  // Internal resolver option, never copied from request JSON. Recheck identity
+  // at mutation/readback so a stale UUID cannot turn into an ordinary handoff.
+  const exactSimulatorPhone = opts.exact_simulator_phone || null;
   if (!pg || !conversationId) {
     return { ok: false, needs_human: false, reason: 'missing_pg_or_conversation_id' };
   }
@@ -149,10 +192,17 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
         AND c.slug = $1
         AND conv.id = $2::uuid
         AND conv.needs_human = FALSE
+        AND ($4::text IS NOT NULL OR NOT (c.slug = 'wolfhouse-somo'
+          AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'))
+        AND ($4::text IS NULL OR (
+          conv.phone = $4
+          AND conv.metadata->>'simulator_synthetic' = 'true'
+          AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+        ))
       RETURNING conv.id::text AS conversation_id, conv.needs_human,
                 conv.needs_human_transition_id::text AS transition_id,
                 conv.phone, conv.display_name, conv.metadata`,
-    [clientSlug, conversationId, reasonCode.slice(0, 200)],
+    [clientSlug, conversationId, reasonCode.slice(0, 200), exactSimulatorPhone],
   );
 
   let row = res.rows[0];
@@ -165,8 +215,15 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
          FROM conversations conv
          JOIN clients c ON c.id = conv.client_id
         WHERE c.slug = $1 AND conv.id = $2::uuid
+          AND ($3::text IS NOT NULL OR NOT (c.slug = 'wolfhouse-somo'
+            AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'))
+          AND ($3::text IS NULL OR (
+            conv.phone = $3
+            AND conv.metadata->>'simulator_synthetic' = 'true'
+            AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+          ))
         LIMIT 1`,
-      [clientSlug, conversationId],
+      [clientSlug, conversationId, exactSimulatorPhone],
     );
     row = current.rows[0];
   }

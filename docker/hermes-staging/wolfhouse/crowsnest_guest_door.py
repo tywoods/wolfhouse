@@ -194,10 +194,10 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             # never the selected source phone that has no synthetic Inbox row.
             return scope.inbox_phone if scope is not None else original_phone()
 
-        def guarded_post(path, payload):
+        def guarded_post(path, payload, **post_kwargs):
             scope = current_crowsnest_scope()
             if scope is None:
-                return original_post(path, payload)
+                return original_post(path, payload, **post_kwargs)
             if scope.revoked:
                 result = synthetic_blocked_result(
                     str(path or ""), ["request_scope_revoked"], allow_writes=False
@@ -225,6 +225,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 "wolfhouse_capability": capability if capability and capability.get("admitted") else None,
                 "owned_payment_ids": scope.owned_payment_ids,
                 "owned_guest_ids": scope.owned_guest_ids,
+                "synthetic_identity": scope.inbox_phone,
             }
             try:
                 accepted = inspect.signature(guard_bot_path_and_payload).parameters
@@ -256,7 +257,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     guarded.pop("allow_writes", None)
                     if capability and capability.get("admitted") and not allow_staff_writes:
                         guarded["wolfhouse_staging_capability"] = WOLFHOUSE_STAGING_BOOKING_CAPABILITY
-                result = original_post(norm, guarded)
+                result = original_post(norm, guarded, **post_kwargs)
                 payments, guests = collect_owned_simulator_ids(result)
                 scope.owned_payment_ids.update(payments)
                 scope.owned_guest_ids.update(guests)
@@ -488,6 +489,12 @@ async def run_crowsnest_guest_turn(
     if not message:
         raise ValueError("text is required")
     scope = CrowsnestGuestScope.create(phone)
+    if not _sunset_staging_staff_writes_enabled():
+        # Report server admission even on a greeting/no-tool turn. Each Staff
+        # boundary still re-evaluates admission and checks revocation below.
+        scope.effective_capability = evaluate_wolfhouse_staging_booking_capability(
+            scope_active=True, scope_revoked=False,
+        )
     if scope.session_key in _TAINTED_SESSIONS:
         return {
             "ok": False,

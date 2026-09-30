@@ -489,6 +489,25 @@ def check_availability(params, **kwargs):
     }
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
+    decision = _room_decision_for_tool(params, data)
+    excluded = set((decision or {}).get("excluded_room_preferences") or [])
+    available_beds = []
+    excluded_room_codes = set()
+    raw_beds = data.get("available_beds")
+    if data.get("success") is True and isinstance(raw_beds, list):
+        for bed in raw_beds:
+            if not isinstance(bed, dict) or not isinstance(bed.get("bed_code"), str) or not bed["bed_code"].strip():
+                continue
+            room_type = _clean(bed.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+            if room_type in excluded:
+                excluded_room_codes.add(_clean(bed.get("room_code")))
+                continue
+            available_beds.append({key: bed[key] for key in (
+                "bed_code", "room_code", "room_type", "bed_label"
+            ) if isinstance(bed.get(key), str)})
+    selected_room = data.get("selected_room_code")
+    if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
+        selected_room = None
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -498,6 +517,8 @@ def check_availability(params, **kwargs):
         "unclear": status == "unclear",
         "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
         "selected_bed_codes": data.get("selected_bed_codes") or [],
+        "available_beds": available_beds,
+        "selected_room_code": selected_room,
         "available_count": data.get("available_count"),
         "girls_room_available": data.get("girls_room_available"),
         "private_room_available": data.get("private_room_available"),
@@ -506,7 +527,7 @@ def check_availability(params, **kwargs):
         "blockers": data.get("blockers") or [],
         "next_action": data.get("next_action"),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-        "room_decision": _room_decision_for_tool(params, data),
+        "room_decision": decision,
     }
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 
@@ -541,8 +562,15 @@ def quote_booking(params, **kwargs):
             remaining_after_deposit = max(0, int(total) - int(deposit))
         except Exception:
             remaining_after_deposit = None
+    choice = params.get("payment_choice")
+    recognized_choice = (
+        isinstance(choice, str) and bool(choice.strip())
+        and _normalize_payment_choice(choice) in {"deposit", "full", "pay_on_arrival"}
+    )
+    full_payment_only = remaining_after_deposit == 0
     payment_choice_needed = (
         remaining_after_deposit is not None and remaining_after_deposit > 0
+        and not recognized_choice
     )
     unknown_codes = data.get("unknown_add_on_codes") or []
     if not isinstance(unknown_codes, list):
@@ -559,7 +587,8 @@ def quote_booking(params, **kwargs):
         "balance_due_cents": balance,
         "remaining_after_deposit_cents": remaining_after_deposit,
         "payment_choice_needed": payment_choice_needed,
-        "full_payment_only": not payment_choice_needed and total is not None and deposit is not None,
+        **({"payment_choice": choice} if recognized_choice else {}),
+        "full_payment_only": full_payment_only,
         "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
         "per_person": data.get("per_person") or quote.get("per_person") or [],
         "per_guest_deposits": data.get("per_guest_deposits") or quote.get("per_guest_deposits") or [],

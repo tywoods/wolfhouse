@@ -184,16 +184,17 @@ def evaluate_wolfhouse_staging_booking_capability(
         reasons.append("bot_booking_disabled")
 
     stripe_key = str(source.get("STRIPE_SECRET_KEY") or "")
-    stripe_mode = str(source.get("WOLFHOUSE_STRIPE_MODE") or source.get("STRIPE_MODE") or "").strip().lower()
-    if stripe_key.startswith("sk_live_") or stripe_mode == "live":
+    stripe_modes = {str(source.get(name) or "").strip().lower()
+                    for name in ("WOLFHOUSE_STRIPE_MODE", "STRIPE_MODE")}
+    if stripe_key.startswith("sk_live_") or "live" in stripe_modes:
         reasons.append("live_stripe_key_blocked")
-    elif not stripe_key.startswith("sk_test_") and stripe_mode != "test":
+    elif not stripe_key.startswith("sk_test_") and "test" not in stripe_modes:
         reasons.append("test_payment_config_missing")
 
     admitted = not reasons
-    if stripe_key.startswith("sk_live_") or stripe_mode == "live":
+    if stripe_key.startswith("sk_live_") or "live" in stripe_modes:
         mode = "live"
-    elif stripe_key.startswith("sk_test_") or stripe_mode == "test":
+    elif stripe_key.startswith("sk_test_") or "test" in stripe_modes:
         mode = "test"
     else:
         mode = "unknown"
@@ -224,6 +225,7 @@ def _route_admitted_wolfhouse_staging(
     norm: str,
     body: Dict[str, Any],
     *,
+    synthetic_identity: str = "",
     owned_payment_ids: Optional[Iterable[str]] = None,
     owned_guest_ids: Optional[Iterable[str]] = None,
 ) -> Tuple[str, Dict[str, Any], List[str]]:
@@ -233,6 +235,20 @@ def _route_admitted_wolfhouse_staging(
     routed.pop("wolfhouse_staging_capability", None)
     payments = _owned(owned_payment_ids)
     guests = _owned(owned_guest_ids)
+
+    # These reads are needed for grounded property/travel answers and package
+    # prices. Exact paths only: suffixes must not turn a read into a mutation.
+    if norm in {"/staff/bot/house-info", "/staff/bot/package-price-preview",
+                "/staff/bot/transfers/prices"}:
+        return norm, routed, []
+    if norm == "/staff/bot/conversation/needs-human":
+        # Persist the existing cancellation/human-help path only on the
+        # server-bound, non-routable Inbox identity. Never accept a model UUID.
+        if not re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            return _deny(norm, routed, "blocked_handoff_identity_missing")
+        routed.pop("conversation_id", None)
+        routed["phone"] = routed["guest_phone"] = synthetic_identity
+        return norm, routed, ["allowed_wolfhouse_staging_synthetic_handoff"]
 
     if "create-balance-link" in norm:
         return _deny(norm, routed, "blocked_balance_link_not_admitted")
@@ -335,9 +351,13 @@ def guard_bot_path_and_payload(
         return _route_admitted_wolfhouse_staging(
             norm,
             body,
+            synthetic_identity=synthetic_identity,
             owned_payment_ids=owned_payment_ids,
             owned_guest_ids=owned_guest_ids,
         )
+
+    if norm == "/staff/bot/conversation/needs-human":
+        return _deny(norm, body, "blocked_handoff_capability_missing")
 
     if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
         warnings.append("redirected_create_to_booking_preview")

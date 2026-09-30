@@ -217,6 +217,13 @@ async function getPauseState(pg, input) {
                        regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') = $3
                        OR (
                          length($5) >= 9
+                         -- WH guest-sim identities occupy the reserved +999
+                         -- namespace. Never cross that boundary via last9,
+                         -- in either direction; exact phone/UUID still works.
+                         AND NOT (c.slug = 'wolfhouse-somo' AND (
+                           $3 ~ '^999[0-9]{12}$'
+                           OR regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'
+                         ))
                          AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') LIKE ('%' || $5)
                        )
                      )
