@@ -187,8 +187,10 @@ async function chrome() {
     return { rowDisplay: cs.display, rowWidth: row.getBoundingClientRect().width, host: el.getBoundingClientRect().toJSON(), pill: el.querySelector('.pill').getBoundingClientRect().toJSON() };
   });
   fs.writeFileSync(path.join(OUT, 'header-boxes.json'), JSON.stringify({ titleBox, pebbleBox, pinBox, header, layout }, null, 2));
-  check('pebbles right of name', pebbleBox.x >= titleBox.x + titleBox.width - 2);
-  check('pebbles before pin', pebbleBox.x + pebbleBox.width <= pinBox.x + 2);
+  const closeBox = await page.locator('#bc-side-close').boundingBox();
+  check('pebble below pin, no overlap', pebbleBox.y >= pinBox.y + pinBox.height - 1, JSON.stringify({ pebbleBox, pinBox }));
+  check('pebble right of arrow cluster', Math.abs((pebbleBox.x + pebbleBox.width) - (closeBox.x + closeBox.width)) <= 4, JSON.stringify({ pebbleBox, closeBox }));
+  check('pebble not under booking code', pebbleBox.x > titleBox.x + 24, JSON.stringify({ pebbleBox, titleBox }));
 
   check('per guest collapsed', await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') === 'false');
   check('per guest between transfers and totals', await page.locator('#bc-per-guest-card').evaluate((el) => el.parentElement.id === 'bc-overview-invoice' && el.previousElementSibling.id === 'bc-inv-transfers' && el.nextElementSibling.id === 'bc-inv-totals'));

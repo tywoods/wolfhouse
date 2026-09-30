@@ -20799,24 +20799,24 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   padding:10px 12px 8px;
   border-bottom:1px solid var(--border-soft);
 }
-.bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.bc-side-head-main{flex:1 1 auto;min-width:0}
-.bc-side-title-row{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
+/* BOOKING-HEADER-BALANCE-PEBBLE-001: payment pebble is the header right column, below pin/arrow, right-aligned with those controls. Not under the booking code. */
+.bc-side-head-row{display:grid;grid-template-columns:minmax(7.5em,1fr) minmax(0,210px);grid-template-areas:"title actions" "meta pebbles";column-gap:10px;row-gap:6px;align-items:start}
+.bc-side-title-row{grid-area:title;display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
 .bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
 /* BOOKING-HEADER-CODE-DATE-META-001: code is quiet; dates own the line. New booking keeps 22px. */
 .bc-side-title.bc-side-title-code{font-size:13px;font-weight:600;line-height:1.3;color:var(--text-2);letter-spacing:.02em}
-.bc-side-header-pebbles{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
-.bc-side-header-pebbles .bc-detail-meta{margin:0}
-.bc-side-header-pebbles:not(:empty){margin-top:6px}
+.bc-side-header-pebbles{grid-area:pebbles;justify-self:end;align-self:center;display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;max-width:min(210px,54%);margin:0}
+.bc-side-header-pebbles:empty{display:none}
+.bc-side-header-pebbles .bc-detail-meta,.bc-side-header-pebbles .pill,.bc-side-header-pebbles .transfer-pebble{margin:0}
 .bc-booking-identity{display:inline-flex;align-items:flex-start;gap:6px;min-width:0;max-width:100%}
 .bc-booking-code{min-width:0;overflow-wrap:anywhere;white-space:normal;font-size:13px;font-weight:600;color:var(--text-2);letter-spacing:.02em}
 .bc-booking-code-copy{flex:0 0 auto;line-height:1;padding:4px;align-self:flex-start}
 .bc-booking-code-copy[hidden]{display:none}
 .bc-detail-title{min-width:0;max-width:100%}
-.bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
+.bc-side-meta{grid-area:meta;min-width:0;margin:0;font-size:12px;color:var(--text-2)}
 .bc-side-dates{display:block;font-size:15px;font-weight:600;line-height:1.3;color:var(--text)}
 .bc-side-stay{display:block;margin-top:2px;font-size:12px;font-weight:500;line-height:1.35;color:var(--text-2)}
-.bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.bc-side-head-actions{grid-area:actions;justify-self:end;align-self:start;display:flex;align-items:center;gap:4px;flex-shrink:0}
 .bc-side-pin,.bc-side-close{
   flex:0 0 auto;width:32px;height:32px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
   background:var(--surface-soft);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
@@ -20929,6 +20929,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-drawer-card-booking .bc-guest-pebble-line{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-end;align-self:stretch;gap:6px;max-width:100%;overflow-x:auto}
 #bc-drawer-card-booking #bc-field-group-guests{border-top:0}
 #bc-drawer-card-booking .bc-guest-package-pebble{margin:0;max-width:none;white-space:nowrap}
+#bc-drawer-card-booking .bc-guest-package-slot{flex:0 0 4.75em;min-width:4.75em;min-height:1.15em;padding:0;background:transparent;border:0;box-shadow:none;color:transparent;visibility:hidden}
 #bc-drawer-card-booking .bc-guest-bed{display:inline-flex;align-items:center;background:#e8f4fd;color:#2474a1;border:1px solid #90c8e8;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;line-height:16px;white-space:nowrap;margin:0}
 [data-theme="dark"] #bc-drawer-card-booking .bc-guest-bed{background:#16384a;color:#d6eef8;border-color:#4da3d4}
 #bc-drawer-card-booking .bc-guest-sep{display:none}
@@ -24621,13 +24622,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <aside id="bc-side-drawer" data-mode="">
   <header class="bc-side-head">
     <div class="bc-side-head-row">
-      <div class="bc-side-head-main">
-        <div class="bc-side-title-row">
-          <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
-          <span id="bc-side-copy-code"></span>
-        </div>
-        <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
-        <p class="bc-side-meta" id="bc-side-meta"></p>
+      <div class="bc-side-title-row">
+        <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
+        <span id="bc-side-copy-code"></span>
       </div>
       <div class="bc-side-head-actions">
         <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin" aria-label="Pin">
@@ -24635,6 +24632,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </button>
         <button type="button" class="bc-side-close" id="bc-side-close" title="Close" aria-label="Close"><span aria-hidden="true">&#8594;</span></button>
       </div>
+      <p class="bc-side-meta" id="bc-side-meta"></p>
+      <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
     </div>
   </header>
   <div class="bc-side-body" id="bc-side-body"></div>
@@ -41996,15 +41995,21 @@ function bcFieldEditFormatContactLine(obj){
 }
 
 function bcGuestPackageChipHtml(guestNumber, guestPackages){
-  if (guestNumber == null || guestNumber === '' || !guestPackages || !guestPackages.length) return '';
+  if (guestNumber == null || guestNumber === '') return '';
   var code = '';
-  for (var i = 0; i < guestPackages.length; i++) {
-    if (Number(guestPackages[i] && guestPackages[i].guest_number) === Number(guestNumber)) {
-      code = guestPackages[i].package_code || '';
-      break;
+  if (guestPackages && guestPackages.length) {
+    for (var i = 0; i < guestPackages.length; i++) {
+      if (Number(guestPackages[i] && guestPackages[i].guest_number) === Number(guestNumber)) {
+        code = guestPackages[i].package_code || '';
+        break;
+      }
     }
   }
-  if (!code) return '';
+  var c = code ? String(code).trim().toLowerCase() : '';
+  /* BOOKING-HEADER-BALANCE-PEBBLE-001: no package keeps the column, not a grey "No package" label. */
+  if (!c || c === 'no_package' || c === 'package_none') {
+    return '<span class="bc-guest-package-pebble bc-guest-package-slot" aria-hidden="true"></span>';
+  }
   var label = (typeof bcFieldEditPackageDisplayLabel === 'function')
     ? bcFieldEditPackageDisplayLabel(code) : String(code);
   var cls = (typeof bcPackagePebbleClass === 'function')
@@ -45428,6 +45433,8 @@ function bcDockCreatePanel(){
   }
   var copyCode = el('bc-side-copy-code');
   if (copyCode) copyCode.innerHTML = '';
+  var pebbles = el('bc-side-header-pebbles');
+  if (pebbles) pebbles.innerHTML = '';
   if (meta){
     var cin = el('bc-sel-cin');
     var cout = el('bc-sel-cout');

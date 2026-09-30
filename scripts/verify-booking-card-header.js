@@ -92,12 +92,19 @@ async function main() {
           const m=await page.evaluate(()=>{
             const title=document.getElementById('bc-side-title').getBoundingClientRect();
             const chips=document.getElementById('bc-side-header-pebbles');
-            return {title:title.toJSON(),chips:chips.getBoundingClientRect().toJSON(),labels:chips.innerText,wrap:getComputedStyle(chips).flexWrap};
+            const pin=document.getElementById('bc-side-pin').getBoundingClientRect();
+            const close=document.getElementById('bc-side-close').getBoundingClientRect();
+            const box=el=>el.getBoundingClientRect().toJSON();
+            return {title:title.toJSON(),chips:box(chips),pin:pin.toJSON(),close:close.toJSON(),labels:chips.innerText,wrap:getComputedStyle(chips).flexWrap};
           });
           observations.push(m);
           assert(m.labels.includes('Balance due €600.00'),'existing payment meaning and amount preserved');
           if(variant==='chips') assert(m.labels.includes('Rooming review') && m.labels.includes('Arrival') && m.labels.includes('Departure'),'multiple existing chip meanings preserved');
-          assert(m.chips.top>=m.title.bottom,'chips have own row below booking identity');
+          assert(m.chips.top >= m.pin.bottom - 1,'payment pebble sits below the pin, no overlap');
+          assert(m.chips.top >= m.close.bottom - 1,'payment pebble sits below the arrow, no overlap');
+          assert(Math.abs(m.chips.right - m.close.right) <= 4,'payment pebble is right-aligned with the arrow');
+          assert(m.chips.left > m.title.left + 24,'payment pebble is not under the booking code');
+          assert(m.chips.right <= width + 1,'payment pebble stays inside the viewport');
           assert.equal(m.wrap,'wrap','chip row wraps');
         }
         if(MODE!=='identity') {

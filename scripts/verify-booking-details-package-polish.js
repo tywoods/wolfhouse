@@ -90,7 +90,10 @@ ok('package then bed on the pebble line', (() => {
 ok('uluwatu stays with guest 1 even though she is sorted first', alex.includes('Uluwatu') && alex.includes('bc-guest-package-pebble') && !alex.includes('Malibu'), alex);
 ok('malibu stays with guest 2, not row order', sam.includes('Malibu') && !sam.includes('Uluwatu'), sam);
 ok('no times-count grouping on the guest chip', !/×\d|x\d/.test(html) && !html.includes('\\u00d7'), html);
-ok('missing guest number gets no chip from the other guest', sandbox.bcGuestPackageChipHtml(9, packages) === '');
+ok('missing guest gets a blank slot, not another guest chip', (() => {
+  const missing = sandbox.bcGuestPackageChipHtml(9, packages);
+  return missing.includes('bc-guest-package-slot') && !missing.includes('Uluwatu') && !missing.includes('Malibu') && !missing.includes('No package');
+})());
 ok('menu label is the guest name', sandbox.bcPackageGuestMenuLabel(2, guests) === 'Sam');
 ok('menu label does not invent Guest 2 when the name exists', sandbox.bcPackageGuestMenuLabel(2, guests) !== 'Guest 2');
 
