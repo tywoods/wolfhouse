@@ -11337,6 +11337,10 @@ async function checkGuestAutomationPauseState(pg, input) {
               regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') = $2
               OR (
                 length($3) >= 9
+                AND NOT (c.slug = 'wolfhouse-somo' AND (
+                  $2 ~ '^999[0-9]{12}$'
+                  OR regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') ~ '^999[0-9]{12}$'
+                ))
                 AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') LIKE ('%' || $3)
               )
             )
@@ -50736,15 +50740,20 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
 
   try {
     const result = await withPgClient(async (pg) => resolveAndMarkConversationNeedsHuman(pg, {
-      conversation_id: convIdValid ? convId : '',
+      conversation_id: body.conversation_id,
       client_slug: clientSlug,
-      phone,
-      guest_phone: phone,
+      phone: body.phone || body.guest_phone,
+      guest_phone: body.guest_phone,
       reason,
       uuid_validate_re: UUID_VALIDATE_RE,
+      simulator_synthetic: body.simulator_synthetic,
+      source_owner: body.source_owner,
+      suppress_notifications: body.suppress_notifications,
+      suppress_approvals: body.suppress_approvals,
+      wolfhouse_staging_capability: body.wolfhouse_staging_capability,
     }));
     const ok = !!(result && result.ok && result.needs_human === true);
-    return sendJSON(res, ok ? 200 : 404, {
+    return sendJSON(res, ok ? 200 : (result && result.status) || 404, {
       success:         ok,
       tool:            'flag_needs_human',
       needs_human:     !!(result && result.needs_human),
