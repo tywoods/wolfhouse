@@ -80,6 +80,16 @@ CREATE TYPE payment_kind AS ENUM ('deposit_only', 'full_amount');
 CREATE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
 CREATE TABLE clients (id uuid PRIMARY KEY, slug text NOT NULL UNIQUE);
+-- Explicit empty Admin pricing fixture: this harness tests occupant/service
+-- persistence using the production fallback pricing contract, not live prices.
+CREATE TABLE wh_pricing_rules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text, item_type text,
+  item_code text, season_code text, unit text, amount_cents int, currency text, active boolean
+);
+CREATE TABLE wh_pricing_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text, item_type text,
+  item_code text, label text, description text, metadata jsonb, active boolean, sort_order int
+);
 CREATE TABLE rooms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid REFERENCES clients,
   room_code text UNIQUE, name text, house text, room_type text, capacity int,
@@ -131,6 +141,13 @@ const normalizeSql = (sql) => String(sql).replace(/\s+/g, ' ').trim();
 // Explicit allowlist: new/unexpected SQL fails, even if a production catch would
 // otherwise downgrade a missing table or availability error to a warning.
 const allowedSql = new Map([
+  ['pricing_items_read', `SELECT id, item_type, item_code, label, description,
+    metadata, active, sort_order FROM wh_pricing_items
+    WHERE client_slug = $1 AND active = true ORDER BY item_type, sort_order, label`],
+  ['pricing_read', `SELECT id, item_type, item_code, season_code, unit,
+    amount_cents, currency, active FROM wh_pricing_rules
+    WHERE client_slug = $1 AND active = true
+    ORDER BY item_type, item_code, season_code NULLS FIRST`],
   ['inventory_read', getBedCalendarRoomsQuery()],
   ['availability_read', getBedCalendarBlocksQuery()],
   ['booking_create', buildManualBookingCreateSql()],

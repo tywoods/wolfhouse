@@ -268,8 +268,8 @@ class PaymentFailureHandoffTests(unittest.TestCase):
         return json.loads(plugin.create_booking_from_plan({
             "check_in": "2026-10-01", "check_out": "2026-10-08",
             "guest_count": 2, "guests": [{"name": g["guest_name"]} for g in guests],
-            "guest_name": "Guest 1", "selected_bed_codes": ["M1", "M2"],
-            "payment_choice": "full", "confirm": True, "package_code": "package_none",
+            "guest_name": "Guest 1", "selected_bed_codes": ["M1", "M2"], "room_preference": "mixed",
+            "payment_choice": "per_guest" if per_guest else "full", "confirm": True, "package_code": "package_none",
         }))
 
     def test_inline_whole_failure_preserves_saved_booking_without_retry(self):
@@ -404,7 +404,8 @@ class PaymentFailureHandoffTests(unittest.TestCase):
         }
         result = json.loads(plugin.create_booking_from_plan({
             "check_in": "2026-10-01", "check_out": "2026-10-08", "guest_count": 1,
-            "guest_name": "Guest", "selected_bed_codes": ["M1"], "payment_choice": "full",
+            "guest_name": "Guest", "selected_bed_codes": ["M1"], "payment_choice": "per_guest",
+            "package_code": "package_none", "room_preference": "mixed",
         }))
         self.assert_handoff(result)
         self.assertEqual(len(self.calls), 3)

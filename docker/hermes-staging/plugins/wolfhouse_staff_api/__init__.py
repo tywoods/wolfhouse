@@ -538,8 +538,35 @@ def _has_package_selection(payload):
     return bool(_clean(payload.get("package_code"))) or bool(payload.get("guest_packages"))
 
 
+def _catalog_selection_refusal(tool, payload):
+    """Catalog extras cannot be atomically quoted/created by the current Staff contract.
+
+    Do not emulate this with create then add-service: an accepted total would
+    already have drifted if the second write failed (and the service-date range
+    is not exposed by the catalog attach tool). Keep the selection visible.
+    """
+    selections = payload.get("catalog_selections")
+    if not selections:
+        return None
+    return _json_result({
+        "success": False, "tool": tool, "write_performed": False,
+        "booking_not_created_yet": True, "error": "catalog_selection_not_atomic",
+        "catalog_selections": selections,
+        "next_action": "explain_catalog_booking_limitation",
+        "needs_human": False, "staff_review_needed": False, "do_not_escalate": True,
+        "guest_safe_next_action": (
+            "I can check this activity, but I can’t include it in a new booking with a verified total yet. "
+            "I haven’t created a booking or payment link. Please contact reception directly to book the complete selection, "
+            "or tell me explicitly if you want a new quote without this activity."
+        ),
+    })
+
+
 def quote_booking(params, **kwargs):
     del kwargs
+    refusal = _catalog_selection_refusal("quote_booking", params or {})
+    if refusal is not None:
+        return refusal
     _ok, _err = guard_tool_input("quote_booking", params)
     if not _ok:
         return _json_result({
@@ -817,6 +844,9 @@ def _booking_count_validation(payload):
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
+    if refusal is not None:
+        return refusal
     payload.setdefault("source", "agent_luna_whatsapp")
     supplied_count, invalid = _booking_count_validation(payload)
     if invalid is not None:
@@ -834,8 +864,11 @@ def create_booking_from_plan(params, **kwargs):
     # Auto-inject required write fields the model shouldn't need to know about.
     # confirm: true is the deliberate "guest accepted" signal the bridge requires.
     payload.setdefault("confirm", True)
-    # Default/normalize payment_choice — guests say "full amount", Staff API expects "full".
-    payload["payment_choice"] = _normalize_payment_choice(payload.get("payment_choice"))
+    # Occupant names do not imply split payment. Keep the guest's explicit
+    # split choice on the wire; Staff's normalizer owns deposit-tier pricing.
+    raw_payment_choice = re.sub(r"[^a-z0-9]+", " ", _clean(payload.get("payment_choice")).lower()).strip()
+    split_payment_requested = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
+    payload["payment_choice"] = "per_guest" if split_payment_requested else _normalize_payment_choice(payload.get("payment_choice"))
 
     phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
     if phone:
@@ -972,7 +1005,8 @@ def create_booking_from_plan(params, **kwargs):
     link_result = {}
 
     guest_payment_links = []
-    if bool(data.get("success")) and bool(data.get("write_performed")) and uses_per_guest_model:
+    create_split_links = uses_per_guest_model and split_payment_requested
+    if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -1028,7 +1062,7 @@ def create_booking_from_plan(params, **kwargs):
         if guest_payment_links:
             secure_url = None  # per-guest links replace single booking link
 
-    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not uses_per_guest_model:
+    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not create_split_links:
         link_payload = {"client_slug": payload.get("client_slug")}
         link_data = _post_bot(
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
@@ -1845,17 +1879,17 @@ def lookup_catalog_service(params, **kwargs):
             "error": "message_text_required",
         })
     data = _post_bot("/catalog-service-lookup", payload)
-    matched = bool(data.get("matched"))
-    reply = data.get("reply")
+    matched = data.get("success") is True and data.get("matched") is True
+    reply = data.get("reply") if matched else None
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": data.get("success") is True,
         "tool": "lookup_catalog_service",
         "matched": matched,
-        "service": data.get("service"),
-        "within_window": data.get("within_window"),
-        "needs_date_shift": data.get("needs_date_shift"),
+        "service": data.get("service") if matched else None,
+        "within_window": data.get("within_window") if matched else None,
+        "needs_date_shift": data.get("needs_date_shift") if matched else None,
         "reply": reply,
-        "facts": data.get("facts"),
+        "facts": data.get("facts") if matched else None,
         "staff_review_needed": False,
         # When matched, `reply` is grounded, guest-safe copy (name, dates, price + offer).
         "guest_safe_next_action": reply if matched else None,
@@ -4098,7 +4132,15 @@ def register(ctx):
         "name_confidence": {"type": "number", "description": "Uncalibrated 0-1 score for name_hint. At least 0.70 is required before a provisional gendered room hint. Below that, ask one neutral question."},
         "name_ambiguous": {"type": "boolean", "description": "True when the name is ambiguous or unisex. Ambiguity wins over a high score."},
         "room_name_hints": {"type": "array", "description": "One hint per traveler, not the booker alone. Each item: name, hint, confidence, ambiguous, explicit_gender.", "items": {"type": "object"}},
-        "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
+        "catalog_selections": {
+            "type": "array",
+            "description": "All selected Admin catalog activities, retained on every quote/create. Current API cannot atomically include these: nonempty selections return explicit no-write refusal. Never omit accepted selections to get a cheaper booking; only a guest's explicit revised choice permits a new quote without them.",
+            "items": {"type": "object", "properties": {
+                "service_id": {"type": "string"}, "name": {"type": "string"},
+                "service_date": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1},
+                "days": {"type": "integer", "minimum": 1}}, "required": ["service_id"]},
+        },
+        "package_code": {"type": "string", "description": "malibu, uluwatu, waimea only when preview_package_prices reports package_eligible under the current Admin package_min_nights; package_none only when the guest selects accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
         "add_ons": {
             "type": "array",
@@ -4110,7 +4152,7 @@ def register(ctx):
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For stays below the returned Admin package_min_nights, use package_none only with the guest's agreement and keep add_ons bundled in the quote. Retain catalog_selections on every quote/create; a catalog refusal is terminal for that selection, not permission to create without it. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
         ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
@@ -4122,8 +4164,8 @@ def register(ctx):
         ("get_surf_report", "Get the Stormglass-backed forecast for this verified Wolfhouse location when a guest asks about waves, swell, wind, rain, temperature, clouds, current or tide. Call this first for forecast facts. It works whether Luna Intelligence is ON or OFF. Preserve the returned source, location, units, validity and uncertainty. If coverage is complete, do not use public research. If it is partial or unavailable, public research is permitted only for the named uncovered fact and only when Luna Intelligence is ON. Never hand off for forecast failure alone, and never supply coordinates.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
         ("owner_insights", "Owner business/operations data — the SINGLE tool for ANY owner question about the business's own data: revenue, payments owed, totals, most-popular package, bookings, guest counts, occupancy, WHICH BEDS are booked/free, who is staying/arriving/departing on a date, arrivals/checkouts. Call this for any such owner question (e.g. 'how much revenue in August', 'who hasn't paid', 'how many bookings for September', 'which beds are booked/free on July 1', 'who is arriving tomorrow'). Do NOT route these to the guest availability flow, and NEVER refuse with a verification/permission excuse — access is decided server-side by the sender's WhatsApp number. If authorized=true, share the 'answer' in your warm voice; if authorized=false the sender is NOT an owner — do NOT reveal any business numbers, just respond as you would to a normal guest. Never invent figures.", owner_insights, {"client_slug": {"type": "string"}, "question": {"type": "string", "description": "The owner's business/operations question, verbatim."}}, ["question"]),
         ("get_house_info", "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.", get_house_info, {"client_slug": {"type": "string"}}, []),
-        ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, just answer normally — there's no such bookable experience.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
-        ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use after the guest agrees to add it AND a booking exists (create it first if mid-intake — use the camp dates). Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
+        ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
+        ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use only for a service newly selected on an already existing booking. Never create an incomplete new booking merely to attach an accepted catalog selection later; preserve catalog_selections and explain the atomic-booking refusal. Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, safety or unresolved Staff booking/payment tool errors. Never use for public research/search/read/weather failure alone: explain the unverified part honestly, without an invented forecast or staff follow-up promise. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": _HANDOFF_REASON_DESCRIPTION}}, []),

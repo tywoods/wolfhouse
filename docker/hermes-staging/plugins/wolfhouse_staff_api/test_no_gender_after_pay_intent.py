@@ -229,7 +229,7 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
                             self.assertNotIn("group_gender", sent)
                             self.assertEqual(sent["guests"], names)
                             self.assertEqual(sent["room_preference"], preference)
-                            expected = plugin._normalize_payment_choice(choice) if tool == "create_booking_from_plan" else choice
+                            expected = ("per_guest" if choice == "split" else plugin._normalize_payment_choice(choice)) if tool == "create_booking_from_plan" else choice
                             self.assertEqual(sent["payment_choice"], expected)
 
     def test_explicit_mismatch_still_blocks_then_safe_choice_can_proceed(self):

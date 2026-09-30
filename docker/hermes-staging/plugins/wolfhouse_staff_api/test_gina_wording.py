@@ -76,7 +76,7 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
             result = json.loads(plugin.create_booking_from_plan({
                 "check_in": "2026-09-01", "check_out": "2026-09-06", "guest_count": 3,
                 "guests": [{"name": g["guest_name"]} for g in guests], "group_gender": "mixed",
-                "package_code": "package_none", "payment_choice": "full", "confirm": True,
+                "package_code": "package_none", "payment_choice": "per_guest", "confirm": True,
                 "selected_bed_codes": ["M1", "M2", "M3"],
             }))
         self.assertEqual(len(calls), 4, "no extra round trips to repeat amounts or mint links")
@@ -98,7 +98,7 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
         def api(path, payload):
             calls.append((path, copy.deepcopy(payload)))
             if path == "/booking-create-from-plan":
-                self.assertEqual(payload["payment_choice"], "deposit")
+                self.assertEqual(payload["payment_choice"], "per_guest")
                 return {"success": True, "write_performed": True, "booking_code": "GINA-OFFLINE",
                         "uses_per_guest_model": True, "booking_guests": guests,
                         "per_person": [{"guest_number": n, "subtotal_cents": 32500} for n in range(1, 4)]}
@@ -230,8 +230,8 @@ handleBotPaymentStatus({}, {}, {}, 'bot', {
         self.assertFalse("After each step, send ONE message and wait" in prompt,
                          "blanket per-step waiting creates unnecessary chat turns")
         self.assertIn("Never change facts, prices", prompt)
-        self.assertIn("one €100 deposit locks the booking in", prompt)
-        self.assertIn("one €200 deposit locks the booking in", prompt)
+        self.assertIn("ONE quoted per-person deposit locks the whole group booking", prompt)
+        self.assertIn("use the returned quote/link amount", prompt)
 
 
 if __name__ == "__main__":
