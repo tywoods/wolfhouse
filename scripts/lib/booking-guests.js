@@ -5,7 +5,8 @@
  * Pure normalization + breakdown builders; DB insert helpers accept a pg client.
  */
 
-const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote, loadConfig, catalogPackageCodes } = require('./wolfhouse-quote-calculator');
+const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
 const { wolfhouseStayDepositRateCents, wolfhouseDepositRatesFromConfig } = require('./wolfhouse-stay-deposit');
 
 const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
@@ -291,7 +292,7 @@ function buildPerPersonBreakdown(quote, opts) {
  * Read-only package price preview for Luna (A5).
  */
 function computePackagePricePreview(input, config) {
-  if (!config) config = loadConfig();
+  config = config === undefined ? loadConfig() : (config || {});
   const clientSlug = trimStr(input.client_slug) || config.client_slug;
   const checkIn = trimStr(input.check_in);
   const checkOut = trimStr(input.check_out);
@@ -300,10 +301,11 @@ function computePackagePricePreview(input, config) {
 
   const packages = {};
   let season_code = null;
-  let nights = null;
-  let blockers = [];
+  let nights = computeStayNights(checkIn, checkOut);
+  const eligibility = evaluatePackageEligibility(nights, config);
 
-  for (const code of PACKAGE_PREVIEW_CODES) {
+  const codes = catalogPackageCodes(config);
+  for (const code of eligibility.package_eligible ? codes : []) {
     const quote = calculateWolfhouseQuote({
       client_slug: clientSlug,
       check_in: checkIn,
@@ -317,7 +319,6 @@ function computePackagePricePreview(input, config) {
     if (quote.season_code) season_code = quote.season_code;
     if (quote.nights) nights = quote.nights;
     if (!quote.success) {
-      blockers = quote.blockers || blockers;
       packages[code] = { success: false, blockers: quote.blockers || [] };
       continue;
     }
@@ -344,7 +345,8 @@ function computePackagePricePreview(input, config) {
   }
 
   return {
-    success: blockers.length === 0 || Object.values(packages).some((p) => p.success),
+    success: eligibility.package_eligible && Object.values(packages).some((p) => p.success),
+    ...eligibility,
     client_slug: clientSlug,
     check_in: checkIn,
     check_out: checkOut,

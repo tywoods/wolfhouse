@@ -39,7 +39,7 @@ const required = [
   ],
   [
     'both booking sequences place Step 1B before their next flow step',
-    /Short-stay flow:[\s\S]{0,180}Step 1B[\s\S]{0,100}Availability[\s\S]*7\+ nights[\s\S]{0,500}Step 1B[\s\S]{0,100}Package choice/i,
+    /Short-stay flow:[\s\S]{0,220}Step 1B[\s\S]{0,100}Availability[\s\S]*Eligible stays[\s\S]{0,500}Step 1B[\s\S]{0,100}Package choice/i,
   ],
   [
     'incident phrase is covered',

@@ -23,6 +23,7 @@
   "client_slug": "wolfhouse-somo",
   "config_version": "2026-06-02.1",
   "currency": "EUR",
+  "package_min_nights": 7,
 
   "_seasons_note": "Season is determined by the check-in month number. August (month 8) has priority 10 and overrides the summer rule. Month 3 (March) has no seeded package_price_rules row — see missing_required_values.",
 

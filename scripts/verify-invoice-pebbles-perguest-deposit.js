@@ -80,7 +80,8 @@ async function money() {
     check_in: '2026-09-01',
     check_out: '2026-09-06',
     guest_count: 2,
-    package_code: 'malibu',
+    // Deposit arithmetic fixture: explicitly choose accommodation, not a now-ineligible package.
+    package_code: 'package_none',
     payment_choice: 'deposit',
     stay_deposit_rates: { long_stay_cents: 25000, short_stay_cents: 15000 },
   });

@@ -155,6 +155,8 @@ async function buildForChannel(channel, transportBody, extra = {}) {
       ? { staff_user_id: 'staff-1', staff_role: 'operator', email: 'staff@test.com' }
       : { staff_user_id: 'luna-bot-internal', staff_role: 'operator' }),
     pgClient: extra.pg,
+    // This unit fixture has no pricing DB; supply its policy explicitly.
+    quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
   });
 }
 

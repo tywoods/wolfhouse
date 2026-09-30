@@ -11,6 +11,7 @@ const { computePackagePricePreview } = require('./booking-guests');
 const {
   evaluatePackageNightContext,
   validateStaffPackageNightRule,
+  getPackageMinimumNights,
 } = require('./wolfhouse-package-night-rules');
 const {
   buildWolfhouseAvailabilityCommand,
@@ -68,13 +69,14 @@ function rejectSurfSchoolTransportFields(transportBody) {
 }
 
 function buildWolfhouseAccommodationCatalog(config) {
-  const cfg = config || loadConfig();
-  const offerings = (cfg.packages || []).map((p) => ({
+  const cfg = config === undefined ? loadConfig() : (config || {});
+  const minimum = getPackageMinimumNights(cfg);
+  const offerings = (minimum == null ? [] : (cfg.packages || [])).map((p) => ({
     package_code: p.code,
     name: p.name,
     price_scope: p.price_scope || null,
     base_room_type: p.base_room_type || 'shared',
-    min_nights: 7,
+    min_nights: minimum,
     offering_kind: 'stay_package',
     inclusions: p.inclusions || [],
   }));
@@ -89,6 +91,7 @@ function buildWolfhouseAccommodationCatalog(config) {
     client_slug: WOLFHOUSE_CLIENT_SLUG,
     vertical_id: VERTICAL_IDS.ACCOMMODATION,
     currency: cfg.currency,
+    package_min_nights: minimum,
     offerings,
   };
 }
@@ -121,6 +124,8 @@ function executeWolfhouseAccommodationListOfferings(transportBody, opts = {}) {
         check_out: checkOut,
         guest_count: guestCount,
         nights: preview.nights,
+        package_min_nights: preview.package_min_nights,
+        package_eligible: preview.package_eligible,
         season_code: preview.season_code,
         packages: preview.packages,
         source: preview.source,
@@ -175,21 +180,25 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
     checkIn,
     checkOut,
     guestCount: guestCountInt || guestPackages.length,
+    config: opts.config,
   });
 
-  if (packageCode !== undefined) {
-    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
+  const selectedCodes = guestPackages.length ? guestPackages.map(gp => gp.package_code) : [packageCode];
+  for (const selectedCode of selectedCodes) {
+    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, selectedCode, opts.config);
     if (!packageNightCheck.ok) {
       return {
         ok: false,
         status: 400,
         body: {
           success: false,
-          reason: 'package_min_nights_violation',
-          reason_code: 'package_min_nights_violation',
+          reason: packageNightCheck.reason_code,
+          reason_code: packageNightCheck.reason_code,
           error: packageNightCheck.error,
           package_night_violation: packageNightCheck,
           nights: packageNightCheck.nights,
+          package_min_nights: packageNightCheck.package_min_nights,
+          package_eligible: packageNightCheck.package_eligible,
         },
       };
     }
@@ -246,7 +255,7 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
     ok: quote.success !== false,
     status: 200,
     body: {
-      success: true,
+      success: quote.success !== false,
       preview_only: true,
       no_write_performed: true,
       client_slug: WOLFHOUSE_CLIENT_SLUG,
@@ -256,7 +265,7 @@ function executeWolfhouseAccommodationQuote(transportBody, opts = {}) {
   };
 }
 
-function evaluateWolfhouseAccommodationDates(fields) {
+function evaluateWolfhouseAccommodationDates(fields, opts = {}) {
   const body = fields && typeof fields === 'object' ? fields : {};
   const checkIn = String(body.check_in || '').trim() || null;
   const checkOut = String(body.check_out || '').trim() || null;
@@ -274,12 +283,15 @@ function evaluateWolfhouseAccommodationDates(fields) {
 
   const ctx = evaluatePackageNightContext(
     { check_in: checkIn, check_out: checkOut, package_interest: packageCode },
-    { guest_directly_named_package: body.guest_directly_named_package === true },
+    { guest_directly_named_package: body.guest_directly_named_package === true, config: opts.config },
   );
 
   let staffCheck = { ok: true, nights: ctx.nights, package_code: ctx.package_code };
-  if (packageCode && checkIn && checkOut) {
-    staffCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
+  const selectedCodes = Array.isArray(body.guest_packages) && body.guest_packages.length
+    ? body.guest_packages.map(gp => gp && gp.package_code) : [packageCode];
+  if (checkIn && checkOut) {
+    const checks = selectedCodes.map(code => validateStaffPackageNightRule(checkIn, checkOut, code, opts.config));
+    staffCheck = checks.find(check => !check.ok) || checks[0];
   }
 
   let closedSeason = false;
@@ -295,7 +307,7 @@ function evaluateWolfhouseAccommodationDates(fields) {
         room_type: 'shared',
         payment_choice: 'deposit',
         add_ons: [],
-      });
+      }, opts.config);
       closedSeason = quote.closed_season === true;
       seasonBlocked = !quote.success && (closedSeason
         || (quote.blockers || []).some((b) => /closed/i.test(String(b))));
@@ -308,14 +320,16 @@ function evaluateWolfhouseAccommodationDates(fields) {
   const out = {
     ok,
     nights: ctx.nights != null ? ctx.nights : staffCheck.nights,
+    package_min_nights: ctx.package_min_nights,
+    package_eligible: ctx.package_eligible,
     rule: ctx.rule,
     package_code: ctx.package_code || staffCheck.package_code,
     blocks_weekly_package_quote: ctx.blocks_weekly_package_quote,
     closed_season: closedSeason,
   };
   if (!staffCheck.ok) {
-    out.reason = 'package_min_nights_violation';
-    out.reason_code = 'package_min_nights_violation';
+    out.reason = staffCheck.reason_code;
+    out.reason_code = staffCheck.reason_code;
     out.error = staffCheck.error;
   } else if (seasonBlocked) {
     out.reason = 'closed_season';
@@ -324,12 +338,13 @@ function evaluateWolfhouseAccommodationDates(fields) {
   return out;
 }
 
-async function executeWolfhouseAccommodationAvailability(pg, transportBody) {
+async function executeWolfhouseAccommodationAvailability(pg, transportBody, opts = {}) {
   const rejected = rejectSurfSchoolTransportFields(transportBody);
   if (!rejected.ok) return rejected;
 
   const built = buildWolfhouseAvailabilityCommand({
     channel: AVAILABILITY_CHANNELS.VERTICAL_ADAPTER,
+    quoteConfig: opts.config,
     trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
     transportBody: transportBody || {},
     demoCalendarEnrichment: true,
@@ -400,6 +415,7 @@ async function executeWolfhouseAccommodationCreate(pg, transportBody, opts = {})
     actorHints: opts.actorHints || {},
     pgClient: pg,
     dryRunOnly: opts.dryRunOnly === true,
+    quoteConfig: opts.quoteConfig,
     stripeConfig: opts.stripeConfig,
     privateRoomHooks: opts.privateRoomHooks,
   });

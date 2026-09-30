@@ -2,6 +2,7 @@
  * Wolfhouse Admin Pricing routes — extracted module (DI template).
  *
  *   GET    /staff/admin/wh/pricing                       merged catalog
+ *   PUT    /staff/admin/wh/pricing/package-minimum       update nights policy
  *   PUT    /staff/admin/wh/pricing/seasons               upsert season + ranges
  *   DELETE /staff/admin/wh/pricing/seasons/:code
  *   PUT    /staff/admin/wh/pricing/prices                upsert one price
@@ -306,6 +307,21 @@ function createWolfhousePricingRoutes(deps) {
     });
   }
 
+  async function handleWhPricingPackageMinimumPut(query, req, res, user) {
+    const started = Date.now();
+    const clientSlug = resolveScope(query, res, user);
+    if (!clientSlug) return undefined;
+    if (!gateWrite(clientSlug, res, user)) return undefined;
+    const body = await parseJsonBody(req, res);
+    if (!body) return undefined;
+    const parsed = writes.validatePackageMinimumBody(body);
+    if (!parsed.ok) return send400(res, parsed.error);
+    return commitWrite({
+      intent: 'package_minimum_save', clientSlug, res, user, started,
+      run: (pg) => store.saveItem(pg, clientSlug, parsed.value, actorOf(user)),
+    });
+  }
+
   async function handleWhPricingItemPut(query, req, res, user) {
     const started = Date.now();
     const clientSlug = resolveScope(query, res, user);
@@ -391,6 +407,9 @@ function createWolfhousePricingRoutes(deps) {
   function match(pathname, method) {
     const m = String(method || '').toUpperCase();
     if (pathname === WH_PRICING_BASE_PATH && m === 'GET') return handleWhPricingGet;
+    if (pathname === `${WH_PRICING_BASE_PATH}/package-minimum` && m === 'PUT') {
+      return handleWhPricingPackageMinimumPut;
+    }
     if (pathname === `${WH_PRICING_BASE_PATH}/seasons` && m === 'PUT') {
       return handleWhPricingSeasonPut;
     }
@@ -436,6 +455,7 @@ function createWolfhousePricingRoutes(deps) {
     match,
     loadView,
     handleWhPricingGet,
+    handleWhPricingPackageMinimumPut,
     handleWhPricingSeasonPut,
     handleWhPricingSeasonDelete,
     handleWhPricingPricePut,

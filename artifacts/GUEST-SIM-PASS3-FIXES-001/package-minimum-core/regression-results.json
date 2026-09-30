@@ -1,0 +1,43 @@
+[
+  {
+    "script": "verify-package-minimum-core",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-staff-admin-packages-quote",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-per-guest-booking-payments",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-short-stay-booking-create",
+    "exit_code": 1
+  },
+  {
+    "script": "verify-luna-front-desk-accommodation-adapter",
+    "exit_code": 1
+  },
+  {
+    "script": "verify-luna-front-desk-accommodation-availability-service",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-guest-addon-pricing",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-guest-room-type-supplement",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-per-person-gear-room-pref",
+    "exit_code": 0
+  },
+  {
+    "script": "verify-invoice-pebbles-perguest-deposit",
+    "exit_code": 1,
+    "note": "Prior run stopped at line 87: 5-night Malibu expected a successful deposit despite seed package minimum; browser phase not reached."
+  }
+]

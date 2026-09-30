@@ -41,6 +41,7 @@ console.log(JSON.stringify(calculateWolfhouseQuote({
         with patch.object(plugin, "_post_bot", return_value=response):
             result = json.loads(plugin.quote_booking({
                 "check_in": "2026-09-01", "check_out": "2026-09-06", "guest_count": 3,
+                "package_code": "package_none",  # Explicit choice, not an absent-package default.
             }))
         self.assertEqual(result.get("per_person"), quote["per_person"],
                          "Luna must see full subtotal, not only accommodation")

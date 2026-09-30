@@ -1,6 +1,6 @@
 'use strict';
 
-const { computeStayNights } = require('./wolfhouse-package-night-rules');
+const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
 const { KNOWN_PACKAGES } = require('./booking-guests');
 
 const NO_PACKAGE_CODES = new Set([
@@ -30,6 +30,7 @@ function resolveBotBookingPackageContext({
   checkIn,
   checkOut,
   guestCount,
+  config,
 }) {
   const nights = computeStayNights(checkIn, checkOut);
   let quotePackageCode = normalizePackageCodeAlias(packageCode);
@@ -45,19 +46,18 @@ function resolveBotBookingPackageContext({
     if (sorted.length) quotePackageCode = sorted[0][0];
   }
 
-  const isShortStay = nights != null && nights < 7;
-
-  if (isShortStay) {
-    quotePackageCode = 'package_none';
-  } else if (isNoPackageBookingCode(quotePackageCode)) {
-    quotePackageCode = null;
-  }
-
+  const eligibility = evaluatePackageEligibility(nights, config);
+  const isShortStay = nights != null && eligibility.package_min_nights != null
+    && !eligibility.package_eligible;
+  // Preserve the requested selection. Eligibility rejection belongs to the
+  // shared rule/calculator, never to an implicit accommodation conversion.
   let guestPackagesForQuote = gp;
-  if (isShortStay && guestCount > 0 && !gp.length) {
-    guestPackagesForQuote = [];
-    for (let i = 0; i < guestCount; i++) {
-      guestPackagesForQuote.push({ guest_number: i + 1, package_code: 'package_none' });
+  if (!String(packageCode || '').trim() && !gp.length) {
+    quotePackageCode = isShortStay ? 'package_none' : null;
+    if (isShortStay && guestCount > 0) {
+      guestPackagesForQuote = Array.from({ length: guestCount }, (_, i) => ({
+        guest_number: i + 1, package_code: 'package_none',
+      }));
     }
   }
 
@@ -65,6 +65,7 @@ function resolveBotBookingPackageContext({
 
   return {
     nights,
+    ...eligibility,
     isShortStay,
     isNoPackage: quotePackageCode === 'package_none',
     quotePackageCode,

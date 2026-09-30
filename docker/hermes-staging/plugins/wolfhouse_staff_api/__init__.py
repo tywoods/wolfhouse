@@ -532,6 +532,12 @@ def check_availability(params, **kwargs):
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 
 
+def _has_package_selection(payload):
+    # Absence is not consent to accommodation-only. Per-guest choices are
+    # validated by Staff API; do not replace them with a group-wide default.
+    return bool(_clean(payload.get("package_code"))) or bool(payload.get("guest_packages"))
+
+
 def quote_booking(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("quote_booking", params)
@@ -546,6 +552,11 @@ def quote_booking(params, **kwargs):
         })
     payload = dict(params or {})
     payload.setdefault("source", "agent_luna_whatsapp")
+    if not _has_package_selection(payload):
+        options = json.loads(preview_package_prices(payload))
+        options.update({"tool": "quote_booking", "quote_status": "needs_guest_clarification",
+                        "package_choice_needed": True, "write_performed": False})
+        return _json_result(options)
     # Quote identity normalization must not infer/replace the guest count or
     # other business inputs. Preserve the existing quote validator and wire.
     identity = dict(payload)
@@ -577,8 +588,14 @@ def quote_booking(params, **kwargs):
         unknown_codes = []
     next_action = data.get("next_action")
     closed_season = next_action == "closed_season"
+    package_blocked = next_action == "package_not_available_for_dates"
+    package_policy = data.get("package_night_rule") or data.get("package_night_violation")
+    package_policy = package_policy if isinstance(package_policy, dict) else {}
     quote_result = {
-        "success": bool(data.get("success")) and not unknown_codes and not closed_season,
+        "success": bool(data.get("success")) and not unknown_codes and not closed_season and not package_blocked,
+        **({"next_action": "offer_accommodation_or_change_dates",
+            "package_min_nights": package_policy.get("package_min_nights"),
+            "package_eligible": False} if package_blocked else {}),
         "tool": "quote_booking",
         "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
         **{key: payload[key] for key in ("guest_name", "guests") if key in payload},
@@ -806,6 +823,13 @@ def create_booking_from_plan(params, **kwargs):
         return invalid
     if supplied_count is not None:
         payload["guest_count"] = supplied_count
+    if not _has_package_selection(payload) and not _clean(payload.get("plan_id")):
+        return _json_result({
+            "success": False, "tool": "create_booking_from_plan", "write_performed": False,
+            "booking_not_created_yet": True, "package_choice_needed": True,
+            "next_action": "choose_package_or_accommodation", "staff_review_needed": False,
+            "guest_safe_next_action": "Explain eligible packages from preview_package_prices, then ask which package or accommodation-only they prefer.",
+        })
 
     # Auto-inject required write fields the model shouldn't need to know about.
     # confirm: true is the deliberate "guest accepted" signal the bridge requires.
@@ -918,24 +942,10 @@ def create_booking_from_plan(params, **kwargs):
         ])
         payload["idempotency_key"] = "luna-" + hashlib.sha256(key_parts.encode()).hexdigest()[:16]
 
-    # Short stays (<7 nights): accommodation-only — no weekly package, no shuttle.
-    check_in = _clean(payload.get("check_in"))
-    check_out = _clean(payload.get("check_out"))
+    # Staff API applies the current Admin minimum-night setting. Never replace
+    # an explicit package (or mixed choices) using a local duration heuristic.
     pkg = _clean(payload.get("package_code")).lower()
-    if check_in and check_out:
-        try:
-            from datetime import date
-            ci = date.fromisoformat(check_in[:10])
-            co = date.fromisoformat(check_out[:10])
-            nights = (co - ci).days
-            if nights > 0 and nights < 7:
-                payload["package_code"] = "package_none"
-                if not payload.get("add_ons"):
-                    payload.setdefault("add_ons", [])
-                payload.pop("pending_transfers", None)
-        except Exception:
-            pass
-    elif pkg in ("", "accommodation_only", "no_package"):
+    if pkg in ("accommodation_only", "no_package"):
         payload["package_code"] = "package_none"
 
     if room_decision:
@@ -1047,6 +1057,10 @@ def create_booking_from_plan(params, **kwargs):
         err = _clean(data.get("error") or data.get("message"))
         if err:
             blocked_reasons = [err]
+    package_rejected = not bool(data.get("success")) and data.get("reason_code") in {
+        "package_min_nights_violation", "package_min_nights_configuration_invalid",
+    }
+    package_policy = data.get("package_night_violation") or {}
     expected_missing = any(
         reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
         for reason in blocked_reasons
@@ -1096,12 +1110,14 @@ def create_booking_from_plan(params, **kwargs):
         "staff_review_needed": (
             not _intentional_capability_block(link_data)
             and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
-            and not expected_missing
+            and not expected_missing and not package_rejected
         ),
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
-        "do_not_escalate": expected_missing or _intentional_capability_block(link_data),
+        "do_not_escalate": expected_missing or package_rejected or _intentional_capability_block(link_data),
+        **({"package_min_nights": package_policy.get("package_min_nights"),
+            "package_eligible": False, "reason_code": data.get("reason_code")} if package_rejected else {}),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
         "room_decision": room_decision,
         "needs_human": False,
@@ -1269,10 +1285,20 @@ def preview_package_prices(params, **kwargs):
             "guest_safe_next_action": "I need your dates and how many people are coming before I can show package prices.",
         })
     data = _post_bot("/package-price-preview", payload)
-    packages = data.get("packages") if isinstance(data.get("packages"), dict) else {}
+    minimum = data.get("package_min_nights")
+    eligibility = data.get("package_eligible")
+    known_policy = type(minimum) is int and minimum > 0 and type(eligibility) is bool
+    eligible = known_policy and eligibility and data.get("success") is True
+    ineligible = known_policy and eligibility is False
+    packages = data.get("packages") if eligible and isinstance(data.get("packages"), dict) else {}
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": bool(eligible),
         "tool": "preview_package_prices",
+        "package_min_nights": minimum if known_policy else None,
+        "package_eligible": eligibility if known_policy else None,
+        "next_action": ("explain_packages_then_ask_choice" if eligible else
+                        "offer_accommodation_or_change_dates" if ineligible else
+                        "package_eligibility_unavailable"),
         "check_in": check_in,
         "check_out": check_out,
         "guest_count": guest_count,
@@ -1282,7 +1308,7 @@ def preview_package_prices(params, **kwargs):
         "malibu": packages.get("malibu"),
         "uluwatu": packages.get("uluwatu"),
         "waimea": packages.get("waimea"),
-        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "staff_review_needed": not (eligible or ineligible),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     })
 

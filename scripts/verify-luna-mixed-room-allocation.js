@@ -184,6 +184,7 @@ function readOnlyInventory(bedRows, blocks = []) {
   const calls = [];
   return { calls, query: async (sql, params) => {
     calls.push({ sql, params });
+    if (/FROM wh_pricing_items/.test(sql)) return { rows: [] }; // saved-policy read, JSON seed if no override
     if (sql === getBedCalendarRoomsQuery()) return { rows: bedRows };
     if (sql === getBedCalendarBlocksQuery()) return { rows: blocks };
     throw new Error('Unexpected query at read-only fixture seam');
@@ -208,6 +209,7 @@ function bookingRows(mixedAvailable) {
 for (const roomPreference of ['mixed', 'shared']) {
   test(`cached gendered beds require a real preflight for ${roomPreference}`, async () => {
     const result = await buildWolfhouseBookingCreateCommand({
+      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
       channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
       transportBody: { ...transport, room_preference: roomPreference },
     });
@@ -218,6 +220,7 @@ for (const roomPreference of ['mixed', 'shared']) {
     test(`booking preflight ${roomPreference}: cached beds ${mixedAvailable ? 'replaced by mixed' : 'blocked neutrally'}`, async () => {
       const pg = readOnlyInventory(bookingRows(mixedAvailable));
       const result = await buildWolfhouseBookingCreateCommand({
+      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
         channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo', pgClient: pg,
         transportBody: { ...transport, room_preference: roomPreference },
       });
@@ -256,6 +259,7 @@ test('canonical availability exposes neutral room clarification, not handoff', a
 test('pre-commit recheck rejects a mixed room that becomes gendered', async () => {
   const initial = bookingRows(true);
   const built = await buildWolfhouseBookingCreateCommand({
+      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
     pgClient: readOnlyInventory(initial), transportBody: transport,
   });
@@ -265,7 +269,7 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   const result = await validateAvailabilityProvenanceForCreate(pg, built.command, built.command.availabilityProvenance);
   assert.equal(result.ok, false);
   assert.equal(result.body.reason_code, 'availability_changed');
-  assert.equal(pg.calls.length, 2);
+  assert.equal(pg.calls.length, 3); // policy reload plus room/block SELECTs
 });
 
 async function main() {

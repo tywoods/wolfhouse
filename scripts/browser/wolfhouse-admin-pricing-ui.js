@@ -906,9 +906,33 @@
       + '</div>';
   }
 
+  function renderPackageMinimum() {
+    var setting = (state.view.extras || {}).package_min_nights || {};
+    var value = Number.isSafeInteger(setting.value) && setting.value > 0 ? setting.value : null;
+    var title = whT('admin.wh.pricing.packageMinimum', 'Package Night minimum');
+    if (isEditing('policy:package_min_nights') && canWrite()) {
+      return '<div class="portal-admin-price-card is-editing" data-wh-package-minimum>'
+        + '<div class="portal-admin-edit-field"><label for="wh-price-package-minimum">'
+        + whEsc(title) + '</label>'
+        + '<input type="number" id="wh-price-package-minimum" min="1" step="1" required'
+        + ' max="9007199254740991" inputmode="numeric" value="'
+        + whEsc(value == null ? '' : String(value)) + '"></div>'
+        + editActions('save-package-minimum') + '</div>';
+    }
+    return '<div class="portal-admin-price-card" data-wh-package-minimum>'
+      + '<div class="portal-admin-price-card-main"><div>'
+      + '<div class="portal-admin-price-title">' + whEsc(title) + '</div>'
+      + (value == null ? '' : sourceBadge(setting.source)) + '</div>'
+      + '<div class="portal-admin-price-amount">'
+      + whEsc(value == null ? whT('admin.wh.pricing.notSet', 'Not set')
+        : String(value) + ' ' + whT('admin.wh.pricing.nights', 'nights')) + '</div></div>'
+      + (canWrite() ? '<div class="portal-admin-card-actions">'
+        + pencilBtn('edit-package-minimum') + '</div>' : '') + '</div>';
+  }
+
   function renderExtrasSection() {
     var extras = state.view.extras || {};
-    var html = '';
+    var html = renderPackageMinimum();
     if (isEditing('item:extra:__new__')) html += renderNewExtraForm();
     var groups = [
       { kind: 'deposit', rows: extras.deposits || [], title: whT('admin.wh.pricing.deposits', 'Deposits') },
@@ -1106,6 +1130,22 @@
 
   var ACTIONS = {
     reload: function () { load(); },
+    'edit-package-minimum': function () {
+      if (!canWrite()) return;
+      state.editing = 'policy:package_min_nights';
+      render();
+    },
+    'save-package-minimum': function () {
+      if (!canWrite()) return;
+      var input = node('wh-price-package-minimum');
+      if (!input) return;
+      if (!input.checkValidity()) { input.reportValidity(); return; }
+      var value = Number(input.value);
+      if (!Number.isSafeInteger(value) || value < 1) return;
+      commit('PUT', WH_PRICING_BASE + '/package-minimum' + clientQuery(), {
+        minimum_nights: value,
+      });
+    },
     cancel: function () {
       state.editing = null;
       state.seasonDraft = null;

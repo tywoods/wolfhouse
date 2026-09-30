@@ -18,7 +18,9 @@
 const fs   = require('fs');
 const path = require('path');
 
-const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
+const { loadItems } = require('./wolfhouse-pricing-store');
+const { applyOverlayPackageItemsToConfig } = require('./wolfhouse-pricing-resolve');
 const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
 const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
 const { normalizeBotServiceType } = require('./guest-addon-pricing');
@@ -248,6 +250,7 @@ function runBookingPreviewDryRun(fields) {
     checkIn: fields.check_in,
     checkOut: fields.check_out,
     guestCount: fields.guest_count || 0,
+    config: fields.quote_config,
   });
   const effectivePackageCode = pkgCtx.quotePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
@@ -283,7 +286,7 @@ function runBookingPreviewDryRun(fields) {
         payment_choice: fields.payment_choice || 'deposit',
         add_ons:        addOns,
         stay_deposit_rates: fields.stay_deposit_rates || null,
-      }, fields.quote_config || null);
+      }, fields.quote_config);
     } catch (err) {
       quoteError = err.message;
     }
@@ -294,6 +297,8 @@ function runBookingPreviewDryRun(fields) {
     nextAction = 'handoff_to_staff';
   } else if (quote && !quote.success && isClosedSeasonQuote(quote)) {
     nextAction = 'closed_season';
+  } else if (quote && quote.package_night_violation) {
+    nextAction = 'offer_accommodation_or_change_dates';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'handoff_to_staff' : 'ask_missing_details';
   } else if (quote && quote.success) {
@@ -315,6 +320,12 @@ function runBookingPreviewDryRun(fields) {
     const closedCopy = buildBotClosedSeasonReply({ language: fields.language });
     replyDraft = closedCopy.reply_draft;
     guestSafeNextAction = closedCopy.guest_safe_next_action;
+  } else if (nextAction === 'offer_accommodation_or_change_dates') {
+    const minimum = quote.package_night_violation.package_min_nights;
+    replyDraft = minimum == null
+      ? 'I can’t confirm package eligibility right now. Would you like accommodation only?'
+      : `Packages need at least ${minimum} nights. Would you prefer accommodation only or different dates?`;
+    guestSafeNextAction = replyDraft;
   } else if (nextAction === 'handoff_to_staff') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
   } else if (nextAction === 'show_quote' && quote) {
@@ -364,6 +375,7 @@ async function runAvailabilityCheckDryRun(fields, pg) {
     channel: AVAILABILITY_CHANNELS.LUNA_WHATSAPP,
     trustedClientSlug: String(fields.client_slug || DEFAULT_CLIENT).trim(),
     transportBody: fields,
+    quoteConfig: fields.quote_config,
     demoCalendarEnrichment: true,
     assignmentMode: true,
   });
@@ -593,7 +605,7 @@ function buildPlannedActions(gate, bookingPreview, availability, addonPreview, f
     actions.push('ask_deposit_or_full_payment');
   }
 
-  if (availability && !availability.skipped && availability.has_enough_beds) {
+  if (availability && !availability.skipped && availability.has_enough_beds && availability.date_rule_ok !== false) {
     actions.push('show_availability_options');
   } else if (availability && !availability.skipped && availability.has_enough_beds === false) {
     actions.push('handoff_to_staff');
@@ -608,7 +620,7 @@ function buildPlannedActions(gate, bookingPreview, availability, addonPreview, f
     bookingPreview.quote.success &&
     !bookingPreview.has_missing_fields &&
     fields.payment_choice &&
-    (availability == null || availability.skipped || availability.has_enough_beds)
+    (availability == null || availability.skipped || (availability.has_enough_beds && availability.date_rule_ok !== false))
   ) {
     actions.push('would_create_booking_after_approval');
     if (fields.payment_choice) {
@@ -625,6 +637,7 @@ function buildPlannedActions(gate, bookingPreview, availability, addonPreview, f
 
 function resolveTopLevelNextAction(plannedActions, bookingPreview, gate) {
   if (gate.bot_paused) return 'handoff_to_staff';
+  if (bookingPreview.next_action === 'offer_accommodation_or_change_dates') return bookingPreview.next_action;
   if (plannedActions.includes('ask_missing_details')) return 'ask_missing_details';
   if (plannedActions.includes('handoff_to_staff')) return 'handoff_to_staff';
   if (plannedActions.includes('show_quote')) return 'show_quote';
@@ -647,6 +660,22 @@ async function runLunaGuestBookingDryRun(input, context) {
   const fields = normalizeInput(input);
   const pg     = context && context.pg ? context.pg : null;
 
+  // Trusted DB context, never transport-supplied config. Read-only: do not
+  // initialize pricing tables from a dry-run or create eligibility preflight.
+  fields.quote_config = context && context.quoteConfig !== undefined
+    ? context.quoteConfig : loadConfig();
+  if (context && context.quoteConfig !== undefined) {
+    // Trusted caller config (including explicit null) survives early create previews.
+  } else if (pg) {
+    try {
+      const items = await loadItems(pg, fields.client_slug);
+      applyOverlayPackageItemsToConfig(fields.quote_config, items);
+    } catch (_) {
+      fields.quote_config.package_min_nights = null;
+    }
+  } else {
+    fields.quote_config.package_min_nights = null;
+  }
   const gate           = await runGuestAutomationGate(fields, pg);
   const bookingPreview = runBookingPreviewDryRun(fields);
 

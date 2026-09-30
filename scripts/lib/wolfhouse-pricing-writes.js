@@ -269,6 +269,24 @@ function validatePriceRuleBody(body) {
   };
 }
 
+function validatePackageMinimumBody(body) {
+  const value = body && body.minimum_nights;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    return { ok: false, error: 'minimum_nights must be a positive integer' };
+  }
+  return {
+    ok: true,
+    value: {
+      item_type: 'policy',
+      item_code: 'package_min_nights',
+      label: 'Package Night minimum',
+      description: null,
+      metadata: { minimum_nights: value },
+      active: true,
+    },
+  };
+}
+
 function validateItemBody(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { ok: false, error: 'invalid body' };
@@ -396,6 +414,7 @@ module.exports = {
   validateSeasonBody,
   validatePriceRuleBody,
   validateItemBody,
+  validatePackageMinimumBody,
   validateAirportCode,
   validateTransferRuleBody,
 };
