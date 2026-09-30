@@ -130,7 +130,7 @@ function bcInvoiceStyles(){
   style.textContent += guestScope + '#bc-guest-names{display:block}' +
     guestScope + '.bc-guest-name-row{display:flex;flex-direction:column;align-items:flex-start;gap:4px;grid-template-columns:none}' +
     guestScope + '.bc-guest-name-line{display:block;white-space:normal;overflow:visible;text-overflow:clip}' +
-    guestScope + '.bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px}' +
+    guestScope + '.bc-guest-pebble-line{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;align-self:stretch;gap:6px}' +
     guestScope + '.bc-guest-bed,' + guestScope + '.bc-guest-package-pebble,' + guestScope + '.bc-accom-pay-pebble{grid-column:auto;grid-row:auto;justify-self:start}';
   document.head.appendChild(style);
 }
