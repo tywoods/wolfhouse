@@ -191,7 +191,7 @@ async function chrome() {
   check('pebbles before pin', pebbleBox.x + pebbleBox.width <= pinBox.x + 2);
 
   check('per guest collapsed', await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded') === 'false');
-  check('per guest outside invoice', await page.locator('#bc-per-guest-card').evaluate((el) => !el.closest('#bc-overview-invoice')));
+  check('per guest between transfers and totals', await page.locator('#bc-per-guest-card').evaluate((el) => el.parentElement.id === 'bc-overview-invoice' && el.previousElementSibling.id === 'bc-inv-transfers' && el.nextElementSibling.id === 'bc-inv-totals'));
   const order = await page.locator('#bc-overview-invoice, #bc-per-guest-card, #bc-payment-history-card').evaluateAll((els) => els.map((e) => e.id));
   check('per guest above history', order.indexOf('bc-per-guest-card') >= 0 && order.indexOf('bc-per-guest-card') < order.indexOf('bc-payment-history-card'), order.join(','));
 
