@@ -20759,6 +20759,26 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #bc-load{position:static;flex:0 0 auto;margin-left:8px}
   #tab-bed-calendar #bc-calendar-title{flex:0 0 auto;max-width:12em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 }
+/* SCHEDULE-DATE-HEADERS-FIT-001 — weekday + day fit the fixed column; do not widen the grid. */
+#tab-bed-calendar .bc-grid thead th.bc-day-head{
+  box-sizing:border-box;
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:0;
+  line-height:1.05;
+  padding:2px 0;
+  white-space:normal;
+  overflow:hidden;
+}
+#tab-bed-calendar .bc-day-head-wd,
+#tab-bed-calendar .bc-day-head-num{
+  display:block;
+  letter-spacing:-0.04em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:clip;
+}
 /* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
 #bc-side-drawer{
   position:fixed;
@@ -37811,6 +37831,18 @@ function bcFormatCalendarDayLabel(day) {
   return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + num;
 }
 
+/* SCHEDULE-DATE-HEADERS-FIT-001 — stack weekday over the day number so the fixed column does not clip. */
+function bcCalendarDayHeadHtml(day) {
+  var label = bcFormatCalendarDayLabel(day);
+  var text = String(label || '');
+  var space = text.indexOf(' ');
+  var inner = space < 0
+    ? '<span class="bc-day-head-num">' + escHtml(text) + '</span>'
+    : '<span class="bc-day-head-wd">' + escHtml(text.slice(0, space)) + '</span>'
+      + '<span class="bc-day-head-num">' + escHtml(text.slice(space + 1)) + '</span>';
+  return '<th class="bc-day-head" aria-label="' + escHtml(text) + '">' + inner + '</th>';
+}
+
 function bcFormatRoomMetaLabel(room) {
   var cat = (room && room.room_category) || 'mixed';
   var parts = [t(BC_ROOM_GENDER_I18N[cat] || 'room.gender.flexible')];
@@ -37857,7 +37889,7 @@ function renderBedCalendar(data){
   html += '<thead><tr>';
   html += '<th class="bc-bed-head"></th>';
   days.forEach(function(day){
-    html += '<th class="bc-day-head">' + escHtml(bcFormatCalendarDayLabel(day)) + '</th>';
+    html += bcCalendarDayHeadHtml(day);
   });
   html += '</tr></thead>';
 
