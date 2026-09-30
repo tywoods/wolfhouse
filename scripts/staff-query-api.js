@@ -20759,15 +20759,19 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-side-head-main{flex:1 1 auto;min-width:0}
 .bc-side-title-row{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
 .bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
+/* BOOKING-HEADER-CODE-DATE-META-001: code is quiet; dates own the line. New booking keeps 22px. */
+.bc-side-title.bc-side-title-code{font-size:13px;font-weight:600;line-height:1.3;color:var(--text-2);letter-spacing:.02em}
 .bc-side-header-pebbles{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:6px;max-width:100%}
 .bc-side-header-pebbles .bc-detail-meta{margin:0}
 .bc-side-header-pebbles:not(:empty){margin-top:6px}
 .bc-booking-identity{display:inline-flex;align-items:flex-start;gap:6px;min-width:0;max-width:100%}
-.bc-booking-code{min-width:0;overflow-wrap:anywhere;white-space:normal}
+.bc-booking-code{min-width:0;overflow-wrap:anywhere;white-space:normal;font-size:13px;font-weight:600;color:var(--text-2);letter-spacing:.02em}
 .bc-booking-code-copy{flex:0 0 auto;line-height:1;padding:4px;align-self:flex-start}
 .bc-booking-code-copy[hidden]{display:none}
 .bc-detail-title{min-width:0;max-width:100%}
 .bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
+.bc-side-dates{display:block;font-size:15px;font-weight:600;line-height:1.3;color:var(--text)}
+.bc-side-stay{display:block;margin-top:2px;font-size:12px;font-weight:500;line-height:1.35;color:var(--text-2)}
 .bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .bc-side-pin,.bc-side-close{
   flex:0 0 auto;width:32px;height:32px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
@@ -45311,17 +45315,36 @@ function bcBedIdLabel(bed){
   return String(bed.bed_code || bed.bed_label || '').trim();
 }
 
+function bcSideHeaderDateLabel(iso){
+  if (!iso) return '';
+  if (typeof bcFormatRangeLabel === 'function') {
+    var labeled = bcFormatRangeLabel(iso);
+    if (labeled && !/\d{4}/.test(labeled)) return labeled;
+  }
+  var s = String(iso).slice(0, 10);
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(iso).replace(/\b\d{4}\b/g, '').replace(/\s{2,}/g, ' ').trim();
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[Number(m[2]) - 1] + ' ' + Number(m[3]);
+}
+
 function bcSideStayMetaHtml(cin, cout, guests, bk, blk){
-  var dates = [cin, cout].filter(Boolean).join(' → ');
+  var dates = [cin, cout].filter(Boolean).map(bcSideHeaderDateLabel).filter(Boolean).join(' → ');
   var nights = 0;
   if (cin && cout && typeof bcStayNightsFromCheckInOut === 'function') {
     nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
   }
-  var extra = '';
-  if (nights > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(nights) + ' nights') + '</span>';
+  var stay = '';
+  if (nights > 0) stay += escHtml(String(nights) + ' nights');
   var gc = parseInt(guests, 10);
-  if (gc > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
-  return escHtml(dates) + extra;
+  if (gc > 0) {
+    if (stay) stay += ' · ';
+    stay += escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests'));
+  }
+  var html = '';
+  if (dates) html += '<span class="bc-side-dates">' + escHtml(dates) + '</span>';
+  if (stay) html += '<span class="bc-side-stay">' + stay + '</span>';
+  return html;
 }
 
 function bcDockCreatePanel(){
@@ -45350,7 +45373,10 @@ function bcDockCreatePanel(){
   bcSetSidePinned(true);
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
-  if (title) title.textContent = 'New booking';
+  if (title) {
+    title.textContent = 'New booking';
+    title.classList.remove('bc-side-title-code');
+  }
   var copyCode = el('bc-side-copy-code');
   if (copyCode) copyCode.innerHTML = '';
   if (meta){
@@ -45389,7 +45415,10 @@ function bcOpenSideBooking(blk, opts){
   bcActiveDrawerTab = 'overview';
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
-  if (title) title.textContent = blk.booking_code || '\u2014';
+  if (title) {
+    title.textContent = blk.booking_code || '\u2014';
+    title.classList.add('bc-side-title-code');
+  }
   var copyCode = el('bc-side-copy-code');
   if (copyCode) copyCode.innerHTML = bcBookingCodeCopyHtml(blk.booking_code);
   bcInitDetailCopyDelegation();
