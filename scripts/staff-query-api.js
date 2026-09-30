@@ -10005,14 +10005,17 @@ async function loadWolfhouseQuoteConfigWithOverlay() {
   const base = loadConfig();
   try {
     return await withPgClient(async (pg) => {
-      await wolfhousePricingStore.ensureWolfhousePricingTables(pg);
+      // Preview/dry-run callers are read-only; schema initialization belongs to
+      // migrations or authorized Admin writes, never policy lookup.
       const rules = await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo');
       const items = await wolfhousePricingStore.loadItems(pg, 'wolfhouse-somo');
       const next = applyOverlayRentalPricesToConfig(base, rules);
       return applyOverlayPackageItemsToConfig(next, items);
     });
   } catch (_err) {
-    return base;
+    // Prices may fall back to JSON, but eligibility must not revert to a stale
+    // seed after staff have changed the policy in Admin Pricing.
+    return { ...base, package_min_nights: null };
   }
 }
 
@@ -12149,12 +12152,14 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     return send400(res, guestPackagesNormalized.error);
   }
   const guestPackages = Array.isArray(guestPackagesNormalized) ? guestPackagesNormalized : [];
+  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay();
   const pkgCtx = resolveBotBookingPackageContext({
     packageCode,
     guestPackages,
     checkIn,
     checkOut,
     guestCount: guestCount || 0,
+    config: quoteConfig,
   });
   const effectivePackageCode = pkgCtx.quotePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
@@ -12200,8 +12205,15 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   let quoteError = null;
   let packageNightViolation = null;
   if (canQuote) {
-    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
-    if (!packageNightCheck.ok) {
+    // Each selected guest package must qualify; a no-package majority cannot
+    // make a minority package eligible or silently convert the requested pack.
+    const selectedPackageCodes = guestPackages.length
+      ? guestPackages.map((guest) => guest.package_code)
+      : [packageCode || effectivePackageCode];
+    const packageNightCheck = selectedPackageCodes
+      .map((code) => validateStaffPackageNightRule(checkIn, checkOut, code, quoteConfig))
+      .find((check) => !check.ok);
+    if (packageNightCheck) {
       packageNightViolation = packageNightCheck;
       quote = {
         success: false,
@@ -12233,7 +12245,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           room_type:      roomType || 'shared',
           payment_choice: paymentChoice || 'deposit',
           add_ons:        addOnPrep.add_ons,
-        });
+        }, quoteConfig);
       } catch (err) {
         quoteError = err.message;
       }
@@ -12271,7 +12283,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     const extra    = readable.length > 3 ? ` and ${readable.length - 3} more` : '';
     replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
   } else if (nextAction === 'package_not_available_for_dates') {
-    replyDraft = 'Our Malibu, Uluwatu, and Waimea surf packs are for 7-night stays. For these dates, I can help with accommodation and add-ons like surf lessons or board/wetsuit rental instead.';
+    replyDraft = packageNightViolation.error;
   } else if (nextAction === 'closed_season') {
     const closedCopy = buildBotClosedSeasonReply({ language });
     replyDraft = closedCopy.reply_draft;
@@ -15738,6 +15750,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode) {
 async function handleBotPackagePricePreview(req, res, user, authMode) {
   return _handleBotPackagePricePreview(req, res, user, authMode, {
     sendJSON, send400, readBody, DEFAULT_CLIENT,
+    loadWolfhouseQuoteConfigWithOverlay,
     boundClientSlug: req && req._botBoundClientSlug,
   });
 }
@@ -15850,9 +15863,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       category: 'bot_booking_create', success: false,
       error: built.body.error || built.body.reason_code, elapsed_ms: Date.now() - started,
     });
-    if (built.status === 400) return send400(res, built.body.error || 'invalid request');
     return sendJSON(res, built.status, { success: false, ...built.body });
   }
+  if (built.dryRun) return sendJSON(res, built.status, built.body);
 
   const cmd = built.command;
   const auditBase = {
@@ -15894,6 +15907,19 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       booking_code: row.duplicate_booking_code,
       message:      'Booking already exists for this request (idempotent).',
       creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
+    });
+  }
+
+  // Preserve typed commit-time policy rejection before the generic SQL block mapper.
+  if (!execResult.ok && row._blocked && (
+    row.reason_code === 'package_min_nights_violation'
+    || row.reason_code === 'package_min_nights_configuration_invalid'
+  )) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.reason_code, elapsed_ms: elapsed });
+    return sendJSON(res, execResult.status || 409, {
+      ...row, blocked: true, block_reason: row.reason_code,
+      creates_stripe_link: false, sends_whatsapp: false,
     });
   }
 
@@ -16141,6 +16167,19 @@ async function handleManualBookingCreate(req, res, user) {
       booking_code:   row.duplicate_booking_code,
       message:        'Booking already exists for this request (idempotent).',
       no_stripe:      true, no_whatsapp: true, no_n8n: true,
+    });
+  }
+
+  // Preserve typed commit-time policy rejection before the generic SQL block mapper.
+  if (!execResult.ok && row._blocked && (
+    row.reason_code === 'package_min_nights_violation'
+    || row.reason_code === 'package_min_nights_configuration_invalid'
+  )) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.reason_code, elapsed_ms: elapsed });
+    return sendJSON(res, execResult.status || 409, {
+      ...row, blocked: true, block_reason: row.reason_code,
+      no_stripe: true, no_whatsapp: true, no_n8n: true,
     });
   }
 

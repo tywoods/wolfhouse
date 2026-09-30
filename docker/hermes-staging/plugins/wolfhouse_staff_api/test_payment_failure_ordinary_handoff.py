@@ -219,7 +219,9 @@ class PaymentFailureOrdinaryHandoffTests(unittest.TestCase):
                 with self.subTest(tenant=tenant, receipt=receipt):
                     result, timeline, sent = self.run_case(tenant, receipt)
                     self.assertIs(result["handoff_confirmed"], False)
-                    self.assertIs(result["handoff"]["needs_human"], receipt["needs_human"] is True)
+                    # Failed receipts must not expose a confirmed persistence signal.
+                    self.assertIs(result["handoff"]["needs_human"], False)
+                    self.assertIsNone(result["handoff"].get("handoff_reason"))
                     self.assertIs(result["handoff"].get("failure_notice_sent"), True)
                     self.assertEqual(timeline, ["payment_attempt", "notice", "persist", "notice"])
                     self.assertIn("couldn’t confirm the handoff", sent[-1])

@@ -122,6 +122,8 @@ async function run() {
   const directCatalog = buildWolfhouseAccommodationCatalog();
   const adapterCatalog = await accommodationVerticalAdapter.listOfferings(null, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: {},
   });
   assert('adapter catalog ok', adapterCatalog.ok === true);
@@ -132,6 +134,8 @@ async function run() {
   const directList = executeWolfhouseAccommodationListOfferings(listBody);
   const adapterList = await accommodationVerticalAdapter.listOfferings(null, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: listBody,
   });
   const legacyPreview = computePackagePricePreview({
@@ -158,6 +162,8 @@ async function run() {
   });
   const adapterQuote = await accommodationVerticalAdapter.quoteOffering(null, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: VERTICAL_CHANNELS.MANUAL_STAFF,
     transportBody: quoteBody,
   });
@@ -176,6 +182,8 @@ async function run() {
   });
   const shortEvalAdapter = accommodationVerticalAdapter.evaluateDates({
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: { check_in: CHECK_IN, check_out: SHORT_OUT, package_code: 'malibu' },
   });
   assert('short stay weekly package blocked (direct)', shortEvalDirect.ok === false);
@@ -184,12 +192,16 @@ async function run() {
 
   const closedEval = accommodationVerticalAdapter.evaluateDates({
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: { check_in: CLOSED_IN, check_out: CLOSED_OUT, package_code: 'accommodation_only' },
   });
   assert('closed season fails evaluateDates', closedEval.ok === false && closedEval.reason === 'closed_season');
 
   const badQuote = await accommodationVerticalAdapter.quoteOffering(null, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: { check_in: CHECK_IN, check_out: SHORT_OUT, guest_count: 1, package_code: 'malibu' },
   });
   assert('short stay quote rejected', badQuote.ok === false && badQuote.status === 400);
@@ -214,6 +226,8 @@ async function run() {
   const routeBody = mapBotHttpAvailabilityResponse(routeResult.body, { authMode: 'bot_token', clientSlug: WOLFHOUSE_CLIENT_SLUG });
   const adapterAvail = await accommodationVerticalAdapter.checkAvailability(pg, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: availFields,
   });
   assert('adapter availability ok', adapterAvail.ok === true);
@@ -237,6 +251,8 @@ async function run() {
   const directDry = await runLunaGuestBookingDryRun(createBody, { pg: pgCreate });
   const adapterDry = await accommodationVerticalAdapter.createBooking(pgCreate, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
     transportBody: createBody,
   });
@@ -249,6 +265,8 @@ async function run() {
   const pgLive = makePg();
   const liveCreate = await accommodationVerticalAdapter.createBooking(pgLive, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
     transportBody: {
       ...createBody,
@@ -264,6 +282,8 @@ async function run() {
   console.log('\n[F] Cross-vertical transport rejection');
   const surfOnAcc = await accommodationVerticalAdapter.quoteOffering(null, {
     resolved: wh,
+    // Offline parity fixture explicitly opts into JSON seed; production loads DB.
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     transportBody: { offering_id: 'surf_pack_x', check_in: CHECK_IN, check_out: CHECK_OUT, guest_count: 1 },
   });
   assert('accommodation rejects offering_id', surfOnAcc.body.reason === 'surf_school_fields_not_supported');
@@ -281,6 +301,7 @@ async function run() {
 
   console.log('\n[G] invokeVerticalOperation wiring');
   const invoked = await invokeVerticalOperation(wh, 'quoteOffering', null, {
+    config: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
     transportBody: quoteBody,
   });

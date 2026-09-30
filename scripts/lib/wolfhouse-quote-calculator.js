@@ -20,6 +20,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { evaluatePackageEligibility, validateStaffPackageNightRule } = require('./wolfhouse-package-night-rules');
 const {
   wolfhouseStayDepositRateCents,
   wolfhouseStayDepositCents,
@@ -113,6 +114,7 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
   const closedSeason = !!opts.closed_season;
   return {
     success: false,
+    ...evaluatePackageEligibility(nights, config),
     client_slug: client_slug || null,
     currency: config.currency,
     nights: (typeof nights === 'number' && nights > 0) ? nights : null,
@@ -163,7 +165,7 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
  * @returns {object}  Quote output (see below for field list).
  */
 function calculateWolfhouseQuote(input, config) {
-  if (!config) config = loadConfig();
+  config = config === undefined ? loadConfig() : (config || {});
 
   const {
     client_slug,
@@ -213,7 +215,7 @@ function calculateWolfhouseQuote(input, config) {
   // ── 3b. Optional per-guest packages ───────────────────────────────────────
   const KNOWN_PACKAGES = catalogPackageCodes(config);
   const normalizePkgCode = (value) => String(value || '').trim().toLowerCase();
-  const isNoPackageCode = (code) => code === 'package_none' || code === 'no_package' || code === 'accommodation_only';
+  const isNoPackageCode = (code) => ['package_none', 'no_package', 'accommodation_only', 'accommodation-only'].includes(code);
   let normalizedGuestPackages = [];
   if (Array.isArray(guest_packages) && guest_packages.length > 0) {
     if (Number.isInteger(guests) && guests > 0 && guest_packages.length !== guests) {
@@ -231,6 +233,21 @@ function calculateWolfhouseQuote(input, config) {
     });
   }
   const hasGuestPackages = normalizedGuestPackages.length > 0;
+
+  // Validate every selected package, not just a mixed group's majority choice.
+  const selectedCodes = hasGuestPackages
+    ? normalizedGuestPackages.map(gp => gp.package_code) : [package_code];
+  const packageViolation = selectedCodes.map(code =>
+    validateStaffPackageNightRule(check_in, check_out, code, config)).find(check => !check.ok);
+  if (packageViolation) {
+    return {
+      ...buildBlockedResult(config, input, nights, guests, null,
+        [...blockers, packageViolation.error], warnings, true,
+        packageViolation.package_min_nights == null),
+      reason_code: packageViolation.reason_code,
+      package_night_violation: packageViolation,
+    };
+  }
 
   // ── 4. Season lookup ──────────────────────────────────────────────────────
   let season_code = null;
@@ -263,7 +280,7 @@ function calculateWolfhouseQuote(input, config) {
 
   // ── 5. Package lookup ─────────────────────────────────────────────────────
   const normalizedPackage = String(package_code || '').trim().toLowerCase();
-  const isNoPackage = normalizedPackage === 'package_none' || normalizedPackage === 'no_package';
+  const isNoPackage = isNoPackageCode(normalizedPackage);
   const isManualOverride = normalizedPackage === 'manual_override';
   const manualPricePerNightCents = input.manual_price_per_night_cents != null
     ? Math.round(Number(input.manual_price_per_night_cents))
@@ -682,6 +699,7 @@ function calculateWolfhouseQuote(input, config) {
 
   return {
     success: blockers.length === 0,
+    ...evaluatePackageEligibility(nights, config),
     client_slug,
     currency: config.currency,
     nights,

@@ -693,6 +693,12 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   if (Array.isArray(bridgeResult.blocked_reasons) && bridgeResult.blocked_reasons.length > 0) {
     bridgeResult.staff_review_needed = true;
   }
+  if (!bridgeResult.success && ['package_min_nights_violation', 'package_min_nights_configuration_invalid'].includes(bridgeResult.reason_code)) {
+    bridgeResult.blocked_reasons = [bridgeResult.reason_code];
+    bridgeResult.staff_review_needed = false;
+    bridgeResult.do_not_escalate = true;
+    bridgeResult.next_action = 'offer_accommodation_or_change_dates';
+  }
   bridgeResult.uses_per_guest_model = bridgeResult.uses_per_guest_model === true
     || usesPerGuestModelPreview === true;
 
@@ -1390,6 +1396,7 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
   }
   const result = await invokeVerticalOperation(resolved, 'listOfferings', null, {
     channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
+    config: await ctx.loadWolfhouseQuoteConfigWithOverlay(),
     transportBody: {
       check_in: checkIn,
       check_out: checkOut,
@@ -1417,6 +1424,8 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
     guest_count: guestCount,
     nights: preview.nights,
     season_code: preview.season_code,
+    package_min_nights: preview.package_min_nights,
+    package_eligible: preview.package_eligible === true,
     packages,
     no_db_write: true,
   });

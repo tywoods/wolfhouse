@@ -8,8 +8,8 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const soul = fs.readFileSync(path.join(root, 'docker/hermes-staging/SOUL.md'), 'utf8');
 const sunset = fs.readFileSync(path.join(root, 'docker/hermes-sunset/SOUL.md'), 'utf8');
-const short = soul.split('Short-stay flow:')[1].split('**7+ nights')[0];
-const weekly = soul.split('**7+ nights')[1].split('**Payment wording')[0];
+const short = soul.split('Short-stay flow:')[1].split('**Eligible stays')[0];
+const weekly = soul.split('**Eligible stays')[1].split('**Payment wording')[0];
 assert(short.indexOf('**Room preference') >= 0 && short.indexOf('**Room preference') < short.indexOf('**Quote'),
   'short stays must resolve room preference before quote/payment');
 assert(weekly.indexOf('Room preference') >= 0 && weekly.indexOf('Room preference') < weekly.indexOf('Step 3 — Quote'),

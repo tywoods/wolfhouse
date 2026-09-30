@@ -333,6 +333,18 @@ function priceOf(r) {
   } : null;
 }
 
+/** Resolve nights (not money): active DB policy wins; null blocks qualification. */
+function resolvePackageMinimumNights(config, dbItems) {
+  const row = (Array.isArray(dbItems) ? dbItems : []).find((it) => it
+    && it.active !== false && it.item_type === 'policy' && it.item_code === 'package_min_nights');
+  const raw = row ? row.metadata && row.metadata.minimum_nights : config && config.package_min_nights;
+  // A malformed authoritative row must not silently revive the JSON seed.
+  return {
+    value: Number.isSafeInteger(raw) && raw > 0 ? raw : null,
+    source: row ? 'db' : 'config',
+  };
+}
+
 /**
  * Assemble the payload the Admin Pricing portal renders, already merged.
  *
@@ -459,6 +471,7 @@ function buildAdminPricingView(input) {
     services,
     transfers,
     extras: {
+      package_min_nights: resolvePackageMinimumNights(config, dbItems),
       deposits: extrasOf('deposit'),
       supplements: extrasOf('supplement'),
       addons: extrasOf('addon'),
@@ -701,6 +714,7 @@ function applyOverlayPricesToConfig(config, dbRules) {
  *  before every season has a price row. */
 function applyOverlayPackageItemsToConfig(config, dbItems) {
   const next = config && typeof config === 'object' ? config : { packages: [] };
+  next.package_min_nights = resolvePackageMinimumNights(config, dbItems).value;
   if (!Array.isArray(next.packages)) next.packages = [];
   for (const it of (Array.isArray(dbItems) ? dbItems : [])) {
     if (!it || it.active === false) continue;
@@ -762,6 +776,7 @@ module.exports = {
   WH_PRICING_CLIENT_SLUG,
   splitRentalCode,
   buildAdminPricingView,
+  resolvePackageMinimumNights,
   humanizeCode,
   PRICING_CONFIG_PATH,
   CONFIG_RENTAL_ADDON_CODES,

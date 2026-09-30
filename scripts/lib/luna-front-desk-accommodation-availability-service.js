@@ -142,6 +142,8 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
       roomPreference,
       guestName,
       packageCode: packageCode || null,
+      quoteConfig: opts.quoteConfig,
+      guestPackages: Array.isArray(transportBody.guest_packages) ? transportBody.guest_packages : [],
       demoCalendarEnrichment: opts.demoCalendarEnrichment !== false,
       assignmentMode: opts.assignmentMode === true,
       transportBody,
@@ -414,6 +416,8 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
 
   if (dateEval) {
     canonical.nights = dateEval.nights;
+    canonical.package_min_nights = dateEval.package_min_nights;
+    canonical.package_eligible = dateEval.package_eligible;
     canonical.package_code = dateEval.package_code || command.packageCode || null;
     if (!dateEval.ok) {
       canonical.date_rule_ok = false;
@@ -445,12 +449,23 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
   let dateEval = null;
   if (command.packageCode || command.checkIn) {
     const { evaluateWolfhouseAccommodationDates } = accommodationApplicationHelpers();
+    let config = command.quoteConfig;
+    if (config === undefined) {
+      config = require('./wolfhouse-quote-calculator').loadConfig();
+      try {
+        const items = await require('./wolfhouse-pricing-store').loadItems(pg, command.clientSlug);
+        require('./wolfhouse-pricing-resolve').applyOverlayPackageItemsToConfig(config, items);
+      } catch (_) {
+        config.package_min_nights = null;
+      }
+    }
     dateEval = evaluateWolfhouseAccommodationDates({
       check_in: command.checkIn,
       check_out: command.checkOut,
       package_code: command.packageCode,
       package_interest: command.packageCode,
-    });
+      guest_packages: command.guestPackages,
+    }, { config });
   }
 
   let bedRows;
@@ -504,6 +519,9 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     check_out: canonical.check_out,
     guest_count: canonical.guest_count,
     room_type: canonical.room_type,
+    package_min_nights: canonical.package_min_nights,
+    package_eligible: canonical.package_eligible,
+    date_rule_ok: canonical.date_rule_ok,
     gender_preference: canonical.gender_preference,
     room_preference: canonical.room_preference,
     group_gender: canonical.group_gender,
@@ -548,6 +566,8 @@ function buildAvailabilityRecheckCommandFromBooking(command) {
     guestName: command.guestName || null,
     groupGender: body.group_gender || null,
     packageCode: command.effectivePackageCode || command.storagePackageCode || null,
+    guestPackages: command.guestPackages || body.guest_packages || [],
+    // Re-read current Admin policy at commit; never reuse transport-supplied config.
     demoCalendarEnrichment: true,
     assignmentMode,
     transportBody: body,
@@ -557,6 +577,26 @@ function buildAvailabilityRecheckCommandFromBooking(command) {
 /**
  * Re-check availability before booking commit; detect material inventory changes.
  */
+function packagePolicyRecheckFailure(canonical) {
+  const reason = (canonical.blockers || []).find(code => /^package_min_nights_/.test(code));
+  if (!reason) return null;
+  const minimum = canonical.package_min_nights;
+  const reply = minimum == null
+    ? 'I can’t confirm package eligibility right now. Would you like accommodation only?'
+    : `Packages need at least ${minimum} nights. Would you prefer accommodation only or different dates?`;
+  return { ok: false, status: 409, body: {
+    success: false, reason_code: reason, error: reply, reply_draft: reply,
+    package_min_nights: minimum, package_eligible: false,
+    package_night_violation: {
+      ok: false, reason_code: reason, error: reply,
+      package_min_nights: minimum, package_eligible: false,
+    },
+    next_action: 'offer_accommodation_or_change_dates',
+    write_performed: false, no_write_performed: true, staff_review_needed: false,
+    staff_review_required: false, needs_human: false, do_not_escalate: true, _blocked: true,
+  } };
+}
+
 async function validateAvailabilityProvenanceForCreate(pg, command, provenance) {
   if (!provenance || typeof provenance !== 'object') {
     return { ok: true };
@@ -578,6 +618,8 @@ async function validateAvailabilityProvenanceForCreate(pg, command, provenance) 
   }
 
   const fresh = freshResult.body;
+  const policyFailure = packagePolicyRecheckFailure(fresh);
+  if (policyFailure) return policyFailure;
   const expectedFp = provenance.availability_fingerprint
     || computeAvailabilityFingerprint(provenance);
   const currentFp = fresh.provenance
@@ -636,6 +678,7 @@ async function validateAvailabilityProvenanceForCreate(pg, command, provenance) 
 }
 
 module.exports = {
+  packagePolicyRecheckFailure,
   AVAILABILITY_CHANNELS,
   AVAILABILITY_PROVENANCE_VERSION,
   WOLFHOUSE_CLIENT_SLUG,

@@ -12,7 +12,9 @@
 
 const crypto = require('crypto');
 const { WOLFHOUSE_CLIENT_SLUG, rejectSurfSchoolTransportFields } = require('./wolfhouse-accommodation-application');
-const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
+const wolfhousePricingStore = require('./wolfhouse-pricing-store');
+const { applyOverlayRentalPricesToConfig, applyOverlayPackageItemsToConfig } = require('./wolfhouse-pricing-resolve');
 const { validateStaffPackageNightRule } = require('./wolfhouse-package-night-rules');
 const { validateAndNormalizeQuoteAddOns } = require('./guest-addon-pricing');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
@@ -49,6 +51,7 @@ const {
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
   validateAvailabilityProvenanceForCreate,
+  packagePolicyRecheckFailure,
   buildAvailabilityRecheckCommandFromBooking,
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
@@ -60,6 +63,21 @@ const BOOKING_CREATE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
   LUNA_WHATSAPP: 'luna_whatsapp',
 });
+
+// Shared by direct service/vertical callers that already own a PG connection.
+// Read failures retain price fallback but never revive stale package eligibility.
+async function loadBookingQuoteConfigWithOverlay(pg) {
+  const base = loadConfig();
+  try {
+    if (!pg) return { ...base, package_min_nights: null };
+    // Tables belong to migrations/Admin writes, never a quote or preflight read.
+    const rules = await wolfhousePricingStore.loadRules(pg, WOLFHOUSE_CLIENT_SLUG);
+    const items = await wolfhousePricingStore.loadItems(pg, WOLFHOUSE_CLIENT_SLUG);
+    return applyOverlayPackageItemsToConfig(applyOverlayRentalPricesToConfig(base, rules), items);
+  } catch (_err) {
+    return { ...base, package_min_nights: null };
+  }
+}
 
 const SQL_INJECT_RE = /['";\\]|--|\bDROP\b|\bALTER\b|\bTRUNCATE\b/i;
 
@@ -266,7 +284,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     const dryRun = await runLunaGuestBookingDryRun({
       ...transportBody,
       client_slug: WOLFHOUSE_CLIENT_SLUG,
-    }, { pg: opts && opts.pgClient });
+    }, { pg: opts && opts.pgClient, quoteConfig: opts.quoteConfig });
     return { ok: true, status: 200, dryRun: true, body: dryRun };
   }
 
@@ -307,6 +325,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
 
   const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
   const packageCodeRaw = String(body.package_code || body.package_or_stay_type || '').trim().toLowerCase().slice(0, 50) || null;
+  const quoteConfig = opts.quoteConfig !== undefined
+    ? opts.quoteConfig
+    : await loadBookingQuoteConfigWithOverlay(opts.pgClient);
 
   let guestPackages = [];
   let effectivePackageCode;
@@ -327,6 +348,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       checkIn,
       checkOut,
       guestCount: effectiveGuestCount || guestCount,
+      config: quoteConfig,
     });
     effectivePackageCode = pkgCtx.quotePackageCode;
     storagePackageCode = pkgCtx.storagePackageCode;
@@ -350,6 +372,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       checkIn,
       checkOut,
       guestCount: effectiveGuestCount || guestCount,
+      config: quoteConfig,
     });
   }
 
@@ -361,8 +384,28 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     return fail(400, 'missing_package', 'package_code or guest_packages is required (use package_none for accommodation-only / short stays)');
   }
 
-  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
-  if (!packageNightCheck.ok) return fail(400, 'package_min_nights_violation', packageNightCheck.error);
+  const selectedPackageCodes = guestPackages.length
+    ? guestPackages.map((guest) => guest.package_code)
+    : [packageCodeRaw || effectivePackageCode];
+  for (const code of selectedPackageCodes) {
+    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, code, quoteConfig);
+    if (!packageNightCheck.ok) {
+      return fail(400, packageNightCheck.reason_code || 'package_min_nights_violation', packageNightCheck.error, {
+        package_night_violation: packageNightCheck,
+        package_min_nights: packageNightCheck.package_min_nights,
+        package_eligible: false,
+        write_performed: false,
+        blocked_reasons: [packageNightCheck.reason_code],
+        next_action: 'offer_accommodation_or_change_dates',
+        staff_review_needed: false,
+        do_not_escalate: true,
+        guest_safe_next_action: 'Offer accommodation only or ask for different dates; do not change the selected package without consent.',
+        reply_draft: packageNightCheck.package_min_nights == null
+          ? 'I can’t confirm package eligibility right now. Would you like accommodation only?'
+          : `Packages need at least ${packageNightCheck.package_min_nights} nights. Would you prefer accommodation only or different dates?`,
+      });
+    }
+  }
 
   const addOnPrep = validateAndNormalizeQuoteAddOns(
     Array.isArray(body.add_ons) ? body.add_ons : [],
@@ -446,6 +489,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       }
       const availBuilt = buildWolfhouseAvailabilityCommand({
         channel: AVAILABILITY_CHANNELS.BOOKING_PREFLIGHT,
+        quoteConfig,
         trustedClientSlug: clientSlug,
         transportBody: {
           ...body,
@@ -485,6 +529,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     } else if (pg) {
       const preflightBuilt = buildWolfhouseAvailabilityCommand({
         channel: AVAILABILITY_CHANNELS.BOOKING_PREFLIGHT,
+        quoteConfig,
         trustedClientSlug: clientSlug,
         transportBody: {
           ...body,
@@ -560,7 +605,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     add_ons: addOns,
     manual_price_per_night_cents: manualPricePerNightCents,
     uses_per_guest_deposits: usesPerGuestModel,
-  }, opts.quoteConfig);
+  }, quoteConfig);
   if (!quote.success || quote.blockers.length > 0) {
     return fail(400, 'quote_failed', 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
   }
@@ -737,6 +782,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     if (!freshAvail.ok) {
       return fail(freshAvail.status || 409, 'availability_recheck_failed', 'Availability could not be verified before create');
     }
+    const policyFailure = packagePolicyRecheckFailure(freshAvail.body);
+    if (policyFailure) return policyFailure;
     const occupied = new Set(freshAvail.body.occupied_bed_codes || []);
     const conflict = assignedBedCodes.filter((code) => occupied.has(code));
     if (conflict.length > 0) {
@@ -1075,6 +1122,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 module.exports = {
   BOOKING_CREATE_CHANNELS,
   ACCOMMODATION_CLIENT_MONEY_FIELDS,
+  loadBookingQuoteConfigWithOverlay,
   buildWolfhouseBookingCreateCommand,
   executeWolfhouseBookingCreate,
   rejectClientSuppliedMoney,

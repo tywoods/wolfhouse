@@ -13,7 +13,7 @@ const {
   executeWolfhouseAccommodationAvailability,
   executeWolfhouseAccommodationCreate,
 } = require('../wolfhouse-accommodation-application');
-const { BOOKING_CREATE_CHANNELS } = require('../luna-front-desk-accommodation-booking-create-service');
+const { BOOKING_CREATE_CHANNELS, loadBookingQuoteConfigWithOverlay } = require('../luna-front-desk-accommodation-booking-create-service');
 const {
   VERTICAL_IDS,
   VERTICAL_CHANNELS,
@@ -44,19 +44,19 @@ const accommodationVerticalAdapter = {
   verticalId: VERTICAL_IDS.ACCOMMODATION,
   supportedClientSlug: WOLFHOUSE_CLIENT_SLUG,
 
-  async listOfferings(_pg, request = {}) {
+  async listOfferings(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.ACCOMMODATION);
     if (!scope.ok) return scopeFailure(scope);
     return executeWolfhouseAccommodationListOfferings(request.transportBody || {}, {
-      config: request.config,
+      config: request.config !== undefined ? request.config : await loadBookingQuoteConfigWithOverlay(pg),
     });
   },
 
-  async quoteOffering(_pg, request = {}) {
+  async quoteOffering(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.ACCOMMODATION);
     if (!scope.ok) return scopeFailure(scope);
     return executeWolfhouseAccommodationQuote(request.transportBody || {}, {
-      config: request.config,
+      config: request.config !== undefined ? request.config : await loadBookingQuoteConfigWithOverlay(pg),
       payment_choice: request.channel === 'manual_staff' ? undefined : undefined,
     });
   },
@@ -68,6 +68,7 @@ const accommodationVerticalAdapter = {
       channel: mapBookingChannel(request.channel),
       actorHints: request.actorHints || {},
       dryRunOnly: false,
+      quoteConfig: request.config,
       stripeConfig: request.stripeConfig,
       privateRoomHooks: request.privateRoomHooks,
       actorLabel: request.actorLabel,
@@ -92,13 +93,15 @@ const accommodationVerticalAdapter = {
         || request.package_interest,
       service_dates: request.serviceDates || request.service_dates,
     };
-    return evaluateWolfhouseAccommodationDates(body);
+    return evaluateWolfhouseAccommodationDates(body, {
+      config: request.config !== undefined ? request.config : { package_min_nights: null },
+    });
   },
 
   async checkAvailability(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.ACCOMMODATION);
     if (!scope.ok) return scopeFailure(scope);
-    return executeWolfhouseAccommodationAvailability(pg, request.transportBody || {});
+    return executeWolfhouseAccommodationAvailability(pg, request.transportBody || {}, { config: request.config });
   },
 };
 
