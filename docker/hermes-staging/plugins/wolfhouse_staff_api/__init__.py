@@ -1584,6 +1584,15 @@ _HANDOFF_REASON_DESCRIPTION = (
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return _json_result({
+            "success": False, "tool": "flag_needs_human", "needs_human": False,
+            "blocked_reasons": ["handoff_reason_required"],
+            "staff_review_needed": False,
+            "error": "Provide a nonblank handoff reason before retrying; no handoff was saved.",
+        })
+    payload["reason"] = reason.strip()
     from wolfhouse.luna_intelligence import public_research_failed_this_turn
     reason_code = _normalize_handoff_reason(str(payload.get("reason") or "").split(":", 1)[0])
     if public_research_failed_this_turn() and reason_code not in _EXPLICIT_HANDOFF_CODES:
@@ -1646,10 +1655,11 @@ def flag_needs_human(params, **kwargs):
                                      "failure_notice_sent", "error") if key in data},
         "success": ok,
         "tool": "flag_needs_human",
-        "needs_human": data.get("needs_human") is True,
+        "needs_human": ok,
         "conversation_id": data.get("conversation_id"),
-        "conversation_paused": bool(data.get("conversation_paused")),
-        "handoff_reason": data.get("handoff_reason"),
+        "conversation_paused": ok and data.get("conversation_paused") is True,
+        # Only a successful Staff receipt can confirm the submitted reason.
+        "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
         "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["conversation_not_found"]),
         # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
         "staff_review_needed": not ok,
