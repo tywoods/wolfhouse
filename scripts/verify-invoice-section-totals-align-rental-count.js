@@ -25,6 +25,9 @@ async function main() {
   fs.mkdirSync(OUT,{recursive:true});
   const html = process.env.INVOICE_TEST_HTML ? fs.readFileSync(process.env.INVOICE_TEST_HTML,'utf8') : emit('wolfhouse-somo',OUT);
   const ledger=[],errors=[],cases=[],observations=[]; let state=fixture(),failure;
+  const other=clone(detail),cal=clone(calendar);
+  other.booking.booking_id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';other.booking.booking_code='WH-ORDER-OTHER';
+  cal.blocks.push({...cal.blocks[0],...other.booking,bed_code:'R1-B2'});
   const browser=await chromium.launch({headless:true});
   const ctx=await browser.newContext({viewport:{width:1440,height:1000},serviceWorkers:'block'});
   await ctx.route('**/*',async route=>{
@@ -34,8 +37,9 @@ async function main() {
     if(u.origin!==ORIGIN||req.method()!=='GET'){e.blocked=true;return route.abort();}
     const p=u.pathname;let data;
     if(p==='/staff/ui')return route.fulfill({contentType:'text/html',body:html});
-    if(p==='/staff/bed-calendar')data=calendar;
+    if(p==='/staff/bed-calendar')data=cal;
     else if(p===`/staff/bookings/${CODE}/context`)data=state;
+    else if(p==='/staff/bookings/WH-ORDER-OTHER/context')data=other;
     else if(p==='/staff/auth/session')data={success:true,auth_required:false,role:'admin',clients:[{slug:'wolfhouse-somo',name:'Wolfhouse'}],client_profiles:{'wolfhouse-somo':loadClientPortalProfile('wolfhouse-somo')}};
     else if(p.startsWith('/staff/assets/')){const a=path.join(ROOT,'config/staff-portal',path.basename(p));if(fs.existsSync(a))return route.fulfill({path:a});e.unknown=true;return route.abort();}
     else if(p==='/staff/intents')data={success:true,intents:[]};
@@ -50,13 +54,19 @@ async function main() {
     else if(p==='/staff/admin/config/rental-offerings')data={success:true,offerings:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/services`)data={success:true,paid_requested_services:[],unscheduled_services:[],services_by_date:[]};
     else if(p===`/staff/bookings/${detail.booking.booking_id}/transfers`)data={success:true,transfers:[]};
+    else if(p===`/staff/bookings/${other.booking.booking_id}/services`)data={success:true,paid_requested_services:[],unscheduled_services:[],services_by_date:[]};
+    else if(p===`/staff/bookings/${other.booking.booking_id}/transfers`)data={success:true,transfers:[]};
     else if(p==='/staff/clients')data={success:true,clients:[{slug:'wolfhouse-somo',name:'Wolfhouse'}]};
     else {e.unknown=true;return route.abort();}
     return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
   });
   await ctx.addInitScript(()=>{localStorage.setItem('wh_staff_portal_locale','en');window.WebSocket=function(){throw Error('Offline WebSocket denied');};window.EventSource=function(){throw Error('Offline EventSource denied');};});
-  const page=await ctx.newPage();page.on('pageerror',e=>errors.push(String(e)));
+  let page;
   async function open(width=1440,theme='light') {
+    // Independent fixtures own separate pages; lifecycle checks within a case
+    // still exercise the real refresh and native remount on the same page.
+    if(page)await page.close();
+    page=await ctx.newPage();page.on('pageerror',e=>errors.push(String(e)));
     await page.setViewportSize({width,height:1000});
     await page.goto(ORIGIN+'/staff/ui');
     await page.waitForFunction(()=>typeof window.switchToTab==='function'&&document.getElementById('c-client').value==='wolfhouse-somo');
@@ -71,6 +81,47 @@ async function main() {
     assert.equal(await total.count(),1,section+' has one distinct Total row');
     assert.equal(await total.locator('.ctx-inv-total-label').innerText(),'Total');
     assert.equal(await total.locator('.ctx-inv-total-amount').innerText(),value);
+  }
+  async function invoiceOrder(label,expanded) {
+    await page.locator('#bc-per-guest-card').scrollIntoViewIfNeeded();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const ids=['bc-inv-transfers','bc-per-guest-card','bc-inv-totals','bc-invoice-actions'];
+    const boxes=await page.evaluate(ids=>Object.fromEntries(ids.map(id=>[id,document.getElementById(id).getBoundingClientRect().toJSON()])),ids);
+    const order=await page.locator('#bc-overview-invoice > [id]').evaluateAll(es=>es.map(e=>e.id));
+    observations.push({label,order,boxes});
+    await page.screenshot({path:path.join(OUT,label+'.png')});
+    for(let i=0;i<ids.length-1;i++)assert(boxes[ids[i]].bottom<=boxes[ids[i+1]].top+1,`${label}: visual ${ids[i]} before ${ids[i+1]}`);
+    assert.deepEqual(order.filter(id=>ids.includes(id)),ids,'Transfers → Per Guest → Totals → actions');
+    for(const id of [...ids,'bc-inv-per-guest','bc-per-guest-toggle','bc-per-guest-body','bc-payment-history-card'])assert.equal(await page.locator('#'+id).count(),1,'unique '+id);
+    assert.equal(await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded'),String(expanded),'disclosure state '+label);
+    assert.equal(await page.locator('#bc-per-guest-body').isVisible(),expanded,'disclosure visibility '+label);
+    if(expanded){
+      const financialRows=await page.locator('#bc-inv-per-guest .bc-guest-pay-row').evaluateAll(rows=>rows.map(row=>{
+        const bounds=row.getBoundingClientRect().toJSON();
+        const textBoxes=Array.from(row.querySelectorAll('button,.bc-guest-pay-title,.bc-guest-pay-paid,.bc-guest-pay-owed,.bc-guest-pay-price')).map(el=>{
+          const range=document.createRange();range.selectNodeContents(el);
+          return {text:el.textContent,rect:range.getBoundingClientRect().toJSON()};
+        });
+        const overlaps=[];
+        for(let i=0;i<textBoxes.length;i++)for(let j=i+1;j<textBoxes.length;j++){
+          const a=textBoxes[i].rect,b=textBoxes[j].rect;
+          if(Math.min(a.right,b.right)-Math.max(a.left,b.left)>1&&Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>1)overlaps.push([textBoxes[i].text,textBoxes[j].text]);
+        }
+        return {bounds,textBoxes,overlaps,outside:textBoxes.filter(e=>e.rect.left<bounds.left-1||e.rect.right>bounds.right+1).map(e=>e.text)};
+      }));
+      observations.push({label,financialRows});
+      assert.equal(financialRows.length,4,'all guest financial rows retained');
+      assert(financialRows.every(r=>!r.overlaps.length&&!r.outside.length),label+': guest financial text and controls must not overlap or escape row: '+JSON.stringify(financialRows));
+    }
+    assert(await page.locator('#bc-payment-history-card').evaluate(e=>!!(document.getElementById('bc-overview-invoice').compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING)),'Payment History remains after invoice');
+    return order;
+  }
+  async function refreshInvoice() {
+    const old=await page.locator('#bc-overview-invoice').elementHandle();
+    const done=page.waitForResponse(r=>new URL(r.url()).pathname.endsWith('/context'));
+    await page.locator('#bc-refresh-links-btn').click();await done;
+    await page.waitForFunction(e=>!e.isConnected,old);
+    await page.locator('#bc-inv-totals').waitFor();
   }
   try {
     if(MODE==='accommodation'||MODE==='full') {
@@ -92,16 +143,37 @@ async function main() {
       state.transfers=[];await open();assert.equal(await page.locator('#bc-inv-transfers .bc-invoice-section-total').count(),0);cases.push('transfers-empty-no-total');
     }
     if(MODE==='order'||MODE==='full') {
-      state=fixture();await open();
-      const order=await page.locator('#bc-overview-invoice > [id]').evaluateAll(es=>es.map(e=>e.id));
-      observations.push({order});
-      assert(!order.includes('bc-inv-per-guest'),'Per Guest is outside the invoice card');
-      assert(order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-totals'),'Transfers before Totals');
-      assert(order.indexOf('bc-inv-totals')<order.indexOf('bc-invoice-actions'),'Totals before actions');
-      const siblings=await page.locator('#bc-overview-invoice,#bc-per-guest-card,#bc-payment-history-card').evaluateAll(es=>es.map(e=>e.id));
-      assert(siblings.indexOf('bc-overview-invoice')<siblings.indexOf('bc-per-guest-card')&&siblings.indexOf('bc-per-guest-card')<siblings.indexOf('bc-payment-history-card'),'Per Guest sits above Payment History');
-      assert.equal(await page.locator('#bc-per-guest-toggle').getAttribute('aria-expanded'),'false','Per Guest collapsed by default');
-      assert.equal(await page.locator('#bc-inv-per-guest').count(),1);cases.push('transfers-per-guest-totals-actions-order');
+      for(const width of [1440,390,320])for(const theme of ['light','dark']) {
+        state=fixture();const before=JSON.stringify(state);await open(width,theme);
+        const label=`order-${width}-${theme}`;
+        const guestHtml=await page.locator('#bc-inv-per-guest').innerHTML();
+        const totalsHtml=await page.locator('#bc-inv-totals').innerHTML();
+        await invoiceOrder(label+'-collapsed',false);
+        await refreshInvoice();await invoiceOrder(label+'-collapsed-refresh',false);
+        await page.locator('#bc-per-guest-toggle').click();await invoiceOrder(label+'-expanded',true);
+        await page.locator('#bc-payment-history-toggle').click();
+        for(let i=0;i<2;i++) {
+          await refreshInvoice();await invoiceOrder(label+'-expanded-refresh-'+i,true);
+          assert.equal(await page.locator('#bc-payment-history-toggle').getAttribute('aria-expanded'),'true','history state survives refresh');
+          assert.equal(await page.locator('#bc-inv-per-guest').innerHTML(),guestHtml,'guest facts, financial chips and link markup preserved');
+          assert.equal(await page.locator('#bc-inv-totals').innerHTML(),totalsHtml,'totals facts and link markup preserved');
+        }
+        const old=await page.locator('#bc-inv-totals').elementHandle();
+        if(width>768)await page.locator('#bc-side-close').click();
+        else {
+          // Mobile same-booking clicks scroll the existing view; use native A→B→A
+          // to exercise a fresh mobile mount without inventing a close control.
+          await page.locator('.bc-block').nth(1).click();await page.mouse.move(10,500);
+          await page.waitForFunction(e=>!e.isConnected,old);await page.locator('#bc-inv-totals').waitFor();
+        }
+        const previous=await page.locator('#bc-inv-totals').elementHandle();
+        await page.locator('.bc-block').first().click();await page.mouse.move(10,500);
+        await page.waitForFunction(e=>!e.isConnected,previous);await page.locator('#bc-inv-totals').waitFor();
+        await invoiceOrder(label+'-native-reopen',false);
+        assert.equal(await page.locator('#bc-inv-per-guest').innerHTML(),guestHtml,'guest contents preserved on native reopen');
+        assert.equal(JSON.stringify(state),before,'order/disclosure never mutates source facts');
+        cases.push(label);
+      }
     }
     if(MODE==='layout'||MODE==='full') {
       for(const paid of [false,true])for(const width of [1440,390,320])for(const theme of ['light','dark']) {
@@ -190,8 +262,7 @@ async function main() {
           const box=await page.locator('#'+target).boundingBox();assert(box&&box.y>=0&&box.y<1000,'screenshot target visible');
           await page.screenshot({path:path.join(OUT,`${target}-${width}-${theme}.png`)});
         }
-        const order=await page.locator('#bc-overview-invoice > [id]').evaluateAll(es=>es.map(e=>e.id));
-        assert(!order.includes('bc-inv-per-guest')&&order.indexOf('bc-inv-transfers')<order.indexOf('bc-inv-totals')&&order.indexOf('bc-inv-totals')<order.indexOf('bc-invoice-actions'));
+        const order=await invoiceOrder(`lifecycle-${width}-${theme}`,false);
         await page.locator('#bc-record-payment-btn').click();assert.equal(await page.locator('#bc-payment-scope').inputValue(),'booking');assert.equal(await page.locator('#bc-payment-amount').inputValue(),'');assert.equal(await page.locator('[name="bc-payment-method"]:checked').count(),0);await page.keyboard.press('Escape');
         observations.push({lifecycle:{width,theme,order,totals:await page.locator('#bc-inv-totals').innerText()}});cases.push(`refresh-reopen-defaults-${width}-${theme}`);
       }
@@ -236,7 +307,7 @@ async function main() {
       assert.equal(distinctSummary,['surfboard','surfboard','surfboard','wetsuit','surfboard','surfboard'].map(name=>`${name} — 1 rental day × 2 people`).concat(['5× yoga','meal','3× surfboard']).join(', '),'distinct bookings/items and ordinary quantities preserved');
       assert.equal(JSON.stringify(state),before);observations.push({summary:distinctSummary,rows:clone(state.service_records)});cases.push('summary-distinct-bookings-items-ordinary');
     }
-    const expected={accommodation:1,services:3,transfers:3,order:1,layout:12,rentals:9,'rental-count':9+8+1,preservation:14,lifecycle:6,full:49+8+1};
+    const expected={accommodation:1,services:3,transfers:3,order:6,layout:12,rentals:9,'rental-count':9+8+1,preservation:14,lifecycle:6,full:49+8+1+5};
     assert.equal(cases.length,expected[MODE],'explicit complete mode case count');
     assert.equal(errors.length,0,'page errors');
     assert.equal(ledger.filter(e=>e.unknown||e.blocked).length,0,'unexpected requests');
