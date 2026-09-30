@@ -52,6 +52,8 @@ var INBOX_ROWS_CSS = [
   /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
+  '.conv-card-needs-reason{display:block;margin-top:4px;font-size:12px;font-weight:600;line-height:1.3;color:#9a5b16}',
+  'html[data-theme="dark"] .conv-card-needs-reason{color:#E8A057}',
   '.conv-card.inbox-row-owner-lab{border-color:rgba(63,146,142,.45)}',
   '.inbox-owner-lab-chip{display:inline-flex;align-items:center;max-width:100%;',
   'margin-top:6px;padding:3px 7px;border-radius:999px;border:1px solid rgba(63,146,142,.38);',
@@ -493,6 +495,31 @@ function inboxRowsPaintCardNeedsHuman(convId, needsHuman) {
   if (!card || !card.classList) return;
   if (needsHuman) card.classList.add('inbox-row-needs-human');
   else card.classList.remove('inbox-row-needs-human');
+  if (!card.querySelector) return;
+  var existing = card.querySelector('.conv-card-needs-reason');
+  var row = null;
+  var list = (typeof inboxConversationsCache !== 'undefined' && inboxConversationsCache) || [];
+  var id = String(convId || '');
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i];
+    if (item && String(item.conversation_id || item.id || '') === id) { row = item; break; }
+  }
+  if (!needsHuman || !row) {
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  var text = (typeof inboxNeedsHumanReasonText === 'function') ? inboxNeedsHumanReasonText(row) : '';
+  if (!text) {
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    return;
+  }
+  if (existing) { existing.textContent = text; return; }
+  if (typeof document === 'undefined' || !document.createElement) return;
+  var host = card.querySelector('.inbox-row-body') || card;
+  var el = document.createElement('div');
+  el.className = 'conv-card-needs-reason';
+  el.textContent = text;
+  host.appendChild(el);
 }
 
 function inboxRowsRememberThreadMessages(convId, msgs) {
@@ -532,6 +559,16 @@ function inboxRowsPassThroughLastMessage(mapped, row) {
   }
   if (Array.isArray(row.messages)) mapped.messages = row.messages;
   return mapped;
+}
+
+function inboxRowsNeedsReasonLine(row, inner){
+  if (!row || row.needs_human !== true) return '';
+  if (typeof inboxNeedsHumanReasonText !== 'function') return '';
+  var text = inboxNeedsHumanReasonText(row);
+  if (!text) return '';
+  if (String(inner || '').indexOf('conv-card-needs-reason') >= 0) return '';
+  if (String(inner || '').indexOf(inboxRowsEsc(text)) >= 0) return '';
+  return '<div class="conv-card-needs-reason">' + inboxRowsEsc(text) + '</div>';
 }
 
 function inboxRowsWrapConvCardHtml(html, row) {
@@ -574,9 +611,10 @@ function inboxRowsWrapConvCardHtml(html, row) {
       (typeof inboxPersonDisplayName === 'function') ? inboxPersonDisplayName(row) : (row && row.guest_name)
     )) + '</div>';
   prefix += '<div class="inbox-row-body">';
+  var reasonLine = inboxRowsNeedsReasonLine(row, inner);
   var suffix = inboxRowsOwnerLabChipHtml(row) + '</div>';
   if (unread) suffix += '<span class="inbox-row-unread-dot" aria-hidden="true"></span>';
-  return newOpen + prefix + inner + suffix + closeMatch[0];
+  return newOpen + prefix + inner + reasonLine + suffix + closeMatch[0];
 }
 
 function inboxRowsHideLegacyFilterChips() {

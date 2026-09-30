@@ -62,6 +62,76 @@ function inboxLunaModeBtnCopy(opt){
   return (typeof t === 'function' && t('inbox.channelControl.on')) || 'On';
 }
 
+function inboxNeedsHumanReasonCode(conv){
+  if (!conv) return '';
+  var parts = [conv.handoff_reason, conv.needs_human_reason, conv.luna_handoff_reason];
+  for (var i = 0; i < parts.length; i++) {
+    var raw = parts[i] == null ? '' : String(parts[i]).trim();
+    if (raw) return raw;
+  }
+  return '';
+}
+
+function inboxNeedsHumanT(key, fallback){
+  if (typeof t === 'function') {
+    var via = t(key);
+    if (via && via !== key) return String(via);
+  }
+  if (typeof portalT === 'function') {
+    var viaP = portalT(key);
+    if (viaP && viaP !== key) return String(viaP);
+  }
+  return fallback;
+}
+
+var INBOX_NEEDS_REASON_KEYS = {
+  human_requested: 'inbox.detail.needsHuman.reason.humanRequested',
+  complaint: 'inbox.detail.needsHuman.reason.complaint',
+  urgent_safety: 'inbox.detail.needsHuman.reason.safety',
+  refund: 'inbox.detail.needsHuman.reason.refund',
+  cancel_refund: 'inbox.detail.needsHuman.reason.refund',
+  refund_request: 'inbox.detail.needsHuman.reason.refund',
+  paid_cancellation_or_reschedule: 'inbox.detail.needsHuman.reason.paidChange',
+  paid_booking_change: 'inbox.detail.needsHuman.reason.paidChange',
+  date_change: 'inbox.detail.needsHuman.reason.dateChange',
+  date_change_request: 'inbox.detail.needsHuman.reason.dateChange',
+  date_change_requested: 'inbox.detail.needsHuman.reason.dateChange',
+  date_change_different_nights: 'inbox.detail.needsHuman.reason.dateChange',
+  payment_inquiry: 'inbox.detail.needsHuman.reason.payment',
+  payment_claimed: 'inbox.detail.needsHuman.reason.payment',
+  payment_state_mismatch: 'inbox.detail.needsHuman.reason.payment',
+  cancel_or_change_request: 'inbox.detail.needsHuman.reason.cancelOrChange',
+  business_tool_error: 'inbox.detail.needsHuman.reason.toolError',
+  staff_manual_handoff: 'inbox.detail.needsHuman.reason.staffMarked',
+  rooming_issue: 'inbox.detail.needsHuman.reason.rooming',
+  booking_question: 'inbox.detail.needsHuman.reason.booking',
+  guest_angry: 'inbox.detail.needsHuman.reason.upset',
+  transfer_exception: 'inbox.detail.needsHuman.reason.transfer',
+  add_guest_on_paid_booking: 'inbox.detail.needsHuman.reason.addGuest',
+  needs_booking_identification: 'inbox.detail.needsHuman.reason.whichBooking',
+  bad_weather_lesson_refund: 'inbox.detail.needsHuman.reason.weather',
+  bilbao_no_package_request: 'inbox.detail.needsHuman.reason.bilbao',
+};
+
+function inboxNeedsHumanReasonText(conv){
+  var flagged = !!(conv && (conv.needs_human === true || conv.needs_human === 't' || conv.needs_human === 'true'));
+  var open = typeof conversationHasOpenHandoff === 'function' && conversationHasOpenHandoff(conv);
+  if (!flagged && !open) return '';
+  var raw = inboxNeedsHumanReasonCode(conv);
+  var code = raw.split(':')[0].trim().toLowerCase();
+  var extra = raw.indexOf(':') >= 0 ? raw.slice(raw.indexOf(':') + 1).trim() : '';
+  var key = INBOX_NEEDS_REASON_KEYS[code];
+  var label = key ? inboxNeedsHumanT(key, '') : '';
+  if (!label && code === 'business_tool_error' && /payment_reported_unresolved/i.test(extra)) {
+    label = inboxNeedsHumanT('inbox.detail.needsHuman.reason.paymentReported', '');
+  }
+  if (!label && code && code !== 'needs_human' && code !== 'luna_safe_handoff' && code !== 'needs_staff_reply') {
+    label = code.replace(/[_]+/g, ' ');
+  }
+  if (!label) label = inboxNeedsHumanT('inbox.detail.needsHuman.reasonFallback', 'Luna asked for a person');
+  return inboxNeedsHumanT('inbox.detail.handoff.reason', 'Reason') + ': ' + label;
+}
+
 function inboxNeedsHumanRaiseHtml(needsHuman){
   var on = !!needsHuman;
   var label = t('inbox.detail.needsHuman.raise');
@@ -69,6 +139,15 @@ function inboxNeedsHumanRaiseHtml(needsHuman){
     '" id="inbox-needs-human-raise" aria-pressed="' + (on ? 'true' : 'false') +
     '" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
     escHtml(label) + '</button>';
+}
+
+function inboxNeedsHumanChromeHtml(needsHuman, conv){
+  var on = !!needsHuman;
+  var reason = on ? inboxNeedsHumanReasonText(conv || { needs_human: true }) : '';
+  return '<span class="inbox-needs-human-chrome" id="inbox-needs-human-chrome">' +
+    inboxNeedsHumanRaiseHtml(needsHuman) +
+    '<span class="inbox-needs-human-reason" id="inbox-needs-human-reason"' +
+      (reason ? '' : ' hidden') + '>' + escHtml(reason) + '</span></span>';
 }
 
 function inboxLunaModeControlHtml(opts){
@@ -96,7 +175,7 @@ function inboxLunaModeControlHtml(opts){
     html += '</button>';
   }
   html += '</div></div>';
-  html += inboxNeedsHumanRaiseHtml(needsHuman);
+  html += inboxNeedsHumanChromeHtml(needsHuman, opts);
   html += '</div>';
   return html;
 }
@@ -148,17 +227,37 @@ function syncInboxLunaModeControl(targetEl, paused){
   if (labelEl) labelEl.textContent = inboxLunaModeHeaderLabel(channel, paused);
 }
 
-function syncInboxNeedsHumanRaise(targetEl, needsHuman){
+function syncInboxNeedsHumanRaise(targetEl, needsHuman, conv){
   targetEl = inboxThreadScope(targetEl);
   if (!targetEl) return;
   var btn = targetEl.querySelector('#inbox-needs-human-raise');
   var toggle = targetEl.querySelector('#conv-needs-human-toggle');
   if (toggle) toggle.checked = !!needsHuman;
-  if (!btn) return;
-  var on = !!needsHuman;
-  btn.classList.toggle('is-on', on);
-  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  btn.textContent = t('inbox.detail.needsHuman.raise');
+  if (btn) {
+    var on = !!needsHuman;
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.textContent = t('inbox.detail.needsHuman.raise');
+  }
+  var reasonEl = targetEl.querySelector('#inbox-needs-human-reason');
+  if (!reasonEl) return;
+  if (!needsHuman) {
+    reasonEl.textContent = '';
+    reasonEl.setAttribute('hidden', '');
+    return;
+  }
+  if (conv) {
+    var text = inboxNeedsHumanReasonText(Object.assign({ needs_human: true }, conv));
+    reasonEl.textContent = text;
+    if (text) reasonEl.removeAttribute('hidden');
+    else reasonEl.setAttribute('hidden', '');
+    return;
+  }
+  if (!reasonEl.textContent) {
+    var fallback = inboxNeedsHumanReasonText({ needs_human: true });
+    reasonEl.textContent = fallback;
+  }
+  if (reasonEl.textContent) reasonEl.removeAttribute('hidden');
 }
 
 function wireInboxLunaModeControl(targetEl){
