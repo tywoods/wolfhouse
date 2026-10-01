@@ -187,6 +187,7 @@
     "verify:staff-stripe-webhook-api": "node scripts/verify-staff-stripe-webhook-api.js",
     "verify:wolfhouse-admin-pricing": "node scripts/verify-wolfhouse-admin-pricing.js",
     "verify:transfer-max-group-size": "node scripts/verify-transfer-max-group-size.js && node scripts/verify-transfer-max-write-errors.js && node scripts/verify-luna-transfer-prices.js && node scripts/verify-transfer-max-router.js && python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_transfer_prices.py && node scripts/verify-transfer-max-group-size-browser.js",
+    "verify:deposit-from-admin-pricing": "node scripts/verify-deposit-from-admin-pricing.js",
     "verify:pricing-deposit-add-500-001": "node scripts/verify-pricing-deposit-add-500-001.js --browser",
     "verify:wolfhouse-admin-pricing-ui": "node scripts/verify-wolfhouse-admin-pricing-playwright.js",
     "verify:staff-quote-preview-api": "node scripts/verify-staff-quote-preview-api.js",
