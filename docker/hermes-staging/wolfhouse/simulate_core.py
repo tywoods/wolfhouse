@@ -598,6 +598,9 @@ def register_simulate_route(app) -> None:
 
     async def _handle_simulate_guest_turn(request):
         token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
+        if not token:
+            from aiohttp import web
+            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
         if token:
             hdr = request.headers.get("X-Luna-Bot-Token") or request.headers.get("Authorization") or ""
             if hdr.startswith("Bearer "):
@@ -617,6 +620,9 @@ def register_simulate_route(app) -> None:
         # Legacy burst injection used the same process-wide patches as single-turn
         # simulation. It is intentionally disabled until it has an equivalent
         # request-owned queue contract.
+        if not isinstance(body, dict):
+            from aiohttp import web
+            return web.json_response({'ok': False, 'error': 'invalid_request'}, status=400)
         if isinstance(body.get("messages"), list) and body.get("messages"):
             from aiohttp import web
 
@@ -626,6 +632,20 @@ def register_simulate_route(app) -> None:
             )
 
         try:
+            if not isinstance(body, dict):
+                raise ValueError('invalid_request')
+            thread = body.get('thread')
+            if body.get('action') == 'cleanup' and not (isinstance(thread, str) and thread.startswith('sim:golden-')):
+                raise ValueError('invalid_golden_namespace')
+            if isinstance(thread, str) and thread.startswith('sim:golden-'):
+                assert_staging_environment()
+                from wolfhouse.crowsnest_guest_door import run_golden_guest_turn, cleanup_golden_thread
+                if body.get('action') == 'cleanup':
+                    result = await cleanup_golden_thread(thread)
+                else:
+                    result = await run_golden_guest_turn(thread=thread, text=str(body.get('text') or ''))
+                from aiohttp import web
+                return web.json_response(result)
             result = await run_simulated_turn(
                 thread=str(body.get("thread") or body.get("guest_phone") or ""),
                 text=str(body.get("text") or body.get("message_text") or ""),

@@ -3,11 +3,9 @@
 Usage (inside hermes-luna container):
   python3 -m wolfhouse.simulate_guest_turn --thread 490000009999 --text "Ciao, 2 persone 15-22 agosto" --lang it --json
 
-Teardown between scenarios:
-  curl -X POST http://127.0.0.1:8090/wolfhouse/guest-fresh-start \\
-    -H "X-Luna-Bot-Token: $LUNA_BOT_INTERNAL_TOKEN" \\
-    -H "Content-Type: application/json" \\
-    -d '{"guest_phone":"+490000009999","hard_delete":true}'
+Golden teardown between scenarios:
+  python3 -m wolfhouse.simulate_guest_turn --thread sim:golden-case-123 --cleanup --json
+Only synthetic routing is rotated; shared USER/MEMORY and WhatsApp sessions are untouched.
 """
 
 from __future__ import annotations
@@ -73,7 +71,8 @@ def _post_simulate(payload: dict) -> dict:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Simulate one guest WhatsApp turn through live Luna")
     p.add_argument("--thread", required=True, help="Stable session id (guest phone digits or sim:scenario-name)")
-    p.add_argument("--text", required=True, help="Guest message text for this turn")
+    p.add_argument("--text", help="Guest message text for this turn")
+    p.add_argument("--cleanup", action="store_true", help="Rotate only an exact sim:golden-* session; never clear shared memory")
     p.add_argument("--lang", default=None, help="Optional language hint (it, de, es, en)")
     p.add_argument("--allow-writes", action="store_true", help="Enable Staff API writes + Stripe TEST links (still no WhatsApp send)")
     p.add_argument("--json", action="store_true", help="Print full JSON response")
@@ -83,6 +82,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     _load_hermes_env()
     args = parse_args(argv)
+    if args.cleanup:
+        result = _post_simulate({'thread': args.thread, 'action': 'cleanup'})
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get('ok') is True else 1
+    if not args.text:
+        raise SystemExit('--text required unless --cleanup')
     payload = {
         "thread": args.thread,
         "text": args.text,

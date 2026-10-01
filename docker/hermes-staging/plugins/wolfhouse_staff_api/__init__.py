@@ -166,6 +166,12 @@ def _normalize_bot_path(path):
 
 
 def _post_bot(path, payload, *, require_explicit_success=False):
+    # Inside the function, not merely a replaceable module attribute: retained
+    # aliases and separately loaded candidate plugin modules cannot bypass it.
+    from wolfhouse.crowsnest_guest_door import staff_transport_denial
+    denied = staff_transport_denial(path)
+    if denied is not None:
+        return denied
     # Payment/handoff receipts must carry literal success. Keep legacy defaults
     # for every other route (and preserve the two-argument transport test seam).
     payment_receipt = bool(re.fullmatch(
