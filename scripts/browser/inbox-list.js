@@ -76,6 +76,7 @@ function filterInboxConversations(convs){
         c && c.email,
         c && c.last_message_preview,
         c && c.booking_code,
+        (typeof staffDisplayBookingCode === 'function' && c && c.booking_code) ? staffDisplayBookingCode(c.booking_code) : '',
       ].join(' ').toLowerCase();
       return hay.indexOf(q) !== -1;
     });
@@ -289,11 +290,12 @@ function inboxConfirmationEventsFromBookings(bookings){
   (bookings || []).forEach(function(b){
     if (!b || !b.confirmation_sent_at) return;
     var code = b.booking_code ? String(b.booking_code) : '';
+    var shown = (typeof staffDisplayBookingCode === 'function') ? staffDisplayBookingCode(code) : code;
     events.push({
       direction: 'outbound',
       source: 'booking_confirmation',
       confirmation_event: true,
-      message_text: code ? ('Booking confirmed · ' + code) : 'Booking confirmed',
+      message_text: shown ? ('Booking confirmed · ' + shown) : 'Booking confirmed',
       created_at: b.confirmation_sent_at,
     });
   });

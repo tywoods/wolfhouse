@@ -1117,6 +1117,7 @@ function renderAdminBookingsTable() {
     // Bookings panel: never grey cancelled (schedule greys separately).
     var archived = false;
     var code = String(row.booking_code || '');
+    var shownCode = (typeof staffDisplayBookingCode === 'function') ? staffDisplayBookingCode(code) : code;
     var createdText = adminBookingsFormatMadridCreated(row.created_at);
     var payTone = adminBookingsRowPayTone(row);
     var totalCents = row.total_cents != null ? row.total_cents : row.charged_cents;
@@ -1130,7 +1131,7 @@ function renderAdminBookingsTable() {
       '" role="row" data-bookings-row-id="' + escHtml(rowKey) +
       '" data-bookings-pay-tone="' + escHtml(payTone) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
-    var openScheduleLabel = adminBookingsOpenScheduleLabel(code);
+    var openScheduleLabel = adminBookingsOpenScheduleLabel(shownCode);
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
       '<button type="button" class="portal-admin-bookings-code portal-admin-bookings-code-link" ' +
       'data-bookings-open-schedule="' + escHtml(id) + '" ' +
@@ -1139,7 +1140,7 @@ function renderAdminBookingsTable() {
       'data-service-date-start="' + escHtml(String(row.service_date_start || '').slice(0, 10)) + '" ' +
       'title="' + escHtml(openScheduleLabel) + '" ' +
       'aria-label="' + escHtml(openScheduleLabel) + '">' +
-      escHtml(code) + '</button></div>';
+      escHtml(shownCode) + '</button></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
       escHtml(String(row.phone || '')) + '" data-bookings-customer-id="' +

@@ -339,14 +339,22 @@ blocked_summary AS (
 ),
 
 -- ── 9. Booking code: accept provided or auto-generate ────────────────────────
--- Generated form: MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}
+-- Wolfhouse (BOOKING-CODE-WH-PREFIX-001): WH-{YYYYMMDD}-{IDEMPOTENCY_HEX6}
+-- Other clients keep MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}. Sunset mints
+-- SUNSET-/ELSARDI- outside this branch and must not be renamed here.
 -- Guaranteed unique within session via idempotency_key suffix.
 booking_code_gen AS (
   SELECT COALESCE(
     $5::text,
-    'MB-' || upper(left(replace($1::text, '-', ''), 6))
-           || '-' || to_char($10::date, 'YYYYMMDD')
-           || '-' || substring(md5($4::text), 1, 6)
+    CASE
+      WHEN lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')
+        OR lower(btrim($1::text)) LIKE 'wolfhouse-%'
+      THEN 'WH-' || to_char($10::date, 'YYYYMMDD')
+                 || '-' || substring(md5($4::text), 1, 6)
+      ELSE 'MB-' || upper(left(replace($1::text, '-', ''), 6))
+                 || '-' || to_char($10::date, 'YYYYMMDD')
+                 || '-' || substring(md5($4::text), 1, 6)
+    END
   ) AS booking_code
 ),
 

@@ -728,7 +728,11 @@ const {
 } = require('./lib/staff-bed-calendar-queries');
 const {
   annotateCalendarBlocks,
+  BOOKING_ACCENT_STAY_SQL,
 } = require('./lib/staff-calendar-group-paint');
+const {
+  resolveStoredWolfhouseBookingCode,
+} = require('./lib/wolfhouse-booking-code');
 const {
   resolveBedCalendarRoomRows,
   filterDemoCalendarBlocks,
@@ -21352,6 +21356,25 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 [data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-unpaid{--bc-pay-stripe:#E0A070}
 [data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-deposit{--bc-pay-stripe:#8AA396}
 [data-theme="dark"] #tab-bed-calendar .bc-block.bc-pay-stripe-paid{--bc-pay-stripe:#8FCB9A}
+/* BOOKING-BAR-ACCENT-001: left edge is the booking color, flush to the bar.
+   Payment stripe and status border must not leave a green/blue sliver. */
+#tab-bed-calendar .bc-block.bc-booking-accent,
+#tab-bed-calendar .bc-block-checkout-marker.bc-booking-accent{
+  border-left-color:var(--bc-group-accent,#7A8A9A);
+}
+#tab-bed-calendar .bc-block.bc-booking-accent.bc-pay-stripe::before{
+  content:none;
+  display:none;
+}
+#tab-bed-calendar .bc-block.bc-booking-accent.bc-block-grouped{
+  box-shadow:var(--shadow-soft);
+}
+#tab-bed-calendar .bc-block.bc-booking-accent.bc-block-grouped:hover,
+#tab-bed-calendar .bc-block.bc-booking-accent.bc-block-grouped.bc-block-group-hover,
+#tab-bed-calendar .bc-block-checkout-marker.bc-booking-accent.bc-block-grouped.bc-block-group-hover{
+  filter:brightness(.95);
+  box-shadow:0 2px 10px rgba(68,80,74,.15);
+}
 /* ===== END book-ui ===== */
 
 /* ═══ luna-header-ui ══════════════════════════════════════════════════════
@@ -25221,6 +25244,12 @@ ${showOwnerScheduleBridge ? `
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function el(id){ return document.getElementById(id); }
+/* BOOKING-CODE-WH-PREFIX-001: staff sees WH-<date>-<suffix>. Stored MB-WOLFHO- still loads. Sunset codes pass through. */
+function staffDisplayBookingCode(code){
+  var s = String(code == null ? '' : code).trim();
+  var m = s.match(/^MB-WOLFHO-(\d{8}-[0-9a-fA-F]{6})$/i);
+  return m ? ('WH-' + m[1]) : s;
+}
 /* INJECT:sunset-schedule-money-parse */
 /* INJECT:sunset-schedule-rental-availability */
 /* INJECT:sunset-schedule-portal-module */
@@ -38225,7 +38254,7 @@ function bcBlockTooltip(blk){
   var statusHint = blk.color_type ? ' [' + blk.color_type.replace(/_/g,' ') + ']' : '';
   var payHint = bcCalendarPaymentTooltipHint(blk);
   return escHtml(
-    (blk.booking_code||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
+    (staffDisplayBookingCode(blk.booking_code)||'\u2014') + ' \u2013 ' + (blk.guest_name||'') +
     ' | ' + (blk.start_date||'') + ' \u2192 ' + (blk.end_date||'') + statusHint + payHint +
     (arrDep.length ? ' | ' + arrDep.join(' \u00b7 ') : '')
   );
@@ -38248,16 +38277,19 @@ function bcGroupPaintBits(blk){
   var cls = '';
   var key = '';
   var style = '';
+  if (blk && blk.calendar_group_accent) {
+    cls += ' bc-booking-accent';
+    style = ' style="--bc-group-accent:' + escHtml(String(blk.calendar_group_accent)) + '"';
+  }
   if (blk && Number(blk.calendar_group_size) > 1 && blk.calendar_group_key) {
     cls += ' bc-block-grouped';
     key = String(blk.calendar_group_key);
-    style = ' style="--bc-group-accent:' + escHtml(String(blk.calendar_group_accent || '#D7E3D4')) + '"';
   }
   if (blk && blk._bc_is_group) {
     cls += ' bc-block-group';
     if (blk._bc_group_key) key = String(blk._bc_group_key);
   }
-  if (!cls && !key) return { cls: '', attr: '' };
+  if (!cls && !key && !style) return { cls: '', attr: '' };
   var attr = (key ? ' data-group-key="' + escHtml(key) + '"' : '') + style;
   return { cls: cls, attr: attr };
 }
@@ -38912,7 +38944,7 @@ function showBlockDetail(blk){
   el('bc-side-booking-actions').innerHTML = '';
   if (typeof bcRemoveBookingHeaderIcons === 'function') bcRemoveBookingHeaderIcons();
   el('bc-detail').innerHTML =
-    '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(blk.booking_code||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span></h2>' +
+    '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(staffDisplayBookingCode(blk.booking_code)||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span></h2>' +
     '<div class="bc-booking-header-lines" id="bc-detail-stay"></div>' +
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span>' +
     '<div class="bc-detail-toolbar-actions">' + bcBookingHeaderActionsHtml() + '</div>' +
@@ -40712,8 +40744,9 @@ function bcCopyPaymentLinkIcon(btn){
 
 function bcBookingCodeCopyHtml(code){
   if (!code) return '';
+  var shown = (typeof staffDisplayBookingCode === 'function') ? staffDisplayBookingCode(code) : code;
   var label = t('schedule.drawer.copyCode');
-  return '<button type="button" class="btn btn-ghost bc-booking-code-copy" data-bc-copy-code="' + escHtml(code) + '" title="' + escHtml(label) + '" aria-label="' + escHtml(label) + '">' + bcCopyLinkIconSvg() + '</button>';
+  return '<button type="button" class="btn btn-ghost bc-booking-code-copy" data-bc-copy-code="' + escHtml(shown) + '" data-bc-stored-code="' + escHtml(code) + '" title="' + escHtml(label) + '" aria-label="' + escHtml(label) + '">' + bcCopyLinkIconSvg() + '</button>';
 }
 function bcCopyBookingCode(btn){
   var code = btn.getAttribute('data-bc-copy-code') || btn.getAttribute('data-copy');
@@ -45578,7 +45611,7 @@ function bcOpenSideBooking(blk, opts){
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
   if (title) {
-    title.textContent = blk.booking_code || '\u2014';
+    title.textContent = staffDisplayBookingCode(blk.booking_code) || '\u2014';
     title.classList.add('bc-side-title-code');
   }
   var copyCode = el('bc-side-copy-code');
@@ -51816,10 +51849,19 @@ async function handleBedCalendar(query, res, user) {
   const rooms  = buildRoomHierarchy(roomRows);
   const days   = generateCalendarDays(startDate, endDate);
   const transfersByBookingId = buildTransferSummariesByBookingId(transferRows);
+  let accentStayRows = [];
+  try {
+    accentStayRows = await withPgClient(async (pg) => {
+      const stayRes = await pg.query(BOOKING_ACCENT_STAY_SQL, [clientSlug, startISO, endISO]);
+      return stayRes.rows || [];
+    });
+  } catch (_) {
+    accentStayRows = [];
+  }
   const blocks = annotateCalendarBlocks(buildCalendarBlocks(blockRows, startDate, endDate).map((b) => ({
     ...b,
     transfer_summary: transfersByBookingId[b.booking_id] || emptyTransferSummary(),
-  })), calendarGuestRows);
+  })), calendarGuestRows, accentStayRows);
 
   const elapsed = Date.now() - started;
   appendAuditLog({
@@ -53446,6 +53488,7 @@ async function handleBookingContext(bookingCode, query, res, user) {
   try {
     [bookingRows, paymentRows, roomingRows, convRows, handoffRows, addonRows, metaRows, serviceRecordRows, serviceRecordsAvailable, transferRecordRows, transfersAvailable, pauseGateResult, bookingGuestRows, bookingGuestsAvailable] =
       await withPgClient(async (pg) => {
+        bookingCode = await resolveStoredWolfhouseBookingCode(pg, clientSlug, bookingCode);
         const [b, p, r, c, h, a, m, svc] = await Promise.all([
           pg.query(getBookingDetailQuery(),             [clientSlug, bookingCode]),
           pg.query(BOOKING_PAYMENTS_LEDGER_SQL,         [clientSlug, bookingCode]),

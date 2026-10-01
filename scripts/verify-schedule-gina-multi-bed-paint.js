@@ -80,10 +80,10 @@ function assertGinaPaint() {
   assert.strictEqual(byBed['R2-B4'].calendar_show_payment_pills, false);
   const accents = new Set(gina.map((row) => row.calendar_group_accent));
   assert.strictEqual(accents.size, 1, 'one group shares one accent');
-  assert.ok(GROUP_ACCENTS.includes(gina[0].calendar_group_accent));
+  assert.ok(gina[0].calendar_group_accent, 'group accent is set');
   assert.notStrictEqual(rows.find((row) => row.booking_id === 'booking-other').calendar_group_accent, gina[0].calendar_group_accent);
   assert.strictEqual(rows.find((row) => row.booking_id === 'booking-other').calendar_show_payment_pills, true);
-  assert.strictEqual(rows.find((row) => row.booking_id === 'booking-other').calendar_group_accent, null, 'a solo bar is not a group');
+  assert.ok(rows.find((row) => row.booking_id === 'booking-other').calendar_group_accent, 'a solo bar still has its own accent');
 
   const hovered = byBed['R8-B2'];
   const targets = groupHoverTargets(rows, hovered);

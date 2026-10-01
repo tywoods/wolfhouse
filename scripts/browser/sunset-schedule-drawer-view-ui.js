@@ -214,7 +214,8 @@ function scheduleRenderDrawerViewBookingDetailsHtml(ctx, row){
 }
 
 function scheduleRenderDrawerHeroHtml(ctx, row){
-  var code = (ctx && ctx.booking_code) || (row && row.booking_code) || '—';
+  var rawCode = (ctx && ctx.booking_code) || (row && row.booking_code) || '';
+  var code = (typeof staffDisplayBookingCode === 'function' ? staffDisplayBookingCode(rawCode) : rawCode) || '—';
   var name = (ctx && ctx.guest_name) || (row && row.guest_name) || 'Guest';
   var sunset = isSunsetSurfActive();
   var html = '<div class="portal-schedule-drawer-hero">';

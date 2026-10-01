@@ -1123,6 +1123,7 @@ function inboxCustomerBookingsListHtml(data) {
   for (var i = 0; i < bookings.length; i++) {
     var b = bookings[i] || {};
     var code = b.booking_code || b.booking_id || 'Booking';
+    var shownCode = (typeof staffDisplayBookingCode === 'function' && b.booking_code) ? staffDisplayBookingCode(b.booking_code) : code;
     var checkIn = b.check_in ? String(b.check_in).slice(0, 10) : '';
     var checkOut = b.check_out ? String(b.check_out).slice(0, 10) : '';
     var dates = (checkIn || checkOut) ? (checkIn || '—') + ' → ' + (checkOut || '—') : '';
@@ -1132,7 +1133,7 @@ function inboxCustomerBookingsListHtml(data) {
     html += ' data-check-in="' + inboxContextEsc(checkIn) + '"';
     html += ' data-check-out="' + inboxContextEsc(checkOut) + '"';
     html += ' data-guest-name="' + inboxContextEsc(String(b.guest_name || '')) + '">';
-    html += inboxContextEsc(String(code));
+    html += inboxContextEsc(String(shownCode));
     if (dates) html += '<span class="inbox-customer-booking-meta">' + inboxContextEsc(dates) + '</span>';
     html += '</button>';
   }
@@ -1245,7 +1246,7 @@ function inboxCustomerGuestBookingsHtml(data) {
     html += ' data-check-out="' + inboxContextEsc(checkOut) + '"';
     html += ' data-guest-name="' + inboxContextEsc(guestName) + '"';
     html += ' tabindex="0" role="button">';
-    html += '<td>' + inboxContextEsc(String(b.booking_code || '—')) + '</td>';
+    html += '<td>' + inboxContextEsc(String((typeof staffDisplayBookingCode === 'function' && b.booking_code) ? staffDisplayBookingCode(b.booking_code) : (b.booking_code || '—'))) + '</td>';
     html += '<td>' + inboxContextEsc(dates) + '</td>';
     html += '<td>' + inboxContextEsc(String(pay)) + '</td>';
     html += '</tr>';
