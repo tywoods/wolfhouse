@@ -19825,7 +19825,13 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .btn-success-light{background:#DCEAD2;color:#45673A;border:1px solid #CADCBE;border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-success-light:hover{background:#CFDFC4;border-color:#B5D3AD}
 .btn-success-light:disabled{opacity:.55;cursor:not-allowed}
-.bc-detail-toolbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.bc-detail-toolbar-actions{grid-area:links;display:flex;align-items:center;justify-content:flex-end;min-width:0;max-width:100%;gap:6px;margin-left:auto;flex-wrap:wrap}
+.bc-detail-toolbar-actions .btn{white-space:normal}
+.bc-open-conversation-status:empty{display:none}
+#bc-detail > .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta meta" "links links" "pebbles pebbles";gap:6px;margin-bottom:8px}
+#bc-detail .bc-detail-title{grid-area:title}
+#bc-detail .bc-booking-header-lines{grid-area:meta;min-width:0}
+#bc-detail #bc-detail-meta{grid-area:pebbles;justify-self:end;justify-content:flex-end;max-width:100%}
 .bc-open-conversation-status{font-size:11px;color:var(--text-3);flex:1 1 100%;text-align:right;min-height:14px}
 /* ── Booking detail drawer extras (Stage 8.3b) ────────────────────────────── */
 .ctx-status-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center}
@@ -19944,12 +19950,12 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
-.bc-drawer-tabs{display:flex;gap:0;align-items:flex-end;margin:0;padding:0 0 0 4px;border:none;background:transparent;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.bc-drawer-tab{position:relative;padding:10px 14px;font-size:13px;font-weight:500;white-space:nowrap;flex:0 0 auto;border:1px solid var(--bc-inactive-border);border-bottom:none;background:var(--bc-inactive-chrome);color:var(--bc-inactive-label);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:2px;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
+.bc-drawer-tabs{display:flex;width:100%;gap:4px;align-items:flex-end;margin:0;padding:0;border:none;background:transparent;flex-wrap:nowrap;overflow:visible;-webkit-overflow-scrolling:touch}
+.bc-drawer-tab{position:relative;padding:10px 14px;font-size:13px;font-weight:500;white-space:normal;min-width:0;flex:1 1 0;text-align:center;border:1px solid var(--bc-inactive-border);border-bottom:none;background:var(--bc-inactive-chrome);color:var(--bc-inactive-label);cursor:pointer;border-radius:10px 10px 0 0;line-height:1.25;margin-right:0;transition:background .15s,color .15s,box-shadow .15s;z-index:1}
 .bc-drawer-tab:hover{background:var(--bc-inactive-chrome);color:#fff}
 .bc-drawer-tab:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .bc-drawer-tab.is-active{background:var(--surface-soft);color:var(--text);font-weight:600;border-color:var(--border-soft);box-shadow:none;z-index:3;margin-bottom:-1px;padding-bottom:11px}
-.bc-drawer-tab-content-panel{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:0 var(--radius-sm) var(--radius-sm) var(--radius-sm);padding:14px 16px 16px;min-height:680px}
+.bc-drawer-tab-content-panel{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:0 var(--radius-sm) var(--radius-sm) var(--radius-sm);padding:6px 16px 16px;min-height:680px}
 .bc-drawer-tab-panel{display:none}
 .bc-drawer-tab-panel.is-active{display:block}
 .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:640px}
@@ -20821,13 +20827,18 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 /* BOOKING-HEADER-BALANCE-PEBBLE-001: payment pebble is the header right column, below pin/arrow, right-aligned with those controls. Not under the booking code. */
 .bc-side-head-row{display:grid;grid-template-columns:minmax(7.5em,1fr) minmax(0,210px);grid-template-areas:"title actions" "meta pebbles";column-gap:10px;row-gap:6px;align-items:start}
+/* BOOKING-CARD-BALANCE-ACTIONS-TABS-001: existing booking only; create chrome is unchanged. */
+#bc-side-drawer[data-mode="booking"] .bc-side-head-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta meta" "links links" "pebbles pebbles"}
+#bc-side-booking-actions:empty{display:none}
 .bc-side-title-row{grid-area:title;display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
 .bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
 /* BOOKING-HEADER-CODE-DATE-META-001: code is quiet; dates own the line. New booking keeps 22px. */
 .bc-side-title.bc-side-title-code{font-size:13px;font-weight:600;line-height:1.3;color:var(--text-2);letter-spacing:.02em}
-.bc-side-header-pebbles{grid-area:pebbles;justify-self:end;align-self:center;display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;max-width:min(210px,54%);margin:0}
+.bc-side-header-pebbles{grid-area:pebbles;justify-self:end;align-self:end;display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;max-width:100%;margin:0}
 .bc-side-header-pebbles:empty{display:none}
 .bc-side-header-pebbles .bc-detail-meta,.bc-side-header-pebbles .pill,.bc-side-header-pebbles .transfer-pebble{margin:0}
+#bc-side-payment-meta,#bc-detail #bc-detail-meta{justify-content:flex-end;align-items:flex-end;min-width:0;max-width:100%}
+#bc-side-payment-meta > .bc-header-payment-primary,#bc-detail #bc-detail-meta > .bc-header-payment-primary{order:1}
 .bc-booking-identity{display:inline-flex;align-items:flex-start;gap:6px;min-width:0;max-width:100%}
 .bc-booking-code{min-width:0;overflow-wrap:anywhere;white-space:normal;font-size:13px;font-weight:600;color:var(--text-2);letter-spacing:.02em}
 .bc-booking-code-copy{flex:0 0 auto;line-height:1;padding:4px;align-self:flex-start}
@@ -20852,7 +20863,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-side-body{flex:1 1 auto;overflow:auto;padding:8px 12px 12px;color:var(--text-2);font-size:13px;line-height:1.45}
 .bc-side-foot{flex:0 0 auto;padding:0;border:0;min-height:0}
 #bc-side-drawer .bc-drawer-file-tabs{margin-top:0}
-#bc-side-drawer .bc-drawer-tab-content-panel{min-height:0;padding:10px 12px 14px}
+#bc-side-drawer .bc-drawer-tab-content-panel{min-height:0;padding:6px 12px 14px}
 #bc-side-drawer .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:0}
 #bc-side-drawer .bc-drawer-tabs{width:100%;gap:4px;padding:0;overflow:visible}
 #bc-side-drawer .bc-drawer-tab{
@@ -20860,7 +20871,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   text-align:center;
 }
 #bc-side-drawer .bc-drawer-tab.is-active{margin-bottom:-1px;padding-bottom:8px}
-#bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px;position:relative}
+#bc-side-drawer #bc-drawer-card-booking{padding:6px 16px 18px;position:relative}
+#bc-detail #bc-drawer-card-booking{padding-top:6px}
+#bc-detail #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
 #bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing){padding-bottom:56px}
 #bc-side-drawer #bc-field-group-guests.is-editing .btn-bc-field-edit{display:none!important}
 #bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-header{display:none}
@@ -20918,6 +20931,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   background:transparent;color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
   cursor:pointer;
 }
+#bc-side-drawer:not([data-mode="booking"]) #bc-side-refresh{display:none}
+#bc-side-drawer .bc-side-head-actions .bc-refresh-btn{width:32px;height:32px}
+@media(max-width:768px){#bc-detail .bc-refresh-btn{width:44px;height:44px}}
 .bc-refresh-btn:hover{background:var(--surface-soft);color:var(--text)}
 .bc-refresh-btn:disabled{opacity:.4;cursor:default}
 #bc-side-drawer .kv .k{white-space:nowrap}
@@ -24647,12 +24663,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <span id="bc-side-copy-code"></span>
       </div>
       <div class="bc-side-head-actions">
+        <button type="button" class="bc-refresh-btn" id="bc-side-refresh" title="Refresh" aria-label="Refresh"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
         <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin" aria-label="Pin">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
         </button>
         <button type="button" class="bc-side-close" id="bc-side-close" title="Close" aria-label="Close"><span aria-hidden="true">&#8594;</span></button>
       </div>
       <p class="bc-side-meta" id="bc-side-meta"></p>
+      <div id="bc-side-booking-actions" class="bc-detail-toolbar-actions"></div>
       <div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>
     </div>
   </header>
@@ -38540,7 +38558,7 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
     has_active_payment_link: !!(blk.has_active_payment_link || bk.has_active_payment_link),
   });
   if (getClient() === 'wolfhouse-somo' && Number.isFinite(ledger.invoice_total_cents) && ledger.invoice_total_cents > 0 && Number.isFinite(ledger.paid_total_cents) && ledger.paid_total_cents >= ledger.invoice_total_cents) {
-    html += '<span class="pill pill-green">Paid</span>';
+    html += '<span class="pill pill-green bc-header-payment-primary">Paid</span>';
     if (calPay && calPay.kind === 'refund_review') html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'refund_review') {
     html += '<span class="pill pill-orange">Refund review ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
@@ -38548,9 +38566,9 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
     if (calPay.show_deposit_paid) {
       html += '<span class="pill pill-green">Deposit paid</span>';
     }
-    html += '<span class="pill pill-orange">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
+    html += '<span class="pill pill-orange bc-header-payment-primary">Balance due ' + escHtml(bcCalendarFormatEur(calPay.amount_cents)) + '</span>';
   } else if (calPay && calPay.kind === 'paid') {
-    html += '<span class="pill pill-green">Paid</span>';
+    html += '<span class="pill pill-green bc-header-payment-primary">Paid</span>';
   }
   var bkPay = bk.payment_status || null;
   if (!calPay && (bkPay === 'deposit_paid' || bkPay === 'paid')){
@@ -38638,10 +38656,10 @@ function updateBcDetailHeader(data){
       if (pebbleHost) pebbleHost.innerHTML = '<span class="bc-detail-meta" id="bc-side-payment-meta">' + paymentMetaHtml + '</span>';
       el('bc-side-meta').insertAdjacentHTML('beforeend', servicesHtml);
     } else if (meta) {
-      var mobileHeader = meta.closest('.bc-booking-header-lines') || meta;
-      mobileHeader.outerHTML = '<span class="bc-booking-header-lines"><span class="bc-side-meta">' +
+      var mobileHeader = el('bc-detail-stay');
+      if (mobileHeader) mobileHeader.innerHTML = '<span class="bc-side-meta">' +
         bcSideStayMetaHtml(bk.check_in, bk.check_out, bcGuestCountFrom(bk, bcLastOpenedBlock, data.booking_guests || [])) +
-        '</span>' + servicesHtml + ' <span class="bc-detail-meta" id="bc-detail-meta">' + paymentMetaHtml + '</span></span>';
+        '</span>' + servicesHtml;
     }
   }
   bcRefreshCalendarBlockPaymentPebbles(bk.booking_code, ledger, hasActiveLink);
@@ -38771,10 +38789,10 @@ function bcRefreshBlockDetail(){
   if (!blk || !blk.booking_code) return;
   // Resolve the existing Save/Cancel flow before replacing an active editor.
   if (bcFieldEditState.activeGroup && bcFieldEditState.bookingCode === blk.booking_code && bcFieldEditState.clientSlug === getBcClient()) return;
-  var ctxEl = el('bc-ctx-body');
+  var ctxEl = bcSideDrawerLive() ? el('bc-side-body') : el('bc-ctx-body');
   var focusId = ctxEl && ctxEl.contains(document.activeElement) ? document.activeElement.id : null;
   if (ctxEl) ctxEl.innerHTML = bcRenderBlockSummaryPreviewHtml(blk);
-  loadBlockDetail(blk.booking_code, { focusId: focusId });
+  loadBlockDetail(blk.booking_code, { host: ctxEl, focusId: focusId });
 }
 
 function bcRenderDrawerLoadingHtml(){
@@ -38826,6 +38844,12 @@ function bcOpenBookingDrawerOverview(blk){
   bcScrollToBookingOverview();
 }
 
+function bcBookingHeaderActionsHtml(){
+  return '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
+    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">' + escHtml(t('drawer.footer.startConv')) + '</button>' +
+    '<button type="button" class="btn btn-soft-grey btn-compact" id="bc-open-customer-card" style="display:none">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
+}
+
 function showBlockDetail(blk){
   if (!blk) return;
   if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
@@ -38839,14 +38863,13 @@ function showBlockDetail(blk){
   bcLastOpenedBlock = blk;
   bcLastBookingContext = null;
   bcActiveDrawerTab = 'overview';
+  el('bc-side-booking-actions').innerHTML = '';
   el('bc-detail').innerHTML =
-    '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(blk.booking_code||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span>' +
-    '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
-    '<div class="bc-detail-toolbar-actions">' +
-    '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
-    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">' + escHtml(t('drawer.footer.startConv')) + '</button>' +
-    '<button type="button" class="btn btn-soft-grey btn-compact" id="bc-open-customer-card" style="display:none">' + escHtml(portalT('customers.openCustomerCard')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="' + escHtml(t('drawer.toolbar.refresh')) + '">\u21bb ' + escHtml(t('drawer.toolbar.refresh')) + '</button>' +
+    '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(blk.booking_code||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span></h2>' +
+    '<div class="bc-booking-header-lines" id="bc-detail-stay"></div>' +
+    '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span>' +
+    '<div class="bc-detail-toolbar-actions">' + bcBookingHeaderActionsHtml() + '</div>' +
+    '<div class="bc-side-head-actions"><button type="button" class="bc-refresh-btn" id="bc-refresh-detail" title="' + escHtml(t('drawer.toolbar.refresh')) + '" aria-label="' + escHtml(t('drawer.toolbar.refresh')) + '"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>' +
     '</div></div>' +
     '<div id="bc-ctx-body">' + bcRenderBlockSummaryPreviewHtml(blk) + '</div>';
   el('bc-detail').style.display = 'block';
@@ -45465,6 +45488,7 @@ function bcDockCreatePanel(){
   }
   var copyCode = el('bc-side-copy-code');
   if (copyCode) copyCode.innerHTML = '';
+  el('bc-side-booking-actions').innerHTML = '';
   var pebbles = el('bc-side-header-pebbles');
   if (pebbles) pebbles.innerHTML = '';
   if (meta){
@@ -45512,6 +45536,13 @@ function bcOpenSideBooking(blk, opts){
   bcInitDetailCopyDelegation();
   var pebbles = el('bc-side-header-pebbles');
   if (pebbles) pebbles.innerHTML = '';
+  el('bc-detail').innerHTML = '';
+  el('bc-detail').style.display = 'none';
+  bcLastBookingContext = null;
+  el('bc-side-refresh').title = t('drawer.toolbar.refresh');
+  el('bc-side-refresh').setAttribute('aria-label', t('drawer.toolbar.refresh'));
+  el('bc-side-booking-actions').innerHTML = bcBookingHeaderActionsHtml();
+  bcWireOpenConversationButtons(null);
   bcPaintSideStayMeta(null, blk, null);
   var code = blk.booking_code;
   if (code && bcLastBookingContext && bcLastBookingContext.booking &&
@@ -45574,6 +45605,8 @@ function bcInitSideDrawer(){
   if (!rail || rail.dataset.sideWired === '1') return;
   rail.dataset.sideWired = '1';
   if (closeBtn) closeBtn.addEventListener('click', bcCloseSideRail);
+  var refreshBtn = el('bc-side-refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', bcRefreshBlockDetail);
   if (pinBtn) pinBtn.addEventListener('click', function(ev){
     ev.preventDefault();
     ev.stopPropagation();
