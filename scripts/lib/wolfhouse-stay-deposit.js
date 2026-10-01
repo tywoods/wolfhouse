@@ -7,6 +7,8 @@
 // Missing admin amounts fall back to €200 / €100. A stored flat €200 must
 // not win when nights and guest count are known. per_booking scope must not
 // collapse the total back to one guest.
+// Exception: per-guest date edits KEEP the historical stored booking deposit;
+// their booking dates are only an envelope, not a new deposit pricing basis.
 
 const LONG_STAY_NIGHTS = 6;
 const LONG_STAY_RATE_CENTS = 20000;
@@ -84,6 +86,15 @@ function wolfhouseStayDepositCents(nights, guestCount, rates) {
 
 function wolfhouseBookingDepositCents(booking, rates) {
   booking = booking || {};
+  const snapshot = booking.metadata && booking.metadata.quote_snapshot;
+  if (snapshot && snapshot.per_guest_dates === true) {
+    const value = booking.deposit_required_cents;
+    // Explicit zero is valid; absent/invalid history fails closed, never reprices.
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const stored = Number(value);
+    return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+  }
   const useRates = normalizeStayDepositRates(rates) || normalizeStayDepositRates(booking.stay_deposit_rates);
   const ruled = wolfhouseStayDepositCents(
     wolfhouseStayNights(booking.check_in, booking.check_out),

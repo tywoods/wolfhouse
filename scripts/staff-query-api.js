@@ -4973,7 +4973,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
-const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room', 'guest_names']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room', 'guest_names', 'guest_dates']);
 const EDIT_PREVIEW_PACKAGE_FALLBACK = Object.freeze(['malibu', 'uluwatu', 'waimea']);
 
 const EDIT_PREVIEW_BOOKING_BY_ID_SQL = `
@@ -6142,7 +6142,33 @@ function guestQuoteAccommodationCents(quote) {
   return quote.total_cents != null ? Number(quote.total_cents) : null;
 }
 
-function buildGuestAccommodationLines(clientSlug, booking, metadata) {
+function projectBookingGuestStays(booking, guests, assignments) {
+  return (guests || []).map(guest => {
+    const gm = guest.metadata || {};
+    const frozen = ((booking.metadata || {}).guest_stay_windows || {})[guest.booking_guest_id] || {};
+    const matches = (assignments || []).filter(a => ((guest.assigned_bed_code && a.bed_code === guest.assigned_bed_code) ||
+      (gm.assigned_bed_id && String(a.bed_id) === String(gm.assigned_bed_id)))
+      && a.assignment_type !== 'private_room_block' && a.assignment_type !== 'operator_block');
+    const assignment = matches.length === 1 ? matches[0] : null;
+    // Inventory is authoritative, including legacy siblings without date metadata.
+    // Never expand their fallback dates to an edited booking's group envelope.
+    const check_in = assignment ? assignment.check_in : gm.check_in || frozen.check_in || booking.check_in;
+    const check_out = assignment ? assignment.check_out : gm.check_out || frozen.check_out || booking.check_out;
+    return { ...guest, check_in, check_out, nights: movePreviewNights(check_in, check_out) };
+  });
+}
+
+function buildGuestAccommodationLines(clientSlug, booking, metadata, guests) {
+  const snapshot = (metadata || {}).quote_snapshot || {};
+  if (snapshot.per_guest_dates === true) {
+    return (snapshot.per_person || []).map(person => {
+      const guest = (guests || []).find(g => Number(g.guest_number) === Number(person.guest_number)) || person;
+      return { booking_guest_id: guest.booking_guest_id, guest_number: person.guest_number,
+        package_code: person.package_code, package_label: staffPackageDisplayLabel(person.package_code),
+        check_in: guest.check_in, check_out: guest.check_out,
+        nights: movePreviewNights(guest.check_in, guest.check_out), accommodation_cents: person.accommodation_cents };
+    });
+  }
   const guestPackages = normalizeGuestPackagesFromBooking(booking, metadata);
   const nights = movePreviewNights(booking.check_in, booking.check_out);
   return guestPackages.map((gp) => {
@@ -7034,6 +7060,23 @@ async function handleBookingEditWritePackage(
   }
 }
 
+async function handleBookingEditWriteGuestDates(res, body, auditBase, started, clientSlug, user) {
+  if (!STAFF_ACTIONS_ENABLED) return sendJSON(res, 403, { success: false, updated: false, error: 'staff_actions_disabled' });
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  if (body.client && String(body.client).trim() !== clientSlug) return send400(res, 'conflicting client identifiers');
+  try {
+    const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
+    const { editGuestDates } = require('./lib/booking-guest-dates');
+    const result = await withPgClient(pg => editGuestDates(pg, { ...body, client_slug: clientSlug }, { quoteConfig }));
+    appendAuditLog({ ...auditBase, success: result.body.success, updated: result.body.updated === true,
+      booking_guest_id: body.booking_guest_id, error: result.body.error || null, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, result.body);
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, updated: false, error: 'guest_dates_update_failed' });
+  }
+}
+
 async function handleBookingEditWriteDates(
   res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
 ) {
@@ -7217,6 +7260,44 @@ async function handleBookingEditWriteDates(
     const updated = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        // Same lock order as guest_dates: booking -> guests -> assignments ->
+        // rooms -> beds. Previews above are advisory, never write authorization.
+        const locked = (await pg.query(`SELECT b.id,b.client_id FROM bookings b
+          JOIN clients c ON c.id=b.client_id WHERE c.slug=$1 AND b.id::text=$2
+          FOR UPDATE OF b`, [clientSlug,bookingRow.booking_id])).rows[0];
+        const stale = () => Object.assign(new Error('stale_booking_dates'), { datesStatus: 409 });
+        if (!locked) throw stale();
+        await pg.query('SELECT id FROM booking_guests WHERE client_id=$1 AND booking_id=$2 ORDER BY id FOR UPDATE', [locked.client_id,locked.id]);
+        await pg.query('SELECT id FROM booking_beds WHERE client_id=$1 AND booking_id=$2 ORDER BY id FOR UPDATE', [locked.client_id,locked.id]);
+        const fresh = (await pg.query(EDIT_PREVIEW_BOOKING_BY_ID_SQL, [clientSlug,bookingRow.booking_id])).rows[0];
+        const freshBeds = (await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug,bookingRow.booking_id])).rows;
+        const freshServices = await loadBookingServiceRecords(pg,clientSlug,bookingRow.booking_code);
+        // Do not overwrite a concurrent guest-date/package/payment change with
+        // totals or quote metadata calculated from the old pre-transaction row.
+        const { _client_slug, ...observedBooking } = bookingRow;
+        const orderedBeds = rows => rows.slice().sort((a,b)=>a.booking_bed_id.localeCompare(b.booking_bed_id));
+        if (JSON.stringify(fresh) !== JSON.stringify(observedBooking)
+          || JSON.stringify(orderedBeds(freshBeds)) !== JSON.stringify(orderedBeds(sourceBeds))
+          || JSON.stringify(freshServices.rows) !== JSON.stringify(svcRows)) throw stale();
+        const { lockDateInventory, dateRoomIsPrivate, dateInventoryConflicts } = require('./lib/booking-guest-dates');
+        const inventory = await lockDateInventory(pg,locked.client_id,freshBeds.map(b=>b.bed_id));
+        if (freshBeds.some(b=>!inventory.some(i=>i.id===b.bed_id && i.active && i.sellable && i.room_active))) {
+          throw Object.assign(new Error('bed_not_sellable'), { datesStatus: 409 });
+        }
+        const recheck = await editWriteDatesEvaluateAvailability(pg,clientSlug,fresh,freshBeds,checkIn,checkOut);
+        if (recheck.conflicts.length || recheck.requires_manual_review) {
+          throw Object.assign(new Error('date_conflict'), { datesStatus: 409 });
+        }
+        // The advisory legacy check is exact-bed-only. Under the shared inventory
+        // locks use the guest writer's room predicate too: legacy private rooms
+        // need not have block assignments on every bed, and whole-room blocks may
+        // have no assignment rows at all. Ordinary shared different beds still fit.
+        for (const sourceBed of freshBeds) {
+          const bed = inventory.find(i=>i.id===sourceBed.bed_id);
+          const conflicts = await dateInventoryConflicts(pg,locked.client_id,locked.id,bed,
+            checkIn,checkOut,dateRoomIsPrivate(fresh,freshBeds,bed));
+          if (conflicts.length) throw Object.assign(new Error('date_conflict'), { datesStatus: 409 });
+        }
         const bookingUpd = await pg.query(EDIT_WRITE_DATES_UPDATE_BOOKING_SQL, [
           clientSlug,
           bookingRow.booking_id,
@@ -7281,7 +7362,7 @@ async function handleBookingEditWriteDates(
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'dates update failed', detail: err.message, updated: false });
+    return sendJSON(res, err.datesStatus || 500, { success: false, error: err.datesStatus ? err.message : 'dates update failed', detail: err.message, updated: false });
   }
 }
 
@@ -7900,6 +7981,10 @@ async function handleBookingEditWrite(req, res, user) {
     return handleBookingEditWritePackage(
       res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
     );
+  }
+
+  if (editType === 'guest_dates') {
+    return handleBookingEditWriteGuestDates(res, body, auditBase, started, clientSlug, user);
   }
 
   if (editType === 'dates') {
@@ -10014,7 +10099,7 @@ async function handleBookingRemoveService(req, res, user) {
 // Requires auth (viewer+ when STAFF_AUTH_REQUIRED=true).
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function loadWolfhouseQuoteConfigWithOverlay() {
+async function loadWolfhouseQuoteConfigWithOverlay({ strict = false } = {}) {
   const base = loadConfig();
   try {
     return await withPgClient(async (pg) => {
@@ -10028,6 +10113,8 @@ async function loadWolfhouseQuoteConfigWithOverlay() {
   } catch (_err) {
     // Prices may fall back to JSON, but eligibility must not revert to a stale
     // seed after staff have changed the policy in Admin Pricing.
+    // Financial writes require successful reads of BOTH read-only Admin sources.
+    if (strict) throw _err;
     return { ...base, package_min_nights: null };
   }
 }
@@ -41565,8 +41652,24 @@ function bcFieldEditRunPackageSave(){
     });
 }
 
+function bcFieldEditSelectedDateGuest(){
+  var sel = el('bc-field-dates-guest');
+  var id = sel ? sel.value : '';
+  return ((bcFieldEditState.snapshot || {}).guest_names || []).find(function(g){
+    return id && g.booking_guest_id === id;
+  }) || null;
+}
+function bcFieldEditSelectDateGuest(){
+  if (bcFieldEditState.clientSlug !== 'wolfhouse-somo') return;
+  var guest = bcFieldEditSelectedDateGuest();
+  var cin = el('bc-field-dates-check-in'), cout = el('bc-field-dates-check-out');
+  if (cin) { cin.value = guest ? guest.check_in : ''; cin.disabled = !guest; }
+  if (cout) { cout.value = guest ? guest.check_out : ''; cout.disabled = !guest; }
+  bcFieldEditUpdateDatesSaveState();
+}
 function bcFieldEditDatesChanged(checkIn, checkOut){
-  var s = bcFieldEditState.snapshot || {};
+  var s = bcFieldEditState.clientSlug === 'wolfhouse-somo' ? bcFieldEditSelectedDateGuest() : bcFieldEditState.snapshot;
+  if (!s) return false;
   return String(s.check_in || '') !== String(checkIn || '')
     || String(s.check_out || '') !== String(checkOut || '');
 }
@@ -41585,6 +41688,9 @@ function bcFieldEditUpdateDatesSaveState(){
 }
 
 function bcFieldEditBuildDatesWritePayload(){
+  var scoped = bcFieldEditState.clientSlug === 'wolfhouse-somo';
+  var guest = scoped ? bcFieldEditSelectedDateGuest() : null;
+  if (scoped && !guest) return { error: 'Choose the guest whose stay you want to edit.' };
   var cin = el('bc-field-dates-check-in');
   var cout = el('bc-field-dates-check-out');
   if (!cin || !cout || !cin.value || !cout.value) return { error: 'Check-in and check-out are required.' };
@@ -41593,11 +41699,14 @@ function bcFieldEditBuildDatesWritePayload(){
     client_slug: bcFieldEditState.clientSlug || getBcClient(),
     booking_id: bcFieldEditState.bookingId,
     booking_code: bcFieldEditState.bookingCode,
-    edit_type: 'dates',
+    edit_type: scoped ? 'guest_dates' : 'dates',
+    booking_guest_id: guest ? guest.booking_guest_id : undefined,
+    expected_check_in: guest ? guest.check_in : undefined,
+    expected_check_out: guest ? guest.check_out : undefined,
     check_in: cin.value,
     check_out: cout.value,
     idempotency_key: bcNewDatesEditIdempotencyKey(),
-    reason: 'Staff portal dates edit',
+    reason: scoped ? 'Staff portal guest stay edit' : 'Staff portal dates edit',
   };
 }
 
@@ -42192,7 +42301,7 @@ function bcGuestNameBedDisplayHtml(guests, leadName, perPerson, bookingFullyPaid
     var bed = String(g.assigned_bed_code || g.bed_code || '').trim();
     if (!bed) bed = String(g.assigned_room_code || '').trim();
     var html = '<span class="bc-guest-name-row">';
-    html += '<span class="bc-guest-name-line">' + escHtml(name) + '</span>';
+    html += '<span class="bc-guest-name-line" data-booking-guest-id="' + escHtml(g.booking_guest_id || '') + '">' + escHtml(name) + '</span>';
     html += '<span class="bc-guest-pebble-line">';
     if (g.guest_number != null && g.guest_number !== '' && typeof bcGuestPackageChipHtml === 'function') {
       html += bcGuestPackageChipHtml(g.guest_number, guestPackages);
@@ -42339,6 +42448,14 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
+  if (getClient() === 'wolfhouse-somo') {
+    html += '<div id="bc-field-dates-guest-wrap" hidden><label class="ctx-field-label" for="bc-field-dates-guest">Stay for</label><select id="bc-field-dates-guest" class="bk-input bk-input-sm"><option value="">Choose guest</option>';
+    (data.booking_guests || []).forEach(function(g){
+      if (!g || !g.booking_guest_id) return;
+      html += '<option value="' + escHtml(g.booking_guest_id) + '">' + escHtml(g.guest_name || ('Guest ' + g.guest_number)) + '</option>';
+    });
+    html += '</select><div><small>Only this guest’s stay will change.</small></div></div>';
+  }
   var datesKv = kvBC(t('drawer.field.checkIn'), bk.check_in) + kvBC(t('drawer.field.checkOut'), bk.check_out);
   if (nights > 0) datesKv += kvBC(t('drawer.field.nights'), nights);
   html += bcRenderFieldEditReadRow('dates', t('drawer.field.editDates'), datesKv, 3);
@@ -42547,6 +42664,7 @@ function bcFieldEditRestoreForms(){
     if (pkgEl && s.package_code) pkgEl.value = String(s.package_code).toLowerCase();
   }
   if (guestEl) guestEl.value = String(s.guest_count || bcFieldEditState.guestCount);
+  bcFieldEditSelectDateGuest();
   bcFieldEditUpdateDatesPreview();
   bcFieldEditUpdateGuestPreview();
 }
@@ -42556,6 +42674,8 @@ function bcFieldEditCloseAll(){
   var inlineSave = el('bc-inline-save');
   if (inlineSave) inlineSave.disabled = false;
   bcFieldEditState.activeGroup = null;
+  var guestWrap = el('bc-field-dates-guest-wrap');
+  if (guestWrap) guestWrap.hidden = true;
   document.querySelectorAll('.ctx-field-edit-group').forEach(function(root){
     root.classList.remove('is-editing');
     var read = root.querySelector('.ctx-field-read');
@@ -42609,6 +42729,9 @@ function bcFieldEditShowGroup(group){
     bcFieldEditUpdateGuestsSaveState();
   }
   if (group === 'dates') {
+    var guestWrap = el('bc-field-dates-guest-wrap');
+    if (guestWrap) guestWrap.hidden = false;
+    bcFieldEditSelectDateGuest();
     bcFieldEditUpdateDatesPreview();
     bcFieldEditUpdateDatesSaveState();
   }
@@ -42641,6 +42764,8 @@ function bcBindActiveGuestUnderline(){
     line.classList.toggle('is-active', on);
     if (on) line.setAttribute('aria-current', 'true');
     else line.removeAttribute('aria-current');
+    var dateGuest = el('bc-field-dates-guest');
+    if (dateGuest) { dateGuest.value = on ? (line.getAttribute('data-booking-guest-id') || '') : ''; bcFieldEditSelectDateGuest(); }
   });
   document.addEventListener('focusin', function(e){
     var inp = e.target;
@@ -42802,10 +42927,7 @@ function bcFieldEditSaveInlineAll(){
     (phoneEl && phoneEl.value !== String(s.phone || '')) ||
     (emailEl && emailEl.value !== String(s.email || ''))
   ));
-  var datesDirty = !!(cinEl && coutEl && (
-    cinEl.value !== String(s.check_in || '') ||
-    coutEl.value !== String(s.check_out || '')
-  ));
+  var datesDirty = !!(cinEl && coutEl && bcFieldEditDatesChanged(cinEl.value, coutEl.value));
   var prDirty = !!(prEdit && !!prEdit.checked !== !!s.private_room);
   var guestNames = [];
   document.querySelectorAll('#bc-drawer-card-booking .bc-inline-guest-name').forEach(function(input){
@@ -42855,12 +42977,12 @@ function bcFieldEditSaveInlineAll(){
   var packageDirty = packagePackages.length && bcFieldEditPackageChanged(packagePackages);
   var saveBtn = el('bc-inline-save');
   if (saveBtn) saveBtn.disabled = true;
-  var jobs = bodies.reduce(function(chain, body){
+  // Persist current package identities before any date command reprices a guest.
+  // Failure stops the chain: never save dates priced with the superseded package.
+  var jobs = packageDirty ? bcFieldEditPostGuestPackages(packagePackages) : Promise.resolve();
+  jobs = bodies.reduce(function(chain, body){
     return chain.then(function(){ return bcFieldEditPostEdit(body); });
-  }, Promise.resolve());
-  if (packageDirty) {
-    jobs = jobs.then(function(){ return bcFieldEditPostGuestPackages(packagePackages); });
-  }
+  }, jobs);
   jobs.then(function(){
     if (!ownsEditor()) return;
     bcFieldEditCloseAll();
@@ -43740,7 +43862,9 @@ function bcInitFieldEditShell(data){
     guest_name: bk.guest_name || '',
     guest_names: (data.booking_guests || []).filter(Boolean).map(function(g){
       return { booking_guest_id: g.booking_guest_id || null, guest_number: g.guest_number,
-        guest_name: String(g.guest_name || '').trim(), bed_code: g.assigned_bed_code || g.bed_code || '' };
+        guest_name: String(g.guest_name || '').trim(), bed_code: g.assigned_bed_code || g.bed_code || '',
+        check_in: String(g.check_in || (g.metadata || {}).check_in || bk.check_in || '').slice(0,10),
+        check_out: String(g.check_out || (g.metadata || {}).check_out || bk.check_out || '').slice(0,10) };
     }).sort(function(a,b){ return Number(a.guest_number) - Number(b.guest_number); }),
     phone: bk.phone || '',
     email: bk.email || '',
@@ -43752,6 +43876,12 @@ function bcInitFieldEditShell(data){
     private_room: bcBookingPrivateRoomEnabled(bk),
   };
   bcFieldEditState.activeGroup = null;
+  var dateGuest = el('bc-field-dates-guest');
+  if (dateGuest) {
+    var dateGuests = bcFieldEditState.snapshot.guest_names;
+    dateGuest.value = dateGuests.length === 1 ? (dateGuests[0].booking_guest_id || '') : '';
+    dateGuest.onchange = bcFieldEditSelectDateGuest;
+  }
   bcFieldEditCloseAll();
 
   document.querySelectorAll('.btn-bc-field-edit').forEach(function(btn){
@@ -53676,7 +53806,8 @@ async function handleBookingContext(bookingCode, query, res, user) {
     transfersDrawer = null;
   }
 
-  const guestAccommodationLines = buildGuestAccommodationLines(clientSlug, bk, bkMetadata);
+  bookingGuestRows = projectBookingGuestStays(bk, bookingGuestRows, roomingRows);
+  const guestAccommodationLines = buildGuestAccommodationLines(clientSlug, bk, bkMetadata, bookingGuestRows);
   const perPersonBreakdown = bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.per_person
     ? bkMetadata.quote_snapshot.per_person
     : (bkMetadata.per_person || null);
