@@ -19828,9 +19828,9 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-detail-toolbar-actions{grid-area:links;display:flex;align-items:center;justify-content:flex-end;min-width:0;max-width:100%;gap:6px;margin-left:auto;flex-wrap:wrap}
 .bc-detail-toolbar-actions .btn{white-space:normal}
 .bc-open-conversation-status:empty{display:none}
-#bc-detail > .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta actions" "links links" "pebbles pebbles";row-gap:2px;column-gap:8px;margin-bottom:4px;align-items:start}
+#tab-bed-calendar #bc-detail > .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta actions" "links links" "pebbles pebbles";row-gap:2px;column-gap:8px;margin-bottom:4px;align-items:start}
 #bc-detail .bc-detail-title{grid-area:title}
-#bc-detail > .toolbar h2.bc-detail-title{flex:0 1 auto;min-height:0;padding-right:0;margin:0}
+#tab-bed-calendar #bc-detail > .toolbar h2.bc-detail-title{flex:0 1 auto;min-height:0;padding-right:0;margin:0;align-items:center}
 #bc-detail .bc-booking-header-lines{grid-area:meta;min-width:0;margin-top:0}
 #bc-detail .bc-side-head-actions{align-self:start}
 .bc-detail-toolbar-actions:not(:has(.bc-open-conversation-status:not(:empty))){display:none}
