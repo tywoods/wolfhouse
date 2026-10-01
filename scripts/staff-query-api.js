@@ -43541,11 +43541,6 @@ function bcRenderBookingDrawerFooterHtml(data){
   html += '<div class="bc-drawer-footer-left">';
   if (data.conversation){
     html += '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">' + escHtml(t('drawer.footer.openConv')) + '</button>';
-  } else {
-    html += '<button type="button" class="btn btn-success-light" id="bc-new-conversation-btn" ' +
-      'data-booking-id="' + escHtml(bk.booking_id || '') + '" ' +
-      'data-booking-code="' + escHtml(bk.booking_code || '') + '">' + escHtml(t('drawer.footer.startConv')) + '</button>';
-    html += '<div id="bc-new-conversation-result" class="bc-footer-conv-result"></div>';
   }
   html += '</div>';
   html += '<div class="bc-drawer-footer-right">';
