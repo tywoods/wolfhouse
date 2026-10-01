@@ -24,7 +24,7 @@
       '.rf-title{font-size:15px;font-weight:650;margin:0 0 8px}',
       '.rf-modes{display:flex;gap:8px;flex-wrap:wrap}',
       '.rf-modes label{min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--border,rgba(78,88,83,.35));border-radius:8px}',
-      '.rf-help,.rf-legacy{margin:8px 0;font-size:13px;line-height:1.4}',
+      '.rf-help,.rf-legacy{margin:8px 0;font-size:13px;line-height:1.4;white-space:pre-wrap}',
       '.rf-row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(78,88,83,.12));max-width:100%}',
       '.rf-rank{min-width:28px;font-weight:650}',
       '.rf-code{font-weight:650;font-size:16px}',
