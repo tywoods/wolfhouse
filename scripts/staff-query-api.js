@@ -19989,6 +19989,14 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-invoice-totals .ctx-inv-total-amount{grid-column:2;justify-self:end;text-align:right;white-space:nowrap}
 .bc-invoice-totals:not(:has(.bc-total-link-action)){grid-template-columns:minmax(0,1fr) max-content}
 .bc-invoice-totals:not(:has(.bc-total-link-action)) .ctx-inv-total-amount{grid-column:2;justify-self:end;text-align:right}
+/* Native Sunset reuses the WH totals grid, not WH financial projections. */
+.portal-schedule-drawer .ps-invoice-totals{font-size:12px}
+.portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-label{color:var(--text-2);text-transform:none;letter-spacing:normal;font-weight:400}
+.portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-amount{font-size:12px;font-weight:600}
+.portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-amount.paid{color:#5C7350;font-weight:700}
+.portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-amount.owing{color:#9C5742;font-weight:700}
+[data-theme="dark"] .portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-amount.paid{color:#9ee0a8}
+[data-theme="dark"] .portal-schedule-drawer .ps-invoice-totals .ctx-inv-total-amount.owing{color:#ffb896}
 .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#b33434}
 .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="paid"]{color:#2d6a42}
 [data-theme="dark"] .bc-invoice-totals .bc-invoice-deposit-amount[data-deposit-state="unpaid"]{color:#ffaaaa}

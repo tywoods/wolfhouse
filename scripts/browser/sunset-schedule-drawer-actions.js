@@ -334,6 +334,45 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
   function wireManualPayment(row) {
     var btn = el('ps-drawer-manual-submit');
     if (!btn || !row || !row.booking_id) return;
+    var trigger = el('ps-drawer-record-payment');
+    var dialog = el('ps-record-payment-dialog');
+    var preservePaymentDraft = false;
+    if (trigger && dialog) {
+      // Share WH's dialog chrome only; Sunset retains its native receipt contract.
+      if (typeof bcInvoiceStyles === 'function') bcInvoiceStyles();
+      function closePayment() {
+        if (flight.manualPay) return;
+        dialog.close();
+        if (document.contains(trigger)) trigger.focus({ preventScroll: true });
+      }
+      trigger.onclick = function() {
+        if (dialog.open) return;
+        var amount = el('ps-drawer-manual-amount');
+        // Closing is not confirmation that an attempted receipt failed. Keep
+        // its draft and feedback until the authoritative drawer remounts.
+        if (!preservePaymentDraft) {
+          amount.value = amount.defaultValue;
+          el('ps-drawer-manual-method').selectedIndex = 0;
+          el('ps-drawer-manual-note').value = '';
+          el('ps-drawer-manual-msg').style.display = 'none';
+        }
+        var scope = el('ps-drawer-manual-scope');
+        scope.value = 'booking';
+        dialog.showModal();
+        scope.focus();
+      };
+      el('ps-drawer-manual-cancel').onclick = closePayment;
+      dialog.addEventListener('cancel', function(ev) { ev.preventDefault(); closePayment(); });
+      dialog.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Escape') ev.stopPropagation();
+        if (ev.key !== 'Tab') return;
+        var controls = Array.prototype.filter.call(dialog.querySelectorAll('button,input,select'), function(e) { return !e.disabled && e.getClientRects().length; });
+        var first = controls[0], last = controls[controls.length - 1];
+        if (!first) { ev.preventDefault(); return; }
+        if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+        else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+      });
+    }
     btn.onclick = function() {
       if (flight.manualPay) return;
       var identity = captureIdentity(row);
@@ -348,8 +387,10 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
         return;
       }
       var amountCents = Math.round(euros * 100);
+      preservePaymentDraft = true;
       flight.manualPay = true;
       btn.disabled = true;
+      if (dialog && dialog.open) el('ps-drawer-manual-cancel').focus({ preventScroll: true });
       if (msg) msg.style.display = 'none';
       requestJson('/staff/bookings/record-cash-payment', {
         method: 'POST',
