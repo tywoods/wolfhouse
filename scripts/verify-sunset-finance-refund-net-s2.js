@@ -232,7 +232,7 @@ const unavail = summary({ refund_ledger_unavailable: true, payments: [
 ] });
 ok('unavailable flag on redesign.limitations', unavail.redesign.limitations.refund_ledger_unavailable === true);
 ok('unavailable note', /unavailable/i.test(unavail.redesign.limitations.note));
-eq('unavailable still net=gross with no records', unavail.redesign.net.net_collected_cents, 1000);
+eq('unavailable net is null with no refund authority', unavail.redesign.net.net_collected_cents, null);
 
 // ── Fetch maps refund rows ──────────────────────────────────────────────────
 (async () => {

@@ -14,6 +14,7 @@ const {
   BOOKING_STATUS_EXCLUSIONS_SQL,
   PAYMENT_COLLECTED_SCOPE_SQL,
 } = require('./sunset-staff-money-scope');
+const { sqlGuestBooking } = require('./staff-guest-booking-scope');
 
 // Finance excludes transient/terminal non-operational bookings from BSR/booked views.
 // Gross paid cash intentionally includes cancelled-booking payments until recorded refunds
@@ -262,6 +263,9 @@ async function fetchSunsetFinanceData(pg, scope) {
       booking_id: r.booking_id,
       total_amount_cents: r.total_amount_cents,
       balance_due_cents: r.balance_due_cents,
+      check_in: r.check_in != null ? String(r.check_in).slice(0, 10) : null,
+      check_out: r.check_out != null ? String(r.check_out).slice(0, 10) : null,
+      guest_count: r.guest_count != null ? Number(r.guest_count) : null,
       record_source: r.record_source != null ? String(r.record_source) : null,
     }));
     const payments = rows(paymentsRes).map((r) => ({
@@ -358,11 +362,14 @@ const LODGING_BOOKINGS_SQL = `
          b.total_amount_cents,
          b.balance_due_cents,
          b.check_in::text AS check_in,
+         b.check_out::text AS check_out,
+         b.guest_count,
          b.created_at
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
    WHERE c.slug = $1
      AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND ${sqlGuestBooking('b')}
 `;
 
 // Lodging stay totals recognized as accommodation BSR, tagged with package identity
@@ -378,7 +385,15 @@ const LODGING_BSR_SQL = `
          jsonb_strip_nulls(jsonb_build_object(
            'package_code', NULLIF(lower(trim(both FROM COALESCE(b.package_code, ''))), ''),
            'package_name', NULLIF(trim(both FROM COALESCE(p.name, '')), '')
-         )) AS metadata
+         )) AS metadata,
+         CASE WHEN b.metadata->>'luna_guest_booking' = 'true'
+                   OR b.metadata->>'source' = 'luna_guest_whatsapp'
+                   OR b.metadata->>'actor_source' = 'agent_luna_whatsapp_bot'
+              THEN 'luna_guest'::text
+              WHEN b.metadata->>'staff_manual_schedule' = 'true'
+                   OR b.metadata->>'created_by_staff' = 'true'
+              THEN 'staff'::text
+              ELSE NULL::text END AS source
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
     LEFT JOIN packages p
@@ -386,6 +401,7 @@ const LODGING_BSR_SQL = `
      AND lower(p.code) = lower(NULLIF(trim(both FROM COALESCE(b.package_code, '')), ''))
    WHERE c.slug = $1
      AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND ${sqlGuestBooking('b')}
      AND (b.check_in IS NOT NULL OR b.created_at IS NOT NULL)
 `;
 
@@ -397,6 +413,35 @@ const LODGING_PAYMENTS_SQL = `
    WHERE c.slug = $1
      AND p.status = 'paid'
      ${PAYMENT_COLLECTED_SCOPE_SQL}
+`;
+
+
+const LODGING_BEDS_SQL = `
+  SELECT bd.id::text AS bed_id, bd.bed_code
+    FROM beds bd
+    JOIN rooms r ON r.id = bd.room_id AND r.client_id = bd.client_id
+    JOIN clients c ON c.id = bd.client_id
+   WHERE c.slug = $1
+     AND r.active = TRUE
+     AND bd.active = TRUE
+     AND bd.sellable = TRUE
+`;
+
+const LODGING_BED_ASSIGNMENTS_SQL = `
+  SELECT bb.id::text AS assignment_id,
+         bb.booking_id::text AS booking_id,
+         bb.bed_id::text AS bed_id,
+         bb.assignment_start_date::text AS assignment_start_date,
+         bb.assignment_end_date::text AS assignment_end_date,
+         bb.assignment_type::text AS assignment_type
+    FROM booking_beds bb
+    JOIN bookings b ON b.id = bb.booking_id
+    JOIN clients c ON c.id = b.client_id
+   WHERE c.slug = $1
+     AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND ${sqlGuestBooking('b')}
+     AND bb.assignment_start_date IS NOT NULL
+     AND bb.assignment_end_date IS NOT NULL
 `;
 
 const LODGING_REFUNDS_SQL = `
@@ -416,12 +461,25 @@ async function fetchLodgingFinanceData(pg, scope) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const params = [clientSlug];
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-  let bsrRes; let bookingsRes; let paymentsRes; let refundsRes;
+  let bsrRes; let bookingsRes; let paymentsRes; let refundsRes; let bedsRes; let bedAssignmentsRes;
   let refundLedgerUnavailable = false;
+  let occupancyDataUnavailable = false;
   try {
     bsrRes = await pg.query(LODGING_BSR_SQL, params);
     bookingsRes = await pg.query(LODGING_BOOKINGS_SQL, params);
     paymentsRes = await pg.query(LODGING_PAYMENTS_SQL, params);
+    await pg.query('SAVEPOINT finance_occupancy_sp');
+    try {
+      bedsRes = await pg.query(LODGING_BEDS_SQL, params);
+      bedAssignmentsRes = await pg.query(LODGING_BED_ASSIGNMENTS_SQL, params);
+      await pg.query('RELEASE SAVEPOINT finance_occupancy_sp');
+    } catch (_err) {
+      try { await pg.query('ROLLBACK TO SAVEPOINT finance_occupancy_sp'); } catch (_rb) { /* best effort */ }
+      try { await pg.query('RELEASE SAVEPOINT finance_occupancy_sp'); } catch (_rel) { /* best effort */ }
+      bedsRes = { rows: [] };
+      bedAssignmentsRes = { rows: [] };
+      occupancyDataUnavailable = true;
+    }
     try {
       await pg.query('SAVEPOINT finance_refunds_sp');
       try {
@@ -447,6 +505,9 @@ async function fetchLodgingFinanceData(pg, scope) {
       booking_id: r.booking_id,
       total_amount_cents: r.total_amount_cents,
       balance_due_cents: r.balance_due_cents,
+      check_in: r.check_in != null ? String(r.check_in).slice(0, 10) : null,
+      check_out: r.check_out != null ? String(r.check_out).slice(0, 10) : null,
+      guest_count: r.guest_count != null ? Number(r.guest_count) : null,
       record_source: r.record_source != null ? String(r.record_source) : null,
     }));
     const payments = rows(paymentsRes).map((r) => ({
@@ -496,8 +557,15 @@ async function fetchLodgingFinanceData(pg, scope) {
       pending_refund_payments: [],
       refund_records,
       refund_ledger_unavailable: refundLedgerUnavailable,
+      occupancy_data_unavailable: occupancyDataUnavailable,
       rental_stock: [],
       surf_packs: [],
+      bed_inventory: rows(bedsRes).map((r) => ({ bed_id: String(r.bed_id), bed_code: r.bed_code })),
+      bed_assignments: rows(bedAssignmentsRes).map((r) => ({
+        assignment_id: String(r.assignment_id), booking_id: String(r.booking_id),
+        bed_id: String(r.bed_id), assignment_start_date: String(r.assignment_start_date).slice(0, 10),
+        assignment_end_date: String(r.assignment_end_date).slice(0, 10), assignment_type: r.assignment_type,
+      })),
       data_quality: {
         malformed_count: diagnostics.malformed.length,
         malformed: diagnostics.malformed.slice(),
@@ -525,6 +593,8 @@ module.exports = {
   SURF_PACKS_SQL,
   fetchSunsetFinanceData,
   fetchLodgingFinanceData,
+  LODGING_BEDS_SQL,
+  LODGING_BED_ASSIGNMENTS_SQL,
   FinanceDataQualityError,
   // Deprecated export kept so any stale require of PENDING_REFUND_SQL does not crash
   // at module load; Slice 2 no longer queries it.
