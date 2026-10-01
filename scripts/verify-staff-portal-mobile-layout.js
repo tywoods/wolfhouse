@@ -103,6 +103,11 @@ check('P7', src.includes('.ck-ribbon{overflow-x:auto') || src.includes('.ck-bloc
 check('P8', src.includes('staff-portal-mobile:inbox-thread-scroll')
   && /\.inbox-two-col\.show-thread \.thread-messages[\s\S]{0,220}overflow-y:auto!important/.test(src),
   'inbox thread pane scrolls on phone (.thread-messages overflow-y:auto)');
+check('P9', src.includes('nav-quick-flip--schedule')
+  && src.includes('schedule-nav-quick-flip')
+  && src.includes("switchToTab('conversations')")
+  && /luna-hdr-compact #banner \.nav-quick-flip\{[\s\S]{0,180}color:var\(--luna-teal-dark/.test(src),
+  'compact mode restores inbox/schedule flip next to the hamburger');
 
 console.log(`\nverify-staff-portal-mobile-layout: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -19828,9 +19828,13 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-detail-toolbar-actions{grid-area:links;display:flex;align-items:center;justify-content:flex-end;min-width:0;max-width:100%;gap:6px;margin-left:auto;flex-wrap:wrap}
 .bc-detail-toolbar-actions .btn{white-space:normal}
 .bc-open-conversation-status:empty{display:none}
-#bc-detail > .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta meta" "links links" "pebbles pebbles";gap:6px;margin-bottom:8px}
+#bc-detail > .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta actions" "links links" "pebbles pebbles";row-gap:2px;column-gap:8px;margin-bottom:4px;align-items:start}
 #bc-detail .bc-detail-title{grid-area:title}
-#bc-detail .bc-booking-header-lines{grid-area:meta;min-width:0}
+#bc-detail > .toolbar h2.bc-detail-title{flex:0 1 auto;min-height:0;padding-right:0;margin:0}
+#bc-detail .bc-booking-header-lines{grid-area:meta;min-width:0;margin-top:0}
+#bc-detail .bc-side-head-actions{align-self:start}
+.bc-detail-toolbar-actions:not(:has(.bc-open-conversation-status:not(:empty))){display:none}
+.bc-header-icon-btn[hidden]{display:none!important}
 #bc-detail #bc-detail-meta{grid-area:pebbles;justify-self:end;justify-content:flex-end;max-width:100%}
 .bc-open-conversation-status{font-size:11px;color:var(--text-3);flex:1 1 100%;text-align:right;min-height:14px}
 /* ── Booking detail drawer extras (Stage 8.3b) ────────────────────────────── */
@@ -20828,7 +20832,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 /* BOOKING-HEADER-BALANCE-PEBBLE-001: payment pebble is the header right column, below pin/arrow, right-aligned with those controls. Not under the booking code. */
 .bc-side-head-row{display:grid;grid-template-columns:minmax(7.5em,1fr) minmax(0,210px);grid-template-areas:"title actions" "meta pebbles";column-gap:10px;row-gap:6px;align-items:start}
 /* BOOKING-CARD-BALANCE-ACTIONS-TABS-001: existing booking only; create chrome is unchanged. */
-#bc-side-drawer[data-mode="booking"] .bc-side-head-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta meta" "links links" "pebbles pebbles"}
+/* BOOKING-CARD-ICON-HEADER-COMPACT-001: icon cluster stays top-right; dates sit under the code, not under the 44px buttons. */
+#bc-side-drawer[data-mode="booking"] .bc-side-head{padding:8px 12px 4px}
+#bc-side-drawer[data-mode="booking"] .bc-side-head-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title actions" "meta actions" "links links" "pebbles pebbles";row-gap:2px;align-items:start}
+#bc-side-drawer[data-mode="booking"] .bc-side-head-actions{align-self:start}
+#bc-side-drawer[data-mode="booking"] .bc-side-body{padding-top:4px}
 #bc-side-booking-actions:empty{display:none}
 .bc-side-title-row{grid-area:title;display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:nowrap}
 .bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text);flex:0 1 auto;min-width:0;overflow-wrap:anywhere;white-space:normal}
@@ -21828,6 +21836,18 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
     color:var(--luna-teal-dark,#2c5f56);background:rgba(44,95,86,.14);
     border:1px solid rgba(44,95,86,.45);
   }
+  /* BOOKING-CARD-ICON-HEADER-COMPACT-001: compact schedule hides the banner, so the inbox flip sits left of the cloned hamburger. */
+  .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-quick-flip--schedule{
+    display:inline-flex!important;position:relative;grid-area:date;align-self:start;justify-self:end;
+    margin-right:46px;z-index:21;pointer-events:auto;width:40px;height:40px;flex:0 0 40px;
+    color:var(--luna-teal-dark,#2c5f56);background:rgba(44,95,86,.14);
+    border:1px solid rgba(44,95,86,.45);
+  }
+  .luna-header-ui.luna-hdr-compact #ps-day-cockpit .ck-bar:has(.nav-quick-flip--schedule) .ck-date{padding-right:98px}
+  .luna-header-ui.luna-hdr-compact:has(#ps-day-cockpit .nav-quick-flip--schedule) #banner .nav-quick-flip{display:none!important}
+  [data-theme="dark"] .luna-header-ui.luna-hdr-compact #ps-day-cockpit .nav-quick-flip--schedule{
+    color:#e7e2d6;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.35);
+  }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
   .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
   .luna-header-ui.luna-hdr-compact #banner .brand-logo{
@@ -21845,10 +21865,14 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
     color:#fffaf1;background:rgba(20,18,14,.48);
     border:1px solid rgba(255,255,255,.7);
   }
-  .luna-header-ui.luna-hdr-compact #banner .nav-menu-toggle{
+  .luna-header-ui.luna-hdr-compact #banner .nav-menu-toggle,
+  .luna-header-ui.luna-hdr-compact #banner .nav-quick-flip{
     color:var(--luna-teal-dark,#2c5f56);
     background:rgba(44,95,86,.14);
     border-color:rgba(44,95,86,.45);
+  }
+  [data-theme="dark"] .luna-header-ui.luna-hdr-compact #banner .nav-quick-flip{
+    color:#e7e2d6;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.35);
   }
   .luna-header-ui #tabs,
   .luna-header-ui.luna-hdr-compact #tabs{
@@ -38844,10 +38868,32 @@ function bcOpenBookingDrawerOverview(blk){
   bcScrollToBookingOverview();
 }
 
+var BC_HEADER_INBOX_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>';
+var BC_HEADER_CARD_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6.2 15.2c.45-1.15 1.45-1.7 2.8-1.7s2.35.55 2.8 1.7"/><path d="M14 10h5M14 13.5h4"/></svg>';
+
+function bcBookingHeaderIconButtonsHtml(){
+  var start = t('drawer.footer.startConv');
+  var card = portalT('customers.openCustomerCard');
+  return '<button type="button" class="bc-refresh-btn bc-header-icon-btn" id="bc-open-conversation-toolbar" title="' + escHtml(start) + '" aria-label="' + escHtml(start) + '">' + BC_HEADER_INBOX_SVG + '</button>' +
+    '<button type="button" class="bc-refresh-btn bc-header-icon-btn" id="bc-open-customer-card" title="' + escHtml(card) + '" aria-label="' + escHtml(card) + '" hidden>' + BC_HEADER_CARD_SVG + '</button>';
+}
+
+function bcRemoveBookingHeaderIcons(){
+  ['bc-open-conversation-toolbar', 'bc-open-customer-card'].forEach(function(id){
+    var node = document.getElementById(id);
+    if (node && node.parentNode) node.parentNode.removeChild(node);
+  });
+}
+
+function bcMountBookingHeaderIcons(refreshId){
+  bcRemoveBookingHeaderIcons();
+  var refresh = el(refreshId);
+  if (!refresh || !refresh.parentNode) return;
+  refresh.insertAdjacentHTML('beforebegin', bcBookingHeaderIconButtonsHtml());
+}
+
 function bcBookingHeaderActionsHtml(){
-  return '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
-    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">' + escHtml(t('drawer.footer.startConv')) + '</button>' +
-    '<button type="button" class="btn btn-soft-grey btn-compact" id="bc-open-customer-card" style="display:none">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
+  return '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>';
 }
 
 function showBlockDetail(blk){
@@ -38864,6 +38910,7 @@ function showBlockDetail(blk){
   bcLastBookingContext = null;
   bcActiveDrawerTab = 'overview';
   el('bc-side-booking-actions').innerHTML = '';
+  if (typeof bcRemoveBookingHeaderIcons === 'function') bcRemoveBookingHeaderIcons();
   el('bc-detail').innerHTML =
     '<div class="toolbar"><h2 class="bc-detail-title"><span class="bc-booking-identity"><span class="bc-booking-code">' + escHtml(blk.booking_code||'\u2014') + '</span>' + bcBookingCodeCopyHtml(blk.booking_code) + '</span></h2>' +
     '<div class="bc-booking-header-lines" id="bc-detail-stay"></div>' +
@@ -38873,6 +38920,7 @@ function showBlockDetail(blk){
     '</div></div>' +
     '<div id="bc-ctx-body">' + bcRenderBlockSummaryPreviewHtml(blk) + '</div>';
   el('bc-detail').style.display = 'block';
+  bcMountBookingHeaderIcons('bc-refresh-detail');
   el('bc-refresh-detail').addEventListener('click', bcRefreshBlockDetail);
   bcWireOpenConversationButtons(null);
   bcHighlightActiveBlock();
@@ -45397,6 +45445,7 @@ function bcCloseSideRail(){
   if (!rail) return;
   rail.classList.remove('is-open');
   rail.dataset.mode = '';
+  if (typeof bcRemoveBookingHeaderIcons === 'function') bcRemoveBookingHeaderIcons();
   var tab = el('tab-bed-calendar');
   if (tab) tab.classList.remove('bc-cal-side-pinned');
   bcSetSidePinned(false);
@@ -45489,6 +45538,7 @@ function bcDockCreatePanel(){
   var copyCode = el('bc-side-copy-code');
   if (copyCode) copyCode.innerHTML = '';
   el('bc-side-booking-actions').innerHTML = '';
+  if (typeof bcRemoveBookingHeaderIcons === 'function') bcRemoveBookingHeaderIcons();
   var pebbles = el('bc-side-header-pebbles');
   if (pebbles) pebbles.innerHTML = '';
   if (meta){
@@ -45542,6 +45592,7 @@ function bcOpenSideBooking(blk, opts){
   el('bc-side-refresh').title = t('drawer.toolbar.refresh');
   el('bc-side-refresh').setAttribute('aria-label', t('drawer.toolbar.refresh'));
   el('bc-side-booking-actions').innerHTML = bcBookingHeaderActionsHtml();
+  bcMountBookingHeaderIcons('bc-side-refresh');
   bcWireOpenConversationButtons(null);
   bcPaintSideStayMeta(null, blk, null);
   var code = blk.booking_code;

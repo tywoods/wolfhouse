@@ -638,6 +638,29 @@ function scheduleRenderDayCockpit(mount, data) {
     }
   } catch (_compactMenu) { compactMenu = null; }
 
+  var compactFlip = null;
+  try {
+    if (compactMenu) {
+      var globalFlip = doc.getElementById('nav-quick-flip');
+      if (globalFlip) {
+        compactFlip = globalFlip.cloneNode(true);
+        compactFlip.id = 'schedule-nav-quick-flip';
+        compactFlip.classList.add('nav-quick-flip--schedule');
+        compactFlip.classList.add('is-show-inbox');
+        compactFlip.classList.remove('is-show-cal');
+        compactFlip.removeAttribute('hidden');
+        compactFlip.setAttribute('aria-label', 'Open inbox');
+        compactFlip.title = 'Inbox';
+        compactFlip.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof window.switchToTab === 'function') window.switchToTab('conversations');
+          else if (typeof switchToTab === 'function') switchToTab('conversations');
+        });
+      }
+    }
+  } catch (_compactFlip) { compactFlip = null; }
+
   // Keep host class — margin/spacing selectors live on .ps-day-cockpit-host.
   mount.className = 'cockpit ps-day-cockpit-host';
   mount.innerHTML = '';
@@ -759,6 +782,7 @@ function scheduleRenderDayCockpit(mount, data) {
   if (on.create) create.addEventListener('click', function () { on.create(null); });
   right.appendChild(create);
   bar.appendChild(right);
+  if (compactFlip) bar.appendChild(compactFlip);
   if (compactMenu) bar.appendChild(compactMenu);
   mount.appendChild(bar);
 

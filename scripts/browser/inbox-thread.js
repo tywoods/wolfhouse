@@ -1495,13 +1495,23 @@ function bcOpenOrStartConversationFromBooking(data){
   bcStartConversationFromBooking(data);
 }
 
+function bcLabelHeaderAction(btn, label){
+  if (!btn) return;
+  if (btn.querySelector && btn.querySelector('svg')) {
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    return;
+  }
+  btn.textContent = label;
+}
+
 function bcSyncConversationButtons(data){
   if (data) bcLastBookingContext = data;
   var ctx = data || bcLastBookingContext;
   var toolbarBtn = el('bc-open-conversation-toolbar');
   if (!ctx){
     if (toolbarBtn){
-      toolbarBtn.textContent = t('drawer.footer.startConv');
+      bcLabelHeaderAction(toolbarBtn, t('drawer.footer.startConv'));
       toolbarBtn.disabled = true;
       toolbarBtn.onclick = null;
     }
@@ -1511,7 +1521,7 @@ function bcSyncConversationButtons(data){
   var label = hasConv ? t('drawer.footer.openConv') : t('drawer.footer.startConv');
   var handler = function(){ bcOpenOrStartConversationFromBooking(ctx); };
   if (toolbarBtn){
-    toolbarBtn.textContent = label;
+    bcLabelHeaderAction(toolbarBtn, label);
     toolbarBtn.disabled = false;
     toolbarBtn.onclick = handler;
   }
@@ -1553,6 +1563,7 @@ function bcSyncCustomerCardButton(data) {
   if (!btn) return;
   var phone = bcResolveGuestPhone(data);
   var show = !!phone && portalHasCustomersCrm(getPortalProfile(getClient()));
+  btn.hidden = !show;
   btn.style.display = show ? '' : 'none';
   btn.disabled = !show;
   if (show) {
