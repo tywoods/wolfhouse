@@ -213,6 +213,11 @@ const {
   LUNA_INTELLIGENCE_BOT_PATH,
   createLunaIntelligenceRoutes,
 } = require('./lib/staff-luna-intelligence-routes');
+const {
+  ROOM_FILL_PATH,
+  ROOM_FILL_PREVIEW_PATH,
+  createRoomFillRoutes,
+} = require('./lib/staff-room-fill-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
 const {
   createAutomatedNotificationsRoutes,
@@ -670,6 +675,7 @@ const {
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
 } = require('./lib/sunset-schedule-browser-source');
 const { injectInboxBrowserModules } = require('./lib/inbox-browser-source');
+const { injectStaffRoomFillModule } = require('./lib/staff-room-fill-browser-source');
 const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {
   SUNSET_LOCATIONS,
@@ -2672,6 +2678,9 @@ const {
 } = lunaPersonalityRoutes;
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
+});
+const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview } = createRoomFillRoutes({
+  sendJSON, readBody, withPgClient, appendAuditLog,
 });
 
 // Staff automated-notifications collection routes (GET/POST). Auth stays in router (admin).
@@ -24947,6 +24956,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
       <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
       <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
+      <div id="staff-room-fill" hidden></div>
     </div>
   </section>
 
@@ -25266,6 +25276,7 @@ function staffDisplayBookingCode(code){
 /* INJECT:sunset-schedule-navigation-ui */
 /* INJECT:sunset-schedule-row-normalizer */
 /* INJECT:sunset-schedule-data-loader */
+/* INJECT:staff-room-fill */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -46380,7 +46391,7 @@ function lgsCreateStripeLink(){
 </body>
 </html>`;
   const invoiceHtml = html.replace('/* INJECT:booking-invoice */', function(){ return fs.readFileSync(path.join(__dirname, 'browser', 'booking-invoice.js'), 'utf8'); });
-  return injectSunsetSchedulePortalModule(injectInboxBrowserModules(invoiceHtml));
+  return injectStaffRoomFillModule(injectSunsetSchedulePortalModule(injectInboxBrowserModules(invoiceHtml)));
 }
 
 function handleUI(res, port, req) {
@@ -55960,6 +55971,21 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === ROOM_FILL_PREVIEW_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillPreview(parsed.query, req, res, auth.user);
+  }
+  if (pathname === ROOM_FILL_PATH && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === ROOM_FILL_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillGet(parsed.query, req, res, auth.user);
   }
 
   // ── Luna Personality (tenant-wide WhatsApp-only closed ID) ────────────────
