@@ -1,7 +1,7 @@
 'use strict';
 // Real emitted /staff/ui, native tenant profiles, ordinary booking clicks.
 // Synthetic read-only HTTP fixtures only; never forwards requests to a service.
-// Usage: node scripts/verify-booking-card-header.js <evidence-dir> [identity|full|copy-delay|chips]
+// Usage: node scripts/verify-booking-card-header.js <evidence-dir> [identity|full|copy-delay|chips|chrome-header|chrome-tabs|chrome-refresh|chrome-states]
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 const { emit, calendar, detail } = require('./verify-booking-drawer-invoice-tab');
@@ -13,25 +13,35 @@ const clone = x => JSON.parse(JSON.stringify(x));
 const LONG_CODE = 'HEADER-2026-REFERENCE-' + '0123456789'.repeat(6);
 const results = [], failures = [];
 async function main() {
-  assert(['identity','full','copy-delay','chips'].includes(MODE), 'known mode');
+  assert(['identity','full','copy-delay','chips','chrome-header','chrome-tabs','chrome-refresh','chrome-states','chrome-nav'].includes(MODE), 'known mode');
   fs.mkdirSync(OUT, {recursive:true});
   const htmls = Object.fromEntries(['wolfhouse-somo','sunset'].map(t=>[t,process.env.HEADER_TEST_HTML ? fs.readFileSync(process.env.HEADER_TEST_HTML,'utf8') : emit(t, OUT)]));
   const browser = await chromium.launch({headless:true});
   try {
-    const scenarios=MODE==='identity'?[{width:1440,theme:'light',variant:'long'}]:MODE==='copy-delay'?[{width:1440,theme:'light',variant:'short'}]:MODE==='chips'?[{width:769,theme:'light',variant:'chips'}]:[
+    const multichipScenarios=[1440,769,768,390,320].flatMap(width=>['light','dark'].flatMap(theme=>['chips','paid-chips'].map(variant=>({width,theme,variant}))));
+    const scenarios=MODE==='chrome-nav'?[1440,390,320].flatMap(width=>['conversation','customer'].map(variant=>({width,theme:'light',variant}))):MODE==='chrome-states'?[
+      ...[1440,769,390,320].flatMap(width=>['paid','no-phone','services'].map(variant=>({width,theme:'light',variant}))),
+      ...multichipScenarios
+    ]:MODE.startsWith('chrome-')?[1440,769,768,430,390,360,320].flatMap(width=>['light','dark'].flatMap(theme=>(MODE==='chrome-header'?['short','chips','paid-chips']:['short']).map(variant=>({width,theme,variant})))):MODE==='identity'?[{width:1440,theme:'light',variant:'long'}]:MODE==='copy-delay'?[{width:1440,theme:'light',variant:'short'}]:MODE==='chips'?[{width:769,theme:'light',variant:'chips'}]:[
       ...[1440,769,768,390,320].flatMap(width=>['light','dark'].map(theme=>({width,theme,variant:'long'}))),
-      {width:1440,theme:'light',variant:'short'}, {width:390,theme:'dark',variant:'escaped'}, {width:769,theme:'light',variant:'chips'}
+      {width:1440,theme:'light',variant:'short'}, {width:390,theme:'dark',variant:'escaped'},
+      ...multichipScenarios
     ];
     for (const tenant of ['wolfhouse-somo','sunset']) for (const {width,theme,variant} of scenarios) {
       const sunset=tenant==='sunset', html=htmls[tenant];
+      const paid=variant==='paid' || variant==='paid-chips', multichip=variant==='chips' || variant==='paid-chips';
       const CODE=(sunset?'SUNSET-':'WH-')+(variant==='short'?'20260924-001':variant==='escaped'?'REF-<b>&"quoted"-Ω':LONG_CODE);
       const name = `${tenant}-${width}-${theme}-${variant}`, ledger = [], errors = [], observations = [];
       const state = clone(detail), cal = clone(calendar);
       state.booking.booking_code = CODE;
       state.booking.guest_name = 'Header test booker';
+      if(MODE.startsWith('chrome-')) { state.booking.phone='+34999000111'; state.conversation={conversation_id:'11111111-1111-4111-8111-111111111111',phone:state.booking.phone}; }
+      if(paid) {state.payments={paid_total_cents:60000,rows:[{payment_id:'paid-all',payment_status:'paid',amount_paid_cents:60000,metadata:{payment_scope:'booking',method:'cash'}}]};}
+      if(variant==='no-phone') {delete state.booking.phone;state.conversation=null;}
+      if(variant==='services') state.service_records=[{service_type:'surfboard',quantity:4,metadata:{rental_people:4}},{service_type:'wetsuit',quantity:4,metadata:{rental_people:4}},{service_type:'yoga',quantity:4}];
       cal.blocks[0].booking_code = CODE;
       cal.blocks[0].guest_name = state.booking.guest_name;
-      if(variant==='chips') { state.booking.needs_rooming_review=true;state.transfers=['arrival','departure'].map(direction=>({direction,status:'confirmed',price_cents:0}));cal.blocks[0].transfer_summary={has_transfer:true,directions:['arrival','departure']}; }
+      if(multichip) { state.booking.needs_rooming_review=true;state.transfers=['arrival','departure'].map(direction=>({direction,status:'confirmed',price_cents:0}));cal.blocks[0].transfer_summary={has_transfer:true,directions:['arrival','departure']}; }
       const sun = {booking_id:state.booking.booking_id,booking_code:CODE,guest_name:state.booking.guest_name,
         status:'confirmed',booking_status:'confirmed',payment_status:'unpaid',payment_method:'in_store',
         date_from:'2026-09-24',date_to:'2026-09-24',service_dates:['2026-09-24'],service_date_start:'2026-09-24',service_date_end:'2026-09-24',
@@ -56,7 +66,14 @@ async function main() {
         else if(p==='/staff/admin/house-notes') data={success:true,notes:''};
         else if(p==='/staff/automated-notifications') data={success:true,notifications:[]};
         else if(p==='/staff/packages') data={success:true,packages:[]};
-        else if(p==='/staff/conversations') data={success:true,conversations:[]};
+        else if(p==='/staff/conversations') data={success:true,conversations:MODE==='chrome-nav'?[{...state.conversation,guest_name:'Header test booker',channel:'whatsapp'}]:[]};
+        else if(MODE==='chrome-nav' && p==='/staff/inbox/whatsapp/draft') data={success:true,draft:null};
+        else if(MODE==='chrome-nav' && p==='/staff/inbox/message-events') data={success:true,events:[]};
+        else if(MODE==='chrome-nav' && p==='/staff/inbox/views') data={success:true,groups:[{id:'inbox',label:'INBOX'},{id:'people',label:'PEOPLE'}],views:[{id:'all',label:'All',group:'inbox',count:1},{id:'all_people',label:'All people',group:'people',count:1}]};
+        else if(MODE==='chrome-nav' && p==='/staff/inbox/list') data={success:true,rows:[{...state.conversation,customer_id:'22222222-2222-4222-8222-222222222222',display_name:state.booking.guest_name,guest_name:state.booking.guest_name,key:'customer:22222222-2222-4222-8222-222222222222',source:u.searchParams.get('view')==='all_people'?'customers':'conversations',channel:'whatsapp'}],has_more:false};
+        else if(MODE==='chrome-nav' && p===`/staff/customers/${state.booking.phone}/context`) data={success:true,phone:state.booking.phone,identity:{customer_id:'22222222-2222-4222-8222-222222222222',conversation_id:'11111111-1111-4111-8111-111111111111',phone:state.booking.phone,display_name:state.booking.guest_name},bookings:[],service_records:[],messages:[],notes:{},conversation_summary:{conversation_id:'11111111-1111-4111-8111-111111111111'}};
+        else if(MODE==='chrome-nav' && p==='/staff/inbox/thread/11111111-1111-4111-8111-111111111111') data={success:true,conversation_id:'11111111-1111-4111-8111-111111111111',detail:{success:true,conversation:state.conversation},context:{success:true,context:{guest_name:state.booking.guest_name},bookings:[]},messages:{success:true,messages:[]},draft:{success:false},pause_state:{success:true,paused:false}};
+        else if(MODE==='chrome-nav' && p==='/staff/conversations/11111111-1111-4111-8111-111111111111/messages') data={success:true,messages:[]};
         else if(p==='/staff/admin/config') data={success:true,...resolveTenantBusinessConfig(tenant,'sunset-somo')};
         else if(p===`/staff/bookings/${state.booking.booking_id}/services`) data={success:true,paid_requested_services:[],unscheduled_services:[],services_by_date:[]};
         else if(p===`/staff/bookings/${state.booking.booking_id}/transfers`) data={success:true,transfers:state.transfers};
@@ -88,6 +105,98 @@ async function main() {
         observations.push({titleText,header:await header.evaluate(e=>e.outerHTML)});
         await page.screenshot({path:path.join(OUT,name+'-local-synthetic.png')});
         assert.equal(titleText,CODE,'primary header is booking code, never booker');
+        // Identify the financial fact by its exact label, not color or sibling order.
+        // This also measures the pre-repair renderer for the RED regression proof.
+        const checkFinancialGeometry=async phase=>{
+          const primary=header.locator('.pill').filter({hasText:/^(Paid|Balance due €600\.00)$/});
+          assert.equal(await primary.count(),1,'one actual primary financial pill');
+          assert.equal(await primary.innerText(),paid?'Paid':'Balance due €600.00','financial label and amount preserved');
+          const m=await primary.evaluate(payment=>{
+            const host=payment.parentElement;
+            const e=payment.closest('.bc-side-head') || payment.closest('#bc-detail > .toolbar');
+            const box=el=>el.getBoundingClientRect().toJSON();
+            const visible=selector=>[...e.querySelectorAll(selector)].map(box).filter(r=>r.width>0 && r.height>0);
+            return {head:box(e),payment:box(payment),host:box(host),
+              nav:visible('#bc-open-conversation-toolbar,#bc-open-customer-card'),controls:visible('button'),
+              stay:visible('.bc-side-meta,.bc-guest-services'),chips:[...host.children].map(box),
+              overflow:e.scrollWidth>e.clientWidth+1,hostOverflow:host.scrollWidth>host.clientWidth+1};
+          });
+          observations.push({phase,financialGeometry:m});
+          assert(m.payment.width>0 && m.payment.height>0,'financial pill visible');
+          assert(m.nav.length>0,'at least one visible navigation action');
+          assert(m.payment.top>=Math.max(...m.controls.map(r=>r.bottom))-1,'actual financial pill BELOW every visible header action');
+          assert(m.payment.top>=Math.max(...m.stay.map(r=>r.bottom))-1,'actual financial pill below stay/services');
+          assert(Math.abs(m.payment.right-Math.max(...m.nav.map(r=>r.right)))<=2,'actual financial pill shares navigation right edge');
+          assert(Math.abs(m.payment.bottom-Math.max(...m.chips.map(r=>r.bottom)))<=1,'financial pill occupies bottom chip row');
+          assert(m.head.bottom-m.payment.bottom<=16,'actual financial pill is at header bottom, not just its wrapper');
+          assert(!m.overflow && !m.hostOverflow,'header and nested metadata never overflow');
+          for(const r of [...m.chips,...m.controls]) {
+            assert(r.left>=m.head.left-1 && r.right<=m.head.right+1,'every chip/control remains within header');
+            assert(r.left>=-1 && r.right<=width+1,'every chip/control fits viewport');
+          }
+          assert.equal(await header.locator('.bc-header-payment-primary').count(),1,'one presentation marker');
+          assert.match(await primary.getAttribute('class'),/\bbc-header-payment-primary\b/,'marker belongs to actual financial pill');
+          if(multichip) {
+            assert(await header.locator('.pill').filter({hasText:/^Rooming review$/}).isVisible(),'Rooming review remains visible');
+            const transfer=header.locator('.transfer-pebble');
+            assert(await transfer.isVisible(),'Transfer remains visible');
+            assert.match(await transfer.innerText(),/Arrival \+ Departure/,'both transfer directions preserved');
+          }
+        };
+        if(MODE!=='identity' && !sunset) await checkFinancialGeometry('initial');
+        if(['chrome-header','chrome-states'].includes(MODE) && !sunset) {
+          const m=await header.evaluate(e=>{
+            const box=s=>e.querySelector(s)?.getBoundingClientRect().toJSON();
+            return {head:e.getBoundingClientRect().toJSON(),conv:box('#bc-open-conversation-toolbar'),customer:box('#bc-open-customer-card'),payment:box('.bc-header-payment-primary'),meta:box('.bc-side-meta')};
+          });
+          observations.push(m);
+          assert(m.conv?.width>0 && (variant==='no-phone'?m.customer?.width===0:m.customer?.width>0),'navigation visibility follows current booking eligibility');
+          assert(m.payment.top>=Math.max(m.conv.bottom,m.customer.bottom)-1,'actions sit above balance');
+          assert(m.payment.top>=m.meta.bottom-1,'balance is below stay/services, at bottom of header');
+          assert(m.head.bottom-m.payment.bottom<=16,'balance is at the bottom, without filler');
+          assert(Math.abs(m.payment.right-Math.max(m.conv.right,m.customer.right))<=2,'balance and actions share the right edge');
+          assert.equal(await page.locator('#bc-open-conversation-toolbar').count(),1,'one navigation owner, no duplicate IDs');
+          assert.equal(await page.locator('#bc-open-customer-card').count(),1,'one customer owner');
+          assert.equal(await header.locator('#bc-open-conversation-toolbar').innerText(),variant==='no-phone'?'Start Conversation':'Open Conversation');
+          assert.equal(await header.locator('#bc-open-customer-card').isEnabled(),variant!=='no-phone');
+          if(paid) assert.equal(await header.locator('.bc-header-payment-primary').innerText(),'Paid');
+          if(variant==='services') assert.match(await header.locator('.bc-guest-services').innerText(),/4× surfboard[\s\S]*4× wetsuit[\s\S]*4× yoga/);
+        }
+        if(MODE==='chrome-tabs' && !sunset) {
+          for(const tab of ['overview','services','transfers']) {
+            await page.locator('.bc-drawer-tab[data-tab="'+tab+'"]').click();
+            const m=await page.locator('.bc-drawer-file-tabs').evaluate(e=>{
+              const box=s=>e.querySelector(s).getBoundingClientRect().toJSON();
+              return {rail:box('.bc-drawer-tabs'),tabs:[...e.querySelectorAll('.bc-drawer-tab')].map(t=>t.getBoundingClientRect().toJSON()),panel:box('.bc-drawer-tab-content-panel'),card:box('#bc-drawer-card-booking'),guests:box('#bc-field-group-guests'),selected:e.querySelector('.bc-drawer-tab.is-active').dataset.tab};
+            });
+            observations.push(m);
+            assert.equal(m.selected,tab);
+            assert(Math.max(...m.tabs.map(t=>t.width))-Math.min(...m.tabs.map(t=>t.width))<=1,'three equal-width tabs');
+            assert(Math.abs(m.tabs[0].left-m.panel.left)<=1 && Math.abs(m.tabs[2].right-m.panel.right)<=1,'tabs fill panel width edge to edge');
+            assert(Math.abs(m.tabs[0].bottom-m.panel.top)<=2,'tab and body seam stays joined');
+            if(tab==='overview') {
+              assert(m.card.top-m.panel.top<=9,'compact gap under tabs');
+              assert(m.guests.top-m.card.top<=9,'compact top of Invoice body');
+            }
+          }
+          await page.locator('.bc-drawer-tab[data-tab="overview"]').click();
+        }
+        if(MODE==='chrome-refresh' && !sunset) {
+          const refresh=header.locator(width>768?'#bc-side-refresh':'#bc-refresh-detail');
+          assert.equal(await refresh.count(),1,'refresh in active header utility cluster');
+          assert.equal((await refresh.innerText()).trim(),'','icon only, no Refresh text');
+          assert.equal(await refresh.getAttribute('aria-label'),'Refresh');
+          assert.equal(await refresh.locator('svg').innerHTML(),await page.locator('#bc-load svg').innerHTML(),'same arrows as Schedule calendar refresh');
+          const r=await refresh.boundingBox(),titleBox=await title.boundingBox();
+          assert(r.x>=titleBox.x+titleBox.width,'refresh after booking title');
+          if(width>768) {const pin=await page.locator('#bc-side-pin').boundingBox();assert(r.x+r.width<=pin.x && Math.abs(r.y-pin.y)<2,'refresh immediately left of PIN');}
+          for(let i=0;i<2;i++) {
+            const response=page.waitForResponse(r=>new URL(r.url()).pathname===`/staff/bookings/${CODE}/context`);
+            await refresh.click(); await response; await page.locator('#bc-inv-totals').waitFor();
+            assert.equal(await title.innerText(),CODE,'refresh keeps current booking');
+            assert.equal(await page.locator('#bc-open-conversation-toolbar').count(),1,'refresh keeps one action owner');
+          }
+        }
         if(MODE!=='identity' && !sunset && width>768) {
           const m=await page.evaluate(()=>{
             const title=document.getElementById('bc-side-title').getBoundingClientRect();
@@ -95,16 +204,17 @@ async function main() {
             const pin=document.getElementById('bc-side-pin').getBoundingClientRect();
             const close=document.getElementById('bc-side-close').getBoundingClientRect();
             const box=el=>el.getBoundingClientRect().toJSON();
-            return {title:title.toJSON(),chips:box(chips),pin:pin.toJSON(),close:close.toJSON(),labels:chips.innerText,wrap:getComputedStyle(chips).flexWrap};
+            return {title:title.toJSON(),chips:box(chips),payment:box(chips.querySelector('.bc-header-payment-primary')),pin:pin.toJSON(),close:close.toJSON(),labels:chips.innerText,wrap:getComputedStyle(chips).flexWrap};
           });
           observations.push(m);
-          assert(m.labels.includes('Balance due €600.00'),'existing payment meaning and amount preserved');
-          if(variant==='chips') assert(m.labels.includes('Rooming review') && m.labels.includes('Arrival') && m.labels.includes('Departure'),'multiple existing chip meanings preserved');
-          assert(m.chips.top >= m.pin.bottom - 1,'payment pebble sits below the pin, no overlap');
-          assert(m.chips.top >= m.close.bottom - 1,'payment pebble sits below the arrow, no overlap');
-          assert(Math.abs(m.chips.right - m.close.right) <= 4,'payment pebble is right-aligned with the arrow');
-          assert(m.chips.left > m.title.left + 24,'payment pebble is not under the booking code');
-          assert(m.chips.right <= width + 1,'payment pebble stays inside the viewport');
+          assert(paid?m.labels.includes('Paid'):m.labels.includes('Balance due €600.00'),'existing payment meaning and amount preserved');
+          if(multichip) assert(m.labels.includes('Rooming review') && m.labels.includes('Arrival') && m.labels.includes('Departure'),'multiple existing chip meanings preserved');
+          assert(m.payment.top >= m.pin.bottom - 1,'payment pebble sits below the pin, no overlap');
+          assert(m.payment.top >= m.close.bottom - 1,'payment pebble sits below the arrow, no overlap');
+          assert(Math.abs(m.payment.right - m.close.right) <= 4,'payment pebble is right-aligned with the arrow');
+          assert(m.payment.left > m.title.left + 24,'payment pebble is not under the booking code');
+          assert(m.payment.right <= width + 1,'payment pebble stays inside the viewport');
+          assert(m.chips.left>=0 && m.chips.right<=width+1,'wrapping host stays inside viewport');
           assert.equal(m.wrap,'wrap','chip row wraps');
         }
         if(MODE!=='identity') {
@@ -166,6 +276,16 @@ async function main() {
           await page.evaluate(()=>{window.__copied=[];navigator.clipboard.writeText=s=>{window.__copied.push(s);return Promise.resolve();};});
           await copy.click();
           assert.deepEqual(await page.evaluate(()=>window.__copied),[CODE],'exactly one copy handler after refresh/reopen');
+          if(!sunset) await checkFinancialGeometry('refresh/reopen');
+        }
+        if(MODE==='chrome-nav' && !sunset) {
+          const target=variant==='customer'?`/staff/customers/${state.booking.phone}/context`:'/staff/inbox/thread/11111111-1111-4111-8111-111111111111';
+          const response=page.waitForResponse(r=>decodeURIComponent(new URL(r.url()).pathname)===target);
+          await header.locator(variant==='customer'?'#bc-open-customer-card':'#bc-open-conversation-toolbar').click();
+          await response;
+          await page.waitForFunction(()=>document.querySelector('#tab-conversations').classList.contains('active'));
+          assert(ledger.some(e=>decodeURIComponent(new URL(e.url).pathname)===target),'real navigation requests exactly the selected booking identity');
+          observations.push({navigation:variant,target});
         }
       } catch(e) { failures.push(name+': '+e.message); }
       finally {

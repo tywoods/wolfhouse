@@ -11,7 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
+const api = readStaffPortalUiSource();
 const invoice = fs.readFileSync(path.join(__dirname, 'browser/booking-invoice.js'), 'utf8');
 let pass = 0;
 let fail = 0;
@@ -39,13 +40,15 @@ function extractFunction(src, name) {
 console.log('\nverify-booking-header-balance-pebble-001\n');
 
 ok('header row is a two-column grid', api.includes('.bc-side-head-row{display:grid;grid-template-columns:minmax(7.5em,1fr) minmax(0,210px);grid-template-areas:"title actions" "meta pebbles"'));
-ok('pebble host is the right column', api.includes('.bc-side-header-pebbles{grid-area:pebbles;justify-self:end;align-self:center'));
+ok('pebble host is bottom-right', api.includes('.bc-side-header-pebbles{grid-area:pebbles;justify-self:end;align-self:end'));
+ok('booking grid ends with actions then balance', api.includes('grid-template-areas:"title actions" "meta meta" "links links" "pebbles pebbles"'));
 ok('pebble host is not under the title', !api.includes('<div class="bc-side-head-main">') && api.includes('<div class="bc-side-header-pebbles" id="bc-side-header-pebbles"></div>'));
 const head = api.slice(api.indexOf('<header class="bc-side-head">'), api.indexOf('</header>', api.indexOf('<header class="bc-side-head">')));
 ok('pebble markup follows the pin/arrow controls', head.indexOf('bc-side-close') < head.indexOf('bc-side-header-pebbles'));
 ok('meta stays in the header, not inside the pebble host', head.indexOf('id="bc-side-meta"') > 0 && head.indexOf('id="bc-side-meta"') < head.indexOf('bc-side-header-pebbles'));
-ok('balance copy is unchanged', api.includes("html += '<span class=\"pill pill-orange\">Balance due '"));
-ok('paid copy is unchanged', api.includes("html += '<span class=\"pill pill-green\">Paid</span>'"));
+const financialHeader = extractFunction(api, 'bcDetailHeaderMetaHtml');
+ok('balance copy is unchanged', financialHeader.includes("html += '<span class=\"pill pill-orange bc-header-payment-primary\">Balance due '"));
+ok('paid copy is unchanged', financialHeader.includes("html += '<span class=\"pill pill-green bc-header-payment-primary\">Paid</span>'"));
 ok('dropdown still says No package', api.includes("if (!c || c === 'no_package' || c === 'package_none') return 'No package';"));
 ok('guest row does not paint the No package label', !extractFunction(api, 'bcGuestPackageChipHtml').includes('>No package<'));
 ok('empty package is a reserved slot', extractFunction(api, 'bcGuestPackageChipHtml').includes('bc-guest-package-slot'));
@@ -104,12 +107,12 @@ async function geometry() {
       '<div class="bc-side-title-row"><h2 class="bc-side-title bc-side-title-code" id="bc-side-title">MB-WOLFHO-20261005-1e1ee7</h2></div>' +
       '<div class="bc-side-head-actions"><button class="bc-side-pin" id="bc-side-pin"></button><button class="bc-side-close" id="bc-side-close">→</button></div>' +
       '<p class="bc-side-meta" id="bc-side-meta"><span class="bc-side-dates">Oct 5 → Oct 11</span><span class="bc-side-stay">6 nights · 4 guests</span><span class="bc-guest-services">4× surfboard\n4× wetsuit\n4× yoga</span></p>' +
-      '<div class="bc-side-header-pebbles" id="bc-side-header-pebbles"><span class="bc-detail-meta"><span class="pill pill-orange">Balance due €1125.00</span></span></div>' +
+      '<div class="bc-side-header-pebbles" id="bc-side-header-pebbles"><span class="bc-detail-meta"><span class="pill pill-orange bc-header-payment-primary">Balance due €1125.00</span></span></div>' +
       '</div></header>');
     const box = await page.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect().toJSON();
       const head = document.querySelector('.bc-side-head').getBoundingClientRect();
-      return { title: r('bc-side-title'), pin: r('bc-side-pin'), close: r('bc-side-close'), chips: r('bc-side-header-pebbles'), head: head.toJSON(), text: document.getElementById('bc-side-header-pebbles').innerText };
+      return { title: r('bc-side-title'), pin: r('bc-side-pin'), close: r('bc-side-close'), chips: document.querySelector('.bc-header-payment-primary').getBoundingClientRect().toJSON(), head: head.toJSON(), text: document.getElementById('bc-side-header-pebbles').innerText };
     });
     ok('fixture keeps Balance due €1125.00', box.text.includes('Balance due €1125.00'), box.text);
     ok('pebble below pin', box.chips.top >= box.pin.bottom - 1, JSON.stringify(box));
