@@ -283,7 +283,7 @@ function renderCustomerLinkedBookingsSection(data) {
       var payStatus = customerPaymentStatusLabel(b.payment_status || b.payment_payment_status);
       var openTitle = escHtml(portalT('customers.detail.openBookingTitle'));
       var openLabel = escHtml(portalT('customers.detail.openBooking'));
-      html += '<tr><td>' + escHtml(String(b.booking_code || '—')) + '</td>' +
+      html += '<tr><td>' + escHtml(String((typeof staffDisplayBookingCode === 'function' && b.booking_code) ? staffDisplayBookingCode(b.booking_code) : (b.booking_code || '—'))) + '</td>' +
         '<td>' + dates + '</td>' +
         '<td>' + escHtml(String(b.booking_status || '—')) + '</td>' +
         '<td>' + escHtml(String(payStatus)) + '</td>' +

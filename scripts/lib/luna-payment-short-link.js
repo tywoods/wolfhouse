@@ -433,10 +433,21 @@ async function resolvePaymentShortLinkRedirectFromDb(pg, input) {
     return resolvePaymentShortLinkRedirect({ booking_code: src.booking_code, env: src.env });
   }
   const clientSlug = trimStr(src.client_slug) || DEFAULT_CLIENT;
-  const [bookingRes, paymentRes] = await Promise.all([
-    pg.query(PAYMENT_SHORT_LINK_LOOKUP_SQL, [clientSlug, parsed.booking_code]),
-    pg.query(PAYMENT_SHORT_LINK_PAYMENTS_SQL, [clientSlug, parsed.booking_code]),
-  ]);
+  let bookingRes = await pg.query(PAYMENT_SHORT_LINK_LOOKUP_SQL, [clientSlug, parsed.booking_code]);
+  let paymentRes = await pg.query(PAYMENT_SHORT_LINK_PAYMENTS_SQL, [clientSlug, parsed.booking_code]);
+  if (!bookingRes.rows[0]) {
+    const { wolfhouseBookingCodeAliases } = require('./wolfhouse-booking-code');
+    const aliases = wolfhouseBookingCodeAliases(parsed.booking_code);
+    for (const alias of aliases) {
+      if (String(alias).toUpperCase() === String(parsed.booking_code).toUpperCase()) continue;
+      const retry = await pg.query(PAYMENT_SHORT_LINK_LOOKUP_SQL, [clientSlug, alias]);
+      if (retry.rows[0]) {
+        bookingRes = retry;
+        paymentRes = await pg.query(PAYMENT_SHORT_LINK_PAYMENTS_SQL, [clientSlug, retry.rows[0].booking_code]);
+        break;
+      }
+    }
+  }
   let paymentRows = paymentRes.rows || [];
   if (parsed.guest_number != null) {
     paymentRows = paymentRows.filter((row) => {

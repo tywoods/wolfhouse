@@ -2666,7 +2666,7 @@ function renderInboxBookingStackItemHtml(bctx, guestName){
     'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
     'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
     'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
-    escHtml(bctx.booking_code || 'Booking') + '</button>';
+    escHtml((typeof staffDisplayBookingCode === 'function' ? staffDisplayBookingCode(bctx.booking_code) : bctx.booking_code) || 'Booking') + '</button>';
   if (linked) html += ' <span class="inbox-booking-linked-tag">Linked</span>';
   html += '</h4>';
   html += '<div class="kv2">';
