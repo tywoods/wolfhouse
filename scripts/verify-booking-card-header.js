@@ -119,6 +119,8 @@ async function main() {
             return {head:box(e),payment:box(payment),host:box(host),
               nav:visible('#bc-open-conversation-toolbar,#bc-open-customer-card'),controls:visible('button'),
               stay:visible('.bc-side-meta,.bc-guest-services'),chips:[...host.children].map(box),
+              refresh:(()=>{const r=e.querySelector('#bc-side-refresh,#bc-refresh-detail');return r&&r.getBoundingClientRect().width?r.getBoundingClientRect().toJSON():null;})(),
+              close:(()=>{const r=e.querySelector('#bc-side-close');return r&&r.getBoundingClientRect().width?r.getBoundingClientRect().toJSON():null;})(),
               overflow:e.scrollWidth>e.clientWidth+1,hostOverflow:host.scrollWidth>host.clientWidth+1};
           });
           observations.push({phase,financialGeometry:m});
@@ -126,7 +128,9 @@ async function main() {
           assert(m.nav.length>0,'at least one visible navigation action');
           assert(m.payment.top>=Math.max(...m.controls.map(r=>r.bottom))-1,'actual financial pill BELOW every visible header action');
           assert(m.payment.top>=Math.max(...m.stay.map(r=>r.bottom))-1,'actual financial pill below stay/services');
-          assert(Math.abs(m.payment.right-Math.max(...m.nav.map(r=>r.right)))<=2,'actual financial pill shares navigation right edge');
+          assert(m.refresh,'refresh remains in the header utility cluster');
+          assert(m.nav.every(r=>r.right<=m.refresh.left+1),'WhatsApp and guest-card icons sit left of refresh');
+          assert(Math.abs(m.payment.right-((m.close&&m.close.width)?m.close.right:m.refresh.right))<=4,'financial pill aligns with the right utility, not the icon pills');
           assert(Math.abs(m.payment.bottom-Math.max(...m.chips.map(r=>r.bottom)))<=1,'financial pill occupies bottom chip row');
           assert(m.head.bottom-m.payment.bottom<=16,'actual financial pill is at header bottom, not just its wrapper');
           assert(!m.overflow && !m.hostOverflow,'header and nested metadata never overflow');
@@ -154,11 +158,30 @@ async function main() {
           assert(m.payment.top>=Math.max(m.conv.bottom,m.customer.bottom)-1,'actions sit above balance');
           assert(m.payment.top>=m.meta.bottom-1,'balance is below stay/services, at bottom of header');
           assert(m.head.bottom-m.payment.bottom<=16,'balance is at the bottom, without filler');
-          assert(Math.abs(m.payment.right-Math.max(m.conv.right,m.customer.right))<=2,'balance and actions share the right edge');
+          const refreshEdge=await header.locator(width>768?'#bc-side-refresh':'#bc-refresh-detail').boundingBox();
+          assert(refreshEdge&&Math.abs(m.payment.right-(width>768?m.head.right:refreshEdge.x+refreshEdge.width))<=16,'balance stays on the header right, icons do not replace it');
           assert.equal(await page.locator('#bc-open-conversation-toolbar').count(),1,'one navigation owner, no duplicate IDs');
           assert.equal(await page.locator('#bc-open-customer-card').count(),1,'one customer owner');
-          assert.equal(await header.locator('#bc-open-conversation-toolbar').innerText(),variant==='no-phone'?'Start Conversation':'Open Conversation');
-          assert.equal(await header.locator('#bc-open-customer-card').isEnabled(),variant!=='no-phone');
+          const convBtn=header.locator('#bc-open-conversation-toolbar');
+          const cardBtn=header.locator('#bc-open-customer-card');
+          assert.equal((await convBtn.innerText()).trim(),'','conversation control is an icon, not a text pill');
+          assert.equal(await convBtn.locator('svg').count(),1,'conversation uses the Inbox glyph');
+          assert.equal(await convBtn.getAttribute('aria-label'),variant==='no-phone'?'Start Conversation':'Open Conversation');
+          assert.equal(await cardBtn.getAttribute('aria-label'),'Open customer card');
+          assert.equal(await cardBtn.isEnabled(),variant!=='no-phone');
+          const iconGeom=await header.evaluate(e=>{
+            const box=s=>{const n=e.querySelector(s);return n&&n.getBoundingClientRect().width?n.getBoundingClientRect().toJSON():null;};
+            return {conv:box('#bc-open-conversation-toolbar'),card:box('#bc-open-customer-card'),refresh:box('#bc-side-refresh,#bc-refresh-detail'),code:box('.bc-booking-code,.bc-side-title-code'),dates:box('.bc-side-dates'),services:box('.bc-guest-services'),tabs:document.querySelector('.bc-drawer-tabs')?.getBoundingClientRect().toJSON()};
+          });
+          observations.push({iconGeom});
+          assert(iconGeom.refresh&&iconGeom.conv.right<=iconGeom.refresh.left+1,'WhatsApp icon is left of refresh');
+          assert(Math.abs(iconGeom.conv.width-iconGeom.refresh.width)<=1&&Math.abs(iconGeom.conv.height-iconGeom.refresh.height)<=1,'WhatsApp icon matches refresh size');
+          if(variant!=='no-phone'){
+            assert(iconGeom.card&&iconGeom.conv.right<=iconGeom.card.left+1&&iconGeom.card.right<=iconGeom.refresh.left+1,'order is WhatsApp, guest card, refresh');
+            assert(Math.abs(iconGeom.card.width-iconGeom.refresh.width)<=1&&Math.abs(iconGeom.card.height-iconGeom.refresh.height)<=1,'guest-card icon matches refresh size');
+          }
+          if(iconGeom.code&&iconGeom.dates) assert(iconGeom.dates.top-iconGeom.code.bottom<=8,'tight gap from booking code to dates');
+          if(variant==='services'&&iconGeom.services&&iconGeom.tabs) assert(iconGeom.tabs.top-iconGeom.services.bottom<=72,'tight gap from rented items to tabs');
           if(paid) assert.equal(await header.locator('.bc-header-payment-primary').innerText(),'Paid');
           if(variant==='services') assert.match(await header.locator('.bc-guest-services').innerText(),/4× surfboard[\s\S]*4× wetsuit[\s\S]*4× yoga/);
         }

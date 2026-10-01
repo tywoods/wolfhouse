@@ -136,5 +136,12 @@ assert.ok(tools.indexOf('id="btn-logout"') < tools.indexOf('id="staff-lang-switc
 assert.match(api, /function bcCellInCurrentSelection/);
 assert.match(api, /painted \|\| bcCellInCurrentSelection\(td\)/);
 assert.doesNotMatch(api, /Same bed clicked again — extend\/adjust the date range/);
+assert.match(api, /BOOKING-CARD-ICON-HEADER-COMPACT-001/);
+assert.match(api, /bc-header-icon-btn/);
+assert.match(api, /function bcMountBookingHeaderIcons/);
+assert.match(api, /BC_HEADER_INBOX_SVG = '<svg[\s\S]{0,240}M21 11\.5a8\.4/);
+assert.match(api, /id="bc-open-conversation-toolbar"/);
+assert.match(api, /nav-quick-flip--schedule/);
+assert.match(api, /\.luna-header-ui\.luna-hdr-compact #banner \.nav-quick-flip\{/);
 
 console.log('PASS staff-calendar-chrome: fonts + stacked banner + no owner-schedule legend');
