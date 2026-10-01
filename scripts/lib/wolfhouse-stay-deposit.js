@@ -45,7 +45,9 @@ async function loadWolfhouseDepositRates(pg) {
   if (pg) {
     try {
       const store = require('./wolfhouse-pricing-store');
-      await store.ensureWolfhousePricingTables(pg);
+      // Pricing reads must work in read-only transactions. Schema initialization
+      // belongs to migrations/Admin writes; failed DDL here used to skip the
+      // SELECT and silently replace readable saved rates with seed amounts.
       const rules = await store.loadRules(pg, WH_PRICING_CLIENT_SLUG);
       config = applyOverlayPricesToConfig(config, rules);
     } catch (_) {
