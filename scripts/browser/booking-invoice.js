@@ -6,7 +6,8 @@ function bcInvoiceBookingFullyPaid(data){
 }
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
   var ruled = bcWolfhouseStayDepositCents(bk);
-  var required = ruled != null ? ruled : (bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents));
+  var keepHistorical = bk.metadata && bk.metadata.quote_snapshot && bk.metadata.quote_snapshot.per_guest_dates === true;
+  var required = ruled != null || keepHistorical ? ruled : (bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents));
   var known = Number.isSafeInteger(required) && required >= 0;
   var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
   var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
@@ -98,6 +99,15 @@ async function bcRefreshInvoice(data){
 function bcInvoiceText(key){ return t('drawer.invoice.' + key); }
 function bcWolfhouseStayDepositCents(bk){
   bk = bk || {};
+  var snapshot = bk.metadata && bk.metadata.quote_snapshot;
+  if (snapshot && snapshot.per_guest_dates === true) {
+    // Per-guest edits KEEP history: envelope dates must never reprice the deposit.
+    var value = bk.deposit_required_cents;
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    var stored = Number(value);
+    return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+  }
   var nights = (typeof bcStayNightsFromCheckInOut === 'function')
     ? bcStayNightsFromCheckInOut(bk.check_in, bk.check_out) : 0;
   if (!(nights > 0) && bk.nights != null) nights = Number(bk.nights);
