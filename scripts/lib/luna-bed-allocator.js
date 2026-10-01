@@ -894,6 +894,7 @@ module.exports = {
   chooseBedsCapacityOnly,
   resolveRoomCategory,
   allowedCategoriesForGroup,
+  roomEligibleForGroup,
   deriveAllocatorContext,
   buildAllocatorRoomsFromBedRows,
   findFlippableGenderedRooms,
