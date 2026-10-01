@@ -305,7 +305,11 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode, f
             metadata->>'course_label' AS course_label,
             service_time_local,
             service_time_local_end,
-            metadata
+            metadata,
+            (SELECT ts.category FROM tenant_services ts
+              WHERE ts.client_slug = booking_service_records.client_slug
+                AND ts.id::text = booking_service_records.metadata->>'service_id'
+            ) AS catalog_service_category
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid
       ORDER BY service_date, id${forUpdate && lockServices ? '\n      FOR UPDATE' : ''}`,
@@ -677,6 +681,9 @@ function buildPaymentSummary(prices, booking, services, adminSource, paymentsPai
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
+      // Presentation identity only: addon_service is a coarse DB bucket, not a category.
+      // Missing/deleted catalog identity stays unknown; never guess from service names.
+      service_category: sr.catalog_service_category || null,
       service_date: sr.service_date,
       quantity: qty,
       unit_cents: (usedLive || persisted != null) && qty

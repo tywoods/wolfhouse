@@ -937,9 +937,14 @@ function scheduleRenderSunsetRecordPaymentHtml(ctx){
   if (!(ctx && ctx.booking_id)) return '';
   var pay = (ctx && ctx.payment) || {};
   var defaultAmount = scheduleDrawerEurInputValue(pay.balance_due_cents);
-  var html = '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.recordPayment')) + '</summary>';
-  html += '<div id="ps-drawer-manual-pay" style="margin-top:8px">';
-  html += '<div class="portal-schedule-manual-pay-grid">';
+  var html = '<div class="bc-invoice-actions"><button type="button" class="btn btn-primary" id="ps-drawer-record-payment">' + escHtml(portalT('schedule.drawer.recordPayment')) + '</button></div>';
+  html += '<dialog id="ps-record-payment-dialog" aria-labelledby="ps-record-payment-title">';
+  html += '<h3 id="ps-record-payment-title">' + escHtml(portalT('schedule.drawer.recordPayment')) + '</h3>';
+  html += '<div id="ps-drawer-manual-pay">';
+  // Native Sunset receipts are booking-scoped; participant rows are not payment identities.
+  html += '<label for="ps-drawer-manual-scope">' + escHtml(portalT('drawer.invoice.guest')) + '</label>';
+  html += '<select id="ps-drawer-manual-scope"><option value="booking">' + escHtml(portalT('drawer.invoice.all')) + '</option></select>';
+  html += '<div>';
   html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
     '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"' +
     (defaultAmount ? ' value="' + escHtml(defaultAmount) + '"' : '') + '></label>';
@@ -951,10 +956,11 @@ function scheduleRenderSunsetRecordPaymentHtml(ctx){
   html += '</div>';
   html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
     '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
-  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
+  html += '<div class="bc-payment-buttons"><button type="button" class="btn btn-ghost" id="ps-drawer-manual-cancel">' + escHtml(portalT('drawer.field.cancel')) + '</button>';
+  html += '<button type="button" class="btn btn-primary" id="ps-drawer-manual-submit">' +
     escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
-  html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
-  html += '</div></details>';
+  html += '</div><p id="ps-drawer-manual-msg" class="state-msg" role="status" aria-live="polite" style="display:none;margin-top:6px"></p>';
+  html += '</div></dialog>';
   return html;
 }
 
@@ -970,7 +976,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
   var pay = (ctx && ctx.payment) || {};
   var items = pay.line_items || [];
   var comps = (ctx && ctx.components) || {};
-  var html = '<div class="ctx-pay-box ps-invoice-card" id="ps-drawer-payment-box" style="margin-top:0">';
+  var html = '<div class="ctx-pay-box ctx-running-invoice ps-invoice-card" id="ps-drawer-payment-box" style="margin-top:0">';
 
   // Header: date range once (no per-line dates)
   var from = scheduleDrawerDDMMYY(ctx && ctx.date_from);
@@ -1062,9 +1068,25 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
     enriched.label = scheduleDrawerFormatAccommodationInvoiceLabel(enriched);
     return enriched;
   });
-  if (commercialLines.length) {
+  // Sections wrap the existing commercial projection; they never reprice or allocate it.
+  var sectionLines = { accommodation: [], services: [], transfers: [] };
+  commercialLines.forEach(function(line) {
+    var memberIds = line.member_ids || [line.service_record_id];
+    var members = items.filter(function(item) { return item.service_record_id && memberIds.indexOf(item.service_record_id) >= 0; });
+    // Classify only from authoritative source metadata, including collapsed lines.
+    // Unknown/mixed categories remain Services; names and payment methods are not evidence.
+    var isTransfer = members.length > 0 && members.every(function(item) { return item.service_category === 'transfer'; });
+    var section = line.staff_accommodation || line.component === 'staff_accommodation'
+      ? 'accommodation' : (isTransfer ? 'transfers' : 'services');
+    sectionLines[section].push(line);
+  });
+  ['accommodation', 'services', 'transfers'].forEach(function(section) {
+    var lines = sectionLines[section];
+    html += '<div class="ctx-inv-group" id="ps-inv-' + section + '">';
+    html += '<div class="ctx-inv-group-title">' + escHtml(portalT('drawer.invoice.' + section)) + '</div>';
+    if (lines.length) {
     html += '<div class="ps-invoice-lines" data-testid="ps-invoice-lines">';
-    commercialLines.forEach(function(line) {
+    lines.forEach(function(line) {
       var math = scheduleDrawerFormatCommercialMathLabel(line);
       var isAccomLine = !!(line.staff_accommodation || line.component === 'staff_accommodation');
       var isCeLine = !isAccomLine && scheduleDrawerIsEquipmentLikeLine(line);
@@ -1110,12 +1132,23 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       // Season / service arithmetic stay on the parent item secondary line only — never extra commercial totals.
     });
     html += '</div>';
-  } else if (!items.length) {
+    } else {
+      var emptyKey = section === 'services' ? 'noServices' : (section === 'transfers' ? 'noTransfers' : 'notAvailable');
+      html += '<div class="ctx-inv-line ctx-none">' + escHtml(portalT('drawer.invoice.' + emptyKey)) + '</div>';
+    }
+    if (section === 'services' && !items.length) {
     var summary = scheduleFormatComponentsView(comps);
     if (summary && summary !== '—') {
       html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 8px">' + escHtml(summary) + '</p>';
     }
-  }
+    }
+    html += '</div>';
+  });
+
+  // Native participants are not booking_guests and carry no durable allocation.
+  // Never divide booking money or offer guest collection based on names/counts.
+  html += '<div class="ctx-inv-group" id="ps-inv-per-guest"><div class="ctx-inv-group-title">Per Guest</div>' +
+    '<div class="ctx-inv-line ctx-none">' + escHtml(portalT('drawer.invoice.notAvailable')) + '</div></div>';
 
   // Footer: Subtotal → payment credits (negative) → balance / paid / refund
   var sub = Number(pay.subtotal_cents || 0);
@@ -1126,7 +1159,8 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
   var fullyPaid = pay.payment_status === 'paid' || (sub > 0 && due != null && due <= 0 && paid > 0 && refund <= 0);
   var overpaid = refund > 0;
 
-  html += '<div class="ps-invoice-totals">';
+  html += '<div class="ctx-inv-group ps-invoice-totals bc-invoice-totals" id="ps-inv-totals">';
+  html += '<div class="ctx-inv-group-title">' + escHtml(portalT('drawer.invoice.totals')) + '</div>';
   html += '<div class="ctx-inv-total-row ps-invoice-total-row"><span class="ctx-inv-total-label">' +
     escHtml(portalT('schedule.drawer.subtotal')) + '</span><span class="ctx-inv-total-amount ps-invoice-amt" id="ps-drawer-subtotal">' +
     escHtml(scheduleDrawerEur(sub)) + '</span></div>';
@@ -1166,7 +1200,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
     escHtml(scheduleDrawerEur(paid)) + '</span>';
   html += '</div>';
 
-  // Payment link + collapsible manual payment stay inside the invoice card
+  // Payment link and native manual payment action stay inside the invoice card.
   html += scheduleRenderSunsetMoneyActionsHtml(ctx);
   html += scheduleRenderSunsetRecordPaymentHtml(ctx);
   html += '</div>';

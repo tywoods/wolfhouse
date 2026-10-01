@@ -162,6 +162,10 @@ function scheduleDrawerOnBackdropClick(ev){
 
 function scheduleDrawerOnKeydown(ev){
   if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
+  // A native payment modal owns Escape even if a disabled control lost focus.
+  // Leave the browser's cancel event to the modal's in-flight dismissal guard.
+  var paymentDialog = typeof el === 'function' ? el('ps-record-payment-dialog') : null;
+  if (paymentDialog && paymentDialog.open) return;
   // Nested editors/popovers own Escape first (they return early when closed).
   var create = typeof el === 'function' ? el('ps-create-modal') : null;
   if (scheduleOverlayIsOpen(create)) {
@@ -468,6 +472,10 @@ function openScheduleDetailDrawer(row){
 
 function closeScheduleDetailDrawer(){
   scheduleDrawerBumpOpenGeneration();
+  // Application-owned teardown must release the top layer before hiding its
+  // ancestor; otherwise an invisible modal leaves the rest of the page inert.
+  var paymentDialog = el('ps-record-payment-dialog');
+  if (paymentDialog && paymentDialog.open && typeof paymentDialog.close === 'function') paymentDialog.close();
   scheduleDrawerState.row = null;
   scheduleDrawerState.ctx = null;
   scheduleDrawerState.editing = false;
