@@ -43,9 +43,17 @@ class GoldenSafety(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_rotates_only_exact_synthetic_namespace(self):
         keys = []
-        runner = SimpleNamespace(session_store=SimpleNamespace(reset_session=lambda key: keys.append(key)))
-        with patch.object(door, '_golden_runner', return_value=runner):
-            result = await door.cleanup_golden_thread('sim:golden-case-123')
+        import tempfile
+        import json
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            def reset(key):
+                keys.append(key)
+                Path(directory, 'sessions.json').write_text(json.dumps({key: {'session_id': 'rotated'}}))
+                return SimpleNamespace(session_key=key, session_id='rotated')
+            runner = SimpleNamespace(session_store=SimpleNamespace(reset_session=reset, sessions_dir=directory, _generate_session_key=lambda source: source.chat_id))
+            with patch.object(door, '_golden_runner', return_value=runner):
+                result = await door.cleanup_golden_thread('sim:golden-case-123')
         self.assertTrue(result['ok'])
         self.assertEqual(keys, [door.golden_scope('sim:golden-case-123').session_key])
         self.assertTrue(keys[0].startswith('crowsnest-sim:'))
@@ -58,7 +66,7 @@ class GoldenSafety(unittest.IsolatedAsyncioTestCase):
 
     async def test_teardown_failure_propagates(self):
         def fail(key): raise RuntimeError('fixture reset failed')
-        runner = SimpleNamespace(session_store=SimpleNamespace(reset_session=fail))
+        runner = SimpleNamespace(session_store=SimpleNamespace(reset_session=fail, _generate_session_key=lambda source: source.chat_id))
         with patch.object(door, '_golden_runner', return_value=runner), self.assertRaises(RuntimeError):
             await door.cleanup_golden_thread('sim:golden-case-123')
 

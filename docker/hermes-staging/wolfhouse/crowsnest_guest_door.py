@@ -14,6 +14,37 @@ import inspect
 import os
 import re
 import uuid
+import threading
+
+_LIFETIME_LOCK = threading.RLock()
+
+
+def _own_work(scope, future):
+    """Fence real concurrent futures/tasks, independently of handler cancellation."""
+    if scope is None:
+        return future
+    with _LIFETIME_LOCK:
+        scope._outstanding += 1
+        _ACTIVE_SCOPES[scope.request_id] = scope
+        _TAINTED_SESSIONS.add(scope.session_key)
+
+    def settled(_):
+        with _LIFETIME_LOCK:
+            scope._outstanding -= 1
+            if scope._outstanding == 0:
+                _ACTIVE_SCOPES.pop(scope.request_id, None)
+            if scope._closed and scope._outstanding == 0 and scope.session_key not in _RESET_UNCERTAIN:
+                _TAINTED_SESSIONS.discard(scope.session_key)
+
+    future.add_done_callback(settled)
+    return future
+
+
+def _close_lifetime(scope):
+    with _LIFETIME_LOCK:
+        scope._closed = True
+        if scope._outstanding == 0 and scope.session_key not in _RESET_UNCERTAIN:
+            _TAINTED_SESSIONS.discard(scope.session_key)
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
@@ -37,6 +68,10 @@ _SCOPE: ContextVar[Optional["CrowsnestGuestScope"]] = ContextVar(
 _SESSION_LOCKS: Dict[str, asyncio.Lock] = {}
 _SESSION_LOCKS_GUARD = asyncio.Lock()
 _TAINTED_SESSIONS: set[str] = set()
+# Sticky storage uncertainty is distinct from temporary work fences. Only the
+# explicit offline recovery check below clears it; settlement never does.
+_RESET_UNCERTAIN: set[str] = set()
+_ACTIVE_SCOPES = {}  # request_id -> scope while work is outstanding
 _GLOBAL_LIMIT: Optional[asyncio.Semaphore] = None
 _INSTALLED_STAFF: set[int] = set()
 _INSTALLED_WHATSAPP: set[int] = set()
@@ -48,8 +83,7 @@ _GOLDEN_OWNER = object()
 _GOLDEN_REQUEST: ContextVar[Any] = ContextVar("golden_request_owner", default=None)
 _GOLDEN_THREAD_RE = re.compile(r"sim:golden-[A-Za-z0-9][A-Za-z0-9-]{0,180}\Z")
 _GOLDEN_READ_PATHS = frozenset('/staff/bot/' + path for path in (
-    'availability-check', 'booking-preview', 'surf-report', 'catalog',
-    'bookings/by-phone', 'payments/status', 'booking-guests/payment-status',
+    'availability-check', 'booking-preview',
 ))
 
 
@@ -75,9 +109,90 @@ async def cleanup_golden_thread(thread: str) -> Dict[str, Any]:
             raise RuntimeError('golden_session_has_late_worker')
         # Rotate precisely this synthetic routing entry. No phone-based deletion,
         # SQLite history deletion, filesystem removal or shared memory clearing.
-        _golden_runner().session_store.reset_session(scope.session_key)
+        store = _golden_runner().session_store
+        routing_key = store._generate_session_key(_make_event(scope, '').source)
+        old_entry = getattr(store, '_entries', {}).get(routing_key)
+        old_session_id = getattr(old_entry, 'session_id', None)
+        db = getattr(store, '_db', None)
+        if hasattr(store, '_db') and (db is None or old_session_id is None):
+            raise RuntimeError('golden_sqlite_rotation_unconfirmed')
+        # Pessimistically quarantine before the first potentially mutating call.
+        # Every exception/unconfirmed publication below retains this sticky fence.
+        _RESET_UNCERTAIN.add(scope.session_key)
+        _TAINTED_SESSIONS.add(scope.session_key)
+        entry = store.reset_session(routing_key)
+        # Pinned SessionStore returns Optional[SessionEntry], never a boolean ack.
+        # _save fsyncs then atomically replaces sessions.json; reread the routing
+        # index, not the in-memory entry (which is updated before _save).
+        if entry is None or getattr(entry, 'session_key', None) != routing_key:
+            raise RuntimeError('golden_rotation_unconfirmed')
+        import json
+        from pathlib import Path
+        persisted = json.loads((Path(store.sessions_dir) / 'sessions.json').read_text())
+        if persisted.get(routing_key, {}).get('session_id') != getattr(entry, 'session_id', None):
+            raise RuntimeError('golden_rotation_unconfirmed')
+        if db is not None:
+            # reset_session swallows SQLite end/create exceptions. Verify both
+            # persisted rows; publication alone is not successful cleanup.
+            try:
+                old_row = db.get_session(old_session_id)
+                new_row = db.get_session(entry.session_id)
+                confirmed = bool(old_row and old_row.get('ended_at') is not None and new_row)
+            except Exception:
+                confirmed = False
+            if not confirmed:
+                _TAINTED_SESSIONS.add(scope.session_key)
+                raise RuntimeError('golden_sqlite_rotation_unconfirmed')
+        _RESET_UNCERTAIN.discard(scope.session_key)
+        _TAINTED_SESSIONS.discard(scope.session_key)
         _PENDING_SIM_REPLIES.pop(scope.session_key, None)
     return {'ok': True, 'session_key': scope.session_key, 'scope': 'golden_session_rotation'}
+
+
+async def recover_golden_thread(thread: str, *, expected_session_id: str,
+                                ended_session_ids: list[str], operator_reason: str) -> Dict[str, Any]:
+    """Explicit offline-owner reconciliation gate; never exposed by guest HTTP.
+
+    This performs no reset/save/DB mutation. The authorized offline owner first
+    reconciles uncertain storage, supplies independently inspected replacement
+    and historical IDs plus a retained review reason. Pending replies survive.
+    A process restart is NOT evidence of reconciliation or permission to admit.
+    """
+    if (not isinstance(operator_reason, str) or not operator_reason.strip()
+            or not isinstance(expected_session_id, str) or not expected_session_id
+            or not isinstance(ended_session_ids, list) or not ended_session_ids
+            or any(not isinstance(value, str) or not value or value == expected_session_id for value in ended_session_ids)):
+        raise ValueError('golden_recovery_evidence_required')
+    scope = golden_scope(thread)
+    lock = await _session_lock(scope.session_key)
+    async with lock:
+        with _LIFETIME_LOCK:
+            if any(s.session_key == scope.session_key and s._outstanding for s in _ACTIVE_SCOPES.values()):
+                raise RuntimeError('golden_session_has_late_worker')
+        if scope.session_key not in _RESET_UNCERTAIN:
+            raise RuntimeError('golden_session_not_quarantined')
+        store = _golden_runner().session_store
+        routing_key = store._generate_session_key(_make_event(scope, '').source)
+        import json
+        from pathlib import Path
+        persisted = json.loads((Path(store.sessions_dir) / 'sessions.json').read_text())
+        db = getattr(store, '_db', None)
+        memory = getattr(store, '_entries', {}).get(routing_key)
+        if (db is None or getattr(memory, 'session_id', None) != expected_session_id
+                or persisted.get(routing_key, {}).get('session_id') != expected_session_id):
+            raise RuntimeError('golden_recovery_unconfirmed')
+        new_row = db.get_session(expected_session_id)
+        if not new_row or new_row.get('ended_at') is not None:
+            raise RuntimeError('golden_recovery_unconfirmed')
+        for old_id in ended_session_ids:
+            old_row = db.get_session(old_id)
+            if not old_row or old_row.get('ended_at') is None:
+                raise RuntimeError('golden_recovery_unconfirmed')
+        _RESET_UNCERTAIN.remove(scope.session_key)
+        _TAINTED_SESSIONS.discard(scope.session_key)
+        return {'ok':True, 'session_key':scope.session_key, 'scope':'golden_explicit_offline_recovery',
+                'expected_session_id':expected_session_id, 'ended_session_ids':list(ended_session_ids),
+                'operator_reason':operator_reason}
 
 
 async def run_golden_guest_turn(*, thread: str, text: str) -> Dict[str, Any]:
@@ -107,6 +222,8 @@ class CrowsnestGuestScope:
     owned_guest_ids: set[str] = field(default_factory=set)
     effective_capability: Optional[Dict[str, Any]] = None
     _golden_owner: Any = field(default=None, repr=False)
+    _outstanding: int = field(default=0, repr=False)
+    _closed: bool = field(default=False, repr=False)
 
     @classmethod
     def create(cls, phone: str) -> "CrowsnestGuestScope":
@@ -131,8 +248,55 @@ def normalize_phone(phone: str) -> str:
     return "+" + raw.lstrip("+")
 
 
+# Ownership is not authority: it survives deliberately empty Contexts and is
+# cleared on executor reuse. Unsupported raw threads/custom queues remain a
+# separate installed-admission gate, never inferred safe from these wrappers.
+_WORKER_OWNER = threading.local()
+import weakref
+_TASK_OWNERS = weakref.WeakKeyDictionary()
+_STAFF_FORWARD = ContextVar('crowsnest_staff_forward', default=None)
+
+
 def current_crowsnest_scope() -> Optional[CrowsnestGuestScope]:
-    return _SCOPE.get()
+    scope = _SCOPE.get() or getattr(_WORKER_OWNER, 'scope', None)
+    if scope is not None:
+        return scope
+    try:
+        task = asyncio.current_task()
+        return _TASK_OWNERS.get(task) if task is not None else None
+    except RuntimeError:
+        return None
+
+
+def staff_transport_denial(path):
+    """Called inside the actual plugin transport, including pre-bound aliases."""
+    scope = current_crowsnest_scope()
+    if scope is not None and (scope.revoked or _STAFF_FORWARD.get() is not scope):
+        return synthetic_blocked_result(str(path), ['staff_transport_owner_unconfirmed'], allow_writes=False)
+    if scope is None and _GOLDEN_REQUEST.get() is _GOLDEN_OWNER:
+        return synthetic_blocked_result(str(path), ['golden_scope_missing'], allow_writes=False)
+    return None
+
+
+def _forward_staff(scope, original, path, payload, kwargs):
+    token = _STAFF_FORWARD.set(scope)
+    try:
+        return original(path, payload, **kwargs)
+    finally:
+        _STAFF_FORWARD.reset(token)
+
+
+def _golden_safe_payload(payload, phone):
+    # A closed input schema, not an ID blacklist: unknown/nested identifiers and
+    # identity objects cannot acquire arbitrary booking/payment read authority.
+    fields = {'check_in', 'check_out', 'guest_count', 'room_type', 'room_preference',
+              'package_code', 'payment_choice', 'guest_name', 'phone', 'guest_phone',
+              'language', 'gender_preference', 'group_gender'}
+    if not isinstance(payload, dict) or set(payload) - fields:
+        return None
+    if any(isinstance(v, (dict, list, tuple)) for v in payload.values()):
+        return None
+    return _bind_non_routable_phone_identity(payload, phone)
 
 
 def _normalize_staff_bot_path(path: Any) -> str:
@@ -225,14 +389,100 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             # Capture at enqueue time: reused threads neither lose simulator
             # authority nor retain a previous request's authority.
             ctx = copy_context()
-            return original_submit(self, ctx.run, fn, *args, **kwargs)
+            scope = current_crowsnest_scope()
+            def owned_call():
+                previous = getattr(_WORKER_OWNER, 'scope', None)
+                _WORKER_OWNER.scope = scope
+                try:
+                    return ctx.run(fn, *args, **kwargs)
+                finally:
+                    _WORKER_OWNER.scope = previous
+            return _own_work(scope, original_submit(self, owned_call))
 
         context_owned_submit._crowsnest_request_guard = True  # type: ignore[attr-defined]
         ThreadPoolExecutor.submit = context_owned_submit
+        original_create_task = asyncio.BaseEventLoop.create_task
+
+        def owned_create_task(self, coro, **kwargs):
+            context = kwargs.get('context')
+            scope = current_crowsnest_scope() or (context.get(_SCOPE) if context is not None else None)
+            task = original_create_task(self, coro, **kwargs)
+            if scope is not None:
+                _TASK_OWNERS[task] = scope
+            return _own_work(scope, task)
+
+        asyncio.BaseEventLoop.create_task = owned_create_task
+        # call_later delegates to call_at on the default loop. Capture at the
+        # two scheduling primitives, not from the callback's possibly empty Context.
+        original_cancel = asyncio.Handle.cancel
+        releases = weakref.WeakKeyDictionary()
+
+        def owned_cancel(handle):
+            release = releases.pop(handle, None)
+            try:
+                return original_cancel(handle)
+            finally:
+                if release is not None:
+                    release()
+
+        def scheduler(original, timed=False):
+            def schedule(loop, *args, context=None):
+                scope = current_crowsnest_scope() or (context.get(_SCOPE) if context is not None else None)
+                index = 1 if timed else 0
+                callback = args[index]
+                # A task wakeup belongs to the receiving task, not the child
+                # completing its Future. Do not contaminate ordinary waiters.
+                receiver = getattr(callback, '__self__', None)
+                if isinstance(receiver, asyncio.Task):
+                    # The task itself is already independently fenced/owned.
+                    # A thread-local wrapper spanning its whole step would retain
+                    # authority after that task explicitly resets its ContextVar.
+                    return original(loop, *args, context=context)
+                if scope is None:
+                    return original(loop, *args, context=context)
+                released = False
+                with _LIFETIME_LOCK:
+                    scope._outstanding += 1
+                    _ACTIVE_SCOPES[scope.request_id] = scope
+                    _TAINTED_SESSIONS.add(scope.session_key)
+                def release():
+                    nonlocal released
+                    with _LIFETIME_LOCK:
+                        if released:
+                            return
+                        released = True
+                        scope._outstanding -= 1
+                        if scope._outstanding == 0:
+                            _ACTIVE_SCOPES.pop(scope.request_id, None)
+                        if scope._closed and scope._outstanding == 0 and scope.session_key not in _RESET_UNCERTAIN:
+                            _TAINTED_SESSIONS.discard(scope.session_key)
+                def invoke(*callback_args):
+                    previous = getattr(_WORKER_OWNER, 'scope', None)
+                    _WORKER_OWNER.scope = scope
+                    try:
+                        return callback(*callback_args)
+                    finally:
+                        _WORKER_OWNER.scope = previous
+                        releases.pop(handle, None)
+                        release()
+                wrapped = list(args)
+                wrapped[index] = invoke
+                try:
+                    handle = original(loop, *wrapped, context=context)
+                except BaseException:
+                    release()
+                    raise
+                releases[handle] = release
+                return handle
+            return schedule
+
+        asyncio.Handle.cancel = owned_cancel
+        asyncio.BaseEventLoop.call_soon = scheduler(asyncio.BaseEventLoop.call_soon)
+        asyncio.BaseEventLoop.call_at = scheduler(asyncio.BaseEventLoop.call_at, timed=True)
         _EXECUTOR_GUARD_INSTALLED = True
 
     staff_id = id(staff_module)
-    if staff_id not in _INSTALLED_STAFF:
+    if not getattr(staff_module._post_bot, '_crowsnest_request_guard', False):
         original_post = staff_module._post_bot
         original_phone = getattr(staff_module, "_session_guest_phone", lambda: "")
 
@@ -260,11 +510,12 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 return result
             if scope._golden_owner is _GOLDEN_OWNER:
                 norm = _normalize_staff_bot_path(path)
-                if norm not in _GOLDEN_READ_PATHS:
+                safe = _golden_safe_payload(payload, scope.inbox_phone)
+                if norm not in _GOLDEN_READ_PATHS or safe is None:
                     result = synthetic_blocked_result(norm, ['blocked_golden_read_only'], allow_writes=False)
                 else:
-                    result = original_post(norm, _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone), **post_kwargs)
-                scope.tool_calls.append({'name': tool_name_from_path(norm), 'args': dict(payload or {}),
+                    result = _forward_staff(scope, original_post, norm, safe, post_kwargs)
+                scope.tool_calls.append({'name': tool_name_from_path(norm), 'args': dict(payload) if isinstance(payload, dict) else {},
                                          'result_summary': summarize_tool_result(result)})
                 return result
             # Sunset write authority stays an exact runtime identity. Wolfhouse
@@ -315,7 +566,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     guarded.pop("allow_writes", None)
                     if capability and capability.get("admitted") and not allow_staff_writes:
                         guarded["wolfhouse_staging_capability"] = WOLFHOUSE_STAGING_BOOKING_CAPABILITY
-                result = original_post(norm, guarded, **post_kwargs)
+                result = _forward_staff(scope, original_post, norm, guarded, post_kwargs)
                 payments, guests = collect_owned_simulator_ids(result)
                 scope.owned_payment_ids.update(payments)
                 scope.owned_guest_ids.update(guests)
@@ -352,7 +603,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
 
     adapter_cls = whatsapp_module.WhatsAppCloudAdapter
     wa_id = id(adapter_cls)
-    if wa_id not in _INSTALLED_WHATSAPP:
+    if not getattr(adapter_cls.send, '_crowsnest_request_guard', False):
         original_send = adapter_cls.send
 
         async def guarded_send(self, chat_id, content, reply_to=None, metadata=None):
@@ -555,15 +806,9 @@ async def run_crowsnest_guest_turn(
         scope.effective_capability = evaluate_wolfhouse_staging_booking_capability(
             scope_active=True, scope_revoked=False,
         )
-    if scope.session_key in _TAINTED_SESSIONS:
-        return {
-            "ok": False,
-            "error": "session_tainted_by_late_worker",
-            "session_key": scope.session_key,
-            "whatsapp_suppressed": True,
-            "transport_calls": 0,
-            "transport_attempts": 0,
-        }
+    # Active handlers serialize on the session lock. Only check the independent
+    # late-worker fence after acquiring it: rejecting before the lock incorrectly
+    # rejects an ordinary queued next turn whose predecessor will settle normally.
     event = _make_event(scope, message)
     mirror_fn = mirror or _default_mirror
     lock = await _session_lock(scope.session_key)
@@ -600,8 +845,6 @@ async def run_crowsnest_guest_turn(
                         fut.exception()
                     except (asyncio.CancelledError, Exception):
                         pass
-                    finally:
-                        _TAINTED_SESSIONS.discard(scope.session_key)
 
                 task.add_done_callback(_consume_cancelled)
                 raise
@@ -615,8 +858,6 @@ async def run_crowsnest_guest_turn(
                         fut.exception()
                     except (asyncio.CancelledError, Exception):
                         pass
-                    finally:
-                        _TAINTED_SESSIONS.discard(scope.session_key)
 
                 task.add_done_callback(_consume_late)
                 if late_settle_sec > 0:
@@ -653,6 +894,7 @@ async def run_crowsnest_guest_turn(
             }
         finally:
             scope.revoked = True
+            _close_lifetime(scope)
             _SCOPE.reset(token)
 
 
