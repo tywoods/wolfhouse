@@ -20612,8 +20612,6 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   display:none!important;
 }
 #tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:14px;font-weight:700;padding:4px 6px;white-space:normal;line-height:1.15;min-height:0;border-bottom:1px solid var(--border-soft)}
-#tab-bed-calendar .bc-bed-cell.bc-bed-col{white-space:nowrap;width:1%;min-width:44px;max-width:72px;text-align:center}
-#tab-bed-calendar .bc-grid thead th.bc-bed-head{min-width:44px;width:1%}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
 #tab-bed-calendar .bc-room-hdr{padding:6px 10px}
 #tab-bed-calendar .bc-room-hdr-row td{padding-top:4px}
@@ -20747,7 +20745,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:4}
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:hidden}
   #tab-bed-calendar .bc-grid{width:100%;min-width:0;table-layout:fixed}
-  #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
+  #tab-bed-calendar .bc-bed-cell.bc-bed-col{padding:5px 4px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
 }
 @media (max-width:768px){
@@ -20763,6 +20761,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
 #tab-bed-calendar .bc-chip{flex:0 0 auto}
 #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{content:'';flex:0 0 50%}
+/* Compact bed column: apply outside the mobile-only block, including fixed-layout desktop tables. */
+#tab-bed-calendar .bc-bed-cell.bc-bed-col{white-space:nowrap;width:44px;min-width:44px;max-width:44px;box-sizing:border-box;text-align:center}
+#tab-bed-calendar .bc-grid thead th.bc-bed-head{min-width:44px;width:44px;box-sizing:border-box}
 @media (min-width:769px){
   #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center}
   #tab-bed-calendar .bc-chips{flex:1 1 240px;min-width:0;overflow-x:auto;overflow-y:hidden}
@@ -26312,7 +26313,7 @@ function bcSortBedsForDisplay(beds){
 }
 function bcScheduleBedColumnLabel(bed){
   var code = String(bed && bed.bed_code || '').trim();
-  var hit = code.match(/B0*(\d+)\s*$/i);
+  var hit = code.match(/B0*(\\d+)\\s*$/i);
   if (hit) return 'B' + String(Number(hit[1]));
   return code;
 }
