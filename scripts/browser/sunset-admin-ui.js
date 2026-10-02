@@ -2727,6 +2727,7 @@ function financeShiftAnchor(iso, gran, dir){
   var y = parts[0], m = parts[1], d = parts[2];
   var dt = new Date(Date.UTC(y, m - 1, d));
   if (gran === 'day') dt.setUTCDate(dt.getUTCDate() + dir);
+  else if (gran === 'week') dt.setUTCDate(dt.getUTCDate() + (7 * dir));
   else if (gran === 'year') dt.setUTCFullYear(dt.getUTCFullYear() + dir);
   else {
     // month
@@ -3318,7 +3319,7 @@ function financeRedesignNavClick(ev){
     financeCustomClosePopover({ restoreFocus: false, discard: false });
     if (gran === 'day') financeViewState.anchor = financeTodayIso();
     else financeViewState.anchor = financeViewSeedAnchor();
-    if (gran === 'day' || gran === 'month') {
+    if (gran === 'day' || gran === 'week' || gran === 'month') {
       try { window.__financeTrendMode = 'days'; } catch (_dt) { /* ignore */ }
     }
     loadAdminFinanceSummary();
@@ -3326,6 +3327,14 @@ function financeRedesignNavClick(ev){
   }
 
   var nav = btn.getAttribute('data-finance-nav');
+  if (nav === 'today') {
+    financeViewState.anchor = financeTodayIso();
+    financeViewState.start = null;
+    financeViewState.end = null;
+    financeCustomDraft = { start: null, end: null };
+    loadAdminFinanceSummary();
+    return;
+  }
   if (nav === 'prev' || nav === 'next'){
     var dir = nav === 'prev' ? -1 : 1;
     var g = financeViewState.granularity || 'month';
