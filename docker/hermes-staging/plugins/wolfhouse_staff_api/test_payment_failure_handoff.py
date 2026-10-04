@@ -206,7 +206,8 @@ class PaymentFailureHandoffTests(unittest.TestCase):
                 result = self.call("create_sunset_payment_link", {"booking_code": "OFFLINE"},
                                    {"success": False})
                 self.assert_handoff(result, confirmed=False)
-                self.assertIn("contact reception directly", result["guest_safe_next_action"].lower())
+                self.assertNotIn("reception", result["guest_safe_next_action"].lower())
+                self.assertIn("try again", result["guest_safe_next_action"].lower())
                 self.assertIn("can’t promise", result["guest_safe_next_action"])
 
     def test_missing_trusted_identity_does_not_use_model_phone(self):
@@ -215,7 +216,8 @@ class PaymentFailureHandoffTests(unittest.TestCase):
                            {"success": False})
         self.assertEqual(len(self.calls), 1)
         self.assertFalse(result["handoff_confirmed"])
-        self.assertIn("contact reception directly", result["guest_safe_next_action"].lower())
+        self.assertNotIn("reception", result["guest_safe_next_action"].lower())
+        self.assertIn("try again", result["guest_safe_next_action"].lower())
 
     def test_link_controls_do_not_request_handoff(self):
         for tool, params in self.LINK_TOOLS:
@@ -285,7 +287,7 @@ class PaymentFailureHandoffTests(unittest.TestCase):
         self.assertNotIn("all the payment links", result["reply_draft"])
         self.assertEqual(len(self.calls), 3)
 
-    def test_inline_partial_and_all_failed_links_flag_once_preserve_successful_links(self):
+    def test_inline_partial_and_all_failed_links_withhold_all_guest_links(self):
         for first in ({"success": True, "guest_payment_url": "https://checkout.invalid/g1"},
                       {"success": False}):
             with self.subTest(first=first):
@@ -296,15 +298,24 @@ class PaymentFailureHandoffTests(unittest.TestCase):
                 })
                 self.assert_handoff(result)
                 self.assertTrue(result["write_performed"])
-                self.assertTrue(result["success"])
-                links = result.get("guest_payment_links") or []
-                self.assertEqual(len(links), int(first["success"]))
-                if links:
-                    self.assertEqual(links[0]["secure_payment_url"], first["guest_payment_url"])
-                self.assertEqual(len(result["payment_link_failures"]), 1 if links else 2)
+                self.assertTrue(result["success"], "booking write succeeded; links stay withheld")
+                self.assertIsNone(result.get("guest_payment_links"))
+                self.assertEqual(len(result["payment_link_failures"]), 1 if first["success"] else 2)
                 self.assertTrue(all(item["booking_guest_id"] for item in result["payment_link_failures"]))
                 self.assertEqual(len(self.calls), 4)
-                self.assertNotEqual(result["next_action"], "ask_per_guest_or_whole_payment_link")
+                self.assertEqual(result["next_action"], "retry_payment_link_creation")
+
+    def test_inline_per_guest_deadline_is_propagated(self):
+        deadline = "2026-10-07T12:00:00Z"
+        result = self.booking(per_guest=True, responses={
+            "/booking-guests/g1/create-payment-link": {
+                "success": True, "guest_payment_url": "https://checkout.invalid/g1", "expires_at": deadline},
+            "/booking-guests/g2/create-payment-link": {
+                "success": True, "guest_payment_url": "https://checkout.invalid/g2", "expires_at": deadline},
+        })
+        self.assertEqual(result["payment_deadline"], deadline)
+        self.assertEqual(result["payment_deadlines"], [deadline])
+        self.assertTrue(all(item["expires_at"] == deadline for item in result["guest_payment_links"]))
 
     def test_inline_success_and_no_due_or_denied_are_not_handoffs(self):
         for per_guest in (False, True):

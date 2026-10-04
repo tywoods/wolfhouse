@@ -103,6 +103,8 @@ const steps = [
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
   ['verify:sunset-luna-school-context', 'verify-sunset-luna-school-context.js'],
   ['verify:luna-confirmation-spacing', 'verify-luna-confirmation-spacing.js'],
+  ['verify:luna-yoga-attendee-wording', 'verify-luna-yoga-attendee-wording.js'],
+  ['verify:booking-payment-deadline-propagation', 'verify-booking-payment-deadline-propagation.js'],
   ['verify:luna-pending-transfers-save', 'verify-luna-pending-transfers-save.js'],
 ];
 

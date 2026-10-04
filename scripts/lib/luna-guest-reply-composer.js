@@ -1416,22 +1416,21 @@ function buildReplyForState(state, ctx) {
       const day = formatScheduleDateLabel(sched.service_date, lang);
       const count = Number(sched.scheduled_count) || 1;
       const svc = sched.service_type === 'yoga' ? 'yoga' : 'meal';
-      if (lang === 'de') {
-        return svc === 'yoga'
-          ? (count > 1
-            ? `Alles klar — ${count} Yoga-Klassen sind für ${day} eingeplant 🧘`
-            : `Alles klar — Yoga ist für ${day} eingeplant 🧘`)
-          : (count > 1
-            ? `Alles klar — ${count} Mahlzeiten sind für ${day} eingeplant 🍽️`
-            : `Alles klar — dein Essen ist für ${day} eingeplant 🍽️`);
-      }
       return svc === 'yoga'
         ? (count > 1
-          ? `I've scheduled ${count} yoga classes for ${day}! 🧘`
-          : `I've scheduled your yoga for ${day}! 🧘`)
-        : (count > 1
-          ? `I've scheduled ${count} meals for ${day}! 🍽️`
-          : `I've scheduled your meal for ${day}! 🍽️`);
+          ? (lang === 'de'
+            ? `Alles klar — Yoga für ${count} Personen ist für ${day} eingeplant 🧘`
+            : `I've scheduled yoga for ${count} guests on ${day}! 🧘`)
+          : (lang === 'de'
+            ? `Alles klar — Yoga ist für ${day} eingeplant 🧘`
+            : `I've scheduled your yoga for ${day}! 🧘`))
+        : (lang === 'de'
+          ? (count > 1
+            ? `Alles klar — ${count} Mahlzeiten sind für ${day} eingeplant 🍽️`
+            : `Alles klar — dein Essen ist für ${day} eingeplant 🍽️`)
+          : (count > 1
+            ? `I've scheduled ${count} meals for ${day}! 🍽️`
+            : `I've scheduled your meal for ${day}! 🍽️`));
     }
     case 'post_booking_service_attach_ack': {
       const liveOut = (ctx && ctx.live_outcomes) || {};

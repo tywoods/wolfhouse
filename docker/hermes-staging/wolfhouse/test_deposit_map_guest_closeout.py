@@ -16,7 +16,8 @@ class DepositMapGuestCloseoutTests(unittest.TestCase):
     def test_group_deposit_copy_has_due_window_and_lock_boundary(self):
         soul = (ROOT / "SOUL.md").read_text(encoding="utf-8")
         payment = soul.split("**Step 5 — Payment: full or a link each**")[1].split("**Step 6 — Names**")[0]
-        self.assertIn("within a few days", payment)
+        self.assertNotIn("within a few days", payment)
+        self.assertIn("returned payment deadline", payment)
         self.assertIn("ONE deposit locks the whole group booking", payment)
         self.assertIn("not the lock amount", payment)
         self.assertIn("personal/full-share", payment)
@@ -31,9 +32,9 @@ class DepositMapGuestCloseoutTests(unittest.TestCase):
 
     def test_short_stay_group_closeout_has_the_same_deposit_and_map_boundary(self):
         soul = (ROOT / "SOUL.md").read_text(encoding="utf-8")
-        short_stay = soul.split("**Under 7 nights — short stay")[1].split("**7+ nights — weekly package flow**")[0]
+        short_stay = soul.split("**Below the saved minimum — accommodation + add-ons**")[1].split("**Eligible stays — package flow**")[0]
         for phrase in (
-            "within a few days",
+            "returned payment deadline",
             "locks the whole group booking",
             "not the lock amount",
             "once only",
@@ -41,6 +42,7 @@ class DepositMapGuestCloseoutTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, short_stay)
+        self.assertNotIn("within a few days", short_stay)
 
     def test_returned_map_line_is_canonical_and_titled(self):
         self.assertEqual(
