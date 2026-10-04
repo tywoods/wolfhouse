@@ -934,6 +934,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
       currency:                   pm.currency,
       stripe_checkout_session_id: sessionId,
       checkout_url:               checkoutUrl,
+      expires_at:                 b.expires_at || null,
       payment_short_url:          linkObs.payment_short_url,
       guest_payment_url:          linkObs.guest_payment_url,
       uses_short_payment_link:    linkObs.uses_short_payment_link,
@@ -966,6 +967,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     currency:                   pm.currency,
     stripe_checkout_session_id: sessionId,
     checkout_url:               checkoutUrl,
+    expires_at:                 b.expires_at || null,
     payment_short_url:          linkObs.payment_short_url,
     guest_payment_url:          linkObs.guest_payment_url,
     uses_short_payment_link:    linkObs.uses_short_payment_link,
@@ -1153,6 +1155,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       guest_payment_url: linkObs.guest_payment_url,
       uses_short_payment_link: linkObs.uses_short_payment_link,
       secure_payment_url: linkObs.guest_payment_url || checkoutUrl,
+      expires_at: payload.expires_at || null,
       payment_status: 'checkout_created',
       next_action: 'send_secure_payment_link',
       sends_whatsapp: false,
@@ -1181,6 +1184,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       created: false,
       payment_id: existingByKey.payment_id,
       checkout_url: existingByKey.checkout_url,
+      expires_at: existingByKey.expires_at || null,
       message: 'Payment link already created (idempotent).',
     });
   }
@@ -1192,6 +1196,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       created: false,
       payment_id: activeLink.payment_id,
       checkout_url: activeLink.checkout_url,
+      expires_at: activeLink.expires_at || null,
       message: 'Payment link already exists for this balance.',
     });
   }
@@ -1364,6 +1369,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
     payment_id: newPaymentId,
     checkout_url: session.url,
     stripe_checkout_session_id: session.id,
+    expires_at: expiresAt,
     message: 'Balance payment link created.',
   });
 }
@@ -1533,6 +1539,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       booking_guest_id: guestId, guest_number: guest.guest_number, guest_name: guest.guest_name,
       booking_id: guest.booking_id, booking_code: guest.booking_code, payment_id: checkout.paymentId,
       payment_target: paymentTarget, amount_due_cents: checkout.amount, checkout_url: checkout.session.url,
+      expires_at: checkout.session.expires_at ? new Date(checkout.session.expires_at * 1000).toISOString() : null,
       stripe_checkout_session_id: checkout.session.id, guest_payment_url: shortUrl || checkout.session.url,
       payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
       uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });

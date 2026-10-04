@@ -850,9 +850,7 @@ def _booking_count_validation(payload):
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
-    if refusal is not None:
-        return refusal
+    catalog_selections = payload.pop("catalog_selections", None) or []
     payload.setdefault("source", "agent_luna_whatsapp")
     supplied_count, invalid = _booking_count_validation(payload)
     if invalid is not None:
@@ -1011,6 +1009,44 @@ def create_booking_from_plan(params, **kwargs):
         blocked["room_decision"] = room_decision
         return _json_result(blocked)
     fields = _extract_booking_write_fields(data)
+    catalog_attach_results = []
+    if bool(data.get("success")) and fields.get("booking_code") and catalog_selections:
+        for selection in catalog_selections:
+            service_id = _clean((selection or {}).get("service_id"))
+            if not service_id:
+                catalog_attach_results.append({"success": False, "error": "service_id_required"})
+                continue
+            quantity = (selection or {}).get("quantity") or payload.get("guest_count") or 1
+            service_date = _clean((selection or {}).get("service_date"))
+            selection_identity = {
+                "booking_code": fields.get("booking_code"),
+                "service_id": service_id,
+                "quantity": quantity,
+                "service_date": service_date,
+            }
+            selection_digest = hashlib.sha256(
+                json.dumps(selection_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()[:24]
+            attach_payload = {
+                "client_slug": payload.get("client_slug"),
+                "booking_code": fields.get("booking_code"),
+                "service_type": f"service:{service_id}",
+                "quantity": quantity,
+                "idempotency_key": f"{payload.get('idempotency_key')}-catalog-{selection_digest}",
+            }
+            if service_date:
+                attach_payload["service_date"] = service_date
+            catalog_attach_results.append(_post_bot("/add-catalog-service", attach_payload))
+    catalog_selections_persisted = bool(catalog_selections) and all(
+        item.get("success") is True and (
+            item.get("write_performed") is True
+            or item.get("created") is True
+            or item.get("idempotent") is True
+            or bool(item.get("service_record_id"))
+        )
+        for item in catalog_attach_results
+    )
+    catalog_attach_failed = bool(catalog_selections) and not catalog_selections_persisted
     payment_id = _clean(fields.get("payment_id"))
     secure_url = None
     link_data = {}
@@ -1021,7 +1057,7 @@ def create_booking_from_plan(params, **kwargs):
 
     guest_payment_links = []
     create_split_links = uses_per_guest_model and split_payment_requested
-    if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
+    if bool(data.get("success")) and not catalog_attach_failed and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
         if isinstance(booking_guests, list):
             payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
@@ -1071,13 +1107,14 @@ def create_booking_from_plan(params, **kwargs):
                         "currency": link_data.get("currency") or "EUR",
                         "payment_target": link_data.get("payment_target") or payment_target,
                         "payment_status": link_data.get("payment_status"),
+                        "expires_at": link_data.get("expires_at"),
                         "secure_payment_url": guest_url,
                         "guest_location_line": _wolfhouse_guest_location_line(guest_url),
                     })
         if guest_payment_links:
             secure_url = None  # per-guest links replace single booking link
 
-    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not create_split_links:
+    if bool(data.get("success")) and not catalog_attach_failed and payment_id and not create_split_links:
         link_payload = {"client_slug": payload.get("client_slug")}
         link_data = _post_bot(
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
@@ -1096,8 +1133,8 @@ def create_booking_from_plan(params, **kwargs):
         payment_link_error = payment_link_failures[0]["error"]
         payment_handoff = _payment_failure_handoff("create_booking_from_plan")
         payment_handoff["guest_safe_next_action"] = (
-            "Your booking was saved. " + payment_handoff["guest_safe_next_action"]
-            + (" Only the listed payment links were created; other guest links failed." if guest_payment_links else "")
+            "Your booking was saved, but I couldn’t safely finish every payment link. "
+            "Please try the same payment request again here in a moment."
         )
         payment_handoff["reply_draft"] = payment_handoff["guest_safe_next_action"]
 
@@ -1120,7 +1157,7 @@ def create_booking_from_plan(params, **kwargs):
     # "model remembers to re-call save_transfer_request after create" step.
     transfer_results = []
     simulator_capability = data.get("wolfhouse_staging_capability") == "wolfhouse_staging_booking_test_link"
-    if bool(data.get("success")) and bool(data.get("write_performed")) and not simulator_capability:
+    if bool(data.get("success")) and not catalog_attach_failed and not payment_link_failures and not simulator_capability:
         transfer_results = _auto_save_pending_transfers(
             payload,
             fields.get("booking_id"),
@@ -1128,13 +1165,22 @@ def create_booking_from_plan(params, **kwargs):
         )
 
     next_action = data.get("next_action")
-    if guest_payment_links:
+    if catalog_attach_failed:
+        next_action = "retry_booking_create_with_same_catalog_selections"
+    elif payment_link_failures:
+        next_action = "retry_payment_link_creation"
+    elif guest_payment_links:
         next_action = "send_per_guest_payment_links"
-    elif uses_per_guest_model and bool(data.get("write_performed")) and not secure_url and not guest_payment_links:
+    elif bool(data.get("success")) and uses_per_guest_model and not secure_url and not guest_payment_links:
         next_action = "ask_per_guest_or_whole_payment_link"
 
+    guest_facing_payment_links = [] if payment_link_failures else guest_payment_links
+    payment_deadlines = sorted({
+        item.get("expires_at") for item in guest_facing_payment_links if item.get("expires_at")
+    })
+
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": bool(data.get("success")) and not catalog_attach_failed,
         "tool": "create_booking_from_plan",
         "write_performed": bool(data.get("write_performed")),
         "booking_id": fields.get("booking_id"),
@@ -1143,19 +1189,25 @@ def create_booking_from_plan(params, **kwargs):
         "payment_status": fields.get("payment_status") or link_data.get("payment_status"),
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
+        "catalog_selections": catalog_selections or None,
+        "catalog_attach_results": catalog_attach_results,
+        "catalog_selections_persisted": catalog_selections_persisted,
         "per_person": fields.get("per_person") or data.get("per_person"),
-        "guest_payment_links": guest_payment_links or None,
+        "guest_payment_links": guest_facing_payment_links or None,
         "secure_payment_url": secure_url,
         "guest_location_line": _wolfhouse_guest_location_line(secure_url),
         "payment_link_created": bool(secure_url),
+        "payment_deadline": (
+            link_data.get("expires_at") if secure_url
+            else (payment_deadlines[0] if len(payment_deadlines) == 1 else None)
+        ),
+        "payment_deadlines": payment_deadlines or None,
         "amount_due_cents": link_data.get("amount_due_cents") if secure_url else None,
         "currency": link_data.get("currency") or "EUR",
         "no_payment_truth_recorded": True,  # creating a booking/link is not a receipt
         "payment_link_error": payment_link_error,
         "payment_link_failures": payment_link_failures,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
-        "transfer_save_results": transfer_results,
-        "next_action": "send_secure_payment_link" if secure_url else next_action,
         "staff_review_needed": (
             not _intentional_capability_block(link_data)
             and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
@@ -1172,6 +1224,8 @@ def create_booking_from_plan(params, **kwargs):
         "needs_human": False,
         "outcome": "INTENTIONALLY_BLOCKED" if _intentional_capability_block(link_data) else data.get("outcome"),
         **payment_handoff,
+        "transfer_save_results": transfer_results,
+        "next_action": "send_secure_payment_link" if secure_url and not payment_link_failures else next_action,
     })
 
 
@@ -1256,6 +1310,8 @@ def create_payment_link(params, **kwargs):
         "guest_location_line": _wolfhouse_guest_location_line(guest_url),
         "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
         "payment_status": data.get("payment_status") or data.get("status"),
+        "expires_at": data.get("expires_at"),
+        "payment_deadline": data.get("expires_at"),
         "no_payment_truth_recorded": data.get("no_payment_truth_recorded", True),
         "next_action": data.get("next_action") or "send_secure_payment_link",
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
@@ -1412,6 +1468,8 @@ def create_guest_payment_link(params, **kwargs):
         "payment_short_path": data.get("payment_short_path"),
         "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
         "payment_status": data.get("payment_status"),
+        "expires_at": data.get("expires_at"),
+        "payment_deadline": data.get("expires_at"),
         "already_paid": bool(data.get("already_paid")),
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
@@ -3736,8 +3794,8 @@ def _payment_failure_handoff(tool):
         "guest_safe_next_action": (
             "I couldn’t complete the payment step. I’ve flagged this chat for the team to help."
             if confirmed else
-            "I couldn’t complete the payment step or confirm the handoff. Please contact reception directly; "
-            "I can’t promise a teammate will see this chat."
+            "I couldn’t complete the payment step or confirm the handoff. I can’t promise a teammate will see this chat. "
+            "Please try again here in a moment."
         ),
     }
 

@@ -138,11 +138,13 @@ check("P4 guidance points to create_balance_payment_link",
 
 # A genuine deposit/balance payment_id still mints a link normally.
 fake = with_fake({
-    "/create-stripe-link": {"success": True, "payment_id": "pay_1", "checkout_url": "https://checkout.stripe.com/c/pay/dep"},
+    "/create-stripe-link": {"success": True, "payment_id": "pay_1", "checkout_url": "https://checkout.stripe.com/c/pay/dep",
+                            "expires_at": "2026-10-07T12:00:00Z"},
 })
 ok = json.loads(mod.create_payment_link({"payment_id": "pay_1"}))
 check("P5 valid payment_id returns a link", ok.get("secure_payment_url") == "https://checkout.stripe.com/c/pay/dep")
 check("P6 valid payment_id not wrong_id_type", ok.get("wrong_id_type") is None and ok.get("success") is True)
+check("P7 valid payment deadline propagates", ok.get("payment_deadline") == "2026-10-07T12:00:00Z")
 
 
 print("\n== Surf report: on-tone reply + graceful fallback ==")
@@ -405,6 +407,7 @@ guest_link_fake = with_fake({
         "booking_code": "MB-TEST",
         "payment_short_url": "https://staff-staging.lunafrontdesk.com/pay/MB-TEST/g2",
         "amount_due_cents": 20000,
+        "expires_at": "2026-10-07T12:00:00Z",
     },
 })
 guest_link = json.loads(mod.create_guest_payment_link({
@@ -415,6 +418,7 @@ check("G3 create_guest_payment_link resolves guest id", guest_link.get("success"
 check("G4 guest link has /g2 path", "/g2" in (guest_link.get("payment_short_url") or ""))
 check("G5 create_guest_payment_link looked up guest status",
       any("/booking-guests/payment-status" in c[0] for c in guest_link_fake.calls))
+check("G6 guest payment deadline propagates", guest_link.get("payment_deadline") == "2026-10-07T12:00:00Z")
 
 create_fake = with_fake({
     "/booking-create-from-plan": {

@@ -36,19 +36,70 @@ class Pass4IntegrityTests(unittest.TestCase):
                        'catalog_selections': [{'service_id': 'offline-drone', 'name': 'Drone',
                                                'service_date': '2026-10-30', 'quantity': 2, 'days': 1}]}
 
-    def test_catalog_selection_refused_before_quote_or_create_transport(self):
-        for name in ('quote_booking', 'create_booking_from_plan'):
-            with self.subTest(tool=name), patch.object(plugin, '_post_bot', return_value={'success': False, 'error': 'offline stop'}) as transport:
-                result = json.loads(getattr(plugin, name)(self.params))
-                transport.assert_not_called()
-                self.assertFalse(result['success'])
-                self.assertFalse(result['write_performed'])
-                self.assertEqual(result['error'], 'catalog_selection_not_atomic')
-                self.assertEqual(result['catalog_selections'], self.params['catalog_selections'])
-                self.assertEqual(result['next_action'], 'explain_catalog_booking_limitation')
-                self.assertFalse(result['needs_human'])
-                self.assertNotIn('total_cents', result)
-                self.assertNotIn('secure_payment_url', result)
+    def test_catalog_selection_is_persisted_before_payment_link(self):
+        calls = []
+        def transport(path, body):
+            calls.append((path, body))
+            if path == '/booking-create-from-plan':
+                return {'success': True, 'write_performed': True, 'booking_code': 'OFFLINE',
+                        'booking_id': 'offline-booking', 'payment_id': 'offline-payment'}
+            if path == '/add-catalog-service':
+                return {'success': True, 'write_performed': True, 'created': True,
+                        'service_record_id': 'offline-drone-record'}
+            return {'success': True, 'checkout_url': 'https://staff.invalid/pay/OFFLINE',
+                    'expires_at': '2026-10-07T12:00:00Z'}
+        with patch.object(plugin, '_post_bot', side_effect=transport):
+            result = json.loads(plugin.create_booking_from_plan(self.params))
+        self.assertEqual([path for path, _ in calls], [
+            '/booking-create-from-plan', '/add-catalog-service',
+            '/payments/offline-payment/create-stripe-link'])
+        self.assertEqual(calls[1][1]['service_type'], 'service:offline-drone')
+        self.assertEqual(calls[1][1]['quantity'], 2)
+        self.assertTrue(result['catalog_selections_persisted'])
+        self.assertTrue(result['success'])
+        self.assertEqual(result['payment_deadline'], '2026-10-07T12:00:00Z')
+
+    def test_catalog_attach_failure_returns_no_payment_link(self):
+        calls = []
+        def transport(path, body):
+            calls.append((path, body))
+            if path == '/booking-create-from-plan':
+                return {'success': True, 'write_performed': True, 'booking_code': 'OFFLINE',
+                        'booking_id': 'offline-booking', 'payment_id': 'offline-payment'}
+            return {'success': False, 'write_performed': False, 'error': 'catalog attach failed'}
+        with patch.object(plugin, '_post_bot', side_effect=transport):
+            result = json.loads(plugin.create_booking_from_plan(self.params))
+        self.assertEqual([path for path, _ in calls], [
+            '/booking-create-from-plan', '/add-catalog-service'])
+        self.assertFalse(result['success'])
+        self.assertFalse(result['catalog_selections_persisted'])
+        self.assertIsNone(result['secure_payment_url'])
+        self.assertFalse(result['payment_link_created'])
+        self.assertEqual(result['next_action'], 'retry_booking_create_with_same_catalog_selections')
+
+    def test_catalog_retry_and_reordering_use_service_identity(self):
+        attach_bodies = []
+        def transport(path, body):
+            if path == '/booking-create-from-plan':
+                return {'success': True, 'write_performed': False, 'booking_code': 'OFFLINE',
+                        'booking_id': 'offline-booking', 'payment_id': None}
+            attach_bodies.append(body)
+            return {'success': True, 'created': False, 'idempotent': True}
+        params = dict(self.params)
+        params['catalog_selections'] = [
+            {'service_id': 'drone', 'quantity': 2, 'service_date': '2026-10-07'},
+            {'service_id': 'yoga', 'quantity': 2, 'service_date': '2026-10-08'},
+        ]
+        with patch.object(plugin, '_post_bot', side_effect=transport):
+            first = json.loads(plugin.create_booking_from_plan(params))
+            params['catalog_selections'].reverse()
+            second = json.loads(plugin.create_booking_from_plan(params))
+        self.assertTrue(first['catalog_selections_persisted'])
+        self.assertTrue(second['catalog_selections_persisted'])
+        first_keys = {body['service_type']: body['idempotency_key'] for body in attach_bodies[:2]}
+        second_keys = {body['service_type']: body['idempotency_key'] for body in attach_bodies[2:]}
+        self.assertEqual(first_keys, second_keys)
+        self.assertNotEqual(first_keys['service:drone'], first_keys['service:yoga'])
 
 
     def test_registered_schema_preserves_catalog_and_dynamic_minimum(self):
@@ -63,10 +114,10 @@ class Pass4IntegrityTests(unittest.TestCase):
             self.assertIn('service_date', selection['properties'])
             self.assertNotIn('7+', properties['package_code']['description'])
             self.assertNotIn('<7', tool['description'])
-            with patch.object(plugin, '_post_bot') as transport:
-                result = json.loads(tool['handler'](self.params))
-            transport.assert_not_called()
-            self.assertEqual(result['error'], 'catalog_selection_not_atomic')
+        with patch.object(plugin, '_post_bot') as transport:
+            result = json.loads(registry.tools['quote_booking']['handler'](self.params))
+        transport.assert_not_called()
+        self.assertEqual(result['error'], 'catalog_selection_not_atomic')
 
     def test_catalog_inventory_preserves_authoritative_facts_and_failure_is_unknown(self):
         facts = {'name': 'Drone', 'price_cents': 15000, 'price_unit': 'day',
@@ -115,6 +166,25 @@ class Pass4IntegrityTests(unittest.TestCase):
         self.assertEqual(result['amount_due_cents'], 47000)
         self.assertFalse(result.get('guest_payment_links'))
         self.assertEqual(calls[0][1]['guests'], params['guests'])
+
+    def test_standalone_payment_tools_propagate_deadlines(self):
+        deadline = '2026-10-07T12:00:00Z'
+        def transport(path, body):
+            if path.endswith('/create-stripe-link'):
+                return {'success': True, 'payment_id': 'p1',
+                        'checkout_url': 'https://checkout.stripe.com/c/pay/whole',
+                        'expires_at': deadline}
+            if path.endswith('/create-payment-link'):
+                return {'success': True, 'booking_guest_id': 'g1',
+                        'guest_payment_url': 'https://staff.invalid/pay/OFFLINE/g1',
+                        'expires_at': deadline}
+            raise AssertionError(path)
+        with patch.object(plugin, '_post_bot', side_effect=transport):
+            whole = json.loads(plugin.create_payment_link({'payment_id': 'p1'}))
+            guest = json.loads(plugin.create_guest_payment_link({'booking_guest_id': 'g1'}))
+        for result in (whole, guest):
+            self.assertEqual(result['expires_at'], deadline)
+            self.assertEqual(result['payment_deadline'], deadline)
 
 
 if __name__ == '__main__':
