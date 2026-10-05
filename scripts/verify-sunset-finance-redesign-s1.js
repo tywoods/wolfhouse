@@ -153,9 +153,13 @@ const prodCents = s.redesign.revenue_by_product.reduce((a, r) => a + r.cents, 0)
 ok('product total includes gear lines', prodCents >= 4000 + 3000 + 2000 - 1);
 
 ok('next 30 includes B1 July rows', s.redesign.pipeline.next_30_days_cents >= 7000);
-eq('delivered unpaid stays inside selected period', s.redesign.pipeline.delivered_unpaid_cents, 2000);
-eq('due soon uses period-capped unpaid (not full booking remainder)', s.redesign.outstanding.due_soon_cents, 8000);
-eq('overdue in primary July may be 0 (B_PAST outside period)', s.redesign.outstanding.overdue_cents, 0);
+// FINANCE-TAB-001: current balance is counted once for the selected cohort.
+// It is not capped to this period's booked lines, and stay dates are not due dates.
+eq('delivered unpaid is current balance, not period-capped dues', s.redesign.pipeline.delivered_unpaid_cents, 5000);
+eq('due soon is not inferred from stay dates', s.redesign.outstanding.due_soon_cents, 0);
+eq('overdue is not inferred from stay dates', s.redesign.outstanding.overdue_cents, 0);
+eq('balance with no contractual due date is unknown, not aged', s.redesign.outstanding.due_date_unknown_cents, 11000);
+eq('outstanding is B1+B2 current balance; B_PAST is outside July', s.redesign.outstanding.outstanding_cents, 11000);
 
 ok('capacity seats known', s.redesign.capacity.seats_capacity != null && s.redesign.capacity.seats_capacity > 0);
 ok('boards stock used', s.redesign.capacity.boards_stock === 20);

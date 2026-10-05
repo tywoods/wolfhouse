@@ -72,6 +72,9 @@ function undefinedColumn(column) {
   assert.deepStrictEqual(summary.redesign.luna_bookings, {
     total_bookings: 1,
     by_service: [{ service_type: 'surf_lesson', quantity: 2 }],
+    status: 'complete',
+    known_luna_count: 1,
+    unknown_origin_count: 0,
   });
 
   global.window = { __financeTrendMode: 'days' };

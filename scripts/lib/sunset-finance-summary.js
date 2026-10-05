@@ -422,6 +422,9 @@ function priorPeriodRange(range, granularity) {
     const prev = addDays(range.start, -1);
     return { start: prev, end: prev };
   }
+  if (g === 'week') {
+    return { start: addDays(range.start, -7), end: addDays(range.end, -7) };
+  }
   if (g === 'year') {
     return shiftRangeYears(range, -1);
   }
@@ -590,23 +593,37 @@ function buildLodgingRevenueByProductRows(datedBsr, range) {
       return String(a.label).localeCompare(String(b.label));
     });
 
-  if (!ranked.length) return [];
+  if (!ranked.length) {
+    return ['accommodation', 'services', 'camps'].map((key) => ({
+      key, label: key === 'accommodation' ? 'Accommodation' : (key === 'services' ? 'Services' : 'Camps'),
+      cents: 0, pct: 0, slot: key, offering_keys: [], details: [],
+    }));
+  }
 
   const productTotal = ranked.reduce((a, p) => checkedAdd(a, p.cents), 0);
-  return ranked.map((p) => {
-    const pct = productTotal > 0 ? Math.round((1000 * p.cents) / productTotal) / 10 : 0;
-    const offeringKey = p.key.indexOf('pkg:') === 0 && p.key !== 'pkg:none'
-      ? p.key.slice(4)
-      : null;
-    return {
-      key: p.key,
-      label: p.label,
-      cents: p.cents,
-      pct,
-      slot: p.slot,
-      offering_keys: offeringKey ? [offeringKey] : [],
-    };
+  const unavailableCategory = (key, label) => ({
+    key, label, cents: null, pct: null, status: 'unavailable', slot: key,
+    offering_keys: [], details: [],
   });
+  // The stay-total projection is not a commercial-line ledger: it may include
+  // accommodation, services, and camp value. Preserve the known total as
+  // unclassified instead of fabricating category zeroes or calling it lodging.
+  const categories = [
+    unavailableCategory('accommodation', 'Accommodation'),
+    unavailableCategory('services', 'Services'),
+    unavailableCategory('camps', 'Camps'),
+  ];
+  categories.push({
+    key: 'unclassified',
+    label: 'Unclassified adjustment / data incomplete',
+    cents: productTotal,
+    pct: productTotal > 0 ? 100 : 0,
+    status: 'partial',
+    slot: 'unclassified',
+    offering_keys: [],
+    details: ranked.map((p) => ({ key: p.key, label: p.label, cents: p.cents })),
+  });
+  return categories;
 }
 
 function courseIncludableOfferingKeys(surfPacks) {
@@ -914,7 +931,7 @@ function resolvePrimaryRange(args) {
   const today = zonedDateString(now, timeZone);
   const view = (args && args.view) || {};
   let granularity = String(view.granularity || 'month').toLowerCase();
-  if (!['day', 'month', 'year', 'custom'].includes(granularity)) granularity = 'month';
+  if (!['day', 'week', 'month', 'year', 'custom'].includes(granularity)) granularity = 'month';
 
   const start = (view.start && /^\d{4}-\d{2}-\d{2}$/.test(view.start)) ? view.start : '';
   const end = (view.end && /^\d{4}-\d{2}-\d{2}$/.test(view.end)) ? view.end : '';
@@ -931,6 +948,10 @@ function resolvePrimaryRange(args) {
   const anchor = (view.anchor && /^\d{4}-\d{2}-\d{2}$/.test(view.anchor)) ? view.anchor : today;
   if (granularity === 'day') {
     return { granularity: 'day', range: { start: anchor, end: anchor }, today };
+  }
+  if (granularity === 'week') {
+    const monday = addDays(anchor, -weekdayMon0(anchor));
+    return { granularity: 'week', range: { start: monday, end: addDays(monday, 6) }, today };
   }
   if (granularity === 'year') {
     const range = (start && end && isFullCalendarYearRange(start, end))
@@ -967,6 +988,8 @@ function computeSunsetFinanceSummary(args) {
   const refundLedgerUnavailable = !!(args && args.refund_ledger_unavailable);
   const rentalStock = Array.isArray(args && args.rental_stock) ? args.rental_stock : [];
   const surfPacks = Array.isArray(args && args.surf_packs) ? args.surf_packs : [];
+  let bedOccupancy = args && args.bed_occupancy && typeof args.bed_occupancy === 'object'
+    ? args.bed_occupancy : null;
   // lodging_packages: Wolfhouse stay totals by package_code (no surf F2 Lessons/— rows).
   // surf_f2 (default): Sunset five-row Lessons / course-included / top-2 / Other.
   const productMode = args && args.productMode === 'lodging_packages'
@@ -1089,6 +1112,48 @@ function computeSunsetFinanceSummary(args) {
   const primaryRange = primary.range;
   const granularity = primary.granularity;
   const today = primary.today;
+  if (!bedOccupancy && productMode === 'lodging_packages') {
+    const bedIds = new Set((Array.isArray(args && args.bed_inventory) ? args.bed_inventory : [])
+      .map((b) => b && b.bed_id != null ? String(b.bed_id) : '').filter(Boolean));
+    const occupied = new Set();
+    let conflicts = 0;
+    let unmatchedAssignments = 0;
+    for (const a of Array.isArray(args && args.bed_assignments) ? args.bed_assignments : []) {
+      if (!a) continue;
+      if (!bedIds.has(String(a.bed_id))) { unmatchedAssignments += 1; continue; }
+      const type = String(a.assignment_type || 'guest').toLowerCase();
+      if (type.includes('hold') || type.includes('block') || type.includes('companion') || type.includes('maintenance')) continue;
+      for (let d = String(a.assignment_start_date || ''); d && d < String(a.assignment_end_date || ''); d = addDays(d, 1)) {
+        if (!inRange(d, primaryRange)) continue;
+        const key = `${String(a.bed_id)}|${d}`;
+        if (occupied.has(key)) conflicts += 1;
+        occupied.add(key);
+      }
+    }
+    let expectedGuestNights = 0;
+    for (const b of bookings) {
+      const count = Number(b && b.guest_count);
+      const startDate = String((b && b.check_in) || '');
+      const endDate = String((b && b.check_out) || '');
+      if (!Number.isInteger(count) || count < 1 || !startDate || !endDate) continue;
+      for (let d = startDate; d < endDate; d = addDays(d, 1)) {
+        if (inRange(d, primaryRange)) expectedGuestNights += count;
+      }
+    }
+    const unassigned = Math.max(0, expectedGuestNights - occupied.size);
+    const sellable = bedIds.size * periodDayCount(primaryRange);
+    bedOccupancy = {
+      // Current active beds are a known subtotal, but historical/date-specific closures are not
+      // reconstructable from this source. Keep the rate incomplete rather than authoritative.
+      status: bedIds.size === 0 ? 'unavailable' : 'partial',
+      occupied_bed_nights: occupied.size,
+      sellable_bed_nights: sellable,
+      expected_guest_bed_nights: expectedGuestNights,
+      unassigned_bed_nights: unassigned,
+      unmatched_assignment_count: unmatchedAssignments,
+      exception_count: conflicts + unassigned + unmatchedAssignments,
+    };
+  }
   const priorRange = priorPeriodRange(primaryRange, granularity);
   const yoyRange = shiftRangeYears(primaryRange, -1);
 
@@ -1113,27 +1178,38 @@ function computeSunsetFinanceSummary(args) {
     if (!prev || r.service_date > prev) lastServiceByBooking.set(r.booking_id, r.service_date);
   }
   const qualifyingPrimary = new Set();
-  for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
-
-  // Luna provenance lives on booking_service_records.source ('luna_guest').
-  // bookings.record_source is not a column — selecting it 500s the Finance tab.
-  const lunaBookingIds = new Set();
-  for (const b of bookings || []) {
-    if (b && String(b.record_source || '') === 'luna_guest' && b.booking_id != null) {
-      lunaBookingIds.add(String(b.booking_id));
+  for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(String(r.booking_id));
+  if (productMode === 'lodging_packages') {
+    for (const b of bookings) {
+      const checkIn = String((b && b.check_in) || '');
+      const checkOut = String((b && b.check_out) || '');
+      if (b && b.booking_id != null && checkIn && checkOut
+          && checkIn <= primaryRange.end && checkOut > primaryRange.start) {
+        qualifyingPrimary.add(String(b.booking_id));
+      }
     }
   }
+
+  // Origin comes from trusted create-path metadata projected by the lodging adapter.
+  // Later Luna service involvement must not rewrite a staff-originated booking.
+  const originByBooking = new Map();
+  for (const b of bookings || []) {
+    if (b && b.booking_id != null && b.record_source) originByBooking.set(String(b.booking_id), String(b.record_source));
+  }
   for (const r of datedBsr) {
-    if (r && String(r.source || '') === 'luna_guest' && r.booking_id != null) {
-      lunaBookingIds.add(String(r.booking_id));
+    if (r && r.booking_id != null && r.source && !originByBooking.has(String(r.booking_id))) {
+      originByBooking.set(String(r.booking_id), String(r.source));
     }
   }
   const lunaQualifying = new Set();
   const lunaByService = new Map();
+  for (const bookingId of qualifyingPrimary) {
+    if (originByBooking.get(String(bookingId)) !== 'luna_guest') continue;
+    lunaQualifying.add(String(bookingId));
+  }
   for (const r of datedBsr) {
     const bookingId = String(r.booking_id);
-    if (!lunaBookingIds.has(bookingId) || !inRange(r.service_date, primaryRange)) continue;
-    lunaQualifying.add(bookingId);
+    if (!lunaQualifying.has(bookingId) || !inRange(r.service_date, primaryRange)) continue;
     const serviceType = String(r.service_type || 'other');
     const qty = Number.isFinite(r.quantity) ? r.quantity : 1;
     lunaByService.set(serviceType, (lunaByService.get(serviceType) || 0) + qty);
@@ -1157,6 +1233,7 @@ function computeSunsetFinanceSummary(args) {
   let delivered_unpaid_bookings = 0;
   let due_soon_cents = 0;
   let overdue_cents = 0;
+  let due_date_unknown_cents = 0;
   let outstanding_bookings = 0;
   const periodDueByBooking = new Map();
   for (const r of datedBsr) {
@@ -1168,41 +1245,20 @@ function computeSunsetFinanceSummary(args) {
   for (const bookingId of qualifyingPrimary) {
     const bal = bookingBalance(bookingId);
     if (bal <= 0) continue;
-    const periodDue = periodDueByBooking.get(bookingId) || 0;
-    // Cap each booking at its positive period dues so multi-day remainders
-    // cannot inflate Day/Month Pendiente above that period's line items.
-    const periodBal = Math.min(bal, Math.max(0, periodDue));
+    // Current balance belongs to the selected booking cohort once. It is not
+    // capped to this period's booked lines or additive across periods.
+    const periodBal = bal;
     if (periodBal <= 0) continue;
     outstanding_bookings += 1;
     period_outstanding_cents = checkedAdd(period_outstanding_cents, periodBal);
+    // This read model has no contractual due dates. Never infer aging from stay dates.
+    due_date_unknown_cents = checkedAdd(due_date_unknown_cents, periodBal);
     const last = lastServiceByBooking.get(bookingId);
-    if (!last) {
-      due_soon_cents = checkedAdd(due_soon_cents, periodBal);
-      continue;
-    }
-    const daysPast = Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(last + 'T00:00:00Z')) / 86400000);
-    if (daysPast > 7) overdue_cents = checkedAdd(overdue_cents, periodBal);
-    else due_soon_cents = checkedAdd(due_soon_cents, periodBal);
     if (last < today) {
       delivered_unpaid_cents = checkedAdd(delivered_unpaid_cents, periodBal);
       delivered_unpaid_bookings += 1;
     }
   }
-  // Negative custom-line dues shrink Booked while per-booking max(0, period_due)
-  // still attributes positive dues in full — enforce Pendiente ≤ Booked and keep
-  // aging pills on the same capped basis (Staff API cents only; no invented prices).
-  const cappedOutstanding = capPeriodOutstandingToBooked({
-    period_outstanding_cents,
-    due_soon_cents,
-    overdue_cents,
-    delivered_unpaid_cents,
-    booked_cents: primaryStats.booked_cents,
-  });
-  period_outstanding_cents = cappedOutstanding.period_outstanding_cents;
-  due_soon_cents = cappedOutstanding.due_soon_cents;
-  overdue_cents = cappedOutstanding.overdue_cents;
-  delivered_unpaid_cents = cappedOutstanding.delivered_unpaid_cents;
-
   // Product revenue (BSR recognition by service_date in primary range).
   // Surf: F2 five-row shape. Lodging: real package names (Malibu/…) — no "—" placeholders.
   const revenue_by_product = productMode === 'lodging_packages'
@@ -1353,10 +1409,11 @@ function computeSunsetFinanceSummary(args) {
       today,
     },
     net: {
-      net_collected_cents,
+      status: refundLedgerUnavailable ? 'unavailable' : 'complete',
+      net_collected_cents: refundLedgerUnavailable ? null : net_collected_cents,
       gross_collected_cents: gross,
-      completed_refunds_cents,
-      refunds_cents: completed_refunds_cents,
+      completed_refunds_cents: refundLedgerUnavailable ? null : completed_refunds_cents,
+      refunds_cents: refundLedgerUnavailable ? null : completed_refunds_cents,
       pending_refund_cents,
       pending_refund_label: null,
       // Slice 2: true net from recorded ledger (may equal gross when refunds=0).
@@ -1364,8 +1421,8 @@ function computeSunsetFinanceSummary(args) {
       refund_basis: 'effective_date',
       refund_source: 'booking_refund_records',
       // L4: compare nets independently (not prior/yoy gross).
-      vs_prior_pct: deltaPct(net_collected_cents, priorNet.net_collected_cents),
-      vs_yoy_pct: deltaPct(net_collected_cents, yoyNet.net_collected_cents),
+      vs_prior_pct: refundLedgerUnavailable ? null : deltaPct(net_collected_cents, priorNet.net_collected_cents),
+      vs_yoy_pct: refundLedgerUnavailable ? null : deltaPct(net_collected_cents, yoyNet.net_collected_cents),
     },
     pipeline: {
       booked_cents: primaryStats.booked_cents,
@@ -1383,13 +1440,33 @@ function computeSunsetFinanceSummary(args) {
       bookings_count: outstanding_bookings,
       due_soon_cents,
       overdue_cents,
-      aging_proxy: 'service_date',
-      vs_prior_pct: deltaPct(primaryStats.outstanding_cents, priorStats.outstanding_cents),
-      vs_yoy_pct: deltaPct(primaryStats.outstanding_cents, yoyStats.outstanding_cents),
+      due_date_unknown_cents,
+      due_date_status: due_date_unknown_cents > 0 ? 'unknown' : 'known',
+      aging_proxy: null,
+      vs_prior_pct: null,
+      vs_yoy_pct: null,
     },
     revenue_by_product,
-    luna_bookings,
-    capacity: {
+    luna_bookings: (() => {
+      const unknownOriginCount = [...qualifyingPrimary]
+        .filter((bookingId) => !originByBooking.has(String(bookingId))).length;
+      return {
+        ...luna_bookings,
+        status: unknownOriginCount > 0 ? 'partial' : 'complete',
+        known_luna_count: luna_bookings.total_bookings,
+        unknown_origin_count: unknownOriginCount,
+      };
+    })(),
+    capacity: productMode === 'lodging_packages' ? {
+      metric: 'bed_occupancy',
+      status: bedOccupancy ? String(bedOccupancy.status || 'partial') : 'unavailable',
+      occupied_bed_nights: bedOccupancy && Number.isFinite(Number(bedOccupancy.occupied_bed_nights)) ? Number(bedOccupancy.occupied_bed_nights) : null,
+      sellable_bed_nights: bedOccupancy && Number.isFinite(Number(bedOccupancy.sellable_bed_nights)) ? Number(bedOccupancy.sellable_bed_nights) : null,
+      pct: bedOccupancy && String(bedOccupancy.status) === 'complete' && Number(bedOccupancy.sellable_bed_nights) > 0
+        ? Math.round((Number(bedOccupancy.occupied_bed_nights) * 10000) / Number(bedOccupancy.sellable_bed_nights)) / 100
+        : null,
+      exception_count: bedOccupancy && Number.isFinite(Number(bedOccupancy.exception_count)) ? Number(bedOccupancy.exception_count) : 0,
+    } : {
       seats_filled: capacityKnown ? seats_filled : lessonQty,
       seats_capacity: capacityKnown ? seats_capacity : null,
       seats_pct: capacityKnown ? pctInt(seats_filled, seats_capacity) : null,
@@ -1412,7 +1489,7 @@ function computeSunsetFinanceSummary(args) {
       refund_basis: 'effective_date',
       refund_ledger_unavailable: refundLedgerUnavailable,
       note: refundLedgerUnavailable
-        ? 'Refund ledger unavailable. Net currently equals gross for this response.'
+        ? 'Refund records could not be read. Gross collected remains available; Refunds and Net are unavailable.'
         : 'Net = gross collected − manual recorded refunds in this period (effective date). Not a Stripe payout report.',
     },
   };
