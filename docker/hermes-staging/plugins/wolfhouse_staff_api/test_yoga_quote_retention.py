@@ -78,6 +78,20 @@ class YogaQuoteRetention(unittest.TestCase):
 
     def local_post(self, route, payload):
         self.calls.append((route, copy.deepcopy(payload)))
+        if route == '/availability-check':
+            # Authoritative-shaped offline inventory read for the exact accepted
+            # codes; no inferred demographics or fabricated create response.
+            # Revalidation asks for room_type=any, not selected codes. The
+            # preceding real quote identifies this fixture's accepted setup.
+            quoted = next(body for path, body in reversed(self.calls)
+                          if path == '/booking-preview')
+            private = (quoted.get('room_preference') or quoted.get('room_type')) in {
+                'private', 'private_room', 'couple_private', 'double',
+            }
+            return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                {'bed_code': code, 'room_code': code.split('-B')[0],
+                 'room_type': 'couple_private' if private else 'mixed'}
+                for code in quoted['selected_bed_codes']]}
         if route == '/booking-preview':
             return node_json(['-e', QUOTE_JS], payload)
         if route == '/booking-create-from-plan':
