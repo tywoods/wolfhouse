@@ -445,7 +445,15 @@ class OrdinaryNamesTests(PersistNamesTests):
             body = next(b for p, b in self.calls if p == '/booking-create-from-plan')
             self.assertEqual(body['guests'], ROSTER)
             self.assertEqual(body['guest_name'], NAMES[0])
-            self.assertEqual(body['payment_choice'], plugin._normalize_payment_choice(payment))
+            # The generic helper selects a pricing tier, not the create wire's
+            # split-link intent. Staff normalizes per_guest to deposit pricing
+            # AND per_guest_payment_links=True (scripts/lib/booking-guests.js).
+            # Keep this literal wire assertion independent of the helper and
+            # of the same-owner comparison, so losing split intent stays RED.
+            self.assertEqual(body['payment_choice'], payment)
+            if payment == 'per_guest':
+                self.assertEqual(body['payment_choice'], 'per_guest')
+                self.assertEqual(plugin._normalize_payment_choice(payment), 'deposit')
             self.assertEqual(body, expected)
             self.assertFalse(self.tool_result(db, rebuilt, 'create_booking_from_plan')['write_performed'])
         proof = self.local_sql_proof(body)
@@ -559,8 +567,25 @@ class OrdinaryNamesTests(PersistNamesTests):
                             before = copy.deepcopy(updated['names'])
                             self.calls.clear()
                             args = {**omitted, **explicit}
+                            if label == 'compatible-explicit':
+                                # The prepared offer and create must both describe
+                                # exactly the three occupants supplied explicitly.
+                                args['selected_bed_codes'] = BASE['selected_bed_codes'][:3]
+                            elif label == 'contact-only':
+                                # No roster/count was captured: use the ordinary
+                                # allocator's implied single occupant, not four
+                                # caller-accepted assignments or invented identity.
+                                args.pop('selected_bed_codes')
                             untouched = copy.deepcopy(args)
-                            result = self.invoke('create_booking_from_plan', args)
+                            def transport(path, body, **kwargs):
+                                response = self.api(path, body, **kwargs)
+                                if label == 'contact-only' and path == '/availability-check':
+                                    self.assertEqual(body['guest_count'], 1)
+                                    response['available_beds'] = response['available_beds'][:1]
+                                    response['selected_bed_codes'] = [response['available_beds'][0]['bed_code']]
+                                return response
+                            with patch.object(plugin, '_post_bot', side_effect=transport):
+                                result = self.invoke('create_booking_from_plan', args)
                             self.assertEqual(args, untouched)
                             writes = [b for p, b in self.calls if p == '/booking-create-from-plan']
                             self.assertEqual(bool(writes), allowed)
