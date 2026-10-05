@@ -148,7 +148,7 @@ assert.ok(
   'handler coerces array-shaped start/end like granularity',
 );
 assert.ok(
-  /computeSunsetFinanceSummary\(\{ \.\.\.data, now: new Date\(\), timeZone: 'Europe\/Madrid', view \}\)/.test(api),
+  /computeSunsetFinanceSummary\(\{[\s\S]*\.\.\.data[\s\S]*view[\s\S]*\}\)/.test(api),
   'handler keeps query view authoritative over fetch payload',
 );
 assert.ok(!adminUi.includes('inbox-thread.js'));

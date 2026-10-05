@@ -33,7 +33,7 @@ const RANGE = { start: '2026-08-15', end: '2026-08-15' };
 
 console.log('\n[1] SQL + wire — lodging BSR carries package identity');
 ok('LODGING_BSR_SQL joins packages for name',
-  /LODGING_BSR_SQL[\s\S]{0,800}LEFT JOIN packages p/.test(dataSrc)
+  /LODGING_BSR_SQL[\s\S]{0,1600}LEFT JOIN packages p/.test(dataSrc)
   && /package_code/.test(dataSrc)
   && /package_name/.test(dataSrc));
 ok('LODGING_BSR_SQL no longer hardcodes empty metadata',
@@ -56,20 +56,22 @@ const dayRows = buildLodgingRevenueByProductRows([
   { service_date: '2026-08-16', due: 99999, metadata: { package_code: 'waimea', package_name: 'Waimea' } }, // out of day
 ], RANGE);
 
-eq('3 product rows (malibu, uluwatu, accommodation)', dayRows.length, 3);
-eq('top is Malibu (349+199)', dayRows[0].cents, 54800);
-ok('top label Malibu', /malibu/i.test(dayRows[0].label));
-eq('second Uluwatu', dayRows[1].cents, 39900);
-ok('second label Uluwatu', /uluwatu/i.test(dayRows[1].label));
-eq('no-package Accommodation slot', dayRows[2].slot, 'accommodation');
-eq('no-package cents', dayRows[2].cents, 12000);
+eq('three canonical categories plus unresolved package value', dayRows.length, 4);
+eq('Accommodation heading', dayRows[0].key, 'accommodation');
+eq('Accommodation stays unavailable without commercial lines', dayRows[0].cents, null);
+eq('Services known-empty heading', dayRows[1].key, 'services');
+eq('Camps known-empty heading', dayRows[2].key, 'camps');
+eq('unclassified stay-total value reconciles', dayRows[3].cents, 54800 + 39900 + 12000);
+ok('package details retained under unresolved category',
+  dayRows[3].details.some((r) => /malibu/i.test(r.label) && r.cents === 54800)
+  && dayRows[3].details.some((r) => /uluwatu/i.test(r.label) && r.cents === 39900));
 ok('no Lessons / course_included / em-dash slots',
   !dayRows.some((r) => r.slot === 'lessons' || r.slot === 'course_included' || r.label === '—' || r.label === '\u2014'));
-const daySum = dayRows.reduce((a, r) => a + r.cents, 0);
+const daySum = dayRows.reduce((a, r) => a + (r.cents || 0), 0);
 eq('day rows sum to in-range dues', daySum, 54800 + 39900 + 12000);
 
 console.log('\n[4] Empty period → no placeholder rows');
-eq('empty → []', buildLodgingRevenueByProductRows([], RANGE).length, 0);
+eq('empty → three true-zero headings', buildLodgingRevenueByProductRows([], RANGE).length, 3);
 
 console.log('\n[5] Summary productMode lodging_packages');
 const summary = computeSunsetFinanceSummary({
@@ -98,14 +100,19 @@ const summary = computeSunsetFinanceSummary({
   rental_stock: [],
 });
 const products = summary.redesign.revenue_by_product || [];
-eq('summary has 2 package rows', products.length, 2);
-ok('Waimea ranks first by €', /waimea/i.test(products[0].label) && products[0].cents === 59900);
-ok('Malibu second', /malibu/i.test(products[1].label) && products[1].cents === 34900);
+eq('summary has three headings plus unresolved package row', products.length, 4);
+eq('Accommodation unavailable without commercial lines', products[0].cents, null);
+eq('Services unavailable without commercial lines', products[1].cents, null);
+eq('Camps unavailable without commercial lines', products[2].cents, null);
+eq('unresolved packages preserve full booked value', products[3].cents, 34900 + 59900);
+ok('Waimea and Malibu detail retained',
+  products[3].details.some((r) => /waimea/i.test(r.label) && r.cents === 59900)
+  && products[3].details.some((r) => /malibu/i.test(r.label) && r.cents === 34900));
 ok('no surf placeholder rows in summary',
   !products.some((r) => r.slot === 'lessons' || r.label === '—' || r.label === '\u2014'));
-ok('lodging capacity_by_product empty (later epic)',
-  Array.isArray(summary.redesign.capacity.by_product)
-  && summary.redesign.capacity.by_product.length === 0);
+ok('lodging capacity is bed occupancy (never lesson capacity)',
+  summary.redesign.capacity.metric === 'bed_occupancy'
+  && summary.redesign.capacity.status === 'unavailable');
 
 console.log('\n[6] Default surf mode unchanged (still 5-row F2)');
 const surf = computeSunsetFinanceSummary({

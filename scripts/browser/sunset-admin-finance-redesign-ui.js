@@ -160,12 +160,13 @@ function financeRedesignMonthLabel(idx) {
 }
 
 function financeRedesignBarRow(name, cents, pct, colorClass) {
-  var w = Math.max(0, Math.min(100, Number(pct) || 0));
+  var known = cents != null && pct != null;
+  var w = known ? Math.max(0, Math.min(100, Number(pct) || 0)) : 0;
   return '<div class="pfb-bar-row">' +
     '<span class="pfb-bar-name">' + financeRedesignEsc(name) + '</span>' +
     '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + colorClass + '" style="width:' + w + '%"></span></span>' +
-    '<span class="pfb-bar-amt">' + financeRedesignEsc(financeRedesignFmtEur(cents)) + '</span>' +
-    '<span class="pfb-bar-pct">' + financeRedesignEsc(String(w % 1 ? w.toFixed(1) : w) + '%') + '</span>' +
+    '<span class="pfb-bar-amt">' + (known ? financeRedesignEsc(financeRedesignFmtEur(cents)) : financeRedesignEsc(financeRedesignT('admin.finance.unavailable', 'Unavailable'))) + '</span>' +
+    '<span class="pfb-bar-pct">' + (known ? financeRedesignEsc(String(w % 1 ? w.toFixed(1) : w) + '%') : '—') + '</span>' +
     '</div>';
 }
 
@@ -292,9 +293,11 @@ function renderFinanceRedesignHtml(summary) {
   html += '<span class="pfb-range-label" data-finance-range-label="1">' + financeRedesignEsc(title) + '</span>';
   html += '<button type="button" class="pfb-arw" data-finance-nav="next" aria-label="' +
     financeRedesignEsc(financeRedesignT('schedule.nav.next', 'Next')) + '">›</button>';
+  html += '<button type="button" class="pfb-today" data-finance-nav="today">' +
+    financeRedesignEsc(financeRedesignT('schedule.today', 'Today')) + '</button>';
   html += '</div></div>';
   html += '<div class="pfb-gran" role="tablist" aria-label="Granularity">';
-  [['day', 'Day'], ['month', 'Month'], ['year', 'Year']].forEach(function (row) {
+  [['day', 'Day'], ['week', 'Week'], ['month', 'Month']].forEach(function (row) {
     var key = row[0]; var lab = row[1];
     var on = g === key ? ' is-on' : '';
     html += '<button type="button" role="tab" class="pfb-gran-btn' + on + '" data-finance-gran="' + key + '"' +
@@ -302,6 +305,8 @@ function renderFinanceRedesignHtml(summary) {
       financeRedesignEsc(financeRedesignT('admin.finance.gran.' + key, lab)) + '</button>';
   });
   html += '<div class="pfb-custom-wrap">';
+  html += '<button type="button" class="pfb-custom' + (g === 'year' ? ' is-on' : '') + '" data-finance-gran="year">' +
+    financeRedesignEsc(financeRedesignT('admin.finance.gran.year', 'Year')) + '</button>';
   html += '<button type="button" class="pfb-custom' + (g === 'custom' ? ' is-on' : '') + '" id="pfb-custom-range-trigger" data-finance-gran="custom" data-finance-nav="open-custom-range"' +
     ' aria-haspopup="dialog" aria-expanded="false" aria-controls="pfb-custom-range-pop">' +
     '<span id="pfb-custom-display" class="portal-schedule-create-date-range-display">' +
@@ -335,16 +340,18 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
   html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.netCollected', 'Net collected')) + '</div>';
+  var netUnavailable = net.status === 'unavailable' || net.net_collected_cents == null;
   var netCents = Number(net.net_collected_cents);
-  if (!Number.isFinite(netCents)) netCents = 0;
-  var netBigCls = netCents < 0 ? 'pfb-big pfb-big--amber' : 'pfb-big pfb-big--green';
-  html += '<div class="' + netBigCls + '">' + financeRedesignEsc(financeRedesignFmtEur(netCents)) + '</div>';
+  var netBigCls = !netUnavailable && netCents < 0 ? 'pfb-big pfb-big--amber' : 'pfb-big pfb-big--green';
+  html += '<div class="' + netBigCls + '">' + (netUnavailable
+    ? financeRedesignEsc(financeRedesignT('admin.finance.unavailable', 'Unavailable'))
+    : financeRedesignEsc(financeRedesignFmtEur(netCents))) + '</div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.grossCollected', 'Gross collected')) +
     '</span><b>' + financeRedesignEsc(financeRedesignFmtEur(net.gross_collected_cents || 0)) + '</b></div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.refunds', 'Refunds')) +
-    '</span><b class="pfb-muted">' + financeRedesignEsc(financeRedesignFmtEur(
-      net.completed_refunds_cents != null ? net.completed_refunds_cents : (net.refunds_cents || 0)
-    )) + '</b></div>';
+    '</span><b class="pfb-muted">' + (netUnavailable
+      ? financeRedesignEsc(financeRedesignT('admin.finance.unavailable', 'Unavailable'))
+      : financeRedesignEsc(financeRedesignFmtEur(net.completed_refunds_cents != null ? net.completed_refunds_cents : 0))) + '</b></div>';
   // Pending cancellation proxy retired in Slice 2 — do not render.
   html += '<div class="pfb-note">' + financeRedesignEsc(
     (R.limitations && R.limitations.note)
@@ -362,7 +369,7 @@ function renderFinanceRedesignHtml(summary) {
   // Pipeline
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
-  html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.bookedPipeline', 'Booked (pipeline)')) + '</div>';
+  html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.bookedSales', 'Booked sales')) + '</div>';
   html += '<div class="pfb-mid">' + financeRedesignEsc(financeRedesignFmtEur(pipe.booked_cents || 0)) + '</div>';
   html += '<div class="pfb-cmp">' + financeRedesignEsc(String(pipe.bookings_count || 0) + ' ' +
     financeRedesignT('admin.finance.bookings', 'bookings'));
@@ -383,16 +390,15 @@ function renderFinanceRedesignHtml(summary) {
   // Outstanding
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
-  html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.outstanding', 'Outstanding')) + '</div>';
+  html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.balanceStillDue', 'Balance still due')) + '</div>';
   html += '<div class="pfb-mid pfb-mid--amber">' + financeRedesignEsc(financeRedesignFmtEur(out.outstanding_cents || 0)) + '</div>';
   html += '<div class="pfb-cmp">' + financeRedesignEsc(financeRedesignT('admin.finance.acrossBookings', 'across') + ' ' +
     String(out.bookings_count || 0) + ' ' + financeRedesignT('admin.finance.bookings', 'bookings')) + '</div>';
   html += '</div>';
   html += '<div class="pfb-card-bot">';
-  html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.dueSoon', 'Due soon (≤7d)')) +
-    '</span><span class="pfb-pill pfb-pill--green">' + financeRedesignEsc(financeRedesignFmtEur(out.due_soon_cents || 0)) + '</span></div>';
-  html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.overdue', 'Overdue (>7d)')) +
-    '</span><span class="pfb-pill pfb-pill--red">' + financeRedesignEsc(financeRedesignFmtEur(out.overdue_cents || 0)) + '</span></div>';
+  html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.dueDateUnknown', 'Due date unknown')) +
+    '</span><span class="pfb-pill pfb-pill--green">' + financeRedesignEsc(financeRedesignFmtEur(out.due_date_unknown_cents || 0)) + '</span></div>';
+  html += '<div class="pfb-note">' + financeRedesignEsc(financeRedesignT('admin.finance.dateBasis', 'Current balance for selected cohort; contractual due dates unavailable.')) + '</div>';
   html += '<div class="pfb-scope-note" data-finance-kpi-scope="1" style="margin-top:8px;font-size:12px;line-height:1.35;opacity:0.78">' +
     financeRedesignEsc(financeRedesignT('admin.finance.kpiScopeNote',
       'Net uses paid cash in this period (excludes deleted-booking payments). Outstanding excludes cancelled, expired, and hold bookings — same Staff ledger rules as Bookings KPIs.')) +
@@ -404,6 +410,10 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--luna-bookings" data-finance-luna-bookings="1">';
   html += '<div class="pfb-sec">Luna bookings</div>';
   html += '<div class="pfb-mid">' + financeRedesignEsc(String(lunaBookings.total_bookings || 0)) + '</div>';
+  if (Number(lunaBookings.unknown_origin_count) > 0) {
+    html += '<div class="pfb-note">' + financeRedesignEsc(String(lunaBookings.unknown_origin_count) + ' ' +
+      financeRedesignT('admin.finance.originUnknown', 'bookings with unknown origin')) + '</div>';
+  }
   (Array.isArray(lunaBookings.by_service) ? lunaBookings.by_service : []).forEach(function(row){
     html += '<div class="pfb-row"><span>' + financeRedesignEsc(row.service_type || 'other') +
       '</span><b>' + financeRedesignEsc(String(row.quantity || 0)) + '</b></div>';
@@ -413,7 +423,7 @@ function renderFinanceRedesignHtml(summary) {
   // Two-col: product + capacity
   html += '<div class="pfb-two">';
   html += '<div class="pfb-card pfb-card--bars">';
-  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProduct', 'Revenue by product')) + '</div>';
+  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.bookedSalesByProduct', 'Booked sales by product')) + '</div>';
   html += '<div class="pfb-bars pfb-bars--compact">';
   var colorCycle = ['is-green', 'is-blue', 'is-violet', 'is-amber'];
   var colorMap = { lessons: 'is-green', course_included: 'is-blue', boards: 'is-blue', wetsuits: 'is-violet', other: 'is-amber' };
@@ -436,16 +446,24 @@ function renderFinanceRedesignHtml(summary) {
       lab = financeRedesignT('admin.finance.product.other', 'Other');
     } else if (p.slot === 'accommodation' || p.key === 'pkg:none') {
       lab = financeRedesignT('admin.finance.product.accommodation', 'Accommodation');
+    } else if (p.key === 'services') {
+      lab = financeRedesignT('admin.finance.product.services', 'Services');
+    } else if (p.key === 'camps') {
+      lab = financeRedesignT('admin.finance.product.camps', 'Camps');
     }
     html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
+    (Array.isArray(p.details) ? p.details : []).forEach(function (detail) {
+      html += '<div class="pfb-note pfb-product-detail">' + financeRedesignEsc(detail.label || detail.key || '—') +
+        ' · ' + financeRedesignEsc(financeRedesignFmtEur(detail.cents || 0)) + '</div>';
+    });
   });
   html += '</div>';
   html += '</div>';
 
   html += '<div class="pfb-card pfb-card--bars pfb-card--capacity">';
-  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.capacityUsed', 'Capacity used')) + '</div>';
+  html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.bedOccupancy', 'Bed occupancy')) + '</div>';
   html += '<div class="pfb-cap-top">';
-  var seatsPct = cap.seats_pct;
+  var seatsPct = cap.metric === 'bed_occupancy' ? cap.pct : cap.seats_pct;
   var seatsPctKnown = seatsPct != null && Number.isFinite(Number(seatsPct));
   var seatsPctNum = seatsPctKnown ? Number(seatsPct) : null;
   // Ring fill clamps at 100% so overflow never paints a clipped/broken conic arc.
@@ -460,9 +478,11 @@ function renderFinanceRedesignHtml(summary) {
     (seatsPctNum != null
       ? financeRedesignEsc(String(Math.round(seatsPctNum)) + '%')
       : '\u2014') +
-    '</b><span>' + financeRedesignEsc(financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
+    '</b><span>' + financeRedesignEsc(cap.metric === 'bed_occupancy' ? financeRedesignT('admin.finance.bedNights', 'bed-nights') : financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
   html += '<div class="pfb-bars pfb-bars--compact pfb-bars--capacity">';
-  var capRows = Array.isArray(cap.by_product) && cap.by_product.length
+  var capRows = cap.metric === 'bed_occupancy'
+    ? [{ slot: 'beds', label: financeRedesignT('admin.finance.occupiedBeds', 'Occupied / sellable bed-nights'), pct: cap.pct, detail: (cap.occupied_bed_nights != null && cap.sellable_bed_nights != null) ? (cap.occupied_bed_nights + '/' + cap.sellable_bed_nights) : financeRedesignT('admin.finance.unavailable', 'Unavailable') }]
+    : Array.isArray(cap.by_product) && cap.by_product.length
     ? cap.by_product
     : [
         { slot: 'lessons', label: financeRedesignT('admin.finance.product.lessons', 'Lessons'), pct: cap.seats_pct,
