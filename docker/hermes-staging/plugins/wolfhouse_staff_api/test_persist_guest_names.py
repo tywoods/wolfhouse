@@ -82,6 +82,18 @@ class PersistNamesTests(unittest.TestCase):
 
     def api(self, path, body, **kwargs):
         self.calls.append((path, copy.deepcopy(body)))
+        if path == '/availability-check':
+            # Revalidation reads room_type=any and need not send selected codes.
+            # Use this fixture's offer inventory, never fabricate a create result.
+            offered = next((payload for route, payload in reversed(self.calls)
+                            if route == '/booking-preview'), BASE)
+            private = (offered.get('room_preference') or offered.get('room_type')) in {
+                'private', 'private_room', 'couple_private', 'double',
+            }
+            return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                {'bed_code': code, 'room_code': code.split('-B')[0],
+                 'room_type': 'couple_private' if private else 'mixed'}
+                for code in offered['selected_bed_codes']]}
         if path == '/booking-preview':
             return {'success': True, 'quote_total_cents': 42000, 'deposit_required_cents': 12000,
                     'per_person': [{'total_cents': 10500}], 'per_guest_deposits': [3000] * 4}
@@ -378,7 +390,8 @@ class OrdinaryNamesTests(PersistNamesTests):
                 value = json.loads(message.get('content', ''))
             except (ValueError, TypeError):
                 continue
-            if isinstance(value, dict) and value.get('tool') == name:
+            if isinstance(value, dict) and (value.get('tool') == name or
+                    message.get('tool_name', message.get('name')) == name):
                 return value
         self.fail('missing tool result: ' + name)
 
@@ -833,7 +846,10 @@ class OrdinaryNamesTests(PersistNamesTests):
                     for alias in ('guest_name', 'name', 'booking_name', 'channel_guest_name', 'whatsapp_guest_name'):
                         self.calls.clear()
                         result = self.invoke('create_booking_from_plan', {**BASE, alias: 'A' * 512, 'guests': ROSTER})
-                        self.assertEqual(self.calls[-1][1]['guest_name'], 'A' * 512)
+                        writes = [body for path, body in self.calls
+                                  if path == '/booking-create-from-plan']
+                        self.assertEqual(len(writes), 1)
+                        self.assertEqual(writes[0]['guest_name'], 'A' * 512)
                         self.assertEqual(result['booking_names']['names']['guest_name'], 'A' * 512)
                         self.assertEqual(names._read(case.db._conn, 'a')['names']['guest_name'], 'A' * 512)
                     self.calls.clear()
