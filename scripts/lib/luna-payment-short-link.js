@@ -102,6 +102,11 @@ function isValidPaymentShortLinkBookingCode(code) {
 function parsePaymentShortLinkToken(token) {
   const guestParsed = parseGuestPaymentShortLinkToken(token);
   if (guestParsed.ok) {
+    const raw = trimStr(token);
+    const suffix = /\/g([1-9]\d*)$/i.exec(raw);
+    if (!suffix || !Number.isSafeInteger(guestParsed.guest_number) || guestParsed.guest_number < 1) {
+      return { ok: false, reason: 'invalid_guest_number' };
+    }
     const bookingCode = normalizeBookingCodeToken(guestParsed.booking_code);
     if (!isValidPaymentShortLinkBookingCode(bookingCode)) {
       return { ok: false, reason: 'invalid_booking_code_token' };
@@ -118,6 +123,19 @@ function parsePaymentShortLinkToken(token) {
     return { ok: false, reason: 'invalid_booking_code_token' };
   }
   return { ok: true, booking_code: bookingCode };
+}
+
+// Separate route identity may supplement a token, but never override or erase it.
+function parsePaymentShortLinkInput(src) {
+  const parsed = parsePaymentShortLinkToken(src.booking_code || src.token);
+  if (!parsed.ok || src.guest_number == null) return parsed;
+  const raw = String(src.guest_number);
+  const number = Number(raw);
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(number)
+      || (parsed.guest_number != null && parsed.guest_number !== number)) {
+    return { ok: false, reason: 'invalid_guest_number' };
+  }
+  return { ...parsed, guest_number: number };
 }
 
 function buildPaymentShortLink(input) {
@@ -278,7 +296,7 @@ function bookingLooksFullyPaid(bookingRow, paymentRows) {
 function resolvePaymentShortLinkRedirect(input) {
   const src = input || {};
   const env = readEnv(src.env);
-  const parsed = parsePaymentShortLinkToken(src.booking_code || src.token);
+  const parsed = parsePaymentShortLinkInput(src);
   if (!parsed.ok) {
     return {
       status: 'invalid_token',
@@ -393,6 +411,7 @@ function buildPaymentLinkObservability(input) {
 const PAYMENT_SHORT_LINK_LOOKUP_SQL = `
 SELECT
   b.id::text                    AS booking_id,
+  b.client_id::text             AS client_id,
   b.booking_code,
   b.status::text                AS booking_status,
   b.payment_status::text        AS payment_status,
@@ -417,10 +436,15 @@ SELECT
   p.expires_at,
   p.metadata,
   p.booking_guest_id::text      AS booking_guest_id,
+  p.booking_id::text            AS booking_id,
+  p.client_id::text             AS client_id,
+  bg.guest_number              AS authoritative_guest_number,
   p.created_at
 FROM payments p
-INNER JOIN bookings b ON b.id = p.booking_id
+INNER JOIN bookings b ON b.id = p.booking_id AND b.client_id = p.client_id
 INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
+  AND bg.booking_id = p.booking_id AND bg.client_id = p.client_id
 WHERE c.slug = $1
   AND UPPER(b.booking_code) = UPPER($2)
 ORDER BY p.created_at DESC
@@ -428,9 +452,9 @@ ORDER BY p.created_at DESC
 
 async function resolvePaymentShortLinkRedirectFromDb(pg, input) {
   const src = input || {};
-  const parsed = parsePaymentShortLinkToken(src.booking_code || src.token);
+  const parsed = parsePaymentShortLinkInput(src);
   if (!parsed.ok) {
-    return resolvePaymentShortLinkRedirect({ booking_code: src.booking_code, env: src.env });
+    return { status: 'invalid_token', message: 'This payment link is not valid.' };
   }
   const clientSlug = trimStr(src.client_slug) || DEFAULT_CLIENT;
   let bookingRes = await pg.query(PAYMENT_SHORT_LINK_LOOKUP_SQL, [clientSlug, parsed.booking_code]);
@@ -450,13 +474,21 @@ async function resolvePaymentShortLinkRedirectFromDb(pg, input) {
   }
   let paymentRows = paymentRes.rows || [];
   if (parsed.guest_number != null) {
+    const booking = bookingRes.rows[0];
     paymentRows = paymentRows.filter((row) => {
+      if (!booking || !row.booking_guest_id || row.booking_id !== booking.booking_id
+          || row.client_id !== booking.client_id) return false;
+      const guest = Number(row.authoritative_guest_number);
+      if (!Number.isSafeInteger(guest) || guest < 1 || guest !== parsed.guest_number) return false;
       let md = row.metadata;
       if (typeof md === 'string') {
-        try { md = JSON.parse(md); } catch (_) { md = {}; }
+        try { md = JSON.parse(md); } catch (_) { return false; }
       }
-      const mdGuest = md && md.guest_number != null ? parseInt(md.guest_number, 10) : null;
-      return mdGuest === parsed.guest_number;
+      if (md && md.guest_number != null) {
+        const raw = String(md.guest_number);
+        if (!/^[1-9]\d*$/.test(raw) || Number(raw) !== guest) return false;
+      }
+      return true;
     });
   }
   return resolvePaymentShortLinkRedirect({
