@@ -460,7 +460,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     // Duplicate delivery is also a repair opportunity for a stale zero guest
     // projection. The payment ledger remains untouched, so no amount can be
     // collected or counted twice.
-    if (lockedPayment.booking_guest_id && Number(lockedPayment.amount_paid_cents || 0) > 0) {
+    if (lockedPayment.booking_guest_id && Number(lockedPayment.pm_amount_paid || 0) > 0) {
       await pg.query(
         `UPDATE booking_guests bg
             SET amount_paid_cents = (SELECT COALESCE(SUM(amount_paid_cents), 0)
@@ -471,11 +471,10 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
                                         AND p.status = 'paid'),
                 payment_status = 'paid',
                 updated_at = NOW()
-          WHERE id = $2::uuid
-            AND client_id = $4
-            AND booking_id = $3::uuid`,
+          WHERE id = $1::uuid
+            AND client_id = $3
+            AND booking_id = $2::uuid`,
         [
-          Number(lockedPayment.amount_paid_cents),
           lockedPayment.booking_guest_id,
           pm.booking_id,
           pm.client_id,
@@ -683,10 +682,10 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
                                        AND p.status = 'paid'),
                payment_status = 'paid',
                updated_at = NOW()
-         WHERE id = $2::uuid
-           AND client_id = $3
-           AND booking_id = $4::uuid`,
-      [money.newPmPaidCents, guestId, pm.client_id, pm.booking_id],
+         WHERE id = $1::uuid
+           AND client_id = $2
+           AND booking_id = $3::uuid`,
+      [guestId, pm.client_id, pm.booking_id],
     );
     if (!gUpd.rowCount) {
       const err = new Error('booking_guest_update_client_scope_miss');

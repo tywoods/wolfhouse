@@ -647,6 +647,22 @@ function calculateWolfhouseQuote(input, config) {
       ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
       : singleTierDepositCents);
 
+  // The tier is a ceiling, not permission to collect more than a guest owes.
+  // Derive exact commercial shares from the same line items used by per_person;
+  // a cheap short stay therefore pays its full share, while longer-stay tiers
+  // and mixed guest allocations retain their configured deposit amounts.
+  const depositShares = buildQuotePerPersonBreakdown({
+    guest_count: guests, line_items, per_guest_deposits, payment_choice,
+    package_code: effectivePackageCode, single_tier_deposit_cents: singleTierDepositCents,
+  });
+  per_guest_deposits = per_guest_deposits.map((row) => ({
+    ...row,
+    deposit_cents: Math.min(row.deposit_cents, depositShares.find((g) => g.guest_number === row.guest_number).subtotal_cents),
+  }));
+  if (per_guest_deposits.length) {
+    deposit_required_cents = per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0);
+  }
+
   // ── 12. Payment link amount ───────────────────────────────────────────────
   let payment_link_amount_cents = 0;
 

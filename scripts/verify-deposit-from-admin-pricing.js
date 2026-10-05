@@ -105,13 +105,16 @@ async function matrix(pg, expectedRates) {
     };
     const quote = calculateWolfhouseQuote(booking, config);
     assert.equal(quote.success, true);
-    assert.equal(quote.deposit_required_cents, expected);
-    assert.equal(quote.payment_link_amount_cents, expected);
+    // Saved Admin rate remains authoritative, bounded by actual priced debt.
+    const quotedExpected = Math.min(expected, quote.total_cents);
+    const quotedPerGuest = quotedExpected / guests;
+    assert.equal(quote.deposit_required_cents, quotedExpected);
+    assert.equal(quote.payment_link_amount_cents, quotedExpected);
     assert.equal(quote.per_guest_deposits.length, guests);
-    assert(quote.per_guest_deposits.every((g) => g.deposit_cents === rate));
+    assert(quote.per_guest_deposits.every((g) => g.deposit_cents === quotedPerGuest));
     const preview = await t.bookingPreview(pg, t.bookingBody(booking));
     assert.equal(preview.status, 200);
-    assert.equal(preview.body.quote.deposit_required_cents, expected, 'actual bot preview uses saved admin rate');
+    assert.equal(preview.body.quote.deposit_required_cents, quotedExpected, 'actual bot preview uses saved admin rate bounded by priced debt');
     const { buildWolfhouseBookingCreateCommand } = require('./lib/luna-front-desk-accommodation-booking-create-service');
     const created = await buildWolfhouseBookingCreateCommand({
       channel: 'manual_staff', trustedClientSlug: SLUG, quoteConfig: config,
@@ -120,9 +123,9 @@ async function matrix(pg, expectedRates) {
         selected_bed_codes: Array.from({ length: guests }, (_, i) => 'R1-B' + (i + 1)) }),
     }); // Command construction only; no execution, reservation or Stripe call.
     assert.equal(created.ok, true, JSON.stringify(created));
-    assert.equal(created.command.depositCents, expected);
-    assert.equal(created.command.paymentLinkAmountCents, expected);
-    assert(created.command.quote.per_guest_deposits.every((g) => g.deposit_cents === rate));
+    assert.equal(created.command.depositCents, quotedExpected);
+    assert.equal(created.command.paymentLinkAmountCents, quotedExpected);
+    assert(created.command.quote.per_guest_deposits.every((g) => g.deposit_cents === quotedPerGuest));
     const opts = { loadBookingPaymentLedger: async () => ({ invoice_total_cents: 900000 }) };
     const result = await bookingDepositLinkAmount(pg, booking, [], opts);
     if (expected === 0) assert.equal(result.body.reason_code, 'no_deposit_due');
