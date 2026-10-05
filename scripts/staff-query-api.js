@@ -16701,7 +16701,6 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .msg.outbound.msg-luna .msg-bubble{background:var(--luna-blue);color:var(--luna-blue-text);border:1px solid var(--luna-blue-border);border-bottom-right-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-staff .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-right-radius:5px}
 [data-theme="dark"] .ctx-pay-box,[data-theme="dark"] .ctx-planned,[data-theme="dark"] .ctx-pay-record{background:var(--surface-soft);border-color:var(--border);color:var(--text)}
-[data-theme="dark"] .ctx-payment-history-card{background:var(--surface)!important}
 [data-theme="dark"] .ctx-pay-record-paid{background:#1e2a22;border-color:#3a5a48;color:#c8dcc8}
 [data-theme="dark"] .ctx-pay-record-checkout{border-color:#3a6a9a;background:#1a2836}
 [data-theme="dark"] .ctx-pay-record-cancelled{background:var(--surface-soft);border-color:var(--tan);color:var(--text-2)}
