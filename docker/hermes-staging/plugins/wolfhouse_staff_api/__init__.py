@@ -989,7 +989,52 @@ def create_booking_from_plan(params, **kwargs):
 
     if room_decision:
         if excluded and payload.get("selected_bed_codes"):
-            payload.pop("selected_bed_codes", None)
+            # Group exclusions are not per-occupant exclusions: an accepted split
+            # dorm can place each traveler in their own eligible gendered room.
+            # Resolve exact bed metadata from Staff, never from room-code guesses.
+            from wolfhouse.room_eligibility_policy import _provisional
+            codes = payload["selected_bed_codes"]
+            hints = payload.get("room_name_hints")
+            guests = payload.get("guests")
+            facts = _post_bot("/availability-check", {
+                "client_slug": payload.get("client_slug"),
+                "check_in": payload.get("check_in"),
+                "check_out": payload.get("check_out"),
+                "guest_count": payload.get("guest_count", 1),
+                "room_type": "any",
+            }) if (
+                isinstance(hints, list) and isinstance(guests, list)
+                and len(hints) == len(guests) == guest_count
+                and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
+                        for hint, guest in zip(hints, guests))
+            ) else {}
+            rows = facts.get("available_beds") if isinstance(facts, dict) and facts.get("success") is True else None
+            bed_lookup = {}
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict) and isinstance(row.get("bed_code"), str):
+                        code = row["bed_code"]
+                        # Duplicate facts are ambiguous, even if apparently equal.
+                        bed_lookup[code] = None if code in bed_lookup else row.get("room_type")
+            aligned = (
+                isinstance(codes, list) and len(codes) == guest_count
+                and all(isinstance(code, str) and code for code in codes)
+                and len(set(codes)) == len(codes)
+                and isinstance(hints, list) and isinstance(guests, list)
+                and len(hints) == len(guests) == len(codes)
+                and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
+                        for hint, guest in zip(hints, guests))
+            )
+            compatible = aligned and all(
+                bed_lookup.get(code) == "mixed"
+                or (_provisional(hint) in {"female", "male"}
+                    and bed_lookup.get(code) == _provisional(hint) + "_only")
+                for code, hint in zip(codes, hints or [])
+            )
+            if not compatible:
+                # Never shorten the ordered list: doing so shifts occupant slots.
+                # Missing/malformed facts retain the existing fail-closed fallback.
+                payload.pop("selected_bed_codes", None)
         composition = room_decision.get("resolved_composition")
         if composition in {"male", "female", "mixed"} and not payload.get("group_gender"):
             payload["group_gender"] = composition
