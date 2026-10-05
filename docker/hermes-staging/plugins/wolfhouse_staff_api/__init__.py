@@ -850,6 +850,7 @@ def _booking_count_validation(payload):
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    caller_selected_beds = bool(payload.get("selected_bed_codes"))
     refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
     if refusal is not None:
         return refusal
@@ -988,7 +989,7 @@ def create_booking_from_plan(params, **kwargs):
         payload["package_code"] = "package_none"
 
     if room_decision:
-        if excluded and payload.get("selected_bed_codes"):
+        if excluded and caller_selected_beds:
             # Group exclusions are not per-occupant exclusions: an accepted split
             # dorm can place each traveler in their own eligible gendered room.
             # Resolve exact bed metadata from Staff, never from room-code guesses.
@@ -996,18 +997,16 @@ def create_booking_from_plan(params, **kwargs):
             codes = payload["selected_bed_codes"]
             hints = payload.get("room_name_hints")
             guests = payload.get("guests")
-            facts = _post_bot("/availability-check", {
-                "client_slug": payload.get("client_slug"),
-                "check_in": payload.get("check_in"),
-                "check_out": payload.get("check_out"),
-                "guest_count": payload.get("guest_count", 1),
-                "room_type": "any",
-            }) if (
-                isinstance(hints, list) and isinstance(guests, list)
-                and len(hints) == len(guests) == guest_count
-                and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
-                        for hint, guest in zip(hints, guests))
-            ) else {}
+            try:
+                facts = _post_bot("/availability-check", {
+                    "client_slug": payload.get("client_slug"),
+                    "check_in": payload.get("check_in"),
+                    "check_out": payload.get("check_out"),
+                    "guest_count": payload.get("guest_count", 1),
+                    "room_type": "any",
+                })
+            except Exception:
+                facts = {}
             rows = facts.get("available_beds") if isinstance(facts, dict) and facts.get("success") is True else None
             bed_lookup = {}
             if isinstance(rows, list):
@@ -1020,18 +1019,31 @@ def create_booking_from_plan(params, **kwargs):
                 isinstance(codes, list) and len(codes) == guest_count
                 and all(isinstance(code, str) and code for code in codes)
                 and len(set(codes)) == len(codes)
-                and isinstance(hints, list) and isinstance(guests, list)
+            )
+            hint_aligned = (
+                aligned and isinstance(hints, list) and isinstance(guests, list)
                 and len(hints) == len(guests) == len(codes)
                 and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
                         for hint, guest in zip(hints, guests))
             )
-            interpreted = [_provisional(hint) for hint in hints] if aligned else []
-            compatible = aligned and all(
+            interpreted = [_provisional(hint) for hint in hints] if hint_aligned else []
+            # Neutral private acceptance does not assert demographics. Likewise,
+            # mixed-only acceptance without hints needs none. Supplied hints or
+            # any gendered bed retain the strict ordered compatibility contract.
+            private_neutral = aligned and room_decision.get("private_room") and all(
+                isinstance(bed_lookup.get(code), str)
+                and bed_lookup[code] in {"private", "couple_private", "private_room"}
+                for code in codes
+            )
+            mixed_neutral = aligned and hints is None and all(
+                bed_lookup.get(code) == "mixed" for code in codes
+            )
+            compatible = private_neutral or mixed_neutral or (hint_aligned and all(
                 gender in {"female", "male"}
                 and (bed_lookup.get(code) == "mixed"
                      or bed_lookup.get(code) == gender + "_only")
                 for code, gender in zip(codes, interpreted)
-            )
+            ))
             if (not compatible or not isinstance(facts, dict)
                     or facts.get("success") is not True
                     or facts.get("has_enough_beds") is False):

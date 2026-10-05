@@ -40,7 +40,10 @@ class StandaloneHelperTests(unittest.TestCase):
         registry = Registry()
         with patch.object(plugin, '_booking_names_helper', return_value=None), \
                 patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}), \
-                patch.object(plugin, '_post_bot', return_value={'success': False, 'write_performed': False, 'error': 'offline_capture'}) as transport:
+                patch.object(plugin, '_post_bot', side_effect=lambda route, body: (
+                    {'success': True, 'has_enough_beds': True, 'available_beds': [
+                        {'bed_code': code, 'room_code': 'R3', 'room_type': 'mixed'} for code in BASE['selected_bed_codes']]}
+                    if route == '/availability-check' else {'success': False, 'write_performed': False, 'error': 'offline_capture'})) as transport:
             plugin.register(registry)
             result = json.loads(registry.tools['create_booking_from_plan']['handler'](
                 {**BASE, 'guest_name': 'Explicit', 'guests': ROSTER}))
@@ -48,7 +51,8 @@ class StandaloneHelperTests(unittest.TestCase):
                 transport.assert_not_called()
                 self.assertEqual(result['error'], 'booking_names_unavailable')
             else:
-                transport.assert_called_once()
+                self.assertEqual(transport.call_count, 2)
+                self.assertEqual(transport.call_args.args[0], '/booking-create-from-plan')
                 self.assertEqual(transport.call_args.args[1]['guest_name'], 'Explicit')
                 self.assertFalse(result['write_performed'])
             print('IR4_STANDALONE_RUNTIME_LOADED', runtime_loaded)

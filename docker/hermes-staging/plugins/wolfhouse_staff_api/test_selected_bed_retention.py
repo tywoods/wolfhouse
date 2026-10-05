@@ -68,13 +68,58 @@ class SelectedBedRetention(unittest.TestCase):
             return json.loads(self.registry.tools['create_booking_from_plan'](self.payload))
 
     def create_payload(self):
-        return next(body for route, body in self.calls if route == '/booking-create-from-plan')
+        creates = [body for route, body in self.calls if route == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1, 'eligible selection must reach authoritative create')
+        return creates[0]
 
     def test_accepted_mixed_couple_split_dorm_keeps_exact_order(self):
         self.run_handler()
         self.assertEqual(self.create_payload().get('selected_bed_codes'), ['R8-B3', 'R4-B1'])
         self.assertEqual(self.create_payload()['guests'], [{'name': 'Alice'}, {'name': 'Bob'}])
 
+
+    def test_autoallocated_mixed_unknown_needs_no_gender_hints(self):
+        self.payload.pop('selected_bed_codes')
+        self.payload.pop('room_name_hints')
+        self.payload.pop('group_gender')
+        self.payload['room_preference'] = 'mixed'
+        for bed in self.beds:
+            bed['room_type'] = 'mixed'
+        self.availability = dict(success=True, has_enough_beds=True,
+                                 selected_bed_codes=['R8-B3', 'R4-B1'], available_beds=self.beds)
+        self.run_handler()
+        self.assertEqual(self.create_payload()['selected_bed_codes'], ['R8-B3', 'R4-B1'])
+        self.assertNotIn('group_gender', self.create_payload())
+        self.assertEqual([route for route, _ in self.calls], ['/availability-check', '/booking-create-from-plan'])
+
+    def test_autoallocated_private_unknown_needs_no_gender_hints(self):
+        self.payload.pop('selected_bed_codes')
+        self.payload.pop('room_name_hints')
+        self.payload.pop('group_gender')
+        self.payload['room_preference'] = 'private'
+        for bed in self.beds:
+            bed['room_type'] = 'private'
+        self.availability = dict(success=True, has_enough_beds=True,
+                                 selected_bed_codes=['R8-B3', 'R4-B1'], available_beds=self.beds)
+        self.run_handler()
+        self.assertEqual(self.create_payload()['selected_bed_codes'], ['R8-B3', 'R4-B1'])
+        self.assertNotIn('group_gender', self.create_payload())
+
+    def test_accepted_private_neutral_preserves_exact_codes_without_hints(self):
+        self.payload.pop('room_name_hints')
+        self.payload.pop('group_gender')
+        self.payload['room_preference'] = 'private'
+        for bed in self.beds:
+            bed['room_type'] = 'private'
+        self.run_handler()
+        self.assertEqual(self.create_payload()['selected_bed_codes'], ['R8-B3', 'R4-B1'])
+        self.assertNotIn('group_gender', self.create_payload())
+
+    def test_lookup_exception_returns_typed_recovery_without_create(self):
+        with patch.object(plugin, '_post_bot', side_effect=RuntimeError('offline lookup failure')) as transport:
+            result = json.loads(self.registry.tools['create_booking_from_plan'](self.payload))
+        self.assert_recovery(result)
+        self.assertEqual([call.args[0] for call in transport.call_args_list], ['/availability-check'])
 
     def test_opposite_gender_requires_reconfirmation_without_substitution(self):
         self.beds[0]['room_type'] = 'male_only'
