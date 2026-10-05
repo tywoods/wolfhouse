@@ -1025,16 +1025,34 @@ def create_booking_from_plan(params, **kwargs):
                 and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
                         for hint, guest in zip(hints, guests))
             )
+            interpreted = [_provisional(hint) for hint in hints] if aligned else []
             compatible = aligned and all(
-                bed_lookup.get(code) == "mixed"
-                or (_provisional(hint) in {"female", "male"}
-                    and bed_lookup.get(code) == _provisional(hint) + "_only")
-                for code, hint in zip(codes, hints or [])
+                gender in {"female", "male"}
+                and (bed_lookup.get(code) == "mixed"
+                     or bed_lookup.get(code) == gender + "_only")
+                for code, gender in zip(codes, interpreted)
             )
-            if not compatible:
-                # Never shorten the ordered list: doing so shifts occupant slots.
-                # Missing/malformed facts retain the existing fail-closed fallback.
-                payload.pop("selected_bed_codes", None)
+            if (not compatible or not isinstance(facts, dict)
+                    or facts.get("success") is not True
+                    or facts.get("has_enough_beds") is False):
+                # Acceptance authorizes this ordered setup, not auto-allocation.
+                # Even proven incompatibility needs fresh guest consent; do not
+                # remove codes and dispatch a silently substituted booking.
+                return _json_result({
+                    "success": False,
+                    "write_performed": False,
+                    "error": "accepted_bed_selection_revalidation_required",
+                    "recovery_required": True,
+                    "requires_guest_confirmation": True,
+                    "accepted_setup": {
+                        "selected_bed_codes": codes,
+                        "guests": guests,
+                        "room_name_hints": hints,
+                        "room_preference": payload.get("room_preference"),
+                    },
+                    "room_decision": room_decision,
+                    "message": "The accepted beds could not be revalidated. Preserve the accepted setup and confirm any alternative before creating a booking.",
+                })
         composition = room_decision.get("resolved_composition")
         if composition in {"male", "female", "mixed"} and not payload.get("group_gender"):
             payload["group_gender"] = composition

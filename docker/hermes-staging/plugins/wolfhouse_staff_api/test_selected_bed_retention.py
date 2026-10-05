@@ -34,12 +34,33 @@ class SelectedBedRetention(unittest.TestCase):
         self.beds = [{'bed_code': 'R8-B3', 'room_code': 'R8', 'room_type': 'female_only'},
                      {'bed_code': 'R4-B1', 'room_code': 'R4', 'room_type': 'male_only'}]
         self.calls = []
+        self.availability = None
+
+    def assert_recovery(self, result):
+        self.assertFalse(any(route == '/booking-create-from-plan' for route, _ in self.calls))
+        self.assertFalse(result['success'])
+        self.assertFalse(result['write_performed'])
+        self.assertEqual(result['error'], 'accepted_bed_selection_revalidation_required')
+        self.assertEqual(result['accepted_setup']['selected_bed_codes'], self.payload['selected_bed_codes'])
+        self.assertEqual(result['accepted_setup']['guests'], self.payload['guests'])
+        self.assertFalse(any(route == '/booking-create-from-plan' for route, _ in self.calls))
+
+    def test_uncertain_or_unavailable_lookup_never_dispatches_create(self):
+        for facts in ({'success': False, 'error': 'db_error'},
+                      {'success': True, 'available_beds': self.beds[1:]},
+                      {'success': True, 'has_enough_beds': False, 'available_beds': []},
+                      {'success': True, 'has_enough_beds': False, 'available_beds': self.beds,
+                       'blockers': ['occupied']}):
+            with self.subTest(facts=facts):
+                self.calls = []
+                self.availability = facts
+                self.assert_recovery(self.run_handler())
 
     def run_handler(self):
         def api(route, payload):
             self.calls.append((route, copy.deepcopy(payload)))
             if route == '/availability-check':
-                return dict(success=True, has_enough_beds=True, available_beds=self.beds)
+                return self.availability if self.availability is not None else dict(success=True, has_enough_beds=True, available_beds=self.beds)
             self.assertEqual(route, '/booking-create-from-plan', 'no payment/send/handoff requests')
             return dict(success=False, write_performed=False, error='offline_intercept')
         with patch('urllib.request.urlopen', side_effect=AssertionError('network forbidden')), \
@@ -55,11 +76,9 @@ class SelectedBedRetention(unittest.TestCase):
         self.assertEqual(self.create_payload()['guests'], [{'name': 'Alice'}, {'name': 'Bob'}])
 
 
-    def test_opposite_gender_drops_whole_selection_not_one_slot(self):
+    def test_opposite_gender_requires_reconfirmation_without_substitution(self):
         self.beds[0]['room_type'] = 'male_only'
-        self.run_handler()
-        self.assertNotIn('selected_bed_codes', self.create_payload())
-        self.assertEqual(self.create_payload()['guests'], [{'name': 'Alice'}, {'name': 'Bob'}])
+        self.assert_recovery(self.run_handler())
 
     def test_mixed_rooms_allowed_for_both_travelers(self):
         for bed in self.beds:
@@ -67,13 +86,26 @@ class SelectedBedRetention(unittest.TestCase):
         self.run_handler()
         self.assertEqual(self.create_payload()['selected_bed_codes'], self.payload['selected_bed_codes'])
 
-    def test_unknown_metadata_uses_existing_staff_fallback(self):
+    def test_mixed_rooms_reject_unknown_or_malformed_hints_before_create(self):
+        for bed in self.beds:
+            bed['room_type'] = 'mixed'
+        for hint in ({'hint': 'unknown', 'confidence': 0},
+                     {'hint': 'female', 'confidence': True},
+                     {'hint': 'female', 'confidence': .69},
+                     {'hint': 'female', 'confidence': .99, 'ambiguous': True},
+                     {'hint': {}, 'confidence': .99},
+                     {'hint': 'female', 'confidence': 'high'}):
+            with self.subTest(hint=hint):
+                self.calls = []
+                self.payload['room_name_hints'][0] = {'name': 'Alice', **hint}
+                self.assert_recovery(self.run_handler())
+
+    def test_unknown_metadata_requires_revalidation_without_substitution(self):
         for metadata in (None, 'shared', 'unknown', {}, ['female_only']):
             with self.subTest(metadata=metadata):
                 self.calls = []
                 self.beds[0]['room_type'] = metadata
-                self.run_handler()
-                self.assertNotIn('selected_bed_codes', self.create_payload())
+                self.assert_recovery(self.run_handler())
 
     def test_missing_or_duplicate_bed_metadata_fails_closed(self):
         for beds in ([], None, 'bad', [self.beds[0]], self.beds + [self.beds[0]]):
@@ -81,8 +113,7 @@ class SelectedBedRetention(unittest.TestCase):
                 old = self.beds
                 self.beds = beds
                 self.calls = []
-                self.run_handler()
-                self.assertNotIn('selected_bed_codes', self.create_payload())
+                self.assert_recovery(self.run_handler())
                 self.beds = old
 
     def test_hint_roster_order_and_shape_never_shift_slots(self):
@@ -91,16 +122,14 @@ class SelectedBedRetention(unittest.TestCase):
             with self.subTest(hints=hints):
                 self.calls = []
                 self.payload['room_name_hints'] = hints
-                self.run_handler()
-                self.assertNotIn('selected_bed_codes', self.create_payload())
+                self.assert_recovery(self.run_handler())
 
     def test_low_confidence_or_ambiguous_hint_not_compatibility(self):
         for change in ({'confidence': .69}, {'confidence': True}, {'ambiguous': True}):
             with self.subTest(change=change):
                 self.calls = []
                 self.payload['room_name_hints'][0] = {'name': 'Alice', 'hint': 'female', **change}
-                self.run_handler()
-                self.assertNotIn('selected_bed_codes', self.create_payload())
+                self.assert_recovery(self.run_handler())
 
     def test_explicit_traveler_statement_overrides_hint(self):
         self.payload['room_name_hints'][0].update(hint='male', explicit_gender='female')
@@ -110,16 +139,14 @@ class SelectedBedRetention(unittest.TestCase):
     def test_private_existing_exclusions_require_known_compatibility(self):
         self.payload['room_preference'] = 'private'
         self.beds[0]['room_type'] = 'private'
-        self.run_handler()
-        self.assertNotIn('selected_bed_codes', self.create_payload())
+        self.assert_recovery(self.run_handler())
 
     def test_malformed_code_order_or_count_fails_closed(self):
         for codes in (['R4-B1', 'R8-B3'], ['R8-B3'], ['R8-B3', 'R8-B3'], ['R8-B3', {}]):
             with self.subTest(codes=codes):
                 self.calls = []
                 self.payload['selected_bed_codes'] = codes
-                self.run_handler()
-                self.assertNotIn('selected_bed_codes', self.create_payload())
+                self.assert_recovery(self.run_handler())
 
     def test_empty_exclusions_leave_selection_unchanged(self):
         from wolfhouse.room_eligibility_policy import decide_room_eligibility
