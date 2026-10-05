@@ -37,18 +37,27 @@ class PackageMinimumTests(unittest.TestCase):
                        'room_preference': 'mixed', 'selected_bed_codes': ['M1'],
                        'package_code': 'malibu', 'payment_choice': 'deposit'}
 
+    def create_transport(self, receipt):
+        def transport(route, payload):
+            if route == '/availability-check':
+                return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                    {'bed_code': 'M1', 'room_code': 'M', 'room_type': 'mixed'}]}
+            self.assertEqual(route, '/booking-create-from-plan')
+            return receipt
+        return transport
+
     def invoke(self, tool, params):
         return json.loads(self.tools[tool]['handler'](params))
 
     def test_create_preserves_short_date_package_for_authoritative_validation(self):
         original = copy.deepcopy(self.params)
         # Deliberate backend rejection means this proof creates no booking/payment.
-        with patch.object(plugin, '_post_bot', return_value={
+        with patch.object(plugin, '_post_bot', side_effect=self.create_transport({
             'success': False, 'write_performed': False,
             'next_action': 'package_not_available_for_dates',
-        }) as transport:
+        })) as transport:
             self.invoke('create_booking_from_plan', self.params)
-        transport.assert_called_once()
+        self.assertEqual(transport.call_count, 2)
         self.assertEqual(transport.call_args.args[0], '/booking-create-from-plan')
         self.assertEqual(transport.call_args.args[1]['package_code'], 'malibu')
         self.assertEqual(self.params, original)
@@ -121,9 +130,9 @@ class PackageMinimumTests(unittest.TestCase):
         """
         receipt = json.loads(subprocess.check_output(['node', '-e', script], cwd=root, text=True))
         self.assertEqual(receipt['reason_code'], 'package_min_nights_violation')
-        with patch.object(plugin, '_post_bot', return_value=receipt) as transport:
+        with patch.object(plugin, '_post_bot', side_effect=self.create_transport(receipt)) as transport:
             result = self.invoke('create_booking_from_plan', self.params)
-        transport.assert_called_once()
+        self.assertEqual(transport.call_count, 2)
         self.assertFalse(result['staff_review_needed'])
         self.assertTrue(result['do_not_escalate'])
         self.assertFalse(result['write_performed'])
@@ -138,9 +147,9 @@ class PackageMinimumTests(unittest.TestCase):
         t.createAtCommitChange().then(r => process.stdout.write(JSON.stringify(r.body)));
         """
         receipt = json.loads(subprocess.check_output(['node', '-e', script], cwd=root, text=True))
-        with patch.object(plugin, '_post_bot', return_value=receipt) as transport:
+        with patch.object(plugin, '_post_bot', side_effect=self.create_transport(receipt)) as transport:
             result = self.invoke('create_booking_from_plan', self.params)
-        transport.assert_called_once()
+        self.assertEqual(transport.call_count, 2)
         self.assertFalse(result['staff_review_needed'])
         self.assertTrue(result['do_not_escalate'])
         self.assertFalse(result['write_performed'])

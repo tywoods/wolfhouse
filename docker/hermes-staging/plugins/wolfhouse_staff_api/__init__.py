@@ -850,6 +850,7 @@ def _booking_count_validation(payload):
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
+    caller_selected_beds = bool(payload.get("selected_bed_codes"))
     refusal = _catalog_selection_refusal("create_booking_from_plan", payload)
     if refusal is not None:
         return refusal
@@ -988,8 +989,82 @@ def create_booking_from_plan(params, **kwargs):
         payload["package_code"] = "package_none"
 
     if room_decision:
-        if excluded and payload.get("selected_bed_codes"):
-            payload.pop("selected_bed_codes", None)
+        if excluded and caller_selected_beds:
+            # Group exclusions are not per-occupant exclusions: an accepted split
+            # dorm can place each traveler in their own eligible gendered room.
+            # Resolve exact bed metadata from Staff, never from room-code guesses.
+            from wolfhouse.room_eligibility_policy import _provisional
+            codes = payload["selected_bed_codes"]
+            hints = payload.get("room_name_hints")
+            guests = payload.get("guests")
+            try:
+                facts = _post_bot("/availability-check", {
+                    "client_slug": payload.get("client_slug"),
+                    "check_in": payload.get("check_in"),
+                    "check_out": payload.get("check_out"),
+                    "guest_count": payload.get("guest_count", 1),
+                    "room_type": "any",
+                })
+            except Exception:
+                facts = {}
+            rows = facts.get("available_beds") if isinstance(facts, dict) and facts.get("success") is True else None
+            bed_lookup = {}
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict) and isinstance(row.get("bed_code"), str):
+                        code = row["bed_code"]
+                        # Duplicate facts are ambiguous, even if apparently equal.
+                        bed_lookup[code] = None if code in bed_lookup else row.get("room_type")
+            aligned = (
+                isinstance(codes, list) and len(codes) == guest_count
+                and all(isinstance(code, str) and code for code in codes)
+                and len(set(codes)) == len(codes)
+            )
+            hint_aligned = (
+                aligned and isinstance(hints, list) and isinstance(guests, list)
+                and len(hints) == len(guests) == len(codes)
+                and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
+                        for hint, guest in zip(hints, guests))
+            )
+            interpreted = [_provisional(hint) for hint in hints] if hint_aligned else []
+            # Neutral private acceptance does not assert demographics. Likewise,
+            # mixed-only acceptance without hints needs none. Supplied hints or
+            # any gendered bed retain the strict ordered compatibility contract.
+            private_neutral = aligned and room_decision.get("private_room") and all(
+                isinstance(bed_lookup.get(code), str)
+                and bed_lookup[code] in {"private", "couple_private", "private_room"}
+                for code in codes
+            )
+            mixed_neutral = aligned and hints is None and all(
+                bed_lookup.get(code) == "mixed" for code in codes
+            )
+            compatible = private_neutral or mixed_neutral or (hint_aligned and all(
+                gender in {"female", "male"}
+                and (bed_lookup.get(code) == "mixed"
+                     or bed_lookup.get(code) == gender + "_only")
+                for code, gender in zip(codes, interpreted)
+            ))
+            if (not compatible or not isinstance(facts, dict)
+                    or facts.get("success") is not True
+                    or facts.get("has_enough_beds") is False):
+                # Acceptance authorizes this ordered setup, not auto-allocation.
+                # Even proven incompatibility needs fresh guest consent; do not
+                # remove codes and dispatch a silently substituted booking.
+                return _json_result({
+                    "success": False,
+                    "write_performed": False,
+                    "error": "accepted_bed_selection_revalidation_required",
+                    "recovery_required": True,
+                    "requires_guest_confirmation": True,
+                    "accepted_setup": {
+                        "selected_bed_codes": codes,
+                        "guests": guests,
+                        "room_name_hints": hints,
+                        "room_preference": payload.get("room_preference"),
+                    },
+                    "room_decision": room_decision,
+                    "message": "The accepted beds could not be revalidated. Preserve the accepted setup and confirm any alternative before creating a booking.",
+                })
         composition = room_decision.get("resolved_composition")
         if composition in {"male", "female", "mixed"} and not payload.get("group_gender"):
             payload["group_gender"] = composition

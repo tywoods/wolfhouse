@@ -51,6 +51,9 @@ class CreateGuestNamesTests(unittest.TestCase):
         calls = []
 
         def api(path, body):
+            if path == '/availability-check':
+                return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                    {'bed_code': f'R3-B{i}', 'room_code': 'R3', 'room_type': 'mixed'} for i in range(1, 5)]}
             calls.append((path, copy.deepcopy(body)))
             self.assertEqual(path, "/booking-create-from-plan")
             # Not a fabricated successful write: capture the attempted transport only.
@@ -198,7 +201,7 @@ class CreateGuestNamesTests(unittest.TestCase):
                                         for g in result["occupants"]))
 
     def test_solo_primary_name_still_works(self):
-        _, calls = self.invoke({**self.payload, "guest_count": 1, "group_gender": "male"})
+        _, calls = self.invoke({**self.payload, "guest_count": 1, "group_gender": "male", 'selected_bed_codes': ['R3-B1']})
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["guest_name"], "Tom")
 

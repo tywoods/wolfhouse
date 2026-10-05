@@ -48,6 +48,13 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         def transport(path, body):
             calls.append((path, copy.deepcopy(body)))
             if path == "/availability-check":
+                if payload.get('selected_bed_codes') and availability is None:
+                    # Current authoritative inventory for the accepted neutral choice.
+                    calls.pop()  # This helper reports booking/preview attempts, not this read.
+                    private = (payload.get('room_preference') or payload.get('room_type')) in {'private', 'private_room', 'couple_private'}
+                    return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                        {'bed_code': code, 'room_code': 'SYNTHETIC', 'room_type': 'private' if private else 'mixed'}
+                        for code in payload['selected_bed_codes']]}
                 return availability or {"success": True, "selected_bed_codes": []}
             if path == "/booking-preview":
                 return preview if preview is not None else {"success": True, "quote": {"total_cents": 10000, "deposit_required_cents": 3000}}
@@ -66,7 +73,7 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         self.assertEqual([path for path, _ in calls], ["/booking-create-from-plan"])
         sent = calls[0][1]
         self.assertNotIn("group_gender", sent)
-        self.assertNotIn("selected_bed_codes", sent, "allocator must recheck potentially gendered cached beds")
+        self.assertEqual(sent['selected_bed_codes'], self.payload['selected_bed_codes'], 'revalidated neutral beds must not be silently dropped')
         self.assertEqual(sent["room_preference"], "mixed")
         self.assertEqual(result["room_decision"]["resolved_composition"], "unknown")
         self.assertFalse(result["room_decision"]["clarification_needed"])
@@ -215,6 +222,7 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
                     with self.subTest(count=count, preference=preference, choice=choice):
                         names = [{"name": n} for n in ("Alex", "Sam", "Chris", "Robin")[:count]]
                         payload = {**self.payload, "guest_count": count, "guests": names,
+                                   "selected_bed_codes": [f'SYNTHETIC-B{i}' for i in range(1, count + 1)],
                                    "room_preference": preference, "payment_choice": choice,
                                    "name_hint": "male", "name_confidence": 0.99, "name_ambiguous": True}
                         for tool in ("quote_booking", "quote_booking", "create_booking_from_plan", "create_booking_from_plan"):

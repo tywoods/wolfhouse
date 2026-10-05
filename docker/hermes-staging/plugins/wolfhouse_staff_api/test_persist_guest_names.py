@@ -40,7 +40,10 @@ class StandaloneHelperTests(unittest.TestCase):
         registry = Registry()
         with patch.object(plugin, '_booking_names_helper', return_value=None), \
                 patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}), \
-                patch.object(plugin, '_post_bot', return_value={'success': False, 'write_performed': False, 'error': 'offline_capture'}) as transport:
+                patch.object(plugin, '_post_bot', side_effect=lambda route, body: (
+                    {'success': True, 'has_enough_beds': True, 'available_beds': [
+                        {'bed_code': code, 'room_code': 'R3', 'room_type': 'mixed'} for code in BASE['selected_bed_codes']]}
+                    if route == '/availability-check' else {'success': False, 'write_performed': False, 'error': 'offline_capture'})) as transport:
             plugin.register(registry)
             result = json.loads(registry.tools['create_booking_from_plan']['handler'](
                 {**BASE, 'guest_name': 'Explicit', 'guests': ROSTER}))
@@ -48,7 +51,8 @@ class StandaloneHelperTests(unittest.TestCase):
                 transport.assert_not_called()
                 self.assertEqual(result['error'], 'booking_names_unavailable')
             else:
-                transport.assert_called_once()
+                self.assertEqual(transport.call_count, 2)
+                self.assertEqual(transport.call_args.args[0], '/booking-create-from-plan')
                 self.assertEqual(transport.call_args.args[1]['guest_name'], 'Explicit')
                 self.assertFalse(result['write_performed'])
             print('IR4_STANDALONE_RUNTIME_LOADED', runtime_loaded)
@@ -78,6 +82,18 @@ class PersistNamesTests(unittest.TestCase):
 
     def api(self, path, body, **kwargs):
         self.calls.append((path, copy.deepcopy(body)))
+        if path == '/availability-check':
+            # Revalidation reads room_type=any and need not send selected codes.
+            # Use this fixture's offer inventory, never fabricate a create result.
+            offered = next((payload for route, payload in reversed(self.calls)
+                            if route == '/booking-preview'), BASE)
+            private = (offered.get('room_preference') or offered.get('room_type')) in {
+                'private', 'private_room', 'couple_private', 'double',
+            }
+            return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                {'bed_code': code, 'room_code': code.split('-B')[0],
+                 'room_type': 'couple_private' if private else 'mixed'}
+                for code in offered['selected_bed_codes']]}
         if path == '/booking-preview':
             return {'success': True, 'quote_total_cents': 42000, 'deposit_required_cents': 12000,
                     'per_person': [{'total_cents': 10500}], 'per_guest_deposits': [3000] * 4}
@@ -374,7 +390,8 @@ class OrdinaryNamesTests(PersistNamesTests):
                 value = json.loads(message.get('content', ''))
             except (ValueError, TypeError):
                 continue
-            if isinstance(value, dict) and value.get('tool') == name:
+            if isinstance(value, dict) and (value.get('tool') == name or
+                    message.get('tool_name', message.get('name')) == name):
                 return value
         self.fail('missing tool result: ' + name)
 
@@ -428,7 +445,15 @@ class OrdinaryNamesTests(PersistNamesTests):
             body = next(b for p, b in self.calls if p == '/booking-create-from-plan')
             self.assertEqual(body['guests'], ROSTER)
             self.assertEqual(body['guest_name'], NAMES[0])
-            self.assertEqual(body['payment_choice'], plugin._normalize_payment_choice(payment))
+            # The generic helper selects a pricing tier, not the create wire's
+            # split-link intent. Staff normalizes per_guest to deposit pricing
+            # AND per_guest_payment_links=True (scripts/lib/booking-guests.js).
+            # Keep this literal wire assertion independent of the helper and
+            # of the same-owner comparison, so losing split intent stays RED.
+            self.assertEqual(body['payment_choice'], payment)
+            if payment == 'per_guest':
+                self.assertEqual(body['payment_choice'], 'per_guest')
+                self.assertEqual(plugin._normalize_payment_choice(payment), 'deposit')
             self.assertEqual(body, expected)
             self.assertFalse(self.tool_result(db, rebuilt, 'create_booking_from_plan')['write_performed'])
         proof = self.local_sql_proof(body)
@@ -542,8 +567,25 @@ class OrdinaryNamesTests(PersistNamesTests):
                             before = copy.deepcopy(updated['names'])
                             self.calls.clear()
                             args = {**omitted, **explicit}
+                            if label == 'compatible-explicit':
+                                # The prepared offer and create must both describe
+                                # exactly the three occupants supplied explicitly.
+                                args['selected_bed_codes'] = BASE['selected_bed_codes'][:3]
+                            elif label == 'contact-only':
+                                # No roster/count was captured: use the ordinary
+                                # allocator's implied single occupant, not four
+                                # caller-accepted assignments or invented identity.
+                                args.pop('selected_bed_codes')
                             untouched = copy.deepcopy(args)
-                            result = self.invoke('create_booking_from_plan', args)
+                            def transport(path, body, **kwargs):
+                                response = self.api(path, body, **kwargs)
+                                if label == 'contact-only' and path == '/availability-check':
+                                    self.assertEqual(body['guest_count'], 1)
+                                    response['available_beds'] = response['available_beds'][:1]
+                                    response['selected_bed_codes'] = [response['available_beds'][0]['bed_code']]
+                                return response
+                            with patch.object(plugin, '_post_bot', side_effect=transport):
+                                result = self.invoke('create_booking_from_plan', args)
                             self.assertEqual(args, untouched)
                             writes = [b for p, b in self.calls if p == '/booking-create-from-plan']
                             self.assertEqual(bool(writes), allowed)
@@ -829,7 +871,10 @@ class OrdinaryNamesTests(PersistNamesTests):
                     for alias in ('guest_name', 'name', 'booking_name', 'channel_guest_name', 'whatsapp_guest_name'):
                         self.calls.clear()
                         result = self.invoke('create_booking_from_plan', {**BASE, alias: 'A' * 512, 'guests': ROSTER})
-                        self.assertEqual(self.calls[-1][1]['guest_name'], 'A' * 512)
+                        writes = [body for path, body in self.calls
+                                  if path == '/booking-create-from-plan']
+                        self.assertEqual(len(writes), 1)
+                        self.assertEqual(writes[0]['guest_name'], 'A' * 512)
                         self.assertEqual(result['booking_names']['names']['guest_name'], 'A' * 512)
                         self.assertEqual(names._read(case.db._conn, 'a')['names']['guest_name'], 'A' * 512)
                     self.calls.clear()
