@@ -95,6 +95,11 @@
     return s;
   }
 
+  function placementBusy() {
+    var s = state();
+    return !!(s.pending || s.builder.pending || s.builder.retryPayload);
+  }
+
   function labelFor(room) {
     if (!room) return 'Room';
     if (room.roomNumber != null) return 'Room ' + room.roomNumber;
@@ -143,7 +148,7 @@
       input.value = mode;
       input.checked = s.draftMode === mode;
       input.addEventListener('change', function () {
-        if (!input.checked) return;
+        if (placementBusy() || !input.checked) return;
         s.draftMode = mode;
         s.dirty = true;
         paint();
@@ -208,6 +213,7 @@
     var actions = document.createElement('div');
     actions.className = 'rf-actions';
     actions.appendChild(button('Reset order', 'staff-room-fill-reset', function () {
+      if (placementBusy()) return;
       var suggested = server && server.suggestedPolicy;
       if (!suggested) return;
       s.draftOrder = suggested.roomPriority.slice();
@@ -218,17 +224,18 @@
       say('Order reset to room numbers. Not saved.');
     }));
     actions.appendChild(button('Cancel', 'staff-room-fill-cancel', function () {
+      if (placementBusy()) return;
       applyServer(server);
       paint();
       say('Restored the saved room placement.');
     }));
     var save = button('Save settings', 'staff-room-fill-save', saveDraft);
-    save.disabled = state().builder.pending || s.pending || !server || server.requiresReview && orderIncomplete();
+    save.disabled = placementBusy() || !server || server.requiresReview && orderIncomplete();
     actions.appendChild(save);
     save.className = 'rf-primary';
     priority.appendChild(actions);
     priority.appendChild(status);
-    if (s.pending) {
+    if (placementBusy()) {
       strategy.querySelectorAll('input').forEach(function (node) { node.disabled = true; });
       priority.querySelectorAll('button').forEach(function (node) { node.disabled = true; });
     }
@@ -316,14 +323,14 @@
     add.id = 'rf-builder-add';
     add.className = 'rf-primary';
     form.noValidate = true;
-    add.textContent = 'Add room & save';
-    add.disabled = !!b.pending;
+    add.textContent = b.retryPayload ? 'Retry saving Room ' + b.retryPayload.roomNumber : 'Add room & save';
+    add.disabled = !!(b.pending || state().pending);
     form.appendChild(add);
     ['rf-builder-number', 'rf-builder-beds'].forEach(function (id) {
       var field = form.querySelector('#' + id);
-      if (field) field.disabled = !!b.pending;
+      if (field) field.disabled = !!(b.pending || state().pending);
     });
-    genders.querySelectorAll('input').forEach(function (input) { input.disabled = !!b.pending; });
+    genders.querySelectorAll('input').forEach(function (input) { input.disabled = !!(b.pending || state().pending); });
     var error = document.createElement('p');
     error.id = 'rf-builder-error';
     error.className = 'rf-error';
@@ -333,18 +340,21 @@
     form.appendChild(error);
     form.addEventListener('submit', function (event) {
       event.preventDefault();
-      var number = Number(b.number);
-      var beds = Number(b.beds);
+      if (b.pending || state().pending) return;
+      // Recovery belongs to the immutable operation, not a subsequently edited draft.
+      var number = b.retryPayload ? b.retryPayload.roomNumber : Number(b.number);
+      var beds = b.retryPayload ? b.retryPayload.bedCount : Number(b.beds);
+      var gender = b.retryPayload ? b.retryPayload.gender : b.gender;
       var message = '';
       var field = 'rf-builder-number';
       if (!Number.isSafeInteger(number) || number < 1) message = 'Room number must be a positive whole number.';
       else if (!Number.isSafeInteger(beds) || beds < 1) {
         message = 'Bed count must be a positive whole number.';
         field = 'rf-builder-beds';
-      } else if (['female', 'male', 'mixed'].indexOf(b.gender) < 0) {
+      } else if (['female', 'male', 'mixed'].indexOf(gender) < 0) {
         message = 'Choose Female, Male or Mixed.';
         field = null;
-      } else if ((state().server.catalogue || []).some(function (room) { return room.roomNumber != null && Number(room.roomNumber) === number; })) {
+      } else if (!b.retryPayload && (state().server.catalogue || []).some(function (room) { return room.roomNumber != null && Number(room.roomNumber) === number; })) {
         message = 'Room ' + number + ' already exists in inventory.';
       }
       ['rf-builder-number', 'rf-builder-beds'].forEach(function (id) {
@@ -360,7 +370,7 @@
       if (b.pending) return;
       var savedNumber = number;
       var savedBeds = beds;
-      var savedGender = b.gender;
+      var savedGender = gender;
       var server = state().server || {};
       var payload = b.retryPayload || {
         operationId: b.operationId || ('op-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)),
@@ -485,22 +495,26 @@
     row.setAttribute('role', 'listitem');
     row.setAttribute('data-room-id', id);
     row.addEventListener('dragover', function (event) {
-      if (!dragging) return;
+      if (placementBusy() || !dragging) return;
       event.preventDefault();
     });
     row.addEventListener('drop', function (event) {
       event.preventDefault();
-      if (!dragging || dragging === id) return;
+      if (placementBusy() || !dragging || dragging === id) return;
       moveId(dragging, state().draftOrder.indexOf(id));
       dragging = null;
     });
     var handle = document.createElement('button');
     handle.type = 'button';
     handle.className = 'rf-handle';
-    handle.draggable = true;
+    handle.draggable = !placementBusy();
+    handle.disabled = placementBusy();
     handle.setAttribute('aria-label', 'Drag ' + labelFor(room));
     handle.textContent = '⋮⋮';
-    handle.addEventListener('dragstart', function () { dragging = id; });
+    handle.addEventListener('dragstart', function (event) {
+      if (placementBusy()) { event.preventDefault(); return; }
+      dragging = id;
+    });
     handle.addEventListener('dragend', function () { dragging = null; });
     var rank = document.createElement('span');
     rank.className = 'rf-rank';
@@ -524,13 +538,13 @@
     up.type = 'button';
     up.textContent = 'Move up';
     up.setAttribute('aria-label', 'Move ' + labelFor(room) + ' up');
-    up.disabled = state().builder.pending || index == null || index === 0;
+    up.disabled = placementBusy() || index == null || index === 0;
     up.addEventListener('click', function () { moveId(id, index - 1, up.getAttribute('aria-label')); });
     var down = document.createElement('button');
     down.type = 'button';
     down.textContent = 'Move down';
     down.setAttribute('aria-label', 'Move ' + labelFor(room) + ' down');
-    down.disabled = state().builder.pending || index == null || index === state().draftOrder.length - 1;
+    down.disabled = placementBusy() || index == null || index === state().draftOrder.length - 1;
     down.addEventListener('click', function () { moveId(id, index + 1, down.getAttribute('aria-label')); });
     if (index == null) {
       var add = document.createElement('button');
@@ -538,6 +552,7 @@
       add.textContent = 'Add';
       add.setAttribute('aria-label', 'Add ' + labelFor(room) + ' to priority');
       add.addEventListener('click', function () {
+        if (placementBusy()) return;
         state().draftOrder.push(id);
         state().source = 'custom';
         state().touched = true;
@@ -558,7 +573,7 @@
 
   function moveId(id, toIndex, focusLabel) {
     var s = state();
-    if (s.pending) return;
+    if (placementBusy()) return;
     var from = s.draftOrder.indexOf(id);
     if (from < 0 || toIndex < 0 || toIndex >= s.draftOrder.length || from === toIndex) return;
     s.draftOrder.splice(from, 1);
@@ -642,7 +657,7 @@
     var root = el('staff-room-fill');
     if (!root) return;
     var s = state();
-    if (s.dirty || s.pending) return;
+    if (s.dirty || placementBusy()) return;
     fetch('/staff/luna-intelligence/room-fill', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(function (res) { return res.json().then(function (body) { return { status: res.status, body: body }; }); })
       .then(function (res) {
@@ -665,7 +680,7 @@
   function saveDraft() {
     var s = state();
     var server = s.server;
-    if (!server || s.pending || orderIncomplete()) return;
+    if (!server || placementBusy() || orderIncomplete()) return;
     s.pending = true;
     paint();
     var body = {
