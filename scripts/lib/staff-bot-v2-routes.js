@@ -553,6 +553,34 @@ function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   };
 }
 
+function shouldRequireWolfhouseOfferIdentity(budget) {
+  return !!(budget && budget.claimed === true && budget.ok === true);
+}
+
+function mapCreateFromPlanOfferBridge(result) {
+  const src = result && typeof result === 'object' ? result : {};
+  const nextAction = {
+    offer_identity_required: 'clarify_offer',
+    offer_unchecked: 're_quote',
+    offer_terms_changed: 're_quote',
+    availability_changed: 're_quote',
+    write_recovery_required: 'recover_write',
+    idempotency_payload_mismatch: 'clarify_offer',
+  }[src.reason_code];
+  if (!nextAction) return src;
+  return {
+    ...src,
+    success: false,
+    blocked_reasons: [src.reason_code],
+    staff_review_needed: false,
+    do_not_escalate: true,
+    next_action: nextAction,
+    write_performed: false,
+    creates_booking: false,
+    no_write_performed: true,
+  };
+}
+
 function wolfhouseSimulatorBlock(sendJSON, res, budget) {
   return sendJSON(res, 403, {
     success: false,
@@ -602,6 +630,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   // Delegate to the existing bot booking create handler
   // but capture its response and flatten the key fields to top-level
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
+  if (shouldRequireWolfhouseOfferIdentity(simulatorBudget)) {
+    body.require_offer_identity = true;
+  }
 
   const guestsNormPreview = normalizeBookingGuestsInput(body);
   const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;
@@ -683,14 +714,18 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     }
   }
 
-  if (!bridgeResult.success && (!Array.isArray(bridgeResult.blocked_reasons) || bridgeResult.blocked_reasons.length === 0)) {
+  const typedOffer = mapCreateFromPlanOfferBridge(bridgeResult);
+  if (typedOffer !== bridgeResult && typedOffer.reason_code) {
+    bridgeResult = typedOffer;
+  } else if (!bridgeResult.success && (!Array.isArray(bridgeResult.blocked_reasons) || bridgeResult.blocked_reasons.length === 0)) {
     const blocked = mapBotBookingCreateErrorToBlockedReason(bridgeResult.error || bridgeResult.message);
     bridgeResult.blocked_reasons = [blocked];
   }
-  if (bridgeResult.success !== true && bridgeResult.staff_review_needed !== false) {
+  const typedNoHandoff = bridgeResult.do_not_escalate === true && bridgeResult.staff_review_needed === false;
+  if (!typedNoHandoff && bridgeResult.success !== true && bridgeResult.staff_review_needed !== false) {
     bridgeResult.staff_review_needed = true;
   }
-  if (Array.isArray(bridgeResult.blocked_reasons) && bridgeResult.blocked_reasons.length > 0) {
+  if (!typedNoHandoff && Array.isArray(bridgeResult.blocked_reasons) && bridgeResult.blocked_reasons.length > 0) {
     bridgeResult.staff_review_needed = true;
   }
   if (!bridgeResult.success && ['package_min_nights_violation', 'package_min_nights_configuration_invalid'].includes(bridgeResult.reason_code)) {
@@ -1959,4 +1994,6 @@ module.exports = {
   handleBotGuestPaymentStatus,
   computeGuestPayableAmounts,
   evaluateWolfhouseSimulatorEffectBudget,
+  shouldRequireWolfhouseOfferIdentity,
+  mapCreateFromPlanOfferBridge,
 };

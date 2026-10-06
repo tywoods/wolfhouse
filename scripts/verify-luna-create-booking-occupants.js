@@ -401,7 +401,8 @@ async function main() {
   console.log('PASSED: named + legacy ordinary create paths; real occupant insert/readback and customer triggers');
 }
 
-module.exports = { runPayload };
+// Reuse this network-fenced, in-memory schema/inventory fixture in handler regressions.
+module.exports = { runPayload, seedOfflineBookingDb: seed };
 
 if (require.main === module) main().catch((error) => {
   if (process.argv.includes('--payload')) {

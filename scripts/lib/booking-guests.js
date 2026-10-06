@@ -480,12 +480,47 @@ function guestPaymentStatusFromRow(row) {
   return st || 'not_requested';
 }
 
+const OFFER_HTTP_NEXT_ACTION = Object.freeze({
+  offer_identity_required: 'clarify_offer',
+  offer_unchecked: 're_quote',
+  offer_terms_changed: 're_quote',
+  availability_changed: 're_quote',
+  write_recovery_required: 'recover_write',
+  idempotency_payload_mismatch: 'clarify_offer',
+});
+
+function mapBotBookingCreateBlockedHttp(row, status) {
+  const src = row && typeof row === 'object' ? row : {};
+  const reason = src.reason_code || src.block_reason;
+  const nextAction = OFFER_HTTP_NEXT_ACTION[reason];
+  if (!nextAction) return null;
+  return {
+    status: status || src.status || 409,
+    body: {
+      success: false,
+      blocked: true,
+      reason_code: reason,
+      detail: src.detail || null,
+      error: src.error || 'The booking was not created.',
+      write_performed: false,
+      no_write_performed: true,
+      creates_booking: false,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      staff_review_needed: false,
+      do_not_escalate: true,
+      next_action: nextAction,
+    },
+  };
+}
+
 module.exports = {
   KNOWN_PACKAGES,
   PACKAGE_PREVIEW_CODES,
   normalizeBookingGuestsInput,
   normalizeBotBookingPaymentChoice,
   mapBotBookingCreateErrorToBlockedReason,
+  mapBotBookingCreateBlockedHttp,
   computeGuestDepositTierCents,
   buildPerGuestDepositList,
   buildPerPersonBreakdown,
