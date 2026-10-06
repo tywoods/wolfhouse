@@ -782,7 +782,21 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
         );
         const linkBody = linkCapture._body || {};
         if (linkBody.success) {
-          guestLinks.push({
+          // Wolfhouse's strict first-yes consumer needs the payment owner's full
+          // identity/money tuple. Do not repair absent truth from a stale roster.
+          guestLinks.push(clientSlug === 'wolfhouse-somo' ? {
+            booking_id: linkBody.booking_id ?? null,
+            booking_code: linkBody.booking_code ?? null,
+            booking_guest_id: linkBody.booking_guest_id ?? null,
+            guest_number: linkBody.guest_number ?? null,
+            guest_name: linkBody.guest_name ?? null,
+            payment_id: linkBody.payment_id ?? null,
+            currency: linkBody.currency ?? null,
+            amount_due_cents: linkBody.amount_due_cents ?? null,
+            payment_target: linkBody.payment_target ?? null,
+            stripe_checkout_session_id: linkBody.stripe_checkout_session_id ?? null,
+            secure_payment_url: linkBody.guest_payment_url || linkBody.payment_short_url || linkBody.checkout_url || null,
+          } : {
             guest_number: linkBody.guest_number || guestRow.guest_number,
             guest_name: linkBody.guest_name || guestRow.guest_name,
             booking_guest_id: linkBody.booking_guest_id || guestId,
@@ -1567,6 +1581,8 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     return sendJSON(res, 200, { success: true, idempotent: checkout.idempotent, source: 'luna_bot_guest_payment_link',
       booking_guest_id: guestId, guest_number: guest.guest_number, guest_name: guest.guest_name,
       booking_id: guest.booking_id, booking_code: guest.booking_code, payment_id: checkout.paymentId,
+      // Propagate the durable checkout intent; never infer a currency from tenant/location.
+      ...(clientSlug === 'wolfhouse-somo' ? { currency: checkout.currency ?? null } : {}),
       payment_target: paymentTarget, amount_due_cents: checkout.amount, checkout_url: checkout.session.url,
       stripe_checkout_session_id: checkout.session.id, guest_payment_url: shortUrl || checkout.session.url,
       payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
