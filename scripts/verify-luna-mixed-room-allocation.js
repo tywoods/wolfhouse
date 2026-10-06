@@ -10,7 +10,7 @@ const {
   validateAvailabilityProvenanceForCreate,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
 const { needsGenderAwareBedAssignment, runAvailabilityBedSelection } = require('./lib/luna-bed-allocator');
-const { buildWolfhouseBookingCreateCommand } = require('./lib/luna-front-desk-accommodation-booking-create-service');
+const { buildWolfhouseBookingCreateCommand, executeWolfhouseBookingCreate } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./lib/staff-bed-calendar-queries');
 
 function rows(roomCode, roomType, count, extra = {}) {
@@ -217,7 +217,7 @@ for (const roomPreference of ['mixed', 'shared']) {
     assert.equal(result.body.reason_code, 'database_required');
   });
   for (const mixedAvailable of [false, true]) {
-    test(`booking preflight ${roomPreference}: cached beds ${mixedAvailable ? 'replaced by mixed' : 'blocked neutrally'}`, async () => {
+    test(`booking preflight ${roomPreference}: unsafe cached beds blocked, mixed availability=${mixedAvailable}`, async () => {
       const pg = readOnlyInventory(bookingRows(mixedAvailable));
       const result = await buildWolfhouseBookingCreateCommand({
       quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
@@ -225,19 +225,12 @@ for (const roomPreference of ['mixed', 'shared']) {
         transportBody: { ...transport, room_preference: roomPreference },
       });
       assert.equal(pg.calls.length, 2);
-      if (mixedAvailable) {
-        assert.equal(result.ok, true, JSON.stringify(result));
-        assert.deepEqual(result.command.assignedBedCodes, ['R1-B1', 'R1-B2']);
-        assert.equal(result.command.availabilityPreflightAssignmentMode, true);
-      } else {
         assert.equal(result.ok, false);
-        assert.equal(result.body.reason_code, 'needs_clarification');
-        assert.equal(result.body.conflict, 'no_eligible_mixed_room');
+        assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
         assert.equal(result.body.needs_human, false);
         assert.equal(result.body.do_not_escalate, true);
         assert.deepEqual(result.body.selected_bed_codes, []);
         assert.doesNotMatch(result.body.error, /gender|composition|male|female|men|women/i);
-      }
     });
   }
 }
@@ -261,15 +254,15 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   const built = await buildWolfhouseBookingCreateCommand({
       quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
     channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
-    pgClient: readOnlyInventory(initial), transportBody: transport,
+    pgClient: readOnlyInventory(initial), transportBody: { ...transport, selected_bed_codes: ['R1-B1', 'R1-B2'] },
   });
   assert.equal(built.ok, true);
   const changed = initial.map((row) => row.room_code === 'R1' ? { ...row, room_type: 'female_only' } : row);
   const pg = readOnlyInventory(changed);
-  const result = await validateAvailabilityProvenanceForCreate(pg, built.command, built.command.availabilityProvenance);
+  const result = await executeWolfhouseBookingCreate(pg, built.command);
   assert.equal(result.ok, false);
-  assert.equal(result.body.reason_code, 'availability_changed');
-  assert.equal(pg.calls.length, 3); // policy reload plus room/block SELECTs
+  assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
+  assert.equal(pg.calls.length, 2); // current room/block SELECTs, no writes
 });
 
 async function main() {

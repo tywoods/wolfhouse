@@ -307,7 +307,7 @@ async function run() {
   assert('stale build ok', staleBuilt.ok === true);
   const pgStaleExec = makePg({ blocks: occupiedBlocks });
   const staleOut = await executeWolfhouseBookingCreate(pgStaleExec, staleBuilt.command);
-  assert('stale availability blocked', staleOut.ok === false && staleOut.body._blocked === true);
+  assert('stale availability blocked', staleOut.ok === false && staleOut.body.write_performed === false);
   assert('stale reason availability_changed', staleOut.body.reason_code === 'availability_changed');
   assert('stale zero booking inserts', pgStaleExec.inserts.filter((i) => /is_duplicate/i.test(String(i.sql))).length === 0);
 
