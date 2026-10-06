@@ -7,8 +7,12 @@ function bcInvoiceBookingFullyPaid(data){
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
   var ruled = bcWolfhouseStayDepositCents(bk);
   var keepHistorical = bk.metadata && bk.metadata.quote_snapshot && bk.metadata.quote_snapshot.per_guest_dates === true;
-  var required = ruled != null || keepHistorical ? ruled : (bk.deposit_required_cents == null ? null : Number(bk.deposit_required_cents));
-  var known = Number.isSafeInteger(required) && required >= 0;
+  var stored = bk.deposit_required_cents;
+  var storedTypeValid = typeof stored === 'number' || (typeof stored === 'string' && stored.trim() !== '');
+  var required = ruled != null || keepHistorical ? ruled : (storedTypeValid ? Number(stored) : null);
+  var known = Number.isSafeInteger(required) && required >= 0 && Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0;
+  // Use the current invoice ceiling for both amount and state; never reprice history.
+  required = known ? Math.min(required, invoiceTotal) : null;
   var receiptsKnown = Number.isSafeInteger(paidCents) && paidCents >= 0;
   var state = known && receiptsKnown ? (paidCents >= required ? 'paid' : 'unpaid') : 'unknown';
   var amount = known ? '€' + (required / 100).toFixed(2) : '—';
