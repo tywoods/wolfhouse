@@ -223,7 +223,7 @@
       say('Restored the saved room placement.');
     }));
     var save = button('Save settings', 'staff-room-fill-save', saveDraft);
-    save.disabled = s.pending || !server || server.requiresReview && orderIncomplete();
+    save.disabled = state().builder.pending || s.pending || !server || server.requiresReview && orderIncomplete();
     actions.appendChild(save);
     save.className = 'rf-primary';
     priority.appendChild(actions);
@@ -317,11 +317,18 @@
     add.className = 'rf-primary';
     form.noValidate = true;
     add.textContent = 'Add room & save';
+    add.disabled = !!b.pending;
     form.appendChild(add);
+    ['rf-builder-number', 'rf-builder-beds'].forEach(function (id) {
+      var field = form.querySelector('#' + id);
+      if (field) field.disabled = !!b.pending;
+    });
+    genders.querySelectorAll('input').forEach(function (input) { input.disabled = !!b.pending; });
     var error = document.createElement('p');
     error.id = 'rf-builder-error';
     error.className = 'rf-error';
     error.setAttribute('role', 'alert');
+    error.textContent = b.saveError || '';
     error.style.gridColumn = '1 / -1';
     form.appendChild(error);
     form.addEventListener('submit', function (event) {
@@ -350,41 +357,65 @@
         else genders.querySelector('input').focus();
         return;
       }
+      if (b.pending) return;
       var savedNumber = number;
       var savedBeds = beds;
       var savedGender = b.gender;
-      if (!b.operationId) b.operationId = 'op-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
       var server = state().server || {};
+      var payload = b.retryPayload || {
+        operationId: b.operationId || ('op-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)),
+        roomNumber: savedNumber,
+        bedCount: savedBeds,
+        gender: savedGender,
+        expectedSettingsRevision: server.settingsRevision || null,
+        expectedCatalogRevision: server.catalogRevision,
+        fillMode: state().draftMode === 'room' ? 'room' : 'house',
+        roomPriority: (state().draftOrder || []).slice(),
+      };
+      b.operationId = payload.operationId;
+      b.retryPayload = payload;
+      b.pending = true;
+      b.saveGeneration = (b.saveGeneration || 0) + 1;
+      var generation = b.saveGeneration;
+      paint();
       fetch('/staff/luna-intelligence/room-fill/rooms', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          operationId: b.operationId,
-          roomNumber: savedNumber,
-          bedCount: savedBeds,
-          gender: savedGender,
-          expectedSettingsRevision: server.settingsRevision || null,
-          expectedCatalogRevision: server.catalogRevision,
-          fillMode: state().draftMode === 'room' ? 'room' : 'house',
-          roomPriority: (state().draftOrder || []).slice(),
-        }),
+        body: JSON.stringify(payload),
       }).then(function (res) {
-        return res.json().then(function (body) { return { status: res.status, body: body }; });
+        return res.json().then(function (body) { return { status: res.status, body: body }; }).catch(function () {
+          return { status: res.status, body: null, unreadable: true };
+        });
       }).then(function (res) {
+        if (generation !== b.saveGeneration) return;
+        b.pending = false;
         if (!res.body || res.body.success !== true) {
-          error.textContent = 'Could not save the room. Inventory was not changed.';
+          var knownRejection = res.status >= 400 && res.status < 500 && !res.unreadable;
+          b.saveError = knownRejection
+            ? 'Could not save the room. Inventory was not changed.'
+            : 'The save did not finish. Inventory may have changed. Retry uses the same request.';
+          if (knownRejection) b.retryPayload = null;
+          paint();
           return;
         }
         b.operationId = null;
+        b.retryPayload = null;
+        b.saveError = '';
         applyServer(res.body);
-        b.number = ''; b.beds = ''; b.gender = ''; b.editing = null;
+        if (b.number === String(savedNumber) && b.beds === String(savedBeds) && b.gender === savedGender) {
+          b.number = ''; b.beds = ''; b.gender = ''; b.editing = null;
+        }
         paint();
-        if (typeof bcInvalidateBedCalendar === 'function') bcInvalidateBedCalendar();
-        else if (typeof loadBedCalendar === 'function') loadBedCalendar(null, { preserveZoom: true });
+        if (document.documentElement.getAttribute('data-portal-client') !== 'sunset' && typeof bcInvalidateBedCalendar === 'function') {
+          bcInvalidateBedCalendar();
+        }
         say('Room ' + savedNumber + ' saved to inventory and the Schedule.');
       }).catch(function () {
-        error.textContent = 'Could not save the room. Inventory was not changed.';
+        if (generation !== b.saveGeneration) return;
+        b.pending = false;
+        b.saveError = 'The save did not finish. Inventory may have changed. Retry uses the same request.';
+        paint();
       });
     });
     section.appendChild(form);
@@ -493,13 +524,13 @@
     up.type = 'button';
     up.textContent = 'Move up';
     up.setAttribute('aria-label', 'Move ' + labelFor(room) + ' up');
-    up.disabled = index == null || index === 0;
+    up.disabled = state().builder.pending || index == null || index === 0;
     up.addEventListener('click', function () { moveId(id, index - 1, up.getAttribute('aria-label')); });
     var down = document.createElement('button');
     down.type = 'button';
     down.textContent = 'Move down';
     down.setAttribute('aria-label', 'Move ' + labelFor(room) + ' down');
-    down.disabled = index == null || index === state().draftOrder.length - 1;
+    down.disabled = state().builder.pending || index == null || index === state().draftOrder.length - 1;
     down.addEventListener('click', function () { moveId(id, index + 1, down.getAttribute('aria-label')); });
     if (index == null) {
       var add = document.createElement('button');

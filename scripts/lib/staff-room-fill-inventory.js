@@ -80,7 +80,7 @@ function sameIdOrder(left, right) {
   return left.every((id, index) => id === right[index]);
 }
 
-function parseCreateRequest(body, rooms, storedPolicy, revisions) {
+function parseCreateShape(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400, 'invalid_json');
   const allowed = ['operationId', 'roomNumber', 'bedCount', 'gender', 'expectedSettingsRevision', 'expectedCatalogRevision', 'fillMode', 'roomPriority'];
   if (Object.keys(body).some((key) => !allowed.includes(key))) return fail(400, 'invalid_room');
@@ -97,14 +97,6 @@ function parseCreateRequest(body, rooms, storedPolicy, revisions) {
   if (!Array.isArray(body.roomPriority) || body.roomPriority.some((id) => typeof id !== 'string')) {
     return fail(400, 'invalid_order');
   }
-  const currentIds = rooms.map((room) => room.roomId);
-  if (!sameIdOrder(body.roomPriority.slice().sort(), currentIds.slice().sort())) return fail(400, 'invalid_order');
-  if (body.expectedCatalogRevision !== revisions.catalogRevision) return fail(409, 'stale_catalog');
-  const expectedSettings = body.expectedSettingsRevision == null ? null : body.expectedSettingsRevision;
-  if (expectedSettings !== revisions.settingsRevision) return fail(409, 'stale_settings');
-  if (storedPolicy && storedPolicy.fillMode && body.fillMode !== storedPolicy.fillMode && body.roomPriority.join() !== storedPolicy.roomPriority.join()) {
-    // Current order is accepted; mode must still be one of the two saved choices.
-  }
   return {
     ok: true,
     operationId,
@@ -114,6 +106,8 @@ function parseCreateRequest(body, rooms, storedPolicy, revisions) {
     mapped: gender,
     fillMode: body.fillMode,
     roomPriority: body.roomPriority.slice(),
+    expectedCatalogRevision: body.expectedCatalogRevision,
+    expectedSettingsRevision: body.expectedSettingsRevision == null ? null : body.expectedSettingsRevision,
     fingerprint: payloadFingerprint({
       roomNumber,
       bedCount,
@@ -124,8 +118,24 @@ function parseCreateRequest(body, rooms, storedPolicy, revisions) {
   };
 }
 
+function assertFreshOrder(parsed, rooms, revisions) {
+  const currentIds = rooms.map((room) => room.roomId);
+  if (!sameIdOrder(parsed.roomPriority.slice().sort(), currentIds.slice().sort())) return fail(400, 'invalid_order');
+  if (parsed.expectedCatalogRevision !== revisions.catalogRevision) return fail(409, 'stale_catalog');
+  if (parsed.expectedSettingsRevision !== revisions.settingsRevision) return fail(409, 'stale_settings');
+  return { ok: true };
+}
+
+function parseCreateRequest(body, rooms, storedPolicy, revisions) {
+  const parsed = parseCreateShape(body);
+  if (!parsed.ok && parsed.status) return parsed;
+  const fresh = assertFreshOrder(parsed, rooms, revisions);
+  if (!fresh.ok && fresh.status) return fresh;
+  return parsed;
+}
+
 async function createRoomFillInventory(pg, input) {
-  const parsed = parseCreateRequest(input.body, input.rooms, input.storedPolicy, input.revisions);
+  const parsed = parseCreateShape(input.body);
   if (!parsed.ok && parsed.status) throw parsed;
   await pg.query('BEGIN');
   try {
@@ -145,6 +155,18 @@ async function createRoomFillInventory(pg, input) {
         bedIds: receipt.bed_ids,
         settingsWrite: false,
       };
+    }
+    let rooms = input.rooms || [];
+    let revisions = input.revisions || {};
+    if (typeof input.readLockedState === 'function') {
+      const freshState = await input.readLockedState(pg);
+      rooms = freshState.rooms;
+      revisions = freshState.revisions;
+    }
+    const fresh = assertFreshOrder(parsed, rooms, revisions);
+    if (!fresh.ok && fresh.status) {
+      await pg.query('ROLLBACK');
+      throw fresh;
     }
     const roomCode = `R${parsed.roomNumber}`;
     const existing = await pg.query(ROOM_LOOKUP_SQL, [input.clientId, roomCode]);
@@ -203,5 +225,6 @@ module.exports = {
   createRoomFillInventory,
   normalizeRoomNumber,
   parseCreateRequest,
+  parseCreateShape,
   payloadFingerprint,
 };

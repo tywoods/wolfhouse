@@ -45621,7 +45621,11 @@ window.staffPortalOnLocaleChange = function(){
 };
 
 var bcLoadEpoch = 0;
+function bcWolfhouseCalendar(){
+  return document.documentElement.getAttribute('data-portal-client') !== 'sunset';
+}
 function bcInvalidateBedCalendar(){
+  if (!bcWolfhouseCalendar()) return;
   bcLoadEpoch += 1;
   if (typeof loadBedCalendar === 'function') loadBedCalendar(null, { preserveZoom: true });
 }
@@ -45681,6 +45685,7 @@ function loadBedCalendar(afterRender, options){
       if (typeof afterRender === 'function') afterRender(res.data);
     })
     .catch(function(e){
+      if (epoch !== bcLoadEpoch) return;
       el('bc-load').disabled     = false;
       el('bc-state').className   = 'state-msg error';
       el('bc-state').textContent = t('calendar.state.networkError', { message: e.message });
@@ -46069,7 +46074,7 @@ function bcOnBedCalendarTabOpen(){
     var chip30 = document.querySelector('.bc-chip[data-chip="30days"]');
     if (chip30) chip30.classList.add('bc-chip-active');
     loadBedCalendar();
-  } else {
+  } else if (bcWolfhouseCalendar()) {
     loadBedCalendar(null, { preserveZoom: true });
   }
 }

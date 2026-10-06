@@ -390,22 +390,26 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
     try {
       const tenant = await loadTenant(user);
       if (tenant.error) return fail(res, tenant.error.status, tenant.error.error);
-      const catalogue = await loadCatalogue(tenant.row.id);
-      if (!catalogue.ok) return fail(res, catalogue.status, catalogue.error);
-      const stored = parseStoredPolicy(tenant.row.settings && tenant.row.settings[SETTINGS_KEY]);
-      if (!stored.ok) return fail(res, stored.status, stored.error);
-      const revisions = {
-        catalogRevision: catalogRevisionFor(catalogue.rooms),
-        settingsRevision: stored.policy ? settingsRevisionFor(stored.policy) : null,
-      };
       const created = await withPgClient((pg) => createRoomFillInventory(pg, {
         clientId: tenant.row.id,
         body: parsed.body,
-        rooms: catalogue.rooms,
-        storedPolicy: stored.policy,
-        revisions,
         lockSql: CLIENT_SQL.replace('LIMIT 1', 'LIMIT 1 FOR UPDATE'),
         saveSql: SAVE_SQL,
+        readLockedState: async (locked) => {
+          const client = await locked.query(CLIENT_SQL, [tenant.row.id]);
+          const catalogue = await locked.query(CATALOGUE_SQL, [tenant.row.id]);
+          const projected = projectCatalogueRows(catalogue.rows || []);
+          if (!projected.ok) throw fail(projected.status, projected.error);
+          const stored = parseStoredPolicy(client.rows[0] && client.rows[0].settings && client.rows[0].settings[SETTINGS_KEY]);
+          if (!stored.ok) throw fail(stored.status, stored.error);
+          return {
+            rooms: projected.rooms,
+            revisions: {
+              catalogRevision: catalogRevisionFor(projected.rooms),
+              settingsRevision: stored.policy ? settingsRevisionFor(stored.policy) : null,
+            },
+          };
+        },
       }));
       if (typeof appendAuditLog === 'function') {
         appendAuditLog({

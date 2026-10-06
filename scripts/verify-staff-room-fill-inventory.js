@@ -6,6 +6,7 @@ const { startDisposablePostgresHarness } = require('./lib/disposable-postgres-ha
 const { createRoomFillInventory } = require('./lib/staff-room-fill-inventory');
 const { catalogRevisionFor, roomGenderPresentation, settingsRevisionFor } = require('./lib/staff-room-fill-policy');
 const { resolveBedCalendarRoomRows } = require('./lib/wolfhouse-inventory-source');
+const { getBedCalendarRoomsQuery } = require('./lib/staff-bed-calendar-queries');
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const R1 = '11111111-1111-4111-8111-111111111111';
@@ -59,6 +60,9 @@ CREATE TABLE rooms (
   active BOOLEAN NOT NULL DEFAULT TRUE,
   can_be_matrimonial BOOLEAN NOT NULL DEFAULT FALSE,
   often_used_by_operator BOOLEAN NOT NULL DEFAULT FALSE,
+  house TEXT,
+  fill_priority INTEGER,
+  sort_order INTEGER,
   UNIQUE (client_id, room_code)
 );
 CREATE TABLE beds (
@@ -143,14 +147,21 @@ async function main() {
     const retry = await createRoomFillInventory(client, {
       clientId: CLIENT,
       body,
-      rooms: rooms(),
+      rooms: rooms().concat([{ roomId: created.roomId, roomCode: 'R11' }]),
       storedPolicy: policy,
-      revisions: { catalogRevision: body.expectedCatalogRevision, settingsRevision: null },
+      revisions: { catalogRevision: 'stale-after-create', settingsRevision: 'stale-after-create' },
       lockSql: 'SELECT id FROM clients WHERE id = $1::uuid FOR UPDATE',
       saveSql: `UPDATE clients SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{luna_room_fill_policy}', $2::jsonb, true) WHERE id = $1::uuid`,
     });
     assert.equal(retry.duplicate, true);
     assert.equal(retry.roomId, created.roomId);
+    assert.deepEqual(retry.bedIds, created.bedIds);
+    const calendarSql = getBedCalendarRoomsQuery();
+    const calendar = await client.query(calendarSql, ['wolfhouse-somo']);
+    const reloaded = await client.query(calendarSql, ['wolfhouse-somo']);
+    const visible = calendar.rows.filter((row) => row.room_id === created.roomId).map((row) => row.bed_id);
+    assert.deepEqual(visible.sort(), created.bedIds.slice().sort());
+    assert.deepEqual(reloaded.rows.map((row) => row.bed_id), calendar.rows.map((row) => row.bed_id));
     assert.equal((await client.query('SELECT count(*)::int AS n FROM rooms WHERE room_code = $1', ['R11'])).rows[0].n, 1);
     await assert.rejects(() => createRoomFillInventory(client, {
       clientId: CLIENT,
