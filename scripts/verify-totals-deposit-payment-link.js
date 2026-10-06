@@ -16,6 +16,10 @@ before(async () => {
     CREATE TYPE payment_record_status AS ENUM ('draft', 'checkout_created', 'paid', 'failed', 'expired', 'cancelled', 'pending');
     CREATE TYPE payment_kind AS ENUM ('deposit_only', 'full_amount');
     CREATE TABLE clients (id text PRIMARY KEY, slug text UNIQUE);
+    -- Current production checkout reads Admin deposit rates inside its transaction.
+    -- An omitted table poisons the transaction; empty rows exercise default rates.
+    CREATE TABLE wh_pricing_rules (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),client_slug text,
+      item_type text,item_code text,season_code text,unit text,amount_cents int,currency text,active boolean);
     CREATE TABLE bookings (id uuid PRIMARY KEY, client_id text REFERENCES clients, booking_code text,
       guest_name text, status text, payment_status text, check_in date, check_out date, guest_count int,
       total_amount_cents int, amount_paid_cents int, balance_due_cents int, deposit_required_cents int,
@@ -273,6 +277,24 @@ test('deposit checkout collects remaining deposit from actual receipts, not book
   assert.equal(rows[0].amount_due_cents, 20000);
   assert.equal(rows[0].booking_guest_id, null);
   assert.equal((await db.query('SELECT sum(amount_paid_cents)::int AS paid FROM payments')).rows[0].paid, 10000);
+});
+
+test('short-stay invoice ceiling preserves existing collection cap and settled/refund fences', async () => {
+  await db.exec("UPDATE bookings SET check_in='2026-09-24',check_out='2026-09-26',guest_count=1,total_amount_cents=8000,deposit_required_cents=10000");
+  for (const [paid,remaining] of [[0,8000],[3000,5000],[8000,0],[9000,0]]) {
+    await db.exec('DELETE FROM payments');calls.length=0;
+    if(paid)await receipt(paid);
+    const result=await create({payment_target:'deposit',idempotency_key:'short-stay-'+paid});
+    if(remaining){
+      assert.equal(result.ok,true,JSON.stringify(result));
+      assert.equal(result.body.amount_due_cents,remaining);
+      assert.equal(calls.length,1);assert.equal(calls[0].amountDueCents,remaining);
+    }else{
+      assert.equal(result.ok,false);assert.equal(calls.length,0);
+      assert.equal((await db.query("SELECT count(*)::int AS n FROM payments WHERE status='checkout_created'")).rows[0].n,0);
+    }
+    assert.equal((await db.query("SELECT coalesce(sum(amount_paid_cents),0)::int AS paid FROM payments WHERE status='paid'")).rows[0].paid,paid);
+  }
 });
 
 test('deposit rejects an unknown configuration instead of silently treating null as zero', async () => {

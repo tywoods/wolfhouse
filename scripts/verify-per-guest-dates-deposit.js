@@ -104,6 +104,52 @@ test('emitted invoice row: KEEP amount, zero paid, invalid unknown without depos
   assert.match(row(booking({ metadata: {} })), /€750\.00/);
 });
 
+test('emitted invoice row: malformed fallback deposit never becomes a known zero', () => {
+  const noPolicy = {check_in:null,check_out:null,nights:null,guest_count:null,status:'confirmed'};
+  for (const value of invalidStored) {
+    const result = browser.bcInvoiceDepositRowHtml({...noPolicy,deposit_required_cents:value},0,8000);
+    assert.match(result,/data-deposit-state="unknown"/,String(value));
+    assert.match(result,/—/,String(value));
+    assert.doesNotMatch(result,/data-payment-target="deposit"/,String(value));
+  }
+  for (const value of [0,'0',8000,'8000']) {
+    const result = browser.bcInvoiceDepositRowHtml({...noPolicy,deposit_required_cents:value},8000,8000);
+    assert.match(result,/data-deposit-state="paid"/,String(value));
+  }
+});
+
+test('emitted invoice row: one validated ceiling controls amount, state and action without repricing', () => {
+  const cases = [
+    [10000,8000,8000,8000,'paid',false], [10000,8000,0,8000,'unpaid',true],
+    [10000,8000,3000,8000,'unpaid',true], [10000,4000,4000,4000,'paid',false],
+    [30000,24000,24000,24000,'paid',false], [10000,12000,10000,10000,'paid',false],
+    [15000,8000,8000,8000,'paid',false], [27000,20000,20000,20000,'paid',false],
+    [10000,0,0,0,'paid',false], [0,8000,0,0,'paid',false],
+    [10000,8000,9000,8000,'paid',false], [27000,100000,5000,27000,'unpaid',true],
+  ];
+  for (const [required,total,paid,effective,state,action] of cases) {
+    const b=booking({deposit_required_cents:required});
+    const before=JSON.stringify(b);
+    const row=browser.bcInvoiceDepositRowHtml(b,paid,total);
+    assert(row.includes('€'+(effective/100).toFixed(2)),JSON.stringify({required,total,paid}));
+    assert(row.includes('data-deposit-state="'+state+'"'));
+    assert.equal(row.includes('data-payment-target="deposit"'),action);
+    assert.equal(JSON.stringify(b),before,'KEEP/history must not mutate');
+  }
+  for (const total of [...invalidStored,'8000']) {
+    const row=browser.bcInvoiceDepositRowHtml(booking(),0,total);
+    assert.match(row,/data-deposit-state="unknown"/);assert.match(row,/—/);
+    assert.doesNotMatch(row,/data-payment-target="deposit"/);
+  }
+  for (const paid of [...invalidStored,'0']) {
+    const row=browser.bcInvoiceDepositRowHtml(booking(),paid,20000);
+    assert.match(row,/€200\.00/);assert.match(row,/data-deposit-state="unknown"/);
+    assert.doesNotMatch(row,/data-payment-target="deposit"/);
+  }
+  const cancelled=browser.bcInvoiceDepositRowHtml(booking({status:'cancelled'}),0,20000);
+  assert.match(cancelled,/€200\.00/);assert.doesNotMatch(cancelled,/data-payment-target="deposit"/);
+});
+
 async function link(b, rows = [], invoiceTotal = 100000, target = 'deposit') {
   let reads = 0;
   const result = await bookingDepositLinkAmount(null, b, rows, {

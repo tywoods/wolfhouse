@@ -71,6 +71,7 @@ async function main() {
       if(fs.existsSync(asset))return route.fulfill({path:asset});
       entry.unknown=true;return route.abort();
     }
+    else if(p==='/staff/luna-intelligence/room-fill')return route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({success:false,error:'forbidden'})}); // unrelated feature is unavailable in this invoice fixture
     else if(p==='/staff/intents')data={success:true,intents:[]};
     else if(p==='/staff/inbox/luna-mode')data={success:true,mode:'off'};
     else if(p==='/staff/bot/global-pause-state')data={success:true,paused:false};
@@ -117,6 +118,59 @@ async function main() {
       await page.locator('#bc-refresh-links-btn').click();
       await page.waitForFunction(()=>{const btn=document.getElementById('bc-refresh-links-btn');const box=document.getElementById('bc-invoice-feedback');return btn&&!btn.disabled&&box&&!/Amounts refreshed|Refreshing/i.test(box.textContent);});
     }
+    // Regression: a settled short stay must not retain the uncapped €100 policy row.
+    const beforeCap = JSON.parse(JSON.stringify(state));
+    const writesBeforeCap = ledger.filter(e => e.syntheticWrite).length;
+    Object.assign(state.booking, { check_out:'2026-09-26', nights:2, guest_count:1,
+      total_amount_cents:8000, accommodation_total_cents:8000, deposit_required_cents:10000 });
+    state.guest_accommodation_lines = [{guest_number:1,accommodation_cents:8000,nights:2}];
+    state.booking_guests = [{...state.booking_guests[0], metadata:{subtotal_cents:8000},deposit_amount_cents:8000}];
+    state.payments = {paid_total_cents:8000,rows:[{payment_id:'cap-receipt',payment_status:'paid',amount_paid_cents:8000}]};
+    await refresh();
+    await page.locator('#bc-inv-totals').scrollIntoViewIfNeeded();
+    assert.equal(await deposit.innerText(),'€80.00','deposit cannot exceed the authoritative €80 invoice');
+    assert.equal(await deposit.getAttribute('data-deposit-state'),'paid');
+    assert.equal(await paid.innerText(),'€80.00','actual receipts stay unchanged');
+    assert.equal(await page.locator('#bc-inv-totals .paid-in-full').count(),1);
+    assert.equal(await page.locator('#bc-inv-totals .bc-total-create-link').count(),0);
+    const capProof=[];
+    for (const stored of [8000,10000]) for (const width of [1440,390]) for (const theme of ['light','dark']) {
+      state.booking.deposit_required_cents=stored;
+      // Reopen through the desktop drawer door, then exercise its responsive layout.
+      // Phone-width calendar entry uses a different (modal) surface with duplicate IDs.
+      await page.setViewportSize({width:1440,height:1000});
+      await page.evaluate(t=>document.documentElement.setAttribute('data-theme',t),theme);
+      await refresh();
+      await page.locator('#bc-side-close').click();await page.locator('.bc-block').first().click();
+      await page.mouse.move(1300,500);
+      await page.waitForFunction(()=>document.querySelector('#bc-side-drawer.is-open #bc-inv-totals .paid-in-full'));
+      await page.setViewportSize({width,height:1000});
+      assert.equal(await deposit.innerText(),'€80.00','fresh ordinary context/reopen retains cap');
+      assert.equal(await deposit.getAttribute('data-deposit-state'),'paid');
+      assert.equal(await paid.innerText(),'€80.00');
+      assert.equal(await page.locator('#bc-inv-totals .bc-total-create-link').count(),0);
+      const rgb=await deposit.evaluate(e=>getComputedStyle(e).color);
+      const [red,green]=rgb.match(/[\d.]+/g).map(Number);assert(green>red,'capped paid amount is green, not red');
+      await page.locator('#bc-inv-totals').scrollIntoViewIfNeeded();
+      await page.screenshot({path:path.join(OUT,`cap-${stored}-${width}-${theme}.png`)});
+      capProof.push({stored,width,theme,amount:await deposit.innerText(),state:await deposit.getAttribute('data-deposit-state'),paid:await paid.innerText(),rgb});
+    }
+    // The ceiling is the current invoice (including additions), not cached stay cost.
+    state.transfers=[{direction:'arrival',status:'confirmed',price_cents:4000}];
+    state.payments={paid_total_cents:10000,rows:[{payment_id:'cap-receipt',payment_status:'paid',amount_paid_cents:10000}]};
+    await refresh();
+    assert.equal(await deposit.innerText(),'€100.00');
+    assert.equal(await deposit.getAttribute('data-deposit-state'),'paid');
+    assert.equal(await balance.innerText(),'€20.00','satisfied deposit is not a settled larger invoice');
+    assert.equal(await page.locator('#bc-inv-totals .paid-in-full').count(),0);
+    assert.equal(await page.locator('#bc-generate-deposit-link-btn').count(),0);
+    assert.equal(await page.locator('#bc-generate-payment-link-btn').count(),1);
+    assert.equal(ledger.filter(e => e.syntheticWrite).length,writesBeforeCap,'cap display never collects');
+    fs.writeFileSync(path.join(OUT,'cap-proof.json'),JSON.stringify(capProof,null,2));
+    cases.push('short-stay-paid-cap-refresh-reopen-both-stored-values-themes-widths-current-invoice');
+    Object.assign(state,beforeCap);
+    await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>document.documentElement.setAttribute('data-theme','light'));
+    await refresh();
     for(const [amount,depositState,balanceText] of [[5000,'unpaid','€550.00'],[20000,'paid','€400.00']]){
       state.payments.paid_total_cents=amount;state.payments.rows=[{payment_id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',payment_status:'paid',amount_paid_cents:amount}];
       await refresh();
