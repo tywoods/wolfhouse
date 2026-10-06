@@ -565,6 +565,7 @@ function mapCreateFromPlanOfferBridge(result) {
     offer_terms_changed: 're_quote',
     availability_changed: 're_quote',
     write_recovery_required: 'recover_write',
+    idempotency_payload_mismatch: 'clarify_offer',
   }[src.reason_code];
   if (!nextAction) return src;
   return {

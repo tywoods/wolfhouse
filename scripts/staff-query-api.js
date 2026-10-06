@@ -12424,6 +12424,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
             check_in: checkIn,
             check_out: checkOut,
             guest_count: guestCount,
+            guest_name: guestName,
+            guests: Array.isArray(body.guests) ? body.guests : undefined,
             room_type: roomType || 'shared',
             package_code: effectivePackageCode,
             group_gender: body.group_gender,
@@ -12437,15 +12439,27 @@ async function handleBotBookingPreview(req, res, user, authMode) {
         if (!builtAvail.ok) return null;
         const avail = await executeWolfhouseAvailabilityCheck(pg, builtAvail.command);
         if (!avail.ok || !avail.body || !Array.isArray(avail.body.selected_bed_codes) || !avail.body.selected_bed_codes.length) {
+          if (Array.isArray(body.selected_bed_codes) && body.selected_bed_codes.length) {
+            return {
+              availability: {
+                status: 'unavailable',
+                reason_code: (avail.body && avail.body.blockers && avail.body.blockers[0]) || 'availability_changed',
+                detail: 'explicit_selection_unavailable',
+                selected_bed_codes: body.selected_bed_codes,
+              },
+              offer_revision: null,
+            };
+          }
           return null;
         }
         let roomRows = Array.isArray(avail.body.available_beds) ? avail.body.available_beds : [];
         try {
-          const roomRes = await pg.query(
-            '/* offer_room_rows */ SELECT bd.bed_code, r.room_code, r.gender_strategy FROM beds bd JOIN rooms r ON r.id = bd.room_id WHERE bd.bed_code = ANY($1)',
-            [avail.body.selected_bed_codes],
-          );
-          if (roomRes && Array.isArray(roomRes.rows) && roomRes.rows.length) roomRows = roomRes.rows;
+          const roomRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
+          const wanted = new Set((avail.body.selected_bed_codes || []).map(String));
+          const matched = roomRes && Array.isArray(roomRes.rows)
+            ? roomRes.rows.filter((row) => row && wanted.has(String(row.bed_code)))
+            : [];
+          if (matched.length) roomRows = matched;
         } catch (_) {}
         const paymentNorm = normalizeBotBookingPaymentChoice(paymentChoiceRaw);
         return buildCheckedWolfhousePreviewOffer({
@@ -12465,6 +12479,9 @@ async function handleBotBookingPreview(req, res, user, authMode) {
       if (checked && checked.offer_revision) {
         availabilityPayload = checked.availability;
         offerRevision = checked.offer_revision;
+      } else if (checked && checked.availability && checked.availability.status === 'unavailable') {
+        availabilityPayload = checked.availability;
+        offerRevision = null;
       }
     } catch (_) {
       availabilityPayload = {
@@ -16031,6 +16048,25 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     });
     return sendJSON(res, built.status, { success: false, ...built.body });
   }
+  if (built.recovered || (built.body && built.body._duplicate)) {
+    const saved = built.body || {};
+    return sendJSON(res, built.status || 200, {
+      success: true,
+      duplicate: true,
+      idempotent: true,
+      created: false,
+      write_performed: false,
+      booking_id: saved.booking_id,
+      booking_code: saved.booking_code,
+      payment_id: saved.payment_id || null,
+      quote: saved.quote || null,
+      booking_guests: saved.booking_guests || null,
+      selected_bed_codes: saved.selected_bed_codes || null,
+      creates_stripe_link: false,
+      sends_whatsapp: false,
+      message: 'Booking already exists for this request (idempotent).',
+    });
+  }
   if (built.dryRun) return sendJSON(res, built.status, built.body);
 
   const cmd = built.command;
@@ -16069,8 +16105,14 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
     return sendJSON(res, 200, {
       success: true, duplicate: true, idempotent: true,
-      booking_id:   row.duplicate_booking_id,
-      booking_code: row.duplicate_booking_code,
+      created: false,
+      write_performed: false,
+      booking_id:   row.duplicate_booking_id || row.booking_id,
+      booking_code: row.duplicate_booking_code || row.booking_code,
+      payment_id:   row.payment_id || row._payment_id || null,
+      quote:        row.quote || null,
+      booking_guests: row.booking_guests || null,
+      selected_bed_codes: row.selected_bed_codes || row.assignedBedCodes || null,
       message:      'Booking already exists for this request (idempotent).',
       creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
     });

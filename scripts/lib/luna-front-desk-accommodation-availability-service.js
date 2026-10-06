@@ -225,7 +225,29 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
     return true;
   }
 
-  if (hasEnoughBeds) {
+  if (hasEnoughBeds && Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
+    && command.transportBody.selected_bed_codes.length
+    && command.assignmentMode !== true) {
+    const { validateExplicitBedSelection } = require('./luna-bed-allocator');
+    const explicitCodes = command.transportBody.selected_bed_codes.map(String);
+    const validation = validateExplicitBedSelection({
+      selectedBedCodes: explicitCodes,
+      guestCount,
+      body: command.transportBody,
+      bedRows,
+      blockRows,
+    });
+    if (!validation.ok) {
+      blockers.push(validation.reason || 'availability_changed');
+      allocationReason = validation.reason || 'availability_changed';
+      selectedBedCodes = [];
+    } else {
+      selectedBedCodes = explicitCodes;
+      allocationReason = 'explicit_selection';
+      const first = (bedRows || []).find((row) => row && row.bed_code === explicitCodes[0]);
+      selectedRoomCode = first ? first.room_code : null;
+    }
+  } else if (hasEnoughBeds) {
     const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
     const capacityPick = runAvailabilityBedSelection({
       bedRows,
@@ -785,31 +807,60 @@ function compareAcceptedWolfhouseOffer(accepted, current) {
   return { ok: true, current_revision: currentRevision };
 }
 
+function guestsFromCreateCommand(command) {
+  const src = command && typeof command === 'object' ? command : {};
+  const norm = src.guestsNorm && Array.isArray(src.guestsNorm.guests) ? src.guestsNorm.guests : [];
+  if (norm.length) {
+    return norm.map((guest) => ({ name: guest.guest_name || guest.name || null }));
+  }
+  const body = src.transportBody || {};
+  if (Array.isArray(body.guests) && body.guests.length) return body.guests;
+  if (src.guestName) return [{ name: src.guestName }];
+  return [];
+}
+
 function currentWolfhouseOfferFromCreateCommand(command) {
   const src = command && typeof command === 'object' ? command : {};
   const quote = src.quote || {};
-  const body = src.transportBody || {};
-  const beds = Array.isArray(src.assignedBedCodes) ? src.assignedBedCodes : [];
+  const beds = Array.isArray(src.assignedBedCodes) ? src.assignedBedCodes.map(String) : [];
+  const checked = src.availabilityChecked === true || !!src.availabilityProvenance;
+  const built = buildCheckedWolfhousePreviewOffer({
+    client_slug: src.clientSlug,
+    quote: { ...quote, success: checked ? true : quote.success },
+    availability: {
+      availability_checked: checked,
+      status: checked ? 'checked' : 'not_checked',
+      check_in: src.checkIn,
+      check_out: src.checkOut,
+      guest_count: src.quoteGuestCount,
+      selected_bed_codes: beds,
+      room_type: src.roomType,
+      room_preference: src.roomPreference || null,
+      group_gender: src.groupGender || src.genderPreference || null,
+      gender_preference: src.genderPreference || null,
+      allocation_reason: src.allocationReason || null,
+    },
+    guests: guestsFromCreateCommand(src),
+    payment_choice: src.paymentChoice,
+    per_guest_payment_links: src.perGuestPaymentLinks === true,
+    payment_distribution: quote.per_guest_deposits || [],
+    room_rows: src.authoritativeRoomRows || [],
+    package_code: src.effectivePackageCode || null,
+    guest_packages: src.guestPackagesForQuote || [],
+    add_ons: src.addOns || [],
+  });
+  if (built.offer_revision) return built.offer_revision;
   return buildWolfhouseOfferRevision({
     client_slug: src.clientSlug,
     check_in: src.checkIn,
     check_out: src.checkOut,
     guest_count: src.quoteGuestCount,
-    guest_bed_assignments: beds.map((bed, index) => ({ guest_index: index, bed_code: String(bed) })),
-    room_type: src.roomType,
-    room_preference: src.roomPreference || null,
-    group_gender: src.groupGender || src.genderPreference || null,
-    gender_preference: src.genderPreference || null,
-    allocation_reason: body.allocation_reason || src.allocationReason || null,
-    package_code: src.effectivePackageCode || null,
-    guest_packages: src.guestPackagesForQuote || [],
-    add_ons: src.addOns || [],
-    total_cents: quote.total_cents,
-    deposit_required_cents: quote.deposit_required_cents,
-    payment_link_amount_cents: src.paymentLinkAmountCents,
-    currency: quote.currency || null,
-    payment_choice: src.paymentChoice,
-    availability_checked: src.availabilityChecked === true || !!src.availabilityProvenance,
+    guest_bed_assignments: beds.map((bed, index) => ({
+      guest_index: index,
+      guest_name: (guestsFromCreateCommand(src)[index] || {}).name || null,
+      bed_code: bed,
+    })),
+    availability_checked: false,
   });
 }
 
@@ -889,74 +940,126 @@ function buildCheckedWolfhousePreviewOffer(input) {
   };
 }
 
+async function loadAuthoritativeRoomRows(pg, clientSlug, bedCodes) {
+  if (!pg || !clientSlug) return [];
+  const { getBedCalendarRoomsQuery } = require('./staff-bed-calendar-queries');
+  const res = await pg.query(
+    `/* offer_commit_reread */ ${getBedCalendarRoomsQuery()}`,
+    [clientSlug],
+  );
+  const wanted = new Set((bedCodes || []).map(String));
+  return (res && Array.isArray(res.rows) ? res.rows : [])
+    .filter((row) => row && row.bed_code && (!wanted.size || wanted.has(String(row.bed_code))));
+}
+
+async function loadAuthoritativeQuote(pg, command) {
+  const src = command && typeof command === 'object' ? command : {};
+  const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
+  const pricingStore = require('./wolfhouse-pricing-store');
+  const {
+    applyOverlayPackageItemsToConfig,
+    applyOverlayRentalPricesToConfig,
+  } = require('./wolfhouse-pricing-resolve');
+  if (pg && src.clientSlug) {
+    await pg.query(
+      '/* offer_price_lock */ SELECT id FROM wh_pricing_rules WHERE client_slug = $1 FOR UPDATE',
+      [src.clientSlug],
+    );
+    await pg.query(
+      '/* offer_price_lock */ SELECT id FROM wh_pricing_items WHERE client_slug = $1 FOR UPDATE',
+      [src.clientSlug],
+    );
+    const rules = await pricingStore.loadRules(pg, src.clientSlug);
+    const items = await pricingStore.loadItems(pg, src.clientSlug);
+    const config = applyOverlayPackageItemsToConfig(
+      applyOverlayRentalPricesToConfig(loadConfig(), rules),
+      items,
+    );
+    return calculateWolfhouseQuote({
+      client_slug: src.clientSlug,
+      check_in: src.checkIn,
+      check_out: src.checkOut,
+      guest_count: src.quoteGuestCount,
+      package_code: src.effectivePackageCode || null,
+      guest_packages: src.guestPackagesForQuote || [],
+      room_type: src.roomType || 'shared',
+      payment_choice: src.paymentChoice || 'deposit',
+      add_ons: src.addOns || [],
+      uses_per_guest_deposits: src.usesPerGuestModel === true,
+    }, config);
+  }
+  return null;
+}
+
 async function rereadWolfhouseOfferForCommit(pg, command) {
   const src = command && typeof command === 'object' ? command : {};
   const body = src.transportBody || {};
   const accepted = body.accepted_offer || src.acceptedOffer || null;
   const beds = Array.isArray(src.assignedBedCodes) ? src.assignedBedCodes.map(String) : [];
-  let rows = [];
-  if (pg && beds.length) {
-    const locked = await pg.query(
-      '/* offer_commit_reread */ SELECT bed_code, room_code, gender_strategy, occupied FROM beds WHERE bed_code = ANY($1) FOR UPDATE',
-      [beds],
+  if (pg && src.clientSlug && beds.length) {
+    await pg.query(
+      `/* offer_room_lock */ SELECT bd.id
+         FROM beds bd
+         JOIN rooms r ON r.id = bd.room_id AND r.client_id = bd.client_id
+         JOIN clients c ON c.id = bd.client_id
+        WHERE c.slug = $1
+          AND bd.bed_code = ANY($2::text[])
+        FOR UPDATE OF bd, r`,
+      [src.clientSlug, beds],
     );
-    rows = locked && Array.isArray(locked.rows) ? locked.rows : [];
+    const { getBedCalendarBlocksQuery } = require('./staff-bed-calendar-queries');
+    const blocks = await pg.query(getBedCalendarBlocksQuery(), [src.clientSlug, src.checkIn, src.checkOut]);
+    const occupied = new Set((blocks && blocks.rows ? blocks.rows : []).map((row) => row.bed_code).filter(Boolean));
+    const conflict = beds.filter((code) => occupied.has(code));
+    if (conflict.length) {
+      return {
+        ...offerReject('availability_changed', 'assigned_beds_occupied'),
+        conflict_beds: conflict,
+      };
+    }
   }
-  const named = accepted && Array.isArray(accepted.guest_bed_assignments) ? accepted.guest_bed_assignments : [];
+  const roomRows = await loadAuthoritativeRoomRows(pg, src.clientSlug, beds);
   let freshQuote = null;
   try {
-    const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
-    freshQuote = calculateWolfhouseQuote({
-      client_slug: src.clientSlug,
-      check_in: src.checkIn,
-      check_out: src.checkOut,
-      guest_count: src.quoteGuestCount,
-      package_code: src.effectivePackageCode || (accepted && accepted.package_code) || null,
-      guest_packages: src.guestPackagesForQuote || [],
-      room_type: src.roomType || 'shared',
-      payment_choice: src.paymentChoice || (accepted && accepted.payment_choice) || 'deposit',
-      add_ons: src.addOns || [],
-    }, loadConfig());
+    freshQuote = await loadAuthoritativeQuote(pg, src);
   } catch (_) {
     freshQuote = null;
   }
-  const quote = freshQuote && freshQuote.success ? freshQuote : {};
-  const current = buildWolfhouseOfferRevision({
+  const quoteForOffer = freshQuote && freshQuote.success
+    ? freshQuote
+    : {
+      success: true,
+      total_cents: null,
+      deposit_required_cents: null,
+      payment_link_amount_cents: null,
+      currency: null,
+    };
+  const built = buildCheckedWolfhousePreviewOffer({
     client_slug: src.clientSlug,
-    check_in: src.checkIn,
-    check_out: src.checkOut,
-    guest_count: src.quoteGuestCount,
-    guest_bed_assignments: beds.map((bed, index) => {
-      const prior = named.find((row) => String(row.bed_code) === bed) || named[index] || {};
-      return {
-        guest_index: index,
-        guest_name: prior.guest_name || prior.name || null,
-        bed_code: bed,
-      };
-    }),
-    room_arrangement: rows.map((row) => ({
-      bed_code: row.bed_code,
-      room_code: row.room_code,
-      gender_strategy: row.gender_strategy,
-    })),
-    room_type: src.roomType,
-    room_preference: src.roomPreference,
-    group_gender: src.groupGender || (accepted && accepted.group_gender) || null,
-    gender_preference: src.genderPreference || (accepted && accepted.gender_preference) || null,
-    allocation_reason: body.allocation_reason || src.allocationReason || (accepted && accepted.allocation_reason) || null,
-    package_code: src.effectivePackageCode || (accepted && accepted.package_code) || null,
-    guest_packages: src.guestPackagesForQuote || (accepted && accepted.guest_packages) || [],
-    add_ons: src.addOns || (accepted && accepted.add_ons) || [],
-    total_cents: quote.total_cents,
-    deposit_required_cents: quote.deposit_required_cents,
-    payment_link_amount_cents: quote.payment_link_amount_cents,
-    currency: quote.currency,
-    payment_choice: src.paymentChoice || (accepted && accepted.payment_choice) || null,
-    per_guest_payment_links: src.perGuestPaymentLinks === true || (accepted && accepted.per_guest_payment_links === true),
-    payment_distribution: (accepted && accepted.payment_distribution) || [],
-    availability_checked: true,
+    quote: quoteForOffer,
+    availability: {
+      availability_checked: true,
+      status: 'checked',
+      check_in: src.checkIn,
+      check_out: src.checkOut,
+      guest_count: src.quoteGuestCount,
+      selected_bed_codes: beds,
+      room_type: src.roomType,
+      room_preference: src.roomPreference || null,
+      group_gender: src.groupGender || src.genderPreference || null,
+      gender_preference: src.genderPreference || null,
+      allocation_reason: src.allocationReason || null,
+    },
+    guests: guestsFromCreateCommand(src),
+    payment_choice: src.paymentChoice,
+    per_guest_payment_links: src.perGuestPaymentLinks === true,
+    payment_distribution: (freshQuote && freshQuote.per_guest_deposits) || [],
+    room_rows: roomRows,
+    package_code: src.effectivePackageCode || (freshQuote && freshQuote.package_code) || null,
+    guest_packages: src.guestPackagesForQuote || [],
+    add_ons: src.addOns || [],
   });
-  return compareAcceptedWolfhouseOffer(accepted, current);
+  return compareAcceptedWolfhouseOffer(accepted, built.offer_revision);
 }
 
 async function validateAvailabilityProvenanceForCreate(pg, command, provenance) {

@@ -486,6 +486,7 @@ const OFFER_HTTP_NEXT_ACTION = Object.freeze({
   offer_terms_changed: 're_quote',
   availability_changed: 're_quote',
   write_recovery_required: 'recover_write',
+  idempotency_payload_mismatch: 'clarify_offer',
 });
 
 function mapBotBookingCreateBlockedHttp(row, status) {
