@@ -161,6 +161,27 @@ async function main() {
           if (await page.locator('#nav-menu-toggle').isVisible()) await page.locator('#nav-menu-toggle').click();
           await page.locator('button.tab-btn[data-tab="admin"]').click();
           await page.locator('#wh-admin-tab-luna-staff').click();
+          const styleToggle = page.locator('#staff-style-toggle');
+          const roomSetup = page.locator('#staff-room-setup-toggle');
+          await styleToggle.waitFor({ state: 'visible' });
+          check(`${tag} style starts closed`, await styleToggle.getAttribute('aria-expanded') === 'false');
+          check(`${tag} room setup starts closed`, await roomSetup.getAttribute('aria-expanded') === 'false');
+          const closedShot = path.join(OUT, `collapsed-sections-${tag}.png`);
+          await page.screenshot({ path: closedShot });
+          report.screenshots.push(closedShot);
+          const notes = page.locator('#hn-text');
+          if (await page.locator('#cc-house-notes').isVisible()) {
+            const before = report.requests.length;
+            await page.locator('#staff-notes-toggle').click();
+            await notes.fill('Parking stays free');
+            await page.locator('#staff-notes-toggle').click();
+            await page.locator('#staff-notes-toggle').click();
+            check(`${tag} collapse keeps unsaved notes`, await notes.inputValue() === 'Parking stays free');
+            check(`${tag} collapse sends no write`, report.requests.slice(before).every((item) => item.method !== 'POST' && item.method !== 'PUT'));
+            await page.locator('#staff-notes-toggle').click();
+          }
+          await roomSetup.focus();
+          await page.keyboard.press('Enter');
           const root = page.locator('#staff-room-fill');
           await root.waitFor({ state: 'visible' });
           await root.locator('#staff-room-fill-list [data-room-id]').first().waitFor({ state: 'visible' });

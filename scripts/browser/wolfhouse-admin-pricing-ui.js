@@ -273,12 +273,14 @@
   }
 
   function sectionShell(title, note, bodyHtml, headerExtra) {
+    var id = 'wh-pricing-collapse-' + String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
     return '<section class="portal-admin-section">'
-      + '<div class="portal-admin-section-hdr">'
-      + '<div class="portal-admin-section-hdr-title">' + whEsc(title) + '</div>'
+      + '<button type="button" class="staff-collapse-toggle portal-admin-section-hdr" aria-expanded="false" aria-controls="' + id + '">'
+      + '<span class="portal-admin-section-hdr-title">' + whEsc(title) + '</span>'
+      + '<span class="staff-collapse-caret" aria-hidden="true">▸</span>'
+      + '</button>'
       + (headerExtra || '')
-      + '</div>'
-      + '<div class="portal-admin-section-body">'
+      + '<div class="portal-admin-section-body" id="' + id + '" hidden>'
       + (note ? '<p class="portal-admin-section-note">' + whEsc(note) + '</p>' : '')
       + bodyHtml
       + '</div></section>';

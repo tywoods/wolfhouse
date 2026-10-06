@@ -20506,6 +20506,11 @@ textarea.bk-input{resize:vertical;min-height:60px}
 /* Stage 25i — Command Center Operations + Owner Insights */
 .cc-section{margin-bottom:22px}
 .cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
+.staff-collapse-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0 0 8px;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.staff-collapse-caret{flex:0 0 auto;color:var(--text-2);font-size:14px;line-height:1}
+html:not([data-portal-client="sunset"]) .staff-collapse-toggle[aria-expanded="false"] ~ *{display:none!important}
+html[data-portal-client="sunset"] .staff-collapse-caret{display:none}
+html[data-portal-client="sunset"] .staff-collapse-toggle{cursor:default}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
 /* Staff Numbers edit mode */
 .swn-edit-btn{background:transparent;border:none;cursor:pointer;padding:2px 6px;font-size:14px;color:var(--text-2);line-height:1;border-radius:4px;transition:color .15s,background .15s}
@@ -24970,9 +24975,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- ── Tour Operator Block ───────────────────────────────────────────────── -->
   <div class="card" id="to-op-panel" style="margin-top:16px">
-    <div class="bc-op-header">
+    <button type="button" class="staff-collapse-toggle" id="staff-room-block-toggle" aria-expanded="true" aria-controls="to-op-panel">
       <span class="bc-op-title" data-i18n="tourOperator.block.title">Tour Operator Block</span>
-    </div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
 
     <!-- Section: Operator contact -->
     <div class="bk-form-section">
@@ -25038,9 +25044,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- ── Operator Room Release ───────────────────────────────────────────── -->
   <div class="card" id="to-rr-panel" style="margin-top:16px">
-    <div class="bc-op-header">
+    <button type="button" class="staff-collapse-toggle" id="staff-room-release-toggle" aria-expanded="true" aria-controls="to-rr-panel">
       <span class="bc-op-title" data-i18n="tourOperator.release.title">Operator Room Release</span>
-    </div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
     <div class="bc-rr-purpose" data-i18n="tourOperator.release.intro">
       Release dates from an existing operator block back to normal availability. The original block may split into remaining segments.
     </div>
@@ -25124,9 +25131,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- Style card — header modes + Light Salt/Sand; Dark is Sand only. -->
   <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
-    <div class="luna-header-mode-head">
+    <button type="button" class="staff-collapse-toggle" id="staff-style-toggle" aria-expanded="true" aria-controls="staff-style-card">
       <span class="luna-header-mode-title" data-i18n="lunaStaff.style.title">Style</span>
-    </div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
     <div id="luna-header-mode-card" class="staff-style-header-block" aria-label="Header style">
       <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
       <div class="luna-header-mode-seg" role="group" aria-label="Header style">
@@ -25154,6 +25162,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
+  <section class="card staff-style-card" id="staff-room-setup-card" aria-label="Room Setup">
+    <button type="button" class="staff-collapse-toggle" id="staff-room-setup-toggle" aria-expanded="true" aria-controls="staff-room-setup-card">
+      <span class="luna-header-mode-title">Room Setup</span>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
+    <div id="staff-room-fill" hidden></div>
+  </section>
+
   <section class="staff-style-card luna-header-mode-card" id="staff-luna-personality-card" aria-label="Luna Personality">
     <div class="luna-header-mode-head">
       <span class="luna-header-mode-title" data-i18n="lunaStaff.personality.title">Luna Personality</span>
@@ -25175,7 +25191,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
       <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
       <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
-      <div id="staff-room-fill" hidden></div>
     </div>
   </section>
 
@@ -25264,7 +25279,10 @@ ${showOwnerScheduleBridge ? `
     </div>
   </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
+    <button type="button" class="staff-collapse-toggle" id="staff-numbers-toggle" aria-expanded="true" aria-controls="cc-staff-whatsapp-numbers">
+      <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
     <div id="swn-error"></div>
     <div id="swn-status"></div>
@@ -25295,7 +25313,10 @@ ${showOwnerScheduleBridge ? `
   </div>
 
   <div class="card cc-section" id="cc-automated-staff-notifications" style="display:none">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.automations.title">Automated Staff Notifications</div>
+    <button type="button" class="staff-collapse-toggle" id="staff-notifications-toggle" aria-expanded="true" aria-controls="cc-automated-staff-notifications">
+      <div class="cc-section-hdr" data-i18n="lunaStaff.automations.title">Automated Staff Notifications</div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
     <div class="cc-section-sub" data-i18n="lunaStaff.automations.sub">Schedule Luna to answer saved prompts and send them to selected staff.</div>
     <div id="asn-error"></div>
     <div id="asn-status"></div>
@@ -25398,7 +25419,10 @@ ${showOwnerScheduleBridge ? `
   </div>
 
   <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.notes.title">General Notes for Luna</div>
+    <button type="button" class="staff-collapse-toggle" id="staff-notes-toggle" aria-expanded="true" aria-controls="cc-house-notes">
+      <div class="cc-section-hdr" data-i18n="lunaStaff.notes.title">General Notes for Luna</div>
+      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
+    </button>
     <div class="cc-section-sub" data-i18n="lunaStaff.notes.sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
     <div id="hn-error"></div>
     <div id="hn-status"></div>
@@ -46648,6 +46672,35 @@ function lgsCreateStripeLink(){
   lgsUpdateButtons();
 })();
 
+})();
+</script>
+<script>
+(function () {
+  function wolfhouseStaff() {
+    return document.documentElement.getAttribute('data-portal-client') !== 'sunset';
+  }
+  function setOpen(button, open) {
+    if (!button) return;
+    button.setAttribute('aria-expanded', open ? 'true' : 'false');
+    var caret = button.querySelector('.staff-collapse-caret');
+    if (caret) caret.textContent = open ? '▾' : '▸';
+    var panel = document.getElementById(button.getAttribute('aria-controls') || '');
+    if (panel && panel !== button.parentElement) panel.hidden = !open;
+  }
+  function closeWolfhouseSections() {
+    if (!wolfhouseStaff()) return;
+    document.querySelectorAll('.staff-collapse-toggle').forEach(function (button) {
+      setOpen(button, false);
+    });
+  }
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest && event.target.closest('.staff-collapse-toggle');
+    if (!button || !wolfhouseStaff()) return;
+    setOpen(button, button.getAttribute('aria-expanded') !== 'true');
+  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', closeWolfhouseSections);
+  else closeWolfhouseSections();
+  window.staffCollapseCloseWolfhouseSections = closeWolfhouseSections;
 })();
 </script>
 </body>
