@@ -837,10 +837,16 @@ function wolfhouseOperationFingerprint(input) {
   const body = src.transportBody || src;
   const norm = src.guestsNorm && Array.isArray(src.guestsNorm.guests) ? src.guestsNorm.guests : [];
   const rawGuests = norm.length ? norm : (Array.isArray(body.guests) ? body.guests : []);
-  const names = rawGuests.map((guest) => String((guest && (guest.guest_name || guest.name)) || '').trim().toLowerCase()).filter(Boolean);
+  // Preserve request order: each name and bed at an index describe one person.
+  // Sorting beds independently would let a retry silently swap two occupants.
+  const names = rawGuests.map((guest) => String((guest && (guest.guest_name || guest.name)) || '').trim().toLowerCase());
   const primary = String(src.guestName || body.guest_name || names[0] || '').trim().toLowerCase();
-  const beds = (src.assignedBedCodes || body.selected_bed_codes || []).map(String).filter(Boolean).sort();
-  const accepted = body.accepted_offer || src.acceptedOffer || null;
+  const beds = (src.assignedBedCodes || body.selected_bed_codes || []).map(String);
+  const guestBedAssignments = Array.from({ length: Math.max(names.length, beds.length) }, (_, index) => ({
+    guest_index: index,
+    guest_name: names[index] || null,
+    bed_code: beds[index] || null,
+  }));
   const addOns = (src.addOns || body.add_ons || []).map((item) => {
     if (typeof item === 'string') return item.trim().toLowerCase();
     return String((item && (item.code || item.item_code)) || '').trim().toLowerCase();
@@ -854,13 +860,14 @@ function wolfhouseOperationFingerprint(input) {
     guest_names: names,
     phone: src.phone || body.phone || null,
     email: src.email || body.email || null,
-    beds,
+    guest_bed_assignments: guestBedAssignments,
     room_type: src.roomType || body.room_type || null,
     payment_choice: src.paymentChoice || body.payment_choice || null,
     per_guest_payment_links: src.perGuestPaymentLinks === true || body.per_guest_payment_links === true,
     package_code: src.effectivePackageCode || body.package_code || null,
     add_ons: addOns,
-    accepted_offer_fingerprint: accepted && (accepted.offer_fingerprint || accepted.offer_id) || null,
+    // A caller-supplied offer token is not evidence of the requested operation.
+    // New creates still validate it; recovery matches the actual request above.
     channel: src.channel || 'luna_whatsapp',
   })).digest('hex');
 }
@@ -871,24 +878,9 @@ function classifySavedWolfhouseCreate(row, command) {
   if (meta.operation_fingerprint) {
     return meta.operation_fingerprint === wolfhouseOperationFingerprint(command) ? 'same' : 'different';
   }
-  const body = (command && command.transportBody) || {};
-  const checkIn = command && (command.checkIn || body.check_in);
-  const checkOut = command && (command.checkOut || body.check_out);
-  const guestName = String((command && command.guestName) || body.guest_name || '').trim().toLowerCase();
-  const guestCount = command && (command.quoteGuestCount || command.guestCount || body.guest_count);
-  if (row.check_in && checkIn && String(row.check_in).slice(0, 10) !== String(checkIn).slice(0, 10)) return 'different';
-  if (row.check_out && checkOut && String(row.check_out).slice(0, 10) !== String(checkOut).slice(0, 10)) return 'different';
-  if (row.guest_name && guestName && String(row.guest_name).trim().toLowerCase() !== guestName) return 'different';
-  if (row.guest_count && guestCount && Number(row.guest_count) !== Number(guestCount)) return 'different';
-  if (row.package_code && command && command.effectivePackageCode
-    && String(row.package_code) !== String(command.effectivePackageCode)) return 'different';
-  if (Array.isArray(meta.selected_bed_codes) && command && Array.isArray(command.assignedBedCodes)) {
-    const savedBeds = meta.selected_bed_codes.map(String).sort().join(',');
-    const nowBeds = command.assignedBedCodes.map(String).sort().join(',');
-    if (savedBeds !== nowBeds) return 'different';
-  }
-  const proved = !!(row.check_in || row.guest_name || (Array.isArray(meta.selected_bed_codes) && meta.selected_bed_codes.length));
-  return proved ? 'same' : 'different';
+  // Legacy rows cannot prove the original person-to-bed request. Dates, lead
+  // name or an unordered bed set are insufficient; never silently recover them.
+  return 'different';
 }
 
 function savedWolfhouseCreateResult(row) {

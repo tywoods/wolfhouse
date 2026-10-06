@@ -876,6 +876,9 @@ assert('whole-booking payment is not the same as per-guest distribution',
   assert('real command accepts the issued offer without a room-rule rejection',
     realDecision.ok === true && realDecision.detail !== 'room_eligibility_changed');
 
+  await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler();
+  assert('ordinary create handler retries preserve person-to-bed pairs and fail closed for legacy rows', true);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 })().catch((err) => {
