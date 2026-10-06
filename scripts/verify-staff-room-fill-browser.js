@@ -40,8 +40,8 @@ const envelope = {
   removedRoomIds: [],
   unrankedRoomIds: [],
   catalogue: [
-    { roomId: R1, roomCode: 'R1', roomNumber: 1, capacity: 4, active: true, label: 'Room 1' },
-    { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2' },
+    { roomId: R1, roomCode: 'R1', roomNumber: 1, capacity: 4, active: true, label: 'Room 1', genderLabel: 'Mixed' },
+    { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2', genderLabel: 'Female' },
   ],
   legacyNote: 'This order is not the current booking allocator and is not connected to booking placement.',
 };
@@ -104,9 +104,32 @@ async function main() {
           });
           return;
         }
+        if (request.method() === 'POST' && request.url().includes('/rooms')) {
+          const posted = JSON.parse(request.postData() || '{}');
+          const roomId = '12121212-1212-4121-8121-121212121212';
+          const saved = JSON.parse(JSON.stringify(envelope));
+          const label = String(posted.gender || 'mixed');
+          saved.catalogue.push({
+            roomId, roomCode: 'R' + posted.roomNumber, roomNumber: posted.roomNumber, capacity: posted.bedCount,
+            active: true, label: 'Room ' + posted.roomNumber, genderLabel: label.charAt(0).toUpperCase() + label.slice(1),
+            bedIds: ['dddddddd-dddd-4ddd-8ddd-dddddddddd01', 'dddddddd-dddd-4ddd-8ddd-dddddddddd02'],
+          });
+          saved.policy = { ...saved.policy, roomPriority: saved.policy.roomPriority.concat(roomId), roomPrioritySource: 'custom' };
+          saved.success = true;
+          saved.roomId = roomId;
+          saved.bedIds = saved.catalogue.at(-1).bedIds;
+          saved.calendarRoomId = roomId;
+          saved.calendarBedIds = saved.bedIds;
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
+          return;
+        }
         if (request.method() === 'PUT') {
           const posted = JSON.parse(request.postData());
           const saved = { ...envelope, policy: { contractVersion: 1, fillMode: posted.fillMode, roomPriority: posted.roomPriority, roomPrioritySource: posted.roomPrioritySource } };
+          const createdId = '12121212-1212-4121-8121-121212121212';
+          if (posted.roomPriority.includes(createdId) && !saved.catalogue.some((room) => room.roomId === createdId)) {
+            saved.catalogue = saved.catalogue.concat([{ roomId: createdId, roomCode: 'R12', roomNumber: 12, capacity: 6, active: true, label: 'Room 12', genderLabel: 'Mixed' }]);
+          }
           await route.fulfill({ status: rejectSave ? 409 : 200, contentType: 'application/json', body: JSON.stringify(rejectSave ? { success: false, error: 'stale_settings' } : saved) });
           return;
         }
@@ -123,36 +146,22 @@ async function main() {
       await page.locator('input[name="rf-builder-gender"][value="mixed"]').check();
       if (!(await page.locator('#rf-builder-summary').innerText()).includes('Room 12 · 6 beds · Mixed')) fail('live builder summary');
       await page.locator('#rf-builder-add').click();
-      if (await page.locator('.rf-draft').count() !== 1) fail('draft not added');
-      if (calls.length !== beforeBuilder) fail('builder performed a network request');
-      if (await page.locator('#staff-room-fill-list [data-room-id]').count() !== 2) fail('draft leaked into inventory priority');
-      await page.locator('#rf-builder-number').fill('01');
+      await page.waitForFunction(() => document.querySelectorAll('#staff-room-fill-list [data-room-id]').length === 3);
+      if (calls.filter((call) => call.width === width && call.method === 'POST' && call.url.includes('/rooms')).length !== 1) fail('save did not create a room');
+      if (!(await page.locator('#staff-room-fill-list').innerText()).includes('Female') && !(await page.locator('#staff-room-fill-list').innerText()).includes('Mixed')) fail('priority rows hide gender');
+      if (await page.locator('.rf-draft').count()) fail('saved room was kept as a draft');
+      await page.locator('#rf-builder-number').fill('1');
       await page.locator('#rf-builder-beds').fill('2');
       await page.locator('input[name="rf-builder-gender"][value="female"]').check();
       await page.locator('#rf-builder-add').click();
-      if (await page.locator('.rf-draft').count() !== 1) throw new Error('RED: duplicate inventory room accepted');
       if (!(await page.locator('#rf-builder-error').innerText()).includes('already')) fail('duplicate error missing');
-      await page.locator('#rf-builder-number').fill('12');
-      await page.locator('#rf-builder-add').click();
-      if (await page.locator('.rf-draft').count() !== 1) fail('duplicate draft accepted');
       await page.locator('#rf-builder-number').fill('13');
       for (const value of ['0', '-1', '1.5', '9007199254740992']) {
         await page.locator('#rf-builder-beds').fill(value);
         await page.locator('#rf-builder-add').click();
-        if (await page.locator('.rf-draft').count() !== 1) fail('invalid bed count accepted: ' + value);
+        if (await page.locator('#staff-room-fill-list [data-room-id]').count() !== 3) fail('invalid bed count accepted: ' + value);
       }
-      await page.getByRole('button', { name: 'Edit draft Room 12', exact: true }).click();
-      await page.locator('#rf-builder-beds').fill('4');
-      await page.locator('input[name="rf-builder-gender"][value="male"]').check();
-      await page.locator('#rf-builder-add').click();
-      if (!(await page.locator('.rf-draft').innerText()).includes('4 beds')) fail('draft update failed');
-      await page.getByRole('button', { name: 'Remove draft Room 12', exact: true }).click();
-      if (await page.locator('.rf-draft').count()) fail('draft removal failed');
-      await page.locator('#rf-builder-number').fill('12');
-      await page.locator('#rf-builder-beds').fill('6');
-      await page.locator('input[name="rf-builder-gender"][value="mixed"]').check();
-      await page.locator('#rf-builder-add').click();
-      if (calls.length !== beforeBuilder) fail('builder editing wrote to server');
+      if (calls.filter((call) => call.width === width && call.method === 'POST' && call.url.includes('/rooms')).length !== 1) fail('invalid or duplicate save wrote again');
       const research = await page.locator('#staff-luna-intelligence-toggle').innerText();
       if (research !== 'Off') fail(`${width} research switch changed`);
       const book = await page.locator('#staff-room-fill button', { hasText: /^(Book|Reserve)$/ }).count();
@@ -179,7 +188,7 @@ async function main() {
       if (await firstRowId() !== R2) fail('drag reorder failed');
       if ((await page.locator('input[name="partySize"]').inputValue()) !== '2') fail('party size lost on reorder');
       await page.locator('#staff-room-fill-cancel').click();
-      if (await page.locator('.rf-draft').count() !== 1) fail('settings cancel erased room drafts');
+      if (await page.locator('.rf-draft').count()) fail('settings cancel created a draft');
       await page.locator('#staff-room-fill-preview-form button[type="submit"]').click();
       await page.waitForFunction(() => {
         const node = document.getElementById('staff-room-fill-preview-out');
@@ -192,7 +201,7 @@ async function main() {
       if (/reservation created|booked/i.test(preview)) fail(`${width} preview claims a booking`);
       if (!(await page.locator('.rf-preview-room .rf-pebble').count())) throw new Error('RED: preview has no room/bed chips');
       const payload = JSON.parse(calls.filter(c => c.width === width && c.method === 'POST').at(-1).body);
-      if (JSON.stringify(payload.draftPolicy.roomPriority) !== JSON.stringify([R1, R2]) || payload.partySize !== 2) fail('preview payload leaked drafts or lost values');
+      if (!payload.draftPolicy || payload.partySize !== 2 || payload.drafts) fail('preview payload leaked drafts or lost values');
       holdPreview = true;
       const requestPending = page.waitForRequest('**/room-fill/preview');
       await page.locator('#rf-preview-run').click();
@@ -208,9 +217,9 @@ async function main() {
       await page.locator('#staff-room-fill-save').click();
       await page.waitForFunction(() => document.querySelector('#staff-room-fill-status').textContent.includes('Placement settings saved'));
       const saved = JSON.parse(calls.filter(c => c.width === width && c.method === 'PUT').at(-1).body);
-      if (saved.expectedSettingsRevision !== envelope.settingsRevision || saved.expectedCatalogRevision !== envelope.catalogRevision || saved.fillMode !== 'room' || saved.roomPriority.length !== 2 || 'drafts' in saved) fail('save contract changed');
-      if (await page.locator('.rf-draft').count() !== 1) fail('save erased builder');
-      if (!await page.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })) fail('reload loses drafts without warning');
+      if (saved.expectedSettingsRevision !== envelope.settingsRevision || saved.expectedCatalogRevision !== envelope.catalogRevision || saved.fillMode !== 'room' || saved.roomPriority.length < 2 || 'drafts' in saved) fail('save contract changed');
+      if (await page.locator('.rf-draft').count()) fail('save created a draft');
+      if (await page.locator('#staff-room-fill-list [data-room-id]').count() < 2) fail('save erased rooms');
       rejectSave = true;
       await page.locator('input[value="house"]').check();
       await page.locator('#staff-room-fill-save').click();
@@ -226,6 +235,7 @@ async function main() {
       page.on('dialog', dialog => dialog.accept());
       await page.reload({ waitUntil: 'networkidle' });
       if (await page.locator('.rf-draft').count()) fail('room drafts unexpectedly persisted across reload');
+      if (await page.locator('#staff-room-fill-list').innerText().then((text) => text.includes('Mixed') || text.includes('Female')) !== true) fail('reloaded priority hides gender');
       await page.close();
     }
   } finally {

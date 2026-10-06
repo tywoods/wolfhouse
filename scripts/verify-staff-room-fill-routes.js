@@ -232,13 +232,26 @@ test('saved preview refuses a missing policy and a foreign origin', async () => 
   assert.equal(sent[1].body.error, 'policy_not_configured');
 });
 
+test('create rejects a body without an operation id before writing', async () => {
+  const state = makeState();
+  const { routes, sent } = harness(state);
+  await routes.handleRoomFillCreate({}, {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify({ roomNumber: 12, bedCount: 2, gender: 'female' }),
+  }, {}, wolf);
+  assert.equal(sent[0].status, 400);
+  assert.equal(sent[0].body.error, 'invalid_operation');
+  assert.equal(state.writes.length, 0);
+});
+
 test('router keeps research auth and does not let the caller name a tenant', () => {
   const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  const create = api.indexOf("pathname === ROOM_CREATE_PATH && method === 'POST'");
   const preview = api.indexOf("pathname === ROOM_FILL_PREVIEW_PATH && method === 'POST'");
   const put = api.indexOf("pathname === ROOM_FILL_PATH && method === 'PUT'");
   const get = api.indexOf("pathname === ROOM_FILL_PATH && method === 'GET'");
-  assert.ok(preview > 0 && put > preview && get > put);
-  for (const start of [preview, put, get]) {
+  assert.ok(create > 0 && preview > create && put > preview && get > put);
+  for (const start of [create, preview, put, get]) {
     const slice = api.slice(start, start + 280);
     assert.match(slice, /requireAuth\(req, res, 'operator'\)/);
     assert.doesNotMatch(slice, /parsed\.query\.client|body\.client_id|body\.slug/);

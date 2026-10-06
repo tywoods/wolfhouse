@@ -262,7 +262,7 @@
     section.id = 'staff-room-builder';
     var help = document.createElement('p');
     help.className = 'rf-help';
-    help.textContent = 'Drafts stay in this tab; they do not change room inventory.';
+    help.textContent = 'Add room & save creates the beds and saves the current placement order.';
     section.appendChild(help);
     var form = document.createElement('form');
     form.className = 'rf-builder-form';
@@ -316,7 +316,7 @@
     add.id = 'rf-builder-add';
     add.className = 'rf-primary';
     form.noValidate = true;
-    add.textContent = b.editing != null ? 'Update draft' : 'Add room draft';
+    add.textContent = 'Add room & save';
     form.appendChild(add);
     var error = document.createElement('p');
     error.id = 'rf-builder-error';
@@ -337,9 +337,8 @@
       } else if (['female', 'male', 'mixed'].indexOf(b.gender) < 0) {
         message = 'Choose Female, Male or Mixed.';
         field = null;
-      } else if ((state().server.catalogue || []).some(function (room) { return room.roomNumber != null && Number(room.roomNumber) === number; }) ||
-        b.drafts.some(function (draft, index) { return index !== b.editing && draft.number === number; })) {
-        message = 'Room ' + number + ' already exists in inventory or your drafts.';
+      } else if ((state().server.catalogue || []).some(function (room) { return room.roomNumber != null && Number(room.roomNumber) === number; })) {
+        message = 'Room ' + number + ' already exists in inventory.';
       }
       ['rf-builder-number', 'rf-builder-beds'].forEach(function (id) {
         el(id).removeAttribute('aria-invalid');
@@ -351,13 +350,42 @@
         else genders.querySelector('input').focus();
         return;
       }
-      var draft = { number: number, beds: beds, gender: b.gender };
-      if (b.editing != null) b.drafts[b.editing] = draft;
-      else b.drafts.push(draft);
-      b.number = ''; b.beds = ''; b.gender = ''; b.editing = null;
-      paint();
-      el('rf-builder-number').focus();
-      say('Room draft saved in this tab. Inventory unchanged.');
+      var savedNumber = number;
+      var savedBeds = beds;
+      var savedGender = b.gender;
+      if (!b.operationId) b.operationId = 'op-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+      var server = state().server || {};
+      fetch('/staff/luna-intelligence/room-fill/rooms', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          operationId: b.operationId,
+          roomNumber: savedNumber,
+          bedCount: savedBeds,
+          gender: savedGender,
+          expectedSettingsRevision: server.settingsRevision || null,
+          expectedCatalogRevision: server.catalogRevision,
+          fillMode: state().draftMode === 'room' ? 'room' : 'house',
+          roomPriority: (state().draftOrder || []).slice(),
+        }),
+      }).then(function (res) {
+        return res.json().then(function (body) { return { status: res.status, body: body }; });
+      }).then(function (res) {
+        if (!res.body || res.body.success !== true) {
+          error.textContent = 'Could not save the room. Inventory was not changed.';
+          return;
+        }
+        b.operationId = null;
+        applyServer(res.body);
+        b.number = ''; b.beds = ''; b.gender = ''; b.editing = null;
+        paint();
+        if (typeof bcInvalidateBedCalendar === 'function') bcInvalidateBedCalendar();
+        else if (typeof loadBedCalendar === 'function') loadBedCalendar(null, { preserveZoom: true });
+        say('Room ' + savedNumber + ' saved to inventory and the Schedule.');
+      }).catch(function () {
+        error.textContent = 'Could not save the room. Inventory was not changed.';
+      });
     });
     section.appendChild(form);
     if (b.editing != null) form.appendChild(button('Cancel edit', 'rf-builder-cancel', function () {
@@ -454,6 +482,9 @@
     var bits = [room.roomCode || ''];
     if (room.roomNumber == null) bits.push('No numeric room number');
     bits.push(room.capacity != null ? room.capacity + ' beds' : 'Capacity unknown');
+    bits.push(room.genderLabel || 'Unspecified');
+    if (room.restrictionLabel) bits.push(room.restrictionLabel);
+    if (room.genderReview) bits.push(room.genderReview);
     if (room.active === false) bits.push('Inactive');
     meta.textContent = bits.filter(Boolean).join(' · ');
     var moves = document.createElement('span');

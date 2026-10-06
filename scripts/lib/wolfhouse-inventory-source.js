@@ -236,7 +236,10 @@ function resolveBedCalendarRoomRows(clientSlug, pgRows) {
   const inv = loadWolfhouseInventoryFromCsv();
   if (!inv.rooms.length) return filtered;
   const csvRows = csvInventoryToBedCalendarRows(inv);
-  return mergePgBedIdsIntoCsvRows(csvRows, pgRows);
+  const withIds = mergePgBedIdsIntoCsvRows(csvRows, pgRows);
+  const known = new Set(withIds.map((row) => row.room_code).filter(Boolean));
+  const extras = (filtered || []).filter((row) => row.room_code && !known.has(row.room_code) && row.room_id && row.bed_id);
+  return withIds.concat(extras);
 }
 
 function filterDemoCalendarBlocks(blockRows) {
