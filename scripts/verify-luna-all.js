@@ -48,6 +48,7 @@ const steps = [
   ['verify:luna-singular-person-date-range', 'verify-luna-singular-person-date-range.js'],
   ['verify:per-person-gear-room-pref', 'verify-per-person-gear-room-pref.js'],
   ['verify:luna-bed-allocator', 'verify-luna-bed-allocator.js'],
+  ['verify:luna-explicit-bed-selection', 'verify-luna-explicit-bed-selection.js'],
   ['verify:short-stay-booking-create', 'verify-short-stay-booking-create.js'],
   ['verify:per-guest-booking-payments', 'verify-per-guest-booking-payments.js'],
   ['verify:rental-invoice-line-text', 'verify-rental-invoice-line-text.js'],

@@ -889,7 +889,89 @@ function rejectIncompatiblePreselectedBeds({ selectedBedCodes, bedRows, groupGen
   return { ok: true, bed_codes: [] };
 }
 
+/** Validate an accepted ordered selection, never search for replacement beds.
+ * Name hints are provisional room eligibility (same >=0.70 contract as Hermes),
+ * not stored demographic facts. Bind hints by unique roster name, not position.
+ */
+function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, guestCount, body = {} }) {
+  const bad = (reason, codes = selectedBedCodes) => ({ ok: false, reason, bed_codes: codes });
+  if (!Array.isArray(selectedBedCodes) || selectedBedCodes.length !== guestCount
+    || selectedBedCodes.length > 20 || new Set(selectedBedCodes).size !== selectedBedCodes.length
+    || selectedBedCodes.some(code => typeof code !== 'string' || !/^[A-Za-z0-9_-]+$/.test(code))) {
+    return bad('invalid_bed_codes');
+  }
+  const byCode = new Map((bedRows || []).map(row => [row.bed_code, row]));
+  const selected = selectedBedCodes.map(code => byCode.get(code));
+  const unavailable = selectedBedCodes.filter((code, i) => !selected[i]
+    || selected[i].bed_active !== true || selected[i].bed_sellable !== true);
+  if (unavailable.length) return bad('availability_changed', unavailable);
+  // Exact selections need an authoritative category, not the legacy
+  // auto-allocator's unknown-metadata-to-mixed fallback.
+  if (selected.some(row => !CANONICAL_ROOM_TYPES.has(normalizeToken(row.room_type))
+    && !['shared', 'private_only'].includes(normalizeToken(row.room_type)))) return bad('invalid_room_metadata');
+  const occupied = new Set((blockRows || []).map(row => row.bed_code));
+  const blockedRooms = operatorBlockedRoomsFromBlocks(blockRows || []);
+  const conflicts = selectedBedCodes.filter((code, i) => occupied.has(code) || blockedRooms.has(selected[i].room_code));
+  if (conflicts.length) return bad('availability_changed', conflicts);
+
+  const roster = Array.isArray(body.guests) && body.guests.length === guestCount
+    ? body.guests : (guestCount === 1 ? [{ name: body.guest_name }] : []);
+  const nameOf = row => trimStr(row && (row.name || row.guest_name)).toLowerCase();
+  const hints = Array.isArray(body.room_name_hints) ? body.room_name_hints : [];
+  const knownGender = value => {
+    const gender = normalizeGroupGender(value);
+    return gender === 'male' || gender === 'female' ? gender : null;
+  };
+  const pref = normalizePref(body.room_preference || body.gender_preference || body.room_type);
+  const group = knownGender(body.explicit_gender || body.group_gender || body.gender_preference);
+  let conflictingStatements = false;
+  const guestGender = index => {
+    const guest = roster[index] || {};
+    const name = nameOf(guest);
+    const matched = name && roster.filter(row => nameOf(row) === name).length === 1
+      ? hints.filter(row => row && nameOf(row) === name) : [];
+    const hint = matched.length === 1 ? matched[0] : null;
+    const explicit = guest.explicit_gender || guest.explicit_statement;
+    const hintExplicit = hint && (hint.explicit_gender || hint.explicit_statement);
+    if (explicit && hintExplicit && knownGender(explicit) !== knownGender(hintExplicit)) {
+      conflictingStatements = true;
+      return null;
+    }
+    // A person's correction outranks a stale group summary. Unknown explicit
+    // statements do not fall back to guesses; contradictory explicit sources fail.
+    if (explicit || hintExplicit) return knownGender(explicit || hintExplicit);
+    if (group) return group;
+    if (!hint || hint.ambiguous === true) return null;
+    const confidence = hint.confidence;
+    if ((typeof confidence !== 'number' && typeof confidence !== 'string') || trimStr(confidence) === ''
+      || !Number.isFinite(Number(confidence)) || Number(confidence) < 0.70 || Number(confidence) > 1) return null;
+    return knownGender(hint.hint || hint.name_hint);
+  };
+  const categories = selected.map(resolveRoomCategory);
+  const privateRequest = pref === 'private';
+  if (privateRequest) {
+    const room = selected[0].room_code;
+    if (guestCount !== 2 || selected.some(row => row.room_code !== room)
+      || categories.some(category => !['matrimonial_private_couple', 'matrimonial_or_mixed'].includes(category))
+      || (blockRows || []).some(row => row.room_code === room)) return bad('incompatible_preselected_beds');
+  }
+  const incompatible = selectedBedCodes.filter((code, i) => {
+    const category = categories[i];
+    const gender = guestGender(i);
+    if (pref === 'female_only' && (gender !== 'female' || category !== 'female_only')) return true;
+    if (pref === 'male_only' && (gender !== 'male' || category !== 'male_only')) return true;
+    if (category === 'female_only') return gender !== 'female';
+    if (category === 'male_only') return gender !== 'male';
+    if (category === 'matrimonial_private_couple') return !privateRequest;
+    return false;
+  });
+  if (conflictingStatements) return bad('conflicting_guest_eligibility');
+  if (incompatible.length) return bad('incompatible_preselected_beds', incompatible);
+  return { ok: true };
+}
+
 module.exports = {
+  validateExplicitBedSelection,
   chooseBeds,
   chooseBedsCapacityOnly,
   resolveRoomCategory,

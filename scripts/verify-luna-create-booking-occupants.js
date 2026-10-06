@@ -19,8 +19,8 @@
  * Add-on service readback uses committed migrations 010 and 018 (unscheduled dates).
  * Inventory is seeded from the committed CSV, not current/live availability.
  * No payment is collected: the ordinary create path writes a draft payment only.
- * Bed mapping is checked against the actual booking_beds read order; production
- * orders by created_at only (ties are not guaranteed across PostgreSQL plans).
+ * Bed mapping is checked against the accepted input order, independently of
+ * booking_beds row order (created_at ties are not guaranteed by PostgreSQL).
  */
 
 const assert = require('node:assert/strict');
@@ -254,12 +254,13 @@ function assertOccupants(rows, names, beds) {
   assert.ok(rows.every((row) => row.assigned_bed_code && row.assigned_room_code));
 }
 
-async function runPayload(payload) {
+async function runPayload(payload, hooks = {}) {
   assert.ok(payload && typeof payload === 'object' && !Array.isArray(payload), 'payload must be a JSON object');
   const db = new PGlite();
   const pg = makePg(db);
   try {
     await seed(db, payload);
+    if (hooks.beforeBuild) await hooks.beforeBuild(db);
     const before = (await db.query('SELECT id, full_name, phone FROM customers')).rows;
     const built = await buildWolfhouseBookingCreateCommand({
       channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
@@ -272,6 +273,7 @@ async function runPayload(payload) {
       return { ok: false, stage: 'build', status: built.status, body: built.body,
         occupants: [], sql_calls: pg.calls };
     }
+    if (hooks.beforeExecute) await hooks.beforeExecute(db, built.command);
     const result = await executeWolfhouseBookingCreate(pg, built.command, {
       stripeConfig: { stripeLinksEnabled: false },
     });
@@ -291,7 +293,8 @@ async function runPayload(payload) {
     const bedCall = pg.calls.find((call) => call.kind === 'bed_assignment_read');
     assert.ok(bedCall, 'production create read back real booking bed assignments');
     const names = expectedNames(payload);
-    assertOccupants(occupants, names, bedCall.rows);
+    const orderedBeds = built.command.assignedBedCodes.map(code => bedCall.rows.find(bed => bed.bed_code === code));
+    assertOccupants(occupants, names, orderedBeds);
     assert.equal(pg.calls.filter((call) => call.kind === 'occupant_insert').length, names.length);
     assert.deepEqual(pg.calls.filter((call) => call.kind === 'occupant_insert').map((call) => call.params[3]), names);
     assert.deepEqual(result.body._booking_guests.map((row) => row.guest_name), names);
@@ -336,7 +339,7 @@ async function runPayload(payload) {
       evidence_mode: 'real PGlite SQL; minimal supporting schema; committed migrations 010 + 018 + 024 + 031',
       limitations: [
         'Supporting schema is a subset, not the complete production migration stack.',
-        'Bed mapping follows production booking_beds ORDER BY created_at; ties may reorder input bed codes.',
+        'Occupants are matched to accepted bed-code order, not booking_beds row order.',
         'Create-only draft payment coverage; no payment collection, checkout, or messaging.',
       ],
       occupants, services,
@@ -395,10 +398,12 @@ async function main() {
   await assert.rejects(guard.query('SELECT unexpected_sql'), /Unexpected SQL/);
   assert.equal(guard.errors.length, 1);
   console.log('PASS unexpected SQL fails closed; network attempts=0');
-  console.log('PASSED: named + legacy ordinary create paths; real occupant insert/readback and customer triggers; no product changes');
+  console.log('PASSED: named + legacy ordinary create paths; real occupant insert/readback and customer triggers');
 }
 
-main().catch((error) => {
+module.exports = { runPayload };
+
+if (require.main === module) main().catch((error) => {
   if (process.argv.includes('--payload')) {
     console.log(JSON.stringify({ ok: false, stage: 'harness', error: error.message, occupants: [] }));
   }

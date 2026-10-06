@@ -55,8 +55,8 @@ const {
   buildAvailabilityRecheckCommandFromBooking,
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
-const { needsGenderAwareBedAssignment, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
-const { getBedCalendarRoomsQuery } = require('./staff-bed-calendar-queries');
+const { validateExplicitBedSelection, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
+const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./staff-bed-calendar-queries');
 const { resolveBedCalendarRoomRows } = require('./wolfhouse-inventory-source');
 
 const BOOKING_CREATE_CHANNELS = Object.freeze({
@@ -168,6 +168,27 @@ async function rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, grou
   return null;
 }
 
+async function checkExplicitSelection(pg, clientSlug, codes, guestCount, body, checkIn, checkOut) {
+  if (!pg) return fail(500, 'database_required', 'Database required to validate selected beds');
+  try {
+    // Do not enrich explicit selections from CSV: removed/inactive DB inventory must fail closed.
+    const beds = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
+    const blocks = await pg.query(getBedCalendarBlocksQuery(), [clientSlug, checkIn, checkOut]);
+    const validation = validateExplicitBedSelection({ selectedBedCodes: codes, guestCount, body,
+      bedRows: beds.rows, blockRows: blocks.rows });
+    if (!validation.ok) return fail(409, validation.reason,
+      'The selected beds could not be confirmed. Please refresh the room options.', {
+        conflict_beds: validation.bed_codes, needs_clarification: true, needs_human: false,
+        // Keep this typed error out of the handler's generic SQL _blocked mapper.
+        do_not_escalate: true, staff_review_needed: false, write_performed: false,
+        selected_bed_codes: [],
+      });
+  } catch (_err) {
+    return fail(503, 'availability_recheck_failed', 'Selected beds could not be verified', { write_performed: false });
+  }
+  return null;
+}
+
 async function ensureManualBookingCustomerLink(pg, command, bookingId) {
   if (!pg || !command || command.channel !== BOOKING_CREATE_CHANNELS.MANUAL_STAFF || !bookingId) {
     return null;
@@ -228,7 +249,7 @@ function parseSelectedBedCodes(body) {
   } else if (!Array.isArray(rawBedCodes)) {
     rawBedCodes = [];
   }
-  return rawBedCodes.map(String).slice(0, 20);
+  return rawBedCodes.map(String);
 }
 
 function buildIdempotencyKey(channel, fields) {
@@ -465,10 +486,27 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     }
   }
 
+  if (body.selected_bed_codes != null && !Array.isArray(body.selected_bed_codes)
+    && typeof body.selected_bed_codes !== 'string') {
+    return fail(400, 'invalid_bed_codes', 'selected_bed_codes must be an array or comma-separated string', { needs_human: false });
+  }
+  // Omitted/null/empty array/blank string means no selection. A nonempty
+  // malformed selection must never be normalized into auto-allocation consent.
+  const rawCodes = body.selected_bed_codes;
+  const rawList = Array.isArray(rawCodes) ? rawCodes
+    : (typeof rawCodes === 'string' && rawCodes.trim() ? rawCodes.split(',') : []);
+  if (rawList.some(code => typeof code !== 'string' || !code.trim())) {
+    return fail(400, 'invalid_bed_codes', 'Each selected bed code must be a nonempty string', { needs_human: false, write_performed: false });
+  }
   let assignedBedCodes = parseSelectedBedCodes(body);
   const pg = opts && opts.pgClient;
+  const explicitBedSelection = channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP && assignedBedCodes.length > 0;
+  if (explicitBedSelection) {
+    const selectionFailure = await checkExplicitSelection(pg, clientSlug, assignedBedCodes, quoteGuestCount, body, checkIn, checkOut);
+    if (selectionFailure) return selectionFailure;
+  }
   const statedGenderEarly = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
-  if (assignedBedCodes.length && pg) {
+  if (!explicitBedSelection && assignedBedCodes.length && pg) {
     const preselectedConflict = await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGenderEarly);
     if (preselectedConflict) return preselectedConflict;
   }
@@ -476,14 +514,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   let availabilityPreflightAssignmentMode = false;
 
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
-    const genderAwareAssign = needsGenderAwareBedAssignment({
-      guestCount: quoteGuestCount,
-      groupGender: body.group_gender,
-      genderPreference,
-      roomPreference,
-    });
-    availabilityPreflightAssignmentMode = genderAwareAssign || assignedBedCodes.length === 0;
-    if (assignedBedCodes.length === 0 || genderAwareAssign) {
+    // An accepted selection is validated above, not passed back through ranking.
+    availabilityPreflightAssignmentMode = assignedBedCodes.length === 0;
+    if (assignedBedCodes.length === 0) {
       if (!pg) {
         return fail(500, 'database_required', 'pgClient required for bot bed auto-assignment');
       }
@@ -590,7 +623,8 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }
 
   const statedGender = String(body.group_gender || body.explicit_gender || genderPreference || '').trim().toLowerCase();
-  const bedConflict = await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGender);
+  const bedConflict = !explicitBedSelection
+    && await rejectCreateIfBedsConflict(pg, clientSlug, assignedBedCodes, statedGender);
   if (bedConflict) return bedConflict;
 
   const quote = calculateWolfhouseQuote({
@@ -704,6 +738,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       idempotencyKey,
       availabilityProvenance,
       availabilityPreflightAssignmentMode,
+      explicitBedSelection,
     },
   };
 }
@@ -765,6 +800,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     availabilityProvenance,
   } = command;
 
+  if (command.explicitBedSelection) {
+    const selectionFailure = await checkExplicitSelection(pg, clientSlug, assignedBedCodes,
+      quoteGuestCount, command.transportBody, checkIn, checkOut);
+    if (selectionFailure) return selectionFailure;
+  }
   const provCheck = await validateAvailabilityProvenanceForCreate(pg, command, availabilityProvenance);
   if (!provCheck.ok) {
     return {
@@ -794,7 +834,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     }
   }
 
-  const bedConflict = await rejectCreateIfBedsConflict(
+  const bedConflict = !command.explicitBedSelection && await rejectCreateIfBedsConflict(
     pg,
     clientSlug,
     assignedBedCodes,
@@ -942,11 +982,14 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
             ORDER BY created_at ASC`,
           [result.booking_id],
         );
-        const bedAssignments = bedsRes.rows.map((b, idx) => ({
-          guest_number: idx + 1,
-          bed_code: b.bed_code,
-          room_code: b.room_code,
-        }));
+        // All rows inserted in one statement may share created_at. DB row order
+        // must never put a guest into another guest's (possibly gendered) bed.
+        const bedByCode = new Map(bedsRes.rows.map(b => [b.bed_code, b]));
+        const bedAssignments = assignedBedCodes.map((code, idx) => {
+          const bed = bedByCode.get(code);
+          if (!bed) throw new Error('Selected bed missing from booking assignment readback');
+          return { guest_number: idx + 1, bed_code: code, room_code: bed.room_code };
+        });
         const perPersonRows = buildPerPersonBreakdown(quote, {
           guest_names: guestsNorm.guests.map((g) => g.guest_name),
           payment_choice: channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP ? paymentChoice : quotePaymentChoice,

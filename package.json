@@ -3,6 +3,7 @@
   "private": true,
   "description": "Wolfhouse local tooling (Phase 1 CSV sync, seeds)",
   "scripts": {
+    "verify:luna-explicit-bed-selection": "node scripts/verify-luna-explicit-bed-selection.js",
     "seed:generate": "node scripts/generate-seed.js",
     "db:sync": "node scripts/sync-csv-to-postgres.js",
     "db:backfill:airtable-ids": "node scripts/backfill-airtable-record-ids.js",
