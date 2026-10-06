@@ -15,6 +15,7 @@ const {
   buildWolfhouseOfferRevision,
   compareAcceptedWolfhouseOffer,
   buildCheckedWolfhousePreviewOffer,
+  currentWolfhouseOfferFromCreateCommand,
   rereadWolfhouseOfferForCommit,
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
@@ -312,7 +313,16 @@ assert('whole-booking payment is not the same as per-guest distribution',
     booking_id: 'saved-1',
     booking_code: 'WH-SAVED',
     status: 'confirmed',
-    metadata: { idempotency_key: 'retry-1', response_delivered: false },
+    metadata: {
+      idempotency_key: 'retry-1',
+      response_delivered: false,
+      operation_fingerprint: wolfhouseOperationFingerprint({
+        clientSlug: 'wolfhouse-somo',
+        channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+        idempotencyKey: 'retry-1',
+        transportBody: { accepted_offer: { offer_id: 'stale-preview' } },
+      }),
+    },
   };
   const retryPg = {
     query: async (sql) => {
@@ -337,7 +347,19 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const completed = await executeWolfhouseBookingCreate({
     query: async (sql) => {
       if (String(sql).includes('offer_idempotency_lookup')) {
-        return { rows: [{ booking_id: 'done-1', booking_code: 'WH-DONE', status: 'confirmed', metadata: { response_delivered: true } }] };
+        return { rows: [{
+          booking_id: 'done-1',
+          booking_code: 'WH-DONE',
+          status: 'confirmed',
+          metadata: {
+            response_delivered: true,
+            operation_fingerprint: wolfhouseOperationFingerprint({
+              clientSlug: 'wolfhouse-somo',
+              channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+              transportBody: { accepted_offer: { offer_id: 'stale' } },
+            }),
+          },
+        }] };
       }
       throw new Error('completed retry must not create');
     },
@@ -354,7 +376,19 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const priceChanged = await executeWolfhouseBookingCreate({
     query: async (sql) => {
       if (String(sql).includes('offer_idempotency_lookup')) {
-        return { rows: [{ booking_id: 'price-1', booking_code: 'WH-PRICE', status: 'confirmed', metadata: {} }] };
+        return { rows: [{
+          booking_id: 'price-1',
+          booking_code: 'WH-PRICE',
+          status: 'confirmed',
+          metadata: {
+            operation_fingerprint: wolfhouseOperationFingerprint({
+              clientSlug: 'wolfhouse-somo',
+              channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+              quote: { total_cents: 99999 },
+              transportBody: { accepted_offer: accepted },
+            }),
+          },
+        }] };
       }
       throw new Error('price-change retry must not create');
     },
@@ -604,35 +638,36 @@ assert('whole-booking payment is not the same as per-guest distribution',
     && priced.detail === 'payment_terms_changed'
     && priced.write_performed === false);
 
+  const retryBody = {
+    confirm: true,
+    check_in: '2026-10-10',
+    check_out: '2026-10-17',
+    guest_count: 2,
+    guest_name: 'Lucia',
+    phone: '+346****0000',
+    guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
+    selected_bed_codes: ['R8-B1', 'R8-B2'],
+    package_code: 'malibu',
+    payment_choice: 'deposit',
+    idempotency_key: 'same-op',
+  };
   const sameFingerprint = wolfhouseOperationFingerprint({
     clientSlug: 'wolfhouse-somo',
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
-    checkIn: '2026-10-10',
-    checkOut: '2026-10-17',
-    assignedBedCodes: ['R8-B1', 'R8-B2'],
+    checkIn: retryBody.check_in,
+    checkOut: retryBody.check_out,
+    phone: retryBody.phone,
     paymentChoice: 'deposit',
-    phone: '+34600000000',
     effectivePackageCode: 'malibu',
+    assignedBedCodes: ['R8-B1', 'R8-B2'],
     guestsNorm: { guests: [{ guest_name: 'Lucia' }, { guest_name: 'Carmen' }] },
-    transportBody: { guests: [{ name: 'Lucia' }, { name: 'Carmen' }] },
+    transportBody: retryBody,
   });
   const retryBuild = await buildWolfhouseBookingCreateCommand({
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
     trustedClientSlug: 'wolfhouse-somo',
     quoteConfig: loadConfig(),
-    transportBody: {
-      confirm: true,
-      check_in: '2026-10-10',
-      check_out: '2026-10-17',
-      guest_count: 2,
-      guest_name: 'Lucia',
-      phone: '+34600000000',
-      guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
-      selected_bed_codes: ['R8-B1', 'R8-B2'],
-      package_code: 'malibu',
-      payment_choice: 'deposit',
-      idempotency_key: 'same-op',
-    },
+    transportBody: retryBody,
     pgClient: {
       query: async (sql) => {
         const text = String(sql);
@@ -687,6 +722,159 @@ assert('whole-booking payment is not the same as per-guest distribution',
     && mismatchedKey.body.reason_code === 'idempotency_payload_mismatch'
     && mismatchedKey.body.booking_id !== 'other-1'
     && mismatchedKey.body.write_performed === false);
+
+  const booked = buildWolfhouseOfferRevision({
+    ...base,
+    allocation_reason: 'legacy_capacity_smallest_room',
+    group_gender: 'mixed',
+    availability_checked: true,
+  });
+  const rechecked = buildWolfhouseOfferRevision({
+    ...base,
+    allocation_reason: 'explicit_selection',
+    group_gender: null,
+    availability_checked: true,
+  });
+  assert('unchanged recheck keeps the offer identity when only allocator bookkeeping changes',
+    booked.offer_fingerprint === rechecked.offer_fingerprint
+    && compareAcceptedWolfhouseOffer(booked, rechecked).ok === true);
+
+  const withEmail = wolfhouseOperationFingerprint({
+    clientSlug: 'wolfhouse-somo',
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-17',
+    guestName: 'Lucia',
+    email: 'lucia@example.com',
+    phone: '+34600000000',
+    assignedBedCodes: ['R8-B1'],
+    paymentChoice: 'deposit',
+    effectivePackageCode: 'malibu',
+    quoteGuestCount: 2,
+    transportBody: { accepted_offer: { offer_fingerprint: 'offer-a' } },
+  });
+  const otherEmail = wolfhouseOperationFingerprint({
+    clientSlug: 'wolfhouse-somo',
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-17',
+    guestName: 'Lucia',
+    email: 'other@example.com',
+    phone: '+34600000000',
+    assignedBedCodes: ['R8-B1'],
+    paymentChoice: 'deposit',
+    effectivePackageCode: 'malibu',
+    quoteGuestCount: 2,
+    transportBody: { accepted_offer: { offer_fingerprint: 'offer-a' } },
+  });
+  const otherOffer = wolfhouseOperationFingerprint({
+    clientSlug: 'wolfhouse-somo',
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-17',
+    guestName: 'Lucia',
+    email: 'lucia@example.com',
+    phone: '+34600000000',
+    assignedBedCodes: ['R8-B1'],
+    paymentChoice: 'deposit',
+    effectivePackageCode: 'malibu',
+    quoteGuestCount: 2,
+    addOns: [{ code: 'breakfast', quantity: 1 }],
+    transportBody: { accepted_offer: { offer_fingerprint: 'offer-b' } },
+  });
+  assert('retry fingerprint changes when email, add-ons, or the accepted offer change',
+    withEmail !== otherEmail && withEmail !== otherOffer);
+
+  const looseRetry = await executeWolfhouseBookingCreate({
+    query: async (sql) => {
+      if (String(sql).includes('offer_idempotency_lookup')) {
+        return { rows: [{
+          booking_id: 'loose-1',
+          booking_code: 'WH-LOOSE',
+          status: 'confirmed',
+          check_in: '2026-10-10',
+          check_out: '2026-10-17',
+          guest_name: 'Lucia',
+          guest_count: 2,
+          metadata: {},
+        }] };
+      }
+      throw new Error('different guest must not reuse the saved booking');
+    },
+  }, {
+    clientSlug: 'wolfhouse-somo',
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    idempotencyKey: 'loose-1',
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-17',
+    guestName: 'Carmen',
+    quoteGuestCount: 2,
+    transportBody: { guest_name: 'Carmen' },
+  });
+  assert('same key with a different guest is not the saved booking',
+    looseRetry.ok === false
+    && looseRetry.body.reason_code === 'idempotency_payload_mismatch'
+    && looseRetry.body.booking_id !== 'loose-1');
+
+  const realIssued = buildCheckedWolfhousePreviewOffer({
+    client_slug: 'wolfhouse-somo',
+    quote: liveQuote,
+    availability: {
+      availability_checked: true,
+      status: 'checked',
+      check_in: '2026-10-10',
+      check_out: '2026-10-17',
+      guest_count: 2,
+      selected_bed_codes: ['R8-B1', 'R8-B2'],
+      room_type: 'shared',
+      allocation_reason: 'legacy_capacity_smallest_room',
+      group_gender: 'mixed',
+    },
+    guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
+    payment_choice: 'deposit',
+    room_rows: [
+      { bed_code: 'R8-B1', room_code: 'R8', gender_strategy: 'Flexible' },
+      { bed_code: 'R8-B2', room_code: 'R8', gender_strategy: 'Flexible' },
+    ],
+    package_code: 'malibu',
+  });
+  const realBuilt = await buildWolfhouseBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    trustedClientSlug: 'wolfhouse-somo',
+    quoteConfig: loadConfig(),
+    transportBody: {
+      confirm: true,
+      require_offer_identity: true,
+      check_in: '2026-10-10',
+      check_out: '2026-10-17',
+      guest_count: 2,
+      guest_name: 'Lucia',
+      phone: '+34600000000',
+      guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
+      selected_bed_codes: ['R8-B1', 'R8-B2'],
+      package_code: 'malibu',
+      payment_choice: 'deposit',
+      room_type: 'shared',
+      accepted_offer: realIssued.offer_revision,
+    },
+    pgClient: {
+      query: async (sql) => {
+        const text = String(sql);
+        if (text.includes('FROM rooms r')) {
+          return { rows: [
+            { bed_code: 'R8-B1', room_code: 'R8', room_type: 'shared', gender_strategy: 'Flexible', bed_active: true, bed_sellable: true },
+            { bed_code: 'R8-B2', room_code: 'R8', room_type: 'shared', gender_strategy: 'Flexible', bed_active: true, bed_sellable: true },
+          ] };
+        }
+        return { rows: [] };
+      },
+    },
+  });
+  assert('real command builder loads room rows for the offered beds',
+    realBuilt.ok === true
+    && Array.isArray(realBuilt.command.authoritativeRoomRows)
+    && realBuilt.command.authoritativeRoomRows.map((row) => row.bed_code).sort().join(',') === 'R8-B1,R8-B2');
+  const realCurrent = currentWolfhouseOfferFromCreateCommand(realBuilt.command);
+  const realDecision = compareAcceptedWolfhouseOffer(realIssued.offer_revision, realCurrent);
+  assert('real command accepts the issued offer without a room-rule rejection',
+    realDecision.ok === true && realDecision.detail !== 'room_eligibility_changed');
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

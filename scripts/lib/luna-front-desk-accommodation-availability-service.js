@@ -691,9 +691,7 @@ function wolfhouseOfferPayload(offer) {
     room_arrangement: normalizeRoomArrangement(src.room_arrangement),
     room_type: src.room_type || null,
     room_preference: src.room_preference || null,
-    group_gender: src.group_gender || null,
     gender_preference: src.gender_preference || null,
-    allocation_reason: src.allocation_reason || null,
     package_code: src.package_code || null,
     guest_packages: normalizeOfferGuestPackages(src.guest_packages),
     add_ons: normalizeOfferAddOns(src.add_ons),
@@ -732,8 +730,7 @@ function offerChangeDetail(prior, current) {
   }
   if (JSON.stringify(a.room_arrangement) !== JSON.stringify(b.room_arrangement)
     || a.room_type !== b.room_type || a.room_preference !== b.room_preference
-    || a.group_gender !== b.group_gender || a.gender_preference !== b.gender_preference
-    || a.allocation_reason !== b.allocation_reason) {
+    || a.gender_preference !== b.gender_preference) {
     return 'room_eligibility_changed';
   }
   if (a.package_code !== b.package_code
