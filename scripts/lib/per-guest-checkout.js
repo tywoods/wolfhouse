@@ -253,7 +253,7 @@ async function run(opts) {
     try {
       const guest = await store.finalize(op, session, paymentTarget, prepared.amount);
       return { guest: guest || prepared.guest, amount: prepared.amount, paymentId: op.paymentId,
-        session, idempotent: !!op.sessionId || attempt > 0 };
+        currency: op.currency, session, idempotent: !!op.sessionId || attempt > 0 };
     } catch (err) {
       lastError = err;
       if (err.snapshotChanged) {
