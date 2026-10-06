@@ -602,6 +602,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   // Delegate to the existing bot booking create handler
   // but capture its response and flatten the key fields to top-level
   const clientSlug = String((ctx.boundClientSlug != null && String(ctx.boundClientSlug).trim() !== '') ? ctx.boundClientSlug : (body.client_slug || DEFAULT_CLIENT)).trim();
+  if (clientSlug === 'wolfhouse-somo') {
+    body.require_offer_identity = true;
+  }
 
   const guestsNormPreview = normalizeBookingGuestsInput(body);
   const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;

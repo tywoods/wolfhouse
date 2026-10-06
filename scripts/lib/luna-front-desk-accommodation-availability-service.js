@@ -35,6 +35,7 @@ const AVAILABILITY_CHANNELS = Object.freeze({
 });
 
 const AVAILABILITY_PROVENANCE_VERSION = 1;
+const OFFER_REVISION_VERSION = 1;
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
@@ -597,6 +598,191 @@ function packagePolicyRecheckFailure(canonical) {
   } };
 }
 
+function offerMoneyCents(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
+function normalizeGuestBedAssignments(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row, index) => ({
+    guest_index: Number.isInteger(row && row.guest_index) ? row.guest_index : index,
+    bed_code: String((row && row.bed_code) || '').trim(),
+  })).filter((row) => row.bed_code);
+}
+
+function normalizeOfferAddOns(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    if (item == null || item === '') return null;
+    if (typeof item === 'string') return { code: item.trim(), quantity: 1 };
+    return {
+      code: String(item.code || item.item_code || '').trim(),
+      quantity: item.quantity == null || item.quantity === '' ? 1 : Number(item.quantity),
+    };
+  }).filter((item) => item && item.code);
+}
+
+function normalizeOfferGuestPackages(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row) => ({
+    guest_number: row && row.guest_number != null ? Number(row.guest_number) : null,
+    package_code: String((row && row.package_code) || '').trim().toLowerCase(),
+  })).filter((row) => row.package_code);
+}
+
+function wolfhouseOfferPayload(offer) {
+  const src = offer && typeof offer === 'object' ? offer : {};
+  return {
+    v: OFFER_REVISION_VERSION,
+    client_slug: src.client_slug || null,
+    check_in: src.check_in || null,
+    check_out: src.check_out || null,
+    guest_count: src.guest_count == null || src.guest_count === '' ? null : Number(src.guest_count),
+    guest_bed_assignments: normalizeGuestBedAssignments(src.guest_bed_assignments),
+    room_type: src.room_type || null,
+    room_preference: src.room_preference || null,
+    group_gender: src.group_gender || null,
+    gender_preference: src.gender_preference || null,
+    allocation_reason: src.allocation_reason || null,
+    package_code: src.package_code || null,
+    guest_packages: normalizeOfferGuestPackages(src.guest_packages),
+    add_ons: normalizeOfferAddOns(src.add_ons),
+    total_cents: offerMoneyCents(src.total_cents),
+    deposit_required_cents: offerMoneyCents(src.deposit_required_cents),
+    payment_link_amount_cents: offerMoneyCents(src.payment_link_amount_cents),
+    currency: src.currency || null,
+    payment_choice: src.payment_choice || null,
+    availability_checked: src.availability_checked === true,
+  };
+}
+
+function computeWolfhouseOfferFingerprint(offer) {
+  return crypto.createHash('sha256').update(JSON.stringify(wolfhouseOfferPayload(offer))).digest('hex');
+}
+
+function buildWolfhouseOfferRevision(offer) {
+  const bound = wolfhouseOfferPayload(offer);
+  return {
+    ...bound,
+    offer_revision_version: OFFER_REVISION_VERSION,
+    offer_fingerprint: computeWolfhouseOfferFingerprint(bound),
+  };
+}
+
+function offerChangeDetail(prior, current) {
+  const a = wolfhouseOfferPayload(prior);
+  const b = wolfhouseOfferPayload(current);
+  if (a.check_in !== b.check_in || a.check_out !== b.check_out || a.guest_count !== b.guest_count) {
+    return 'dates_changed';
+  }
+  if (JSON.stringify(a.guest_bed_assignments) !== JSON.stringify(b.guest_bed_assignments)) {
+    return 'bed_allocation_changed';
+  }
+  if (a.room_type !== b.room_type || a.room_preference !== b.room_preference
+    || a.group_gender !== b.group_gender || a.gender_preference !== b.gender_preference
+    || a.allocation_reason !== b.allocation_reason) {
+    return 'room_eligibility_changed';
+  }
+  if (a.package_code !== b.package_code
+    || JSON.stringify(a.guest_packages) !== JSON.stringify(b.guest_packages)
+    || JSON.stringify(a.add_ons) !== JSON.stringify(b.add_ons)) {
+    return 'services_changed';
+  }
+  if (a.payment_choice !== b.payment_choice
+    || a.total_cents !== b.total_cents
+    || a.deposit_required_cents !== b.deposit_required_cents
+    || a.payment_link_amount_cents !== b.payment_link_amount_cents
+    || a.currency !== b.currency) {
+    return 'payment_terms_changed';
+  }
+  if (a.availability_checked !== b.availability_checked) return 'availability_unchecked';
+  return 'offer_fingerprint_mismatch';
+}
+
+function offerReject(reasonCode, detail) {
+  return {
+    ok: false,
+    status: 409,
+    reason_code: reasonCode,
+    detail,
+    error: reasonCode === 'offer_unchecked'
+      ? 'That preview id was not checked against current beds and price. Ask for a fresh quote.'
+      : reasonCode === 'offer_identity_required'
+        ? 'A checked offer revision is required before this booking can be created.'
+        : 'The accepted offer no longer matches current dates, beds, or price. Nothing was booked.',
+    write_performed: false,
+    creates_booking: false,
+    no_write_performed: true,
+    success: false,
+  };
+}
+
+/**
+ * Compare a guest-accepted offer with the revision Staff just recomputed.
+ * A bare preview id is not an offer. Missing, null, and zero money stay distinct.
+ */
+function compareAcceptedWolfhouseOffer(accepted, current) {
+  if (!accepted || typeof accepted !== 'object') {
+    return offerReject('offer_identity_required', 'missing_accepted_offer');
+  }
+  const bareId = accepted.offer_id != null && String(accepted.offer_id).trim();
+  const fingerprint = accepted.offer_fingerprint || null;
+  if (bareId && !fingerprint) {
+    return offerReject('offer_unchecked', 'id_without_server_revision');
+  }
+  if (!fingerprint || accepted.availability_checked !== true) {
+    return offerReject(
+      'offer_identity_required',
+      accepted.availability_checked === true ? 'missing_offer_fingerprint' : 'availability_unchecked',
+    );
+  }
+  const currentRevision = current && current.offer_fingerprint
+    ? current
+    : buildWolfhouseOfferRevision(current);
+  if (currentRevision.availability_checked !== true) {
+    return offerReject('offer_unchecked', 'current_availability_unchecked');
+  }
+  if (currentRevision.offer_fingerprint !== fingerprint) {
+    return {
+      ...offerReject('offer_terms_changed', offerChangeDetail(accepted, currentRevision)),
+      expected_fingerprint: fingerprint,
+      current_fingerprint: currentRevision.offer_fingerprint,
+    };
+  }
+  return { ok: true, current_revision: currentRevision };
+}
+
+function currentWolfhouseOfferFromCreateCommand(command) {
+  const src = command && typeof command === 'object' ? command : {};
+  const quote = src.quote || {};
+  const body = src.transportBody || {};
+  const beds = Array.isArray(src.assignedBedCodes) ? src.assignedBedCodes : [];
+  return buildWolfhouseOfferRevision({
+    client_slug: src.clientSlug,
+    check_in: src.checkIn,
+    check_out: src.checkOut,
+    guest_count: src.quoteGuestCount,
+    guest_bed_assignments: beds.map((bed, index) => ({ guest_index: index, bed_code: String(bed) })),
+    room_type: src.roomType,
+    room_preference: src.roomPreference || null,
+    group_gender: src.groupGender || src.genderPreference || null,
+    gender_preference: src.genderPreference || null,
+    allocation_reason: body.allocation_reason || src.allocationReason || null,
+    package_code: src.effectivePackageCode || null,
+    guest_packages: src.guestPackagesForQuote || [],
+    add_ons: src.addOns || [],
+    total_cents: quote.total_cents,
+    deposit_required_cents: quote.deposit_required_cents,
+    payment_link_amount_cents: src.paymentLinkAmountCents,
+    currency: quote.currency || null,
+    payment_choice: src.paymentChoice,
+    availability_checked: src.availabilityChecked === true || !!src.availabilityProvenance,
+  });
+}
+
 async function validateAvailabilityProvenanceForCreate(pg, command, provenance) {
   if (!provenance || typeof provenance !== 'object') {
     return { ok: true };
@@ -681,7 +867,12 @@ module.exports = {
   packagePolicyRecheckFailure,
   AVAILABILITY_CHANNELS,
   AVAILABILITY_PROVENANCE_VERSION,
+  OFFER_REVISION_VERSION,
   WOLFHOUSE_CLIENT_SLUG,
+  computeWolfhouseOfferFingerprint,
+  buildWolfhouseOfferRevision,
+  compareAcceptedWolfhouseOffer,
+  currentWolfhouseOfferFromCreateCommand,
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
   computeWolfhouseAvailabilityInventory,

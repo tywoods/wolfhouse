@@ -53,6 +53,8 @@ const {
   validateAvailabilityProvenanceForCreate,
   packagePolicyRecheckFailure,
   buildAvailabilityRecheckCommandFromBooking,
+  compareAcceptedWolfhouseOffer,
+  currentWolfhouseOfferFromCreateCommand,
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
 const { validateExplicitBedSelection, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
@@ -739,6 +741,33 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       availabilityProvenance,
       availabilityPreflightAssignmentMode,
       explicitBedSelection,
+      requireOfferIdentity: body.require_offer_identity === true,
+    },
+  };
+}
+
+/**
+ * Wolfhouse Luna / simulator only. Sunset and manual staff creates are unchanged.
+ * Returns a blocked result, or null when this create is not offer-gated.
+ */
+function lunaCreateOfferGate(command) {
+  if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) return null;
+  if (command.channel !== BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) return null;
+  const body = command.transportBody || {};
+  const required = command.requireOfferIdentity === true || body.require_offer_identity === true;
+  const accepted = body.accepted_offer || command.acceptedOffer || null;
+  if (!required && !accepted) return null;
+  const decision = compareAcceptedWolfhouseOffer(
+    accepted,
+    currentWolfhouseOfferFromCreateCommand(command),
+  );
+  if (decision.ok) return null;
+  return {
+    ok: false,
+    status: decision.status || 409,
+    body: {
+      ...decision,
+      _blocked: true,
     },
   };
 }
@@ -750,6 +779,8 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  const offerBlocked = lunaCreateOfferGate(command);
+  if (offerBlocked) return offerBlocked;
 
   const {
     actor,
@@ -844,6 +875,11 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
   await pg.query('BEGIN');
   try {
+    const offerBlockedInTxn = lunaCreateOfferGate(command);
+    if (offerBlockedInTxn) {
+      await pg.query('ROLLBACK');
+      return offerBlockedInTxn;
+    }
     const r = await pg.query(buildManualBookingCreateSql(), [
       clientSlug,
       actor.staff_user_id,
