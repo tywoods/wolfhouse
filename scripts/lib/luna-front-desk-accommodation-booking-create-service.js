@@ -55,6 +55,7 @@ const {
   buildAvailabilityRecheckCommandFromBooking,
   compareAcceptedWolfhouseOffer,
   currentWolfhouseOfferFromCreateCommand,
+  rereadWolfhouseOfferForCommit,
   AVAILABILITY_CHANNELS,
 } = require('./luna-front-desk-accommodation-availability-service');
 const { validateExplicitBedSelection, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
@@ -772,6 +773,58 @@ function lunaCreateOfferGate(command) {
   };
 }
 
+async function lookupSavedWolfhouseCreate(pg, clientSlug, idempotencyKey) {
+  if (!pg || !clientSlug || !idempotencyKey) return null;
+  const found = await pg.query(
+    `/* offer_idempotency_lookup */
+     SELECT bk.id AS booking_id, bk.booking_code, bk.status, bk.metadata
+       FROM bookings bk
+       JOIN clients c ON c.id = bk.client_id
+      WHERE c.slug = $1
+        AND bk.metadata->>'idempotency_key' = $2
+      LIMIT 1`,
+    [clientSlug, idempotencyKey],
+  );
+  return found && Array.isArray(found.rows) && found.rows[0] ? found.rows[0] : null;
+}
+
+function savedWolfhouseCreateResult(row) {
+  const meta = row && row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  if (meta.write_state === 'ambiguous' || row.status === 'pending') {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        reason_code: 'write_recovery_required',
+        detail: 'ambiguous_prior_write',
+        booking_id: row.booking_id,
+        booking_code: row.booking_code,
+        write_performed: false,
+        creates_booking: false,
+        no_write_performed: true,
+        staff_review_needed: false,
+        do_not_escalate: true,
+        next_action: 'recover_write',
+      },
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: true,
+      duplicate: true,
+      idempotent: true,
+      booking_id: row.booking_id,
+      booking_code: row.booking_code,
+      response_delivered: meta.response_delivered === true,
+      write_performed: false,
+      creates_booking: false,
+    },
+  };
+}
+
 /**
  * Execute accommodation booking create inside caller-managed pg transaction scope.
  */
@@ -779,6 +832,12 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   if (!command || command.clientSlug !== WOLFHOUSE_CLIENT_SLUG) {
     return fail(403, 'tenant_mismatch', 'unsupported_client');
   }
+  const saved = await lookupSavedWolfhouseCreate(
+    pg,
+    command.clientSlug,
+    command.idempotencyKey || (command.transportBody && command.transportBody.idempotency_key),
+  );
+  if (saved) return savedWolfhouseCreateResult(saved);
   const offerBlocked = lunaCreateOfferGate(command);
   if (offerBlocked) return offerBlocked;
 
@@ -875,10 +934,17 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
   await pg.query('BEGIN');
   try {
-    const offerBlockedInTxn = lunaCreateOfferGate(command);
-    if (offerBlockedInTxn) {
+    const freshOffer = await rereadWolfhouseOfferForCommit(pg, command);
+    if (!freshOffer.ok && (command.requireOfferIdentity === true || (command.transportBody && command.transportBody.accepted_offer))) {
       await pg.query('ROLLBACK');
-      return offerBlockedInTxn;
+      return {
+        ok: false,
+        status: freshOffer.status || 409,
+        body: {
+          ...freshOffer,
+          _blocked: true,
+        },
+      };
     }
     const r = await pg.query(buildManualBookingCreateSql(), [
       clientSlug,

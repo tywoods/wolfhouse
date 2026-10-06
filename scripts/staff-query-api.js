@@ -864,6 +864,7 @@ const {
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
   mapBotHttpAvailabilityResponse,
+  buildCheckedWolfhousePreviewOffer,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
 const {
   buildPaymentLinkCommand,
@@ -883,6 +884,7 @@ const {
   isMissingBookingGuestsTable,
   buildGuestPaymentShortLinkPath,
   guestPaymentStatusFromRow,
+  mapBotBookingCreateBlockedHttp,
 } = require('./lib/booking-guests');
 const {
   validateStaffPackageNightRule,
@@ -12406,6 +12408,72 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     })
     : null;
 
+  let availabilityPayload = {
+    status: 'not_checked',
+    message: 'Availability requires specific bed codes. Call /staff/bot/availability-check for bed flags and selected_bed_codes.',
+  };
+  let offerRevision = null;
+  if (canQuote && quote && quote.success && clientSlug === 'wolfhouse-somo') {
+    try {
+      const checked = await withPgClient(async (pg) => {
+        const builtAvail = buildWolfhouseAvailabilityCommand({
+          channel: AVAILABILITY_CHANNELS.BOT_HTTP,
+          quoteConfig,
+          trustedClientSlug: clientSlug,
+          transportBody: {
+            check_in: checkIn,
+            check_out: checkOut,
+            guest_count: guestCount,
+            room_type: roomType || 'shared',
+            package_code: effectivePackageCode,
+            group_gender: body.group_gender,
+            room_preference: body.room_preference,
+            gender_preference: body.gender_preference,
+            selected_bed_codes: body.selected_bed_codes,
+          },
+          demoCalendarEnrichment: true,
+          assignmentMode: !(Array.isArray(body.selected_bed_codes) && body.selected_bed_codes.length),
+        });
+        if (!builtAvail.ok) return null;
+        const avail = await executeWolfhouseAvailabilityCheck(pg, builtAvail.command);
+        if (!avail.ok || !avail.body || !Array.isArray(avail.body.selected_bed_codes) || !avail.body.selected_bed_codes.length) {
+          return null;
+        }
+        let roomRows = Array.isArray(avail.body.available_beds) ? avail.body.available_beds : [];
+        try {
+          const roomRes = await pg.query(
+            '/* offer_room_rows */ SELECT bd.bed_code, r.room_code, r.gender_strategy FROM beds bd JOIN rooms r ON r.id = bd.room_id WHERE bd.bed_code = ANY($1)',
+            [avail.body.selected_bed_codes],
+          );
+          if (roomRes && Array.isArray(roomRes.rows) && roomRes.rows.length) roomRows = roomRes.rows;
+        } catch (_) {}
+        const paymentNorm = normalizeBotBookingPaymentChoice(paymentChoiceRaw);
+        return buildCheckedWolfhousePreviewOffer({
+          client_slug: clientSlug,
+          quote,
+          availability: { ...avail.body, availability_checked: true, status: 'checked' },
+          guests: Array.isArray(body.guests) && body.guests.length ? body.guests : [{ name: guestName }],
+          payment_choice: paymentChoice || 'deposit',
+          per_guest_payment_links: paymentNorm.per_guest_payment_links === true,
+          payment_distribution: quote.per_guest_deposits,
+          room_rows: roomRows,
+          package_code: effectivePackageCode,
+          guest_packages: guestPackagesForQuote,
+          add_ons: normalizedAddOns,
+        });
+      });
+      if (checked && checked.offer_revision) {
+        availabilityPayload = checked.availability;
+        offerRevision = checked.offer_revision;
+      }
+    } catch (_) {
+      availabilityPayload = {
+        status: 'not_checked',
+        message: 'Availability could not be checked, so no offer revision was issued.',
+      };
+    }
+  }
+
   appendAuditLog({
     ts:                  new Date().toISOString(),
     intent:              'api:bot_booking_preview',
@@ -12454,10 +12522,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     unknown_add_on_codes: !addOnPrep.ok ? addOnPrep.unknown_codes : [],
     add_on_errors:       !addOnPrep.ok ? addOnPrep.blockers : [],
     package_night_rule:  packageNightViolation || null,
-    availability: {
-      status:  'not_checked',
-      message: 'Availability requires specific bed codes. Call /staff/bot/availability-check for bed flags and selected_bed_codes.',
-    },
+    availability:        availabilityPayload,
+    offer_revision:      offerRevision,
     email_recommended: !email,
     auth_mode:         resolvedAuthMode,
     elapsed_ms:        elapsed,
@@ -16010,6 +16076,13 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     });
   }
 
+  const typedBlocked = mapBotBookingCreateBlockedHttp(row, execResult.status);
+  if (!execResult.ok && typedBlocked) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.reason_code, elapsed_ms: elapsed });
+    return sendJSON(res, typedBlocked.status, typedBlocked.body);
+  }
+
   // Preserve typed commit-time policy rejection before the generic SQL block mapper.
   if (!execResult.ok && row._blocked && (
     row.reason_code === 'package_min_nights_violation'
@@ -16267,6 +16340,16 @@ async function handleManualBookingCreate(req, res, user) {
       booking_code:   row.duplicate_booking_code,
       message:        'Booking already exists for this request (idempotent).',
       no_stripe:      true, no_whatsapp: true, no_n8n: true,
+    });
+  }
+
+  const typedManualBlocked = mapBotBookingCreateBlockedHttp(row, execResult.status);
+  if (!execResult.ok && typedManualBlocked) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.reason_code, elapsed_ms: elapsed });
+    return sendJSON(res, typedManualBlocked.status, {
+      ...typedManualBlocked.body,
+      no_stripe: true, no_whatsapp: true, no_n8n: true,
     });
   }
 
