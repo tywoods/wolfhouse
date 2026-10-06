@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const { execFileSync } = require('node:child_process');
+
 const {
   catalogRevisionFor,
   projectCatalogueRows,
@@ -248,14 +248,13 @@ test('router keeps research auth and does not let the caller name a tenant', () 
   assert.match(api, /id="staff-room-fill" hidden/);
   assert.match(api, /\/\* INJECT:staff-room-fill \*\//);
   const browser = fs.readFileSync(path.join(__dirname, 'browser', 'staff-room-fill.js'), 'utf8');
-  assert.match(browser, /Settings and preview only — not connected to booking placement\./);
+  assert.doesNotMatch(browser, /Settings and preview only — not connected to booking placement\./);
+  assert.match(browser, /Preview only · no beds reserved\./);
   assert.doesNotMatch(browser, />\s*(Book|Reserve)\s*</);
   assert.doesNotMatch(browser, /textContent = ['"]Book['"]|textContent = ['"]Reserve['"]/);
-  const diff = execFileSync('git', ['diff', '--unified=0', 'github/master', '--', 'scripts/lib/luna-bed-allocator.js'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
-  assert.match(diff, /^\+  roomEligibleForGroup,$/m);
-  assert.equal((diff.match(/^\+[^+]/gm) || []).length, 1);
+  // Assert the shipped seam, not an obsolete diff against a machine-local remote.
+  assert.equal(typeof require('./lib/luna-bed-allocator').roomEligibleForGroup, 'function');
+  const allocator = fs.readFileSync(path.join(ROOT, 'scripts/lib/luna-bed-allocator.js'), 'utf8');
+  assert.doesNotMatch(allocator, /require\(['"].*staff-room-fill|lunaRoomFillPolicy|draftPolicy/);
   assert.equal(settingsRevisionFor(suggestedPolicy(roomsFrom(makeState()))).length, 64);
 });
