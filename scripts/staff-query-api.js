@@ -20508,9 +20508,9 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
 .staff-collapse-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0 0 8px;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .staff-collapse-caret{flex:0 0 auto;color:var(--text-2);font-size:14px;line-height:1}
-html:not([data-portal-client="sunset"]) .staff-collapse-toggle[aria-expanded="false"] ~ *{display:none!important}
-html[data-portal-client="sunset"] .staff-collapse-caret{display:none}
-html[data-portal-client="sunset"] .staff-collapse-toggle{cursor:default}
+.staff-collapse-body[hidden]{display:none!important}
+/* Only admitted Wolfhouse gets these buttons; include header actions and late-owned siblings. */
+.staff-collapse-toggle[aria-expanded="false"] ~ *{display:none!important}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
 /* Staff Numbers edit mode */
 .swn-edit-btn{background:transparent;border:none;cursor:pointer;padding:2px 6px;font-size:14px;color:var(--text-2);line-height:1;border-radius:4px;transition:color .15s,background .15s}
@@ -24975,10 +24975,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- ── Tour Operator Block ───────────────────────────────────────────────── -->
   <div class="card" id="to-op-panel" style="margin-top:16px">
-    <button type="button" class="staff-collapse-toggle" id="staff-room-block-toggle" aria-expanded="true" aria-controls="to-op-panel">
+    <div class="bc-op-header">
       <span class="bc-op-title" data-i18n="tourOperator.block.title">Tour Operator Block</span>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    </div>
 
     <!-- Section: Operator contact -->
     <div class="bk-form-section">
@@ -25044,10 +25043,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- ── Operator Room Release ───────────────────────────────────────────── -->
   <div class="card" id="to-rr-panel" style="margin-top:16px">
-    <button type="button" class="staff-collapse-toggle" id="staff-room-release-toggle" aria-expanded="true" aria-controls="to-rr-panel">
+    <div class="bc-op-header">
       <span class="bc-op-title" data-i18n="tourOperator.release.title">Operator Room Release</span>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    </div>
     <div class="bc-rr-purpose" data-i18n="tourOperator.release.intro">
       Release dates from an existing operator block back to normal availability. The original block may split into remaining segments.
     </div>
@@ -25131,10 +25129,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- Style card — header modes + Light Salt/Sand; Dark is Sand only. -->
   <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
-    <button type="button" class="staff-collapse-toggle" id="staff-style-toggle" aria-expanded="true" aria-controls="staff-style-card">
+    <div class="luna-header-mode-head">
       <span class="luna-header-mode-title" data-i18n="lunaStaff.style.title">Style</span>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    </div>
     <div id="luna-header-mode-card" class="staff-style-header-block" aria-label="Header style">
       <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
       <div class="luna-header-mode-seg" role="group" aria-label="Header style">
@@ -25162,13 +25159,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
-  <section class="card staff-style-card" id="staff-room-setup-card" aria-label="Room Setup">
-    <button type="button" class="staff-collapse-toggle" id="staff-room-setup-toggle" aria-expanded="true" aria-controls="staff-room-setup-card">
-      <span class="luna-header-mode-title">Room Setup</span>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
-    <div id="staff-room-fill" hidden></div>
-  </section>
 
   <section class="staff-style-card luna-header-mode-card" id="staff-luna-personality-card" aria-label="Luna Personality">
     <div class="luna-header-mode-head">
@@ -25191,6 +25181,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
       <p class="al-hint" id="staff-luna-intelligence-help">Let Luna search the web for surf, local info, and open guest questions. Off = booking tools only.</p>
       <div id="staff-luna-intelligence-status" class="al-hint" role="status"></div>
+      <div id="staff-room-fill" hidden></div>
     </div>
   </section>
 
@@ -25279,10 +25270,7 @@ ${showOwnerScheduleBridge ? `
     </div>
   </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
-    <button type="button" class="staff-collapse-toggle" id="staff-numbers-toggle" aria-expanded="true" aria-controls="cc-staff-whatsapp-numbers">
-      <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
     <div id="swn-error"></div>
     <div id="swn-status"></div>
@@ -25313,10 +25301,7 @@ ${showOwnerScheduleBridge ? `
   </div>
 
   <div class="card cc-section" id="cc-automated-staff-notifications" style="display:none">
-    <button type="button" class="staff-collapse-toggle" id="staff-notifications-toggle" aria-expanded="true" aria-controls="cc-automated-staff-notifications">
-      <div class="cc-section-hdr" data-i18n="lunaStaff.automations.title">Automated Staff Notifications</div>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.automations.title">Automated Staff Notifications</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.automations.sub">Schedule Luna to answer saved prompts and send them to selected staff.</div>
     <div id="asn-error"></div>
     <div id="asn-status"></div>
@@ -25419,10 +25404,7 @@ ${showOwnerScheduleBridge ? `
   </div>
 
   <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <button type="button" class="staff-collapse-toggle" id="staff-notes-toggle" aria-expanded="true" aria-controls="cc-house-notes">
-      <div class="cc-section-hdr" data-i18n="lunaStaff.notes.title">General Notes for Luna</div>
-      <span class="staff-collapse-caret" aria-hidden="true">▾</span>
-    </button>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.notes.title">General Notes for Luna</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.notes.sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
     <div id="hn-error"></div>
     <div id="hn-status"></div>
@@ -26808,6 +26790,8 @@ function syncBcClientFromInbox(){
 
 var staffPortalSession = { auth_required: false, role: 'owner', clients: [], can_use_owner_insights: true };
 var staffPortalClientProfiles = {};
+var staffDisclosureSession = null;
+var staffDisclosureSessionSerial = 0;
 
 function getPortalProfile(clientSlug){
   var slug = clientSlug || getClient();
@@ -27053,6 +27037,19 @@ function applyClientPortalProfile(clientSlug){
   applySurfNavLabels(profile);
   applyCustomersPortalI18n(profile);
   applySurfInboxFilters(profile);
+  // Disclosure identity follows the admitted session/profile, never a palette or HTML default.
+  var admitted = (staffPortalSession.clients || []).some(function (client) {
+    return (typeof client === 'string' ? client : client.slug) === clientSlug;
+  });
+  if (staffDisclosureSession !== staffPortalSession) {
+    staffDisclosureSession = staffPortalSession;
+    staffDisclosureSessionSerial++;
+  }
+  window.__staffDisclosureContext = {
+    client: admitted ? clientSlug : '',
+    key: String(staffDisclosureSessionSerial) + ':' + (admitted ? clientSlug : '')
+  };
+  if (window.staffCollapseApplyClientContext) window.staffCollapseApplyClientContext(window.__staffDisclosureContext);
 }
 
 
@@ -33533,6 +33530,7 @@ function houseNotesShowMsg(kind, text){
   if (!text) return;
   var target = kind === 'error' ? err : box;
   if (!target) return;
+  if (kind === 'error' && window.staffCollapseReveal) window.staffCollapseReveal(target);
   target.textContent = text;
   target.style.display = 'block';
 }
@@ -46676,31 +46674,123 @@ function lgsCreateStripeLink(){
 </script>
 <script>
 (function () {
-  function wolfhouseStaff() {
-    return document.documentElement.getAttribute('data-portal-client') !== 'sunset';
-  }
+  var controls = [];
+  var contextKey = null;
+  var activeClient = '';
+  var roomRoot = document.getElementById('staff-room-fill');
+  var roomHome = document.createComment('Room Placement home');
+  var setupCard = null;
+  if (roomRoot) roomRoot.parentElement.insertBefore(roomHome, roomRoot);
+
   function setOpen(button, open) {
     if (!button) return;
     button.setAttribute('aria-expanded', open ? 'true' : 'false');
     var caret = button.querySelector('.staff-collapse-caret');
     if (caret) caret.textContent = open ? '▾' : '▸';
     var panel = document.getElementById(button.getAttribute('aria-controls') || '');
-    if (panel && panel !== button.parentElement) panel.hidden = !open;
+    if (panel) panel.hidden = !open;
   }
-  function closeWolfhouseSections() {
-    if (!wolfhouseStaff()) return;
-    document.querySelectorAll('.staff-collapse-toggle').forEach(function (button) {
-      setOpen(button, false);
+  function enhance(cardId, toggleId) {
+    var card = document.getElementById(cardId);
+    var title = card && card.firstElementChild;
+    if (!title) return;
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.id = toggleId;
+    button.className = 'staff-collapse-toggle';
+    var body = document.createElement('div');
+    body.id = cardId + '-body';
+    body.className = 'staff-collapse-body';
+    button.setAttribute('aria-controls', body.id);
+    card.insertBefore(button, title);
+    button.appendChild(title);
+    var caret = document.createElement('span');
+    caret.className = 'staff-collapse-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    button.appendChild(caret);
+    Array.prototype.slice.call(card.childNodes).forEach(function (node) {
+      if (node !== button) body.appendChild(node);
     });
+    card.appendChild(body);
+    controls.push({ card: card, title: title, button: button, body: body });
+    setOpen(button, false);
   }
+  function syncRoomPermission() {
+    if (!setupCard || !roomRoot) return;
+    // Only the existing Room Placement owner decides permission/visibility.
+    setupCard.hidden = roomRoot.hidden;
+    setupCard.style.display = roomRoot.hidden ? 'none' : '';
+  }
+  if (roomRoot) new MutationObserver(syncRoomPermission).observe(roomRoot, { attributes: true, attributeFilter: ['hidden'] });
+
+  function restore() {
+    controls.forEach(function (control) {
+      control.card.insertBefore(control.title, control.button);
+      control.button.remove();
+      while (control.body.firstChild) control.card.insertBefore(control.body.firstChild, control.body);
+      control.body.remove();
+    });
+    controls = [];
+    if (setupCard) {
+      if (roomRoot && roomHome.parentNode) roomHome.parentNode.insertBefore(roomRoot, roomHome.nextSibling);
+      setupCard.remove();
+      setupCard = null;
+    }
+  }
+  function applyContext(context) {
+    context = context || { client: '', key: '' };
+    if (contextKey === context.key && activeClient === context.client) return;
+    restore();
+    contextKey = context.key;
+    activeClient = context.client;
+    if (activeClient === 'wolfhouse-somo') {
+      if (roomRoot) {
+        setupCard = document.createElement('section');
+        setupCard.id = 'staff-room-setup-card';
+        setupCard.className = 'card staff-style-card';
+        setupCard.setAttribute('aria-label', 'Room Setup');
+        var title = document.createElement('div');
+        title.className = 'luna-header-mode-head';
+        var label = document.createElement('span');
+        label.className = 'luna-header-mode-title';
+        label.textContent = 'Room Setup';
+        title.appendChild(label);
+        setupCard.appendChild(title);
+        setupCard.appendChild(roomRoot);
+        var personality = document.getElementById('staff-luna-personality-card');
+        personality.parentNode.insertBefore(setupCard, personality);
+        syncRoomPermission();
+      }
+      [
+        ['cc-house-notes', 'staff-notes-toggle'],
+        ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
+        ['cc-automated-staff-notifications', 'staff-notifications-toggle'],
+        ['staff-style-card', 'staff-style-toggle'],
+        ['staff-room-setup-card', 'staff-room-setup-toggle'],
+        ['to-op-panel', 'staff-room-block-toggle'],
+        ['to-rr-panel', 'staff-room-release-toggle']
+      ].forEach(function (entry) { enhance(entry[0], entry[1]); });
+    }
+    window.dispatchEvent(new CustomEvent('staff-disclosure-context', { detail: { client: activeClient, key: contextKey } }));
+  }
+  window.staffCollapseContextKey = function () { return contextKey || ''; };
+  window.staffCollapseApplyClientContext = applyContext;
+  window.staffCollapseReveal = function (node) {
+    if (activeClient !== 'wolfhouse-somo' || !node) return;
+    controls.forEach(function (control) {
+      if (control.card.contains(node)) setOpen(control.button, true);
+    });
+  };
   document.addEventListener('click', function (event) {
     var button = event.target.closest && event.target.closest('.staff-collapse-toggle');
-    if (!button || !wolfhouseStaff()) return;
+    if (event.defaultPrevented || !button || !controls.some(function (control) { return control.button === button; })) return;
     setOpen(button, button.getAttribute('aria-expanded') !== 'true');
   });
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', closeWolfhouseSections);
-  else closeWolfhouseSections();
-  window.staffCollapseCloseWolfhouseSections = closeWolfhouseSections;
+  document.addEventListener('invalid', function (event) { window.staffCollapseReveal(event.target); }, true);
+  window.staffCollapseCloseWolfhouseSections = function () {
+    controls.forEach(function (control) { setOpen(control.button, false); });
+  };
+  applyContext(window.__staffDisclosureContext);
 })();
 </script>
 </body>
