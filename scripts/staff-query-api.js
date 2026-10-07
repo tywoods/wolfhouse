@@ -47355,7 +47355,7 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     const gran = typeof granRaw === 'string'
       ? granRaw.trim().toLowerCase()
       : (Array.isArray(granRaw) && granRaw.length ? String(granRaw[0]).trim().toLowerCase() : '');
-    if (gran === 'day' || gran === 'month' || gran === 'year' || gran === 'custom') view.granularity = gran;
+    if (gran === 'day' || gran === 'week' || gran === 'month' || gran === 'year' || gran === 'custom') view.granularity = gran;
     const anchor = typeof query.anchor === 'string' ? query.anchor.trim() : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchor)) view.anchor = anchor;
     // url.parse may yield string[] when a gateway duplicates start/end — same as granularity.

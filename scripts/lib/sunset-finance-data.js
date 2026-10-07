@@ -384,13 +384,16 @@ const LODGING_BSR_SQL = `
          b.total_amount_cents AS amount_due_cents,
          jsonb_strip_nulls(jsonb_build_object(
            'package_code', NULLIF(lower(trim(both FROM COALESCE(b.package_code, ''))), ''),
-           'package_name', NULLIF(trim(both FROM COALESCE(p.name, '')), '')
+           'package_name', NULLIF(trim(both FROM COALESCE(p.name, '')), ''),
+           'quote_snapshot', b.metadata->'quote_snapshot'
          )) AS metadata,
          CASE WHEN b.metadata->>'luna_guest_booking' = 'true'
                    OR b.metadata->>'source' = 'luna_guest_whatsapp'
                    OR b.metadata->>'actor_source' = 'agent_luna_whatsapp_bot'
+                   OR b.metadata->>'bot_source' = 'luna_whatsapp'
               THEN 'luna_guest'::text
               WHEN b.metadata->>'staff_manual_schedule' = 'true'
+                   OR b.metadata->>'source' = 'staff_manual'
                    OR b.metadata->>'created_by_staff' = 'true'
               THEN 'staff'::text
               ELSE NULL::text END AS source
