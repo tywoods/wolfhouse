@@ -158,7 +158,12 @@ class FirstYesOwnerTests(unittest.TestCase):
 
     def test_post_booking_contact_pending_unknown_and_completed_survive_reopen(self):
         ledger.record_quote(self.plan, self.response)
-        self.turn('accept-contact', 'I accept the quote')
+        presented = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        self.assertTrue(presented['final_response'].endswith('Shall I create this booking?'))
+        self.turn('accept-contact', 'yes')
         prepared = ledger.prepare_create({})
         receipt = {'success': True, 'write_performed': True,
                    'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'}
@@ -169,7 +174,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.db.close()
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
         self.agent._session_db = self.db
-        self.turn('accept-contact', 'I accept the quote')
+        self.turn('accept-contact', 'yes')
         prepared = ledger.prepare_create({})
         begun = ledger.begin_post_booking_contact(prepared, **identity)
         self.assertTrue(begun['perform'])
@@ -178,7 +183,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.db.close()
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
         self.agent._session_db = self.db
-        self.turn('accept-contact', 'I accept the quote')
+        self.turn('accept-contact', 'yes')
         prepared = ledger.prepare_create({})
         replay = ledger.begin_post_booking_contact(prepared, **identity)
         self.assertFalse(replay['perform'], 'a maybe-started contact write must not retry')
@@ -190,7 +195,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.db.close()
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
         self.agent._session_db = self.db
-        self.turn('accept-contact', 'I accept the quote')
+        self.turn('accept-contact', 'yes')
         prepared = ledger.prepare_create({})
         completed = ledger.post_booking_contact_status(prepared, **identity)
         self.assertEqual(completed['status'], 'completed')

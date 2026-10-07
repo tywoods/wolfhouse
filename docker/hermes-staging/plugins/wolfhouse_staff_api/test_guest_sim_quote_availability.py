@@ -122,6 +122,40 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertIsNone(result['guest_safe_room_label'])
         self.assertEqual(result['selected_bed_codes'], ['A1', 'B1'])
 
+    def test_raw_booking_receipt_resumes_adapter_but_completed_receipt_short_circuits(self):
+        import sys
+        from wolfhouse import accepted_quote as ledger
+
+        raw = {'success': True, 'write_performed': True,
+               'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'}
+        completed = {**raw, 'post_booking_email': {
+            'requested': True, 'saved': True, 'sent': False,
+            'send_performed': False, 'outcome': 'saved'}}
+        calls = []
+        def adapter(params, **kwargs):
+            calls.append(dict(params))
+            return json.dumps(completed)
+        guarded = plugin._quote_owner_handler('create_booking_from_plan', adapter)
+        ticket = {'owner': 'ticket'}
+        with patch.dict(sys.modules, {'agent.conversation_loop': object()}), \
+                patch.object(ledger, 'prepare_create', return_value=ticket), \
+                patch.object(ledger, 'record_create_completion') as record:
+            with patch.object(ledger, 'dispatch_recovery', return_value={
+                    'receipt': raw, 'adapter_completed': False}):
+                result = json.loads(guarded({'email': 'alex@example.test'}))
+            self.assertEqual(result['post_booking_email']['outcome'], 'saved')
+            self.assertEqual(len(calls), 1, 'raw receipt must resume adapter work')
+            record.assert_called_once_with(ticket, completed)
+
+            calls.clear()
+            record.reset_mock()
+            with patch.object(ledger, 'dispatch_recovery', return_value={
+                    'receipt': completed, 'adapter_completed': True}):
+                replay = json.loads(guarded({'email': 'alex@example.test'}))
+            self.assertEqual(replay['post_booking_email']['outcome'], 'saved')
+            self.assertEqual(calls, [], 'completed adapter work must not run twice')
+            record.assert_not_called()
+
     def test_post_booking_email_save_outcomes_replay_and_no_write_fences(self):
         payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
         created = {'success': True, 'write_performed': True}

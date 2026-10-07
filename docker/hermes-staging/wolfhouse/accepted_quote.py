@@ -563,8 +563,12 @@ def dispatch_recovery(prepared):
     """Owner-only receipt/recovery state, never a model-supplied retry boolean."""
     def inspect(state, ingress):
         _validate_dispatch_ticket(prepared, state)
-        return {'receipt': deepcopy(state.get('completion') or state.get('receipt')),
-                'pending': bool(state.get('checked_offer') and state.get('dispatch_pending'))}
+        completion = state.get('completion')
+        return {
+            'receipt': deepcopy(completion or state.get('receipt')),
+            'adapter_completed': isinstance(completion, dict),
+            'pending': bool(state.get('checked_offer') and state.get('dispatch_pending')),
+        }
     return _transaction(inspect)
 
 

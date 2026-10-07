@@ -4340,7 +4340,7 @@ def _quote_owner_handler(name, original):
                              else ledger.prepare_create(canonical))
                 if name != 'quote_booking':
                     recovery = ledger.dispatch_recovery(canonical)
-                    if recovery['receipt']:
+                    if recovery['receipt'] and recovery.get('adapter_completed') is True:
                         return _json_result({**recovery['receipt'], 'tool': name,
                                              'idempotent': True, 'created': False,
                                              'write_performed': False})
