@@ -704,7 +704,17 @@ def _global_limit() -> asyncio.Semaphore:
     return _GLOBAL_LIMIT
 
 
-def _make_event(scope: CrowsnestGuestScope, text: str) -> Any:
+def _stable_sim_message_id(message_id: Optional[str]) -> str:
+    """Use a bounded caller identity, or mint one for legacy callers."""
+    supplied = str(message_id or "").strip()
+    if not supplied:
+        return f"crowsnest.sim.{uuid.uuid4().hex}"
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,160}", supplied):
+        raise ValueError("invalid_message_id")
+    return supplied
+
+
+def _make_event(scope: CrowsnestGuestScope, text: str, message_id: Optional[str] = None) -> Any:
     from gateway.config import Platform
     from gateway.platforms.base import MessageEvent, MessageType
     from gateway.session import SessionSource
@@ -722,7 +732,7 @@ def _make_event(scope: CrowsnestGuestScope, text: str) -> Any:
         text=text,
         message_type=MessageType.TEXT,
         source=source,
-        message_id=f"crowsnest.sim.{uuid.uuid4().hex}",
+        message_id=_stable_sim_message_id(message_id),
     )
     event.metadata = {
         "crowsnest_simulator": True,
@@ -790,6 +800,7 @@ async def run_crowsnest_guest_turn(
     mirror: Optional[Callable[..., Awaitable[Any]]] = None,
     timeout_sec: float = 120.0,
     late_settle_sec: float = 0.25,
+    message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run one bounded synthetic turn on the live runner with a separate session."""
     if runner is None or not callable(getattr(runner, "_handle_message", None)):
@@ -809,7 +820,7 @@ async def run_crowsnest_guest_turn(
     # Active handlers serialize on the session lock. Only check the independent
     # late-worker fence after acquiring it: rejecting before the lock incorrectly
     # rejects an ordinary queued next turn whose predecessor will settle normally.
-    event = _make_event(scope, message)
+    event = _make_event(scope, message, message_id=message_id)
     mirror_fn = mirror or _default_mirror
     lock = await _session_lock(scope.session_key)
 

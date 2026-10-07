@@ -328,6 +328,7 @@ async def run_simulated_turn(
     booking_only_mode: str = "",
     synthetic_identity: str = "",
     timeout_sec: float = 180.0,
+    message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     assert_staging_environment()
     # Enter the already-running GatewayRunner directly. Never mutate process env
@@ -341,6 +342,7 @@ async def run_simulated_turn(
         phone=thread,
         text=text,
         timeout_sec=timeout_sec,
+        message_id=message_id,
     )
 
     # Unreachable legacy implementation retained temporarily for compatibility.
@@ -646,6 +648,13 @@ def register_simulate_route(app) -> None:
                     result = await run_golden_guest_turn(thread=thread, text=str(body.get('text') or ''))
                 from aiohttp import web
                 return web.json_response(result)
+            raw_message_id = body.get("message_id")
+            if raw_message_id is None:
+                raw_message_id = body.get("whatsapp_message_id")
+            from wolfhouse.crowsnest_guest_door import _stable_sim_message_id
+            normalized_message_id = (
+                _stable_sim_message_id(raw_message_id) if raw_message_id is not None else None
+            )
             result = await run_simulated_turn(
                 thread=str(body.get("thread") or body.get("guest_phone") or ""),
                 text=str(body.get("text") or body.get("message_text") or ""),
@@ -655,7 +664,12 @@ def register_simulate_route(app) -> None:
                 allow_writes=False,
                 booking_only_mode="",
                 synthetic_identity="",
+                message_id=normalized_message_id,
             )
+        except ValueError as exc:
+            from aiohttp import web
+
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
         except SystemExit as exc:
             from aiohttp import web
 
