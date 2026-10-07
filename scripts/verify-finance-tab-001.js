@@ -86,6 +86,10 @@ for (const required of ['Booked sales', 'Balance still due', 'Booked sales by pr
   assert.ok(uiSrc.includes(required), `Finance UI missing ${required}`);
 }
 assert.ok(uiSrc.includes('Unavailable'), 'Finance UI must render unavailable state');
-assert.ok(uiSrc.includes('data-finance-gran="year"'), 'Year must remain available in secondary controls');
+assert.match(uiSrc, /\['day', 'Day'\], \['week', 'Week'\], \['month', 'Month'\], \['year', 'Year'\], \['custom', 'Custom'\]/,
+  'Year remains in the shared granularity tablist');
+const adminUiSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
+assert.match(adminUiSrc, /gran === 'year'/, 'native controller accepts Year selection');
+assert.match(adminUiSrc, /q \+= '&granularity=' \+ encodeURIComponent\(g\)/, 'Year selection is sent through native finance query');
 
 console.log('PASS verify-finance-tab-001');

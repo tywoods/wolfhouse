@@ -1367,8 +1367,10 @@ function computeSunsetFinanceSummary(args) {
   }
   const lunaQualifying = new Set();
   const lunaByService = new Map();
+  const lunaOrigins = new Set(['luna_guest', 'luna_whatsapp']);
+  const staffOrigins = new Set(['staff_manual', 'staff', 'import', 'stripe']);
   for (const bookingId of qualifyingPrimary) {
-    if (originByBooking.get(String(bookingId)) !== 'luna_guest') continue;
+    if (!lunaOrigins.has(originByBooking.get(String(bookingId)))) continue;
     lunaQualifying.add(String(bookingId));
   }
   for (const r of datedBsr) {
@@ -1614,11 +1616,17 @@ function computeSunsetFinanceSummary(args) {
     revenue_by_product,
     luna_bookings: (() => {
       const unknownOriginCount = [...qualifyingPrimary]
-        .filter((bookingId) => !originByBooking.has(String(bookingId))).length;
+        .filter((bookingId) => {
+          const origin = originByBooking.get(String(bookingId));
+          return !lunaOrigins.has(origin) && !staffOrigins.has(origin);
+        }).length;
+      const staffCount = [...qualifyingPrimary]
+        .filter((bookingId) => staffOrigins.has(originByBooking.get(String(bookingId)))).length;
       return {
         ...luna_bookings,
         status: unknownOriginCount > 0 ? 'partial' : 'complete',
         known_luna_count: luna_bookings.total_bookings,
+        staff_count: staffCount,
         unknown_origin_count: unknownOriginCount,
       };
     })(),
@@ -1634,6 +1642,7 @@ function computeSunsetFinanceSummary(args) {
       // Keep pct null and expose an explicitly provisional ratio separately.
       observed_pct: !(args && args.occupancy_data_unavailable)
         && bedOccupancy && String(bedOccupancy.status) === 'partial'
+        && bedOccupancy.occupied_bed_nights != null
         && Number.isFinite(Number(bedOccupancy.occupied_bed_nights))
         && Number(bedOccupancy.sellable_bed_nights) > 0
         ? Math.round((Number(bedOccupancy.occupied_bed_nights) * 1000) / Number(bedOccupancy.sellable_bed_nights)) / 10
