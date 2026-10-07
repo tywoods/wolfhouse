@@ -25,13 +25,15 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
     def test_composed_source_claims_capacity_before_admitting_and_releases_refusal(self):
         from install_gateway_admission import compose_source
 
-        source = '''\nclass GatewayRunner:\n    async def _handle_message(self, event):\n        source = event.source\n        _quick_key = "session"\n        _active_session_lease, _limit_message = self._claim_active_session_slot(\n            _quick_key,\n            source,\n        )\n        if _limit_message is not None:\n            return _limit_message\n        if _active_session_lease is not None:\n            if not hasattr(self, "_active_session_leases"):\n                self._active_session_leases = {}\n            self._active_session_leases[_quick_key] = _active_session_lease\n        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL\n'''
+        source = '''\nclass GatewayRunner:\n    def __init__(self):\n        self._admission_lock_owner = IdentityAdmissionOwner(\n            "/opt/data/luna-admission/owner.journal"\n        )\n\n    async def _handle_message(self, event):\n        source = event.source\n        _quick_key = "session"\n        # Existing adapter admit on this message identity, before session claim.\n        _legacy = True\n        if _legacy:\n            return None\n\n        # ── Claim this session before any await ───────────────────────\n        _active_session_lease, _limit_message = self._claim_active_session_slot(\n            _quick_key,\n            source,\n        )\n        if _limit_message is not None:\n            return _limit_message\n        if _active_session_lease is not None:\n            if not hasattr(self, "_active_session_leases"):\n                self._active_session_leases = {}\n            self._active_session_leases[_quick_key] = _active_session_lease\n        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL\n'''
         composed = compose_source(source)
         claim = composed.index("self._claim_active_session_slot")
         admission = composed.index("admit_gateway_message")
         sentinel = composed.index("self._running_agents[_quick_key]")
         self.assertLess(claim, admission)
         self.assertLess(admission, sentinel)
+        self.assertNotIn("Existing adapter admit on this message identity", composed)
+        self.assertIn("/opt/data/luna-admission/owner.journal", composed)
         self.assertIn("self._release_running_agent_state(_quick_key)", composed)
         self.assertEqual(compose_source(composed), composed)
 
@@ -50,10 +52,13 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         calls = []
         with tempfile.TemporaryDirectory() as tmp:
             admission_owner._ADAPTER_PATH = str(STAGING / "proposed_admission_lock_adapter.py")
-            admission._JOURNAL_PATH = str(Path(tmp) / "admission.journal")
+            runner._admission_lock_owner = admission_owner.IdentityAdmissionOwner(
+                str(Path(tmp) / "owner.journal"))
             admission._arm_exact_first_yes_retry = lambda **kw: calls.append(kw) or True
             self.assertTrue(admission.admit_gateway_message(runner, Event(), Event.source, "session-1"))
             self.assertTrue(admission.admit_gateway_message(runner, Event(), Event.source, "session-1"))
+            runner._admission_lock_owner._release_inner()
+            runner._admission_lock_owner._anchor._journal.close()
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["message_id"], "wamid-1")
         self.assertEqual(calls[0]["raw"], "yes")
@@ -74,12 +79,51 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         probes = []
         with tempfile.TemporaryDirectory() as tmp:
             admission_owner._ADAPTER_PATH = str(STAGING / "proposed_admission_lock_adapter.py")
-            admission._JOURNAL_PATH = str(Path(tmp) / "admission.journal")
+            runner._admission_lock_owner = admission_owner.IdentityAdmissionOwner(
+                str(Path(tmp) / "owner.journal"))
             admission._arm_exact_first_yes_retry = lambda **kw: probes.append(kw) or False
             self.assertTrue(admission.admit_gateway_message(runner, Event("same"), Event.source, "s"))
             self.assertFalse(admission.admit_gateway_message(runner, Event("same"), Event.source, "s"))
             self.assertTrue(admission.admit_gateway_message(runner, Event("unrelated"), Event.source, "s"))
+            runner._admission_lock_owner._release_inner()
+            runner._admission_lock_owner._anchor._journal.close()
         self.assertEqual([call["message_id"] for call in probes], ["same"])
+
+    def test_active_and_uncertain_admission_states_never_reach_recovery(self):
+        import gateway.identity_admission_owner as admission_owner
+        from wolfhouse import gateway_admission_integration as admission
+
+        class Source:
+            platform = type("Platform", (), {"value": "whatsapp"})()
+            chat_id = "chat-unsafe"
+        class Event:
+            source = Source()
+            message_id = "unsafe"
+            text = "yes"
+        probes = []
+        admission._arm_exact_first_yes_retry = lambda **kw: probes.append(kw) or True
+        admission_owner._ADAPTER_PATH = str(STAGING / "proposed_admission_lock_adapter.py")
+        for status in ("ACTIVE", "UNCERTAIN_DENY"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                owner = admission_owner.IdentityAdmissionOwner(str(Path(tmp) / "owner.journal"))
+                owner.execution_identity = ("whatsapp", "chat-unsafe", "unsafe")
+                inner = owner._ensure_inner()
+                inner._journal.db.execute(
+                    "UPDATE owner SET status=?, generation=1 WHERE id=1", (status,))
+                runner = type("Runner", (), {"_admission_lock_owner": owner})()
+                self.assertFalse(admission.admit_gateway_message(runner, Event(), Event.source, "s"))
+                owner._release_inner()
+                runner._admission_lock_owner._anchor._journal.close()
+        with tempfile.TemporaryDirectory() as tmp:
+            owner = admission_owner.IdentityAdmissionOwner(str(Path(tmp) / "owner.journal"))
+            owner.execution_identity = ("whatsapp", "chat-unsafe", "unsafe")
+            inner = owner._ensure_inner()
+            inner._journal.db.execute("DROP TABLE owner")
+            runner = type("Runner", (), {"_admission_lock_owner": owner})()
+            self.assertFalse(admission.admit_gateway_message(runner, Event(), Event.source, "s"))
+            owner._release_inner()
+            runner._admission_lock_owner._anchor._journal.close()
+        self.assertEqual(probes, [])
 
     def test_exact_retry_fence_is_task_local_once_only_and_never_caller_controlled(self):
         from wolfhouse.accepted_quote import (
@@ -88,16 +132,28 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         )
         frozen = {
             "session_key": "session-3",
+            "session_id": "sid-3",
             "identity": ("whatsapp", "chat-3", "mid-3"),
             "message_id": "mid-3",
             "raw_digest": "frozen-digest",
+            "scope_digest": "scope-digest",
+            "operation_key": "luna-owner-operation",
+            "epoch": 7,
         }
         self.assertTrue(_arm_exact_gateway_retry_for_owner(frozen))
-        self.assertEqual(_consume_exact_gateway_retry(), frozen)
+        from contextvars import copy_context
+        first = copy_context()
+        second = copy_context()
+        self.assertEqual(first.run(_consume_exact_gateway_retry), frozen)
+        self.assertIsNone(second.run(_consume_exact_gateway_retry))
         self.assertIsNone(_consume_exact_gateway_retry())
 
     def test_first_yes_owner_allows_only_completed_or_interrupted_exact_operation(self):
-        from wolfhouse.accepted_quote import supports_exact_gateway_retry
+        from wolfhouse.accepted_quote import (
+            exact_gateway_recovery_capability,
+            recovery_capability_matches,
+            supports_exact_gateway_retry,
+        )
         import hashlib
         import json
         from contextlib import nullcontext
@@ -107,6 +163,7 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
             "version": 1,
             "scope": {"PLATFORM": "whatsapp", "CHAT_ID": "chat-3", "KEY": "session-3", "ID": "sid-3"},
             "incarnation": "start",
+            "epoch": 7,
             "seen": ["mid-3"],
             "status": "accepted",
             "plan": {},
@@ -133,6 +190,23 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         kwargs = dict(runner=runner, session_key="session-3",
                       identity=("whatsapp", "chat-3", "mid-3"), message_id="mid-3", raw=raw)
         self.assertTrue(supports_exact_gateway_retry(**kwargs))
+        frozen = exact_gateway_recovery_capability(**kwargs)
+        self.assertIsInstance(frozen, dict)
+        observed = json.loads(json.dumps(base))
+        observed["epoch"] += 1
+        self.assertTrue(recovery_capability_matches(
+            frozen, observed, session_key="session-3", session_id="sid-3",
+            identity=("whatsapp", "chat-3", "mid-3"), raw=raw))
+        changed_operation = json.loads(json.dumps(observed))
+        changed_operation["plan"] = {"selected_bed_codes": ["OTHER"]}
+        self.assertFalse(recovery_capability_matches(
+            frozen, changed_operation, session_key="session-3", session_id="sid-3",
+            identity=("whatsapp", "chat-3", "mid-3"), raw=raw))
+        changed_scope = json.loads(json.dumps(observed))
+        changed_scope["scope"]["USER_ID"] = "different-user"
+        self.assertFalse(recovery_capability_matches(
+            frozen, changed_scope, session_key="session-3", session_id="sid-3",
+            identity=("whatsapp", "chat-3", "mid-3"), raw=raw))
         interrupted = dict(base, receipt=None, dispatch_pending=True)
         runner._session_db = DB(interrupted)
         self.assertTrue(supports_exact_gateway_retry(**kwargs))

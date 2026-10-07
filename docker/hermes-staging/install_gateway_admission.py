@@ -8,6 +8,9 @@ from pathlib import Path
 
 TAG = "# Luna reviewed admission: after capacity, before fresh turn."
 ANCHOR = "        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL\n"
+LEGACY_START = "        # Existing adapter admit on this message identity, before session claim.\n"
+LEGACY_END = "        # ── Claim this session before any await ───────────────────────\n"
+LIVE_JOURNAL = '"/opt/data/luna-admission/owner.journal"'
 BLOCK = '''        # Luna reviewed admission: after capacity, before fresh turn.
         try:
             from wolfhouse.gateway_admission_integration import admit_gateway_message
@@ -23,10 +26,21 @@ BLOCK = '''        # Luna reviewed admission: after capacity, before fresh turn.
 
 def compose_source(source: str) -> str:
     if TAG in source:
-        if source.count(TAG) != 1 or source.count("admit_gateway_message(self, event, source, _quick_key)") != 1:
+        if (source.count(TAG) != 1
+                or source.count("admit_gateway_message(self, event, source, _quick_key)") != 1
+                or LEGACY_START in source or source.count(LIVE_JOURNAL) != 1):
             raise RuntimeError("gateway admission composition is duplicated or malformed")
         compile(source, "<composed-gateway-run>", "exec")
         return source
+    if source.count(LEGACY_START) != 1 or source.count(LEGACY_END) != 1:
+        raise RuntimeError("legacy gateway admission veto missing or ambiguous")
+    start = source.index(LEGACY_START)
+    end = source.index(LEGACY_END)
+    if start >= end or source.count(LIVE_JOURNAL) != 1:
+        raise RuntimeError("legacy gateway admission owner is missing or malformed")
+    # Replace the live veto rather than adding a second admission decision.
+    # The existing owner initialization and journal path remain untouched.
+    source = source[:start] + source[end:]
     if source.count(ANCHOR) != 1:
         raise RuntimeError("gateway fresh-admission anchor missing or ambiguous")
     result = source.replace(ANCHOR, BLOCK + ANCHOR, 1)

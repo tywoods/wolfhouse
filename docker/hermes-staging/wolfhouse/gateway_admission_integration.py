@@ -1,15 +1,14 @@
-"""Narrow gateway composition for capacity-first durable message admission.
+"""Capacity-first gateway admission using the existing live journal owner.
 
-Fresh admission remains owned by the reviewed identity journal. A duplicate can
-continue only when the existing first-yes ledger recognizes the exact original
-completed or interrupted operation; it never grants a fresh model turn.
+Fresh admission remains owned by the reviewed identity journal. Recovery is
+considered only for a verified COMMITTED duplicate and then must be authorized
+by the existing first-yes owner for the exact frozen operation.
 """
-from pathlib import Path
+import json
 
 from gateway.identity_admission_owner import IdentityAdmissionOwner, admit_message
 from wolfhouse.accepted_quote import arm_exact_gateway_retry
 
-_JOURNAL_PATH = "/opt/data/gateway/admission.journal"
 _arm_exact_first_yes_retry = arm_exact_gateway_retry
 
 
@@ -26,22 +25,49 @@ def _identity(event, source):
 
 
 def _owner(runner):
-    path = str(Path(_JOURNAL_PATH).absolute())
-    cached = getattr(runner, "_wolfhouse_identity_admission_owner", None)
-    if cached is None or str(getattr(cached, "path", "")) != path:
-        cached = IdentityAdmissionOwner(path)
-        runner._wolfhouse_identity_admission_owner = cached
-    return cached
+    """Use only the owner already installed by gateway.run; never fork history."""
+    owner = getattr(runner, "_admission_lock_owner", None)
+    if not isinstance(owner, IdentityAdmissionOwner):
+        raise RuntimeError("existing gateway admission owner is unavailable")
+    return owner
+
+
+def _admission_state(owner, identity):
+    """Return READY, exact COMMITTED, or DENY. Uncertainty is always DENY."""
+    try:
+        owner.execution_identity = identity
+        row = owner._ensure_inner()._journal.snapshot()
+        status = row.get("status")
+        if status == "READY":
+            return "READY"
+        if status != "COMMITTED":
+            return "DENY"
+        reservation = json.loads(row.get("reservation"))
+        evidence = json.loads(row.get("evidence"))
+        expected = {
+            "platform": identity[0], "chat_id": identity[1],
+            "message_id": identity[2],
+        }
+        if reservation != expected or evidence != expected:
+            return "DENY"
+        return "COMMITTED"
+    except Exception:
+        return "DENY"
 
 
 def admit_gateway_message(runner, event, source, session_key):
-    """Return True only for fresh admission or exact first-yes recovery."""
+    """Admit fresh once, or recover one exact verified committed duplicate."""
     identity = _identity(event, source)
     raw = getattr(event, "text", None)
     if type(raw) is not str:
         return False
-    if admit_message(_owner(runner), identity) == "granted":
-        return True
+    owner = _owner(runner)
+    state = _admission_state(owner, identity)
+    if state == "READY":
+        # A race or storage error can turn this into refusal; refusal remains closed.
+        return admit_message(owner, identity) == "granted"
+    if state != "COMMITTED":
+        return False
     return _arm_exact_first_yes_retry(
         runner=runner,
         session_key=session_key,

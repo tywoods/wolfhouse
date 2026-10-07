@@ -50,84 +50,151 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_create = None
 _before_create = None
-_exact_gateway_retry: ContextVar[dict | None] = ContextVar(
+_exact_gateway_retry: ContextVar[object | None] = ContextVar(
     'wolfhouse_exact_gateway_retry', default=None)
+
+
+class _OneShotExactRetry:
+    """One claim shared by copied ContextVar executor contexts."""
+    def __init__(self, frozen):
+        self.frozen = deepcopy(frozen)
+        self.lock = RLock()
+        self.claimed = False
+
+    def take(self):
+        with self.lock:
+            if self.claimed:
+                return None
+            self.claimed = True
+            return deepcopy(self.frozen)
 
 
 class QuoteBoundaryError(ValueError):
     pass
 
 
+_RECOVERY_FIELDS = {
+    'session_key', 'session_id', 'identity', 'message_id', 'raw_digest',
+    'scope_digest', 'operation_key', 'epoch',
+}
+
+
+def _owner_operation_key(state):
+    return 'luna-owner-' + hashlib.sha256(_encode({
+        'scope': state['scope'], 'incarnation': state['incarnation'],
+        'offer': state.get('offer_message'),
+        'acceptance': state['acceptance_message'],
+        'plan': state['plan'], 'quote': state['quote'],
+    }).encode()).hexdigest()[:32]
+
+
+def _frozen_recovery(state, *, session_key, session_id, identity, message_id, raw):
+    if (not isinstance(state, dict) or type(identity) is not tuple or len(identity) != 3
+            or identity[2] != message_id or type(raw) is not str
+            or state.get('status') != 'accepted'
+            or not isinstance(state.get('scope'), dict)
+            or state['scope'].get('ID') != session_id
+            or state['scope'].get('KEY') != session_key
+            or state['scope'].get('PLATFORM') != identity[0]
+            or state['scope'].get('CHAT_ID') != identity[1]
+            or not isinstance(state.get('checked_offer'), dict)
+            or state.get('auto_acceptance') is not True
+            or not (state.get('dispatch_pending') or isinstance(state.get('receipt'), dict))
+            or state.get('acceptance_message') != message_id
+            or state.get('acceptance_raw_digest') != hashlib.sha256(raw.encode()).hexdigest()
+            or type(state.get('epoch')) is not int):
+        return None
+    try:
+        return {
+            'session_key': session_key,
+            'session_id': session_id,
+            'identity': identity,
+            'message_id': message_id,
+            'raw_digest': hashlib.sha256(raw.encode()).hexdigest(),
+            'scope_digest': hashlib.sha256(_encode(state['scope']).encode()).hexdigest(),
+            'operation_key': _owner_operation_key(state),
+            'epoch': state['epoch'],
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def recovery_capability_matches(frozen, state, *, session_key, session_id, identity, raw):
+    if not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS:
+        return False
+    current = _frozen_recovery(
+        state, session_key=session_key, session_id=session_id, identity=identity,
+        message_id=identity[2] if type(identity) is tuple and len(identity) == 3 else None,
+        raw=raw)
+    if current is None or current.get('epoch') != frozen.get('epoch') + 1:
+        return False
+    return {key: value for key, value in current.items() if key != 'epoch'} == {
+        key: value for key, value in frozen.items() if key != 'epoch'
+    }
+
+
 def _arm_exact_gateway_retry_for_owner(frozen):
-    """Arm one internal recovery turn; external request fields cannot call this."""
-    if (not isinstance(frozen, dict)
-            or set(frozen) != {'session_key', 'identity', 'message_id', 'raw_digest'}
+    """Arm one internal frozen recovery; request fields cannot construct it."""
+    if (not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS
+            or type(frozen.get('epoch')) is not int
+            or any(type(frozen.get(key)) is not str or not frozen.get(key) for key in (
+                'session_key', 'session_id', 'message_id', 'raw_digest',
+                'scope_digest', 'operation_key'))
             or type(frozen['identity']) is not tuple or len(frozen['identity']) != 3
             or frozen['identity'][2] != frozen['message_id']):
         return False
-    _exact_gateway_retry.set(deepcopy(frozen))
+    _exact_gateway_retry.set(_OneShotExactRetry(frozen))
     return True
 
 
 def _consume_exact_gateway_retry():
-    frozen = _exact_gateway_retry.get()
+    capability = _exact_gateway_retry.get()
     _exact_gateway_retry.set(None)
-    return frozen
+    if not isinstance(capability, _OneShotExactRetry):
+        return None
+    return capability.take()
 
 
-def arm_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
-    """Bind only a ledger-proven completed/pending original first-yes retry."""
-    if not supports_exact_gateway_retry(
-            runner=runner, session_key=session_key, identity=identity,
-            message_id=message_id, raw=raw):
-        return False
-    return _arm_exact_gateway_retry_for_owner({
-        'session_key': session_key,
-        'identity': identity,
-        'message_id': message_id,
-        'raw_digest': hashlib.sha256(raw.encode()).hexdigest(),
-    })
-
-
-def supports_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
-    """Read-only proof that a refused delivery is the owner's exact recovery.
-
-    This grants no new acceptance: it recognizes only the original first-yes
-    delivery whose frozen operation is completed or still dispatch-pending.
-    """
+def exact_gateway_recovery_capability(*, runner, session_key, identity, message_id, raw):
+    """Return one ledger-proven frozen operation capability, else None."""
     if (type(identity) is not tuple or len(identity) != 3
             or identity[2] != message_id or type(raw) is not str):
-        return False
+        return None
     store = getattr(runner, 'session_store', None)
     entry = getattr(store, '_entries', {}).get(session_key) if store is not None else None
     session_id = getattr(entry, 'session_id', None)
     db = getattr(runner, '_session_db', None)
     if not session_id or db is None or not hasattr(db, '_lock') or not hasattr(db, '_conn'):
-        return False
+        return None
     try:
         with db._lock:
             rows = db._conn.execute(
                 'SELECT value FROM state_meta WHERE key LIKE ?', (_PREFIX + '%',)
             ).fetchall()
         matches = []
-        digest = hashlib.sha256(raw.encode()).hexdigest()
         for row in rows:
             state = json.loads(row[0])
-            scope = state.get('scope') if isinstance(state, dict) else None
-            if (not isinstance(scope, dict) or scope.get('ID') != session_id
-                    or scope.get('KEY') != session_key or scope.get('PLATFORM') != identity[0]
-                    or scope.get('CHAT_ID') != identity[1]):
-                continue
-            if (state.get('status') == 'accepted'
-                    and isinstance(state.get('checked_offer'), dict)
-                    and state.get('auto_acceptance') is True
-                    and (state.get('dispatch_pending') or isinstance(state.get('receipt'), dict))
-                    and state.get('acceptance_message') == message_id
-                    and state.get('acceptance_raw_digest') == digest):
-                matches.append(state)
-        return len(matches) == 1
+            frozen = _frozen_recovery(
+                state, session_key=session_key, session_id=session_id,
+                identity=identity, message_id=message_id, raw=raw)
+            if frozen is not None:
+                matches.append(frozen)
+        return matches[0] if len(matches) == 1 else None
     except Exception:
-        return False
+        return None
+
+
+def arm_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    frozen = exact_gateway_recovery_capability(
+        runner=runner, session_key=session_key, identity=identity,
+        message_id=message_id, raw=raw)
+    return frozen is not None and _arm_exact_gateway_retry_for_owner(frozen)
+
+
+def supports_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    return exact_gateway_recovery_capability(
+        runner=runner, session_key=session_key, identity=identity,
+        message_id=message_id, raw=raw) is not None
 
 
 def _encode(value):
@@ -720,6 +787,21 @@ def install_owner_hook(create_handler=None, before_create=None):
                 # internally armed exact retry may never fall through to the model.
                 close_turn()
                 if exact_retry is not None:
+                    return _exact_retry_refusal(user_message, args, kwargs)
+            if exact_retry is not None:
+                try:
+                    recovery_valid = _transaction(lambda state, ingress: recovery_capability_matches(
+                        exact_retry,
+                        state,
+                        session_key=ingress['KEY'],
+                        session_id=ingress['ID'],
+                        identity=(ingress['PLATFORM'], ingress['CHAT_ID'], ingress['MESSAGE_ID']),
+                        raw=user_message,
+                    ))
+                except QuoteBoundaryError:
+                    recovery_valid = False
+                if recovery_valid is not True:
+                    close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
             if _current.get() is not None and _registered_create is not None:
                 automatic = _transaction(lambda state, ingress: (
