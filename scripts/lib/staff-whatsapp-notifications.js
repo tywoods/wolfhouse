@@ -290,7 +290,6 @@ async function reserveStaffAlertAttempt(pg, row) {
 }
 
 async function getNotificationSettings(pg, { clientSlug, locationId }) {
-  await ensureNotificationTables(pg);
   const slug = trimStr(clientSlug);
   const loc = normalizeLocationId(locationId);
   const out = {

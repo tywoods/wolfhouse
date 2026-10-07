@@ -16767,9 +16767,7 @@ button,input,select,textarea{font-family:inherit}
 .portal-home-school,
 .portal-admin-school-heading,
 .al-hero-title,
-.bc-op-title,
-.cc-section-hdr,
-.portal-home-schedule .cc-section-hdr{
+.bc-op-title{
   font-family:var(--font-display);
   font-weight:600;
   font-optical-sizing:auto;
@@ -19231,8 +19229,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 /* ── Customers tab typography: shared portal families ─────────────────────── */
 #tab-customers{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
 #tab-customers input,#tab-customers textarea,#tab-customers select{font-family:var(--font-sans)}
-/* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
-#tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
+/* Luna Staff (Ask Luna) portal — use the shared sans typography from Pricing. */
+#tab-ask-luna{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
 #tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:var(--font-sans)}
 #cc-owner-schedule-bridge{max-width:720px}
 #cc-owner-schedule-bridge .osb-stack{display:flex;flex-direction:column;gap:16px}
@@ -34905,7 +34903,7 @@ function maybeLoadStaffNotificationSettings(){
       staffNotificationSettingsFetchInFlight = false;
       staffNotificationSettingsApplyVisibility();
       if (!data || data.success !== true){
-        staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to load notification settings.');
+        staffNotificationShowMsg('error', staffWhatsappNumbersI18n('lunaStaff.alerts.loadFailed', 'Could not load guest conversation alerts. Try again.', 'No se pudieron cargar las alertas de conversaciones con huéspedes. Inténtalo de nuevo.'));
         if (typeof staffWhatsappNumbersRender === 'function') {
           try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r2) { /* ignore */ }
         }
@@ -34922,7 +34920,7 @@ function maybeLoadStaffNotificationSettings(){
       if (seq !== staffNotificationSettingsLoadSeq) return;
       staffNotificationSettingsFetchInFlight = false;
       staffNotificationSettingsApplyVisibility();
-      staffNotificationShowMsg('error', 'Failed to load notification settings.');
+      staffNotificationShowMsg('error', staffWhatsappNumbersI18n('lunaStaff.alerts.loadFailed', 'Could not load guest conversation alerts. Try again.', 'No se pudieron cargar las alertas de conversaciones con huéspedes. Inténtalo de nuevo.'));
       if (typeof staffWhatsappNumbersRender === 'function') {
         try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r3) { /* ignore */ }
       }

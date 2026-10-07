@@ -522,6 +522,7 @@ module.exports = {
   "lunaStaff.alerts.addRecipient": "Add recipient",
   "lunaStaff.alerts.phoneHint": "Use international phone format, e.g. +346****0000.",
   "lunaStaff.alerts.save": "Save notification settings",
+  "lunaStaff.alerts.loadFailed": "No se pudieron cargar las alertas de conversaciones con huéspedes. Inténtalo de nuevo.",
   "lunaStaff.notes.title": "General Notes for Luna",
   "lunaStaff.notes.sub": "Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text — guests may see this.",
   "lunaStaff.notes.save": "Save notes",
