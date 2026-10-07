@@ -258,6 +258,14 @@ function pricingText(page) {
   });
 }
 
+async function openPricingSections(page) {
+  await page.locator('#wh-admin-pricing-body .staff-collapse-toggle').evaluateAll((buttons) => {
+    buttons.forEach((button) => {
+      if (button.getAttribute('aria-expanded') === 'false') button.click();
+    });
+  });
+}
+
 async function runEditable(playwright, browser) {
   console.log('\n[1] Wolfhouse Pricing — editable\n');
   const server = createPricingPortalServer(buildHtmlFor(WH_CLIENT), { writesEnabled: true });
@@ -271,6 +279,9 @@ async function runEditable(playwright, browser) {
 
   try {
     await openPricingTab(page);
+    const closedText = await pricingText(page);
+    check('pricing sections start closed', /Seasons/.test(closedText) && !closedText.includes('€349.00'), closedText.slice(0, 180));
+    await openPricingSections(page);
     const text = await pricingText(page);
 
     check('Pricing no longer shows the not-built-yet placeholder',
@@ -389,6 +400,7 @@ async function runReadOnly(playwright, browser) {
 
   try {
     await openPricingTab(page);
+    await openPricingSections(page);
     const text = await pricingText(page);
     check('read-only mode explains itself', /Read-only/.test(text), text.slice(0, 200));
     check('read-only mode still shows prices', text.includes('€349.00'));

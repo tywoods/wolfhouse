@@ -34,7 +34,37 @@
     notice: null,
     editing: null,
     seasonDraft: null,
+    openSections: Object.create(null),
+    actionSection: null,
   };
+
+  // Ephemeral, authenticated-client context only: no local/session storage.
+  // The portal updates its getter before dispatching staff-disclosure-context.
+  var contextKey;
+  var contextVersion = 0;
+  function syncContext() {
+    var next = typeof window.staffCollapseContextKey === 'function'
+      ? window.staffCollapseContextKey() : WH_PRICING_CLIENT;
+    if (next === contextKey) return false;
+    contextKey = next;
+    contextVersion++;
+    state.openSections = Object.create(null);
+    state.actionSection = null;
+    state.view = null;
+    state.editing = null;
+    state.seasonDraft = null;
+    state.error = null;
+    state.notice = null;
+    state.loading = false;
+    state.busy = false;
+    var body = node('wh-admin-pricing-body');
+    if (body) body.textContent = '';
+    return true;
+  }
+  function currentContext(version) {
+    syncContext();
+    return version === contextVersion;
+  }
 
   function node(id) { return document.getElementById(id); }
 
@@ -272,13 +302,16 @@
     return '';
   }
 
-  function sectionShell(title, note, bodyHtml, headerExtra) {
-    return '<section class="portal-admin-section">'
-      + '<div class="portal-admin-section-hdr">'
-      + '<div class="portal-admin-section-hdr-title">' + whEsc(title) + '</div>'
+  function sectionShell(key, title, note, bodyHtml, headerExtra) {
+    var id = 'wh-pricing-collapse-' + key;
+    var open = state.openSections[key] === true;
+    return '<section class="portal-admin-section" data-wh-pricing-section="' + key + '">'
+      + '<button type="button" class="staff-collapse-toggle portal-admin-section-hdr" aria-expanded="' + open + '" aria-controls="' + id + '">'
+      + '<span class="portal-admin-section-hdr-title">' + whEsc(title) + '</span>'
+      + '<span class="staff-collapse-caret" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>'
+      + '</button>'
       + (headerExtra || '')
-      + '</div>'
-      + '<div class="portal-admin-section-body">'
+      + '<div class="portal-admin-section-body" id="' + id + '"' + (open ? '' : ' hidden') + '>'
       + (note ? '<p class="portal-admin-section-note">' + whEsc(note) + '</p>' : '')
       + bodyHtml
       + '</div></section>';
@@ -389,7 +422,7 @@
       ? actionBtn('new-season', '+ ' + whT('admin.wh.pricing.addSeason', 'Add season'))
       : '';
 
-    return sectionShell(
+    return sectionShell('seasons',
       whT('admin.wh.pricing.seasons', 'Seasons'),
       whT('admin.wh.pricing.seasonsNote',
         'Seasons repeat every year. Dates outside every season cannot be quoted and hand off to staff.'),
@@ -483,7 +516,7 @@
         ' data-wh-item-type="package"')
       : '';
 
-    return sectionShell(
+    return sectionShell('packages',
       whT('admin.wh.pricing.packages', 'Packages'),
       whT('admin.wh.pricing.packagesNote',
         'Weekly price per person, set per season. A season left unset cannot be quoted.'),
@@ -600,7 +633,7 @@
         ' data-wh-item-type="rental"')
       : '';
 
-    return sectionShell(
+    return sectionShell('rentals',
       whT('admin.wh.pricing.rentals', 'Rentals'),
       whT('admin.wh.pricing.rentalsNote', 'Gear hire prices, plus the optional full-day extension.'),
       html,
@@ -698,7 +731,7 @@
         ' data-wh-item-type="service"')
       : '';
 
-    return sectionShell(
+    return sectionShell('services',
       whT('admin.wh.pricing.services', 'Services'),
       whT('admin.wh.pricing.servicesNote', 'Yoga, meals and other extras guests can add.'),
       html,
@@ -821,7 +854,7 @@
       ? actionBtn('new-transfer', '+ ' + whT('admin.wh.pricing.addAirport', 'Add airport'))
       : '';
 
-    return sectionShell(
+    return sectionShell('transfers',
       whT('admin.wh.pricing.transfers', 'Transfers'),
       whT('admin.wh.pricing.transfersNote',
         'Airport pickups. Refusal messages are shown to guests, so keep them friendly.'),
@@ -955,7 +988,7 @@
     var headerExtra = canWrite() && !isEditing('item:extra:__new__')
       ? actionBtn('new-extra', '+ ' + whT('admin.wh.pricing.addExtras', 'Add extras'))
       : '';
-    return sectionShell(
+    return sectionShell('extras',
       whT('admin.wh.pricing.extras', 'Extras'),
       whT('admin.wh.pricing.extrasNote', 'Per person. 5 nights or fewer and 6 nights or more are the stay deposit rates Totals and guest quotes use.'),
       html,
@@ -965,7 +998,7 @@
 
   // ── Shell ──────────────────────────────────────────────────────────────────
 
-  function render() {
+  function render(keepEditor) {
     if (state.view && Array.isArray(state.view.packages)) {
       var pebbleMap = {};
       for (var pi = 0; pi < state.view.packages.length; pi++) {
@@ -1011,6 +1044,14 @@
         + whEsc(state.notice) + '</div>';
     }
 
+    // A rejected write must leave the actual editor/draft intact, including
+    // checkboxes, range rows and values changed while the request was pending.
+    var sections = body.querySelector('.portal-admin-sections');
+    if (keepEditor && sections) {
+      while (body.firstChild && body.firstChild !== sections) body.removeChild(body.firstChild);
+      body.insertAdjacentHTML('afterbegin', banner);
+      return;
+    }
     body.innerHTML = banner
       + '<div class="portal-admin-sections">'
       + renderSeasonsSection()
@@ -1024,10 +1065,12 @@
 
   function load(opts) {
     if (state.loading) return Promise.resolve();
+    var version = contextVersion;
     state.loading = true;
     if (!(opts && opts.keepMessages)) { state.error = null; state.notice = null; }
     render();
     return request('GET', WH_PRICING_BASE + clientQuery()).then(function (r) {
+      if (!currentContext(version)) return;
       state.loading = false;
       if (r.status === 200 && r.data && r.data.success) {
         state.view = r.data;
@@ -1037,6 +1080,7 @@
       }
       render();
     }).catch(function () {
+      if (!currentContext(version)) return;
       state.loading = false;
       state.error = whT('admin.wh.pricing.loadFailed', 'Could not load pricing.');
       render();
@@ -1046,10 +1090,12 @@
   /** Apply a write, then adopt the view the server returned as the new truth. */
   function commit(method, path, body, successMsg) {
     if (state.busy) return Promise.resolve();
+    var version = contextVersion;
     state.busy = true;
     state.error = null;
     state.notice = null;
     return request(method, path, body).then(function (r) {
+      if (!currentContext(version)) return;
       state.busy = false;
       if (r.status === 200 && r.data && r.data.success) {
         state.view = r.data;
@@ -1060,12 +1106,30 @@
         state.error = (r.data && (r.data.message || r.data.error))
           || whT('admin.wh.pricing.saveFailed', 'Could not save.');
       }
-      render();
+      renderSaveResult();
     }).catch(function () {
+      if (!currentContext(version)) return;
       state.busy = false;
       state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
-      render();
+      renderSaveResult();
     });
+  }
+
+  function setSectionOpen(key, open) {
+    if (!key) return;
+    state.openSections[key] = open;
+    var panel = node('wh-pricing-collapse-' + key);
+    var button = panel && panel.parentElement.querySelector('.staff-collapse-toggle');
+    if (!button) return;
+    button.setAttribute('aria-expanded', String(open));
+    var caret = button.querySelector('.staff-collapse-caret');
+    if (caret) caret.textContent = open ? '▾' : '▸';
+    panel.hidden = !open;
+  }
+
+  function renderSaveResult() {
+    if (state.error) setSectionOpen(state.actionSection, true);
+    render(!!state.error);
   }
 
   function inputValue(id) {
@@ -1325,22 +1389,25 @@
         : (inputValue('wh-price-item-unit') || 'per_room_per_night');
       var amount = inputValue('wh-price-item-amount');
       if (state.busy) return;
+      var version = contextVersion;
       state.busy = true;
       state.error = null;
       state.notice = null;
       request('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
         item_type: kind, item_code: code, label: label,
       }).then(function (r) {
+        if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
           state.error = (r.data && (r.data.message || r.data.error))
             || whT('admin.wh.pricing.saveFailed', 'Could not save.');
-          render();
+          renderSaveResult();
           return null;
         }
         return request('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
           item_type: kind, item_code: code, unit: unit, amount_eur: amount,
         }).then(function (pr) {
+          if (!currentContext(version)) return;
           state.busy = false;
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
@@ -1348,16 +1415,16 @@
             state.notice = whT('admin.wh.pricing.saved', 'Saved.');
           } else {
             if (r.data && r.data.success) state.view = r.data;
-            state.editing = null;
             state.error = whT('admin.wh.pricing.itemSavedNoPrice',
               'Item created, but the price was rejected. Set it with Edit.');
           }
-          render();
+          renderSaveResult();
         });
       }).catch(function () {
+        if (!currentContext(version)) return;
         state.busy = false;
         state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
-        render();
+        renderSaveResult();
       });
     },
     /**
@@ -1386,23 +1453,26 @@
       var unit = inputValue('wh-price-item-unit');
       var amount = inputValue('wh-price-item-amount');
       if (state.busy) return;
+      var version = contextVersion;
       state.busy = true;
       state.error = null;
       state.notice = null;
       request('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
         item_type: itemType, item_code: code, label: label,
       }).then(function (r) {
+        if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
           state.error = (r.data && (r.data.message || r.data.error))
             || whT('admin.wh.pricing.saveFailed', 'Could not save.');
-          render();
+          renderSaveResult();
           return null;
         }
         var priceCode = itemType === 'rental' ? code + '__1_day' : code;
         return request('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
           item_type: itemType, item_code: priceCode, unit: unit, amount_eur: amount,
         }).then(function (pr) {
+          if (!currentContext(version)) return;
           state.busy = false;
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
@@ -1411,16 +1481,16 @@
           } else {
             // Item exists, price did not stick — say so precisely.
             if (r.data && r.data.success) state.view = r.data;
-            state.editing = null;
             state.error = whT('admin.wh.pricing.itemSavedNoPrice',
               'Item created, but the price was rejected. Set it with Edit.');
           }
-          render();
+          renderSaveResult();
         });
       }).catch(function () {
+        if (!currentContext(version)) return;
         state.busy = false;
         state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
-        render();
+        renderSaveResult();
       });
     },
     'delete-item': function (btn) {
@@ -1472,15 +1542,17 @@
         unavailable_below_min_group_message: inputValue('wh-price-transfer-msg-group'),
       };
       if (state.busy) return;
+      var version = contextVersion;
       state.busy = true;
       state.error = null;
       state.notice = null;
       request('PUT', WH_PRICING_BASE + '/transfers' + clientQuery(), rule).then(function (r) {
+        if (!currentContext(version)) return;
         if (!(r.status === 200 && r.data && r.data.success)) {
           state.busy = false;
           state.error = (r.data && (r.data.message || r.data.error))
             || whT('admin.wh.pricing.saveFailed', 'Could not save.');
-          render();
+          renderSaveResult();
           return null;
         }
         if (!amount) {
@@ -1494,6 +1566,7 @@
         return request('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
           item_type: 'transfer', item_code: code, unit: unit, amount_eur: amount,
         }).then(function (pr) {
+          if (!currentContext(version)) return;
           state.busy = false;
           if (pr.status === 200 && pr.data && pr.data.success) {
             state.view = pr.data;
@@ -1501,16 +1574,16 @@
             state.notice = whT('admin.wh.pricing.saved', 'Saved.');
           } else {
             state.view = r.data;
-            state.editing = null;
             state.error = whT('admin.wh.pricing.transferSavedNoPrice',
               'Airport saved, but the fare was rejected. Set it with Edit.');
           }
-          render();
+          renderSaveResult();
         });
       }).catch(function () {
+        if (!currentContext(version)) return;
         state.busy = false;
         state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
-        render();
+        renderSaveResult();
       });
     },
     'delete-transfer': function (btn) {
@@ -1526,19 +1599,37 @@
     var body = node('wh-admin-pricing-body');
     if (!body || body.dataset.whPricingWired === '1') return;
     body.dataset.whPricingWired = '1';
+    window.addEventListener('staff-disclosure-context', syncContext);
     body.addEventListener('click', function (ev) {
+      if (syncContext()) return;
+      var toggle = ev.target && ev.target.closest
+        ? ev.target.closest('.staff-collapse-toggle') : null;
+      if (toggle && body.contains(toggle)) {
+        // Claim this disclosure before the portal's document-level handler.
+        // No render or request: unsaved controls remain the same DOM nodes.
+        ev.preventDefault();
+        var section = toggle.closest('[data-wh-pricing-section]');
+        if (section) setSectionOpen(section.getAttribute('data-wh-pricing-section'),
+          toggle.getAttribute('aria-expanded') !== 'true');
+        return;
+      }
       var btn = ev.target && ev.target.closest
         ? ev.target.closest('[data-wh-price-action]')
         : null;
       if (!btn || !body.contains(btn)) return;
       ev.preventDefault();
-      var action = ACTIONS[btn.getAttribute('data-wh-price-action')];
+      var name = btn.getAttribute('data-wh-price-action');
+      if (state.busy || (name !== 'reload' && !canWrite())) return;
+      var owner = btn.closest('[data-wh-pricing-section]');
+      state.actionSection = owner && owner.getAttribute('data-wh-pricing-section');
+      var action = ACTIONS[name];
       if (typeof action === 'function') action(btn);
     });
   }
 
   /** Entry point called by the Pricing sub-tab. */
   function loadWolfhouseAdminPricing(opts) {
+    syncContext();
     wire();
     if (!state.view || (opts && opts.force)) return load(opts);
     render();
