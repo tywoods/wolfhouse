@@ -18,7 +18,7 @@ class AdmissionMatrix(unittest.IsolatedAsyncioTestCase):
             ('wrong', {'X-Luna-Bot-Token':'wrong'}, {}, 401, None),
             ('malformed', {'X-Luna-Bot-Token':'offline'}, ValueError('bad json'), 400, None),
             ('list', {'X-Luna-Bot-Token':'offline'}, [], 400, None),
-            ('namespace', {'X-Luna-Bot-Token':'offline'}, {'thread':'sim:golden-../bad','action':'cleanup'}, 500, None),
+            ('namespace', {'X-Luna-Bot-Token':'offline'}, {'thread':'sim:golden-../bad','action':'cleanup'}, 400, None),
             ('staging', {'X-Luna-Bot-Token':'offline'}, {'thread':'sim:golden-test','text':'hello'}, 403, SystemExit('staging denied')),
             ('ordinary', {'Authorization':'Bearer offline'}, {'thread':'sim:ordinary','text':'hello','allow_writes':True}, 200, None),
             ('exception', {'X-Luna-Bot-Token':'offline'}, {'thread':'sim:ordinary','text':'hello'}, 500, None),
