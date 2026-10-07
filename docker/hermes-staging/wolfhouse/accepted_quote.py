@@ -444,6 +444,7 @@ def record_quote(params, response):
         state.pop('receipt', None)
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
+        state.pop('post_booking_contact', None)
         state.update(plan=plan, quote=deepcopy(response) if valid else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
@@ -498,6 +499,66 @@ def dispatch_recovery(prepared):
         return {'receipt': deepcopy(state.get('completion') or state.get('receipt')),
                 'pending': bool(state.get('checked_offer') and state.get('dispatch_pending'))}
     return _transaction(inspect)
+
+
+def _contact_transition(state, action, *, identity, outcome=None):
+    """Pure state machine for the owner-owned post-booking contact substep."""
+    receipt = state.get('receipt')
+    if (not isinstance(identity, dict)
+            or set(identity) != {'email', 'booking_code'}
+            or any(not isinstance(identity.get(key), str) or not identity[key]
+                   for key in ('email', 'booking_code'))
+            or not isinstance(receipt, dict)
+            or (receipt.get('booking_code') is not None
+                and receipt.get('booking_code') != identity['booking_code'])):
+        raise QuoteBoundaryError('post_booking_contact_identity_missing')
+    contact = state.get('post_booking_contact')
+    if contact is None:
+        if action != 'ensure':
+            raise QuoteBoundaryError('post_booking_contact_not_pending')
+        contact = {'status': 'pending', 'identity': deepcopy(identity)}
+        state['post_booking_contact'] = contact
+    elif contact.get('identity') != identity:
+        raise QuoteBoundaryError('post_booking_contact_identity_changed')
+    if action == 'ensure':
+        return deepcopy(contact)
+    if action == 'begin':
+        if contact.get('status') != 'pending':
+            return {'perform': False, 'contact': deepcopy(contact)}
+        # Persist uncertainty before transport. A process death from this point
+        # can never cause a blind retry of a write that may have reached Staff.
+        contact['status'] = 'unknown'
+        return {'perform': True, 'contact': deepcopy(contact)}
+    if action == 'complete':
+        if contact.get('status') != 'unknown' or not isinstance(outcome, dict):
+            raise QuoteBoundaryError('post_booking_contact_completion_invalid')
+        contact.update(status='completed', outcome=deepcopy(outcome))
+        return deepcopy(contact)
+    raise QuoteBoundaryError('post_booking_contact_action_invalid')
+
+
+def post_booking_contact_status(prepared, *, email, booking_code):
+    identity = {'email': email, 'booking_code': booking_code}
+    def ensure(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'ensure', identity=identity)
+    return _transaction(ensure)
+
+
+def begin_post_booking_contact(prepared, *, email, booking_code):
+    identity = {'email': email, 'booking_code': booking_code}
+    def begin(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'begin', identity=identity)
+    return _transaction(begin)
+
+
+def complete_post_booking_contact(prepared, *, email, booking_code, outcome):
+    identity = {'email': email, 'booking_code': booking_code}
+    def complete(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'complete', identity=identity, outcome=outcome)
+    return _transaction(complete)
 
 
 def record_create_completion(prepared, response):

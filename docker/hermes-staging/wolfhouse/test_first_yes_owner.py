@@ -156,6 +156,46 @@ class FirstYesOwnerTests(unittest.TestCase):
         after = ledger.prepare_create({})
         self.assertEqual(after, committed[after['idempotency_key']])
 
+    def test_post_booking_contact_pending_unknown_and_completed_survive_reopen(self):
+        ledger.record_quote(self.plan, self.response)
+        self.turn('accept-contact', 'I accept the quote')
+        prepared = ledger.prepare_create({})
+        receipt = {'success': True, 'write_performed': True,
+                   'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'}
+        ledger.dispatch_create(prepared, lambda: receipt)
+        identity = {'email': 'alex@example.test', 'booking_code': 'UNIT-1'}
+        self.assertEqual(ledger.post_booking_contact_status(prepared, **identity)['status'], 'pending')
+
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'state.db')
+        self.agent._session_db = self.db
+        self.turn('accept-contact', 'I accept the quote')
+        prepared = ledger.prepare_create({})
+        begun = ledger.begin_post_booking_contact(prepared, **identity)
+        self.assertTrue(begun['perform'])
+        self.assertEqual(begun['contact']['status'], 'unknown')
+
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'state.db')
+        self.agent._session_db = self.db
+        self.turn('accept-contact', 'I accept the quote')
+        prepared = ledger.prepare_create({})
+        replay = ledger.begin_post_booking_contact(prepared, **identity)
+        self.assertFalse(replay['perform'], 'a maybe-started contact write must not retry')
+        self.assertEqual(replay['contact']['status'], 'unknown')
+        outcome = {'requested': True, 'saved': True, 'sent': False,
+                   'send_performed': False, 'outcome': 'saved'}
+        ledger.complete_post_booking_contact(prepared, **identity, outcome=outcome)
+
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'state.db')
+        self.agent._session_db = self.db
+        self.turn('accept-contact', 'I accept the quote')
+        prepared = ledger.prepare_create({})
+        completed = ledger.post_booking_contact_status(prepared, **identity)
+        self.assertEqual(completed['status'], 'completed')
+        self.assertEqual(completed['outcome'], outcome)
+
     def test_hook_runs_registered_create_on_first_yes_without_model_create(self):
         from agent import conversation_loop
         from wolfhouse import booking_names

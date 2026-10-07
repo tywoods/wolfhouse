@@ -132,6 +132,31 @@ class RoomEligibilityPolicyTests(unittest.TestCase):
         self.assertFalse(private["clarification_needed"])
         self.assertIn("couple_private", private["allowed_room_preferences"])
 
+    def test_every_travelers_explicit_eligibility_controls_group_composition(self):
+        mixed = decide_room_eligibility(
+            guest_count=2,
+            travelers=[
+                {"name": "Alex", "explicit_gender": "male"},
+                {"name": "Sam", "explicit_gender": "female"},
+            ],
+        )
+        self.assertEqual(mixed["resolved_composition"], "mixed")
+        self.assertNotIn("male_only", mixed["allowed_room_preferences"])
+        self.assertNotIn("female_only", mixed["allowed_room_preferences"])
+
+        unresolved = decide_room_eligibility(
+            guest_count=2,
+            explicit_gender="male",
+            travelers=[
+                {"name": "Alex", "explicit_gender": "male"},
+                {"name": "Sam", "explicit_gender": ""},
+            ],
+        )
+        self.assertEqual(unresolved["resolved_composition"], "unknown")
+        self.assertTrue(unresolved["clarification_needed"])
+        self.assertNotIn("male_only", unresolved["allowed_room_preferences"])
+        self.assertNotIn("female_only", unresolved["allowed_room_preferences"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -391,9 +391,12 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         preference = room_type
     raw_travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else []
     travelers = [
-        {"name": _clean(item.get("name")), "explicit_gender": _clean(item.get("explicit_gender"))}
+        {"name": _clean(item.get("name")),
+         "explicit_gender": (_clean(item.get("explicit_gender")).lower()
+                             if _clean(item.get("explicit_gender")).lower() in {"female", "male"}
+                             else "")}
         for item in raw_travelers
-        if isinstance(item, dict) and _clean(item.get("explicit_gender")).lower() in {"female", "male"}
+        if isinstance(item, dict)
     ] or None
     if not payment_intent and not preference and not travelers and not any(
             params.get(key) not in (None, "", []) for key in (
@@ -901,16 +904,38 @@ def _booking_count_validation(payload):
     return supplied_count, None
 
 
-def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None):
-    """Save an explicitly offered address after create; never claim an email send."""
-    if prior_receipt is not None:
-        prior = prior_receipt.get("post_booking_email") if isinstance(prior_receipt, dict) else None
+def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None, ticket=None):
+    """Save an offered address with owner-owned crash/replay state."""
+    prior = prior_receipt.get("post_booking_email") if isinstance(prior_receipt, dict) else None
+    if isinstance(prior, dict):
         return prior
     email = _clean(payload.get("email"))
     booking_code = _clean(fields.get("booking_code"))
     if (not email or booking_result.get("success") is not True
             or booking_result.get("write_performed") is not True or not booking_code):
         return None
+    ledger = None
+    if ticket is not None:
+        from wolfhouse import accepted_quote as ledger
+        contact = ledger.post_booking_contact_status(
+            ticket, email=email, booking_code=booking_code)
+        if contact.get("status") == "completed":
+            return contact.get("outcome")
+        if contact.get("status") == "unknown":
+            return {
+                "requested": True, "saved": False, "sent": False,
+                "send_performed": False, "outcome": "unknown",
+                "contact_status": "unknown", "uncertain": True,
+            }
+        begun = ledger.begin_post_booking_contact(
+            ticket, email=email, booking_code=booking_code)
+        if begun.get("perform") is not True:
+            return {
+                "requested": True, "saved": False, "sent": False,
+                "send_performed": False, "outcome": "unknown",
+                "contact_status": begun.get("contact", {}).get("status") or "unknown",
+                "uncertain": True,
+            }
     result = _post_bot("/bookings/update-contact", {
         "client_slug": payload.get("client_slug") or _trusted_client_slug(),
         "booking_code": booking_code,
@@ -918,7 +943,7 @@ def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None
     })
     saved = result.get("success") is True and result.get("write_performed") is True
     refused = not saved and result.get("write_performed") is False
-    return {
+    outcome = {
         "requested": True,
         "saved": saved,
         # update-contact explicitly has no email-send side effect. A saved address
@@ -926,8 +951,13 @@ def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None
         "sent": False,
         "send_performed": False,
         "outcome": "saved" if saved else ("refused" if refused else "unknown"),
+        "contact_status": "completed",
         "result": result,
     }
+    if ledger is not None:
+        ledger.complete_post_booking_contact(
+            ticket, email=email, booking_code=booking_code, outcome=outcome)
+    return outcome
 
 
 def create_booking_from_plan(params, **kwargs):
@@ -1181,7 +1211,7 @@ def create_booking_from_plan(params, **kwargs):
         return _json_result(blocked)
     fields = _extract_booking_write_fields(data)
     post_booking_email = _save_post_booking_email(
-        payload, data, fields, prior_receipt=prior_receipt,
+        payload, data, fields, prior_receipt=prior_receipt, ticket=ticket,
     )
     payment_id = _clean(fields.get("payment_id"))
     secure_url = None

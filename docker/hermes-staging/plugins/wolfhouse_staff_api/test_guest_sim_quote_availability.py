@@ -155,6 +155,38 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
             self.assertIsNone(plugin._save_post_booking_email({}, created, fields))
             post.assert_not_called()
 
+    def test_post_booking_contact_owner_status_controls_replay_transport(self):
+        from wolfhouse import accepted_quote as ledger
+        payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
+        created = {'success': True, 'write_performed': True}
+        fields = {'booking_code': 'UNIT-EMAIL'}
+        ticket = {'owner': 'opaque'}
+
+        with patch.object(ledger, 'post_booking_contact_status',
+                          return_value={'status': 'unknown'}), \
+                patch.object(ledger, 'begin_post_booking_contact') as begin, \
+                patch.object(plugin, '_post_bot') as post:
+            result = plugin._save_post_booking_email(
+                payload, created, fields, prior_receipt=created, ticket=ticket)
+        self.assertEqual(result['outcome'], 'unknown')
+        self.assertTrue(result['uncertain'])
+        self.assertFalse(result['sent'])
+        begin.assert_not_called()
+        post.assert_not_called()
+
+        with patch.object(ledger, 'post_booking_contact_status',
+                          return_value={'status': 'pending'}), \
+                patch.object(ledger, 'begin_post_booking_contact',
+                             return_value={'perform': True, 'contact': {'status': 'unknown'}}), \
+                patch.object(ledger, 'complete_post_booking_contact') as complete, \
+                patch.object(plugin, '_post_bot',
+                             return_value={'success': True, 'write_performed': True}):
+            result = plugin._save_post_booking_email(
+                payload, created, fields, prior_receipt=created, ticket=ticket)
+        self.assertEqual(result['outcome'], 'saved')
+        complete.assert_called_once()
+        self.assertFalse(complete.call_args.kwargs['outcome']['sent'])
+
     def test_failed_or_malformed_availability_cannot_project_beds(self):
         for receipt in (
             {'success': False, 'available_beds': [{'bed_code': 'M1'}], 'selected_room_code': 'MIX'},

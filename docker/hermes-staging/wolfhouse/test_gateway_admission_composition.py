@@ -140,6 +140,23 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
                         dict(kwargs, identity=("whatsapp", "chat-3", "other"))):
             self.assertFalse(supports_exact_gateway_retry(**changed))
 
+    def test_contact_substep_never_blindly_retries_a_maybe_started_write(self):
+        from wolfhouse.accepted_quote import _contact_transition
+        state = {"receipt": {"booking_code": "UNIT-1"}}
+        identity = {"email": "alex@example.test", "booking_code": "UNIT-1"}
+        pending = _contact_transition(state, "ensure", identity=identity)
+        self.assertEqual(pending["status"], "pending")
+        started = _contact_transition(state, "begin", identity=identity)
+        self.assertTrue(started["perform"])
+        self.assertEqual(started["contact"]["status"], "unknown")
+        replay = _contact_transition(state, "begin", identity=identity)
+        self.assertFalse(replay["perform"])
+        self.assertEqual(replay["contact"]["status"], "unknown")
+        completed = _contact_transition(state, "complete", identity=identity,
+                                        outcome={"outcome": "saved", "saved": True})
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["outcome"]["outcome"], "saved")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
