@@ -45400,12 +45400,24 @@ function toShowPlain(elId, result){
   toShowResult(elId, '<div class="bk-preview-badge">' + escHtml(result.badge) + '</div>' + lines, !!result.isErr);
 }
 if (typeof window !== 'undefined' && window.__staffUiTestHooks) {
-  window.__staffUiTestHooks.toShowPlain = toShowPlain;
+  window.__staffUiTestHooks.setTourOperatorRefreshLoaders = function(blocksLoader, calendarLoader){
+    toLoadBlocks = blocksLoader;
+    loadBedCalendar = calendarLoader;
+  };
+  window.__staffUiTestHooks.getTourOperatorRetryState = function(){
+    return {
+      opHold: toOpHold,
+      rrHold: toRrHold,
+      opDisabled: !!(el('to-op-create-btn') && el('to-op-create-btn').disabled),
+      rrDisabled: !!(el('to-rr-release-btn') && el('to-rr-release-btn').disabled),
+    };
+  };
 }
 
 function toRefreshBeforeRetry(done){
   var settled = false;
-  var timer = setTimeout(function(){ complete(false); }, 10000);
+  var retryTimeout = (typeof window !== 'undefined' && window.__staffUiTestHooks && window.__staffUiTestHooks.refreshTimeoutMs) || 10000;
+  var timer = setTimeout(function(){ complete(false); }, retryTimeout);
   function complete(ok){
     if (settled) return;
     settled = true;
@@ -45413,15 +45425,19 @@ function toRefreshBeforeRetry(done){
     if (done) done(ok === true);
   }
   if (typeof toLoadBlocks !== 'function') { complete(false); return; }
-  toLoadBlocks(function(blocksOk){
-    if (blocksOk !== true || typeof loadBedCalendar !== 'function') { complete(false); return; }
-    var startEl = el('bc-start');
-    var endEl = el('bc-end');
-    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) { complete(false); return; }
-    try {
-      loadBedCalendar(function(_data, calendarOk){ complete(calendarOk === true); });
-    } catch (e) { complete(false); }
-  });
+  try {
+    var blocksResult = toLoadBlocks(function(blocksOk){
+      if (blocksOk !== true || typeof loadBedCalendar !== 'function') { complete(false); return; }
+      var startEl = el('bc-start');
+      var endEl = el('bc-end');
+      if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) { complete(false); return; }
+      try {
+        var calendarResult = loadBedCalendar(function(_data, calendarOk){ complete(calendarOk === true); });
+        if (calendarResult && typeof calendarResult.then === 'function') calendarResult.then(null, function(){ complete(false); });
+      } catch (e) { complete(false); }
+    });
+    if (blocksResult && typeof blocksResult.then === 'function') blocksResult.then(null, function(){ complete(false); });
+  } catch (e) { complete(false); }
 }
 
 function toApplyPlain(elId, result, which){

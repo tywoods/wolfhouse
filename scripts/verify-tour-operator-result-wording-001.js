@@ -139,6 +139,24 @@ assert.ok((apiSrc.match(/ok !== true/g) || []).length >= 3, 'retry unlock requir
 assert.ok(apiSrc.includes('afterRender(res.data, true)'), 'calendar reports explicit success');
 assert.ok(apiSrc.includes('afterRender(null, false)'), 'calendar reports explicit failure');
 
+// A synchronous block-list loader exception must use the same translated failure path.
+const refreshStart = apiSrc.indexOf('function toRefreshBeforeRetry(');
+const refreshEnd = apiSrc.indexOf('\nfunction toApplyPlain(', refreshStart);
+assert.ok(refreshStart >= 0 && refreshEnd > refreshStart, 'extracts production retry refresh coordinator');
+const refreshSandbox = {
+  module: { exports: null },
+  setTimeout: () => 1,
+  clearTimeout: () => {},
+  toLoadBlocks: () => { throw new Error('sync block-list failure'); },
+  loadBedCalendar: () => {},
+  el: () => ({ value: '2026-10-10' }),
+};
+vm.runInNewContext(apiSrc.slice(refreshStart, refreshEnd) + '\nmodule.exports = toRefreshBeforeRetry;', refreshSandbox);
+let syncThrowOutcome = null;
+assert.doesNotThrow(() => refreshSandbox.module.exports((ok) => { syncThrowOutcome = ok; }),
+  'synchronous block-list loader exception is contained');
+assert.equal(syncThrowOutcome, false, 'synchronous block-list loader exception reports refresh failure');
+
 // Execute the production browser announcer against a minimal result element.
 const showPlainStart = apiSrc.indexOf('function toShowPlain(');
 const showPlainEnd = apiSrc.indexOf('\n\nfunction toRefreshBeforeRetry', showPlainStart);
