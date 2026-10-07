@@ -1588,6 +1588,26 @@
       "inForwardChain": true,
       "rationale": "PER-GUEST-DEPOSIT-PAYMENT-LINKS-001: preflighted single active collectible checkout identity across tenant, booking and guest.",
       "sha256": "eb35b5ee40c05d25dccef53bf02342d59942c1d471846e707ef213a7cb684ed6"
+    },
+    {
+      "id": "110_staff_room_fill_create_receipts",
+      "filename": "110_staff_room_fill_create_receipts.sql",
+      "order": 104,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "PR1290: durable tenant-scoped room-placement create receipts. Registration does not authorize backlog application; Wolfhouse TEST single-target execution uses the dedicated migration110 path.",
+      "downFilename": "110_staff_room_fill_create_receipts_down.sql",
+      "sha256": "2e74749d1d1eaa9e5f3f7de083820318e092902e94add552cfd5c5c9d2f0e253"
+    },
+    {
+      "id": "110_staff_room_fill_create_receipts_down",
+      "filename": "110_staff_room_fill_create_receipts_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Destructive down migration drops room-placement receipts; never selected by the dedicated 110-only forward operator path.",
+      "pairsWith": "110_staff_room_fill_create_receipts.sql",
+      "sha256": "1ef87b4a98daa6d05b36a60f14bfea7714113e186eba8363094aa6d4729a9980"
     }
   ]
 }
