@@ -36,7 +36,7 @@ const base = {
   redesign: {
     view: { granularity: 'week', range: { start: '2026-10-05', end: '2026-10-11' } },
     net: { status: 'unavailable', net_collected_cents: null, gross_collected_cents: 1429500, completed_refunds_cents: null, unavailable_reason: 'refund_source_unreadable' },
-    pipeline: { booked_cents: 3080800, bookings_count: 164, avg_booking_cents: 18785, next_30_days_cents: 0, delivered_unpaid_cents: 0, vs_prior_pct: null, vs_yoy_pct: 569.4 },
+    pipeline: { booked_cents: 3080800, bookings_count: 164, avg_booking_cents: 387612, next_30_days_cents: 775134, delivered_unpaid_cents: -12345, vs_prior_pct: null, vs_yoy_pct: 569.4 },
     outstanding: { outstanding_cents: 1483300, bookings_count: 12, due_date_unknown_cents: 1483300 },
     revenue_by_product: [
       { key: 'accommodation', label: 'Accommodation', cents: 1200000, pct: null, status: 'partial' },
@@ -64,6 +64,7 @@ check('trend has EUR scale and accessible two-series legend', /pfb-trend-axis/.t
 check('Wolfhouse-only responsive override wraps labels into two mobile rows', /#wh-admin-finance-body \.pfb-bar-name/.test(html) && /@media\(max-width:640px\)/.test(html));
 check('mobile grid uses explicit two-row areas', /grid-template-areas:\"name amount\" \"track share\"/.test(html));
 check('chart has positioned y ticks and keyed series', /pfb-trend-tick/.test(html) && /pfb-series-key is-current/.test(html) && /pfb-series-key is-prior/.test(html));
+check('year zero tick receives the measured baseline correction only', /pfb-trend-plot--monthly \.pfb-trend-tick\.is-zero\{bottom:-10px\}/.test(html));
 check('chart exposes exact current and prior values accessibly', /pfb-trend-sr/.test(html) && /€100\.00/.test(html) && /€50\.00/.test(html));
 check('shared exact-value utility is robustly visually hidden', /clip-path:inset\(50%\)!important/.test(html) && /position:absolute!important/.test(html) && /width:1px!important/.test(html));
 check('trend plot owns axis and bars in one geometry wrapper', /pfb-trend-plot/.test(html));
@@ -71,6 +72,15 @@ check('series swatches use explicit visible fills', /is-current:before\{[^}]*bac
 check('unavailable reason is typed and raw code is absent', /Refund data is unavailable/.test(html) && !/>refund_source_unreadable</.test(html));
 check('exact cents are in accessible card and product details', /€14,295\.00/.test(html) && /€12,000\.00/.test(html));
 check('booked sales and balance headlines expose exact cents', /pfb-mid[^>]*>[\s\S]*€30,808\.00/.test(html) && /pfb-mid pfb-mid--amber[^>]*>[\s\S]*€14,833\.00/.test(html));
+check('each pipeline value uses rounded visible and exact accessible money without doubled text',
+  /avg[^<]*<span[^>]*aria-hidden="true">€3,876<\/span><span class="pfb-sr">€3,876\.12<\/span>/.test(html)
+  && /Next 30 days<\/span><b><span[^>]*aria-hidden="true">€7,751<\/span><span class="pfb-sr">€7,751\.34<\/span>/.test(html)
+  && /Delivered, unpaid<\/span><b><span[^>]*aria-hidden="true">-€123<\/span><span class="pfb-sr">-€123\.45<\/span>/.test(html), html);
+check('pipeline unknown stays unknown while zero remains a rendered exact amount', (() => {
+  const variant = sandbox.renderFinanceRedesignHtml({ redesign: { ...base.redesign, pipeline: { ...base.redesign.pipeline, avg_booking_cents: null, next_30_days_cents: 0, delivered_unpaid_cents: null } } });
+  return !/ · avg /.test(variant) && /Next 30 days<\/span><b><span[^>]*>€0<\/span><span class="pfb-sr">€0\.00<\/span>/.test(variant)
+    && /Delivered, unpaid<\/span><b>—<\/b>/.test(variant);
+})());
 check('occupancy exposes precision, counts, partial status, basis, and exceptions', /41\.3%/.test(html) && /717 of 1,736/.test(html) && /Provisional/.test(html) && /0 assignment exceptions/.test(html));
 check('actual assembled Staff source contains renderer', emittedSource.includes('function renderFinanceRedesignHtml'));
 
@@ -117,7 +127,7 @@ check('persisted product rows reconcile exactly to booked cents including signed
 
 const en = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
 const es = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
-for (const key of ['gran.week','lunaBookings','staffCreated','provisionalOccupancy','shareUnknown','dueDatesNotRecorded','currentSeries','priorYearSeries','eurAxis','monthlyBookedTrend']) {
+for (const key of ['gran.week','lunaBookings','staffCreated','provisionalOccupancy','shareUnknown','dueDatesNotRecorded','currentSeries','priorYearSeries','eurAxis','monthlyBookedTrend','unavailable']) {
   check(`EN locale owns admin.finance.${key}`, en.includes(`'admin.finance.${key}'`));
   check(`ES locale owns admin.finance.${key}`, es.includes(`'admin.finance.${key}'`));
 }

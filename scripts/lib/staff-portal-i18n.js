@@ -1633,6 +1633,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.bookings.refundFailed': 'Could not save refund record.',
     'admin.bookings.cancel': 'Cancel',
     'admin.finance.summaryUnavailable': 'Finance summary is not available yet.',
+    'admin.finance.unavailable': 'Unavailable.',
     'admin.finance.today': 'Today',
     'admin.finance.week': 'This week',
     'admin.finance.month': 'This month',

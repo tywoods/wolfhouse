@@ -311,7 +311,7 @@ function renderFinanceRedesignHtml(summary) {
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-card--trend{position:relative}' +
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-plot{display:grid;grid-template-columns:58px minmax(0,1fr);column-gap:6px;align-items:start}' +
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-axis{position:relative;height:88px;margin-top:13px;width:58px;font-size:10px;color:var(--text-2)}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-plot--monthly .pfb-trend-axis{height:132px;margin-top:17px}' +
-    ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick{position:absolute;right:0}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-max{top:0}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-mid{top:50%;transform:translateY(-50%)}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-zero{bottom:0}' +
+    ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick{position:absolute;right:0}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-max{top:0}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-mid{top:50%;transform:translateY(-50%)}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-tick.is-zero{bottom:0}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-plot--monthly .pfb-trend-tick.is-zero{bottom:-10px}' +
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-trend-legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:10px}' +
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key{display:inline-flex;align-items:center;gap:6px}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key:before{content:\"\";width:10px;height:10px;border-radius:2px}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key.is-current:before{background:#3d8f5a}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key.is-prior:before{background:rgba(74,124,148,.55)}[data-theme="dark"] :is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key.is-current:before{background:#6fbf88}[data-theme="dark"] :is(#admin-finance-body,#wh-admin-finance-body) .pfb-series-key.is-prior:before{background:rgba(158,224,168,.45)}' +
     ':is(#admin-finance-body,#wh-admin-finance-body) .pfb-today{appearance:none;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-weight:600;padding:7px 11px;cursor:pointer}:is(#admin-finance-body,#wh-admin-finance-body) .pfb-today:focus-visible{outline:2px solid var(--green);outline-offset:2px}' +
@@ -413,14 +413,14 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-cmp">' + financeRedesignEsc(String(pipe.bookings_count || 0) + ' ' +
     financeRedesignT('admin.finance.bookings', 'bookings'));
   if (pipe.avg_booking_cents != null) {
-    html += ' · ' + financeRedesignT('admin.finance.avg', 'avg') + ' ' + financeRedesignFmtEur(pipe.avg_booking_cents);
+    html += ' · ' + financeRedesignEsc(financeRedesignT('admin.finance.avg', 'avg')) + ' ' + financeRedesignMoneyHtml(pipe.avg_booking_cents);
   }
   html += '</div></div>';
   html += '<div class="pfb-card-bot">';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.next30', 'Next 30 days')) +
-    '</span><b>' + financeRedesignEsc(financeRedesignFmtEur(pipe.next_30_days_cents || 0)) + '</b></div>';
+    '</span><b>' + financeRedesignMoneyHtml(pipe.next_30_days_cents) + '</b></div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.deliveredUnpaid', 'Delivered, unpaid')) +
-    '</span><b>' + financeRedesignEsc(financeRedesignFmtEur(pipe.delivered_unpaid_cents || 0)) + '</b></div>';
+    '</span><b>' + financeRedesignMoneyHtml(pipe.delivered_unpaid_cents) + '</b></div>';
   html += '<div class="pfb-deltas">' +
     '<span class="pfb-delta-wrap"><span class="pfb-delta-lab">' + financeRedesignEsc(financeRedesignT('admin.finance.vsPrior', 'vs last period')) + '</span> ' + financeRedesignDeltaChip(pipe.vs_prior_pct) + '</span>' +
     '<span class="pfb-delta-wrap"><span class="pfb-delta-lab">' + financeRedesignEsc(financeRedesignT('admin.finance.vsYoy', 'vs last year')) + '</span> ' + financeRedesignDeltaChip(pipe.vs_yoy_pct) + '</span>' +

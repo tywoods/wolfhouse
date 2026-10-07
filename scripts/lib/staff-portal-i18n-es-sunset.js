@@ -476,6 +476,7 @@ module.exports = {
   'admin.bookings.refundFailed': 'No se pudo guardar el reembolso.',
   'admin.bookings.cancel': 'Cancelar',
   'admin.finance.summaryUnavailable': 'El resumen financiero aún no está disponible.',
+  'admin.finance.unavailable': 'No disponible.',
   'admin.finance.today': 'Hoy',
   'admin.finance.week': 'Esta semana',
   'admin.finance.month': 'Este mes',
