@@ -47,6 +47,9 @@ _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner'
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
            'add_ons', 'catalog_selections', 'selected_bed_codes')
+_CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_registered_create = None
+_before_create = None
 
 
 class QuoteBoundaryError(ValueError):
@@ -188,13 +191,25 @@ def observe_owner_turn(agent, raw):
     _current.set(capability)
     def observe(state, ingress):
         message = ingress['MESSAGE_ID']
-        if message in state['seen']:
+        raw_digest = hashlib.sha256(raw.encode()).hexdigest()
+        recovering = (state['status'] == 'accepted' and state.get('checked_offer')
+                      and state.get('auto_acceptance') is True
+                      and (state.get('dispatch_pending') or state.get('receipt'))
+                      and message == state.get('acceptance_message')
+                      and raw_digest == state.get('acceptance_raw_digest'))
+        if message in state['seen'] and not recovering:
             raise QuoteBoundaryError('quote_owner_replayed_message')
-        state['seen'].append(message)
+        if message not in state['seen']:
+            state['seen'].append(message)
         state['epoch'] += 1
         capability.epoch = state['epoch']
+        if recovering:
+            # Same original consent may recover ONLY its frozen operation/key;
+            # it never creates fresh authority or revives a reset/revised quote.
+            return
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
+        presented = state.pop('presented_offer', None)
         # IDs stay durable for the incarnation; do not age out replay protection.
         if re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I):
             state.update(status='clarify', quote=None)
@@ -214,14 +229,20 @@ def observe_owner_turn(agent, raw):
                     if isinstance(old, list):
                         state['delta'][field] = [deepcopy(item) for item in old
                             if item.get(code_field) not in (code, code + '_class')]
-        elif state['status'] == 'offered' and state['quote'] and _accepts(raw, state['plan']):
-            state.update(status='accepted', acceptance_message=message)
+        elif state['status'] == 'offered' and state['quote'] and (
+                _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
+                    and presented == state['checked_offer']
+                    and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))):
+            state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
+            state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):
             # Changed or unsupported booking acceptance needs a fresh quote, never
             # silently falls back to the former quote (including accepted state).
             state.update(status='clarify', quote=None)
         elif state['status'] == 'accepted' and not (
                 re.fullmatch(r'\s*(?:thanks|thank you|ok|okay|please proceed)[.!]?\s*', raw, re.I)
+                or (state.get('auto_acceptance') is True and state.get('checked_offer')
+                    and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))
                 or _contact_continuity(raw)):
             # Unknown new intent is not fresh create authority. Only deliberately
             # narrow neutral/contact continuity survives; clarify everything else.
@@ -241,7 +262,7 @@ def prepare_quote(params):
         result = deepcopy(params)
         old = state.get('plan')
         if old:
-            for key in _FIELDS:
+            for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):
                 if key not in old:
                     if key in result:
                         raise QuoteBoundaryError('quote_revision_requires_owner')
@@ -254,14 +275,101 @@ def prepare_quote(params):
     return _transaction(prepare)
 
 
+def _checked_plan(prepared, response, tenant):
+    """Freeze Staff's revision, not any model-supplied offer/bed authority."""
+    offer = response.get('offer_revision')
+    availability = response.get('availability')
+    if (not isinstance(offer, dict) or not isinstance(availability, dict)
+            or response.get('success') is not True or response.get('payment_choice_needed')
+            or response.get('missing_fields') or response.get('staff_review_needed')
+            or offer.get('availability_checked') is not True
+            or availability.get('status') != 'checked'
+            or not offer.get('offer_fingerprint') or offer.get('client_slug') != tenant
+            or any(not isinstance(offer.get(key), str) or not offer[key].strip()
+                   for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
+            or offer.get('payment_choice') not in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
+            or not prepared.get('payment_choice')
+            or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
+                   ('total_cents', 'deposit_required_cents', 'payment_link_amount_cents'))
+            or offer.get('total_cents') != response.get('total_cents')):
+        return None
+    assignments = offer.get('guest_bed_assignments')
+    count = offer.get('guest_count')
+    if (type(count) is not int or count < 1 or not isinstance(assignments, list)
+            or len(assignments) != count or any(
+                not isinstance(row, dict) or row.get('guest_index') != index
+                or not row.get('guest_name') or not row.get('bed_code')
+                for index, row in enumerate(assignments))):
+        return None
+    codes = [row['bed_code'] for row in assignments]
+    rooms = offer.get('room_arrangement')
+    if (any(not isinstance(code, str) or not code.strip() for code in codes)
+            or len(set(codes)) != count or availability.get('selected_bed_codes') != codes
+            or not isinstance(rooms, list) or len(rooms) != count
+            or any(not isinstance(row, dict) or not row.get('room_code')
+                   or not row.get('gender_strategy') for row in rooms)
+            or sorted(row.get('bed_code', '') for row in rooms) != sorted(codes)):
+        return None
+    plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
+    for key in _FIELDS + _CHECKED_FIELDS:
+        if key in offer:
+            plan[key] = deepcopy(offer[key])
+    # Staff's offer normalizer fingerprints code/quantity, while the checked
+    # request can also carry rental days. Preserve the actual quoted request
+    # when its normalized projection matches, rather than dropping duration.
+    extras = prepared.get('add_ons')
+    if isinstance(extras, list):
+        normalized = []
+        for item in extras:
+            if isinstance(item, str):
+                normalized.append({'code': item.strip(), 'quantity': 1})
+            elif isinstance(item, dict):
+                normalized.append({'code': str(item.get('code') or item.get('item_code') or '').strip(),
+                                   'quantity': item.get('quantity') or 1})
+            else:
+                return None
+        if normalized != offer.get('add_ons'):
+            return None
+        plan['add_ons'] = deepcopy(extras)
+    plan['guests'] = [{'name': row['guest_name']} for row in assignments]
+    # Staff fingerprints normalized names; keep guest spelling only when the
+    # complete ordered roster matches those authoritative identities.
+    guests = prepared.get('guests')
+    if (isinstance(guests, list) and len(guests) == count and all(
+            isinstance(guest, dict) and isinstance(guest.get('name'), str)
+            and guest['name'].strip().lower() == row['guest_name']
+            for guest, row in zip(guests, assignments))):
+        plan['guests'] = deepcopy(guests)
+    plan['selected_bed_codes'] = [row['bed_code'] for row in assignments]
+    if 'room_name_hints' in prepared:
+        plan['room_name_hints'] = deepcopy(prepared['room_name_hints'])
+    return plan
+
+
 def record_quote(params, response):
     prepared = params if isinstance(params, PreparedPlan) else prepare_quote(params)
     def record(state, ingress):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
+        checked = _checked_plan(prepared, response, ingress['tenant'])
+        if checked is not None:
+            plan = checked
+        previous_checked = state.get('checked_offer')
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
+        if previous_checked or response.get('offer_revision'):
+            valid = valid and checked is not None
+        if (valid and checked is not None and state['status'] == 'accepted'
+                and previous_checked == response['offer_revision'] and state['plan'] == plan):
+            # Cosmetic revalidation metadata must not mint a new operation or
+            # erase consent. Keep the original snapshot, receipt and key inputs.
+            return
+        state['checked_offer'] = deepcopy(response['offer_revision']) if checked is not None else None
+        state.pop('presented_offer', None)
+        state.pop('receipt', None)
+        state.pop('completion', None)
+        state.pop('dispatch_pending', None)
         state.update(plan=plan, quote=deepcopy(response) if valid else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
@@ -277,14 +385,18 @@ def prepare_create(params):
             raise QuoteBoundaryError('quote_owner_acceptance_required')
         result = deepcopy(params)
         plan = state['plan']
-        for key in _FIELDS:
+        for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):
             if key in result and result[key] != plan.get(key):
                 raise QuoteBoundaryError('accepted_quote_changed')
             if key in plan:
                 result[key] = deepcopy(plan[key])
         # Model-provided totals/quote IDs are not authority and never forwarded.
-        for key in ('total_cents', 'quote_total_cents', 'accepted_quote_id'):
+        for key in ('total_cents', 'quote_total_cents', 'accepted_quote_id',
+                    'accepted_offer', 'require_offer_identity', 'offer_revision', 'availability'):
             result.pop(key, None)
+        if state.get('checked_offer'):
+            result['accepted_offer'] = deepcopy(state['checked_offer'])
+            result['require_offer_identity'] = True
         # Replay/retry identity is owner-issued, never model-controlled. Keep
         # it stable across restart and omitted identities for this acceptance.
         identity = {key: value for key, value in ingress.items() if key != 'MESSAGE_ID'}
@@ -298,28 +410,150 @@ def prepare_create(params):
     return _transaction(prepare)
 
 
+def _validate_dispatch_ticket(prepared, state):
+    if (not isinstance(prepared, PreparedPlan) or prepared.capability is not _current.get()
+            or prepared.epoch != state['epoch'] or state['status'] != 'accepted'
+            or not state.get('quote')):
+        raise QuoteBoundaryError('quote_dispatch_superseded')
+
+
+def dispatch_recovery(prepared):
+    """Owner-only receipt/recovery state, never a model-supplied retry boolean."""
+    def inspect(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return {'receipt': deepcopy(state.get('completion') or state.get('receipt')),
+                'pending': bool(state.get('checked_offer') and state.get('dispatch_pending'))}
+    return _transaction(inspect)
+
+
+def record_create_completion(prepared, response):
+    """Retain the completed adapter result, including already-created links."""
+    def complete(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        receipt = state.get('receipt')
+        if not receipt or not isinstance(response, dict) or response.get('success') is not True:
+            return
+        if any(receipt.get(key) is not None and response.get(key) != receipt[key]
+               for key in ('booking_id', 'booking_code', 'payment_id')):
+            raise QuoteBoundaryError('create_completion_identity_mismatch')
+        state['completion'] = deepcopy(response)
+    _transaction(complete)
+
+
+def _revoke_checked_offer(state):
+    state.update(status='clarify', quote=None, checked_offer=None)
+    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending',
+                'acceptance_message', 'acceptance_raw_digest'):
+        state.pop(key, None)
+
+
+def reject_checked_offer(prepared):
+    """A definitive pre-write refusal requires a fresh offer/consent, not retry."""
+    def reject(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        if state.get('checked_offer') and not state.get('receipt'):
+            _revoke_checked_offer(state)
+    _transaction(reject)
+
+
 def dispatch_create(prepared, transport):
     """Order actual dispatch against reset/revision on the SQLite writer lock.
 
-    A reset/revision committed first prevents transport. Dispatch locked first
-    starts transport before reset/revision can commit. Post-create persistence
-    must stay OUTSIDE this critical section. A DB retry cannot repeat transport.
+    Persist pending separately before transport: a process death after Staff's
+    commit must not roll back the only evidence needed for idempotent recovery.
+    Ticket validation repeats under the dispatch lock, so reset/revision winning
+    between those transactions still prevents transport. No new journal/schema.
     """
+    def mark_pending(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        state['dispatch_pending'] = True
+    _transaction(mark_pending)
     invoked = False
     def dispatch(state, ingress):
         nonlocal invoked
-        if (not isinstance(prepared, PreparedPlan) or prepared.capability is not _current.get()
-                or prepared.epoch != state['epoch'] or state['status'] != 'accepted'
-                or not state.get('quote')):
-            raise QuoteBoundaryError('quote_dispatch_superseded')
+        _validate_dispatch_ticket(prepared, state)
+        if state.get('receipt'):
+            return deepcopy(state['receipt'])
         if invoked:
             raise QuoteBoundaryError('quote_dispatch_not_repeatable')
         invoked = True
-        return transport()
+        response = transport()
+        if (isinstance(response, dict) and response.get('success') is True
+                and (response.get('booking_id') or response.get('booking_code'))):
+            state['receipt'] = deepcopy(response)
+        elif (isinstance(response, dict) and state.get('checked_offer')
+              and response.get('booking_create_refused') is True):
+            _revoke_checked_offer(state)
+        return response
     return _transaction(dispatch)
 
 
-def install_owner_hook():
+def finalize_offer_response(result):
+    """Own the actual returned question; quote tool success is not presentation."""
+    if (not isinstance(result, dict) or result.get('completed') is not True
+            or result.get('failed') or result.get('interrupted') or result.get('error')):
+        return result
+    def present(state, ingress):
+        offer = state.get('checked_offer')
+        if (state['status'] != 'offered' or not offer or not state.get('quote')
+                or state.get('offer_message') != ingress['MESSAGE_ID']):
+            return result
+        def money(cents):
+            return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
+        plan = state['plan']
+        lines = [f"{offer['check_in']} to {offer['check_out']} — {offer['guest_count']} guests."]
+        rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+        def label(code):
+            if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
+                return 'Accommodation only'
+            return str(code).removeprefix('package_').replace('_', ' ').capitalize()
+        room_labels = {'female_only': "women's room", 'male_only': "men's room",
+                       'mixed': 'mixed room', 'flexible': 'shared room'}
+        for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
+            room = rooms[code]
+            kind = ('private room' if offer['room_type'] == 'private' else
+                    room_labels.get(room['gender_strategy'], 'room'))
+            lines.append(f"{guest['name']}: bed {code}, {kind} {room['room_code']}.")
+        lines.append(label(offer['package_code']) + '.')
+        for item in offer['guest_packages']:
+            number = item.get('guest_number')
+            who = (plan['guests'][number - 1]['name'] if type(number) is int
+                   and 1 <= number <= len(plan['guests']) else f'Guest {number}')
+            lines.append(f"{who}: {label(item['package_code'])}.")
+        if offer['add_ons']:
+            extras = []
+            for index, item in enumerate(offer['add_ons']):
+                accepted = plan['add_ons'][index]
+                duration = accepted.get('days') if isinstance(accepted, dict) else None
+                text = f"{label(item['code'])} × {item['quantity']}"
+                if duration is not None:
+                    text += f" for {duration} days"
+                extras.append(text)
+            lines.append('Extras: ' + '; '.join(extras) + '.')
+        lines.append(f"Total: {money(offer['total_cents'])}.")
+        payment = {'full': 'Full payment', 'deposit': 'Deposit',
+                   'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
+        lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        if offer['per_guest_payment_links']:
+            lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
+                         for item in offer['payment_distribution'])
+        lines.append('Availability checked, subject to confirmation when booking.')
+        lines.append('Shall I create this booking?')
+        text = '\n'.join(lines)
+        output = deepcopy(result)
+        output['final_response'] = text
+        messages = output.get('messages')
+        if isinstance(messages, list) and messages and messages[-1].get('role') == 'assistant':
+            messages[-1]['content'] = text
+        state['presented_offer'] = deepcopy(offer)
+        return output
+    return _transaction(present)
+
+
+def install_owner_hook(create_handler=None, before_create=None):
+    global _registered_create, _before_create
+    if create_handler is not None:
+        _registered_create, _before_create = create_handler, before_create
     from agent import conversation_loop
     original = conversation_loop.run_conversation
     if getattr(original, '_wolfhouse_quote_owner', False):
@@ -340,7 +574,33 @@ def install_owner_hook():
                 # Unsupported/unbound ingress retains ordinary conversation,
                 # but no ledger authority, including ambient fixture bindings.
                 close_turn()
-            return original(agent, user_message, *args, **kwargs)
+            if _current.get() is not None and _registered_create is not None:
+                automatic = _transaction(lambda state, ingress: (
+                    ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
+                    and bool(state.get('checked_offer')) and state.get('auto_acceptance') is True))
+                if automatic:
+                    if _before_create is not None:
+                        _before_create(session_id=agent.session_id)
+                    receipt = json.loads(_registered_create(dict(prepare_create({}))))
+                    if receipt.get('success') is True and (receipt.get('booking_code') or receipt.get('booking_id')):
+                        reference = receipt.get('booking_code') or receipt['booking_id']
+                        text = f"Booking {reference} saved. Payment is not confirmed."
+                        if receipt.get('secure_payment_url'):
+                            text += '\n' + receipt['secure_payment_url']
+                        for link in receipt.get('guest_payment_links') or []:
+                            if link.get('secure_payment_url'):
+                                text += '\n' + str(link.get('guest_name') or '') + ': ' + link['secure_payment_url']
+                    else:
+                        text = 'I could not verify that this booking was created. We need to check the accepted setup before proceeding.'
+                    history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+                    return {'completed': True, 'final_response': text, 'api_calls': 0,
+                            'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
+                                         {'role': 'assistant', 'content': text}],
+                            'booking_result': receipt}
+            result = original(agent, user_message, *args, **kwargs)
+            if _current.get() is not None:
+                return finalize_offer_response(result)
+            return result
         finally:
             # An owner capability belongs to one entrypoint turn only. Restoring
             # a stale ambient binding would authorize tools after this turn exits.

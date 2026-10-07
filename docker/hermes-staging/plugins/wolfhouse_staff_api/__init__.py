@@ -331,6 +331,14 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             # never copy arbitrary error-body identity, success or checkout fields.
             **{key: data[key] for key in ("stripe_links_enabled", "bot_booking_enabled")
                if payment_receipt and isinstance(data.get(key), bool)},
+            # Preserve only a restrictive, typed booking-refusal bit. Never
+            # promote arbitrary error-body identity/success/checkout fields.
+            **({"booking_create_refused": True} if (
+                url_path == "/staff/bot/booking-create-from-plan" and exc.code == 409
+                and data.get("success") is False and data.get("write_performed") is False
+                and data.get("reason_code") in (
+                    "incompatible_preselected_beds", "offer_identity_required",
+                    "offer_unchecked", "offer_terms_changed")) else {}),
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
@@ -630,6 +638,9 @@ def quote_booking(params, **kwargs):
             "package_min_nights": package_policy.get("package_min_nights"),
             "package_eligible": False} if package_blocked else {}),
         "tool": "quote_booking",
+        # Authority comes only from this Staff response, never request fields.
+        "availability": data.get("availability"),
+        "offer_revision": data.get("offer_revision"),
         "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
         **{key: payload[key] for key in ("guest_name", "guests") if key in payload},
         "total_cents": total,
@@ -988,8 +999,15 @@ def create_booking_from_plan(params, **kwargs):
     if pkg in ("accommodation_only", "no_package"):
         payload["package_code"] = "package_none"
 
+    # A prior owner dispatch may already have committed at Staff even if its
+    # response was lost. Only the capability-bound pending operation may recover
+    # before checking availability of its own now-occupied beds. Staff still
+    # validates the frozen operation fingerprint and accepted offer on that path.
+    from wolfhouse import accepted_quote as ledger
+    ticket = ledger._dispatch_ticket.get()
+    owner_retry = bool(ticket is not None and ledger.dispatch_recovery(ticket)['pending'])
     if room_decision:
-        if excluded and caller_selected_beds:
+        if excluded and caller_selected_beds and not owner_retry:
             # Group exclusions are not per-occupant exclusions: an accepted split
             # dorm can place each traveler in their own eligible gendered room.
             # Resolve exact bed metadata from Staff, never from room-code guesses.
@@ -4204,6 +4222,11 @@ def _quote_owner_handler(name, original):
                 canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'
                              else ledger.prepare_create(canonical))
                 if name != 'quote_booking':
+                    recovery = ledger.dispatch_recovery(canonical)
+                    if recovery['receipt']:
+                        return _json_result({**recovery['receipt'], 'tool': name,
+                                             'idempotent': True, 'created': False,
+                                             'write_performed': False})
                     dispatch_token = ledger._dispatch_ticket.set(canonical)
             wire = dict(canonical)
             selections = wire.get('catalog_selections')
@@ -4238,7 +4261,17 @@ def _quote_owner_handler(name, original):
             dispatched = True
             result = original(wire, **kwargs)
             if active and name == 'quote_booking':
+                # Persist the exact add-on wire we just asked Staff to price,
+                # including supported catalog durations, not a lossy echo.
+                if 'add_ons' in wire:
+                    canonical['add_ons'] = wire['add_ons']
                 ledger.record_quote(canonical, json.loads(result))
+            elif active:
+                response = json.loads(result)
+                if response.get('error') == 'accepted_bed_selection_revalidation_required':
+                    ledger.reject_checked_offer(canonical)
+                elif response.get('success') is True:
+                    ledger.record_create_completion(canonical, response)
             return result
         except ledger.QuoteBoundaryError as error:
             return _json_result({'success': False, 'tool': name, 'error': str(error),
@@ -4407,6 +4440,9 @@ def register(ctx):
             description += " Retain an already supplied contact with guest_name, or capture_booking_names before quoting; never ask for a name just to quote."
         if name in {"quote_booking", "create_booking_from_plan", "get_sunset_offering_quote", "create_sunset_booking"}:
             handler = _booking_name_handler(name, handler)
+        if name == 'create_booking_from_plan' and hasattr(ctx, 'register_hook'):
+            from wolfhouse import accepted_quote
+            accepted_quote.install_owner_hook(handler, seed_booking_names if booking_names is not None else None)
         ctx.register_tool(
             name=name,
             toolset=TOOLSET,
