@@ -122,6 +122,36 @@ function displayLabel(room) {
   return room.roomName || room.roomCode || 'Room';
 }
 
+function restrictionLabel(room) {
+  const labels = [];
+  const type = String(room.roomType || '').toLowerCase();
+  if (room.canBeMatrimonial === true || type.includes('private') || type.includes('couple')) labels.push('Private/couple');
+  if (room.oftenUsedByOperator === true || type.includes('operator')) labels.push('Operator');
+  return labels.length ? labels.join(' · ') : null;
+}
+
+function roomGenderPresentation(room) {
+  const type = String(room.roomType || '').trim().toLowerCase();
+  const strategy = String(room.genderStrategy || '').trim().toLowerCase();
+  let fromType = null;
+  if (type === 'female_only') fromType = 'Female';
+  else if (type === 'male_only') fromType = 'Male';
+  else if (type === 'mixed' || type === 'matrimonial_or_mixed') fromType = 'Mixed';
+  let fromStrategy = null;
+  if (strategy.includes('female')) fromStrategy = 'Female';
+  else if (strategy.includes('male')) fromStrategy = 'Male';
+  else if (strategy === 'flexible' || strategy.includes('mixed')) fromStrategy = 'Mixed';
+  const conflict = fromType && fromStrategy && fromType !== fromStrategy;
+  if (!fromType || conflict) {
+    return { genderLabel: 'Unspecified', reviewLabel: 'Needs review', restrictionLabel: restrictionLabel(room) };
+  }
+  return { genderLabel: fromType, reviewLabel: null, restrictionLabel: restrictionLabel(room) };
+}
+
+function genderLabelFromStrategy(value) {
+  return roomGenderPresentation({ roomType: '', genderStrategy: value }).genderLabel;
+}
+
 function projectRoom(room, rank) {
   return {
     roomId: room.roomId,
@@ -135,6 +165,11 @@ function projectRoom(room, rank) {
     staticWarnings: room.staticWarnings.slice(),
     label: displayLabel(room),
     numericLabel: room.roomNumber == null ? 'No numeric room number' : null,
+    genderStrategy: room.genderStrategy || '',
+    genderLabel: roomGenderPresentation(room).genderLabel,
+    genderReview: roomGenderPresentation(room).reviewLabel,
+    restrictionLabel: roomGenderPresentation(room).restrictionLabel,
+    bedIds: (room.beds || []).map((bed) => bed.bedId),
   };
 }
 
@@ -311,6 +346,8 @@ module.exports = {
   catalogRevisionFor,
   compareRoomIdentity,
   displayLabel,
+  genderLabelFromStrategy,
+  roomGenderPresentation,
   numericRoomOrder,
   parseStoredPolicy,
   projectCatalogueRows,

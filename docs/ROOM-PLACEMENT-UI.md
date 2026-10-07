@@ -6,9 +6,9 @@ Wolfhouse Staff → Admin → Luna Staff → Room placement.
 
 The existing placement controls now use Staff overview-style cards in light/dark mode. The obsolete disconnected-preview banner is removed. Fill House/Fill Room, saved room priority, reset/cancel/save, and the read-only placement preview remain on their existing contracts.
 
-The same page now has a room builder: positive whole-number room number and bed count, explicit Female/Male/Mixed choice, and local Add/Edit/Remove draft controls. Duplicates are checked against loaded inventory and this tab's drafts. Builder drafts and unfinished inputs survive settings repaints. Leaving/reloading warns about local drafts; accepting the navigation discards them.
+The same page now has a room builder. **Add room & save** creates the room and its beds in inventory, appends that room to the current priority order, and asks the Schedule to reload. It is not a local draft. Female, Male and Mixed are saved as the existing room types. Existing rooms show those labels from their stored room type. Unknown or conflicting metadata shows Unspecified / Needs review and is not guessed as Mixed. Private/couple and Operator restrictions stay visible beside the gender label.
 
-**This is UI only:** room drafts never enter inventory, saved priority UUIDs, or preview requests. They do not persist across reload. No allocator, route, schema, booking, payment, guest-send, Hermes, or Sunset behavior changes. Existing settings PUT remains available; builder actions issue no network requests.
+**This writes Wolfhouse room inventory only.** It does not change the booking allocator, guest tools, payments, or Sunset. Preview remains read-only. Cancel does not delete a room that was already saved.
 
 Preview fields survive mode/order changes. A changed input or repaint invalidates earlier preview responses, preventing stale results from appearing. Selected beds use readable chips; reasons and failures remain visible.
 
@@ -17,7 +17,8 @@ Preview fields survive mode/order changes. A changed input or repaint invalidate
 From the repository root:
 
 ```sh
-node --test scripts/verify-staff-room-fill-policy.js scripts/verify-staff-room-fill-preview.js scripts/verify-staff-room-fill-routes.js
+node --test scripts/verify-staff-room-fill-policy.js scripts/verify-staff-room-fill-routes.js
+node scripts/verify-staff-room-fill-inventory.js
 node scripts/verify-staff-room-fill-browser.js /absolute/evidence/module
 node scripts/verify-staff-room-fill-page.js /absolute/evidence/page
 node scripts/verify-hermes-send-flags.js

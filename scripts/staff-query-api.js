@@ -216,6 +216,7 @@ const {
 const {
   ROOM_FILL_PATH,
   ROOM_FILL_PREVIEW_PATH,
+  ROOM_CREATE_PATH,
   createRoomFillRoutes,
 } = require('./lib/staff-room-fill-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
@@ -2681,7 +2682,7 @@ const {
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
-const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview } = createRoomFillRoutes({
+const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate } = createRoomFillRoutes({
   sendJSON, readBody, withPgClient, appendAuditLog,
 });
 
@@ -45641,8 +45642,18 @@ window.staffPortalOnLocaleChange = function(){
   if (typeof adminRefreshOnLocaleChange === 'function') adminRefreshOnLocaleChange();
 };
 
-function loadBedCalendar(afterRender){
-  bcPrepareCalendarZoomForRangeChange();
+var bcLoadEpoch = 0;
+function bcWolfhouseCalendar(){
+  return document.documentElement.getAttribute('data-portal-client') !== 'sunset';
+}
+function bcInvalidateBedCalendar(){
+  if (!bcWolfhouseCalendar()) return;
+  bcLoadEpoch += 1;
+  if (typeof loadBedCalendar === 'function') loadBedCalendar(null, { preserveZoom: true });
+}
+function loadBedCalendar(afterRender, options){
+  var epoch = ++bcLoadEpoch;
+  if (!options || !options.preserveZoom) bcPrepareCalendarZoomForRangeChange();
   bcNormalizeDateInput(el('bc-start'));
   bcNormalizeDateInput(el('bc-end'));
   bcUpdateCalendarTitle();
@@ -45676,6 +45687,7 @@ function loadBedCalendar(afterRender){
   fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
     .then(function(res){
+      if (epoch !== bcLoadEpoch) return;
       el('bc-load').disabled = false;
       if (!res.ok || !res.data.success){
         el('bc-state').className   = 'state-msg error';
@@ -45695,6 +45707,7 @@ function loadBedCalendar(afterRender){
       if (typeof afterRender === 'function') afterRender(res.data);
     })
     .catch(function(e){
+      if (epoch !== bcLoadEpoch) return;
       el('bc-load').disabled     = false;
       el('bc-state').className   = 'state-msg error';
       el('bc-state').textContent = t('calendar.state.networkError', { message: e.message });
@@ -46083,6 +46096,8 @@ function bcOnBedCalendarTabOpen(){
     var chip30 = document.querySelector('.bc-chip[data-chip="30days"]');
     if (chip30) chip30.classList.add('bc-chip-active');
     loadBedCalendar();
+  } else if (bcWolfhouseCalendar()) {
+    loadBedCalendar(null, { preserveZoom: true });
   }
 }
 
@@ -56377,6 +56392,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === ROOM_CREATE_PATH && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillCreate(parsed.query, req, res, auth.user);
   }
   if (pathname === ROOM_FILL_PREVIEW_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');

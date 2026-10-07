@@ -65,7 +65,43 @@ function pgFor(state) {
     async query(sql, params) {
       const text = String(sql);
       state.sql.push(text);
-      if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+      if (text === 'BEGIN') {
+        if (typeof state.onBegin === 'function') state.onBegin();
+        return { rows: [] };
+      }
+      if (text === 'COMMIT' || text === 'ROLLBACK') return { rows: [] };
+      if (text.includes('room-fill-receipt-lookup')) {
+        const found = (state.receipts || []).find((receipt) => receipt.operation_id === params[1]);
+        return { rows: found ? [found] : [] };
+      }
+      if (text.includes('room-fill-room-lookup')) {
+        const found = state.catalogue.find((item) => item.room_code === params[1]);
+        return { rows: found ? [{ room_id: found.room_id, room_code: found.room_code }] : [] };
+      }
+      if (text.includes('room-fill-room-insert')) {
+        const roomId = '12121212-1212-4121-8121-121212121212';
+        state.catalogue.push(row(roomId, params[1], 'bebebebe-bebe-4beb-8beb-bebebebebe01', 1));
+        state.lastRoomId = roomId;
+        return { rows: [{ room_id: roomId }] };
+      }
+      if (text.includes('room-fill-bed-insert')) {
+        state.bedIds = state.bedIds || [];
+        const bedId = state.bedIds.length
+          ? 'bebebebe-bebe-4beb-8beb-bebebebebe02'
+          : 'bebebebe-bebe-4beb-8beb-bebebebebe01';
+        state.bedIds.push(bedId);
+        return { rows: [{ bed_id: bedId }] };
+      }
+      if (text.includes('room-fill-receipt-insert')) {
+        state.receipts = state.receipts || [];
+        state.receipts.push({
+          operation_id: params[1],
+          payload_fingerprint: params[2],
+          room_id: params[3],
+          bed_ids: JSON.parse(params[4]),
+        });
+        return { rows: [] };
+      }
       if (text.includes('room-fill-client')) {
         if (params[0] !== CLIENT) return { rows: [] };
         return { rows: [{ id: CLIENT, slug: state.slug, settings: state.settings }] };
@@ -232,13 +268,123 @@ test('saved preview refuses a missing policy and a foreign origin', async () => 
   assert.equal(sent[1].body.error, 'policy_not_configured');
 });
 
-test('router keeps research auth and does not let the caller name a tenant', () => {
+test('create rejects a body without an operation id before writing', async () => {
+  const state = makeState();
+  const { routes, sent } = harness(state);
+  await routes.handleRoomFillCreate({}, {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify({ roomNumber: 12, bedCount: 2, gender: 'female' }),
+  }, {}, wolf);
+  assert.equal(sent[0].status, 400);
+  assert.equal(sent[0].body.error, 'invalid_operation');
+  assert.equal(state.writes.length, 0);
+});
+
+test('ordinary retry finds the receipt before the fresh catalogue can reject the old order', async () => {
+  const state = makeState();
+  const { routes, sent } = harness(state);
+  const rooms = roomsFrom(state);
+  const body = {
+    operationId: 'op-room-12-retry',
+    roomNumber: 12,
+    bedCount: 2,
+    gender: 'female',
+    expectedSettingsRevision: null,
+    expectedCatalogRevision: catalogRevisionFor(rooms),
+    fillMode: 'house',
+    roomPriority: rooms.map((room) => room.roomId),
+  };
+  const req = {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify(body),
+  };
+  await routes.handleRoomFillCreate({}, req, {}, wolf);
+  assert.equal(sent[0].status, 200);
+  const firstIds = sent[0].body.bedIds.slice();
+  await routes.handleRoomFillCreate({}, req, {}, wolf);
+  assert.equal(sent[1].status, 200);
+  assert.equal(sent[1].body.duplicate, true);
+  assert.equal(sent[1].body.roomId, sent[0].body.roomId);
+  assert.deepEqual(sent[1].body.bedIds, firstIds);
+  assert.equal(state.writes.length, 1);
+});
+
+test('a locked settings change is not overwritten by a create that snapshotted the old order', async () => {
+  const state = makeState();
+  const { routes, sent } = harness(state);
+  const rooms = roomsFrom(state);
+  const saved = {
+    contractVersion: 1,
+    fillMode: 'room',
+    roomPriority: [R2, R1],
+    roomPrioritySource: 'custom',
+  };
+  state.onBegin = () => {
+    state.settings = { ...state.settings, luna_room_fill_policy: saved };
+  };
+  await routes.handleRoomFillCreate({}, {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify({
+      operationId: 'op-room-12-stale',
+      roomNumber: 12,
+      bedCount: 1,
+      gender: 'mixed',
+      expectedSettingsRevision: null,
+      expectedCatalogRevision: catalogRevisionFor(rooms),
+      fillMode: 'house',
+      roomPriority: [R1, R2],
+    }),
+  }, {}, wolf);
+  assert.equal(sent[0].status, 409);
+  assert.equal(sent[0].body.error, 'stale_settings');
+  assert.equal(state.settings.luna_room_fill_policy.fillMode, 'room');
+  assert.deepEqual(state.settings.luna_room_fill_policy.roomPriority, [R2, R1]);
+  assert.equal(state.writes.length, 0);
+});
+
+test('a second create does not drop the first new room from priority', async () => {
+  const state = makeState();
+  const { routes, sent } = harness(state);
+  const rooms = roomsFrom(state);
+  const first = {
+    operationId: 'op-room-12-first',
+    roomNumber: 12,
+    bedCount: 1,
+    gender: 'female',
+    expectedSettingsRevision: null,
+    expectedCatalogRevision: catalogRevisionFor(rooms),
+    fillMode: 'house',
+    roomPriority: [R1, R2],
+  };
+  await routes.handleRoomFillCreate({}, {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify(first),
+  }, {}, wolf);
+  assert.equal(sent[0].status, 200);
+  const firstRoomId = sent[0].body.roomId;
+  await routes.handleRoomFillCreate({}, {
+    headers: { host: 'staff.test', origin: 'https://staff.test' },
+    bodyText: JSON.stringify({
+      ...first,
+      operationId: 'op-room-13-second',
+      roomNumber: 13,
+      gender: 'male',
+    }),
+  }, {}, wolf);
+  assert.equal(sent[1].status, 400);
+  assert.equal(sent[1].body.error, 'invalid_order');
+  assert.equal(state.settings.luna_room_fill_policy.roomPriority.at(-1), firstRoomId);
+  assert.equal(state.settings.luna_room_fill_policy.roomPriority.includes(firstRoomId), true);
+});
+
+test('calendar reload stays on Wolfhouse and ignores an obsolete failure', () => {
   const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  const create = api.indexOf("pathname === ROOM_CREATE_PATH && method === 'POST'");
   const preview = api.indexOf("pathname === ROOM_FILL_PREVIEW_PATH && method === 'POST'");
   const put = api.indexOf("pathname === ROOM_FILL_PATH && method === 'PUT'");
   const get = api.indexOf("pathname === ROOM_FILL_PATH && method === 'GET'");
-  assert.ok(preview > 0 && put > preview && get > put);
-  for (const start of [preview, put, get]) {
+  assert.ok(create > 0 && preview > create && put > preview && get > put);
+  for (const start of [create, preview, put, get]) {
     const slice = api.slice(start, start + 280);
     assert.match(slice, /requireAuth\(req, res, 'operator'\)/);
     assert.doesNotMatch(slice, /parsed\.query\.client|body\.client_id|body\.slug/);
@@ -257,4 +403,11 @@ test('router keeps research auth and does not let the caller name a tenant', () 
   const allocator = fs.readFileSync(path.join(ROOT, 'scripts/lib/luna-bed-allocator.js'), 'utf8');
   assert.doesNotMatch(allocator, /require\(['"].*staff-room-fill|lunaRoomFillPolicy|draftPolicy/);
   assert.equal(settingsRevisionFor(suggestedPolicy(roomsFrom(makeState()))).length, 64);
+  assert.match(api, /function bcWolfhouseCalendar\(\)\{\s*return document\.documentElement\.getAttribute\('data-portal-client'\) !== 'sunset';/);
+  assert.match(api, /function bcInvalidateBedCalendar\(\)\{\s*if \(!bcWolfhouseCalendar\(\)\) return;/);
+  assert.match(api, /else if \(bcWolfhouseCalendar\(\)\)/);
+  const catchAt = api.indexOf('.catch(function(e){', api.indexOf('function loadBedCalendar'));
+  assert.match(api.slice(catchAt, catchAt + 80), /if \(epoch !== bcLoadEpoch\) return;/);
+  assert.match(browser, /The save did not finish\. Inventory may have changed\./);
+  assert.match(browser, /data-portal-client'\) !== 'sunset'/);
 });

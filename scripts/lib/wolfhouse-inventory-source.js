@@ -209,25 +209,9 @@ function csvInventoryToBedCalendarRows(inventory) {
   return rows;
 }
 
-function mergePgBedIdsIntoCsvRows(csvRows, pgRows) {
-  const pgByBed = new Map();
-  for (const r of pgRows || []) {
-    if (r.bed_code) pgByBed.set(r.bed_code, r);
-  }
-  return csvRows.map((r) => {
-    const pg = r.bed_code ? pgByBed.get(r.bed_code) : null;
-    if (!pg) return r;
-    return {
-      ...r,
-      room_id: pg.room_id || r.room_id,
-      bed_id: pg.bed_id || r.bed_id,
-    };
-  });
-}
-
 /**
  * Resolve bed-calendar room rows for Wolfhouse: drop DEMO rooms; fall back to CSV
- * when PG has fewer than MIN_REAL_ROOMS real rooms.
+ * for absent rooms when PG has fewer than MIN_REAL_ROOMS real rooms.
  */
 function resolveBedCalendarRoomRows(clientSlug, pgRows) {
   if (!isWolfhouseInventoryClient(clientSlug)) return pgRows || [];
@@ -235,8 +219,12 @@ function resolveBedCalendarRoomRows(clientSlug, pgRows) {
   if (countDistinctRooms(filtered) >= MIN_REAL_ROOMS) return filtered;
   const inv = loadWolfhouseInventoryFromCsv();
   if (!inv.rooms.length) return filtered;
-  const csvRows = csvInventoryToBedCalendarRows(inv);
-  return mergePgBedIdsIntoCsvRows(csvRows, pgRows);
+  // Canonical rooms own their entire bed set and metadata, even with no active
+  // beds. Mixing CSV beds into an existing room can drop saved beds or invent
+  // ghost beds; fallback is only for room codes absent from the PG result.
+  const known = new Set(filtered.map((row) => row.room_code).filter(Boolean));
+  const fallback = csvInventoryToBedCalendarRows(inv).filter((row) => !known.has(row.room_code));
+  return filtered.concat(fallback);
 }
 
 function filterDemoCalendarBlocks(blockRows) {

@@ -22,6 +22,7 @@ const {
   numericRoomOrder,
 } = require('./staff-room-fill-policy');
 const { previewRoomFill } = require('./staff-room-fill-preview');
+const { createRoomFillInventory } = require('./staff-room-fill-inventory');
 
 const ROOM_FILL_PATH = '/staff/luna-intelligence/room-fill';
 const ROOM_FILL_PREVIEW_PATH = '/staff/luna-intelligence/room-fill/preview';
@@ -84,6 +85,39 @@ WHERE id = $1::uuid
 RETURNING id::text AS id, slug, settings
 /* room-fill-save */
 `;
+const ROOM_LOOKUP_SQL = `
+SELECT id::text AS room_id, room_code, gender_strategy, capacity
+FROM rooms
+WHERE client_id = $1::uuid AND room_code = $2
+LIMIT 1
+FOR UPDATE
+/* room-fill-room-lookup */
+`;
+const ROOM_INSERT_SQL = `
+INSERT INTO rooms (client_id, room_code, name, capacity, gender_strategy, room_type, active)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, TRUE)
+RETURNING id::text AS room_id
+/* room-fill-room-insert */
+`;
+const BED_INSERT_SQL = `
+INSERT INTO beds (client_id, room_id, bed_code, bed_number, bed_label, planning_row_label, active, sellable)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, TRUE, TRUE)
+RETURNING id::text AS bed_id
+/* room-fill-bed-insert */
+`;
+const BED_IDS_SQL = `
+SELECT id::text AS bed_id
+FROM beds
+WHERE client_id = $1::uuid AND room_id = $2::uuid AND active = TRUE
+ORDER BY bed_number ASC, bed_code ASC
+/* room-fill-bed-ids */
+`;
+const ROOM_CREATE_PATH = '/staff/luna-intelligence/room-fill/rooms';
+const GENDER_SAVE = Object.freeze({
+  female: { genderStrategy: 'Female preferred', roomType: 'female_only' },
+  male: { genderStrategy: 'Male preferred', roomType: 'male_only' },
+  mixed: { genderStrategy: 'Flexible', roomType: 'mixed' },
+});
 
 function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog }) {
   function fail(res, status, error) {
@@ -347,11 +381,71 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
     }
   }
 
-  return { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview };
+  async function handleRoomFillCreate(query, req, res, user) {
+    if (Object.keys(query || {}).length) return fail(res, 400, 'caller_parameters_rejected');
+    const origin = originProblem(req);
+    if (origin) return fail(res, 403, origin);
+    const parsed = await readJson(req);
+    if (!parsed.ok || !parsed.body || Array.isArray(parsed.body)) return fail(res, 400, 'invalid_json');
+    try {
+      const tenant = await loadTenant(user);
+      if (tenant.error) return fail(res, tenant.error.status, tenant.error.error);
+      const created = await withPgClient((pg) => createRoomFillInventory(pg, {
+        clientId: tenant.row.id,
+        body: parsed.body,
+        lockSql: CLIENT_SQL.replace('LIMIT 1', 'LIMIT 1 FOR UPDATE'),
+        saveSql: SAVE_SQL,
+        readLockedState: async (locked) => {
+          const client = await locked.query(CLIENT_SQL, [tenant.row.id]);
+          const catalogue = await locked.query(CATALOGUE_SQL, [tenant.row.id]);
+          const projected = projectCatalogueRows(catalogue.rows || []);
+          if (!projected.ok) throw fail(projected.status, projected.error);
+          const stored = parseStoredPolicy(client.rows[0] && client.rows[0].settings && client.rows[0].settings[SETTINGS_KEY]);
+          if (!stored.ok) throw fail(stored.status, stored.error);
+          return {
+            rooms: projected.rooms,
+            revisions: {
+              catalogRevision: catalogRevisionFor(projected.rooms),
+              settingsRevision: stored.policy ? settingsRevisionFor(stored.policy) : null,
+            },
+          };
+        },
+      }));
+      if (typeof appendAuditLog === 'function') {
+        appendAuditLog({
+          action: 'room_fill_create',
+          client_id: tenant.row.id,
+          room_id: created.roomId,
+          duplicate: created.duplicate === true,
+          staff_user_id: user && user.staff_user_id,
+        });
+      }
+      const fresh = await loadCatalogue(tenant.row.id);
+      const freshClient = await withPgClient((pg) => pg.query(CLIENT_SQL, [tenant.row.id]));
+      const freshStored = parseStoredPolicy(freshClient.rows[0].settings && freshClient.rows[0].settings[SETTINGS_KEY]);
+      return sendJSON(res, 200, {
+        success: true,
+        created: true,
+        duplicate: created.duplicate === true,
+        roomId: created.roomId,
+        roomCode: created.roomCode,
+        bedIds: created.bedIds,
+        calendarRoomId: created.roomId,
+        calendarBedIds: created.bedIds,
+        ...envelope(freshClient.rows[0], fresh.rooms, freshStored.ok ? freshStored : freshStored),
+      });
+    } catch (err) {
+      if (err && err.status) return fail(res, err.status, err.error || err.message);
+      return fail(res, 503, 'room_create_failed');
+    }
+  }
+
+  return { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate };
 }
 
 module.exports = {
   ROOM_FILL_PATH,
   ROOM_FILL_PREVIEW_PATH,
+  ROOM_CREATE_PATH,
   createRoomFillRoutes,
 };

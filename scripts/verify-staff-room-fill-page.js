@@ -25,8 +25,8 @@ const envelope = {
   settingsRevision: 'a'.repeat(64), catalogRevision: 'b'.repeat(64),
   requiresReview: false, removedRoomIds: [], unrankedRoomIds: [],
   catalogue: [
-    { roomId: R1, roomCode: 'R1', roomNumber: 1, capacity: 4, active: true, label: 'Room 1' },
-    { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2' },
+    { roomId: R1, roomCode: 'R1', roomNumber: 1, capacity: 4, active: true, label: 'Room 1', genderLabel: 'Mixed', roomType: 'mixed' },
+    { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2', genderLabel: 'Female', roomType: 'female_only', restrictionLabel: null },
   ],
   legacyNote: NOTICE,
 };
@@ -132,13 +132,27 @@ async function main() {
           }
           if (request.method() === 'GET' && Object.hasOwn(fixtures, url.pathname)
               && ['client', 'client_slug'].every((key) => !url.searchParams.has(key) || url.searchParams.get(key) === CLIENT)) return json(fixtures[url.pathname]);
+          if (request.method() === 'POST' && url.pathname === '/staff/luna-intelligence/room-fill/rooms') {
+            const roomId = '12121212-1212-4121-8121-121212121212';
+            const saved = JSON.parse(JSON.stringify(envelope));
+            saved.catalogue.push({ roomId, roomCode: 'R12', roomNumber: 12, capacity: 6, active: true, label: 'Room 12', genderLabel: 'Mixed', bedIds: ['dddddddd-dddd-4ddd-8ddd-dddddddddd01'] });
+            saved.policy = { ...saved.policy, roomPriority: saved.policy.roomPriority.concat(roomId) };
+            saved.roomId = roomId;
+            saved.bedIds = ['dddddddd-dddd-4ddd-8ddd-dddddddddd01'];
+            saved.calendarRoomId = roomId;
+            saved.calendarBedIds = saved.bedIds;
+            entry.disposition = 'synthetic-room-create';
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
+          }
           if (request.method() === 'POST' && url.pathname === '/staff/luna-intelligence/room-fill/preview') {
             let body;
             try { body = JSON.parse(request.postData() || '{}'); } catch (_) { return route.abort(); }
             const expectedKeys = ['policySource', 'expectedCatalogRevision', 'draftPolicy', 'checkIn', 'checkOut', 'partySize', 'groupGender', 'roomPreference'];
             const valid = Object.keys(body).every((key) => expectedKeys.includes(key)) && body.policySource === 'draft'
               && body.expectedCatalogRevision === envelope.catalogRevision
-              && JSON.stringify(body.draftPolicy?.roomPriority) === JSON.stringify([R1, R2])
+              && Array.isArray(body.draftPolicy?.roomPriority)
+              && body.draftPolicy.roomPriority.includes(R1)
+              && body.draftPolicy.roomPriority.includes(R2)
               && ['house', 'room'].includes(body.draftPolicy?.fillMode)
               && Object.keys(body.draftPolicy).every((key) => ['contractVersion', 'fillMode', 'roomPriority', 'roomPrioritySource'].includes(key))
               && body.checkIn === '2026-10-10' && body.checkOut === '2026-10-11' && body.partySize === 1;
@@ -226,11 +240,12 @@ async function main() {
             await root.locator('#rf-builder-beds').fill('6');
             await root.locator('input[name="rf-builder-gender"][value="mixed"]').check();
             await root.locator('#rf-builder-add').click();
-            await root.locator('.rf-draft').first().waitFor({ state: 'visible' });
-            const draftText = await root.locator('.rf-draft').first().innerText();
-            check(`${tag} basic local draft add`, /Room 12/i.test(draftText) && /6 beds/i.test(draftText) && /Mixed/i.test(draftText), draftText);
-            check(`${tag} builder issues no requests`, report.requests.length === requestsBefore, report.requests.slice(requestsBefore));
-            check(`${tag} local-only draft disclosure`, (await root.innerText()).includes('Drafts stay in this tab; they do not change room inventory.'));
+            await root.locator('#staff-room-fill-list').getByText('Room 12').waitFor({ state: 'visible' });
+            const savedText = await root.locator('#staff-room-fill-list').innerText();
+            check(`${tag} saved room is in priority with gender`, /Room 12/i.test(savedText) && /Mixed/i.test(savedText), savedText);
+            check(`${tag} builder save is the only new write`, report.requests.slice(requestsBefore).some((item) => item.method === 'POST' && item.url.includes('/rooms')));
+            check(`${tag} no detached draft`, await root.locator('.rf-draft').count() === 0);
+            check(`${tag} save disclosure`, (await root.innerText()).includes('Add room & save creates the beds and saves the current placement order.'));
           }
           // Existing form selectors keep the baseline preview runnable before the builder lands.
           const mode = root.locator('input[name="rf-mode"][value="house"],input[name="staff-room-fill-mode"][value="house"]');
@@ -245,7 +260,7 @@ async function main() {
           check(`${tag} synthetic preview outcome rendered`, detail.previewText.includes('R1-B1') && detail.previewText.includes('Synthetic preview selected an eligible saved room.'), detail.previewText);
           check(`${tag} preview does not claim reservation`, (await root.innerText()).includes('Preview only · no beds reserved.') && !/reservation created|booked/i.test(detail.previewText));
           check(`${tag} obsolete banner absent after preview`, !(await root.innerText()).includes(NOTICE) && await root.locator('#staff-room-fill-notice').count() === 0);
-          if (hasBuilder) check(`${tag} preview retains local draft`, await root.locator('.rf-draft').count() === 1);
+          if (hasBuilder) check(`${tag} saved room remains after preview`, (await root.locator('#staff-room-fill-list').innerText()).includes('Room 12'));
           detail.geometry = await root.evaluate((node) => ({ viewport: innerWidth, rootWidth: node.clientWidth, rootScrollWidth: node.scrollWidth,
             overflowing: [...node.querySelectorAll('.rf-card, input, select, button')].filter((el) => {
               const r = el.getBoundingClientRect(); return r.width > 0 && (r.left < -1 || r.right > innerWidth + 1);
