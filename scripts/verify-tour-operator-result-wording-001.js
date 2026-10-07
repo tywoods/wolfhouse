@@ -15,10 +15,14 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const WORDING = path.join(ROOT, 'scripts/browser/tour-operator-result-wording.js');
 const API = path.join(ROOT, 'scripts/staff-query-api.js');
+const I18N = path.join(ROOT, 'scripts/lib/staff-portal-i18n.js');
+const I18N_ES = path.join(ROOT, 'scripts/lib/staff-portal-i18n-es.js');
 
 assert.ok(fs.existsSync(WORDING), 'wording module exists');
 const src = fs.readFileSync(WORDING, 'utf8');
 const apiSrc = fs.readFileSync(API, 'utf8');
+const i18nSrc = fs.readFileSync(I18N, 'utf8');
+const i18nEsSrc = fs.readFileSync(I18N_ES, 'utf8');
 
 const sandbox = { module: { exports: {} }, exports: {} };
 vm.runInNewContext(src, sandbox);
@@ -89,7 +93,7 @@ const lost = plain({
 });
 assert.equal(lost.kind, 'uncertain');
 assert.equal(lost.holdRetry, true);
-assert.ok(lost.lines.indexOf('Outcome uncertain, refresh blocks before retrying') === 0);
+assert.ok(lost.lines.indexOf('Outcome uncertain, refresh the block list and calendar before retrying') === 0);
 assert.ok(!/not changed/i.test(joined(lost)), 'lost response never claims not changed');
 assert.ok(!/\bError\b/.test(joined(lost)) && !/release_blocked/.test(joined(lost)));
 assert.ok(/Room 8/.test(joined(lost)) && /OP-8/.test(joined(lost)));
@@ -108,6 +112,46 @@ assert.ok(!/request_stuck_processing/.test(joined(stuck)));
 assert.equal(stuck.holdRetry, true, 'stuck processing waits for a refresh');
 
 assert.ok(!/not changed/i.test(src), 'wording module never says not changed');
+for (const key of [
+  'tourOperator.result.badge.completed',
+  'tourOperator.result.badge.blocked',
+  'tourOperator.result.badge.failed',
+  'tourOperator.result.badge.uncertain',
+  'tourOperator.result.uncertain.refreshBoth',
+]) {
+  assert.ok(i18nSrc.includes(`'${key}'`), `English and Italian dictionaries cover ${key}`);
+  assert.ok(i18nEsSrc.includes(`"${key}"`), `Spanish dictionary covers ${key}`);
+}
+assert.ok(/block list and calendar before retrying/i.test(i18nSrc), 'English uncertainty copy names both refreshes');
+assert.ok(/lista de bloques y el calendario antes de volver a intentarlo/i.test(i18nEsSrc), 'Spanish uncertainty copy names both refreshes');
+assert.ok(/elenco dei blocchi e il calendario prima di riprovare/i.test(i18nSrc), 'Italian uncertainty copy names both refreshes');
+assert.ok(/role=['"]status['"]/.test(apiSrc), 'result regions expose status role');
+assert.ok(/aria-live=['"]polite['"]/.test(apiSrc), 'result regions announce normal results');
+assert.ok(/setAttribute\(['"]role['"],\s*['"]alert['"]\)/.test(apiSrc), 'failed and uncertain results become alerts');
+assert.ok(/blocksOk[\s\S]*calendarOk[\s\S]*blocksOk\s*&&\s*calendarOk/.test(apiSrc), 'retry unlock requires both refreshes to succeed');
+
+// Execute the production browser announcer against a minimal result element.
+const showPlainStart = apiSrc.indexOf('function toShowPlain(');
+const showPlainEnd = apiSrc.indexOf('\n\nfunction toRefreshBeforeRetry', showPlainStart);
+assert.ok(showPlainStart > 0 && showPlainEnd > showPlainStart, 'production toShowPlain function is extractable');
+const announcedBox = {
+  attrs: {}, style: {}, className: '', innerHTML: '',
+  setAttribute(name, value) { this.attrs[name] = value; },
+};
+const browserSandbox = {
+  el: () => announcedBox,
+  escHtml: (value) => String(value),
+  toShowResult: (_id, html) => { announcedBox.innerHTML = html; },
+};
+vm.runInNewContext(apiSrc.slice(showPlainStart, showPlainEnd), browserSandbox);
+browserSandbox.toShowPlain('to-op-result', { badge: 'Completed', lines: ['Saved'], isErr: false });
+assert.equal(announcedBox.attrs.role, 'status', 'completed result is announced as status');
+assert.equal(announcedBox.attrs['aria-live'], 'polite');
+assert.equal(announcedBox.attrs['aria-atomic'], 'true');
+browserSandbox.toShowPlain('to-rr-result', { badge: 'Uncertain', lines: ['Refresh'], isErr: true });
+assert.equal(announcedBox.attrs.role, 'alert', 'uncertain result is announced as alert');
+assert.equal(announcedBox.attrs['aria-live'], 'assertive');
+
 assert.ok(apiSrc.includes("error: 'release_blocked'"), 'API still returns release_blocked');
 assert.ok(apiSrc.includes('bk-preview-badge">Error</div>'), 'Sunset error badge string remains');
 assert.ok(/toGetClient\(\) === 'wolfhouse-somo'/.test(apiSrc), 'plain wording is wolfhouse-somo only');

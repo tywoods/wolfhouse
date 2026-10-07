@@ -13,6 +13,10 @@ function tourOperatorPlainResult(input) {
     if (text) lines.push(String(text));
   }
 
+  function tr(key, fallback) {
+    return typeof t === 'function' ? t(key) : fallback;
+  }
+
   function contextLine() {
     var bits = [];
     var room = context.roomCode || (input.booking && input.booking.room_code) || '';
@@ -30,7 +34,7 @@ function tourOperatorPlainResult(input) {
   function finish(kind, badge, isErr, holdRetry) {
     return {
       kind: kind,
-      badge: badge,
+      badge: tr('tourOperator.result.badge.' + kind, badge),
       lines: lines,
       isErr: !!isErr,
       holdRetry: !!holdRetry,
@@ -38,7 +42,7 @@ function tourOperatorPlainResult(input) {
   }
 
   if (input.lost && (action === 'create' || action === 'release')) {
-    push('Outcome uncertain, refresh blocks before retrying');
+    push(tr('tourOperator.result.uncertain.refreshBoth', 'Outcome uncertain, refresh the block list and calendar before retrying'));
     contextLine();
     return finish('uncertain', 'Uncertain', true, true);
   }

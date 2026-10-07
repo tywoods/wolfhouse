@@ -24932,7 +24932,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
 
-    <div id="to-op-result" style="display:none;margin-top:12px"></div>
+    <div id="to-op-result" role="status" aria-live="polite" aria-atomic="true" style="display:none;margin-top:12px"></div>
 
     <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn bc-sel-create-btn" id="to-op-preview-btn" data-i18n="tourOperator.block.preview">Preview Operator Block</button>
@@ -25011,7 +25011,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
 
-    <div id="to-rr-result" style="display:none;margin-top:12px"></div>
+    <div id="to-rr-result" role="status" aria-live="polite" aria-atomic="true" style="display:none;margin-top:12px"></div>
 
     <div class="bc-sel-actions" style="margin-top:16px">
       <button class="btn bc-sel-create-btn" id="to-rr-preview-btn" data-i18n="tourOperator.release.preview">Preview Release</button>
@@ -45308,9 +45308,9 @@ function toLoadBlocks(cb){
         toBlocksCache = res.data.blocks || [];
         toRenderBlockSelect(toBlocksCache);
       }
-      if (typeof cb === 'function') cb();
+      if (typeof cb === 'function') cb(!!(res.ok && res.data && res.data.success));
     })
-    .catch(function(){ if (typeof cb === 'function') cb(); });
+    .catch(function(){ if (typeof cb === 'function') cb(false); });
 }
 
 function toOpFormReady(){
@@ -45386,26 +45386,35 @@ function toPlainContextFromRr(payload){
 
 function toShowPlain(elId, result){
   var lines = (result.lines || []).map(function(line){ return escHtml(line); }).join('<br>');
+  var box = el(elId);
+  if (box) {
+    if (result && result.isErr) {
+      box.setAttribute('role', 'alert');
+      box.setAttribute('aria-live', 'assertive');
+    } else {
+      box.setAttribute('role', 'status');
+      box.setAttribute('aria-live', 'polite');
+    }
+    box.setAttribute('aria-atomic', 'true');
+  }
   toShowResult(elId, '<div class="bk-preview-badge">' + escHtml(result.badge) + '</div>' + lines, !!result.isErr);
 }
 
 function toRefreshBeforeRetry(done){
-  toLoadBlocks(function(){
-    if (typeof loadBedCalendar !== 'function') { if (done) done(); return; }
+  var blocksOk = false;
+  var calendarOk = false;
+  function finish(){
+    if (blocksOk && calendarOk && done) done(true);
+  }
+  toLoadBlocks(function(ok){
+    blocksOk = ok === true;
+    if (!blocksOk || typeof loadBedCalendar !== 'function') return;
     var startEl = el('bc-start');
     var endEl = el('bc-end');
-    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) {
-      try { loadBedCalendar(); } catch (e) {}
-      if (done) done();
-      return;
-    }
-    var finished = false;
-    function finish(){
-      if (finished) return;
-      finished = true;
-      if (done) done();
-    }
-    try { loadBedCalendar(finish); } catch (e) { finish(); }
+    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) return;
+    try {
+      loadBedCalendar(function(){ calendarOk = true; finish(); });
+    } catch (e) {}
   });
 }
 
