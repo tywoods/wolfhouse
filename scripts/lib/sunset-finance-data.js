@@ -460,6 +460,24 @@ const LODGING_REFUNDS_SQL = `
      AND r.source = 'staff_manual_record'
 `;
 
+// Shadow commercial attribution only: same guest-booking cohort as LODGING_BSR_SQL.
+// Nullable operational dates deliberately do not control booked-sale attribution.
+const LODGING_ATTACHED_SERVICES_SQL = `
+  SELECT bsr.id::text AS service_record_id, bsr.booking_id,
+         bsr.client_slug, bsr.amount_due_cents, bsr.status,
+         bsr.payment_status, bsr.source, bsr.metadata
+    FROM booking_service_records bsr
+    JOIN bookings b ON b.id = bsr.booking_id
+    JOIN clients c ON c.id = b.client_id
+   WHERE bsr.client_slug = c.slug
+     AND c.slug = $1
+     AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND ${sqlGuestBooking('b')}
+     AND (b.check_in IS NOT NULL OR b.created_at IS NOT NULL)
+     AND bsr.status NOT IN ('cancelled', 'canceled', 'void', 'removed', 'expired')
+     AND bsr.source <> 'demo_fixture_stage888'
+`;
+
 async function fetchLodgingFinanceData(pg, scope) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const params = [clientSlug];
@@ -469,6 +487,23 @@ async function fetchLodgingFinanceData(pg, scope) {
   let occupancyDataUnavailable = false;
   try {
     bsrRes = await pg.query(LODGING_BSR_SQL, params);
+    let attachedRows = []; let attachedUnavailable = false;
+    await pg.query('SAVEPOINT finance_attached_sp');
+    try {
+      attachedRows = rows(await pg.query(LODGING_ATTACHED_SERVICES_SQL, params));
+      await pg.query('RELEASE SAVEPOINT finance_attached_sp');
+    } catch (err) {
+      await pg.query('ROLLBACK TO SAVEPOINT finance_attached_sp');
+      await pg.query('RELEASE SAVEPOINT finance_attached_sp');
+      if (err.code !== '42P01' && err.code !== '42703') throw err;
+      attachedUnavailable = true;
+    }
+    // Shadow data only: no additional cash/booked/balance inputs.
+    bsrRes = { rows: rows(bsrRes).map(row => ({ ...row, metadata: {
+      ...(row.metadata || {}), finance_attached_unavailable: attachedUnavailable,
+      finance_attached_services: attachedRows.filter(service =>
+        String(service.booking_id) === String(row.booking_id) && service.client_slug === clientSlug),
+    } })) };
     bookingsRes = await pg.query(LODGING_BOOKINGS_SQL, params);
     paymentsRes = await pg.query(LODGING_PAYMENTS_SQL, params);
     await pg.query('SAVEPOINT finance_occupancy_sp');

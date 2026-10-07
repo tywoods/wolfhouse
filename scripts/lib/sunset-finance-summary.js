@@ -565,6 +565,115 @@ function lodgingPackageLabel(metadata) {
 }
 
 function buildLodgingRevenueByProductRows(datedBsr, range) {
+  const selected = new Map();
+  for (const row of Array.isArray(datedBsr) ? datedBsr : []) {
+    if (!inRange(row.service_date, range)) continue;
+    const id = row.booking_id == null ? row : String(row.booking_id);
+    const list = selected.get(id) || [];
+    list.push(row); selected.set(id, list);
+  }
+  if (!selected.size) return buildLodgingBaseRevenueByProductRows([], range);
+  const serviceCodes = new Set(['wetsuit_rental', 'soft_top_rental', 'hard_board_rental',
+    'wetsuit_soft_top_combo', 'wetsuit_hard_board_combo', 'surf_lesson_single',
+    'surf_lesson_multi', 'yoga_class', 'meals']);
+  const totals = { accommodation: 0, services: 0, camps: 0, unclassified: 0 };
+  const known = { accommodation: true, services: true, camps: true, unclassified: false };
+  let partial = false;
+  for (const projections of selected.values()) {
+    const row = projections[0]; const md = row.metadata || {};
+    const baseRows = buildLodgingBaseRevenueByProductRows(projections, range);
+    const local = Object.fromEntries(baseRows.map(r => [r.key, r.cents]));
+    let incomplete = md.finance_attached_unavailable === true;
+    const attached = md.finance_attached_services;
+    if (attached != null && !Array.isArray(attached)) incomplete = true;
+    const unique = new Map(); const conflicted = new Set();
+    for (const service of Array.isArray(attached) ? attached : []) {
+      if (!service || String(service.booking_id) !== String(row.booking_id)) { incomplete = true; continue; }
+      const id = service.service_record_id;
+      if (typeof id !== 'string' || !id.trim()) { incomplete = true; continue; }
+      const previous = unique.get(id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(service)) conflicted.add(id);
+      else if (!previous) unique.set(id, service);
+    }
+    if (conflicted.size) incomplete = true;
+    const snapshot = md.quote_snapshot;
+    const validSnapshot = local.accommodation != null && local.services != null
+      && snapshot && Array.isArray(snapshot.line_items);
+    const embeddedByCode = new Map();
+    for (const [id, service] of unique) {
+      if (conflicted.has(id)) continue;
+      const sm = service.metadata;
+      if (!sm || typeof sm !== 'object' || Array.isArray(sm)
+          || !['staff_manual', 'luna_guest', 'import', 'stripe'].includes(service.source)
+          || !['requested', 'confirmed', 'paid'].includes(service.status)) { incomplete = true; continue; }
+      const amount = parseCanonicalIntCents(bsrRawCommercialAmount(service));
+      if (!amount.ok) {
+        reportMalformedMonetary({ source: 'attached_service.amount_due_cents',
+          booking_id: service.booking_id, service_record_id: id, reason: amount.reason });
+        incomplete = true; continue;
+      }
+      // Manual creation stores source_quote_line_code; later Staff add-service
+      // stores pricing_addon_code (staff-query-api serviceMeta). Both are saved
+      // identities, never prices or labels inferred from current catalogs.
+      const code = sm.source_quote_line_code != null ? sm.source_quote_line_code : sm.pricing_addon_code;
+      if (sm.source_quote_line_code != null && sm.pricing_addon_code != null
+          && sm.source_quote_line_code !== sm.pricing_addon_code) { incomplete = true; continue; }
+      const classified = typeof code === 'string' && serviceCodes.has(code);
+      // A zero not-requested row is operational intent, not a priced sale. Combo
+      // component zero is provable only by its stored quote identity/part marker.
+      if (sm.quote_line_not_matched || sm.missing_price || sm.pending_origin
+          || (amount.value === 0 && service.payment_status === 'not_requested'
+            && !(sm.combo_part === 'wetsuit' && classified))) { incomplete = true; continue; }
+      if (sm.invoice_total_inclusion === 'additional') {
+        const key = classified ? 'services' : 'unclassified';
+        local[key] = checkedAdd(local[key] == null ? 0 : local[key], amount.value);
+        if (!classified) incomplete = true;
+      } else if (sm.invoice_total_inclusion != null) {
+        incomplete = true;
+      } else if (classified) {
+        embeddedByCode.set(code, checkedAdd(embeddedByCode.get(code) || 0, amount.value));
+      } else {
+        // Unknown embedded attribution already lives in base: never add twice.
+        incomplete = true;
+      }
+    }
+    for (const [code, amount] of embeddedByCode) {
+      if (validSnapshot) {
+        const matching = snapshot.line_items.filter(line => line.code === code);
+        const expected = matching.reduce((sum, line) => checkedAdd(sum, line.total_cents), 0);
+        // Snapshot wins; mismatch cannot be guessed into an additional charge.
+        if (!matching.length || expected !== amount) incomplete = true;
+      } else if (local.unclassified != null) {
+        // Base excludes explicitly additional rows, but includes these embedded
+        // service amounts. Reclassify once, preserving the signed base residual.
+        local.unclassified = checkedSubtract(local.unclassified, amount);
+        local.services = checkedAdd(local.services == null ? 0 : local.services, amount);
+        incomplete = true;
+      } else incomplete = true;
+    }
+    if (baseRows.some(r => r.status !== 'complete')) incomplete = true;
+    for (const key of Object.keys(totals)) {
+      if (local[key] == null) { if (key !== 'unclassified') known[key] = false; }
+      else { totals[key] = checkedAdd(totals[key], local[key]); if (key === 'unclassified') known[key] = true; }
+    }
+    partial = partial || incomplete;
+  }
+  // Camps have no established product identity when any attribution is incomplete.
+  if (partial && totals.camps === 0) known.camps = false;
+  const keys = ['accommodation', 'services', 'camps'];
+  if (known.unclassified) keys.push('unclassified');
+  return keys.map(key => ({ key,
+    label: key === 'accommodation' ? 'Accommodation' : key === 'services' ? 'Services'
+      : key === 'camps' ? 'Camps' : 'Unclassified adjustment / data incomplete',
+    cents: partial && totals[key] === 0 ? null
+      : (known[key] ? totals[key] : (totals[key] !== 0 ? totals[key] : null)),
+    pct: partial ? null : (totals.accommodation + totals.services + totals.camps > 0
+      ? totals[key] * 100 / (totals.accommodation + totals.services + totals.camps) : 0),
+    status: partial || !known[key] ? 'partial' : 'complete', slot: key, offering_keys: [], details: [],
+  }));
+}
+
+function buildLodgingBaseRevenueByProductRows(datedBsr, range) {
   // The adapter projects one whole-booking amount. A saved quote snapshot is
   // authoritative only when its complete signed line sum agrees with that amount.
   // Attached operational service rows are NOT added again: the snapshot already
