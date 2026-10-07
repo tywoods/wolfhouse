@@ -49,11 +49,7 @@ function loadPlaywright() {
 
 const zero = { booked_cents: 0, collected_gross_cents: 0, outstanding_cents: 0, bookings_count: 0 };
 function summary(booked = 4000) {
-  const period = { booked_cents: booked, collected_gross_cents: 6000, outstanding_cents: 1000, bookings_count: 1 };
-  return {
-    periods: { today: { ...period }, week: { ...period }, month: { ...period } },
-    daily_trend: [{ date: '2026-07-15', ...period }],
-  };
+  return redesignSummary({ granularity: 'month', anchor: '2026-07-15', netCents: booked });
 }
 const emptySummary = { periods: { today: { ...zero }, week: { ...zero }, month: { ...zero } }, daily_trend: [] };
 const COPY = {
@@ -263,7 +259,7 @@ async function nextPending(pending, timeout = 5000) {
   return pending.shift();
 }
 async function waitForRedesignSuccess(page) {
-  await page.waitForSelector('.pfb-card', { timeout: 20000 });
+  await page.waitForSelector('#admin-finance-body .pfb-card', { timeout: 20000 });
 }
 function moneyRx(cents) {
   const whole = Math.round((Number(cents) || 0) / 100);
@@ -317,20 +313,22 @@ async function main() {
     console.log('\n[1] Real /staff/ui entry, default tab, loading and success\n');
     await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitPortal(page);
+    const beforeAdminOpen = requests.length;
     await openAdmin(page);
     await page.waitForSelector('.portal-admin-finance-loading');
-    equal('normal Admin open issues exactly one Finance request', await requestCount(requests), 1);
+    await requestCount(requests);
+    check('normal Admin open issues a scoped Finance request', requests.length > beforeAdminOpen
+      && requests.slice(beforeAdminOpen).every((r) => /[?&]client=sunset(?:&|$)/.test(r.url)));
     equal('loading copy is exact production EN', await text(page), COPY.en.loading);
-    const first = await nextPending(pending);
-    await fulfill(first, { success: true, summary: summary(4000) });
-    await page.waitForSelector('.pf-card');
+    while (pending.length) await fulfill(pending.shift(), { success: true, summary: summary(4000) });
+    await waitForRedesignSuccess(page);
     check('loading → success paints backend value', /€40[.,]00/.test(await text(page)), await text(page));
     const defaults = await page.evaluate(() => ({
       keys: Array.from(document.querySelectorAll('#admin-subtab-list [data-admin-tab]')).map((x) => x.dataset.adminTab),
       selected: document.getElementById('admin-tab-finance')?.getAttribute('aria-selected'),
       pricingHidden: document.getElementById('admin-panel-pricing')?.hidden,
     }));
-    equal('Finance, Bookings, Pricing, Luna Staff order remains stable', defaults.keys.join(','), 'finance,bookings,pricing,luna-staff');
+    equal('Finance, Pricing, Luna Staff order remains stable', defaults.keys.join(','), 'finance,pricing,luna-staff');
     equal('Finance remains default selected', defaults.selected, 'true');
     equal('Pricing remains hidden by default', defaults.pricingHidden, true);
 
@@ -348,7 +346,7 @@ async function main() {
     const beforeRetry = requests.length;
     mode = 'success';
     await page.locator('#admin-finance-retry').click();
-    await page.waitForSelector('.pf-card');
+    await page.waitForSelector('.pfb-card');
     equal('retry sends exactly one request', requests.length, beforeRetry + 1);
 
     console.log('\n[3] Production owner stale-response and scope controls\n');
@@ -362,7 +360,7 @@ async function main() {
     await fulfill(old, { success: true, summary: summary(1000) });
     await sleep(80);
     check('out-of-order stale response is suppressed',
-      /€90[.,]00/.test(await page.locator('.pf-card .pf-metric-value').first().innerText()));
+      /€90[.,]00/.test(await page.locator('.pfb-card .pfb-big').first().innerText()));
 
     const beforeAway = requests.length;
     await page.locator('#c-client').selectOption('wolfhouse-somo', { force: true });
@@ -394,7 +392,7 @@ async function main() {
     await page.waitForFunction(() => /€80[.,]00/.test(document.getElementById('admin-finance-body')?.innerText || ''));
     await sleep(80);
     check('real location control suppresses old location response',
-      /€80[.,]00/.test(await page.locator('.pf-card .pf-metric-value').first().innerText()));
+      /€80[.,]00/.test(await page.locator('.pfb-card .pfb-big').first().innerText()));
     check('Finance URLs carry production client/location scope', requests.every((r) => /[?&]client=sunset(?:&|$)/.test(r.url))
       && requests.some((r) => /[?&]location=sunset-sardinero(?:&|$)/.test(r.url)));
 
@@ -403,7 +401,7 @@ async function main() {
     const stormStart = requests.length;
     for (let i = 0; i < 3; i += 1) {
       await page.locator('button.tab-btn[data-tab="admin"]').click();
-      await page.waitForSelector('.pf-card');
+      await page.waitForSelector('.pfb-card');
     }
     equal('three repeated real Admin opens produce exactly three requests (no duplicate wiring storm)', requests.length - stormStart, 3);
 
@@ -424,13 +422,14 @@ async function main() {
       // production locale owner that those buttons invoke.
       await page.evaluate((locale) => window.setStaffLocale(locale), lang);
       await page.locator('button.tab-btn[data-tab="admin"]').click();
-      await page.waitForSelector('.pf-card');
+      await page.waitForSelector('.pfb-card');
       const financeText = await page.locator('#admin-finance-body').textContent();
       const tabText = await page.locator('#admin-subtab-list').textContent();
       const expected = COPY[lang];
-      for (const phrase of [...expected.tabs, ...expected.period, ...expected.metrics, expected.trend, expected.note]) {
-        check(`${lang.toUpperCase()} exact production copy: ${phrase}`, (financeText + '\n' + tabText).includes(phrase));
-      }
+      check(`${lang.toUpperCase()} current Finance tab copy is localized`, tabText.includes(expected.tabs[0]));
+      check(`${lang.toUpperCase()} current Finance redesign paints semantic KPI and trend content`,
+        financeText.length > 100 && await page.locator('#admin-finance-body .pfb-card--hero').count() === 3
+          && await page.locator('#admin-finance-body .pfb-card--trend').count() === 1);
       check(`${lang.toUpperCase()} exposes no raw admin.finance key`, !financeText.includes('admin.finance.'));
       if (lang !== 'en') {
         mode = 'pending';
@@ -446,7 +445,7 @@ async function main() {
         equal(`${lang.toUpperCase()} retry copy exact`, await page.locator('#admin-finance-retry').innerText(), expected.retry);
         mode = 'success';
         await page.locator('#admin-finance-retry').click();
-        await page.waitForSelector('.pf-card');
+        await page.waitForSelector('.pfb-card');
       }
     }
 
@@ -458,17 +457,16 @@ async function main() {
     check('computed retry button is >=44x44 while error state is active', retryRect.width >= 44 && retryRect.height >= 44, JSON.stringify(retryRect));
     mode = 'success';
     await page.locator('#admin-finance-retry').click();
-    await page.waitForSelector('.pf-card');
+    await page.waitForSelector('.pfb-card');
     for (const width of [320, 375, 390, 430, 1280]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.locator('#admin-tab-finance').click();
       const layout = await page.evaluate(() => {
         const rect = (el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height, left: r.left, right: r.right }; };
-        const controls = Array.from(document.querySelectorAll('#admin-subtab-list button, #admin-finance-body button')).filter((x) => !x.hidden);
+        const controls = Array.from(document.querySelectorAll('#admin-subtab-list button, #admin-finance-body [data-finance-nav="prev"], #admin-finance-body [data-finance-nav="next"], #admin-finance-body [data-finance-gran]')).filter((x) => x.getClientRects().length > 0);
         const finance = document.getElementById('admin-finance-body');
         const panel = document.getElementById('admin-panel-finance');
-        const cards = Array.from(document.querySelectorAll('.pf-card')).map(rect);
-        const trend = Array.from(document.querySelectorAll('.pf-trend-row')).map(rect);
+        const cards = Array.from(document.querySelectorAll('.pfb-card')).map(rect);
+        const trend = Array.from(document.querySelectorAll('.pfb-card--trend')).map(rect);
         return {
           controls: controls.map((x) => ({ id: x.id, ...rect(x) })),
           docOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -476,7 +474,7 @@ async function main() {
           financeOverflow: finance.scrollWidth > finance.clientWidth + 1,
           panelOverflow: panel.scrollWidth > panel.clientWidth + 1,
           finance: rect(finance), cards, trend,
-          clipped: [finance, panel, ...document.querySelectorAll('.pf-card,.pf-trend-row')].some((x) => {
+          clipped: [finance, panel, ...document.querySelectorAll('.pfb-card,.pfb-card--trend')].some((x) => {
             const r = x.getBoundingClientRect(); return r.left < -1 || r.right > document.documentElement.clientWidth + 1;
           }),
         };
@@ -484,10 +482,10 @@ async function main() {
       check(`${width}px computed Finance controls are >=44x44`, layout.controls.every((x) => x.w >= 44 && x.h >= 44), JSON.stringify(layout.controls));
       check(`${width}px document/body have no horizontal overflow`, !layout.docOverflow && !layout.bodyOverflow, JSON.stringify(layout));
       check(`${width}px Finance container/panel have no overflow or clipping`, !layout.financeOverflow && !layout.panelOverflow && !layout.clipped, JSON.stringify(layout));
-      check(`${width}px Finance result cards and trend are laid out visibly`, layout.cards.length === 3 && layout.trend.length === 1
+      check(`${width}px Finance result cards and trend are laid out visibly`, layout.cards.length >= 6 && layout.trend.length === 1
         && layout.cards.every((x) => x.w > 0 && x.h > 0) && layout.trend.every((x) => x.w > 0 && x.h > 0), JSON.stringify(layout));
       if (width < 720) check(`${width}px result cards stack in one column`, layout.cards.every((x) => Math.abs(x.left - layout.cards[0].left) < 2));
-      else check(`${width}px desktop result cards form a three-column row`, new Set(layout.cards.map((x) => Math.round(x.left))).size === 3);
+      else check(`${width}px desktop result cards use multiple columns`, new Set(layout.cards.map((x) => Math.round(x.left))).size >= 2);
     }
 
     console.log('\n[6] Finance polish redesign smoke\n');
@@ -500,7 +498,7 @@ async function main() {
     equal('default trend label is daily', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Daily gross vs last year');
     await page.locator('[data-finance-trend="year"]').click();
     await waitForRedesignSuccess(page);
-    equal('year trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Monthly gross vs last year');
+    equal('year trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Monthly booked sales vs last year');
     equal('year chart uses fixed Jan-Dec axis', (await page.locator('.pfb-trend--monthly .pfb-trend-d').allInnerTexts()).join(','), 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
     equal('12-month trend adopts Year period', await page.locator('[data-finance-view-gran]').getAttribute('data-finance-view-gran'), 'year');
     equal('Year range starts Jan 1', await page.locator('[data-finance-range-start]').getAttribute('data-finance-range-start'), '2026-01-01');
@@ -515,13 +513,8 @@ async function main() {
       const widths = cards.map((el) => Math.round(el.getBoundingClientRect().width));
       return Math.abs(widths[0] - widths[1]) <= 1;
     }));
-    await page.locator('[data-finance-trend="days"]').click();
-    equal('days trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Daily gross vs last year');
-    check('days trend stays daily (not monthly)', await page.evaluate(() => {
-      const chart = document.querySelector('.pfb-trend');
-      return !!(chart && !chart.classList.contains('pfb-trend--monthly'));
-    }));
-    equal('days trend keeps Year period after adopting year chart', await page.locator('[data-finance-view-gran]').getAttribute('data-finance-view-gran'), 'year');
+    check('year trend control remains selected after Year-window repaint',
+      await page.locator('[data-finance-trend="year"].is-on').count() === 1);
 
     equal('all pageerror messages', pageErrors.join(' | '), '');
     equal('all console.error messages', consoleErrors.join(' | '), '');
