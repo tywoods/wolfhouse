@@ -45223,6 +45223,9 @@ var toRoomsCache = null;
 var toBlocksCache = [];
 var toOpBusy = false;
 var toRrBusy = false;
+var toOpHold = false;
+var toRrHold = false;
+/* INJECT:tour-operator-result-wording */
 
 function toGetClient(){
   return getBcClient();
@@ -45330,16 +45333,16 @@ function toUpdateOpButtons(){
   var ready = toOpFormReady();
   var prev = el('to-op-preview-btn');
   var create = el('to-op-create-btn');
-  if (prev) prev.disabled = !ready || toOpBusy;
-  if (create) create.disabled = !ready || toOpBusy;
+  if (prev) prev.disabled = !ready || toOpBusy || toOpHold;
+  if (create) create.disabled = !ready || toOpBusy || toOpHold;
 }
 
 function toUpdateRrButtons(){
   var ready = toRrFormReady();
   var prev = el('to-rr-preview-btn');
   var rel = el('to-rr-release-btn');
-  if (prev) prev.disabled = !ready || toRrBusy;
-  if (rel) rel.disabled = !ready || toRrBusy;
+  if (prev) prev.disabled = !ready || toRrBusy || toRrHold;
+  if (rel) rel.disabled = !ready || toRrBusy || toRrHold;
 }
 
 function toShowResult(elId, html, isErr){
@@ -45348,6 +45351,77 @@ function toShowResult(elId, html, isErr){
   box.style.display = 'block';
   box.className = isErr ? 'bk-preview-error' : 'bk-preview-ok';
   box.innerHTML = html;
+}
+
+function toUsePlainResults(){
+  return toGetClient() === 'wolfhouse-somo' && typeof tourOperatorPlainResult === 'function';
+}
+
+function toPlainContextFromOp(payload){
+  payload = payload || {};
+  return {
+    operatorName: payload.operator_name || '',
+    roomCode: payload.room_code || '',
+    checkIn: payload.check_in || '',
+    checkOut: payload.check_out || '',
+  };
+}
+
+function toPlainContextFromRr(payload){
+  payload = payload || {};
+  var code = '';
+  var id = payload.booking_id || '';
+  var i;
+  for (i = 0; i < (toBlocksCache || []).length; i++) {
+    if (String(toBlocksCache[i].booking_id) === String(id)) code = toBlocksCache[i].booking_code || '';
+  }
+  return {
+    roomCode: payload.room_code || '',
+    releaseStart: payload.release_start || '',
+    releaseEnd: payload.release_end || '',
+    bookingCode: code,
+    bookingId: id,
+  };
+}
+
+function toShowPlain(elId, result){
+  var lines = (result.lines || []).map(function(line){ return escHtml(line); }).join('<br>');
+  toShowResult(elId, '<div class="bk-preview-badge">' + escHtml(result.badge) + '</div>' + lines, !!result.isErr);
+}
+
+function toRefreshBeforeRetry(done){
+  toLoadBlocks(function(){
+    if (typeof loadBedCalendar !== 'function') { if (done) done(); return; }
+    var startEl = el('bc-start');
+    var endEl = el('bc-end');
+    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) {
+      try { loadBedCalendar(); } catch (e) {}
+      if (done) done();
+      return;
+    }
+    var finished = false;
+    function finish(){
+      if (finished) return;
+      finished = true;
+      if (done) done();
+    }
+    try { loadBedCalendar(finish); } catch (e) { finish(); }
+  });
+}
+
+function toApplyPlain(elId, result, which){
+  toShowPlain(elId, result);
+  if (!result || !result.holdRetry) return;
+  if (which === 'op') toOpHold = true;
+  if (which === 'rr') toRrHold = true;
+  toUpdateOpButtons();
+  toUpdateRrButtons();
+  toRefreshBeforeRetry(function(){
+    if (which === 'op') toOpHold = false;
+    if (which === 'rr') toRrHold = false;
+    toUpdateOpButtons();
+    toUpdateRrButtons();
+  });
 }
 
 function toOpPayload(){
@@ -45396,6 +45470,19 @@ function toOpPreview(){
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
     .then(function(res){
       toOpBusy = false; toUpdateOpButtons();
+      if (toUsePlainResults()) {
+        var opPayload = toOpPayload();
+        var preview = (res.data && res.data.preview) || {};
+        toApplyPlain('to-op-result', tourOperatorPlainResult({
+          action: 'preview',
+          ok: !!(res.ok && res.data && res.data.success),
+          canCreate: !!preview.can_create,
+          error: res.data && res.data.error,
+          conflicts: preview.conflicts || (res.data && res.data.conflicts) || [],
+          context: toPlainContextFromOp(opPayload),
+        }), 'op');
+        return;
+      }
       var p = res.data.preview || {};
       if (res.ok && res.data.success && p.can_create){
         toShowResult('to-op-result', '<div class="bk-preview-badge">Ready</div>Whole-room block for ' + escHtml(String(p.bed_count)) + ' bed(s): ' + escHtml((p.bed_codes || []).join(', ')) + '. No conflicts in range.', false);
@@ -45408,6 +45495,14 @@ function toOpPreview(){
     })
     .catch(function(e){
       toOpBusy = false; toUpdateOpButtons();
+      if (toUsePlainResults()) {
+        toApplyPlain('to-op-result', tourOperatorPlainResult({
+          action: 'preview',
+          lost: true,
+          context: toPlainContextFromOp(toOpPayload()),
+        }), 'op');
+        return;
+      }
       toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
     });
 }
@@ -45424,9 +45519,29 @@ function toOpCreate(){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }, function(){ return { ok: false, lost: true, data: null }; }); })
     .then(function(res){
       toOpBusy = false; toUpdateOpButtons();
+      if (toUsePlainResults()) {
+        if (res.lost || !res.data) {
+          toApplyPlain('to-op-result', tourOperatorPlainResult({
+            action: 'create',
+            lost: true,
+            context: toPlainContextFromOp(payload),
+          }), 'op');
+          return;
+        }
+        toApplyPlain('to-op-result', tourOperatorPlainResult({
+          action: 'create',
+          ok: !!(res.ok && res.data.success),
+          error: res.data.error,
+          conflicts: res.data.conflicts || [],
+          booking: res.data.booking || null,
+          context: toPlainContextFromOp(payload),
+        }), 'op');
+        if (res.ok && res.data.success) toAfterMutation();
+        return;
+      }
       if (res.ok && res.data.success){
         var b = res.data.booking || {};
         toShowResult('to-op-result', '<div class="bk-preview-badge">Created</div>Operator block <b>' + escHtml(b.booking_code || '') + '</b> · ' + escHtml(b.room_code || '') + ' · ' + escHtml(b.check_in || '') + ' → ' + escHtml(b.check_out || ''), false);
@@ -45438,6 +45553,14 @@ function toOpCreate(){
     })
     .catch(function(e){
       toOpBusy = false; toUpdateOpButtons();
+      if (toUsePlainResults()) {
+        toApplyPlain('to-op-result', tourOperatorPlainResult({
+          action: 'create',
+          lost: true,
+          context: toPlainContextFromOp(payload),
+        }), 'op');
+        return;
+      }
       toShowResult('to-op-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
     });
 }
@@ -45453,6 +45576,20 @@ function toRrPreview(){
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
       toRrBusy = false; toUpdateRrButtons();
+      if (toUsePlainResults()) {
+        var rrPayload = toRrPayload();
+        var plan = (res.data && res.data.preview) || {};
+        toApplyPlain('to-rr-result', tourOperatorPlainResult({
+          action: 'release-preview',
+          ok: !!(res.ok && res.data && res.data.success),
+          canRelease: !!(res.data && res.data.can_release),
+          error: res.data && res.data.error,
+          actionable: plan.actionable || [],
+          preview: plan,
+          context: toPlainContextFromRr(rrPayload),
+        }), 'rr');
+        return;
+      }
       if (res.ok && res.data.success && res.data.can_release){
         var split = (res.data.preview && res.data.preview.split_phase) || {};
         var parts = [];
@@ -45467,6 +45604,14 @@ function toRrPreview(){
     })
     .catch(function(e){
       toRrBusy = false; toUpdateRrButtons();
+      if (toUsePlainResults()) {
+        toApplyPlain('to-rr-result', tourOperatorPlainResult({
+          action: 'release-preview',
+          lost: true,
+          context: toPlainContextFromRr(toRrPayload()),
+        }), 'rr');
+        return;
+      }
       toShowResult('to-rr-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
     });
 }
@@ -45480,9 +45625,31 @@ function toRrRelease(){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toRrPayload({ confirm: true, idempotency_key: 'to-release-' + Date.now() })),
   })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }, function(){ return { ok: false, lost: true, data: null }; }); })
     .then(function(res){
       toRrBusy = false; toUpdateRrButtons();
+      var sent = toRrPayload();
+      if (toUsePlainResults()) {
+        if (res.lost || !res.data) {
+          toApplyPlain('to-rr-result', tourOperatorPlainResult({
+            action: 'release',
+            lost: true,
+            context: toPlainContextFromRr(sent),
+          }), 'rr');
+          return;
+        }
+        var relPlain = res.data.release || {};
+        toApplyPlain('to-rr-result', tourOperatorPlainResult({
+          action: 'release',
+          ok: !!(res.ok && res.data.success),
+          error: res.data.error,
+          actionable: (res.data.detail && res.data.detail.actionable) || (res.data.preview && res.data.preview.actionable) || [],
+          release: relPlain,
+          context: toPlainContextFromRr(sent),
+        }), 'rr');
+        if (res.ok && res.data.success) toAfterMutation();
+        return;
+      }
       if (res.ok && res.data.success){
         var rel = res.data.release || {};
         var msg = 'Release completed.';
@@ -45496,6 +45663,14 @@ function toRrRelease(){
     })
     .catch(function(e){
       toRrBusy = false; toUpdateRrButtons();
+      if (toUsePlainResults()) {
+        toApplyPlain('to-rr-result', tourOperatorPlainResult({
+          action: 'release',
+          lost: true,
+          context: toPlainContextFromRr(toRrPayload()),
+        }), 'rr');
+        return;
+      }
       toShowResult('to-rr-result', '<div class="bk-preview-badge">Error</div>' + escHtml(e.message), true);
     });
 }
@@ -46844,7 +47019,8 @@ function lgsCreateStripeLink(){
 </body>
 </html>`;
   const invoiceHtml = html.replace('/* INJECT:booking-invoice */', function(){ return fs.readFileSync(path.join(__dirname, 'browser', 'booking-invoice.js'), 'utf8'); });
-  return injectStaffRoomFillModule(injectSunsetSchedulePortalModule(injectInboxBrowserModules(invoiceHtml)));
+  const tourWordingHtml = invoiceHtml.replace('/* INJECT:tour-operator-result-wording */', function(){ return fs.readFileSync(path.join(__dirname, 'browser', 'tour-operator-result-wording.js'), 'utf8'); });
+  return injectStaffRoomFillModule(injectSunsetSchedulePortalModule(injectInboxBrowserModules(tourWordingHtml)));
 }
 
 function handleUI(res, port, req) {
