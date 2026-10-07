@@ -565,6 +565,162 @@ function lodgingPackageLabel(metadata) {
 }
 
 function buildLodgingRevenueByProductRows(datedBsr, range) {
+  const selected = new Map();
+  for (const row of Array.isArray(datedBsr) ? datedBsr : []) {
+    if (!inRange(row.service_date, range)) continue;
+    const id = row.booking_id == null ? row : String(row.booking_id);
+    const list = selected.get(id) || [];
+    list.push(row); selected.set(id, list);
+  }
+  if (!selected.size) return buildLodgingBaseRevenueByProductRows([], range);
+  const serviceCodes = new Set(['wetsuit_rental', 'soft_top_rental', 'hard_board_rental',
+    'wetsuit_soft_top_combo', 'wetsuit_hard_board_combo', 'surf_lesson_single',
+    'surf_lesson_multi', 'yoga_class', 'meals']);
+  const totals = { accommodation: 0, services: 0, camps: 0, unclassified: 0 };
+  const known = { accommodation: true, services: true, camps: true, unclassified: false };
+  let partial = false;
+  for (const projections of selected.values()) {
+    const row = projections[0]; const md = row.metadata || {};
+    const baseRows = buildLodgingBaseRevenueByProductRows(projections, range);
+    const local = Object.fromEntries(baseRows.map(r => [r.key, r.cents]));
+    let incomplete = md.finance_attached_unavailable === true;
+    const attached = md.finance_attached_services;
+    if (attached != null && !Array.isArray(attached)) incomplete = true;
+    const unique = new Map(); const conflicted = new Set();
+    for (const service of Array.isArray(attached) ? attached : []) {
+      if (!service || String(service.booking_id) !== String(row.booking_id)) { incomplete = true; continue; }
+      const id = service.service_record_id;
+      if (typeof id !== 'string' || !id.trim()) { incomplete = true; continue; }
+      const previous = unique.get(id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(service)) conflicted.add(id);
+      else if (!previous) unique.set(id, service);
+    }
+    if (conflicted.size) incomplete = true;
+    const snapshot = md.quote_snapshot;
+    const validSnapshot = local.accommodation != null && local.services != null
+      && snapshot && Array.isArray(snapshot.line_items);
+    const embeddedByCode = new Map();
+    for (const [id, service] of unique) {
+      if (conflicted.has(id)) continue;
+      const sm = service.metadata;
+      if (!sm || typeof sm !== 'object' || Array.isArray(sm)
+          || !['staff_manual', 'luna_guest', 'import', 'stripe'].includes(service.source)
+          || !['requested', 'confirmed', 'paid'].includes(service.status)) { incomplete = true; continue; }
+      const amount = parseCanonicalIntCents(bsrRawCommercialAmount(service));
+      if (!amount.ok) {
+        reportMalformedMonetary({ source: 'attached_service.amount_due_cents',
+          booking_id: service.booking_id, service_record_id: id, reason: amount.reason });
+        incomplete = true; continue;
+      }
+      // Manual creation stores source_quote_line_code; later Staff add-service
+      // stores pricing_addon_code (staff-query-api serviceMeta). Both are saved
+      // identities, never prices or labels inferred from current catalogs.
+      const code = sm.source_quote_line_code != null ? sm.source_quote_line_code : sm.pricing_addon_code;
+      if (sm.source_quote_line_code != null && sm.pricing_addon_code != null
+          && sm.source_quote_line_code !== sm.pricing_addon_code) { incomplete = true; continue; }
+      const classified = typeof code === 'string' && serviceCodes.has(code);
+      // A zero not-requested row is operational intent, not a priced sale. Combo
+      // component zero is provable only by its stored quote identity/part marker.
+      if (sm.quote_line_not_matched || sm.missing_price || sm.pending_origin
+          || (amount.value === 0 && service.payment_status === 'not_requested'
+            && !(sm.combo_part === 'wetsuit' && classified))) { incomplete = true; continue; }
+      if (sm.invoice_total_inclusion === 'additional') {
+        const key = classified ? 'services' : 'unclassified';
+        local[key] = checkedAdd(local[key] == null ? 0 : local[key], amount.value);
+        if (!classified) incomplete = true;
+      } else if (sm.invoice_total_inclusion != null) {
+        incomplete = true;
+      } else if (classified) {
+        embeddedByCode.set(code, checkedAdd(embeddedByCode.get(code) || 0, amount.value));
+      } else {
+        // Unknown embedded attribution already lives in base: never add twice.
+        incomplete = true;
+      }
+    }
+    for (const [code, amount] of embeddedByCode) {
+      if (validSnapshot) {
+        const matching = snapshot.line_items.filter(line => line.code === code);
+        const expected = matching.reduce((sum, line) => checkedAdd(sum, line.total_cents), 0);
+        // Snapshot wins; mismatch cannot be guessed into an additional charge.
+        if (!matching.length || expected !== amount) incomplete = true;
+      } else if (local.unclassified != null) {
+        // Base excludes explicitly additional rows, but includes these embedded
+        // service amounts. Reclassify once, preserving the signed base residual.
+        local.unclassified = checkedSubtract(local.unclassified, amount);
+        local.services = checkedAdd(local.services == null ? 0 : local.services, amount);
+        incomplete = true;
+      } else incomplete = true;
+    }
+    if (baseRows.some(r => r.status !== 'complete')) incomplete = true;
+    for (const key of Object.keys(totals)) {
+      if (local[key] == null) { if (key !== 'unclassified') known[key] = false; }
+      else { totals[key] = checkedAdd(totals[key], local[key]); if (key === 'unclassified') known[key] = true; }
+    }
+    partial = partial || incomplete;
+  }
+  // Camps have no established product identity when any attribution is incomplete.
+  if (partial && totals.camps === 0) known.camps = false;
+  const keys = ['accommodation', 'services', 'camps'];
+  if (known.unclassified) keys.push('unclassified');
+  return keys.map(key => ({ key,
+    label: key === 'accommodation' ? 'Accommodation' : key === 'services' ? 'Services'
+      : key === 'camps' ? 'Camps' : 'Unclassified adjustment / data incomplete',
+    cents: partial && totals[key] === 0 ? null
+      : (known[key] ? totals[key] : (totals[key] !== 0 ? totals[key] : null)),
+    pct: partial ? null : (totals.accommodation + totals.services + totals.camps > 0
+      ? totals[key] * 100 / (totals.accommodation + totals.services + totals.camps) : 0),
+    status: partial || !known[key] ? 'partial' : 'complete', slot: key, offering_keys: [], details: [],
+  }));
+}
+
+function buildLodgingBaseRevenueByProductRows(datedBsr, range) {
+  // The adapter projects one whole-booking amount. A saved quote snapshot is
+  // authoritative only when its complete signed line sum agrees with that amount.
+  // Attached operational service rows are NOT added again: the snapshot already
+  // contains their commercial quote lines (including combo lines charged once).
+  const selected = new Map();
+  let conflictingProjection = false;
+  for (const row of Array.isArray(datedBsr) ? datedBsr : []) {
+    if (!inRange(row.service_date, range)) continue;
+    const identity = row.booking_id != null ? String(row.booking_id) : row;
+    const previous = selected.get(identity);
+    if (previous && (previous.due !== row.due || JSON.stringify(previous.metadata) !== JSON.stringify(row.metadata))) conflictingProjection = true;
+    if (!previous) selected.set(identity, row);
+  }
+  datedBsr = [...selected.values()];
+  const totals = { accommodation: 0, services: 0, camps: 0, unclassified: 0 };
+  const accommodationCodes = new Set(['accommodation_only', 'guest_accommodation_only', 'manual_accommodation', 'room_supplement']);
+  const serviceCodes = new Set(['wetsuit_rental', 'soft_top_rental', 'hard_board_rental', 'wetsuit_soft_top_combo', 'wetsuit_hard_board_combo', 'surf_lesson_single', 'surf_lesson_multi', 'yoga_class', 'meals']);
+  let completeSnapshots = datedBsr.length > 0 && !conflictingProjection;
+  let unknownLine = false;
+  for (const row of datedBsr) {
+    const snapshot = row.metadata && row.metadata.quote_snapshot;
+    const lines = snapshot && snapshot.line_items;
+    if (!Array.isArray(lines) || !lines.length || !Number.isSafeInteger(snapshot.total_cents)
+        || snapshot.total_cents !== row.due || lines.some(line => !line || !Number.isSafeInteger(line.total_cents))) {
+      completeSnapshots = false;
+      break;
+    }
+    const lineTotal = lines.reduce((sum, line) => checkedAdd(sum, line.total_cents), 0);
+    if (lineTotal !== row.due) { completeSnapshots = false; break; }
+    for (const line of lines) {
+      const key = accommodationCodes.has(line.code) ? 'accommodation' : (serviceCodes.has(line.code) ? 'services' : 'unclassified');
+      if (key === 'unclassified') unknownLine = true;
+      totals[key] = checkedAdd(totals[key], line.total_cents);
+    }
+  }
+  if (completeSnapshots) {
+    const result = ['accommodation', 'services', 'camps'].map(key => ({
+      key, label: key === 'accommodation' ? 'Accommodation' : (key === 'services' ? 'Services' : 'Camps'),
+      cents: unknownLine && totals[key] === 0 ? null : totals[key],
+      pct: unknownLine || totals[key] < 0 ? null : (totals.accommodation + totals.services + totals.camps > 0
+        ? totals[key] * 100 / (totals.accommodation + totals.services + totals.camps) : 0),
+      status: unknownLine ? 'partial' : 'complete', slot: key, offering_keys: [], details: [],
+    }));
+    if (unknownLine) result.push({ key: 'unclassified', label: 'Unclassified adjustment / data incomplete',
+      cents: totals.unclassified, pct: null, status: 'partial', slot: 'unclassified', offering_keys: [], details: [] });
+    return result;
+  }
   const byKey = new Map(); // key -> { cents, label, slot }
   for (const r of Array.isArray(datedBsr) ? datedBsr : []) {
     if (!inRange(r.service_date, range)) continue;
@@ -596,7 +752,7 @@ function buildLodgingRevenueByProductRows(datedBsr, range) {
   if (!ranked.length) {
     return ['accommodation', 'services', 'camps'].map((key) => ({
       key, label: key === 'accommodation' ? 'Accommodation' : (key === 'services' ? 'Services' : 'Camps'),
-      cents: 0, pct: 0, slot: key, offering_keys: [], details: [],
+      cents: null, pct: null, status: 'unavailable', slot: key, offering_keys: [], details: [],
     }));
   }
 
@@ -1116,6 +1272,7 @@ function computeSunsetFinanceSummary(args) {
     const bedIds = new Set((Array.isArray(args && args.bed_inventory) ? args.bed_inventory : [])
       .map((b) => b && b.bed_id != null ? String(b.bed_id) : '').filter(Boolean));
     const occupied = new Set();
+    const assignedByBookingDate = new Map();
     let conflicts = 0;
     let unmatchedAssignments = 0;
     for (const a of Array.isArray(args && args.bed_assignments) ? args.bed_assignments : []) {
@@ -1128,19 +1285,26 @@ function computeSunsetFinanceSummary(args) {
         const key = `${String(a.bed_id)}|${d}`;
         if (occupied.has(key)) conflicts += 1;
         occupied.add(key);
+        const bookingDate = `${String(a.booking_id)}|${d}`;
+        if (!assignedByBookingDate.has(bookingDate)) assignedByBookingDate.set(bookingDate, new Set());
+        assignedByBookingDate.get(bookingDate).add(String(a.bed_id));
       }
     }
     let expectedGuestNights = 0;
+    let unassigned = 0;
     for (const b of bookings) {
       const count = Number(b && b.guest_count);
       const startDate = String((b && b.check_in) || '');
       const endDate = String((b && b.check_out) || '');
       if (!Number.isInteger(count) || count < 1 || !startDate || !endDate) continue;
       for (let d = startDate; d < endDate; d = addDays(d, 1)) {
-        if (inRange(d, primaryRange)) expectedGuestNights += count;
+        if (inRange(d, primaryRange)) {
+          expectedGuestNights += count;
+          const assigned = assignedByBookingDate.get(`${String(b.booking_id)}|${d}`);
+          unassigned += Math.max(0, count - (assigned ? assigned.size : 0));
+        }
       }
     }
-    const unassigned = Math.max(0, expectedGuestNights - occupied.size);
     const sellable = bedIds.size * periodDayCount(primaryRange);
     bedOccupancy = {
       // Current active beds are a known subtotal, but historical/date-specific closures are not
