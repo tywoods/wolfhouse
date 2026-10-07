@@ -69,4 +69,6 @@ Their docstrings identify them as proposed/source-only, and this repository has 
 - combined relevant suite: 58 discovered; 50 passed, 8 environment/import errors. The errors are from absent runtime-only dependencies (`gateway`, `hermes_state`, `yaml`) in this checkout and resulting crowsnest setup timeouts; no assertion regression was reported.
 - `git diff --check`: PASS
 
+Fresh final diff review found and corrected one issue before commit: malformed caller-supplied message IDs now receive a typed HTTP 400 and never reach dispatch. Automated Codex review was unavailable because the `codex` executable is not installed; the final diff was therefore re-read directly and re-ran through the focused verifier and static checks.
+
 No secrets, state files, logs, databases, Lunabox, deployment, merge, production, Sunset, guest, payment, or booking operations were touched.

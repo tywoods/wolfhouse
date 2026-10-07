@@ -29,7 +29,8 @@
     "missing hermes_state runtime package",
     "missing yaml package"
   ],
-  "pr_url": null,
-  "head": null,
-  "state": "working"
+  "pr_url": "https://github.com/tywoods/wolfhouse/pull/1307",
+  "reviewed_code_commit": "0d089b320e5c30828f7358d9afe3bb66994151b5",
+  "exact_parent": "6aba2a5d081af9a53d9b418ac05dd136c205c459",
+  "state": "open"
 }
