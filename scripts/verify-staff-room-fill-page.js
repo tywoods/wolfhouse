@@ -20,7 +20,7 @@ const R1 = '11111111-1111-4111-8111-111111111111';
 const R2 = '22222222-2222-4222-8222-222222222222';
 const policy = { contractVersion: 1, fillMode: 'house', roomPriority: [R1, R2], roomPrioritySource: 'custom' };
 const envelope = {
-  success: true, activationStatus: 'not_connected', configured: true, policyStatus: 'saved', policy,
+  success: true, activationStatus: 'connected', configured: true, policyStatus: 'saved', policy,
   suggestedPolicy: { ...policy, roomPrioritySource: 'default_numeric' },
   settingsRevision: 'a'.repeat(64), catalogRevision: 'b'.repeat(64),
   requiresReview: false, removedRoomIds: [], unrankedRoomIds: [],

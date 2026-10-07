@@ -8,6 +8,7 @@
 'use strict';
 
 const { normalizeGroupGender } = require('./luna-booking-intake-policy');
+const { scoreOccupancy, compareFillScore } = require('./room-fill-ranking');
 
 const CANONICAL_ROOM_TYPES = new Set([
   'male_only',
@@ -272,11 +273,20 @@ function compareRank(a, b) {
   return String(a.room_code).localeCompare(String(b.room_code));
 }
 
+function comparePlacementRank(a, b, guestCount) {
+  if (a.fill_policy && b.fill_policy) {
+    const score = room => {
+      const policy = room.fill_policy;
+      return scoreOccupancy({ roomId: policy.roomId }, policy.unavailable, policy.capacity,
+        guestCount + (room._fillTaken || 0), policy.rank);
+    };
+    return compareFillScore(score(a), score(b), a.fill_policy.mode);
+  }
+  return compareRank(rankRoom(a, guestCount), rankRoom(b, guestCount));
+}
+
 function sortRoomsByRank(rooms, guestCount) {
-  return [...rooms]
-    .map((r) => ({ room: r, rank: rankRoom(r, guestCount) }))
-    .sort((a, b) => compareRank(a.rank, b.rank))
-    .map((x) => x.room);
+  return [...rooms].sort((a, b) => comparePlacementRank(a, b, guestCount));
 }
 
 function pickReason(room, guestCount, split, cram) {
@@ -326,7 +336,28 @@ function tryCouplePlacement(rooms, opts) {
   return null;
 }
 
+// House overflow balances one place at a time, but never crosses an eligibility tier early.
+// Counters are local: failed probes and original room/bed objects are not mutated.
+function balanceAcrossEligibleRooms(rooms, guestCount, tiered = false) {
+  const candidates = rooms.map(room => ({ ...room, _fillTaken: 0, original: room }));
+  const plan = new Map();
+  for (let left = guestCount; left > 0; left--) {
+    const available = candidates.filter(room => countAvailable(room) > room._fillTaken);
+    available.sort((a, b) => (tiered ? (a._allocTier || 0) - (b._allocTier || 0) : 0)
+      || comparePlacementRank(a, b, 1));
+    const winner = available[0];
+    if (!winner) return null;
+    winner._fillTaken++;
+    if (!plan.has(winner.room_code)) plan.set(winner.room_code, { room: winner.original, take: 0 });
+    plan.get(winner.room_code).take++;
+  }
+  return [...plan.values()];
+}
+
 function cramAcrossEligibleRooms(eligible, guestCount) {
+  if (eligible.length && eligible.every(room => room.fill_policy?.mode === 'house')) {
+    return balanceAcrossEligibleRooms(eligible, guestCount);
+  }
   const sorted = sortRoomsByRank(
     eligible.filter((r) => countAvailable(r) > 0),
     guestCount,
@@ -345,13 +376,16 @@ function cramAcrossEligibleRooms(eligible, guestCount) {
 
 /** Cram with strict tier order: lower tier rooms fill before higher tiers. */
 function cramAcrossTierOrdered(rooms, guestCount) {
+  if (rooms.length && rooms.every(room => room.fill_policy?.mode === 'house')) {
+    return balanceAcrossEligibleRooms(rooms, guestCount, true);
+  }
   const sorted = [...rooms]
     .filter((r) => countAvailable(r) > 0)
     .sort((a, b) => {
       const ta = a._allocTier != null ? a._allocTier : 999;
       const tb = b._allocTier != null ? b._allocTier : 999;
       if (ta !== tb) return ta - tb;
-      return compareRank(rankRoom(a, guestCount), rankRoom(b, guestCount));
+      return comparePlacementRank(a, b, guestCount);
     });
   const plan = [];
   let rem = guestCount;
@@ -628,6 +662,7 @@ function chooseBeds(opts) {
     gender_strategy: r.gender_strategy,
     capacity: r.capacity,
     fill_priority: r.fill_priority,
+    fill_policy: r.fill_policy,
     can_be_matrimonial: r.can_be_matrimonial,
     often_used_by_operator: r.often_used_by_operator,
     operator_blocked: !!r.operator_blocked,
@@ -707,7 +742,9 @@ function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
   }
   const roomFit = [...byRoom.entries()]
     .filter(([, v]) => v.beds.length >= n)
-    .sort((a, b) => a[1].beds.length - b[1].beds.length || String(a[0]).localeCompare(String(b[0])))[0];
+    .sort((a, b) => a[1].room.fill_policy && b[1].room.fill_policy
+      ? comparePlacementRank(a[1].room, b[1].room, n)
+      : a[1].beds.length - b[1].beds.length || String(a[0]).localeCompare(String(b[0])))[0];
   if (roomFit) {
     const picked = roomFit[1].beds
       .sort((a, b) => String(a.bed_code).localeCompare(String(b.bed_code)))
@@ -719,6 +756,10 @@ function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
       split: false,
       reason: 'legacy_capacity_smallest_room',
     };
+  }
+  if (rooms.length && rooms.every(room => room.fill_policy)) {
+    const plan = cramAcrossEligibleRooms(rooms, n);
+    return plan ? buildCramSelection(plan, n) : { handoff: true, reason: 'not_enough_available_beds' };
   }
   const flat = (rooms || [])
     .flatMap((r) => (r.beds || []).filter((b) => b.available))
@@ -839,6 +880,7 @@ function runAvailabilityBedSelection(params) {
     genderPreference,
     roomPreference,
     groupGender,
+    roomFillRanking = null,
     capacityOnly = false,
     useRules = isRulesBasedRoomingEnabled(),
   } = params;
@@ -846,6 +888,7 @@ function runAvailabilityBedSelection(params) {
   const blockedRooms = operatorBlockedRoomCodes
     || operatorBlockedRoomsFromBlocks(blockRows);
   const rooms = buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCodes);
+  if (roomFillRanking) for (const room of rooms) room.fill_policy = roomFillRanking.get(room.room_code);
   const ctx = deriveAllocatorContext({
     guestCount,
     guestName,

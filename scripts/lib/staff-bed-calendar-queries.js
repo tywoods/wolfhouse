@@ -38,6 +38,11 @@ function getBedCalendarRoomsQuery() {
   return `
 SELECT
   r.id::text                AS room_id,
+  CASE WHEN c.slug = 'wolfhouse-somo' THEN to_jsonb(c)->'settings'->'luna_room_fill_policy' END AS room_fill_policy,
+  CASE WHEN c.slug = 'wolfhouse-somo' AND to_jsonb(c)->'settings'->'luna_room_fill_policy' IS NOT NULL THEN (
+    SELECT jsonb_agg(jsonb_build_object('room_id', rf.id::text, 'room_code', rf.room_code))
+    FROM rooms rf WHERE rf.client_id = c.id AND rf.room_code NOT LIKE 'DEMO-%'
+  ) END AS room_fill_catalogue,
   r.room_code,
   r.name                    AS room_name,
   r.house,
