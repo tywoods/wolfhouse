@@ -26,6 +26,11 @@ COPY wolfhouse /etc/hermes-staging/wolfhouse
 COPY fixtures/luna-personality-corpus.json /etc/hermes-staging/fixtures/luna-personality-corpus.json
 COPY fixtures/luna-group-lesson-live-corpus.json /etc/hermes-staging/fixtures/luna-group-lesson-live-corpus.json
 COPY apply_gateway_patches.py /etc/hermes-staging/apply_gateway_patches.py
+COPY install_gateway_admission.py /etc/hermes-staging/install_gateway_admission.py
+COPY proposed_admission_lock_adapter.py /opt/hermes/proposed_admission_lock_adapter.py
+COPY gateway/admission_lock_owner.py /opt/hermes/gateway/admission_lock_owner.py
+COPY gateway/identity_admission_owner.py /opt/hermes/gateway/identity_admission_owner.py
+COPY gateway/terminal_operation_journal.py /opt/hermes/gateway/terminal_operation_journal.py
 COPY sunset_tenant_routing.py /etc/hermes-staging/sunset_tenant_routing.py
 COPY sunset_ingress_proof.py /etc/hermes-staging/sunset_ingress_proof.py
 COPY verify_plain_reply_patches.py /etc/hermes-staging/verify_plain_reply_patches.py
@@ -57,6 +62,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && chmod +x /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_stt_patches.py \
  && python /etc/hermes-staging/apply_gateway_patches.py \
+ && python /etc/hermes-staging/install_gateway_admission.py \
  && python /etc/hermes-staging/apply_guest_send_guard_patches.py \
  && python /etc/hermes-staging/verify_stt_patches.py \
  && python /etc/hermes-staging/verify_guest_send_guard_patches.py \

@@ -50,10 +50,84 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_create = None
 _before_create = None
+_exact_gateway_retry: ContextVar[dict | None] = ContextVar(
+    'wolfhouse_exact_gateway_retry', default=None)
 
 
 class QuoteBoundaryError(ValueError):
     pass
+
+
+def _arm_exact_gateway_retry_for_owner(frozen):
+    """Arm one internal recovery turn; external request fields cannot call this."""
+    if (not isinstance(frozen, dict)
+            or set(frozen) != {'session_key', 'identity', 'message_id', 'raw_digest'}
+            or type(frozen['identity']) is not tuple or len(frozen['identity']) != 3
+            or frozen['identity'][2] != frozen['message_id']):
+        return False
+    _exact_gateway_retry.set(deepcopy(frozen))
+    return True
+
+
+def _consume_exact_gateway_retry():
+    frozen = _exact_gateway_retry.get()
+    _exact_gateway_retry.set(None)
+    return frozen
+
+
+def arm_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    """Bind only a ledger-proven completed/pending original first-yes retry."""
+    if not supports_exact_gateway_retry(
+            runner=runner, session_key=session_key, identity=identity,
+            message_id=message_id, raw=raw):
+        return False
+    return _arm_exact_gateway_retry_for_owner({
+        'session_key': session_key,
+        'identity': identity,
+        'message_id': message_id,
+        'raw_digest': hashlib.sha256(raw.encode()).hexdigest(),
+    })
+
+
+def supports_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    """Read-only proof that a refused delivery is the owner's exact recovery.
+
+    This grants no new acceptance: it recognizes only the original first-yes
+    delivery whose frozen operation is completed or still dispatch-pending.
+    """
+    if (type(identity) is not tuple or len(identity) != 3
+            or identity[2] != message_id or type(raw) is not str):
+        return False
+    store = getattr(runner, 'session_store', None)
+    entry = getattr(store, '_entries', {}).get(session_key) if store is not None else None
+    session_id = getattr(entry, 'session_id', None)
+    db = getattr(runner, '_session_db', None)
+    if not session_id or db is None or not hasattr(db, '_lock') or not hasattr(db, '_conn'):
+        return False
+    try:
+        with db._lock:
+            rows = db._conn.execute(
+                'SELECT value FROM state_meta WHERE key LIKE ?', (_PREFIX + '%',)
+            ).fetchall()
+        matches = []
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        for row in rows:
+            state = json.loads(row[0])
+            scope = state.get('scope') if isinstance(state, dict) else None
+            if (not isinstance(scope, dict) or scope.get('ID') != session_id
+                    or scope.get('KEY') != session_key or scope.get('PLATFORM') != identity[0]
+                    or scope.get('CHAT_ID') != identity[1]):
+                continue
+            if (state.get('status') == 'accepted'
+                    and isinstance(state.get('checked_offer'), dict)
+                    and state.get('auto_acceptance') is True
+                    and (state.get('dispatch_pending') or isinstance(state.get('receipt'), dict))
+                    and state.get('acceptance_message') == message_id
+                    and state.get('acceptance_raw_digest') == digest):
+                matches.append(state)
+        return len(matches) == 1
+    except Exception:
+        return False
 
 
 def _encode(value):
@@ -550,6 +624,15 @@ def finalize_offer_response(result):
     return _transaction(present)
 
 
+def _exact_retry_refusal(user_message, args, kwargs):
+    text = ('I could not verify that this booking recovery still matches the '
+            'original accepted setup. We need to check it before proceeding.')
+    history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+    return {'completed': True, 'final_response': text, 'api_calls': 0,
+            'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
+                         {'role': 'assistant', 'content': text}]}
+
+
 def install_owner_hook(create_handler=None, before_create=None):
     global _registered_create, _before_create
     if create_handler is not None:
@@ -561,6 +644,7 @@ def install_owner_hook(create_handler=None, before_create=None):
     @wraps(original)
     def owned(agent, user_message, *args, **kwargs):
         close_turn()
+        exact_retry = _consume_exact_gateway_retry()
         try:
             from .original_inbound import consume
             try:
@@ -571,9 +655,11 @@ def install_owner_hook(create_handler=None, before_create=None):
                     capability.parent = inbound
                     capability.lock = inbound.lock
             except QuoteBoundaryError:
-                # Unsupported/unbound ingress retains ordinary conversation,
-                # but no ledger authority, including ambient fixture bindings.
+                # Unsupported/unbound ordinary ingress retains conversation but an
+                # internally armed exact retry may never fall through to the model.
                 close_turn()
+                if exact_retry is not None:
+                    return _exact_retry_refusal(user_message, args, kwargs)
             if _current.get() is not None and _registered_create is not None:
                 automatic = _transaction(lambda state, ingress: (
                     ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
@@ -597,6 +683,8 @@ def install_owner_hook(create_handler=None, before_create=None):
                             'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
                                          {'role': 'assistant', 'content': text}],
                             'booking_result': receipt}
+            if exact_retry is not None:
+                return _exact_retry_refusal(user_message, args, kwargs)
             result = original(agent, user_message, *args, **kwargs)
             if _current.get() is not None:
                 return finalize_offer_response(result)

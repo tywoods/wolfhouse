@@ -525,6 +525,12 @@ apply_patches() {
       exit 1
     }
   fi
+  if [ -f /etc/hermes-staging/install_gateway_admission.py ]; then
+    python /etc/hermes-staging/install_gateway_admission.py || {
+      echo "install_gateway_admission failed — refusing uncomposed Luna admission" >&2
+      exit 1
+    }
+  fi
   if [ -f /etc/hermes-staging/apply_whatsapp_fresh_start_route.py ]; then
     python /etc/hermes-staging/apply_whatsapp_fresh_start_route.py || {
       echo "apply_whatsapp_fresh_start_route failed — Fresh Start route may be missing" >&2
