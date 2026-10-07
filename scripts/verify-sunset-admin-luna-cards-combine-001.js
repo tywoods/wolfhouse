@@ -3,10 +3,17 @@
 
 /**
  * ADMIN-LUNA-STAFF-CARDS-REGROUP-001
- * Admin → Luna Staff 3-card layout on Sunset AND Wolfhouse:
+ * Admin → Luna Staff card layout.
+ * Sunset (unchanged):
  *   1. General Notes (own card, first)
  *   2. Numbers → Guest Conversation Alerts → Automated Staff Notifications
  *   3. Style + Luna Personality
+ * Wolfhouse lodging only:
+ *   1. General Notes
+ *   2. Style + Luna Personality
+ *   3. Room Setup (when the collapse card exists)
+ *   4. Numbers + alerts + automations last
+ * Wolfhouse also hides the Guest Conversation Alerts helper line.
  * Stay off inbox-thread.js and staff-query-api HTML.
  * Supersedes SUNSET-ADMIN-LUNA-CARDS-COMBINE-001.
  */
@@ -52,9 +59,24 @@ assert.ok(
   'runtime order style → personality',
 );
 assert.ok(
-  uiSrc.indexOf('host.insertBefore(notes') < uiSrc.indexOf('host.insertBefore(numbersWrap')
-    && uiSrc.indexOf('host.insertBefore(numbersWrap') < uiSrc.indexOf('host.insertBefore(styleWrap'),
-  'top order notes → numbers wrap → style wrap',
+  /function salccPlaceSunset\([\s\S]*?host\.insertBefore\(notes[\s\S]*?host\.insertBefore\(numbersWrap[\s\S]*?host\.insertBefore\(styleWrap/.test(uiSrc),
+  'sunset order notes → numbers wrap → style wrap',
+);
+assert.ok(
+  /function salccPlaceWolfhouse\([\s\S]*?host\.insertBefore\(notes[\s\S]*?host\.insertBefore\(styleWrap[\s\S]*?staff-room-setup-card[\s\S]*?appendChild\(numbersWrap/.test(uiSrc),
+  'wolfhouse order notes → style wrap → room setup → notifications last',
+);
+assert.ok(
+  uiSrc.includes('#admin-wh-shell [data-i18n="lunaStaff.alerts.sub"]{display:none!important}'),
+  'wolfhouse shell hides Guest Conversation Alerts helper',
+);
+assert.ok(
+  !/#tab-admin[^{]*lunaStaff\.alerts\.sub/.test(uiSrc),
+  'sunset admin shell does not hide the alerts helper',
+);
+assert.ok(
+  apiSrc.includes('Send WhatsApp alerts when Luna starts a guest conversation or needs human help.'),
+  'shared HTML keeps the helper so Sunset is untouched',
 );
 assert.ok(uiSrc.includes('padding:16px 18px'), 'Pricing card padding');
 assert.ok(uiSrc.includes('background:var(--surface)'), 'Salt/Sand surface, not surface-soft');
@@ -106,8 +128,15 @@ function node(id, className) {
     children: [],
     nextSibling: null,
     firstChild: null,
-    getAttribute() { return null; },
-    setAttribute() {},
+    getAttribute(name) { return this._attrs ? this._attrs[name] || null : null; },
+    setAttribute(name, value) {
+      this._attrs = this._attrs || {};
+      this._attrs[name] = value;
+    },
+    querySelector(sel) {
+      if (sel === '[data-i18n="lunaStaff.alerts.sub"]' && this._alertsSub) return this._alertsSub;
+      return null;
+    },
     appendChild(child) {
       if (child.parentNode && typeof child.parentNode.removeChild === 'function') {
         child.parentNode.removeChild(child);
@@ -121,6 +150,7 @@ function node(id, className) {
       return child;
     },
     insertBefore(child, before) {
+      if (child === before) return child;
       if (child.parentNode && typeof child.parentNode.removeChild === 'function') {
         child.parentNode.removeChild(child);
       }
@@ -156,10 +186,16 @@ function makeSandbox(opts) {
   const personality = node('staff-luna-personality-card', 'staff-style-card luna-header-mode-card');
   const numbers = node('cc-staff-whatsapp-numbers', 'card cc-section');
   const alerts = node('cc-staff-notification-settings', 'card cc-section');
+  const alertsSub = node('', 'cc-section-sub sns-card-sub');
+  alertsSub.setAttribute('data-i18n', 'lunaStaff.alerts.sub');
+  alerts._alertsSub = alertsSub;
+  alerts.appendChild(alertsSub);
   const autos = node('cc-automated-staff-notifications', 'card cc-section');
   const notes = node('cc-house-notes', 'card cc-section');
   const owner = node('cc-owner-schedule-bridge', 'card cc-section');
+  const room = opts.withRoom ? node('staff-room-setup-card', 'card staff-style-card') : null;
   wrapHost.appendChild(styleCard);
+  if (room) wrapHost.appendChild(room);
   wrapHost.appendChild(personality);
   wrapHost.appendChild(owner);
   wrapHost.appendChild(numbers);
@@ -180,6 +216,7 @@ function makeSandbox(opts) {
     'cc-automated-staff-notifications': autos,
     'cc-house-notes': notes,
     'cc-owner-schedule-bridge': owner,
+    'staff-room-setup-card': room,
   };
   const headKids = [];
   let cssMounted = false;
@@ -226,23 +263,20 @@ function makeSandbox(opts) {
   sandbox.__style = styleCard;
   sandbox.__personality = personality;
   sandbox.__owner = owner;
+  sandbox.__room = room;
+  sandbox.__alertsSub = alertsSub;
   sandbox.__byId = byId;
   sandbox.__register = function register(id, n) { byId[id] = n; };
   return sandbox;
 }
 
-function assertRegroup(label, sandbox) {
-  sandbox.paintAdminLunaStaffCardsRegroup();
+function assertShared(label, sandbox) {
   const numbersWrap = sandbox.document.getElementById('cc-luna-numbers-alerts-automations');
   const styleWrap = sandbox.document.getElementById('cc-luna-style-personality');
   assert.ok(numbersWrap, `${label}: numbers wrap`);
   assert.ok(styleWrap, `${label}: style wrap`);
   sandbox.__register('cc-luna-numbers-alerts-automations', numbersWrap);
   sandbox.__register('cc-luna-style-personality', styleWrap);
-
-  assert.strictEqual(sandbox.__host.children[0], sandbox.__notes, `${label}: notes first`);
-  assert.strictEqual(sandbox.__host.children[1], numbersWrap, `${label}: numbers wrap second`);
-  assert.strictEqual(sandbox.__host.children[2], styleWrap, `${label}: style wrap third`);
 
   assert.strictEqual(numbersWrap.children[0], sandbox.__numbers, `${label}: numbers first in wrap`);
   assert.strictEqual(numbersWrap.children[1], sandbox.__alerts, `${label}: alerts second in wrap`);
@@ -254,7 +288,6 @@ function assertRegroup(label, sandbox) {
   assert.ok(!/\bcard\b/.test(sandbox.__numbers.className), `${label}: numbers demoted`);
   assert.ok(!/\bcard\b/.test(sandbox.__alerts.className), `${label}: alerts demoted`);
   assert.ok(!/\bcard\b/.test(sandbox.__autos.className), `${label}: autos demoted`);
-  assert.ok(sandbox.__host.children.indexOf(sandbox.__owner) > 2, `${label}: owner schedule after primary three`);
 
   sandbox.paintAdminLunaStaffCardsRegroup();
   assert.strictEqual(
@@ -264,10 +297,52 @@ function assertRegroup(label, sandbox) {
   );
   assert.strictEqual(numbersWrap.children.length, 3, `${label}: no duplicate numbers sections`);
   assert.strictEqual(styleWrap.children.length, 2, `${label}: no duplicate style sections`);
+  return { numbersWrap, styleWrap };
 }
 
-assertRegroup('sunset', makeSandbox({ portalClient: 'sunset', client: 'sunset' }));
-assertRegroup('wolfhouse', makeSandbox({ portalClient: 'wolfhouse', client: 'wolfhouse-somo' }));
+function assertSunset(label, sandbox) {
+  sandbox.paintAdminLunaStaffCardsRegroup();
+  const { numbersWrap, styleWrap } = assertShared(label, sandbox);
+  assert.strictEqual(sandbox.__host.children[0], sandbox.__notes, `${label}: notes first`);
+  assert.strictEqual(sandbox.__host.children[1], numbersWrap, `${label}: numbers wrap second`);
+  assert.strictEqual(sandbox.__host.children[2], styleWrap, `${label}: style wrap third`);
+  assert.ok(sandbox.__host.children.indexOf(sandbox.__owner) > 2, `${label}: owner schedule after primary three`);
+  assert.notStrictEqual(sandbox.__alertsSub.style.display, 'none', `${label}: alerts helper stays visible`);
+}
+
+function assertWolfhouse(label, sandbox) {
+  sandbox.paintAdminLunaStaffCardsRegroup();
+  const { numbersWrap, styleWrap } = assertShared(label, sandbox);
+  const kids = sandbox.__host.children;
+  assert.strictEqual(kids[0], sandbox.__notes, `${label}: notes first`);
+  assert.strictEqual(kids[1], styleWrap, `${label}: style wrap second`);
+  assert.strictEqual(kids[2], sandbox.__room, `${label}: room setup third`);
+  assert.strictEqual(kids[kids.length - 1], numbersWrap, `${label}: notifications card last`);
+  assert.ok(kids.indexOf(sandbox.__room) < kids.indexOf(numbersWrap), `${label}: room setup before notifications`);
+  assert.ok(kids.indexOf(sandbox.__owner) < kids.indexOf(numbersWrap), `${label}: owner schedule does not follow notifications`);
+  assert.strictEqual(sandbox.__alertsSub.style.display, 'none', `${label}: alerts helper hidden`);
+  assert.strictEqual(sandbox.__room.parentNode, sandbox.__host, `${label}: room setup stays a host sibling`);
+}
+
+assertSunset('sunset', makeSandbox({ portalClient: 'sunset', client: 'sunset' }));
+assertWolfhouse('wolfhouse', makeSandbox({
+  portalClient: 'wolfhouse',
+  client: 'wolfhouse-somo',
+  withRoom: true,
+}));
+
+const lateRoom = makeSandbox({ portalClient: 'wolfhouse', client: 'wolfhouse-somo' });
+lateRoom.paintAdminLunaStaffCardsRegroup();
+const lateStyle = lateRoom.document.getElementById('cc-luna-style-personality');
+const lateRoomCard = node('staff-room-setup-card', 'card staff-style-card');
+lateStyle.insertBefore(lateRoomCard, lateRoom.__personality);
+lateRoom.__register('staff-room-setup-card', lateRoomCard);
+lateRoom.__room = lateRoomCard;
+lateRoom.paintAdminLunaStaffCardsRegroup();
+assert.strictEqual(lateRoom.__host.children[1].id, 'cc-luna-style-personality', 'late room: style stays second');
+assert.strictEqual(lateRoom.__host.children[2], lateRoomCard, 'late room: pulled out under style');
+assert.strictEqual(lateRoom.__host.children[lateRoom.__host.children.length - 1].id, 'cc-luna-numbers-alerts-automations', 'late room: notifications still last');
+assert.strictEqual(lateStyle.children.length, 2, 'late room: style wrap does not keep room setup');
 
 const other = makeSandbox({ portalClient: '', client: 'other-tenant' });
 other.paintAdminLunaStaffCardsRegroup();
@@ -290,4 +365,4 @@ assert.equal(typeof incomplete.paintAdminLunaStaffCardsRegroup, 'function', 'pai
 assert.doesNotThrow(() => incomplete.paintAdminLunaStaffCardsRegroup(), 'paint must not throw on incomplete document');
 assert.equal(typeof incomplete.paintSunsetAdminLunaCardsCombine, 'function', 'legacy alias exported');
 
-console.log('PASS ADMIN-LUNA-STAFF-CARDS-REGROUP-001 notes / numbers+alerts+autos / style+personality on Sunset+Wolfhouse');
+console.log('PASS ADMIN-LUNA-STAFF-CARDS-REGROUP-001 sunset notes/numbers/style; wolfhouse notes/style/room/notifications-last');

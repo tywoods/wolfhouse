@@ -1,10 +1,17 @@
 /**
- * ADMIN-LUNA-STAFF-CARDS-REGROUP-001 — Luna Staff Admin 3-card layout
- * (Sunset + Wolfhouse):
+ * ADMIN-LUNA-STAFF-CARDS-REGROUP-001 — Luna Staff Admin card layout.
+ * Sunset:
  *   1. General Notes for Luna — own card, first
  *   2. One card: Staff & Owner Numbers → Guest Conversation Alerts →
  *      Automated Staff Notifications
  *   3. One card: Style (Light/Dark) + Luna Personality
+ * Wolfhouse lodging only (wolfhouse-somo):
+ *   1. General Notes
+ *   2. Style + Luna Personality
+ *   3. Room Setup, when the collapse card exists
+ *   4. The numbers/alerts/automations card last
+ *   Also hides the Guest Conversation Alerts helper line. Shared HTML stays
+ *   so Sunset still shows it.
  * Looks only. No fetch. IDs stay for existing save/load JS.
  * Supersedes SUNSET-ADMIN-LUNA-CARDS-COMBINE-001 (notes+alerts+autos).
  */
@@ -45,7 +52,8 @@ function salccEnsureCss() {
     '#tab-admin #al-wrap #cc-luna-numbers-alerts-automations > .cc-section + .cc-section,#tab-admin #al-wrap #cc-luna-numbers-alerts-automations > .card + .card{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}',
     '#tab-admin #al-wrap #cc-luna-style-personality > .staff-style-card{background:transparent;border:none;box-shadow:none;padding:0;margin:0}',
     '#tab-admin #al-wrap #cc-luna-style-personality > .staff-style-card + .staff-style-card{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}',
-    '[data-theme="dark"] #cc-luna-numbers-alerts-automations,[data-theme="dark"] #cc-luna-style-personality{background:var(--surface);border-color:var(--border-soft)}'
+    '[data-theme="dark"] #cc-luna-numbers-alerts-automations,[data-theme="dark"] #cc-luna-style-personality{background:var(--surface);border-color:var(--border-soft)}',
+    '#admin-wh-shell [data-i18n="lunaStaff.alerts.sub"]{display:none!important}'
   ].join('');
   var host = document.head || document.documentElement;
   if (host && typeof host.appendChild === 'function') host.appendChild(style);
@@ -111,6 +119,47 @@ function salccUnwrap(wrap, childIds, restoreCards) {
   if (typeof parent.removeChild === 'function') parent.removeChild(wrap);
 }
 
+function salccIsWolfhouseLodging() {
+  try {
+    var client = '';
+    if (typeof getClient === 'function') client = String(getClient() || '');
+    if (client === 'wolfhouse-somo') return true;
+    if (client) return false;
+    var html = (typeof document !== 'undefined') ? document.documentElement : null;
+    var attr = (html && html.getAttribute) ? String(html.getAttribute('data-portal-client') || '') : '';
+    return attr === 'wolfhouse' || attr === 'wolfhouse-somo';
+  } catch (_e) {
+    return false;
+  }
+}
+
+function salccAlertsSubtitle(alerts) {
+  if (!alerts || typeof alerts.querySelector !== 'function') return null;
+  return alerts.querySelector('[data-i18n="lunaStaff.alerts.sub"]');
+}
+
+function salccSyncAlertsSubtitle(hide) {
+  var sub = salccAlertsSubtitle(salccById('cc-staff-notification-settings'));
+  if (!sub || !sub.style) return;
+  sub.style.display = hide ? 'none' : '';
+}
+
+function salccPlaceSunset(host, notes, numbersWrap, styleWrap) {
+  host.insertBefore(notes, host.firstChild);
+  host.insertBefore(numbersWrap, notes.nextSibling);
+  host.insertBefore(styleWrap, numbersWrap.nextSibling);
+}
+
+function salccPlaceWolfhouse(host, notes, styleWrap, numbersWrap) {
+  host.insertBefore(notes, host.firstChild);
+  host.insertBefore(styleWrap, notes.nextSibling);
+  var room = salccById('staff-room-setup-card');
+  if (room && room !== notes && room !== styleWrap && room !== numbersWrap) {
+    host.insertBefore(room, styleWrap.nextSibling);
+  }
+  if (typeof host.appendChild === 'function') host.appendChild(numbersWrap);
+}
+
 function salccEnsureWrap(id, marker) {
   var wrap = salccById(id);
   if (wrap) return wrap;
@@ -139,6 +188,7 @@ function paintAdminLunaStaffCardsRegroup() {
       if (styleWrap) {
         salccUnwrap(styleWrap, ['staff-style-card', 'staff-luna-personality-card'], false);
       }
+      salccSyncAlertsSubtitle(false);
       return;
     }
 
@@ -177,14 +227,20 @@ function paintAdminLunaStaffCardsRegroup() {
     salccSyncVisibility(numbersWrap, [numbers, alerts, autos]);
     salccSyncVisibility(styleWrap, [styleCard, personality]);
 
-    // Top → bottom: Notes, Numbers+Alerts+Autos, Style+Personality.
-    host.insertBefore(notes, host.firstChild);
-    host.insertBefore(numbersWrap, notes.nextSibling);
-    host.insertBefore(styleWrap, numbersWrap.nextSibling);
+    var wolfhouse = salccIsWolfhouseLodging();
+    salccSyncAlertsSubtitle(wolfhouse);
+    if (wolfhouse) salccPlaceWolfhouse(host, notes, styleWrap, numbersWrap);
+    else salccPlaceSunset(host, notes, numbersWrap, styleWrap);
   } catch (_e) { /* never break Admin */ }
 }
 
 /** @deprecated alias — keep Sunset Admin call sites working */
 function paintSunsetAdminLunaCardsCombine() {
   paintAdminLunaStaffCardsRegroup();
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('staff-disclosure-context', function () {
+    paintAdminLunaStaffCardsRegroup();
+  });
 }
