@@ -1,0 +1,8 @@
+'use strict';
+const assert=require('node:assert/strict');
+Object.assign(process.env,{NODE_ENV:'test',STAFF_RUNTIME_PROFILE:'test',STAFF_API_FORTRESS_OFFLINE_LISTENER:'1',STAFF_AUTH_REQUIRED:'true',STAFF_AUTH_HTTPS:'false',STAFF_QUERY_API_HOST:'127.0.0.1',DEFAULT_CLIENT_SLUG:'wolfhouse-somo'});
+const api=require('./staff-query-api');let sql=0;
+api.setFortress15j3OfflineSeams({withPgClient:async()=>{sql++;throw Error('No SQL allowed for rejected inputs');},resolveSessionUser(req){const role=(req.headers.cookie||'').replace('role=','');return role?{role,client_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',client_slug:'wolfhouse-somo'}:null;},canAccessClient:(u,s)=>u&&u.client_slug===s});
+const server=api.createStaffQueryApiHttpServer();
+(async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;const route='/staff/luna-intelligence/room-fill/rooms/11111111-1111-4111-8111-111111111111/gender';
+try{for(const c of [{role:'operator',body:{},status:400},{role:null,body:{},status:401},{role:'viewer',body:{},status:403},{role:'operator',origin:'https://evil.invalid',body:{},status:403},{role:'operator',body:{gender:'female',expectedCatalogRevision:'x',client_slug:'sunset'},status:400}]){const r=await fetch(origin+route,{method:'PUT',headers:{'Content-Type':'application/json',Origin:c.origin||origin,...(c.role?{Cookie:'role='+c.role}:{})},body:JSON.stringify(c.body)});assert.equal(r.status,c.status,JSON.stringify(c));await r.text();}assert.equal(sql,0);console.log('PASS real dispatcher: operator validation, auth, viewer, origin, caller-tenant denial; zero SQL');}finally{await new Promise(r=>server.close(r));api.setFortress15j3OfflineSeams(null);}})().catch(e=>{console.error(e);process.exitCode=1});

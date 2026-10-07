@@ -152,6 +152,13 @@ function genderLabelFromStrategy(value) {
   return roomGenderPresentation({ roomType: '', genderStrategy: value }).genderLabel;
 }
 
+// Deliberately narrow: changing any other type could erase a restriction encoded
+// only in its type. Conflicting gender metadata on an ordinary room may be repaired.
+function roomGenderEditable(room) {
+  return !!room && ['female_only', 'male_only', 'mixed'].includes(room.roomType)
+    && room.canBeMatrimonial === false && room.oftenUsedByOperator === false;
+}
+
 function projectRoom(room, rank) {
   return {
     roomId: room.roomId,
@@ -168,6 +175,8 @@ function projectRoom(room, rank) {
     genderStrategy: room.genderStrategy || '',
     genderLabel: roomGenderPresentation(room).genderLabel,
     genderReview: roomGenderPresentation(room).reviewLabel,
+    genderEditable: roomGenderEditable(room),
+    genderEditNote: roomGenderEditable(room) ? null : 'Read-only: special or unrecognized room type; private/couple and operator restrictions are preserved.',
     restrictionLabel: roomGenderPresentation(room).restrictionLabel,
     bedIds: (room.beds || []).map((bed) => bed.bedId),
   };
@@ -348,6 +357,7 @@ module.exports = {
   displayLabel,
   genderLabelFromStrategy,
   roomGenderPresentation,
+  roomGenderEditable,
   numericRoomOrder,
   parseStoredPolicy,
   projectCatalogueRows,

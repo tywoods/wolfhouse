@@ -10,6 +10,16 @@
   var ROOM_HELP = 'Fill eligible rooms in this order before moving to the next. Safety and keeping a party together come first.';
   var TIE_HELP = 'In Fill House this order is only the tie-break.';
   var dragging = null;
+  var admittedContext = null;
+
+  function contextKey() {
+    return typeof window.staffCollapseContextKey === 'function' ? window.staffCollapseContextKey() : (admittedContext && admittedContext.key || '');
+  }
+
+  function currentState(s) {
+    return window.__roomFillState === s && s.contextKey === contextKey()
+      && (!admittedContext || admittedContext.client === 'wolfhouse-somo');
+  }
 
   function el(id) { return document.getElementById(id); }
 
@@ -30,7 +40,7 @@
       '#staff-room-fill button.rf-primary{background:var(--staff-green-bg,#e4eee6);color:var(--staff-green-text,#315b42);border-color:transparent}',
       '#staff-room-fill input:not([type=radio]),#staff-room-fill select{background:var(--surface,#fff);color:var(--text,#272d29);border:1px solid var(--border-soft,#ddd);border-radius:8px;padding:10px;font:inherit;width:100%;min-width:0}',
       '[data-theme="dark"] #staff-room-fill input:not([type=radio]),[data-theme="dark"] #staff-room-fill select{background:#262626;border-color:#484848}',
-      '#staff-room-fill .rf-modes label{flex:1;min-width:140px;padding:14px;border-color:var(--border-soft,#ddd);cursor:pointer}',
+      '#staff-room-fill .rf-modes label{flex:0 0 auto;min-width:0;padding:4px 10px;font-size:13px;line-height:20px;white-space:nowrap;border-color:var(--border-soft,#ddd);cursor:pointer}',
       '#staff-room-fill .rf-modes label:has(input:checked){background:var(--staff-green-bg,#e4eee6);color:var(--staff-green-text,#315b42);border-color:var(--staff-green-border,#98b09d)}',
       '#staff-room-fill .rf-row{padding:12px 0;flex-wrap:wrap;gap:10px}',
       '#staff-room-fill .rf-rank{border-radius:50%;background:var(--surface-soft,#f3f4f2);width:28px;height:28px;display:grid;place-items:center;font-size:12px}',
@@ -60,14 +70,19 @@
       '#staff-room-fill .rf-error{color:var(--staff-red-text,#ad4747)}',
       '@media(max-width:540px){#staff-room-fill .rf-card{padding:14px}#staff-room-fill .rf-builder-form{grid-template-columns:1fr}#staff-room-fill .rf-builder-actions{grid-column:1}#staff-room-fill .rf-moves{margin-left:0;flex-wrap:wrap}}',
       '#staff-room-fill *{box-sizing:border-box}',
-      '#staff-room-fill .rf-modes{display:flex;gap:12px;flex-wrap:wrap}',
-      '#staff-room-fill .rf-modes label{min-height:64px;display:inline-flex;align-items:center;gap:10px;border:1px solid var(--border-soft,#ddd);border-radius:var(--radius-sm,8px)}',
+      '#staff-room-fill .rf-modes{display:flex;gap:8px;flex-wrap:wrap}',
+      '#staff-room-fill .rf-modes label{min-height:32px;display:inline-flex;flex-direction:row;align-items:center;gap:6px;border:1px solid var(--border-soft,#ddd);border-radius:var(--radius-sm,8px)}',
+      '@media(pointer:coarse),(max-width:540px){#staff-room-fill .rf-modes label{min-height:44px}}',
       '#staff-room-fill .rf-help,#staff-room-fill .rf-legacy{margin:8px 0;font-size:13px;line-height:1.5;white-space:pre-wrap}',
       '#staff-room-fill .rf-row{display:flex;align-items:center;border-bottom:1px solid var(--border-soft,#ddd);max-width:100%}',
       '#staff-room-fill .rf-rank{min-width:28px;font-weight:650}',
       '#staff-room-fill .rf-code{font-weight:650}',
       '#staff-room-fill .rf-meta{font-size:13px;line-height:1.35;min-width:0;overflow-wrap:anywhere}',
       '#staff-room-fill .rf-moves{display:flex;gap:4px;margin-left:auto}',
+      '#staff-room-fill .rf-gender-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;font-size:13px}',
+      '#staff-room-fill .rf-gender-edit select{width:auto;max-width:100%;padding:5px 8px;min-height:32px}',
+      '#staff-room-fill .rf-gender-status{flex-basis:100%;font-size:12px}',
+      '@media(pointer:coarse),(max-width:540px){#staff-room-fill .rf-gender-edit select{min-height:44px}}',
       '#staff-room-fill button{min-width:44px;min-height:44px}',
       '#staff-room-fill .rf-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}',
       '#staff-room-fill .rf-preview{gap:12px;margin-top:16px}',
@@ -87,17 +102,18 @@
 
   function state() {
     if (!window.__roomFillState) {
-      window.__roomFillState = { server: null, draftMode: 'house', draftOrder: [], source: 'default_numeric', touched: false, dirty: false, pending: false };
+      window.__roomFillState = { contextKey: contextKey(), server: null, draftMode: 'house', draftOrder: [], source: 'default_numeric', touched: false, dirty: false, pending: false };
     }
     var s = window.__roomFillState;
     if (!s.builder) s.builder = { number: '', beds: '', gender: '', drafts: [] };
     if (!s.previewFields) s.previewFields = {};
+    if (!s.genderDrafts) s.genderDrafts = {};
     return s;
   }
 
   function placementBusy() {
     var s = state();
-    return !!(s.pending || s.builder.pending || s.builder.retryPayload);
+    return !!(s.pending || s.genderPending || s.builder.pending || s.builder.retryPayload);
   }
 
   function labelFor(room) {
@@ -264,7 +280,8 @@
   }
 
   function builderCard() {
-    var b = state().builder;
+    var owner = state();
+    var b = owner.builder;
     var section = card('Room builder');
     section.id = 'staff-room-builder';
     var help = document.createElement('p');
@@ -324,13 +341,13 @@
     add.className = 'rf-primary';
     form.noValidate = true;
     add.textContent = b.retryPayload ? 'Retry saving Room ' + b.retryPayload.roomNumber : 'Add room & save';
-    add.disabled = !!(b.pending || state().pending);
+    add.disabled = !!(b.pending || state().pending || state().genderPending);
     form.appendChild(add);
     ['rf-builder-number', 'rf-builder-beds'].forEach(function (id) {
       var field = form.querySelector('#' + id);
-      if (field) field.disabled = !!(b.pending || state().pending);
+      if (field) field.disabled = !!(b.pending || state().pending || state().genderPending);
     });
-    genders.querySelectorAll('input').forEach(function (input) { input.disabled = !!(b.pending || state().pending); });
+    genders.querySelectorAll('input').forEach(function (input) { input.disabled = !!(b.pending || state().pending || state().genderPending); });
     var error = document.createElement('p');
     error.id = 'rf-builder-error';
     error.className = 'rf-error';
@@ -340,7 +357,7 @@
     form.appendChild(error);
     form.addEventListener('submit', function (event) {
       event.preventDefault();
-      if (b.pending || state().pending) return;
+      if (b.pending || state().pending || state().genderPending) return;
       // Recovery belongs to the immutable operation, not a subsequently edited draft.
       var number = b.retryPayload ? b.retryPayload.roomNumber : Number(b.number);
       var beds = b.retryPayload ? b.retryPayload.bedCount : Number(b.beds);
@@ -398,7 +415,7 @@
           return { status: res.status, body: null, unreadable: true };
         });
       }).then(function (res) {
-        if (generation !== b.saveGeneration) return;
+        if (!currentState(owner) || generation !== b.saveGeneration) return;
         b.pending = false;
         if (!res.body || res.body.success !== true) {
           var knownRejection = res.status >= 400 && res.status < 500 && !res.unreadable;
@@ -422,7 +439,7 @@
         }
         say('Room ' + savedNumber + ' saved to inventory and the Schedule.');
       }).catch(function () {
-        if (generation !== b.saveGeneration) return;
+        if (!currentState(owner) || generation !== b.saveGeneration) return;
         b.pending = false;
         b.saveError = 'The save did not finish. Inventory may have changed. Retry uses the same request.';
         paint();
@@ -488,6 +505,97 @@
     return btn;
   }
 
+  function genderEditor(room) {
+    var s = state();
+    var id = room.roomId;
+    var wrap = document.createElement('div');
+    wrap.className = 'rf-gender-edit';
+    if (room.genderEditable !== true) {
+      wrap.className = 'rf-meta';
+      wrap.textContent = room.genderEditNote || 'Read-only: special or unrecognized room type; restrictions are preserved.';
+      return wrap;
+    }
+    var current = String(room.genderLabel || '').toLowerCase();
+    if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
+    var draft = s.genderDrafts[id];
+    var select = document.createElement('select');
+    select.id = 'rf-gender-' + id;
+    select.setAttribute('aria-label', 'Gender for ' + labelFor(room));
+    [['', 'Needs review — choose'], ['female', 'Female'], ['male', 'Male'], ['mixed', 'Mixed']].forEach(function (pair) {
+      var opt = document.createElement('option'); opt.value = pair[0]; opt.textContent = pair[1];
+      opt.disabled = !pair[0]; select.appendChild(opt);
+    });
+    select.value = draft ? draft.value : current;
+    select.disabled = placementBusy();
+    select.addEventListener('change', function () {
+      if (placementBusy()) return;
+      s.genderDrafts[id] = { value: select.value };
+      paint(); el(select.id).focus();
+    });
+    wrap.appendChild(select);
+    var save = button('Save', 'rf-gender-save-' + id, function () { saveGender(room); });
+    save.setAttribute('aria-label', 'Save gender for ' + labelFor(room));
+    save.disabled = placementBusy() || !draft || !draft.value || draft.value === current;
+    wrap.appendChild(save);
+    var cancel = button('Cancel', 'rf-gender-cancel-' + id, function () {
+      if (placementBusy()) return;
+      delete s.genderDrafts[id]; paint(); el(select.id).focus();
+    });
+    cancel.setAttribute('aria-label', 'Cancel gender for ' + labelFor(room));
+    cancel.disabled = placementBusy() || !draft;
+    wrap.appendChild(cancel);
+    var status = document.createElement('span');
+    status.className = 'rf-gender-status' + (draft && draft.error ? ' rf-error' : '');
+    status.id = 'rf-gender-status-' + id;
+    status.setAttribute('role', draft && draft.error ? 'alert' : 'status');
+    status.textContent = s.genderPending === id ? 'Saving…' : (draft && draft.message || '');
+    select.setAttribute('aria-describedby', status.id);
+    wrap.appendChild(status);
+    return wrap;
+  }
+
+  function saveGender(room) {
+    var s = state();
+    var draft = s.genderDrafts[room.roomId];
+    if (placementBusy() || !s.server || room.genderEditable !== true || !draft || !draft.value) return;
+    var revision = s.server.settingsRevision;
+    s.loadSequence = (s.loadSequence || 0) + 1;
+    s.genderPending = room.roomId;
+    draft.message = ''; draft.error = false;
+    paint();
+    fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(room.roomId) + '/gender', {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gender: draft.value, expectedCatalogRevision: s.server.catalogRevision })
+    }).then(function (res) { return res.json().then(function (body) { return { status: res.status, body: body }; }); })
+      .then(function (res) {
+        if (!currentState(s)) return;
+        s.genderPending = null;
+        if (res.status !== 200 || !res.body || res.body.success !== true) {
+          draft.error = true;
+          draft.message = 'Could not save gender: ' + (res.body && res.body.error || 'request failed') + '. Your draft is retained.';
+        } else {
+          // Dirty placement keeps its draft and original CAS base; clean placement
+          // must adopt the authoritative policy together with its revision.
+          // Neither path changes builder or preview drafts.
+          if (s.dirty) {
+            s.server = res.body;
+            s.server.settingsRevision = revision;
+          } else applyServer(res.body);
+          delete s.genderDrafts[room.roomId];
+          s.genderDrafts[room.roomId] = { value: draft.value, message: 'Saved' };
+          if (typeof bcInvalidateBedCalendar === 'function') bcInvalidateBedCalendar();
+        }
+        paint();
+        var control = el('rf-gender-' + room.roomId); if (control) control.focus();
+      }).catch(function () {
+        if (!currentState(s)) return;
+        s.genderPending = null;
+        draft.error = true; draft.message = 'Could not confirm the save. Reload inventory before retrying; your draft is retained.';
+        paint();
+      });
+  }
+
   function rowFor(id, index) {
     var room = roomById(id) || { roomId: id, roomCode: id, roomNumber: null, capacity: null, active: false };
     var row = document.createElement('div');
@@ -536,14 +644,16 @@
     moves.className = 'rf-moves';
     var up = document.createElement('button');
     up.type = 'button';
-    up.textContent = 'Move up';
+    up.textContent = '↑';
     up.setAttribute('aria-label', 'Move ' + labelFor(room) + ' up');
+    up.title = up.getAttribute('aria-label');
     up.disabled = placementBusy() || index == null || index === 0;
     up.addEventListener('click', function () { moveId(id, index - 1, up.getAttribute('aria-label')); });
     var down = document.createElement('button');
     down.type = 'button';
-    down.textContent = 'Move down';
+    down.textContent = '↓';
     down.setAttribute('aria-label', 'Move ' + labelFor(room) + ' down');
+    down.title = down.getAttribute('aria-label');
     down.disabled = placementBusy() || index == null || index === state().draftOrder.length - 1;
     down.addEventListener('click', function () { moveId(id, index + 1, down.getAttribute('aria-label')); });
     if (index == null) {
@@ -567,6 +677,7 @@
     row.appendChild(rank);
     row.appendChild(code);
     row.appendChild(meta);
+    row.appendChild(genderEditor(room));
     row.appendChild(moves);
     return row;
   }
@@ -656,11 +767,14 @@
   function roomFillLoad() {
     var root = el('staff-room-fill');
     if (!root) return;
+    if (admittedContext && admittedContext.client !== 'wolfhouse-somo') return;
     var s = state();
     if (s.dirty || placementBusy()) return;
+    var sequence = s.loadSequence = (s.loadSequence || 0) + 1;
     fetch('/staff/luna-intelligence/room-fill', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(function (res) { return res.json().then(function (body) { return { status: res.status, body: body }; }); })
       .then(function (res) {
+        if (!currentState(s) || sequence !== s.loadSequence || s.dirty || placementBusy()) return;
         if (res.status === 403) { root.hidden = true; return; }
         if (!res.body || res.body.success !== true) {
           root.hidden = false;
@@ -672,6 +786,7 @@
         paint();
       })
       .catch(function () {
+        if (!currentState(s) || sequence !== s.loadSequence || s.dirty || placementBusy()) return;
         root.hidden = false;
         root.textContent = 'Could not load room placement.';
       });
@@ -698,6 +813,7 @@
       body: JSON.stringify(body)
     }).then(function (res) { return res.json().then(function (payload) { return { status: res.status, body: payload }; }); })
       .then(function (res) {
+        if (!currentState(s)) return;
         s.pending = false;
         if (!res.body || res.body.success !== true) {
           paint();
@@ -711,6 +827,7 @@
         if (status) status.textContent = 'Placement settings saved.';
       })
       .catch(function () {
+        if (!currentState(s)) return;
         s.pending = false;
         paint();
         var status = el('staff-room-fill-status');
@@ -748,7 +865,7 @@
       body: JSON.stringify(body)
     }).then(function (res) { return res.json().then(function (payload) { return { status: res.status, body: payload }; }); })
       .then(function (res) {
-        if (sequence !== s.previewSequence) return;
+        if (!currentState(s) || sequence !== s.previewSequence) return;
         out.textContent = '';
         if (!res.body || res.body.success !== true) {
           out.textContent = (res.body && res.body.error) || 'Preview failed.';
@@ -780,7 +897,7 @@
         });
         note(PREVIEW_NOTE);
       })
-      .catch(function () { if (sequence === s.previewSequence) out.textContent = 'Preview failed.'; });
+      .catch(function () { if (currentState(s) && sequence === s.previewSequence) out.textContent = 'Preview failed.'; });
   }
 
   document.addEventListener('keydown', function (event) {
@@ -800,6 +917,17 @@
     if (!s.dirty && !b.drafts.length && !b.number && !b.beds && !b.gender) return;
     event.preventDefault();
     event.returnValue = '';
+  });
+
+  window.addEventListener('staff-disclosure-context', function (event) {
+    var next = event.detail || { client: '', key: '' };
+    if (admittedContext && admittedContext.key === next.key && admittedContext.client === next.client) return;
+    admittedContext = { client: next.client, key: next.key };
+    window.__roomFillState = null;
+    dragging = null;
+    var root = el('staff-room-fill');
+    if (root) { root.hidden = true; root.textContent = ''; }
+    if (next.client === 'wolfhouse-somo') roomFillLoad();
   });
 
   window.roomFillLoad = roomFillLoad;
