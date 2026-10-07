@@ -90,13 +90,12 @@ const htmlEs = renderFinanceRedesignHtml({
 assert.ok(htmlEs.includes('Mes anterior'), 'ES prev-month aria');
 assert.ok(htmlEs.includes('Mes siguiente'), 'ES next-month aria');
 assert.ok(htmlEs.includes('Anterior') && htmlEs.includes('Siguiente'), 'ES period nav aria');
-const displayMatch = htmlEs.match(/id="pfb-custom-display"[^>]*>([^<]*)</);
-assert.ok(displayMatch, 'custom display span present');
-assert.ok(!/\d{4}-\d{2}-\d{2}/.test(displayMatch[1]), 'visible Custom display has no raw ISO: ' + displayMatch[1]);
-assert.ok(/ago/i.test(displayMatch[1]), 'visible Custom display ES month: ' + displayMatch[1]);
 const labelMatch = htmlEs.match(/data-finance-range-label="1"[^>]*>([^<]*)</);
 assert.ok(labelMatch, 'range label present');
 assert.ok(!/\d{4}-\d{2}-\d{2}/.test(labelMatch[1]), 'range label has no raw ISO: ' + labelMatch[1]);
+assert.ok(/ago/i.test(labelMatch[1]), 'selected Custom range uses Spanish month: ' + labelMatch[1]);
+assert.match(htmlEs, /data-finance-gran="custom"[^>]*aria-selected="true"/, 'Custom tab exposes selected state');
+assert.match(htmlEs, /id="pfb-custom-range-trigger"[^>]*aria-haspopup="dialog"[^>]*aria-expanded="false"/, 'Custom trigger retains accessible dialog semantics');
 // Hidden date inputs keep ISO for picker math — that is intentional.
 
 // Live sync path in admin-ui (financeCustomDisplayText) via vm slice
