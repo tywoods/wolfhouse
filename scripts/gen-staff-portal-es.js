@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const TOUR_OPERATOR_STRINGS = require('./lib/staff-portal-i18n-tour-operator');
 
 const i18nPath = path.join(__dirname, 'lib', 'staff-portal-i18n.js');
 // Only the EN base is needed here; stub out every `= require('./staff-portal-i18n-es*')` (base + Sunset
@@ -13,7 +14,11 @@ const i18nPath = path.join(__dirname, 'lib', 'staff-portal-i18n.js');
 // Preserves the const names, so the later `Object.assign({}, BASE, SUNSET)` still resolves.
 const src = fs.readFileSync(i18nPath, 'utf8')
   .replace(/=\s*require\('\.\/staff-portal-i18n-es[^']*'\);/g, '= {};');
-const ctx = { module: { exports: {} }, exports: {} };
+const ctx = {
+  module: { exports: {} },
+  exports: {},
+  require: (request) => request === './staff-portal-i18n-tour-operator' ? TOUR_OPERATOR_STRINGS : {},
+};
 vm.runInNewContext(src + '\nmodule.exports = STAFF_PORTAL_STRINGS;', ctx);
 const en = ctx.module.exports.en;
 
@@ -102,6 +107,11 @@ const ES_OVERRIDES = {
   'tourOperator.release.title': 'Liberación de fechas operator',
   'tourOperator.release.release': 'Liberar fechas',
   'tourOperator.release.preview': 'Vista previa de liberación',
+  'tourOperator.result.badge.completed': 'Completado',
+  'tourOperator.result.badge.blocked': 'Bloqueado',
+  'tourOperator.result.badge.failed': 'Fallido',
+  'tourOperator.result.badge.uncertain': 'Resultado incierto',
+  'tourOperator.result.uncertain.refreshBoth': 'Resultado incierto: actualiza la lista de bloques y el calendario antes de volver a intentarlo',
   'lunaStaff.hero.title': 'Luna Staff',
   'lunaStaff.hero.sub': 'Consultas operativas e información de negocio desde datos estructurados. Solo lectura — sin escrituras ni envíos por WhatsApp.',
   'lunaStaff.pause.section': 'Automatización de huéspedes Luna',
@@ -432,6 +442,7 @@ const ES_OVERRIDES = {
   'schedule.addon.combinedSubtotal': 'Subtotal del extra',
   'schedule.addon.noEligibleDates': 'Aún no hay fechas elegibles.',
 };
+Object.assign(ES_OVERRIDES, TOUR_OPERATOR_STRINGS.es);
 
 const es = {};
 for (const key of Object.keys(en)) {

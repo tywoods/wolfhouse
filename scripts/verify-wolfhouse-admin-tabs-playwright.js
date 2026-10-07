@@ -149,12 +149,130 @@ function navVisibility(page) {
   });
 }
 
+async function runRealTourOperatorScenario(browser, base, operation, outcome, refreshMode) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.addInitScript((slug) => {
+    window.__staffUiTestHooks = { refreshTimeoutMs: 50 };
+    localStorage.setItem('staff_portal_client', slug);
+    localStorage.setItem('wh_staff_portal_locale', 'en');
+  }, WH_CLIENT);
+  const page = await context.newPage();
+  page.on('dialog', (dialog) => dialog.accept());
+  const mutationPath = operation === 'op' ? '/staff/tour-operator/blocks/create' : '/staff/tour-operator/release';
+  await page.route(`**${mutationPath}`, async (route) => {
+    if (outcome === 'uncertain') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{' });
+    }
+    if (outcome === 'blocked') {
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'guest_conflict' }) });
+    }
+    const body = operation === 'op'
+      ? { success: true, booking: { booking_code: 'TEST-BLOCK', room_code: 'R1', check_in: '2026-10-10', check_out: '2026-10-12' } }
+      : { success: true, release: {} };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForFunction((slug) => document.getElementById('c-client')?.value === slug, WH_CLIENT);
+  await page.locator('button.tab-btn[data-tab="admin"]').click();
+  await page.locator('#wh-admin-tab-tour-operator').click();
+  await page.locator(operation === 'op' ? '#staff-room-block-toggle' : '#staff-room-release-toggle').click();
+  await page.evaluate(({ operation, refreshMode }) => {
+    const addOption = (id, value, data) => {
+      const select = document.getElementById(id);
+      const option = document.createElement('option');
+      option.value = value; option.textContent = value;
+      Object.assign(option.dataset, data || {});
+      select.appendChild(option); select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    document.getElementById('bc-start').value = '2026-10-10';
+    document.getElementById('bc-end').value = '2026-10-12';
+    if (operation === 'op') {
+      document.getElementById('to-op-name').value = 'Test Operator';
+      document.getElementById('to-op-cin').value = '2026-10-10';
+      document.getElementById('to-op-cout').value = '2026-10-12';
+      addOption('to-op-room', 'R1');
+      document.getElementById('to-op-name').dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      addOption('to-rr-block-select', 'block-1', { cin: '2026-10-10', cout: '2026-10-12', room: 'R1' });
+      addOption('to-rr-room', 'R1');
+      document.getElementById('to-rr-start').value = '2026-10-10';
+      document.getElementById('to-rr-end').value = '2026-10-12';
+      document.getElementById('to-rr-start').dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (!refreshMode) return;
+    const h = window.__staffUiTestHooks;
+    let blocks = (cb) => cb(true);
+    let calendar = (cb) => cb({}, true);
+    if (refreshMode === 'blockFalse') blocks = (cb) => cb(false);
+    if (refreshMode === 'blockUndefined') blocks = (cb) => cb(undefined);
+    if (refreshMode === 'blockThrow') blocks = () => { throw new Error('block refresh throw'); };
+    if (refreshMode === 'blockReject') blocks = () => Promise.reject(new Error('block refresh reject'));
+    if (refreshMode === 'blockNoCallback') blocks = () => undefined;
+    if (refreshMode === 'missingBlockLoader') blocks = undefined;
+    if (refreshMode === 'calendarFalse') calendar = (cb) => cb({}, false);
+    if (refreshMode === 'calendarUndefined') calendar = (cb) => cb({}, undefined);
+    if (refreshMode === 'calendarThrow') calendar = () => { throw new Error('calendar refresh throw'); };
+    if (refreshMode === 'calendarReject') calendar = () => Promise.reject(new Error('calendar refresh reject'));
+    if (refreshMode === 'calendarNoCallback') calendar = () => undefined;
+    if (refreshMode === 'missingCalendarLoader') calendar = undefined;
+    if (refreshMode === 'missingDates') {
+      document.getElementById('bc-start').value = '';
+      document.getElementById('bc-end').value = '';
+    }
+    h.setTourOperatorRefreshLoaders(blocks, calendar);
+  }, { operation, refreshMode });
+  const button = operation === 'op' ? '#to-op-create-btn' : '#to-rr-release-btn';
+  const result = operation === 'op' ? '#to-op-result' : '#to-rr-result';
+  await page.locator(button).click();
+  await page.waitForFunction((selector) => {
+    const node = document.querySelector(selector);
+    return node && node.style.display === 'block' && node.textContent.trim();
+  }, result);
+  if (outcome === 'uncertain') await page.waitForTimeout(/NoCallback$/.test(refreshMode || '') ? 80 : 20);
+  const observed = await page.locator(result).evaluate((node) => ({
+    role: node.getAttribute('role'), live: node.getAttribute('aria-live'), text: node.textContent,
+  }));
+  const retry = await page.evaluate(() => window.__staffUiTestHooks.getTourOperatorRetryState());
+  await context.close();
+  return { observed, retry };
+}
+
+async function verifyRealTourOperatorFlows(browser, base) {
+  for (const operation of ['op', 'rr']) {
+    for (const outcome of ['success', 'blocked']) {
+      const got = await runRealTourOperatorScenario(browser, base, operation, outcome, null);
+      const success = outcome === 'success';
+      equal(`${operation} real ${outcome} announcement`, { role: got.observed.role, live: got.observed.live },
+        success ? { role: 'status', live: 'polite' } : { role: 'alert', live: 'assertive' });
+    }
+    for (const mode of [
+      'blockFalse', 'blockUndefined', 'blockThrow', 'blockReject', 'blockNoCallback', 'missingBlockLoader',
+      'calendarFalse', 'calendarUndefined', 'calendarThrow', 'calendarReject', 'calendarNoCallback', 'missingCalendarLoader',
+      'missingDates', 'trueTrue',
+    ]) {
+      const got = await runRealTourOperatorScenario(browser, base, operation, 'uncertain', mode);
+      equal(`${operation} real uncertain ${mode} announcement`, { role: got.observed.role, live: got.observed.live },
+        { role: 'alert', live: 'assertive' });
+      if (mode !== 'trueTrue') {
+        check(`${operation} refresh ${mode} shows translated recovery message`,
+          got.observed.text.includes('Refresh the block list and calendar before retrying.'), got.observed.text);
+      }
+      const hold = operation === 'op' ? got.retry.opHold : got.retry.rrHold;
+      const disabled = operation === 'op' ? got.retry.opDisabled : got.retry.rrDisabled;
+      equal(`${operation} retry ${mode}`, { hold, disabled },
+        mode === 'trueTrue' ? { hold: false, disabled: false } : { hold: true, disabled: true });
+    }
+  }
+}
+
 async function runWolfhouse(playwright, browser) {
   console.log('\n[1] Wolfhouse portal — lodging Admin shell\n');
   const server = createPortalServer(buildHtmlFor(WH_CLIENT));
   const base = await listen(server);
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.addInitScript((slug) => {
+    window.__staffUiTestHooks = {};
     localStorage.setItem('staff_portal_client', slug);
     localStorage.setItem('wh_staff_portal_locale', 'en');
   }, WH_CLIENT);
@@ -222,6 +340,10 @@ async function runWolfhouse(playwright, browser) {
     }), Object.values(HOSTED_SUBTABS));
     equal('exactly one hosted panel is active', activeHosted, ['tab-tour-operator']);
 
+    // Drive production Room Block and Room Release submit handlers. Responses and
+    // refresh dependencies vary, but no result renderer is invoked by the test.
+    await verifyRealTourOperatorFlows(browser, base);
+
     check('no uncaught page errors on Wolfhouse Admin', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await context.close();
@@ -235,6 +357,7 @@ async function runSunsetRegression(playwright, browser) {
   const base = await listen(server);
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.addInitScript((slug) => {
+    window.__staffUiTestHooks = {};
     localStorage.setItem('staff_portal_client', slug);
     localStorage.setItem('staff_portal_sunset_location', 'sunset-somo');
     localStorage.setItem('wh_staff_portal_locale', 'en');
