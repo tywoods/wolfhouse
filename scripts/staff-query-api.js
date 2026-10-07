@@ -47265,7 +47265,9 @@ async function handleHouseNotesPost(query, req, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body;
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  // 8000 UTF-16 units may occupy 48000 bytes as JSON escapes. Keep a bounded
+  // transport cap without rejecting notes that pass the existing text limit.
+  try { body = JSON.parse((await readBodyRaw(req, 64 * 1024)).toString('utf8') || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   try {
     const r = await withPgClient((pg) => setTenantHouseNotes(pg, { clientSlug, notes: body.notes, actor: user }));
     appendAuditLog({
