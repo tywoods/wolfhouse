@@ -532,6 +532,7 @@ const STAFF_PORTAL_STRINGS = {
     'lunaStaff.alerts.addRecipient': 'Add recipient',
     'lunaStaff.alerts.phoneHint': 'Use international phone format, e.g. +346****0000.',
     'lunaStaff.alerts.save': 'Save notification settings',
+    'lunaStaff.alerts.loadFailed': 'Could not load guest conversation alerts. Try again.',
     'lunaStaff.notes.title': 'General Notes for Luna',
     'lunaStaff.notes.sub': 'Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text — guests may see this.',
     'lunaStaff.notes.save': 'Save notes',
@@ -2024,6 +2025,7 @@ const STAFF_PORTAL_STRINGS = {
   },
   es: STAFF_PORTAL_ES,
   it: {
+    'lunaStaff.alerts.loadFailed': 'Impossibile caricare gli avvisi delle conversazioni degli ospiti. Riprova.',
     'app.brand': 'Luna Front Desk',
     'app.signOut': 'Esci',
     'schedule.courseEquipment.title': 'Attrezzatura del corso',

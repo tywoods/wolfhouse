@@ -24,6 +24,7 @@ const en = ctx.module.exports.en;
 
 /** @type {Record<string, string>} */
 const ES_OVERRIDES = {
+  'lunaStaff.alerts.loadFailed': 'No se pudieron cargar las alertas de conversaciones con huéspedes. Inténtalo de nuevo.',
   'app.brand': 'Luna Front Desk',
   'app.signOut': 'Cerrar sesión',
   'nav.tab.calendar': 'Calendario de reservas',
