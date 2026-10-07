@@ -1584,6 +1584,7 @@ function computeSunsetFinanceSummary(args) {
       net_equals_gross: completed_refunds_cents === 0,
       refund_basis: 'effective_date',
       refund_source: 'booking_refund_records',
+      unavailable_reason: refundLedgerUnavailable ? 'refund_source_unreadable' : null,
       // L4: compare nets independently (not prior/yoy gross).
       vs_prior_pct: refundLedgerUnavailable ? null : deltaPct(net_collected_cents, priorNet.net_collected_cents),
       vs_yoy_pct: refundLedgerUnavailable ? null : deltaPct(net_collected_cents, yoyNet.net_collected_cents),
@@ -1628,6 +1629,14 @@ function computeSunsetFinanceSummary(args) {
       sellable_bed_nights: bedOccupancy && Number.isFinite(Number(bedOccupancy.sellable_bed_nights)) ? Number(bedOccupancy.sellable_bed_nights) : null,
       pct: bedOccupancy && String(bedOccupancy.status) === 'complete' && Number(bedOccupancy.sellable_bed_nights) > 0
         ? Math.round((Number(bedOccupancy.occupied_bed_nights) * 10000) / Number(bedOccupancy.sellable_bed_nights)) / 100
+        : null,
+      // Partial current inventory is useful but not authoritative history.
+      // Keep pct null and expose an explicitly provisional ratio separately.
+      observed_pct: !(args && args.occupancy_data_unavailable)
+        && bedOccupancy && String(bedOccupancy.status) === 'partial'
+        && Number.isFinite(Number(bedOccupancy.occupied_bed_nights))
+        && Number(bedOccupancy.sellable_bed_nights) > 0
+        ? Math.round((Number(bedOccupancy.occupied_bed_nights) * 1000) / Number(bedOccupancy.sellable_bed_nights)) / 10
         : null,
       exception_count: bedOccupancy && Number.isFinite(Number(bedOccupancy.exception_count)) ? Number(bedOccupancy.exception_count) : 0,
     } : {

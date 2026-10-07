@@ -121,6 +121,7 @@ function financeRedesignTitle(view) {
         weekday: 'short', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
       });
     }
+    if (g === 'week') return financeRedesignFormatIsoRange(start, end);
     if (g === 'year') return String(start).slice(0, 4);
     if (g === 'custom') return financeRedesignFormatIsoRange(start, end);
     var m = new Date(start + 'T12:00:00');
@@ -160,13 +161,15 @@ function financeRedesignMonthLabel(idx) {
 }
 
 function financeRedesignBarRow(name, cents, pct, colorClass) {
-  var known = cents != null && pct != null;
-  var w = known ? Math.max(0, Math.min(100, Number(pct) || 0)) : 0;
+  var amountKnown = cents != null && Number.isFinite(Number(cents));
+  var shareKnown = pct != null && Number.isFinite(Number(pct));
+  var rawPct = shareKnown ? Number(pct) : null;
+  var w = shareKnown ? Math.max(0, Math.min(100, rawPct)) : 0;
   return '<div class="pfb-bar-row">' +
     '<span class="pfb-bar-name">' + financeRedesignEsc(name) + '</span>' +
     '<span class="pfb-bar-track"><span class="pfb-bar-fill ' + colorClass + '" style="width:' + w + '%"></span></span>' +
-    '<span class="pfb-bar-amt">' + (known ? financeRedesignEsc(financeRedesignFmtEur(cents)) : financeRedesignEsc(financeRedesignT('admin.finance.unavailable', 'Unavailable'))) + '</span>' +
-    '<span class="pfb-bar-pct">' + (known ? financeRedesignEsc(String(w % 1 ? w.toFixed(1) : w) + '%') : '—') + '</span>' +
+    '<span class="pfb-bar-amt">' + (amountKnown ? financeRedesignEsc(financeRedesignFmtEur(cents)) : '—') + '</span>' +
+    '<span class="pfb-bar-pct">' + (shareKnown ? financeRedesignEsc(String(rawPct % 1 ? rawPct.toFixed(1) : rawPct) + '%') : financeRedesignEsc(financeRedesignT('admin.finance.shareUnknown', 'share unknown'))) + '</span>' +
     '</div>';
 }
 
@@ -233,6 +236,8 @@ function financeRedesignTrendHtml(trend, mode, opts) {
         '</div>';
     });
     htmlMonthly += '</div>';
+  htmlMonthly += '<div class="pfb-trend-axis" aria-label="' + financeRedesignEsc(financeRedesignT('admin.finance.eurAxis', 'EUR scale')) + '">0 · ' + financeRedesignEsc(financeRedesignFmtEur(max)) + '</div>';
+    htmlMonthly += '<div class="pfb-trend-legend"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.currentSeries', 'Current period')) + '</span><span>' + financeRedesignEsc(financeRedesignT('admin.finance.priorYearSeries', 'Same period last year')) + '</span></div>';
     return htmlMonthly;
   }
   var html = '<div class="pfb-trend" data-finance-trend-mode="days" role="img" aria-label="' +
@@ -253,6 +258,8 @@ function financeRedesignTrendHtml(trend, mode, opts) {
       '</div>';
   });
   html += '</div>';
+  html += '<div class="pfb-trend-axis" aria-label="' + financeRedesignEsc(financeRedesignT('admin.finance.eurAxis', 'EUR scale')) + '">0 · ' + financeRedesignEsc(financeRedesignFmtEur(max)) + '</div>';
+  html += '<div class="pfb-trend-legend"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.currentSeries', 'Current period')) + '</span><span>' + financeRedesignEsc(financeRedesignT('admin.finance.priorYearSeries', 'Same period last year')) + '</span></div>';
   return html;
 }
 
@@ -297,20 +304,15 @@ function renderFinanceRedesignHtml(summary) {
     financeRedesignEsc(financeRedesignT('schedule.today', 'Today')) + '</button>';
   html += '</div></div>';
   html += '<div class="pfb-gran" role="tablist" aria-label="Granularity">';
-  [['day', 'Day'], ['week', 'Week'], ['month', 'Month']].forEach(function (row) {
+  [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['custom', 'Custom']].forEach(function (row) {
     var key = row[0]; var lab = row[1];
     var on = g === key ? ' is-on' : '';
     html += '<button type="button" role="tab" class="pfb-gran-btn' + on + '" data-finance-gran="' + key + '"' +
+      (key === 'custom' ? ' id="pfb-custom-range-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="pfb-custom-range-pop"' : '') +
       ' aria-selected="' + (g === key ? 'true' : 'false') + '">' +
       financeRedesignEsc(financeRedesignT('admin.finance.gran.' + key, lab)) + '</button>';
   });
   html += '<div class="pfb-custom-wrap">';
-  html += '<button type="button" class="pfb-custom' + (g === 'year' ? ' is-on' : '') + '" data-finance-gran="year">' +
-    financeRedesignEsc(financeRedesignT('admin.finance.gran.year', 'Year')) + '</button>';
-  html += '<button type="button" class="pfb-custom' + (g === 'custom' ? ' is-on' : '') + '" id="pfb-custom-range-trigger" data-finance-gran="custom" data-finance-nav="open-custom-range"' +
-    ' aria-haspopup="dialog" aria-expanded="false" aria-controls="pfb-custom-range-pop">' +
-    '<span id="pfb-custom-display" class="portal-schedule-create-date-range-display">' +
-    financeRedesignEsc(financeRedesignCustomDisplay(view)) + '</span></button>';
   html += '<div id="pfb-custom-range-pop" class="portal-schedule-create-date-range-popover pfb-custom-popover" role="dialog" aria-modal="false" aria-labelledby="pfb-custom-month-label" hidden style="display:none">';
   html += '<div class="pfb-custom-head pfb-cal-head">';
   html += '<button type="button" id="pfb-custom-prev" data-pfb-cal="prev" aria-label="' +
@@ -342,9 +344,9 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.netCollected', 'Net collected')) + '</div>';
   var netUnavailable = net.status === 'unavailable' || net.net_collected_cents == null;
   var netCents = Number(net.net_collected_cents);
-  var netBigCls = !netUnavailable && netCents < 0 ? 'pfb-big pfb-big--amber' : 'pfb-big pfb-big--green';
+  var netBigCls = netUnavailable ? 'pfb-big pfb-big--neutral' : (netCents < 0 ? 'pfb-big pfb-big--amber' : 'pfb-big pfb-big--green');
   html += '<div class="' + netBigCls + '">' + (netUnavailable
-    ? financeRedesignEsc(financeRedesignT('admin.finance.unavailable', 'Unavailable'))
+    ? '—'
     : financeRedesignEsc(financeRedesignFmtEur(netCents))) + '</div>';
   html += '<div class="pfb-row"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.grossCollected', 'Gross collected')) +
     '</span><b>' + financeRedesignEsc(financeRedesignFmtEur(net.gross_collected_cents || 0)) + '</b></div>';
@@ -358,6 +360,9 @@ function renderFinanceRedesignHtml(summary) {
       || financeRedesignT('admin.finance.netNote',
         'Net = gross collected − recorded refunds in this period (effective date). Manual records only — not Stripe.')
   ) + '</div>';
+  if (netUnavailable && net.unavailable_reason) {
+    html += '<div class="pfb-note">' + financeRedesignEsc(net.unavailable_reason) + '</div>';
+  }
   html += '</div>';
   html += '<div class="pfb-deltas">' +
     '<span class="pfb-delta-wrap"><span class="pfb-delta-lab">' + financeRedesignEsc(financeRedesignT('admin.finance.vsPrior', 'vs last period')) +
@@ -396,8 +401,7 @@ function renderFinanceRedesignHtml(summary) {
     String(out.bookings_count || 0) + ' ' + financeRedesignT('admin.finance.bookings', 'bookings')) + '</div>';
   html += '</div>';
   html += '<div class="pfb-card-bot">';
-  html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.dueDateUnknown', 'Due date unknown')) +
-    '</span><span class="pfb-pill pfb-pill--green">' + financeRedesignEsc(financeRedesignFmtEur(out.due_date_unknown_cents || 0)) + '</span></div>';
+  html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.dueDatesNotRecorded', 'Due dates not recorded')) + '</span></div>';
   html += '<div class="pfb-note">' + financeRedesignEsc(financeRedesignT('admin.finance.dateBasis', 'Current balance for selected cohort; contractual due dates unavailable.')) + '</div>';
   html += '<div class="pfb-scope-note" data-finance-kpi-scope="1" style="margin-top:8px;font-size:12px;line-height:1.35;opacity:0.78">' +
     financeRedesignEsc(financeRedesignT('admin.finance.kpiScopeNote',
@@ -407,17 +411,11 @@ function renderFinanceRedesignHtml(summary) {
 
   html += '</div>'; // hero
 
-  html += '<div class="pfb-card pfb-card--luna-bookings" data-finance-luna-bookings="1">';
-  html += '<div class="pfb-sec">Luna bookings</div>';
-  html += '<div class="pfb-mid">' + financeRedesignEsc(String(lunaBookings.total_bookings || 0)) + '</div>';
+  html += '<div class="pfb-booking-context" data-finance-luna-bookings="1"><strong>' + financeRedesignEsc(financeRedesignT('admin.finance.lunaBookings', 'Luna-created')) + ':</strong> ' + financeRedesignEsc(String(lunaBookings.total_bookings || 0));
   if (Number(lunaBookings.unknown_origin_count) > 0) {
-    html += '<div class="pfb-note">' + financeRedesignEsc(String(lunaBookings.unknown_origin_count) + ' ' +
-      financeRedesignT('admin.finance.originUnknown', 'bookings with unknown origin')) + '</div>';
+    html += ' · <span>' + financeRedesignEsc(String(lunaBookings.unknown_origin_count) + ' ' +
+      financeRedesignT('admin.finance.originUnknown', 'bookings with unknown origin')) + '</span>';
   }
-  (Array.isArray(lunaBookings.by_service) ? lunaBookings.by_service : []).forEach(function(row){
-    html += '<div class="pfb-row"><span>' + financeRedesignEsc(row.service_type || 'other') +
-      '</span><b>' + financeRedesignEsc(String(row.quantity || 0)) + '</b></div>';
-  });
   html += '</div>';
 
   // Two-col: product + capacity
@@ -463,7 +461,7 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--bars pfb-card--capacity">';
   html += '<div class="pfb-sec">' + financeRedesignEsc(financeRedesignT('admin.finance.bedOccupancy', 'Bed occupancy')) + '</div>';
   html += '<div class="pfb-cap-top">';
-  var seatsPct = cap.metric === 'bed_occupancy' ? cap.pct : cap.seats_pct;
+  var seatsPct = cap.metric === 'bed_occupancy' ? (cap.pct != null ? cap.pct : cap.observed_pct) : cap.seats_pct;
   var seatsPctKnown = seatsPct != null && Number.isFinite(Number(seatsPct));
   var seatsPctNum = seatsPctKnown ? Number(seatsPct) : null;
   // Ring fill clamps at 100% so overflow never paints a clipped/broken conic arc.
@@ -476,12 +474,12 @@ function renderFinanceRedesignHtml(summary) {
     ' style="--pfb-ring:' + ringPct + '%" aria-hidden="true">' +
     '<div class="pfb-ring-in"><b>' +
     (seatsPctNum != null
-      ? financeRedesignEsc(String(Math.round(seatsPctNum)) + '%')
+      ? financeRedesignEsc(String(seatsPctNum % 1 ? seatsPctNum.toFixed(1) : seatsPctNum) + '%')
       : '\u2014') +
     '</b><span>' + financeRedesignEsc(cap.metric === 'bed_occupancy' ? financeRedesignT('admin.finance.bedNights', 'bed-nights') : financeRedesignT('admin.finance.lessonSeats', 'lesson seats')) + '</span></div></div>';
   html += '<div class="pfb-bars pfb-bars--compact pfb-bars--capacity">';
   var capRows = cap.metric === 'bed_occupancy'
-    ? [{ slot: 'beds', label: financeRedesignT('admin.finance.occupiedBeds', 'Occupied / sellable bed-nights'), pct: cap.pct, detail: (cap.occupied_bed_nights != null && cap.sellable_bed_nights != null) ? (cap.occupied_bed_nights + '/' + cap.sellable_bed_nights) : financeRedesignT('admin.finance.unavailable', 'Unavailable') }]
+    ? [{ slot: 'beds', label: financeRedesignT('admin.finance.occupiedBeds', 'Occupied / sellable bed-nights'), pct: cap.pct != null ? cap.pct : cap.observed_pct, detail: (cap.occupied_bed_nights != null && cap.sellable_bed_nights != null) ? (Number(cap.occupied_bed_nights).toLocaleString(financeRedesignLocaleTag()) + '/' + Number(cap.sellable_bed_nights).toLocaleString(financeRedesignLocaleTag())) : financeRedesignT('admin.finance.unavailable', 'Unavailable') }]
     : Array.isArray(cap.by_product) && cap.by_product.length
     ? cap.by_product
     : [
@@ -515,6 +513,9 @@ function renderFinanceRedesignHtml(summary) {
     html += '</div>';
   });
   html += '</div></div>'; // bars + cap-top
+  if (cap.metric === 'bed_occupancy' && cap.pct == null && cap.observed_pct != null) {
+    html += '<div class="pfb-note pfb-note--provisional">' + financeRedesignEsc(financeRedesignT('admin.finance.provisionalOccupancy', 'Provisional — based on current sellable beds; historical availability incomplete')) + '</div>';
+  }
   if (cap.unsold_seats != null) {
     var spotsN = String(cap.unsold_seats);
     var spotsCopy = g === 'year'
