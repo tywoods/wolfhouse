@@ -217,7 +217,7 @@ function buildPaidRequestedSummaryLines(allServices) {
  * @param {string} bookingId
  * @returns {Promise<number>} number of rows split
  */
-const { normalizeSplitRentalMetadata } = require('./service-record-invoice-line');
+const { normalizeSplitRentalMetadata, resolveCatalogServiceDimensions } = require('./service-record-invoice-line');
 
 async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
   const r = await pg.query(
@@ -383,8 +383,13 @@ function formatServiceRecordForSchedule(row, opts = {}) {
     service_type: row.service_type || null,
     service_name: serviceName,
     service_date: serviceDate,
+    service_slot_id: row.service_slot_id || meta.slot_id || null,
+    service_time_local: row.service_time_local || meta.slot_time_local || null,
+    service_time_local_end: row.service_time_local_end || meta.slot_time_local_end || null,
+    slot_label: meta.slot_label || null,
     quantity: qty,
     people_count: peopleCount,
+    ...resolveCatalogServiceDimensions(meta),
     unit_price_cents: unit,
     total_price_cents: total,
     currency: 'EUR',
@@ -492,6 +497,8 @@ function buildBookingServicesSchedule(opts = {}) {
     check_in: checkIn,
     check_out: checkOut,
     services_by_date,
+    // Manage actions need real IDs/dates/slots, not the first row of a chip group.
+    individual_records: allServices,
     unscheduled_services: unscheduled,
     totals: {
       scheduled_count: scheduledCount,

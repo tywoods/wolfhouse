@@ -9524,6 +9524,22 @@ async function handleBookingAddService(req, res, user) {
   // add-ons keep the sync pricing path.
   const isCatalog = uiServiceType.indexOf('service:') === 0;
   const catalogServiceId = isCatalog ? uiServiceType.slice('service:'.length) : '';
+  if (clientSlug === 'wolfhouse-somo' && isCatalog && scheduleMode !== 'specific_date') {
+    return send400(res, 'Catalog services require a service date (or an Apply from/to range for daily services).');
+  }
+  if (clientSlug === 'wolfhouse-somo' && isCatalog) {
+    if (body.quantity != null && (!Number.isSafeInteger(Number(body.quantity)) || Number(body.quantity) < 1)) {
+      return send400(res, 'quantity must be a positive whole number');
+    }
+    for (const field of ['service_date', 'apply_from', 'apply_to']) {
+      if (body[field] == null || body[field] === '') continue;
+      const value = String(body[field]);
+      const parsed = parseCalendarDate(value);
+      if (!parsed || parsed.toISOString().slice(0, 10) !== value) {
+        return send400(res, `${field} must be a valid YYYY-MM-DD date`);
+      }
+    }
+  }
   if (isCatalog) {
     if (!UUID_VALIDATE_RE.test(catalogServiceId)) return send400(res, 'invalid catalog service id');
   } else if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
@@ -9624,6 +9640,11 @@ async function handleBookingAddService(req, res, user) {
     if (svcRow.price_unit === 'per_day') {
       const reqFrom = body.apply_from && DATE_RE.test(String(body.apply_from)) ? String(body.apply_from) : null;
       const reqTo = body.apply_to && DATE_RE.test(String(body.apply_to)) ? String(body.apply_to) : null;
+      if (clientSlug === 'wolfhouse-somo'
+          && ((reqFrom && (reqFrom < bookingRow.check_in || reqFrom >= bookingRow.check_out))
+            || (reqTo && (reqTo <= bookingRow.check_in || reqTo > bookingRow.check_out)))) {
+        return send400(res, 'Apply from/to must stay within the booking dates.');
+      }
       if (reqFrom) applyFrom = clampDate(reqFrom, bookingRow.check_in, bookingRow.check_out);
       if (reqTo) applyTo = clampDate(reqTo, bookingRow.check_in, bookingRow.check_out);
     }
@@ -9645,6 +9666,14 @@ async function handleBookingAddService(req, res, user) {
       if (outOfWindow) {
         const human = `${svcRow.start_date || '…'} to ${svcRow.end_date || '…'}`;
         return send400(res, `${svcRow.name} is not available for those dates — it can only be added between ${human}.`);
+      }
+    }
+
+    if (clientSlug === 'wolfhouse-somo' && svcRow.price_unit !== 'per_day') {
+      const appliedDate = serviceDateIn || bookingRow.check_in;
+      if ((svcRow.start_date && appliedDate < svcRow.start_date)
+          || (svcRow.end_date && appliedDate > svcRow.end_date)) {
+        return send400(res, `${svcRow.name} is not available for those dates — it can only be added between ${svcRow.start_date || '…'} to ${svcRow.end_date || '…'}.`);
       }
     }
 
@@ -9685,7 +9714,8 @@ async function handleBookingAddService(req, res, user) {
 
   if (isCatalog) {
     // One consolidated record dated at the first applied night.
-    unitDates = [ serviceDateIn || (pricing.metadata_extra && pricing.metadata_extra.apply_from) || bookingRow.check_in || null ];
+    const appliedFrom = pricing.metadata_extra && pricing.metadata_extra.apply_from;
+    unitDates = [ (clientSlug === 'wolfhouse-somo' && appliedFrom) || serviceDateIn || appliedFrom || bookingRow.check_in || null ];
   } else if (scheduleMode === 'schedule_later') {
     unitDates = Array(unitQty).fill(null);
   } else if (scheduleMode === 'span_across_booking') {
@@ -10000,18 +10030,22 @@ async function handleBookingRemoveService(req, res, user) {
     const result = await withPgClient(async (pg) => {
       const removedRows = [];
       let anyRemoved = false;
-      for (const rid of recordIds) {
+      const atomic = clientSlug === 'wolfhouse-somo';
+      if (atomic) await pg.query('BEGIN');
+      try {
+      for (const rid of [...recordIds].sort()) {
         const existing = await pg.query(
           `SELECT sr.id::text AS id, sr.booking_id::text AS booking_id, sr.service_type,
                   sr.quantity, sr.amount_due_cents
            FROM booking_service_records sr
            WHERE sr.id = $1::uuid AND sr.client_slug = $2
-           LIMIT 1`,
+           LIMIT 1${atomic ? ' FOR UPDATE' : ''}`,
           [rid, clientSlug],
         );
         const row = existing.rows[0];
         if (!row) continue;
         if (row.booking_id !== bookingRow.booking_id) {
+          if (atomic) await pg.query('ROLLBACK');
           return { not_owned: true };
         }
         const del = await pg.query(
@@ -10025,6 +10059,7 @@ async function handleBookingRemoveService(req, res, user) {
           removedRows.push(del.rows[0]);
         }
       }
+      if (atomic) await pg.query('COMMIT');
       return {
         idempotent: !anyRemoved,
         removed: anyRemoved,
@@ -10032,6 +10067,10 @@ async function handleBookingRemoveService(req, res, user) {
         removed_count: removedRows.length,
         reason,
       };
+      } catch (err) {
+        if (atomic) await pg.query('ROLLBACK').catch(() => {});
+        throw err;
+      }
     });
 
     let comboRebalance = null;
@@ -40200,16 +40239,21 @@ function bcRunningInvoiceSvcLineText(sr){
     return label + ' \u2014 Not available';
   }
   if (meta.catalog_service) {
-    var cg = Math.max(1, Number(meta.guests_charged || meta.quantity || 1));
-    var cgWord = bcPluralUnit(cg, 'guest', 'guests');
+    var cg = Number(meta.guests_charged || meta.quantity || 1);
+    if (!Number.isFinite(cg) || cg <= 0) cg = 1;
+    var guestText = cg + ' ' + bcPluralUnit(cg, 'guest', 'guests');
     var cUnit = meta.catalog_price_cents != null ? Number(meta.catalog_price_cents) : null;
-    if (meta.price_unit === 'per_day' && Number(meta.nights_charged) > 0) {
-      var cd = Number(meta.nights_charged);
-      var cdWord = bcPluralUnit(cd, 'day', 'days');
-      if (cUnit != null) return label + ' \u2014 ' + cg + ' ' + cgWord + ' \u00d7 ' + cd + ' ' + cdWord + ' \u00d7 ' + eur(cUnit) + ' = ' + eur(totalCents);
-      return label + ' \u2014 ' + cg + ' ' + cgWord + ' \u00d7 ' + cd + ' ' + cdWord + ' = ' + eur(totalCents);
+    var cd = Number(meta.nights_charged);
+    var unitText = null;
+    if (meta.price_unit === 'per_day' && Number.isFinite(cd) && cd > 0) unitText = cd + ' ' + bcPluralUnit(cd, 'day', 'days');
+    else if (meta.price_unit === 'per_stay') unitText = '1 stay';
+    else if (meta.price_unit === 'per_lesson') unitText = '1 lesson';
+    if (unitText) {
+      var parts = meta.per_guest !== false ? [guestText, unitText] : [unitText];
+      if (cUnit != null && Number.isFinite(cUnit) && cUnit >= 0) parts.push(eur(cUnit));
+      return label + ' \u2014 ' + parts.join(' \u00d7 ') + ' = ' + eur(totalCents);
     }
-    if (cg > 1) return label + ' \u2014 ' + cg + ' ' + cgWord + ' = ' + eur(totalCents);
+    if (meta.per_guest !== false && cg > 1) return label + ' \u2014 ' + guestText + ' = ' + eur(totalCents);
     return label + ' \u2014 ' + eur(totalCents);
   }
   var rentalPeople = bcResolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type);
@@ -43222,6 +43266,7 @@ function bcRenderAddServicePanelHtml(bk){
     '<div class="bc-add-ons-sched-mode-links" id="bc-add-ons-sched-mode-links">' +
     '<button type="button" class="bc-add-ons-sched-link" data-mode="span_across_booking">' + escHtml(t('drawer.services.spanBooking')) + '</button>' +
     '<button type="button" class="bc-add-ons-sched-link" data-mode="schedule_later">' + escHtml(t('drawer.services.scheduleLater')) + '</button>' +
+    '<button type="button" class="bc-add-ons-sched-link" data-mode="specific_date">' + escHtml(t('drawer.services.serviceDate')) + '</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-catalog-range" style="display:none">' +
     '<label class="ctx-field-label" for="bc-add-ons-from">Apply from (first night)</label>' +
@@ -43255,11 +43300,15 @@ function bcAddServiceApplyScheduleMode(mode){
     btn.classList.toggle('is-active', active);
   });
   if (mode === 'schedule_later') {
-    if (wrap) wrap.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+    if (lbl) lbl.style.display = 'none';
+    if (dateEl) dateEl.style.display = 'none';
     if (dateEl) dateEl.value = '';
     return;
   }
   if (wrap) wrap.style.display = '';
+  if (lbl) lbl.style.display = '';
+  if (dateEl) dateEl.style.display = '';
   if (lbl) lbl.textContent = mode === 'span_across_booking' ? 'Start Date' : 'Service Date';
   if (dateEl && !dateEl.value && bcAddServiceCtx.checkIn) dateEl.value = bcAddServiceCtx.checkIn;
 }
@@ -43276,6 +43325,9 @@ function bcAddServiceUpdateQtyLabel(){
 }
 
 function bcCloseAddServiceForm(){
+  bcAddServiceCtx.addFormGeneration = (bcAddServiceCtx.addFormGeneration || 0) + 1;
+  bcAddServiceCtx.addOperation = null;
+  bcAddServiceCtx.addInFlight = false;
   var wrap = el('bc-add-ons-form-wrap');
   if (wrap) wrap.style.display = 'none';
   var btn = el('bc-add-ons-btn');
@@ -43329,12 +43381,18 @@ function bcAddServiceEntryRowHtml(rowId){
     '</select>' +
     '<label class="ctx-field-label bc-add-ons-entry-qty-label">Quantity / Days</label>' +
     '<input type="number" class="bk-input bk-input-sm bc-add-ons-entry-qty" min="1" value="1">' +
+    '<label class="ctx-field-label bc-add-ons-entry-slot-wrap" style="display:none">Lesson time' +
+    '<select class="bk-input bk-input-sm bc-add-ons-entry-slot" disabled></select></label>' +
     '</div>';
 }
 
 function bcAddServiceResetEntryRows(){
   var wrap = el('bc-add-ons-entry-rows');
   if (!wrap) return;
+  ['date', 'from', 'to', 'note', 'add-row-btn'].forEach(function(id){
+    var input = el('bc-add-ons-' + id); if (input) input.disabled = false;
+  });
+  document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){ btn.disabled = false; });
   wrap.innerHTML = bcAddServiceEntryRowHtml('0');
   bcAddServiceUpdateEntryQtyLabels(wrap);
 }
@@ -43358,6 +43416,21 @@ function bcAddServiceUpdateEntryQtyLabels(scope){
     if (!sel || !lbl) return;
     var t = sel.value;
     var cat = bcEntryCatalogService(t);
+    var slotEl = row.querySelector('.bc-add-ons-entry-slot');
+    var slotWrap = row.querySelector('.bc-add-ons-entry-slot-wrap');
+    if (slotEl && slotWrap) {
+      var slots = getBcClient() === 'wolfhouse-somo' && cat && cat.category === 'lesson' && Array.isArray(cat.schedule_slots)
+        ? cat.schedule_slots.filter(function(s){ return s && s.active !== false; }) : [];
+      var priorSlot = slotEl.getAttribute('data-service-id') === t ? slotEl.value : '';
+      slotEl.setAttribute('data-service-id', t);
+      slotEl.disabled = !slots.length;
+      slotWrap.style.display = slots.length ? '' : 'none';
+      slotEl.innerHTML = '<option value="">Choose a lesson time</option>' + slots.map(function(s){
+        return '<option value="' + escHtml(String(s.slot_id)) + '">' +
+          escHtml((s.label ? s.label + ' · ' : '') + s.time_local + (s.time_local_end ? '–' + s.time_local_end : '')) + '</option>';
+      }).join('');
+      slotEl.value = priorSlot;
+    }
     if (cat) {
       lbl.textContent = cat.per_guest === false ? 'Quantity' : 'Guests';
       // Default headcount to the whole party the first time a catalog service is picked.
@@ -43377,10 +43450,17 @@ function bcAddServiceUpdateEntryQtyLabels(scope){
 // Service Date / schedule links for built-in add-ons.
 function bcAddServiceUpdateCatalogUi(){
   var anyCatalogPerDay = false;
+  var anyCatalog = false;
   document.querySelectorAll('.bc-add-ons-entry-row .bc-add-ons-entry-type').forEach(function(sel){
     var cat = bcEntryCatalogService(sel.value);
+    if (cat) anyCatalog = true;
     if (cat && cat.price_unit === 'per_day') anyCatalogPerDay = true;
   });
+  if (getBcClient() === 'wolfhouse-somo') {
+    var links = el('bc-add-ons-sched-mode-links');
+    if (links) links.style.display = anyCatalog ? 'none' : '';
+    if (anyCatalog) bcAddServiceApplyScheduleMode('specific_date');
+  }
   var range = el('bc-add-ons-catalog-range');
   if (range) range.style.display = anyCatalogPerDay ? '' : 'none';
   var hint = el('bc-add-ons-range-hint');
@@ -43398,9 +43478,13 @@ function bcAddServiceCollectEntryRows(){
   document.querySelectorAll('.bc-add-ons-entry-row').forEach(function(row){
     var typeEl = row.querySelector('.bc-add-ons-entry-type');
     var qtyEl = row.querySelector('.bc-add-ons-entry-qty');
-    var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
-    if (!typeEl || !typeEl.value || !Number.isFinite(qty) || qty < 1) return;
-    rows.push({ service_type: typeEl.value, quantity: qty });
+    if (row._bcAddComplete) return;
+    var qty = qtyEl ? Number(qtyEl.value) : 1;
+    if (!typeEl || !typeEl.value) return;
+    var slotEl = row.querySelector('.bc-add-ons-entry-slot');
+    rows.push({ service_type: typeEl.value, quantity: qty, row: row,
+      service_slot_id: slotEl && !slotEl.disabled ? slotEl.value : null,
+      slot_required: !!(slotEl && !slotEl.disabled) });
   });
   return rows;
 }
@@ -43435,7 +43519,10 @@ function bcPopulateRemoveSelect(svcRows){
     if (!id) return;
     var opt = document.createElement('option');
     opt.value = id;
-    opt.textContent = bcRunningInvoiceSvcLineText(sr);
+    var meta = bcParseServiceRecordMeta(sr.metadata);
+    var when = sr.service_date || 'Unscheduled';
+    var time = sr.service_time_local || meta.slot_time_local || '';
+    opt.textContent = bcRunningInvoiceSvcLineText(sr) + ' — ' + when + (time ? ' ' + time : '');
     sel.appendChild(opt);
   });
   bcAddServiceUpdateRemoveConfirmState();
@@ -43459,6 +43546,9 @@ function bcOpenAddServiceForm(data){
   bcCloseRemoveServiceForm();
   var wrap = el('bc-add-ons-form-wrap');
   if (!wrap) return;
+  bcAddServiceCtx.addFormGeneration = (bcAddServiceCtx.addFormGeneration || 0) + 1;
+  bcAddServiceCtx.addOperation = null;
+  bcAddServiceCtx.addInFlight = false;
   var bk = (data && data.booking) || {};
   bcAddServiceCtx.checkIn = bk.check_in || null;
   bcAddServiceCtx.checkOut = bk.check_out || null;
@@ -43591,16 +43681,32 @@ function bcRunAddServiceSave(){
   if (bcAddServiceCtx.addInFlight) return;
   var code = bcAddServiceCtx.bookingCode;
   if (!code) return;
+  var client = getBcClient();
+  var bookingId = bcAddServiceCtx.bookingId;
+  function currentContextKey(){
+    return JSON.stringify([getBcClient(), bcAddServiceCtx.bookingId, bcAddServiceCtx.bookingCode, bcAddServiceCtx.addFormGeneration || 0]);
+  }
+  var contextKey = currentContextKey();
   function bcFinishAddServiceMutation(message){
     bcCloseAddServiceForm();
     bcRenderAddServiceResult({ success: true, message: message }, false);
     bcRefreshServicesTabAfterMutation({ booking_id: bcAddServiceCtx.bookingId, booking_code: code });
   }
   var entries = bcAddServiceCollectEntryRows();
+  if (entries.some(function(entry){ return entry.row._bcAddRequest && entry.row._bcAddContext !== contextKey; })) {
+    bcRenderAddServiceResult({ success: false, error: 'This retry belongs to another tenant, booking or form. Return to its original context or reopen the form.' }, true);
+    return;
+  }
   if (!entries.length){
     bcRenderAddServiceResult({ success: false, error: 'Add at least one service with quantity.' }, true);
     return;
   }
+  if (entries.some(function(entry){ return !Number.isInteger(entry.quantity) || entry.quantity < 1 || (entry.slot_required && !entry.service_slot_id); })) {
+    bcRenderAddServiceResult({ success: false, error: 'Enter a positive whole quantity and choose a lesson time where shown.' }, true);
+    return;
+  }
+  var operation = { contextKey: contextKey };
+  bcAddServiceCtx.addOperation = operation;
   bcAddServiceCtx.addInFlight = true;
   var saveBtn = el('bc-add-ons-save-btn');
   if (saveBtn) saveBtn.disabled = true;
@@ -43615,49 +43721,63 @@ function bcRunAddServiceSave(){
   var toEl = el('bc-add-ons-to');
   var applyFrom = fromEl && fromEl.value ? fromEl.value : null;
   var applyTo = toEl && toEl.value ? toEl.value : null;
-  var client = getBcClient();
+  var errors = [], saved = 0;
+  function stillCurrent(){ return bcAddServiceCtx.addOperation === operation && currentContextKey() === operation.contextKey; }
+  // An unresolved response must be retried with exactly the same payload/key.
+  // Lock this batch's inputs; closing and reopening starts a deliberate new batch.
+  ['date', 'from', 'to', 'note', 'add-row-btn'].forEach(function(id){
+    var input = el('bc-add-ons-' + id); if (input) input.disabled = true;
+  });
+  document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){ btn.disabled = true; });
   var chain = Promise.resolve();
   entries.forEach(function(entry){
+    var row = entry.row;
+    if (!row._bcAddRequest) {
+      row._bcAddContext = contextKey;
+      row._bcAddRequest = JSON.stringify({
+        client_slug: client, booking_id: bookingId, booking_code: code,
+        service_type: entry.service_type, quantity: entry.quantity,
+        schedule_mode: scheduleMode, service_date: serviceDate,
+        service_slot_id: entry.service_slot_id || null,
+        apply_from: applyFrom, apply_to: applyTo, note: note,
+        idempotency_key: bcNewAddServiceIdempotencyKey(),
+      });
+    }
+    row.querySelectorAll('input, select').forEach(function(input){ input.disabled = true; });
     chain = chain.then(function(){
+      if (!stillCurrent()) return;
       return fetch('/staff/bookings/add-service', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_slug: client,
-          booking_id: bcAddServiceCtx.bookingId,
-          booking_code: bcAddServiceCtx.bookingCode,
-          service_type: entry.service_type,
-          quantity: entry.quantity,
-          schedule_mode: scheduleMode,
-          service_date: serviceDate,
-          apply_from: applyFrom,
-          apply_to: applyTo,
-          note: note,
-          idempotency_key: bcNewAddServiceIdempotencyKey(),
-        }),
-      }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); });
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: row._bcAddRequest,
+      }).then(function(r){
+        return r.json().then(function(d){
+          if (!r.ok || !d || !d.success) throw new Error((d && d.error) || 'Service failed to add.');
+          row._bcAddComplete = true;
+          saved++;
+        });
+      }).catch(function(e){ errors.push(e.message || 'Network error'); });
     });
   });
-  chain
-    .then(function(lastRes){
-      bcAddServiceCtx.addInFlight = false;
-      if (saveBtn) saveBtn.disabled = false;
-      if (!lastRes || !lastRes.ok || !lastRes.data || !lastRes.data.success){
-        bcRenderAddServiceResult({
-          success: false,
-          error: (lastRes && lastRes.data && lastRes.data.error) || 'One or more services failed to add.',
-        }, true);
-        return;
-      }
-      bcFinishAddServiceMutation(
-        entries.length > 1 ? (entries.length + ' services added.') : (lastRes.data.message || 'Service added.'),
-      );
-    })
-    .catch(function(e){
-      bcAddServiceCtx.addInFlight = false;
-      if (saveBtn) saveBtn.disabled = false;
-      bcRenderAddServiceResult({ success: false, error: e.message || 'Network error' }, true);
-    });
+  return chain.then(function(){
+    // Only this operation may release its busy state, even after a tenant switch.
+    // A closed/reopened form or newer batch owns its own state and must be untouched.
+    if (bcAddServiceCtx.addOperation !== operation) return;
+    var current = stillCurrent();
+    bcAddServiceCtx.addOperation = null;
+    bcAddServiceCtx.addInFlight = false;
+    if (saveBtn) saveBtn.disabled = false;
+    if (!current) {
+      bcRenderAddServiceResult({ success: false, error: 'The service context changed. Return to the original tenant and booking to retry unresolved entries, or reopen the form.' }, true);
+      return;
+    }
+    if (errors.length) {
+      if (saved) bcRefreshServicesTabAfterMutation({ booking_id: bookingId, booking_code: code });
+      bcRenderAddServiceResult({ success: false,
+        error: saved + ' of ' + entries.length + ' services added. ' + errors.join(' ') +
+          ' Retry unresolved entries with Confirm add; already saved entries will not be added again.' }, true);
+      return;
+    }
+    bcFinishAddServiceMutation(saved > 1 ? (saved + ' services added.') : 'Service added.');
+  });
 }
 
 function bcRefreshServicesAddonControls(bk, svcRows){
@@ -44860,7 +44980,9 @@ function bcRenderServicesScheduleSections(data){
       html += bcRenderSchedulePickerHtml(unsched, g.date);
       html += '</div>';
       html += '<div class="bc-svc-unschedule-picker" data-date="' + escHtml(g.date || '') + '">';
-      html += bcRenderUnschedulePickerHtml(dayServices);
+      var individual = Array.isArray(data.individual_records)
+        ? data.individual_records.filter(function(s){ return s.service_date === g.date; }) : dayServices;
+      html += bcRenderUnschedulePickerHtml(individual);
       html += '</div>';
       html += '</div>';
     });
