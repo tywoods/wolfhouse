@@ -45,6 +45,7 @@
       '#staff-room-fill .rf-row{padding:12px 0;flex-wrap:wrap;gap:10px}',
       '#staff-room-fill .rf-rank{border-radius:50%;background:var(--surface-soft,#f3f4f2);width:28px;height:28px;display:grid;place-items:center;font-size:12px}',
       '#staff-room-fill .rf-code{font-size:14px}',
+      '#staff-room-fill .rf-identity{display:flex;flex-direction:column;gap:4px;flex:1 1 140px;min-width:0}',
       '#staff-room-fill .rf-meta{color:var(--muted,#737b77)}',
       '#staff-room-fill .rf-pebble{display:inline-flex;border-radius:999px;font-size:12px;padding:5px 10px;background:var(--staff-green-bg,#e4eee6);color:var(--staff-green-text,#315b42)}',
       '#staff-room-fill .rf-pebble[data-gender=female]{background:var(--staff-purple-bg,#eee8f3);color:var(--staff-purple-text,#70517d)}',
@@ -518,6 +519,23 @@
     var current = String(room.genderLabel || '').toLowerCase();
     if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
     var draft = s.genderDrafts[id];
+    var sellingMode = draft && draft.sellingMode || room.sellingMode || 'shared';
+    if (room.sellingMode !== undefined) {
+      var selling = document.createElement('select');
+      selling.id = 'rf-selling-' + id;
+      selling.setAttribute('aria-label', 'Selling mode for ' + labelFor(room));
+      [['shared', 'Shared'], ['private', 'Private'], ['private_optional', 'Private-optional']].forEach(function (pair) {
+        var option = document.createElement('option'); option.value = pair[0]; option.textContent = pair[1]; selling.appendChild(option);
+      });
+      selling.value = sellingMode;
+      selling.disabled = placementBusy() || room.sellingModeEditable !== true;
+      selling.addEventListener('change', function () {
+        if (placementBusy()) return;
+        s.genderDrafts[id] = { value: draft && draft.value || current, sellingMode: selling.value };
+        paint(); el(selling.id).focus();
+      });
+      wrap.appendChild(selling);
+    }
     var select = document.createElement('select');
     select.id = 'rf-gender-' + id;
     select.setAttribute('aria-label', 'Gender for ' + labelFor(room));
@@ -526,16 +544,17 @@
       opt.disabled = !pair[0]; select.appendChild(opt);
     });
     select.value = draft ? draft.value : current;
-    select.disabled = placementBusy();
+    select.disabled = placementBusy() || sellingMode === 'private';
     select.addEventListener('change', function () {
       if (placementBusy()) return;
-      s.genderDrafts[id] = { value: select.value };
+      s.genderDrafts[id] = { value: select.value, sellingMode: draft && draft.sellingMode };
       paint(); el(select.id).focus();
     });
     wrap.appendChild(select);
     var save = button('Save', 'rf-gender-save-' + id, function () { saveGender(room); });
-    save.setAttribute('aria-label', 'Save gender for ' + labelFor(room));
-    save.disabled = placementBusy() || !draft || !draft.value || draft.value === current;
+    save.setAttribute('aria-label', (draft && draft.sellingMode ? 'Save room for ' : 'Save gender for ') + labelFor(room));
+    save.disabled = placementBusy() || !draft || (!draft.value && !draft.sellingMode)
+      || (draft.value === current && (!draft.sellingMode || draft.sellingMode === room.sellingMode));
     wrap.appendChild(save);
     var cancel = button('Cancel', 'rf-gender-cancel-' + id, function () {
       if (placementBusy()) return;
@@ -557,7 +576,7 @@
   function saveGender(room) {
     var s = state();
     var draft = s.genderDrafts[room.roomId];
-    if (placementBusy() || !s.server || room.genderEditable !== true || !draft || !draft.value) return;
+    if (placementBusy() || !s.server || room.genderEditable !== true || !draft || (!draft.value && !draft.sellingMode)) return;
     var revision = s.server.settingsRevision;
     s.loadSequence = (s.loadSequence || 0) + 1;
     s.genderPending = room.roomId;
@@ -566,14 +585,16 @@
     fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(room.roomId) + '/gender', {
       method: 'PUT', credentials: 'same-origin',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gender: draft.value, expectedCatalogRevision: s.server.catalogRevision })
+      body: JSON.stringify(Object.assign({ expectedCatalogRevision: s.server.catalogRevision },
+        draft.value && draft.value !== String(room.genderLabel || '').toLowerCase() ? { gender: draft.value } : {},
+        draft.sellingMode ? { sellingMode: draft.sellingMode } : { gender: draft.value }))
     }).then(function (res) { return res.json().then(function (body) { return { status: res.status, body: body }; }); })
       .then(function (res) {
         if (!currentState(s)) return;
         s.genderPending = null;
         if (res.status !== 200 || !res.body || res.body.success !== true) {
           draft.error = true;
-          draft.message = 'Could not save gender: ' + (res.body && res.body.error || 'request failed') + '. Your draft is retained.';
+          draft.message = 'Could not save room: ' + (res.body && res.body.error || 'request failed') + '. Your draft is retained.';
         } else {
           // Dirty placement keeps its draft and original CAS base; clean placement
           // must adopt the authoritative policy together with its revision.
@@ -583,7 +604,7 @@
             s.server.settingsRevision = revision;
           } else applyServer(res.body);
           delete s.genderDrafts[room.roomId];
-          s.genderDrafts[room.roomId] = { value: draft.value, message: 'Saved' };
+          s.genderDrafts[room.roomId] = { value: draft.value, sellingMode: draft.sellingMode, message: 'Saved' };
           if (typeof bcInvalidateBedCalendar === 'function') bcInvalidateBedCalendar();
         }
         paint();
@@ -675,8 +696,11 @@
     moves.appendChild(down);
     row.appendChild(handle);
     row.appendChild(rank);
-    row.appendChild(code);
-    row.appendChild(meta);
+    var identity = document.createElement('div');
+    identity.className = 'rf-identity';
+    identity.appendChild(code);
+    identity.appendChild(meta);
+    row.appendChild(identity);
     row.appendChild(genderEditor(room));
     row.appendChild(moves);
     return row;

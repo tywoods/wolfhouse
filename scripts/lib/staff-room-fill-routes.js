@@ -41,6 +41,7 @@ SELECT
   r.name AS room_name,
   r.house,
   r.room_type,
+  COALESCE(to_jsonb(r)->>'selling_mode', 'shared') AS selling_mode,
   r.capacity,
   r.active AS room_active,
   r.gender_strategy,

@@ -245,6 +245,12 @@ function previewManualBookingAvailability(input) {
   if (inactiveOrUnsellable.length > 0) {
     blockers.push('bed_inactive_or_unsellable');
   }
+  // This preview only reads selected beds, not whole-room all-night inventory.
+  // A private reservation needs the canonical private create path, not this
+  // bed-by-bed success signal (even when a caller labels its request private).
+  if (selectedBeds.some(bed => bed.selling_mode === 'private')) {
+    blockers.push('private_room_requires_private_booking');
+  }
 
   // ── Guest count vs selected bed count ─────────────────────────────────────
   const selectedBedCount = selectedCodes.length;

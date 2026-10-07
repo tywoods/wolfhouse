@@ -1073,6 +1073,20 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         };
       }
     }
+    // Lock authoritative selected room settings before the write, including Staff
+    // commands built without a database and commands with availability provenance.
+    const selectedRooms = (await pg.query(`SELECT r.id, r.selling_mode FROM rooms r
+      JOIN clients c ON c.id=r.client_id WHERE c.slug=$1 AND r.id IN (
+        SELECT bd.room_id FROM beds bd WHERE bd.client_id=c.id AND bd.bed_code=ANY($2::text[])
+      ) ORDER BY r.id FOR UPDATE OF r`, [clientSlug, assignedBedCodes])).rows;
+    const hooks = execOpts && execOpts.privateRoomHooks;
+    const willReservePrivate = hooks
+      ? typeof hooks.enabled === 'function' && hooks.enabled(roomType) && typeof hooks.syncPrivateRoomBlocks === 'function'
+      : ['private', 'double'].includes(String(roomType || '').toLowerCase()) || command.roomPreference === 'private';
+    if (selectedRooms.some(r => r.selling_mode === 'private') && !willReservePrivate) {
+      await pg.query('ROLLBACK');
+      return fail(409, 'private_room_requires_private_booking', 'This room requires a whole-room private reservation.', { write_performed: false });
+    }
     const r = await pg.query(buildManualBookingCreateSql(), [
       clientSlug,
       actor.staff_user_id,
@@ -1338,7 +1352,16 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       result._service_records_available = svcInsert.available;
       result._service_records_warning = svcInsert.warning;
 
-      const privateRoomHooks = execOpts && execOpts.privateRoomHooks;
+    }
+
+      // Companion locks are part of booking correctness, not an optional route
+      // decoration. Both Luna and Staff use the existing Staff block protocol.
+      const privateRoomHooks = (execOpts && execOpts.privateRoomHooks) || {
+        enabled: (type) => ['private', 'double'].includes(String(type || '').toLowerCase())
+          || command.roomPreference === 'private',
+        syncPrivateRoomBlocks: (client, slug, booking) => require('./staff-private-room-blocks')
+          .editWriteSyncPrivateRoomBedBlocks(client, slug, booking, true),
+      };
       if (privateRoomHooks && typeof privateRoomHooks.enabled === 'function'
         && privateRoomHooks.enabled(roomType)
         && typeof privateRoomHooks.syncPrivateRoomBlocks === 'function') {
@@ -1373,7 +1396,6 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         }
         result._bed_block = bedSync;
       }
-    }
 
     await pg.query('COMMIT');
     return {

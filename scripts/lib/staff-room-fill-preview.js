@@ -111,6 +111,9 @@ function unavailableCount(room, busy, night) {
 }
 
 function safetyFor(room, ctx, partySize) {
+  // This read-only preview is bed-by-bed, not a whole-room reservation plan.
+  // Do not advertise saved Private through either fill strategy.
+  if (room.sellingMode === 'private') return { ok: false, reasons: ['protected_private_room'] };
   const category = resolveRoomCategory({
     room_type: room.roomType,
     gender_strategy: room.genderStrategy,

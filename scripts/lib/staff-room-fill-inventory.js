@@ -223,14 +223,16 @@ async function createRoomFillInventory(pg, input) {
 function parseGenderRequest(roomId, body) {
   if (!UUID_RE.test(roomId || '')) throw fail(400, 'invalid_room_id');
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'invalid_json');
-  if (Object.keys(body).some(key => !['gender', 'expectedCatalogRevision'].includes(key))) throw fail(400, 'invalid_gender_request');
-  if (typeof body.gender !== 'string' || !Object.hasOwn(GENDER_SAVE, body.gender)) throw fail(400, 'invalid_gender');
+  if (Object.keys(body).some(key => !['gender', 'sellingMode', 'expectedCatalogRevision'].includes(key))) throw fail(400, 'invalid_gender_request');
+  if (!Object.hasOwn(body, 'gender') && !Object.hasOwn(body, 'sellingMode')) throw fail(400, 'invalid_gender');
+  if (Object.hasOwn(body, 'gender') && (typeof body.gender !== 'string' || !Object.hasOwn(GENDER_SAVE, body.gender))) throw fail(400, 'invalid_gender');
+  if (Object.hasOwn(body, 'sellingMode') && !['shared', 'private', 'private_optional'].includes(body.sellingMode)) throw fail(400, 'invalid_selling_mode');
   if (typeof body.expectedCatalogRevision !== 'string' || !/^[a-f0-9]{64}$/.test(body.expectedCatalogRevision)) throw fail(400, 'missing_catalog_revision');
   return GENDER_SAVE[body.gender];
 }
 
 async function updateRoomFillGender(pg, input) {
-  const mapped = parseGenderRequest(input.roomId, input.body);
+  const genderMapped = parseGenderRequest(input.roomId, input.body);
   await pg.query('BEGIN');
   try {
     // All room-fill writers lock client first; row locks also fence ordinary
@@ -242,7 +244,10 @@ async function updateRoomFillGender(pg, input) {
     const room = before.rooms.find(r => r.roomId === input.roomId);
     if (!room) throw fail(404, 'room_not_found');
     if (!roomGenderEditable(room)) throw fail(422, 'room_gender_read_only');
-    const unchanged = room.roomType === mapped.roomType && room.genderStrategy === mapped.genderStrategy;
+    const mapped = genderMapped || { roomType: room.roomType, genderStrategy: room.genderStrategy };
+    const sellingMode = input.body.sellingMode === undefined ? (room.sellingMode || 'shared') : input.body.sellingMode;
+    const unchanged = room.roomType === mapped.roomType && room.genderStrategy === mapped.genderStrategy
+      && sellingMode === (room.sellingMode || 'shared');
     // Lost-response retries may read the already-current value, but may never
     // mutate using an obsolete catalogue. Special rooms were rejected above.
     if (!unchanged && catalogRevisionFor(before.rooms) !== input.body.expectedCatalogRevision) throw fail(409, 'catalogue_changed');
@@ -251,13 +256,18 @@ async function updateRoomFillGender(pg, input) {
         WHERE client_id = $1::uuid AND id = $2::uuid RETURNING id
         /* room-fill-gender-update */`, [input.clientId, input.roomId, mapped.roomType, mapped.genderStrategy]);
       if (updated.rows.length !== 1) throw fail(409, 'room_changed');
+      if (input.body.sellingMode !== undefined) {
+        await pg.query('UPDATE rooms SET selling_mode = $3 WHERE client_id = $1::uuid AND id = $2::uuid',
+          [input.clientId, input.roomId, sellingMode]);
+      }
     }
     const after = await input.readLockedState(pg);
     const saved = after.rooms.find(r => r.roomId === input.roomId);
     if (!saved || saved.roomType !== mapped.roomType || saved.genderStrategy !== mapped.genderStrategy) throw fail(503, 'gender_readback_failed');
+    if ((saved.sellingMode || 'shared') !== sellingMode) throw fail(503, 'selling_mode_readback_failed');
     await pg.query('COMMIT');
     return { ...after, unchanged, roomId: input.roomId,
-      old: { roomType: room.roomType, genderStrategy: room.genderStrategy }, new: { ...mapped } };
+      old: { roomType: room.roomType, genderStrategy: room.genderStrategy, sellingMode: room.sellingMode || 'shared' }, new: { ...mapped, sellingMode } };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_) { /* connection already closed */ }
     throw err;

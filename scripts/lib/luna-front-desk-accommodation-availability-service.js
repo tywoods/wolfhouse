@@ -169,6 +169,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
   const allBeds = (bedRows || [])
     .filter((r) => r.bed_code && r.bed_active !== false && r.bed_sellable !== false)
     .map((r) => ({
+      ...r,
       bed_code: r.bed_code,
       room_code: r.room_code,
       room_type: r.room_type || null,
@@ -318,7 +319,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
 
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
 
-  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
+  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount, bedRows, blockRows);
 
   return {
     allBeds,
