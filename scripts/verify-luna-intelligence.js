@@ -153,7 +153,7 @@ async function browserSlice(browser, slug, cookieSlug = slug) {
   assert.match(card, /Luna Intelligence/);
   assert.match(card, /Let Luna search the web for surf, local info, and open guest questions\. Off = booking tools only\./);
   assert.match(card, /id="staff-luna-intelligence-toggle"[^>]*disabled/);
-  const start = html.indexOf('function lunaIntelligenceLoad(');
+  const start = html.indexOf('function lunaIntelligencePaint(');
   const end = html.indexOf('function wireLunaStaffTabCards(', start);
   assert.ok(start > 0 && end > start, 'emitted intelligence handlers present');
   assert.match(html, /function wireLunaStaffTabCards\(\)\{[\s\S]{0,400}lunaIntelligenceLoad\(/);

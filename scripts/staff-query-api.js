@@ -217,6 +217,7 @@ const {
   ROOM_FILL_PATH,
   ROOM_FILL_PREVIEW_PATH,
   ROOM_CREATE_PATH,
+  ROOM_GENDER_PATH_RE,
   createRoomFillRoutes,
 } = require('./lib/staff-room-fill-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
@@ -2682,7 +2683,7 @@ const {
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
-const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate } = createRoomFillRoutes({
+const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut } = createRoomFillRoutes({
   sendJSON, readBody, withPgClient, appendAuditLog,
 });
 
@@ -17560,6 +17561,11 @@ html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:
 .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,var(--primary));box-shadow:none}
 .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider:before{transform:translateX(16px)}
 .portal-admin-equip-switch input:focus-visible + .portal-admin-equip-switch-slider{outline:2px solid var(--sched-primary,var(--primary));outline-offset:2px}
+.staff-intelligence-switch{display:inline-flex;align-items:center;justify-content:center;width:48px;height:44px;padding:0;border:0;background:transparent;cursor:pointer;flex-shrink:0}
+.staff-intelligence-switch[aria-checked="true"] .portal-admin-equip-switch-slider{background:var(--sched-primary,var(--primary));box-shadow:none}
+.staff-intelligence-switch[aria-checked="true"] .portal-admin-equip-switch-slider:before{transform:translateX(16px)}
+.staff-intelligence-switch:focus-visible{outline:2px solid var(--focus,var(--primary));outline-offset:2px;border-radius:8px}
+.staff-intelligence-switch:disabled{opacity:.6;cursor:wait}
 html[data-theme="dark"] .portal-admin-equip-switch-slider{background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 html[data-theme="dark"] .portal-admin-equip-switch-slider:before{background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.35)}
 html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin-equip-switch-slider{background:var(--sched-primary,var(--primary))}
@@ -34767,6 +34773,35 @@ function lunaPersonalityLoad(){
     .catch(function(){ /* keep default sunny until a later load */ });
 }
 
+function lunaIntelligencePaint(){
+  var btn = el('staff-luna-intelligence-toggle');
+  if (!btn) return;
+  var context = window.__staffDisclosureContext || {};
+  var key = context.key || '';
+  var client = context.client || '';
+  if (btn._lunaIntelligenceKey !== key || btn._lunaIntelligenceClient !== client) {
+    // Invalidate the old lifetime even if no replacement request is started.
+    // Returning to the same key must not revive its pending flag or completion.
+    btn._lunaIntelligenceKey = key;
+    btn._lunaIntelligenceClient = client;
+    btn._lunaIntelligenceSeq = (btn._lunaIntelligenceSeq || 0) + 1;
+    btn._lunaIntelligencePending = false;
+    btn.disabled = true;
+    btn.setAttribute('aria-checked', 'false');
+    var status = el('staff-luna-intelligence-status');
+    if (status) status.textContent = '';
+  }
+  var wolfhouse = client === 'wolfhouse-somo';
+  var enabled = btn.getAttribute('aria-checked') === 'true';
+  btn.classList.toggle('staff-intelligence-switch', !!wolfhouse);
+  btn.classList.toggle('luna-header-mode-btn', !wolfhouse);
+  btn.classList.toggle('is-active', enabled);
+  if (wolfhouse) {
+    if (!btn.querySelector('.portal-admin-equip-switch-slider')) btn.innerHTML = '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>';
+  } else btn.textContent = enabled ? 'On' : 'Off';
+}
+window.addEventListener('staff-disclosure-context', lunaIntelligencePaint);
+
 function lunaIntelligenceLoad(){
   var btn = el('staff-luna-intelligence-toggle');
   if (!btn) return;
@@ -34782,7 +34817,19 @@ function lunaIntelligenceLoad(){
 
 function lunaIntelligenceRequest(change){
   var btn = el('staff-luna-intelligence-toggle');
-  if (btn._lunaIntelligencePending) return;
+  if (!btn) return;
+  lunaIntelligencePaint();
+  var context = window.__staffDisclosureContext || {};
+  var key = context.key || '';
+  var client = context.client || '';
+  if (btn._lunaIntelligencePending && btn._lunaIntelligenceKey === key) return;
+  btn._lunaIntelligenceKey = key;
+  var seq = (btn._lunaIntelligenceSeq || 0) + 1;
+  btn._lunaIntelligenceSeq = seq;
+  function current(){
+    return btn._lunaIntelligenceSeq === seq && ((window.__staffDisclosureContext || {}).key || '') === key
+      && ((window.__staffDisclosureContext || {}).client || '') === client;
+  }
   btn._lunaIntelligencePending = true;
   var status = el('staff-luna-intelligence-status');
   btn.disabled = true;
@@ -34799,20 +34846,23 @@ function lunaIntelligenceRequest(change){
       return r.json();
     })
     .then(function(data){
+      if (!current()) return;
       if (!data || data.success !== true || typeof data.enabled !== 'boolean'
-          || typeof data.client_slug !== 'string' || !data.client_slug) throw new Error('Invalid setting');
+          || typeof data.client_slug !== 'string' || !data.client_slug
+          || (client && data.client_slug !== client)) throw new Error('Invalid setting');
       btn.setAttribute('aria-checked', data.enabled === true ? 'true' : 'false');
-      btn.textContent = data.enabled === true ? 'On' : 'Off';
-      btn.classList.toggle('is-active', data.enabled === true);
+      lunaIntelligencePaint();
       btn.disabled = false;
       status.textContent = change ? 'Saved.' : '';
     })
     .catch(function(){
+      if (!current()) return;
       status.textContent = change
         ? 'Could not save Luna Intelligence. Reopen this tab to reload the saved setting.'
         : 'Could not load Luna Intelligence. Reopen this tab to retry.';
+      if (window.staffCollapseReveal) window.staffCollapseReveal(status);
     })
-    .finally(function(){ btn._lunaIntelligencePending = false; });
+    .finally(function(){ if (current()) btn._lunaIntelligencePending = false; });
 }
 
 function wireLunaStaffTabCards(){
@@ -34854,6 +34904,7 @@ function staffNotificationShowMsg(kind, text){
   if (!target) return;
   target.textContent = text;
   target.style.display = 'block';
+  if (kind === 'error' && window.staffCollapseReveal) window.staffCollapseReveal(target);
 }
 
 function staffNotificationRecipientDomId(type, idx){
@@ -46822,6 +46873,9 @@ function lgsCreateStripeLink(){
   var roomRoot = document.getElementById('staff-room-fill');
   var roomHome = document.createComment('Room Placement home');
   var setupCard = null;
+  var tourIntro = document.querySelector('#wrap-to [data-i18n="tourOperator.intro"]');
+  var tourIntroCard = tourIntro && tourIntro.closest('.card');
+  var tourIntroHidden = tourIntroCard ? tourIntroCard.hidden : false;
   if (roomRoot) roomRoot.parentElement.insertBefore(roomHome, roomRoot);
 
   function setOpen(button, open) {
@@ -46885,6 +46939,7 @@ function lgsCreateStripeLink(){
     restore();
     contextKey = context.key;
     activeClient = context.client;
+    if (tourIntroCard) tourIntroCard.hidden = activeClient === 'wolfhouse-somo' ? true : tourIntroHidden;
     if (activeClient === 'wolfhouse-somo') {
       if (roomRoot) {
         setupCard = document.createElement('section');
@@ -46907,6 +46962,8 @@ function lgsCreateStripeLink(){
         ['cc-house-notes', 'staff-notes-toggle'],
         ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
         ['cc-automated-staff-notifications', 'staff-notifications-toggle'],
+        ['cc-staff-notification-settings', 'staff-alerts-toggle'],
+        ['staff-luna-personality-card', 'staff-personality-toggle'],
         ['staff-style-card', 'staff-style-toggle'],
         ['staff-room-setup-card', 'staff-room-setup-toggle'],
         ['to-op-panel', 'staff-room-block-toggle'],
@@ -56521,6 +56578,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  const roomGenderMatch = pathname.match(ROOM_GENDER_PATH_RE);
+  if (roomGenderMatch && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillGenderPut(roomGenderMatch[1], parsed.query, req, res, auth.user);
   }
   if (pathname === ROOM_CREATE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');

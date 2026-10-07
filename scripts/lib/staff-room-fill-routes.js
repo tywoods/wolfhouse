@@ -22,7 +22,7 @@ const {
   numericRoomOrder,
 } = require('./staff-room-fill-policy');
 const { previewRoomFill } = require('./staff-room-fill-preview');
-const { createRoomFillInventory } = require('./staff-room-fill-inventory');
+const { createRoomFillInventory, updateRoomFillGender, parseGenderRequest } = require('./staff-room-fill-inventory');
 
 const ROOM_FILL_PATH = '/staff/luna-intelligence/room-fill';
 const ROOM_FILL_PREVIEW_PATH = '/staff/luna-intelligence/room-fill/preview';
@@ -113,6 +113,7 @@ ORDER BY bed_number ASC, bed_code ASC
 /* room-fill-bed-ids */
 `;
 const ROOM_CREATE_PATH = '/staff/luna-intelligence/room-fill/rooms';
+const ROOM_GENDER_PATH_RE = /^\/staff\/luna-intelligence\/room-fill\/rooms\/([^/]+)\/gender$/;
 const GENDER_SAVE = Object.freeze({
   female: { genderStrategy: 'Female preferred', roomType: 'female_only' },
   male: { genderStrategy: 'Male preferred', roomType: 'male_only' },
@@ -126,12 +127,14 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
 
   function originProblem(req) {
     const headers = req && req.headers ? req.headers : {};
+    if (headers['sec-fetch-site'] === 'cross-site') return 'forbidden_origin';
     const origin = headers.origin || headers.Origin;
     if (!origin) return null;
     const host = headers.host || headers.Host;
     try {
       const parsed = new URL(origin);
-      if (!host || parsed.host !== String(host)) return 'forbidden_origin';
+      if (!host || parsed.host !== String(host) || !['http:', 'https:'].includes(parsed.protocol)
+        || parsed.username || parsed.password) return 'forbidden_origin';
     } catch (_) {
       return 'forbidden_origin';
     }
@@ -440,12 +443,49 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
     }
   }
 
-  return { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate };
+  async function handleRoomFillGenderPut(roomId, query, req, res, user) {
+    if (!user || !user.client_id) return fail(res, 401, 'authentication_required');
+    if (!['operator', 'admin', 'owner'].includes(user.role)) return fail(res, 403, 'forbidden');
+    if (Object.keys(query || {}).length) return fail(res, 400, 'caller_parameters_rejected');
+    const origin = originProblem(req);
+    if (origin) return fail(res, 403, origin);
+    if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers && req.headers['content-type'] || ''))) return fail(res, 415, 'json_required');
+    const parsed = await readJson(req);
+    if (!parsed.ok) return fail(res, 400, 'invalid_json');
+    try {
+      parseGenderRequest(roomId, parsed.body);
+      const result = await withPgClient(pg => updateRoomFillGender(pg, {
+        clientId: user.client_id, roomId, body: parsed.body,
+        lockSql: CLIENT_SQL.replace('LIMIT 1', 'LIMIT 1 FOR UPDATE'),
+        readLockedState: async locked => {
+          const client = (await locked.query(CLIENT_SQL, [user.client_id])).rows[0];
+          const reject = (status, error) => { throw Object.assign(new Error(error), { status, error }); };
+          if (!client) reject(404, 'client_not_found');
+          if (client.slug !== SUPPORTED_CLIENT_SLUG || (user.client_slug && client.slug !== user.client_slug)) reject(403, 'unsupported_tenant');
+          const catalogue = projectCatalogueRows((await locked.query(CATALOGUE_SQL, [client.id])).rows);
+          if (!catalogue.ok) reject(catalogue.status, catalogue.error);
+          return { row: client, rooms: catalogue.rooms, stored: parseStoredPolicy(client.settings && client.settings[SETTINGS_KEY]) };
+        },
+      }));
+      if (!result.unchanged && typeof appendAuditLog === 'function') {
+        await appendAuditLog({ at: new Date().toISOString(), action: 'room_fill_gender_update',
+          client_id: user.client_id, staff_user_id: user.staff_user_id || null, room_id: roomId,
+          old: result.old, new: result.new, old_catalog_revision: parsed.body.expectedCatalogRevision,
+          new_catalog_revision: catalogRevisionFor(result.rooms) });
+      }
+      return sendJSON(res, 200, { ...envelope(result.row, result.rooms, result.stored), roomId, unchanged: result.unchanged });
+    } catch (err) {
+      return fail(res, err.status || 503, err.error || 'room_gender_update_failed');
+    }
+  }
+
+  return { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut };
 }
 
 module.exports = {
   ROOM_FILL_PATH,
   ROOM_FILL_PREVIEW_PATH,
   ROOM_CREATE_PATH,
+  ROOM_GENDER_PATH_RE,
   createRoomFillRoutes,
 };

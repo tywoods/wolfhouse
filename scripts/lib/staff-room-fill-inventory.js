@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { roomGenderEditable, catalogRevisionFor, UUID_RE } = require('./staff-room-fill-policy');
 
 const GENDER_SAVE = Object.freeze({
   female: { genderStrategy: 'Female preferred', roomType: 'female_only' },
@@ -219,7 +220,53 @@ async function createRoomFillInventory(pg, input) {
   }
 }
 
+function parseGenderRequest(roomId, body) {
+  if (!UUID_RE.test(roomId || '')) throw fail(400, 'invalid_room_id');
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'invalid_json');
+  if (Object.keys(body).some(key => !['gender', 'expectedCatalogRevision'].includes(key))) throw fail(400, 'invalid_gender_request');
+  if (typeof body.gender !== 'string' || !Object.hasOwn(GENDER_SAVE, body.gender)) throw fail(400, 'invalid_gender');
+  if (typeof body.expectedCatalogRevision !== 'string' || !/^[a-f0-9]{64}$/.test(body.expectedCatalogRevision)) throw fail(400, 'missing_catalog_revision');
+  return GENDER_SAVE[body.gender];
+}
+
+async function updateRoomFillGender(pg, input) {
+  const mapped = parseGenderRequest(input.roomId, input.body);
+  await pg.query('BEGIN');
+  try {
+    // All room-fill writers lock client first; row locks also fence ordinary
+    // inventory writers. No bed, assignment, priority or settings mutations.
+    await pg.query(input.lockSql, [input.clientId]);
+    await pg.query('SELECT id FROM rooms WHERE client_id = $1::uuid ORDER BY id FOR UPDATE', [input.clientId]);
+    await pg.query('SELECT id FROM beds WHERE client_id = $1::uuid ORDER BY id FOR SHARE', [input.clientId]);
+    const before = await input.readLockedState(pg);
+    const room = before.rooms.find(r => r.roomId === input.roomId);
+    if (!room) throw fail(404, 'room_not_found');
+    if (!roomGenderEditable(room)) throw fail(422, 'room_gender_read_only');
+    const unchanged = room.roomType === mapped.roomType && room.genderStrategy === mapped.genderStrategy;
+    // Lost-response retries may read the already-current value, but may never
+    // mutate using an obsolete catalogue. Special rooms were rejected above.
+    if (!unchanged && catalogRevisionFor(before.rooms) !== input.body.expectedCatalogRevision) throw fail(409, 'catalogue_changed');
+    if (!unchanged) {
+      const updated = await pg.query(`UPDATE rooms SET room_type = $3, gender_strategy = $4
+        WHERE client_id = $1::uuid AND id = $2::uuid RETURNING id
+        /* room-fill-gender-update */`, [input.clientId, input.roomId, mapped.roomType, mapped.genderStrategy]);
+      if (updated.rows.length !== 1) throw fail(409, 'room_changed');
+    }
+    const after = await input.readLockedState(pg);
+    const saved = after.rooms.find(r => r.roomId === input.roomId);
+    if (!saved || saved.roomType !== mapped.roomType || saved.genderStrategy !== mapped.genderStrategy) throw fail(503, 'gender_readback_failed');
+    await pg.query('COMMIT');
+    return { ...after, unchanged, roomId: input.roomId,
+      old: { roomType: room.roomType, genderStrategy: room.genderStrategy }, new: { ...mapped } };
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) { /* connection already closed */ }
+    throw err;
+  }
+}
+
 module.exports = {
+  updateRoomFillGender,
+  parseGenderRequest,
   BED_IDS_SQL,
   GENDER_SAVE,
   createRoomFillInventory,

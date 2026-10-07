@@ -47,8 +47,8 @@ const typeChecks = (cardHtml.match(/type="checkbox"/g) || []).length;
 ok('exactly 2 checkboxes in section markup', typeChecks === 2);
 ok('new + human type checkboxes present', cardHtml.includes('id="sns-new-enabled"') && cardHtml.includes('id="sns-human-enabled"'));
 ok('type labels adjacent to sole checkboxes',
-  /sns-new-enabled[\s\S]{0,120}New conversation alerts/.test(cardHtml)
-  && /sns-human-enabled[\s\S]{0,120}Human needed alerts/.test(cardHtml));
+  /id="sns-new-enabled"[^>]*>\s*<span[^>]*>New conversation alerts<\/span>\s*<\/label>/.test(cardHtml)
+  && /id="sns-human-enabled"[^>]*>\s*<span[^>]*>Human needed alerts<\/span>\s*<\/label>/.test(cardHtml));
 ok('per-type pebbles in title rows', cardHtml.includes('id="sns-new-pill"') && cardHtml.includes('id="sns-human-pill"'));
 ok('server-disabled note copy present', cardHtml.includes('Configured on, but delivery is disabled by the server.'));
 ok('Add recipient preserved', cardHtml.includes("staffNotificationRecipientAdd('new_conversation')")
@@ -131,6 +131,8 @@ console.log('\n── runtime: serialize + round-trip + pebbles ──');
   }
 
   const sandbox = {
+    // The extracted region also registers the browser's Intelligence context listener.
+    window: { addEventListener() {} },
     el,
     escHtml(s) {
       return String(s == null ? '' : s)
