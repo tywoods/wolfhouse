@@ -79,6 +79,24 @@ function isCoupleRequest(guestCount, roomPreference) {
   return guestCount === 2 && (rp === 'private' || rp === 'couple');
 }
 
+// New selling modes never override protected legacy categories or flags.
+function ordinarySellingMode(room) {
+  if (!['female_only', 'male_only', 'mixed'].includes(room.room_type)
+    || room.can_be_matrimonial === true || room.can_be_matrimonial === 'true'
+    || room.often_used_by_operator === true || room.often_used_by_operator === 'true') return null;
+  return room.selling_mode || 'shared';
+}
+
+function privateSellingSelection(rooms, guestCount, roomPreference) {
+  if (normalizePref(roomPreference) !== 'private') return null;
+  const candidates = rooms.filter(room => ['private', 'private_optional'].includes(ordinarySellingMode(room))
+    && !room.operator_blocked && countOccupied(room) === 0 && countAvailable(room) >= guestCount);
+  if (!candidates.length) return null;
+  const winner = sortRoomsByRank(candidates, guestCount)[0];
+  return { selected_bed_codes: pickBeds(winner, guestCount), room_code: winner.room_code,
+    private_room: true, split: false, reason: 'exclusive_private_room' };
+}
+
 function needsGenderAwareBedAssignment({
   guestCount,
   groupGender,
@@ -606,6 +624,7 @@ function chooseBeds(opts) {
   let rooms = (opts.rooms || []).map((r) => ({
     room_code: r.room_code,
     room_type: r.room_type,
+    selling_mode: r.selling_mode,
     gender_strategy: r.gender_strategy,
     capacity: r.capacity,
     fill_priority: r.fill_priority,
@@ -618,6 +637,9 @@ function chooseBeds(opts) {
     })),
   }));
   rooms = applyOperatorBlockFlags(rooms, opts.operatorBlockedRoomCodes);
+  const privatePick = privateSellingSelection(rooms, guestCount, roomPreference);
+  if (privatePick) return privatePick;
+  rooms = rooms.filter(room => ordinarySellingMode(room) !== 'private');
 
   if (rooms.some((r) => (r.beds || []).some((b) => b.available !== true && b.available !== false))) {
     return { handoff: true, reason: 'invalid_bed_availability_state' };
@@ -627,6 +649,7 @@ function chooseBeds(opts) {
     const coupleResult = tryCouplePlacement(rooms, allocOpts);
     if (coupleResult) return coupleResult;
   }
+  if (roomPreference === 'private') return { handoff: true, reason: 'no_empty_private_room' };
 
   if (roomPreference === 'female_only') {
     groupGender = 'female';
@@ -670,8 +693,12 @@ function chooseBeds(opts) {
 }
 
 /** Legacy capacity-only picker (feature-flag rollback). */
-function chooseBedsCapacityOnly({ rooms, guestCount }) {
+function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
   const n = Math.max(1, Number(guestCount) || 1);
+  const privatePick = privateSellingSelection(rooms, n, roomPreference);
+  if (privatePick) return privatePick;
+  if (normalizePref(roomPreference) === 'private') return chooseBeds({ rooms, guestCount: n, roomPreference });
+  rooms = (rooms || []).filter(room => ordinarySellingMode(room) !== 'private');
   const byRoom = new Map();
   for (const room of rooms || []) {
     const avail = (room.beds || []).filter((b) => b.available);
@@ -775,12 +802,13 @@ function buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCod
 
   for (const row of bedRows || []) {
     if (!row.bed_code || row.bed_active === false || row.bed_sellable === false) continue;
-    if (allowed && !allowed.has(row.bed_code)) continue;
+    // Keep filtered siblings as unavailable: a subset is not proof of an empty room.
     const code = row.room_code || '__unknown__';
     if (!roomMap.has(code)) {
       roomMap.set(code, {
         room_code: code,
         room_type: row.room_type,
+        selling_mode: row.selling_mode,
         gender_strategy: row.gender_strategy,
         capacity: row.capacity,
         fill_priority: row.fill_priority,
@@ -791,7 +819,7 @@ function buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCod
     }
     roomMap.get(code).beds.push({
       bed_code: row.bed_code,
-      available: !occupied.has(row.bed_code),
+      available: !occupied.has(row.bed_code) && (!allowed || allowed.has(row.bed_code)),
     });
   }
 
@@ -850,7 +878,7 @@ function runAvailabilityBedSelection(params) {
       allowProtected: true,
       operatorBlockedRoomCodes: blockedRooms,
     })
-    : chooseBedsCapacityOnly({ rooms, guestCount });
+    : chooseBedsCapacityOnly({ rooms, guestCount, roomPreference: ctx.roomPreference });
 
   if (pick.handoff || pick.needs_clarification) {
     return {
@@ -949,6 +977,14 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
   };
   const categories = selected.map(resolveRoomCategory);
   const privateRequest = pref === 'private';
+  const ordinaryPrivate = privateRequest && selected.every(row => ['private', 'private_optional'].includes(ordinarySellingMode(row)));
+  if (ordinaryPrivate) {
+    const room = selected[0].room_code;
+    if (!privateRequest || selected.some(row => row.room_code !== room)
+      || (blockRows || []).some(row => row.room_code === room)) return bad('incompatible_preselected_beds');
+    return { ok: true, private_room: true };
+  }
+  if (selected.some(row => ordinarySellingMode(row) === 'private')) return bad('incompatible_preselected_beds');
   if (privateRequest) {
     const room = selected[0].room_code;
     if (guestCount !== 2 || selected.some(row => row.room_code !== room)
@@ -971,6 +1007,7 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
 }
 
 module.exports = {
+  ordinarySellingMode,
   validateExplicitBedSelection,
   chooseBeds,
   chooseBedsCapacityOnly,

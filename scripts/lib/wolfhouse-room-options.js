@@ -29,13 +29,20 @@ function roomHasCapacity(availableBeds, roomCodes, guestCount) {
   return false;
 }
 
-function computeWolfhouseRoomOptionFlags(availableBeds, guestCount) {
+function computeWolfhouseRoomOptionFlags(availableBeds, guestCount, allBeds, blockRows) {
   const count = Math.max(1, Number(guestCount) || 1);
-  const girlsRoomAvailable = roomHasCapacity(availableBeds, GIRLS_ROOM_CODES, 1)
-    && (count === 1 || roomHasCapacity(availableBeds, GIRLS_ROOM_CODES, count));
-  // Private couples room (R6) only — do not offer private supplement when R6 is taken.
-  const privateRoomAvailable = count === 2
-    && roomHasCapacity(availableBeds, PRIVATE_COUPLE_ROOM_CODES, 2);
+  const { ordinarySellingMode } = require('./luna-bed-allocator');
+  const sharedBeds = (availableBeds || []).filter(b => ordinarySellingMode(b) !== 'private');
+  const girlsRoomAvailable = roomHasCapacity(sharedBeds, GIRLS_ROOM_CODES, 1)
+    && (count === 1 || roomHasCapacity(sharedBeds, GIRLS_ROOM_CODES, count));
+  // Preserve the legacy couple offer alongside explicit ordinary private modes.
+  const freeCodes = new Set((availableBeds || []).map(b => b.bed_code));
+  const newPrivateAvailable = [...bedsByRoom(allBeds).values()].some(beds =>
+    beds.length >= count && beds.every(b => ['private', 'private_optional'].includes(ordinarySellingMode(b))
+      && freeCodes.has(b.bed_code))
+    && !(blockRows || []).some(block => block.room_code === beds[0].room_code));
+  const privateRoomAvailable = newPrivateAvailable || (count === 2
+    && roomHasCapacity(availableBeds, PRIVATE_COUPLE_ROOM_CODES, 2));
   return {
     girls_room_available: girlsRoomAvailable,
     private_room_available: privateRoomAvailable,

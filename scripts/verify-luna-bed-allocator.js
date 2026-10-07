@@ -266,7 +266,11 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
     roomPreference: 'private',
     rooms: wolfhouseAll({ R6: { availableMask: [false, false] }, R3: { availableMask: [false, false, false, false] } }),
   });
-  check('C3', !r.handoff && r.selected_bed_codes.length === 2, 'couple crams mixed when R6/R3 unavailable');
+  // Room Placement's explicit-private contract forbids silently substituting
+  // shared beds when protected/eligible whole rooms are unavailable.
+  check('C3', r.handoff === true && r.reason === 'no_empty_private_room'
+    && (!r.selected_bed_codes || r.selected_bed_codes.length === 0),
+  'explicit private fails closed without substituting shared beds');
 }
 
 // ── Protected / operator ────────────────────────────────────────────────────

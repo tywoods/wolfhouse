@@ -3414,6 +3414,7 @@ async function handleManualBookingPreview(req, res, user) {
   const beds = bedRows.map((row) => ({
     bed_code:  row.bed_code,
     room_code: row.room_code,
+    selling_mode: row.selling_mode,
     active:    row.active,
     sellable:  row.sellable   != null ? row.sellable   : true,
     capacity:  row.capacity,
@@ -3723,6 +3724,23 @@ function moveWriteBuildConflicts(assignmentRows, excludeBookingBedId, checkIn, c
     }));
 }
 
+// SELECT-only advice. The writer independently rechecks under inventory locks.
+async function movePrivateRestrictedTargets(pg, clientSlug, bookingId, sourceBeds, targetBeds) {
+  const booking = (await pg.query(`SELECT b.* FROM bookings b JOIN clients c ON c.id=b.client_id
+    WHERE c.slug=$1 AND b.id=$2::uuid`, [clientSlug,bookingId])).rows[0];
+  if (!booking) return new Set(targetBeds.map(b=>b.bed_id));
+  const inventory = (await pg.query(`SELECT bd.id,r.selling_mode,r.room_code AS inventory_room_code
+    FROM beds bd JOIN rooms r ON r.id=bd.room_id AND r.client_id=bd.client_id
+    WHERE bd.client_id=$1 AND bd.id=ANY($2::uuid[])`,
+  [booking.client_id,[...sourceBeds,...targetBeds].map(b=>b.bed_id)])).rows;
+  const {dateRoomIsPrivate} = require('./lib/booking-guest-dates');
+  const sourcePrivate = sourceBeds.some(b=>{
+    const bed = inventory.find(i=>i.id===b.bed_id);
+    return !bed || bed.selling_mode==='private' || dateRoomIsPrivate(booking,sourceBeds,bed);
+  });
+  return new Set(targetBeds.filter(b=>sourcePrivate || inventory.find(i=>i.id===b.bed_id)?.selling_mode==='private').map(b=>b.bed_id));
+}
+
 /** Phase 10.3h.4 — build per-bed availability for move-targets (half-open overlap). */
 function moveBuildTargetAvailability(allBeds, assignmentRows, sourceBed, checkIn, checkOut) {
   const excludeId = sourceBed ? sourceBed.booking_bed_id : '';
@@ -3756,6 +3774,9 @@ function moveBuildTargetAvailability(allBeds, assignmentRows, sourceBed, checkIn
         available: false,
         disabled_reason: 'inactive',
       };
+    }
+    if (bed.private_move_restricted) {
+      return {...base,available:false,disabled_reason:'private_room_reservation_requires_review'};
     }
     const conflicts = moveWriteBuildConflicts(
       byBed.get(bed.bed_id) || [],
@@ -4115,6 +4136,40 @@ async function handleBookingMoveWrite(req, res, user) {
     const writeResult = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        // Same lock order as booking-guest-dates: booking -> guests ->
+        // assignments -> rooms -> all room beds. Preflight is not authority.
+        const fresh = (await pg.query(`SELECT b.*,b.check_in::text AS check_in,b.check_out::text AS check_out
+          FROM bookings b JOIN clients c ON c.id=b.client_id
+          WHERE c.slug=$1 AND b.id=$2::uuid FOR UPDATE OF b`, [clientSlug,sourceBookingId])).rows[0];
+        if (!fresh) {
+          await pg.query('ROLLBACK');
+          return {ok:false,status:409,error:'stale_booking_move'};
+        }
+        await pg.query('SELECT id FROM booking_guests WHERE client_id=$1 AND booking_id=$2 ORDER BY id FOR UPDATE', [fresh.client_id,fresh.id]);
+        const freshBeds = (await pg.query(MOVE_WRITE_SOURCE_BEDS_SQL + ' FOR UPDATE OF bb', [clientSlug,fresh.id])).rows;
+        const selected = freshBeds.find(b=>b.booking_bed_id===sourceBed.booking_bed_id);
+        if (!selected || selected.bed_id!==sourceBed.bed_id || selected.check_in!==checkIn || selected.check_out!==checkOut
+          || fresh.check_in!==checkIn || fresh.check_out!==checkOut || fresh.status!==bookingRow.status) {
+          await pg.query('ROLLBACK');
+          return {ok:false,status:409,error:'stale_booking_move'};
+        }
+        const {lockDateInventory,dateRoomIsPrivate} = require('./lib/booking-guest-dates');
+        const inventory = await lockDateInventory(pg,fresh.client_id,[selected.bed_id,targetBedId]);
+        const source = inventory.find(b=>b.id===selected.bed_id);
+        const target = inventory.find(b=>b.id===targetBedId);
+        if (!source || !target || !target.active || !target.sellable || !target.room_active
+          || target.bed_code!==bedRow.bed_code || target.room_id!==bedRow.room_id) {
+          await pg.query('ROLLBACK');
+          return {ok:false,status:409,error:'stale_booking_move'};
+        }
+        // Read saved policy only AFTER the inventory locks return. This writer
+        // cannot move whole-room companions, nor create a private reservation.
+        const rooms = (await pg.query('SELECT selling_mode FROM rooms WHERE client_id=$1 AND id=ANY($2::uuid[])',
+          [fresh.client_id,[source.room_id,target.room_id]])).rows;
+        if (rooms.some(r=>r.selling_mode==='private') || dateRoomIsPrivate(fresh,freshBeds,source)) {
+          await pg.query('ROLLBACK');
+          return {ok:false,status:409,error:'private_room_reservation_requires_review'};
+        }
         const assignRes = await pg.query(
           MOVE_PREVIEW_TARGET_ASSIGNMENTS_SQL,
           [clientSlug, bedRow.bed_code, checkIn, checkOut]
@@ -4151,6 +4206,10 @@ async function handleBookingMoveWrite(req, res, user) {
       }
     });
 
+    if (!writeResult.ok && writeResult.status === 409) {
+      appendAuditLog({ ...auditBase, success:false, moved:false, would_mutate:false, error:writeResult.error, elapsed_ms:Date.now()-started });
+      return sendJSON(res,409,{success:false,error:writeResult.error,moved:false,can_move:false,would_mutate:false,requires_manual_review:true});
+    }
     if (!writeResult.ok && writeResult.conflicts) {
       const elapsed = Date.now() - started;
       appendAuditLog({
@@ -4277,10 +4336,11 @@ async function handleBookingMoveTargets(req, res, user) {
         pg.query(MOVE_TARGETS_RANGE_ASSIGNMENTS_SQL, [clientSlug, checkIn, checkOut]),
         pg.query(MOVE_WRITE_SOURCE_BEDS_SQL, [clientSlug, booking.booking_id]),
       ]);
+      const privateTargets = await movePrivateRestrictedTargets(pg,clientSlug,booking.booking_id,sourceRes.rows,bedsRes.rows);
       return {
         bookingRow:     booking,
         sourceBeds:     sourceRes.rows,
-        allBeds:        bedsRes.rows,
+        allBeds:        bedsRes.rows.map(b=>({...b,private_move_restricted:privateTargets.has(b.bed_id)})),
         assignmentRows: assignRes.rows,
       };
     });
@@ -4465,7 +4525,7 @@ async function handleBookingMovePreview(req, res, user) {
       }
       return {
         bookingRow:     booking,
-        bedRow:         bed,
+        bedRow:         bed ? {...bed,private_move_restricted:(await movePrivateRestrictedTargets(pg,clientSlug,booking.booking_id,bedsRes.rows,[bed])).has(bed.bed_id)} : null,
         sourceBeds:     bedsRes.rows,
         assignmentRows: assignments,
       };
@@ -4634,6 +4694,11 @@ async function handleBookingMovePreview(req, res, user) {
     });
   }
 
+  if (bedRow.private_move_restricted) {
+    return sendJSON(res,200,{success:true,can_move:false,preview_only:true,would_mutate:false,
+      requires_manual_review:true,reason:'private_room_reservation_requires_review',
+      booking:movePreviewBookingSummary(bookingRow),source_assignment:moveWriteAssignmentSummary(sourceBed,null),target,conflicts:[]});
+  }
   if (bedRow.active === false || bedRow.sellable === false) {
     appendAuditLog({ ...auditBase, success: false, can_move: false, error: 'target_bed_unavailable', elapsed_ms: Date.now() - started });
     return sendJSON(res, 200, {
@@ -5873,233 +5938,11 @@ function editWritePrivateRoomBedBlockUserMessage(bedSync) {
   return null;
 }
 
-/** Cancel staff-style blocked bookings created for private-room companion beds. */
-async function staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, parentBookingId) {
-  const legacyDel = await pg.query(EDIT_WRITE_PRIVATE_ROOM_BLOCK_DELETE_SQL, [clientSlug, parentBookingId]);
-  const legacyBedCodes = (legacyDel.rows || []).map((r) => r.bed_code);
-  const cancelRes = await pg.query(EDIT_WRITE_PRIVATE_ROOM_COMPANION_BLOCK_CANCEL_SQL, [
-    clientSlug,
-    String(parentBookingId),
-  ]);
-  const cancelledCodes = (cancelRes.rows || []).map((r) => r.booking_code);
-  return { legacy_bed_codes: legacyBedCodes, cancelled_block_bookings: cancelledCodes };
-}
-
-/**
- * One blocked booking over companion beds — same shape as staff calendar Block button
- * (status=blocked, assignment_type=staff_block), not guest assignment rows.
- */
-async function staffPortalCreatePrivateRoomCompanionBlock(pg, {
-  clientSlug,
-  checkIn,
-  checkOut,
-  bedCodes,
-  parentBookingId,
-  parentBookingCode,
-}) {
-  const codes = (bedCodes || []).map(String).filter(Boolean);
-  if (!codes.length) return { ok: true, skipped: true, blocked_beds: [] };
-
-  const idempotencyKey = `prvblk-${crypto.createHash('md5').update([
-    clientSlug, String(parentBookingId), checkIn, checkOut, codes.slice().sort().join('_'),
-  ].join('|')).digest('hex')}`;
-  const bookingCode = `PRV-${String(checkIn || '').replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex')}`.toUpperCase();
-  const notes = `Private room companion block for ${parentBookingCode || parentBookingId}`;
-
-  const r = await pg.query(buildManualBookingCreateSql(), [
-    clientSlug,
-    'private-room-sync',
-    'operator',
-    idempotencyKey,
-    bookingCode,
-    'Blocked',
-    'staff-block',
-    null,
-    'en',
-    checkIn,
-    checkOut,
-    Math.max(1, codes.length),
-    codes,
-    null,
-    null,
-    'blocked',
-    'not_requested',
-    0,
-    0,
-    'staff_block',
-    'private_room_companion_block',
-    notes,
-    true,
-    true,
-  ]);
-  const result = r.rows[0] || null;
-  if (!result) return { error: 'private_room_bed_block_conflict' };
-  if (result.is_duplicate === true) {
-    return {
-      ok: true,
-      duplicate: true,
-      block_booking_id: result.duplicate_booking_id,
-      block_booking_code: result.duplicate_booking_code,
-      blocked_beds: codes,
-    };
-  }
-  if (result.is_blocked === true) {
-    if (result.block_reason === 'overlap_conflict') {
-      return { error: 'private_room_room_not_empty', blocked_beds: codes, check_in: checkIn, check_out: checkOut };
-    }
-    return { error: 'private_room_bed_block_conflict', block_reason: result.block_reason || null };
-  }
-  const bedsInserted = Number(result.beds_inserted || 0);
-  if (!result.booking_id || bedsInserted < 1 || bedsInserted !== codes.length) {
-    return { error: 'private_room_bed_block_conflict' };
-  }
-
-  await pg.query(
-    `UPDATE bookings
-       SET assignment_status = 'assigned',
-           metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-     WHERE id = $2::uuid
-       AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)`,
-    [
-      JSON.stringify({
-        staff_calendar_block: true,
-        block_type: 'private_room_companion',
-        source: 'private_room_companion_block',
-        private_room_parent_booking_id: String(parentBookingId),
-        private_room_parent_booking_code: parentBookingCode || null,
-      }),
-      result.booking_id,
-      clientSlug,
-    ],
-  );
-  await pg.query(
-    `UPDATE booking_beds
-       SET assignment_type = 'staff_block',
-           assignment_notes = $2
-     WHERE booking_id = $1::uuid`,
-    [result.booking_id, notes],
-  );
-
-  return {
-    ok: true,
-    block_booking_id: result.booking_id,
-    block_booking_code: result.booking_code,
-    blocked_beds: codes,
-  };
-}
-
-async function editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, bookingRow, enabled) {
-  const bookingId = bookingRow.booking_id;
-  const bookingCode = bookingRow.booking_code || null;
-  const checkIn = bookingRow.check_in;
-  const checkOut = bookingRow.check_out;
-  const cleanup = await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingId);
-  const removedBlocks = [
-    ...(cleanup.legacy_bed_codes || []),
-    ...(cleanup.cancelled_block_bookings || []),
-  ];
-
-  if (!enabled) {
-    return {
-      removed_blocks: removedBlocks,
-      blocked_beds: [],
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  if (!checkIn || !checkOut || String(checkOut) <= String(checkIn)) {
-    return { error: 'private_room_invalid_booking_dates', check_in: checkIn, check_out: checkOut };
-  }
-
-  const guestBedsRes = await pg.query(EDIT_WRITE_BOOKING_GUEST_BEDS_SQL, [clientSlug, bookingId]);
-  const guestBeds = guestBedsRes.rows || [];
-  if (!guestBeds.length) {
-    return {
-      error: 'private_room_no_bed_assignment',
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  const roomCode = guestBeds[0].room_code || bookingRow.primary_room_code;
-  if (!roomCode) {
-    return {
-      error: 'private_room_no_room_code',
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  const roomBedsRes = await pg.query(TO_ROOM_BEDS_FOR_BLOCK_SQL, [clientSlug, roomCode]);
-  const assignedCodes = new Set(guestBeds.map((b) => b.bed_code));
-  const companionBeds = (roomBedsRes.rows || []).filter((b) => !assignedCodes.has(b.bed_code));
-
-  if (!companionBeds.length) {
-    return {
-      removed_blocks: removedBlocks,
-      blocked_beds: [],
-      room_code: roomCode,
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  const conflicts = [];
-  for (const bed of companionBeds) {
-    const conflictRes = await pg.query(EDIT_WRITE_BED_OVERLAP_CONFLICTS_SQL, [
-      clientSlug,
-      bed.bed_id,
-      bookingId,
-      checkIn,
-      checkOut,
-    ]);
-    if (conflictRes.rows.length) {
-      conflicts.push({
-        bed_code: bed.bed_code,
-        booking_code: conflictRes.rows[0].booking_code,
-      });
-    }
-  }
-
-  if (conflicts.length) {
-    return {
-      error: 'private_room_room_not_empty',
-      conflicts,
-      room_code: roomCode,
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  const companionBedCodes = companionBeds.map((b) => b.bed_code);
-  const created = await staffPortalCreatePrivateRoomCompanionBlock(pg, {
-    clientSlug,
-    checkIn,
-    checkOut,
-    bedCodes: companionBedCodes,
-    parentBookingId: bookingId,
-    parentBookingCode: bookingCode,
-  });
-  if (created.error) {
-    return {
-      ...created,
-      room_code: roomCode,
-      check_in: checkIn,
-      check_out: checkOut,
-    };
-  }
-
-  return {
-    removed_blocks: removedBlocks,
-    blocked_beds: created.blocked_beds || companionBedCodes,
-    block_booking_id: created.block_booking_id || null,
-    block_booking_code: created.block_booking_code || null,
-    room_code: roomCode,
-    check_in: checkIn,
-    check_out: checkOut,
-  };
-}
+const {
+  staffPortalCancelPrivateRoomCompanionBlocks,
+  staffPortalCreatePrivateRoomCompanionBlock,
+  editWriteSyncPrivateRoomBedBlocks,
+} = require('./lib/staff-private-room-blocks');
 
 function staffPackageDisplayLabel(code) {
   const c = String(code || '').trim().toLowerCase();
@@ -7288,6 +7131,11 @@ async function handleBookingEditWriteDates(
         if (freshBeds.some(b=>!inventory.some(i=>i.id===b.bed_id && i.active && i.sellable && i.room_active))) {
           throw Object.assign(new Error('bed_not_sellable'), { datesStatus: 409 });
         }
+        // This writer moves only the parent's assignments, not private companion
+        // reservations. Even a disjoint empty target must fail before any writes.
+        if (freshBeds.some(b=>dateRoomIsPrivate(fresh,freshBeds,inventory.find(i=>i.id===b.bed_id)))) {
+          throw Object.assign(new Error('private_room_reservation_requires_review'), { datesStatus: 409 });
+        }
         const recheck = await editWriteDatesEvaluateAvailability(pg,clientSlug,fresh,freshBeds,checkIn,checkOut);
         if (recheck.conflicts.length || recheck.requires_manual_review) {
           throw Object.assign(new Error('date_conflict'), { datesStatus: 409 });
@@ -8313,6 +8161,7 @@ async function handleBookingCancel(req, res, user) {
           await pg.query('ROLLBACK');
           return null;
         }
+        await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingRow.booking_id);
         await pg.query('COMMIT');
         return { updatedRow: upd.rows[0], bedsReleased };
       } catch (e) {
