@@ -709,7 +709,7 @@ def _stable_sim_message_id(message_id: Optional[str]) -> str:
     supplied = str(message_id or "").strip()
     if not supplied:
         return f"crowsnest.sim.{uuid.uuid4().hex}"
-    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,160}", supplied):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{8,160}|[A-Za-z0-9._:-]{8,158}={1,2}", supplied):
         raise ValueError("invalid_message_id")
     return supplied
 

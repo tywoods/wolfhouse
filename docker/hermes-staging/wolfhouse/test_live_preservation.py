@@ -53,12 +53,34 @@ class LivePreservation(unittest.IsolatedAsyncioTestCase):
             self.assertIn(phrase, plugin)
         self.assertNotIn("malibu, uluwatu, waimea for 7+ nights", plugin)
 
+    def test_live_booking_continuity_and_authoritative_staff_truth_are_restored(self):
+        soul = SOUL.read_text()
+        plugin = PLUGIN.read_text()
+        for phrase in (
+            "**Room eligibility before a checked offer (hard):**",
+            "**Exact person-to-bed assignment (hard):**",
+            "**Post-booking email (hard):**",
+            "**Payment-link labels: full payment versus deposit**",
+            "Never infer gender from a name",
+            "A `staff_review_id` is an internal reference, not proof that Staff was notified",
+        ):
+            self.assertIn(phrase, soul)
+        for phrase in (
+            '"selected_room_description"',
+            '"guest_safe_room_label"',
+            '"amount_paid_known"',
+            '"recorded_paid_cents"',
+            '"staff_review_id"',
+        ):
+            self.assertIn(phrase, plugin)
+
     def test_pass4_proposed_modules_are_not_shipped(self):
         for relative in PASS4_SOURCE_ONLY:
             self.assertFalse((ROOT / relative).exists(), relative)
 
-    def test_stable_message_identity_is_validated_and_forwarded(self):
-        self.assertEqual(door._stable_sim_message_id("wamid.live-123"), "wamid.live-123")
+    def test_stable_message_identity_preserves_provider_padding_bytes(self):
+        padded = "wamid.HBgLMTU1NTU1NTAxMjMVAgARGBI3QTQ5QzQ4RkY0QjQ5RkI3RTYA="
+        self.assertEqual(door._stable_sim_message_id(padded), padded)
         self.assertTrue(door._stable_sim_message_id(None).startswith("crowsnest.sim."))
         with self.assertRaisesRegex(ValueError, "invalid_message_id"):
             door._stable_sim_message_id("bad id")
@@ -69,23 +91,37 @@ class LivePreservation(unittest.IsolatedAsyncioTestCase):
         dispatch = AsyncMock(return_value={"ok": True})
         web = SimpleNamespace(json_response=lambda data, status=200: (status, data))
 
+        padded_message_id = "wamid.HBgLMTU1NTU1NTAxMjMVAgARGBI3QTQ5QzQ4RkY0QjQ5RkI3RTYA="
+
         async def request_json():
-            return {"thread": "sim:ordinary", "text": "hello", "message_id": "wamid.live-123"}
+            return {"thread": "sim:ordinary", "text": "hello", "message_id": padded_message_id}
 
         request = SimpleNamespace(headers={"X-Luna-Bot-Token": "offline"}, json=request_json)
         with patch.dict(sys.modules, {"aiohttp": SimpleNamespace(web=web)}), patch.dict(os.environ, {"LUNA_BOT_INTERNAL_TOKEN": "offline"}), patch.object(core, "run_simulated_turn", dispatch):
             response = await routes[core.SIMULATE_PATH](request)
             self.assertEqual(response[0], 200)
-            self.assertEqual(dispatch.call_args.kwargs["message_id"], "wamid.live-123")
+            self.assertEqual(dispatch.call_args.kwargs["message_id"], padded_message_id)
             self.assertFalse(dispatch.call_args.kwargs["allow_writes"])
 
-            malformed = SimpleNamespace(
+            legacy_padded_id = "wamid.HBgLMTU1NTU1NTAxMjMVAgARGBI4NkFCN0JGQjA0RkY5OTk0NTUA=="
+            legacy = SimpleNamespace(
                 headers={"X-Luna-Bot-Token": "offline"},
-                json=AsyncMock(return_value={"thread": "15555550123", "text": "hi", "message_id": "bad id"}),
+                json=AsyncMock(return_value={
+                    "thread": "sim:ordinary", "text": "legacy", "whatsapp_message_id": legacy_padded_id,
+                }),
             )
-            rejected = await routes[core.SIMULATE_PATH](malformed)
-            self.assertEqual(rejected[0], 400)
-            self.assertEqual(dispatch.call_count, 1)
+            legacy_response = await routes[core.SIMULATE_PATH](legacy)
+            self.assertEqual(legacy_response[0], 200)
+            self.assertEqual(dispatch.call_args.kwargs["message_id"], legacy_padded_id)
+
+            for field in ("message_id", "whatsapp_message_id"):
+                malformed = SimpleNamespace(
+                    headers={"X-Luna-Bot-Token": "offline"},
+                    json=AsyncMock(return_value={"thread": "15555550123", "text": "hi", field: "bad id="}),
+                )
+                rejected = await routes[core.SIMULATE_PATH](malformed)
+                self.assertEqual(rejected[0], 400)
+            self.assertEqual(dispatch.call_count, 2)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import hashlib
+from typing import Any, Dict
 
 # Fail-open input validation (step 3). Defensive import so a missing/broken module
 # can never disable the tools — it just disables pre-validation.
@@ -522,6 +523,24 @@ def check_availability(params, **kwargs):
     selected_room = data.get("selected_room_code")
     if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
         selected_room = None
+    selected_codes = data.get("selected_bed_codes") or []
+    beds_by_code = {bed.get("bed_code"): bed for bed in available_beds}
+    selected_types = []
+    for code in selected_codes:
+        room_type = (beds_by_code.get(code) or {}).get("room_type")
+        if room_type and room_type not in selected_types:
+            selected_types.append(room_type)
+    room_contract: Dict[str, Any] = {"selected_room_types": selected_types}
+    if selected_types == ["male_only"]:
+        room_contract.update({
+            "selected_room_description": "male_only",
+            "guest_safe_room_label": "These beds are male-only, not a mixed dorm.",
+        })
+    elif selected_types == ["female_only"]:
+        room_contract.update({
+            "selected_room_description": "female_only",
+            "guest_safe_room_label": "These beds are female-only, not a mixed dorm.",
+        })
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -531,6 +550,9 @@ def check_availability(params, **kwargs):
         "unclear": status == "unclear",
         "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
         "selected_bed_codes": data.get("selected_bed_codes") or [],
+        "selected_room_types": room_contract["selected_room_types"],
+        "selected_room_description": room_contract.get("selected_room_description"),
+        "guest_safe_room_label": room_contract.get("guest_safe_room_label"),
         "available_beds": available_beds,
         "selected_room_code": selected_room,
         "available_count": data.get("available_count"),
@@ -1559,10 +1581,13 @@ def get_payment_status(params, **kwargs):
     paid = data.get("amount_paid_cents")
     if paid is None:
         paid = latest.get("amount_paid_cents")
+    amount_paid_known = data.get("amount_paid_known")
+    if amount_paid_known is None:
+        amount_paid_known = paid is not None
     balance = data.get("balance_due_cents")
     if balance is None:
         balance = latest.get("balance_due_cents")
-    paid_confirmed = bool(data.get("success")) and str(booking_status or status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
+    paid_confirmed = bool(data.get("success")) and amount_paid_known is not False and str(booking_status or status or "").lower() in {"paid", "deposit_paid", "fully_paid"}
     return _json_result(_payment_status_result("get_payment_status", data, {
         "success": bool(data.get("success")),
         "tool": "get_payment_status",
@@ -1575,7 +1600,9 @@ def get_payment_status(params, **kwargs):
         "payment_id": data.get("payment_id") or latest.get("payment_id"),
         "booking_id": data.get("booking_id") or latest.get("booking_id"),
         "booking_code": data.get("booking_code") or latest.get("booking_code"),
-        "amount_paid_cents": paid,
+        "amount_paid_cents": paid if amount_paid_known else None,
+        "amount_paid_known": bool(amount_paid_known),
+        "recorded_paid_cents": data.get("recorded_paid_cents"),
         "balance_due_cents": balance,
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
@@ -1791,6 +1818,7 @@ def flag_needs_human(params, **kwargs):
     if data is None:
         data = _post_bot("/conversation/needs-human", payload)
     ok = data.get("success") is True and data.get("needs_human") is True
+    staff_handoff = data.get("staff_handoff") if isinstance(data.get("staff_handoff"), dict) else {}
     return _json_result({
         **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
                                      "needs_operator_reconciliation", "guest_safe_next_action",
@@ -1799,6 +1827,7 @@ def flag_needs_human(params, **kwargs):
         "tool": "flag_needs_human",
         "needs_human": ok,
         "conversation_id": data.get("conversation_id"),
+        "staff_review_id": staff_handoff.get("id") if ok else None,
         "conversation_paused": ok and data.get("conversation_paused") is True,
         # Only a successful Staff receipt can confirm the submitted reason.
         "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
