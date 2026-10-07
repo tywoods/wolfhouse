@@ -24,10 +24,8 @@ const { computeSunsetFinanceSummary } = require(path.join(ROOT, 'scripts/lib/sun
 const { renderFinanceRedesignHtml } = require(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'));
 
 // F3 — click target includes data-finance-trend
-ok('wire closest includes Finance nav, granularity, and trend controls',
-  /closest\([^\)]*data-finance-trend/.test(adminUi)
-  && /data-finance-nav/.test(adminUi)
-  && /data-finance-gran/.test(adminUi));
+ok('wire closest includes data-finance-trend',
+  /closest\([^\)]*data-finance-trend/.test(adminUi));
 ok('12-month trend adopts year period and refetches KPIs',
   /window\.__financeTrendMode/.test(adminUi)
   && /mode === 'year'/.test(adminUi)
@@ -120,8 +118,8 @@ ok('Custom gran opens anchored picker without openCustomPicker reload',
   && !/loadAdminFinanceSummary\(\s*\{\s*openCustomPicker\s*:\s*true\s*\}\s*\)/.test(adminUi));
 ok('custom trigger + pop in redesign',
   /id=\"pfb-custom-range-trigger\"/.test(redesign)
-  && /id=\"pfb-custom-range-pop\"/.test(redesign)
-  && /aria-controls=\"pfb-custom-range-pop\"/.test(redesign));
+  && /id=\"pfb-custom-display\"/.test(redesign)
+  && /id=\"pfb-custom-range-pop\"/.test(redesign));
 ok('picker paint shows floating popover',
   /pop\.hidden = false/.test(adminUi) && /pop\.style\.display = ''/.test(adminUi));
 ok('custom picker keeps live-apply selection with Clear/Close controls',

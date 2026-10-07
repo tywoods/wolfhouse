@@ -3248,7 +3248,7 @@ function financeRedesignNavClick(ev){
   if (!body) return;
   var t = ev.target;
   if (!t || !t.closest) return;
-  var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend]');
+  var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend], [data-pfb-cal]');
   if (!btn || !body.contains(btn)) return;
 
   var calNav = btn.getAttribute('data-pfb-cal');

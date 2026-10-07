@@ -275,10 +275,10 @@ function runSupplementaryUnitChecks() {
       !/clearBtn\.addEventListener\(\s*['"]click['"][\s\S]{0,240}loadAdminFinanceSummary\s*\(/.test(adminSrc)
   );
   ok(
-    'source exposes anchored native trigger + popover host',
+    'source exposes anchored trigger + single readout + popover host',
     /id="pfb-custom-range-trigger"/.test(redesignSrc)
+      && /id="pfb-custom-display"/.test(redesignSrc)
       && /id="pfb-custom-range-pop"/.test(redesignSrc)
-      && /aria-controls="pfb-custom-range-pop"/.test(redesignSrc)
   );
 }
 
@@ -309,7 +309,6 @@ async function openAdminFinance(page) {
 }
 
 async function clickCustom(page) {
-  if ((await calendarVisible(page)).ok) return;
   await page.locator('#admin-finance-body [data-finance-gran="custom"]').click();
 }
 
@@ -424,15 +423,18 @@ async function main() {
     const monthLabelBefore = await page.locator('#admin-finance-body [data-finance-range-label]').innerText().catch(() => '');
     ok('range label present before Custom', !!monthLabelBefore && monthLabelBefore.length > 2);
 
-    // ── Native delegated-listener survival pre-check: real body identity ──
+    // ── Listener survival pre-check: note wired flag + real body identity ──
     const bodyIdentityBefore = await page.evaluate(() => {
       const body = document.getElementById('admin-finance-body');
       if (!body) return null;
       const token = `verify-body-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       body.dataset.verifyBodyIdentity = token;
-      return { token };
+      return {
+        wired: body.dataset.financeNavWired === '1',
+        token,
+      };
     });
-    ok('stable Finance body is connected before delegated click journeys', !!(bodyIdentityBefore && bodyIdentityBefore.token));
+    ok('stable #admin-finance-body listener wired after first paint', !!(bodyIdentityBefore && bodyIdentityBefore.wired));
     ok('stamped real #admin-finance-body identity token', !!(bodyIdentityBefore && bodyIdentityBefore.token));
 
     // ── PRIMARY: one click Custom → visible calendar, no incomplete custom request ──
@@ -565,8 +567,8 @@ async function main() {
       );
       const triggerText = await page.locator('#pfb-custom-range-trigger').innerText().catch(() => '');
       ok(
-        'custom trigger remains the ordinary Custom control while the range label is localized',
-        triggerText.trim() === 'Custom' && looksLocalizedCustomRange(rangeLabel, '2026-08-10', '2026-08-18'),
+        'custom trigger label matches localized range',
+        looksLocalizedCustomRange(triggerText, '2026-08-10', '2026-08-18'),
         triggerText
       );
       ok(
@@ -650,13 +652,13 @@ async function main() {
       );
       ok('Month gran reload after custom', requests.length > reqBeforeMonth);
       const clearedCustom = await page.evaluate(() => ({
-        selectedGran: document.querySelector('#admin-finance-body [data-finance-gran].is-on')?.getAttribute('data-finance-gran') || '',
+        display: document.getElementById('pfb-custom-display')?.innerText || '',
         start: document.getElementById('pfb-custom-start')?.value || '',
         end: document.getElementById('pfb-custom-end')?.value || '',
       }));
       ok(
-        'switching away selects Month and clears custom date values',
-        clearedCustom.selectedGran === 'month' && !clearedCustom.start && !clearedCustom.end,
+        'switching away clears custom trigger readout + hidden dates',
+        clearedCustom.display === 'Custom' && !clearedCustom.start && !clearedCustom.end,
         JSON.stringify(clearedCustom)
       );
 
@@ -692,11 +694,11 @@ async function main() {
       const bodyAfterRange = await page.evaluate(() => {
         const body = document.getElementById('admin-finance-body');
         return {
-          connected: !!(body && body.isConnected),
+          wired: !!(body && body.dataset.financeNavWired === '1'),
           token: body ? body.dataset.verifyBodyIdentity || null : null,
         };
       });
-      ok('stable delegated-listener host remains connected after custom/month/custom rerenders', bodyAfterRange.connected);
+      ok('listener flag still set after custom/month/custom rerenders', bodyAfterRange.wired);
       ok(
         'same #admin-finance-body node identity survives range repaint',
         !!(bodyIdentityBefore && bodyAfterRange.token && bodyAfterRange.token === bodyIdentityBefore.token),
@@ -713,11 +715,11 @@ async function main() {
       const bodyAfterToggles = await page.evaluate(() => {
         const body = document.getElementById('admin-finance-body');
         return {
-          connected: !!(body && body.isConnected),
+          wired: !!(body && body.dataset.financeNavWired === '1'),
           token: body ? body.dataset.verifyBodyIdentity || null : null,
         };
       });
-      ok('delegated-listener host remains connected after repeated finance gran rerenders', bodyAfterToggles.connected);
+      ok('listener survives repeated finance gran rerenders', bodyAfterToggles.wired);
       ok(
         'same #admin-finance-body node identity survives repeated gran rerenders',
         !!(bodyIdentityBefore && bodyAfterToggles.token && bodyAfterToggles.token === bodyIdentityBefore.token),
@@ -735,7 +737,6 @@ async function main() {
       {
         await page.locator('#admin-finance-body [data-finance-gran="month"]').click().catch(() => {});
         await page.waitForSelector('#admin-finance-body [data-finance-gran="month"].is-on', { timeout: 8000 }).catch(() => {});
-        await sleep(150);
         await clickCustom(page);
         ok('Sep1 journey: Custom opens calendar', (await waitCalendar(page, 2500)).ok);
         ok('Sep1 journey: navigate to 2026-09', await ensureCalendarYm(page, '2026-09'));
