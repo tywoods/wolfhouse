@@ -29,6 +29,25 @@ function parseServiceRecordMetadata(meta) {
   return meta;
 }
 
+/** Persisted catalog billing dimensions, never inferred from record quantity or live prices. */
+function resolveCatalogServiceDimensions(metadata) {
+  const meta = parseServiceRecordMetadata(metadata);
+  if (!meta.catalog_service) return null;
+  const guests = Number(meta.guests_charged || meta.quantity || 1);
+  return {
+    catalog_service: true,
+    service_id: meta.service_id || null,
+    guests_charged: Number.isFinite(guests) && guests > 0 ? guests : 1,
+    // Older snapshots omitted per_guest and were displayed as guest charges.
+    per_guest: meta.per_guest !== false,
+    price_unit: meta.price_unit || null,
+    catalog_price_cents: meta.catalog_price_cents != null ? Number(meta.catalog_price_cents) : null,
+    nights_charged: meta.nights_charged != null ? Number(meta.nights_charged) : null,
+    apply_from: meta.apply_from || null,
+    apply_to: meta.apply_to || null,
+  };
+}
+
 function wolfhouseRentalDayRatesFromPricing(pricingConfig) {
   const addons = (pricingConfig && pricingConfig.add_ons) || {};
   return {
@@ -211,18 +230,28 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
 
   if (meta.catalog_service) {
     const name = meta.service_name || label;
-    const cg = Math.max(1, Number(meta.guests_charged || meta.quantity || 1));
-    const cgWord = cg === 1 ? 'guest' : 'guests';
-    const cUnit = meta.catalog_price_cents != null ? Number(meta.catalog_price_cents) : null;
-    if (meta.price_unit === 'per_day' && Number(meta.nights_charged) > 0) {
-      const cd = Number(meta.nights_charged);
-      const cdWord = cd === 1 ? 'day' : 'days';
-      if (cUnit != null) {
-        return `${name} \u2014 ${cg} ${cgWord} \u00d7 ${cd} ${cdWord} \u00d7 ${formatEurCents(cUnit)} = ${formatEurCents(totalCents)}`;
-      }
-      return `${name} \u2014 ${cg} ${cgWord} \u00d7 ${cd} ${cdWord} = ${formatEurCents(totalCents)}`;
+    const dims = resolveCatalogServiceDimensions(meta);
+    const cg = dims.guests_charged;
+    const guestText = `${cg} ${cg === 1 ? 'guest' : 'guests'}`;
+    let unitText = null;
+    if (dims.price_unit === 'per_day' && Number.isFinite(dims.nights_charged) && dims.nights_charged > 0) {
+      const days = dims.nights_charged;
+      unitText = `${days} ${days === 1 ? 'day' : 'days'}`;
+    } else if (dims.price_unit === 'per_stay') {
+      unitText = '1 stay';
+    } else if (dims.price_unit === 'per_lesson') {
+      unitText = '1 lesson';
     }
-    if (cg > 1) return `${name} \u2014 ${cg} ${cgWord} = ${formatEurCents(totalCents)}`;
+    if (unitText) {
+      const parts = dims.per_guest ? [guestText, unitText] : [unitText];
+      if (dims.catalog_price_cents != null && Number.isFinite(dims.catalog_price_cents) && dims.catalog_price_cents >= 0) {
+        parts.push(formatEurCents(dims.catalog_price_cents));
+      }
+      return `${name} \u2014 ${parts.join(' \u00d7 ')} = ${formatEurCents(totalCents)}`;
+    }
+    // Historical snapshots may not identify a billing unit. Keep their safe
+    // amount/headcount fallback, but never call a non-per-guest charge a guest.
+    if (dims.per_guest && cg > 1) return `${name} \u2014 ${guestText} = ${formatEurCents(totalCents)}`;
     return `${name} \u2014 ${formatEurCents(totalCents)}`;
   }
 
@@ -268,6 +297,7 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
 
 module.exports = {
   parseServiceRecordMetadata,
+  resolveCatalogServiceDimensions,
   wolfhouseRentalDayRatesFromPricing,
   loadWolfhouseRentalDayRates,
   resetWolfhouseRentalDayRatesCache,
