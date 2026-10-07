@@ -21378,6 +21378,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount{text-align:right;white-space:nowrap;font-weight:600;font-variant-numeric:tabular-nums}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#3d6130}
 [data-theme="dark"] :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-amount.paid{color:#9ee0a8}
+/* Wolfhouse dark history uses the same primary ink and money weight as Per Guest.
+   Keep muted captions, status colors, card chrome and light/Sunset themes unchanged. */
+html:not([data-portal-client])[data-theme="dark"] #bc-payment-history-card{color:var(--text)}
+html:not([data-portal-client])[data-theme="dark"] #bc-payment-history-card .bc-history-amount{font-weight:700}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-caption{grid-column:1 / -1;min-width:0;overflow-wrap:anywhere;color:var(--text-2);font-size:11px;padding-left:12px}
 :is(#bc-overview-invoice,#bc-payment-history-card) .bc-history-item .ctx-pay-record{margin:0 4px 10px}
 .bc-guest-pay-row{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0}
