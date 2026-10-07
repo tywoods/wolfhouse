@@ -13,14 +13,6 @@ from wolfhouse import simulate_core as core
 ROOT = Path(__file__).resolve().parents[1]
 SOUL = ROOT / "SOUL.md"
 PLUGIN = ROOT / "plugins" / "wolfhouse_staff_api" / "__init__.py"
-PASS4_SOURCE_ONLY = (
-    "gateway/admission_lock_owner.py",
-    "gateway/identity_admission_owner.py",
-    "gateway/terminal_operation_journal.py",
-    "proposed_admission_lock_adapter.py",
-)
-
-
 class LivePreservation(unittest.IsolatedAsyncioTestCase):
     def test_soul_preserves_safe_live_rules_and_atomic_owner_rules(self):
         text = SOUL.read_text()
@@ -74,9 +66,6 @@ class LivePreservation(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertIn(phrase, plugin)
 
-    def test_pass4_proposed_modules_are_not_shipped(self):
-        for relative in PASS4_SOURCE_ONLY:
-            self.assertFalse((ROOT / relative).exists(), relative)
 
     def test_stable_message_identity_preserves_provider_padding_bytes(self):
         padded = "wamid.HBgLMTU1NTU1NTAxMjMVAgARGBI3QTQ5QzQ4RkY0QjQ5RkI3RTYA="

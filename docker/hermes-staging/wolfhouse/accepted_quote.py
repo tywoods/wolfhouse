@@ -46,7 +46,7 @@ _PREFIX = 'wolfhouse.accepted_quote.v1:'
 _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner', default=None)
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
-           'add_ons', 'catalog_selections', 'selected_bed_codes')
+           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_create = None
 _before_create = None

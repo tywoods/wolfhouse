@@ -379,7 +379,7 @@ def _availability_status(data):
 
 
 def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
-    """Validate a model name hint. Never treats the hint as verified sex."""
+    """Apply room eligibility using explicit guest facts and Staff facts only."""
     try:
         from wolfhouse.room_eligibility_policy import decide_room_eligibility
     except Exception:
@@ -389,13 +389,18 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     room_type = _clean(params.get("room_type")).lower().replace("-", "_").replace(" ", "_")
     if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
         preference = room_type
-    if not payment_intent and not preference and not any(params.get(key) not in (None, "", []) for key in (
-        "name_hint", "name_confidence", "room_name_hints", "explicit_gender",
-        "group_gender", "room_preference", "name_ambiguous",
-    )):
+    raw_travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else []
+    travelers = [
+        {"name": _clean(item.get("name")), "explicit_gender": _clean(item.get("explicit_gender"))}
+        for item in raw_travelers
+        if isinstance(item, dict) and _clean(item.get("explicit_gender")).lower() in {"female", "male"}
+    ] or None
+    if not payment_intent and not preference and not travelers and not any(
+            params.get(key) not in (None, "", []) for key in (
+                "name_hint", "name_confidence", "room_name_hints", "name_ambiguous",
+                "explicit_gender", "group_gender",
+            )):
         return None
-    travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else None
-    # Caller hints may fill gaps, never override fresh Staff API room facts.
     available = dict(params["available_rooms"]) if isinstance(params.get("available_rooms"), dict) else {}
     if isinstance(availability, dict):
         if "girls_room_available" in availability:
@@ -406,9 +411,9 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         guest_count=params.get("guest_count") or (len(travelers) if travelers else 1),
         travelers=travelers,
         name=_clean(params.get("guest_name") or params.get("name")),
-        hint=params.get("name_hint"),
-        confidence=params.get("name_confidence"),
-        ambiguous=params.get("name_ambiguous") is True,
+        hint=None,
+        confidence=None,
+        ambiguous=False,
         explicit_gender=params.get("explicit_gender") or params.get("group_gender"),
         room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
@@ -524,19 +529,35 @@ def check_availability(params, **kwargs):
     if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
         selected_room = None
     selected_codes = data.get("selected_bed_codes") or []
-    beds_by_code = {bed.get("bed_code"): bed for bed in available_beds}
+    raw_beds_by_code = {}
+    if data.get("success") is True and isinstance(raw_beds, list):
+        for bed in raw_beds:
+            if not isinstance(bed, dict) or not isinstance(bed.get("bed_code"), str):
+                continue
+            code = bed["bed_code"]
+            # Duplicate rows make the detail non-authoritative.
+            raw_beds_by_code[code] = None if code in raw_beds_by_code else bed
     selected_types = []
+    complete_selection = bool(selected_codes)
+    whole_selection_eligible = complete_selection
     for code in selected_codes:
-        room_type = (beds_by_code.get(code) or {}).get("room_type")
-        if room_type and room_type not in selected_types:
+        bed = raw_beds_by_code.get(code)
+        room_type = _clean((bed or {}).get("room_type")).lower().replace("-", "_").replace(" ", "_")
+        if not room_type:
+            complete_selection = False
+            whole_selection_eligible = False
+            continue
+        if room_type in excluded:
+            whole_selection_eligible = False
+        if room_type not in selected_types:
             selected_types.append(room_type)
     room_contract: Dict[str, Any] = {"selected_room_types": selected_types}
-    if selected_types == ["male_only"]:
+    if complete_selection and whole_selection_eligible and selected_types == ["male_only"]:
         room_contract.update({
             "selected_room_description": "male_only",
             "guest_safe_room_label": "These beds are male-only, not a mixed dorm.",
         })
-    elif selected_types == ["female_only"]:
+    elif complete_selection and whole_selection_eligible and selected_types == ["female_only"]:
         room_contract.update({
             "selected_room_description": "female_only",
             "guest_safe_room_label": "These beds are female-only, not a mixed dorm.",
@@ -880,6 +901,35 @@ def _booking_count_validation(payload):
     return supplied_count, None
 
 
+def _save_post_booking_email(payload, booking_result, fields, prior_receipt=None):
+    """Save an explicitly offered address after create; never claim an email send."""
+    if prior_receipt is not None:
+        prior = prior_receipt.get("post_booking_email") if isinstance(prior_receipt, dict) else None
+        return prior
+    email = _clean(payload.get("email"))
+    booking_code = _clean(fields.get("booking_code"))
+    if (not email or booking_result.get("success") is not True
+            or booking_result.get("write_performed") is not True or not booking_code):
+        return None
+    result = _post_bot("/bookings/update-contact", {
+        "client_slug": payload.get("client_slug") or _trusted_client_slug(),
+        "booking_code": booking_code,
+        "email": email,
+    })
+    saved = result.get("success") is True and result.get("write_performed") is True
+    refused = not saved and result.get("write_performed") is False
+    return {
+        "requested": True,
+        "saved": saved,
+        # update-contact explicitly has no email-send side effect. A saved address
+        # is not delivery proof, even if an untrusted response includes send flags.
+        "sent": False,
+        "send_performed": False,
+        "outcome": "saved" if saved else ("refused" if refused else "unknown"),
+        "result": result,
+    }
+
+
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1033,7 +1083,6 @@ def create_booking_from_plan(params, **kwargs):
             # Group exclusions are not per-occupant exclusions: an accepted split
             # dorm can place each traveler in their own eligible gendered room.
             # Resolve exact bed metadata from Staff, never from room-code guesses.
-            from wolfhouse.room_eligibility_policy import _provisional
             codes = payload["selected_bed_codes"]
             hints = payload.get("room_name_hints")
             guests = payload.get("guests")
@@ -1066,10 +1115,14 @@ def create_booking_from_plan(params, **kwargs):
                 and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
                         for hint, guest in zip(hints, guests))
             )
-            interpreted = [_provisional(hint) for hint in hints] if hint_aligned else []
+            # Only explicit traveler eligibility can authorize a gendered bed.
+            # Legacy name-hint/confidence fields are deliberately ignored.
+            interpreted = [
+                _clean(hint.get("explicit_gender")).lower() for hint in (hints or [])
+            ] if hint_aligned else []
             # Neutral private acceptance does not assert demographics. Likewise,
-            # mixed-only acceptance without hints needs none. Supplied hints or
-            # any gendered bed retain the strict ordered compatibility contract.
+            # mixed-only acceptance without explicit eligibility needs none. Any
+            # gendered bed retains the strict ordered person-to-bed contract.
             private_neutral = aligned and room_decision.get("private_room") and all(
                 isinstance(bed_lookup.get(code), str)
                 and bed_lookup[code] in {"private", "couple_private", "private_room"}
@@ -1113,6 +1166,7 @@ def create_booking_from_plan(params, **kwargs):
 
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
+    prior_receipt = ledger.dispatch_recovery(ticket).get("receipt") if ticket is not None else None
     if ticket is None:
         # Standalone offline handler compatibility only; real agent is failclosed.
         import sys
@@ -1126,6 +1180,9 @@ def create_booking_from_plan(params, **kwargs):
         blocked["room_decision"] = room_decision
         return _json_result(blocked)
     fields = _extract_booking_write_fields(data)
+    post_booking_email = _save_post_booking_email(
+        payload, data, fields, prior_receipt=prior_receipt,
+    )
     payment_id = _clean(fields.get("payment_id"))
     secure_url = None
     link_data = {}
@@ -1270,6 +1327,7 @@ def create_booking_from_plan(params, **kwargs):
         "payment_link_failures": payment_link_failures,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
+        "post_booking_email": post_booking_email or (prior_receipt or {}).get("post_booking_email"),
         "next_action": "send_secure_payment_link" if secure_url else next_action,
         "staff_review_needed": (
             not _intentional_capability_block(link_data)
@@ -4357,11 +4415,9 @@ def register(ctx):
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Reuse the guest's accepted choice on repeat quote/create; mixed/shared does not establish group_gender. Never override an explicit mismatch or known unavailability."},
         "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. Resolve any necessary composition before quote/payment; never ask after payment intent (full, split, deposit, or a payment-link request). Reuse prior answers. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
-        "gender_preference": {"type": "string", "description": "Solo only: do not pass a guessed gender here. Pass name_hint plus name_confidence instead. Group composition belongs in group_gender after the guest answers."},
-        "name_hint": {"type": "string", "description": "Provisional model interpretation of a guest-provided name: male, female, or unknown. Not biological sex and not a stored fact."},
-        "name_confidence": {"type": "number", "description": "Uncalibrated 0-1 score for name_hint. At least 0.70 is required before a provisional gendered room hint. Below that, ask one neutral question."},
-        "name_ambiguous": {"type": "boolean", "description": "True when the name is ambiguous or unisex. Ambiguity wins over a high score."},
-        "room_name_hints": {"type": "array", "description": "One hint per traveler, not the booker alone. Each item: name, hint, confidence, ambiguous, explicit_gender.", "items": {"type": "object"}},
+        "gender_preference": {"type": "string", "description": "Solo only: explicit guest eligibility or explicit room request only. Never infer this from a name."},
+        "room_name_hints": {"type": "array", "description": "Legacy compatibility only. Never create name-based gender hints; explicit traveler eligibility only.", "items": {"type": "object"}},
+        "email": {"type": "string", "description": "Email address the guest explicitly asked to save after successful booking creation."},
         "catalog_selections": {
             "type": "array",
             "description": "All selected Admin catalog activities, retained on every quote/create by the owner ledger. Exact supported accommodation add-on service_code values project atomically to add_ons; unsupported IDs or date-specific sessions clearly refuse before create. Never omit accepted selections to get a cheaper booking; only real guest revision followed by a fresh authoritative quote and acceptance can change them.",

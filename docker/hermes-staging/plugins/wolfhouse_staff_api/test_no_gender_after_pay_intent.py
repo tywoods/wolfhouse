@@ -274,8 +274,9 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         result, _ = self.invoke("quote_booking", {**payload, "guest_count": 1, "name_hint": "unknown"})
         self.assertEqual(result["reply_draft"], "Would a mixed dorm work for you?")
         result, _ = self.invoke("quote_booking", {**payload, "guest_count": 1, "name_hint": "male", "name_confidence": 0.9})
-        self.assertFalse(result["room_decision"]["clarification_needed"])
-        self.assertEqual(result["room_decision"]["resolved_composition"], "male")
+        self.assertTrue(result["room_decision"]["clarification_needed"])
+        self.assertEqual(result["room_decision"]["resolved_composition"], "unknown")
+        self.assertEqual(result["reply_draft"], "Would a mixed dorm work for you?")
 
 
 if __name__ == "__main__":

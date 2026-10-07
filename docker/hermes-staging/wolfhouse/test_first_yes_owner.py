@@ -25,7 +25,8 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.tokens = None
         self.plan = dict(check_in='2026-11-01', check_out='2026-11-08', guest_count=2,
                          package_code='package_none', room_type='shared', room_preference='mixed',
-                         guests=[{'name': 'Alex'}, {'name': 'Sam'}], payment_choice='full')
+                         guests=[{'name': 'Alex'}, {'name': 'Sam'}], payment_choice='full',
+                         email='alex@example.test')
         root = Path(__file__).resolve().parents[3]
         source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
         quote = dict(success=True, total_cents=70000, deposit_required_cents=20000,
@@ -174,6 +175,9 @@ class FirstYesOwnerTests(unittest.TestCase):
             if path == '/payments/unit-payment/create-stripe-link':
                 # Explicit unit-only HTTP substitution, not Stripe/persistence proof.
                 return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/unit-payment'}
+            if path == '/bookings/update-contact':
+                return {'success': True, 'write_performed': True, 'email_saved': True,
+                        'email_sent': True}  # must not be trusted as send proof
             self.assertEqual(path, '/booking-create-from-plan')
             return {'success': True, 'write_performed': True, 'booking_id': 'unit-booking',
                     'booking_code': 'UNIT-1', 'payment_id': 'unit-payment'}
@@ -209,6 +213,46 @@ class FirstYesOwnerTests(unittest.TestCase):
             self.assertEqual(creates[0]['accepted_offer'], self.response['offer_revision'])
             self.assertEqual(creates[0]['guests'], self.plan['guests'])
             self.assertEqual(creates[0]['selected_bed_codes'], ['M1', 'M2'])
+            email_updates = [body for path, body in calls if path == '/bookings/update-contact']
+            self.assertEqual(email_updates, [{'client_slug': 'wolfhouse-somo', 'booking_code': 'UNIT-1',
+                                              'email': 'alex@example.test'}])
+            self.assertTrue(accepted['booking_result']['post_booking_email']['saved'])
+            self.assertFalse(accepted['booking_result']['post_booking_email']['sent'])
+            self.assertEqual(accepted['booking_result']['post_booking_email']['outcome'], 'saved')
+
+    def test_post_booking_email_save_outcomes_and_no_write_fences(self):
+        payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
+        created = {'success': True, 'write_performed': True}
+        fields = {'booking_code': 'UNIT-EMAIL'}
+        cases = (
+            ({'success': True, 'write_performed': True, 'email_sent': True}, True, 'saved'),
+            ({'success': False, 'write_performed': False, 'error': 'refused'}, False, 'refused'),
+            ({'success': False, 'error': 'timeout'}, False, 'unknown'),
+        )
+        for adapter_result, saved, outcome in cases:
+            with self.subTest(outcome=outcome), patch.object(plugin, '_post_bot', return_value=adapter_result) as post:
+                result = plugin._save_post_booking_email(payload, created, fields)
+                self.assertEqual(result['saved'], saved)
+                self.assertEqual(result['outcome'], outcome)
+                self.assertFalse(result['sent'])
+                self.assertFalse(result['send_performed'])
+                post.assert_called_once_with('/bookings/update-contact', {
+                    'client_slug': 'wolfhouse-somo', 'booking_code': 'UNIT-EMAIL',
+                    'email': 'alex@example.test',
+                })
+
+        prior = {'post_booking_email': {'requested': True, 'saved': True, 'sent': False,
+                                        'send_performed': False, 'outcome': 'saved'}}
+        with patch.object(plugin, '_post_bot') as post:
+            self.assertEqual(plugin._save_post_booking_email(payload, created, fields, prior),
+                             prior['post_booking_email'])
+            post.assert_not_called()
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': False, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': True, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email({}, created, fields))
+            post.assert_not_called()
 
     def test_checked_offer_freezes_staff_order_payment_and_identity(self):
         hints = [{'name': 'Alex', 'hint': 'unknown'}, {'name': 'Sam', 'hint': 'unknown'}]

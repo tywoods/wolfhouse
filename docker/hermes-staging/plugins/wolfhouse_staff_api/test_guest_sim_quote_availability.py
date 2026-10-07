@@ -109,6 +109,52 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
 
+    def test_mixed_gendered_selection_is_never_relabelled_from_filtered_subset(self):
+        receipt = {'success': True, 'has_enough_beds': True,
+                   'selected_bed_codes': ['A1', 'B1'],
+                   'available_beds': [
+                       {'bed_code': 'A1', 'room_code': 'A', 'room_type': 'male_only'},
+                       {'bed_code': 'B1', 'room_code': 'B', 'room_type': 'female_only'},
+                   ]}
+        result, _ = self.invoke('check_availability', {**self.params, 'group_gender': 'male'}, receipt)
+        self.assertEqual(result['selected_room_types'], ['male_only', 'female_only'])
+        self.assertIsNone(result['selected_room_description'])
+        self.assertIsNone(result['guest_safe_room_label'])
+        self.assertEqual(result['selected_bed_codes'], ['A1', 'B1'])
+
+    def test_post_booking_email_save_outcomes_replay_and_no_write_fences(self):
+        payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
+        created = {'success': True, 'write_performed': True}
+        fields = {'booking_code': 'UNIT-EMAIL'}
+        cases = (
+            ({'success': True, 'write_performed': True, 'email_sent': True}, True, 'saved'),
+            ({'success': False, 'write_performed': False, 'error': 'refused'}, False, 'refused'),
+            ({'success': False, 'error': 'timeout'}, False, 'unknown'),
+        )
+        for adapter_result, saved, outcome in cases:
+            with self.subTest(outcome=outcome), patch.object(plugin, '_post_bot', return_value=adapter_result) as post:
+                result = plugin._save_post_booking_email(payload, created, fields)
+                self.assertEqual(result['saved'], saved)
+                self.assertEqual(result['outcome'], outcome)
+                self.assertFalse(result['sent'])
+                self.assertFalse(result['send_performed'])
+                post.assert_called_once_with('/bookings/update-contact', {
+                    'client_slug': 'wolfhouse-somo', 'booking_code': 'UNIT-EMAIL',
+                    'email': 'alex@example.test',
+                })
+
+        prior = {'post_booking_email': {'requested': True, 'saved': True, 'sent': False,
+                                        'send_performed': False, 'outcome': 'saved'}}
+        with patch.object(plugin, '_post_bot') as post:
+            self.assertEqual(plugin._save_post_booking_email(payload, created, fields, prior),
+                             prior['post_booking_email'])
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': False, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': True, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email({}, created, fields))
+            post.assert_not_called()
+
     def test_failed_or_malformed_availability_cannot_project_beds(self):
         for receipt in (
             {'success': False, 'available_beds': [{'bed_code': 'M1'}], 'selected_room_code': 'MIX'},
