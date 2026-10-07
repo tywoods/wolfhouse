@@ -12,7 +12,7 @@ function financeRedesignFmtEur(cents) {
   var n = Number(cents);
   if (!Number.isFinite(n)) n = 0;
   try {
-    return new Intl.NumberFormat(typeof portalLang === 'string' ? portalLang : 'en', {
+    return new Intl.NumberFormat(financeRedesignLocaleTag(), {
       style: 'currency',
       currency: 'EUR',
       maximumFractionDigits: 0,
@@ -26,7 +26,7 @@ function financeRedesignFmtEurExact(cents) {
   var n = Number(cents);
   if (!Number.isFinite(n)) n = 0;
   try {
-    return new Intl.NumberFormat(typeof portalLang === 'string' ? portalLang : 'en', {
+    return new Intl.NumberFormat(financeRedesignLocaleTag(), {
       style: 'currency',
       currency: 'EUR',
       minimumFractionDigits: 2,
@@ -84,8 +84,8 @@ function financeRedesignDeltaChip(pct) {
 function financeRedesignLocaleTag() {
   var loc = 'en';
   try {
-    if (typeof portalLang === 'string' && portalLang) loc = portalLang;
-    else if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = portalLang;
   } catch (_e) { loc = 'en'; }
   loc = String(loc || 'en').toLowerCase();
   if (loc.indexOf('es') === 0) return 'es-ES';
@@ -252,7 +252,8 @@ function financeRedesignTrendHtml(trend, mode, opts) {
         '</div>';
     });
     htmlMonthly += '</div>';
-    htmlMonthly += axis + legend;
+    htmlMonthly = '<div class="pfb-trend-plot pfb-trend-plot--monthly">' + axis + htmlMonthly + '</div>';
+    htmlMonthly += legend;
     return htmlMonthly;
   }
   var html = '<div class="pfb-trend" data-finance-trend-mode="days" role="img" aria-label="' +
@@ -274,7 +275,8 @@ function financeRedesignTrendHtml(trend, mode, opts) {
       '</div>';
   });
   html += '</div>';
-  html += axis + legend;
+  html = '<div class="pfb-trend-plot">' + axis + html + '</div>';
+  html += legend;
   return html;
 }
 
@@ -305,16 +307,17 @@ function renderFinanceRedesignHtml(summary) {
     '#wh-admin-finance-body .pfb-card{justify-content:flex-start;min-height:0;overflow:visible}' +
     '#wh-admin-finance-body .pfb-booking-context{color:var(--text-2);font-size:13px;line-height:1.4;padding:2px 4px}' +
     '#wh-admin-finance-body .pfb-bar-name{width:auto;max-width:none;white-space:normal;overflow:visible;text-overflow:clip}' +
-    '#wh-admin-finance-body .pfb-sr,#wh-admin-finance-body .pfb-trend-sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}' +
-    '#wh-admin-finance-body .pfb-card--trend{position:relative;padding-left:76px}' +
-    '#wh-admin-finance-body .pfb-trend-axis{position:absolute;left:12px;top:62px;bottom:50px;width:58px;font-size:10px;color:var(--text-2)}' +
+    '#wh-admin-finance-body .pfb-sr,#wh-admin-finance-body .pfb-trend-sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}' +
+    '#wh-admin-finance-body .pfb-card--trend{position:relative}' +
+    '#wh-admin-finance-body .pfb-trend-plot{display:grid;grid-template-columns:58px minmax(0,1fr);column-gap:6px;align-items:start}' +
+    '#wh-admin-finance-body .pfb-trend-axis{position:relative;height:88px;margin-top:13px;width:58px;font-size:10px;color:var(--text-2)}#wh-admin-finance-body .pfb-trend-plot--monthly .pfb-trend-axis{height:132px;margin-top:17px}' +
     '#wh-admin-finance-body .pfb-trend-tick{position:absolute;right:0}#wh-admin-finance-body .pfb-trend-tick.is-max{top:0}#wh-admin-finance-body .pfb-trend-tick.is-mid{top:50%;transform:translateY(-50%)}#wh-admin-finance-body .pfb-trend-tick.is-zero{bottom:0}' +
     '#wh-admin-finance-body .pfb-trend-legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:10px}' +
-    '#wh-admin-finance-body .pfb-series-key{display:inline-flex;align-items:center;gap:6px}#wh-admin-finance-body .pfb-series-key:before{content:\"\";width:10px;height:10px;border-radius:2px;background:var(--green)}#wh-admin-finance-body .pfb-series-key.is-prior:before{background:var(--tan)}' +
+    '#wh-admin-finance-body .pfb-series-key{display:inline-flex;align-items:center;gap:6px}#wh-admin-finance-body .pfb-series-key:before{content:\"\";width:10px;height:10px;border-radius:2px}#wh-admin-finance-body .pfb-series-key.is-current:before{background:#3d8f5a}#wh-admin-finance-body .pfb-series-key.is-prior:before{background:rgba(74,124,148,.55)}[data-theme="dark"] #wh-admin-finance-body .pfb-series-key.is-current:before{background:#6fbf88}[data-theme="dark"] #wh-admin-finance-body .pfb-series-key.is-prior:before{background:rgba(158,224,168,.45)}' +
     '#wh-admin-finance-body .pfb-today{appearance:none;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-weight:600;padding:7px 11px;cursor:pointer}#wh-admin-finance-body .pfb-today:focus-visible{outline:2px solid var(--green);outline-offset:2px}' +
     '@media(max-width:640px){#wh-admin-finance-body .pfb-bar-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:\"name amount\" \"track share\"}' +
     '#wh-admin-finance-body .pfb-bar-name{grid-area:name}#wh-admin-finance-body .pfb-bar-amt{grid-area:amount}' +
-    '#wh-admin-finance-body .pfb-bar-track{grid-area:track}#wh-admin-finance-body .pfb-bar-pct{grid-area:share}#wh-admin-finance-body .pfb-card--trend{padding-left:62px}}' +
+    '#wh-admin-finance-body .pfb-bar-track{grid-area:track}#wh-admin-finance-body .pfb-bar-pct{grid-area:share}#wh-admin-finance-body .pfb-trend-plot{grid-template-columns:48px minmax(0,1fr);column-gap:4px}#wh-admin-finance-body .pfb-trend-axis{width:48px}}' +
     '</style>';
   html += '<div class="portal-admin-finance portal-admin-finance--b" data-finance-redesign="1"' +
     ' data-finance-view-gran="' + financeRedesignEsc(g) + '"' +
@@ -331,7 +334,7 @@ function renderFinanceRedesignHtml(summary) {
   html += '<button type="button" class="pfb-arw" data-finance-nav="next" aria-label="' +
     financeRedesignEsc(financeRedesignT('schedule.nav.next', 'Next')) + '">›</button>';
   html += '<button type="button" class="pfb-today" data-finance-nav="today">' +
-    financeRedesignEsc(financeRedesignT('schedule.today', 'Today')) + '</button>';
+    financeRedesignEsc(financeRedesignT('admin.finance.today', 'Today')) + '</button>';
   html += '</div></div>';
   html += '<div class="pfb-gran" role="tablist" aria-label="Granularity">';
   [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['custom', 'Custom']].forEach(function (row) {
@@ -403,7 +406,7 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
   html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.bookedSales', 'Booked sales')) + '</div>';
-  html += '<div class="pfb-mid">' + financeRedesignEsc(financeRedesignFmtEur(pipe.booked_cents || 0)) + '</div>';
+  html += '<div class="pfb-mid">' + financeRedesignMoneyHtml(pipe.booked_cents) + '</div>';
   html += '<div class="pfb-cmp">' + financeRedesignEsc(String(pipe.bookings_count || 0) + ' ' +
     financeRedesignT('admin.finance.bookings', 'bookings'));
   if (pipe.avg_booking_cents != null) {
@@ -424,7 +427,7 @@ function renderFinanceRedesignHtml(summary) {
   html += '<div class="pfb-card pfb-card--hero">';
   html += '<div class="pfb-card-top">';
   html += '<div class="pfb-lbl">' + financeRedesignEsc(financeRedesignT('admin.finance.balanceStillDue', 'Balance still due')) + '</div>';
-  html += '<div class="pfb-mid pfb-mid--amber">' + financeRedesignEsc(financeRedesignFmtEur(out.outstanding_cents || 0)) + '</div>';
+  html += '<div class="pfb-mid pfb-mid--amber">' + financeRedesignMoneyHtml(out.outstanding_cents) + '</div>';
   html += '<div class="pfb-cmp">' + financeRedesignEsc(financeRedesignT('admin.finance.acrossBookings', 'across') + ' ' +
     String(out.bookings_count || 0) + ' ' + financeRedesignT('admin.finance.bookings', 'bookings')) + '</div>';
   html += '</div>';
@@ -479,6 +482,8 @@ function renderFinanceRedesignHtml(summary) {
       lab = financeRedesignT('admin.finance.product.services', 'Services');
     } else if (p.key === 'camps') {
       lab = financeRedesignT('admin.finance.product.camps', 'Camps');
+    } else if (p.key === 'unclassified') {
+      lab = financeRedesignT('admin.finance.product.unclassified', 'Unclassified adjustment / data incomplete');
     }
     html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
     (Array.isArray(p.details) ? p.details : []).forEach(function (detail) {

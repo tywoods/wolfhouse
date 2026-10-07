@@ -29,7 +29,7 @@ const translations = {
   'admin.finance.refundSourceUnavailable': 'Refund data is unavailable.',
   'admin.finance.assignmentExceptions': '{n} assignment exceptions',
 };
-const sandbox = { portalT: (key) => translations[key] || key, escHtml: String, portalLang: 'en', Intl, module: { exports: {} }, exports: {} };
+const sandbox = { portalT: (key) => translations[key] || key, escHtml: String, portalLang: 'en', getStaffLocale: () => sandbox.portalLang, Intl, module: { exports: {} }, exports: {} };
 vm.createContext(sandbox);
 vm.runInContext(rendererSource, sandbox);
 const base = {
@@ -65,8 +65,12 @@ check('Wolfhouse-only responsive override wraps labels into two mobile rows', /#
 check('mobile grid uses explicit two-row areas', /grid-template-areas:\"name amount\" \"track share\"/.test(html));
 check('chart has positioned y ticks and keyed series', /pfb-trend-tick/.test(html) && /pfb-series-key is-current/.test(html) && /pfb-series-key is-prior/.test(html));
 check('chart exposes exact current and prior values accessibly', /pfb-trend-sr/.test(html) && /€100\.00/.test(html) && /€50\.00/.test(html));
+check('shared exact-value utility is robustly visually hidden', /clip-path:inset\(50%\)!important/.test(html) && /position:absolute!important/.test(html) && /width:1px!important/.test(html));
+check('trend plot owns axis and bars in one geometry wrapper', /pfb-trend-plot/.test(html));
+check('series swatches use explicit visible fills', /is-current:before\{[^}]*background:#/.test(html) && /is-prior:before\{[^}]*background:rgba?\(/.test(html));
 check('unavailable reason is typed and raw code is absent', /Refund data is unavailable/.test(html) && !/>refund_source_unreadable</.test(html));
 check('exact cents are in accessible card and product details', /€14,295\.00/.test(html) && /€12,000\.00/.test(html));
+check('booked sales and balance headlines expose exact cents', /pfb-mid[^>]*>[\s\S]*€30,808\.00/.test(html) && /pfb-mid pfb-mid--amber[^>]*>[\s\S]*€14,833\.00/.test(html));
 check('occupancy exposes precision, counts, partial status, basis, and exceptions', /41\.3%/.test(html) && /717 of 1,736/.test(html) && /Provisional/.test(html) && /0 assignment exceptions/.test(html));
 check('actual assembled Staff source contains renderer', emittedSource.includes('function renderFinanceRedesignHtml'));
 
@@ -118,5 +122,15 @@ for (const key of ['gran.week','lunaBookings','staffCreated','provisionalOccupan
   check(`ES locale owns admin.finance.${key}`, es.includes(`'admin.finance.${key}'`));
 }
 check('renderer remains scoped owner and does not alter shared Staff CSS', !rendererSource.includes('staff-query-api.js'));
+const esRequired = ['bookedSales','balanceStillDue','bookedSalesByProduct','bedOccupancy','bedNights','occupiedBeds','dateBasis','product.services','product.camps'];
+for (const key of esRequired) check(`ES locale owns admin.finance.${key}`, es.includes(`'admin.finance.${key}'`));
+sandbox.portalLang = 'es';
+sandbox.portalT = (key) => ({
+  'admin.finance.bookedSales': 'Ventas reservadas',
+  'admin.finance.balanceStillDue': 'Saldo pendiente',
+  'admin.finance.bookings': 'Reservas',
+}[key] || translations[key] || key);
+const esHtml = sandbox.renderFinanceRedesignHtml(base);
+check('native ES render uses scoped labels and es-ES exact currency', /Ventas reservadas/.test(esHtml) && /Saldo pendiente/.test(esHtml) && /30\.808,00\s*€/.test(esHtml));
 console.log(`\nverify-wolfhouse-finance-live-fix-ui: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
