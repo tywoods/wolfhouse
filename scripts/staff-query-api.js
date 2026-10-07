@@ -45399,22 +45399,28 @@ function toShowPlain(elId, result){
   }
   toShowResult(elId, '<div class="bk-preview-badge">' + escHtml(result.badge) + '</div>' + lines, !!result.isErr);
 }
+if (typeof window !== 'undefined' && window.__staffUiTestHooks) {
+  window.__staffUiTestHooks.toShowPlain = toShowPlain;
+}
 
 function toRefreshBeforeRetry(done){
-  var blocksOk = false;
-  var calendarOk = false;
-  function finish(){
-    if (blocksOk && calendarOk && done) done(true);
+  var settled = false;
+  var timer = setTimeout(function(){ complete(false); }, 10000);
+  function complete(ok){
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (done) done(ok === true);
   }
-  toLoadBlocks(function(ok){
-    blocksOk = ok === true;
-    if (!blocksOk || typeof loadBedCalendar !== 'function') return;
+  if (typeof toLoadBlocks !== 'function') { complete(false); return; }
+  toLoadBlocks(function(blocksOk){
+    if (blocksOk !== true || typeof loadBedCalendar !== 'function') { complete(false); return; }
     var startEl = el('bc-start');
     var endEl = el('bc-end');
-    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) return;
+    if (!startEl || !endEl || !String(startEl.value || '') || !String(endEl.value || '')) { complete(false); return; }
     try {
-      loadBedCalendar(function(){ calendarOk = true; finish(); });
-    } catch (e) {}
+      loadBedCalendar(function(_data, calendarOk){ complete(calendarOk === true); });
+    } catch (e) { complete(false); }
   });
 }
 
@@ -45425,7 +45431,15 @@ function toApplyPlain(elId, result, which){
   if (which === 'rr') toRrHold = true;
   toUpdateOpButtons();
   toUpdateRrButtons();
-  toRefreshBeforeRetry(function(){
+  toRefreshBeforeRetry(function(ok){
+    if (ok !== true) {
+      toShowPlain(elId, {
+        badge: t('tourOperator.result.badge.uncertain'),
+        lines: [t('tourOperator.result.refresh.failed')],
+        isErr: true,
+      });
+      return;
+    }
     if (which === 'op') toOpHold = false;
     if (which === 'rr') toRrHold = false;
     toUpdateOpButtons();
@@ -45877,6 +45891,7 @@ function loadBedCalendar(afterRender, options){
     el('bc-state').className = 'state-msg error';
     el('bc-state').textContent = t('calendar.state.invalidDateRange');
     el('bc-state').style.display = 'block';
+    if (typeof afterRender === 'function') afterRender(null, false);
     return;
   }
 
@@ -45903,25 +45918,29 @@ function loadBedCalendar(afterRender, options){
       if (!res.ok || !res.data.success){
         el('bc-state').className   = 'state-msg error';
         el('bc-state').textContent = t('common.error') + ' ' + res.status + ': ' + (res.data.error || t('calendar.state.requestFailed'));
+        if (typeof afterRender === 'function') afterRender(null, false);
         return;
       }
       if (!res.data.rooms || res.data.rooms.length === 0){
         el('bc-state').textContent = t('calendar.state.noRooms');
+        if (typeof afterRender === 'function') afterRender(null, false);
         return;
       }
       if (!res.data.days || res.data.days.length === 0){
         el('bc-state').textContent = t('calendar.state.noDays');
+        if (typeof afterRender === 'function') afterRender(null, false);
         return;
       }
       bcLastBedCalendarData = res.data;
       renderBedCalendar(res.data);
-      if (typeof afterRender === 'function') afterRender(res.data);
+      if (typeof afterRender === 'function') afterRender(res.data, true);
     })
     .catch(function(e){
       if (epoch !== bcLoadEpoch) return;
       el('bc-load').disabled     = false;
       el('bc-state').className   = 'state-msg error';
       el('bc-state').textContent = t('calendar.state.networkError', { message: e.message });
+      if (typeof afterRender === 'function') afterRender(null, false);
     });
 }
 

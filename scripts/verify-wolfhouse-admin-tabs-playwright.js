@@ -155,6 +155,7 @@ async function runWolfhouse(playwright, browser) {
   const base = await listen(server);
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.addInitScript((slug) => {
+    window.__staffUiTestHooks = {};
     localStorage.setItem('staff_portal_client', slug);
     localStorage.setItem('wh_staff_portal_locale', 'en');
   }, WH_CLIENT);
@@ -222,6 +223,30 @@ async function runWolfhouse(playwright, browser) {
     }), Object.values(HOSTED_SUBTABS));
     equal('exactly one hosted panel is active', activeHosted, ['tab-tour-operator']);
 
+    // Real Chromium proof: production result nodes and production toShowPlain()
+    // expose success as a polite status and failure/uncertainty as assertive alerts.
+    await page.locator('#staff-room-block-toggle').click();
+    await page.locator('#staff-room-release-toggle').click();
+    for (const resultId of ['to-op-result', 'to-rr-result']) {
+      await page.evaluate((id) => window.__staffUiTestHooks.toShowPlain(id, { badge: 'Completed', lines: ['Saved'], isErr: false }), resultId);
+      const success = await page.locator(`#${resultId}`).evaluate((node) => ({
+        role: node.getAttribute('role'), live: node.getAttribute('aria-live'),
+        atomic: node.getAttribute('aria-atomic'), visible: !!node.getClientRects().length,
+      }));
+      equal(`${resultId} success is announced as status`, success,
+        { role: 'status', live: 'polite', atomic: 'true', visible: true });
+
+      for (const badge of ['Failed', 'Uncertain']) {
+        await page.evaluate(([id, label]) => window.__staffUiTestHooks.toShowPlain(id, { badge: label, lines: ['Refresh'], isErr: true }), [resultId, badge]);
+        const alert = await page.locator(`#${resultId}`).evaluate((node) => ({
+          role: node.getAttribute('role'), live: node.getAttribute('aria-live'),
+          atomic: node.getAttribute('aria-atomic'), visible: !!node.getClientRects().length,
+        }));
+        equal(`${resultId} ${badge.toLowerCase()} is announced as alert`, alert,
+          { role: 'alert', live: 'assertive', atomic: 'true', visible: true });
+      }
+    }
+
     check('no uncaught page errors on Wolfhouse Admin', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await context.close();
@@ -235,6 +260,7 @@ async function runSunsetRegression(playwright, browser) {
   const base = await listen(server);
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await context.addInitScript((slug) => {
+    window.__staffUiTestHooks = {};
     localStorage.setItem('staff_portal_client', slug);
     localStorage.setItem('staff_portal_sunset_location', 'sunset-somo');
     localStorage.setItem('wh_staff_portal_locale', 'en');

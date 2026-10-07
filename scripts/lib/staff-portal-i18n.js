@@ -8,6 +8,7 @@
 const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
 const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
 const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET);
+const STAFF_PORTAL_TOUR_OPERATOR = require('./staff-portal-i18n-tour-operator');
 
 const STAFF_PORTAL_STRINGS = {
   en: {
@@ -3064,6 +3065,9 @@ const STAFF_PORTAL_STRINGS = {
     'admin.finance.leftOnTable': 'lasciati sul tavolo',
   },
 };
+Object.assign(STAFF_PORTAL_STRINGS.en, STAFF_PORTAL_TOUR_OPERATOR.en);
+Object.assign(STAFF_PORTAL_STRINGS.es, STAFF_PORTAL_TOUR_OPERATOR.es);
+Object.assign(STAFF_PORTAL_STRINGS.it, STAFF_PORTAL_TOUR_OPERATOR.it);
 
 function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;

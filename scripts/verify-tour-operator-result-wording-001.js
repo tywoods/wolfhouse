@@ -24,7 +24,14 @@ const apiSrc = fs.readFileSync(API, 'utf8');
 const i18nSrc = fs.readFileSync(I18N, 'utf8');
 const i18nEsSrc = fs.readFileSync(I18N_ES, 'utf8');
 
-const sandbox = { module: { exports: {} }, exports: {} };
+const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
+function interpolate(value, vars) {
+  return String(value).replace(/\{([^}]+)\}/g, (_, key) => vars && vars[key] !== undefined ? vars[key] : '');
+}
+const sandbox = {
+  module: { exports: {} }, exports: {},
+  t: (key, vars) => interpolate(STAFF_PORTAL_STRINGS.en[key] || key, vars),
+};
 vm.runInNewContext(src, sandbox);
 const plain = sandbox.module.exports.tourOperatorPlainResult;
 assert.equal(typeof plain, 'function', 'exports tourOperatorPlainResult');
@@ -128,7 +135,9 @@ assert.ok(/elenco dei blocchi e il calendario prima di riprovare/i.test(i18nSrc)
 assert.ok(/role=['"]status['"]/.test(apiSrc), 'result regions expose status role');
 assert.ok(/aria-live=['"]polite['"]/.test(apiSrc), 'result regions announce normal results');
 assert.ok(/setAttribute\(['"]role['"],\s*['"]alert['"]\)/.test(apiSrc), 'failed and uncertain results become alerts');
-assert.ok(/blocksOk[\s\S]*calendarOk[\s\S]*blocksOk\s*&&\s*calendarOk/.test(apiSrc), 'retry unlock requires both refreshes to succeed');
+assert.ok((apiSrc.match(/ok !== true/g) || []).length >= 3, 'retry unlock requires explicit true from block list, calendar, and coordinator');
+assert.ok(apiSrc.includes('afterRender(res.data, true)'), 'calendar reports explicit success');
+assert.ok(apiSrc.includes('afterRender(null, false)'), 'calendar reports explicit failure');
 
 // Execute the production browser announcer against a minimal result element.
 const showPlainStart = apiSrc.indexOf('function toShowPlain(');
