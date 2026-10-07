@@ -509,13 +509,9 @@
   function genderEditor(room) {
     var s = state();
     var id = room.roomId;
+    if (room.genderEditable !== true) return document.createDocumentFragment();
     var wrap = document.createElement('div');
     wrap.className = 'rf-gender-edit';
-    if (room.genderEditable !== true) {
-      wrap.className = 'rf-meta';
-      wrap.textContent = room.genderEditNote || 'Read-only: special or unrecognized room type; restrictions are preserved.';
-      return wrap;
-    }
     var current = String(room.genderLabel || '').toLowerCase();
     if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
     var draft = s.genderDrafts[id];
