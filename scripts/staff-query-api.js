@@ -43306,6 +43306,7 @@ function bcServiceCatalogOptionsHtml(){
   bcServiceCatalog.forEach(function(s){
     if (!s || !s.id) return;
     var unit = s.price_unit === 'per_day' ? '/day' : '/stay';
+    if (getBcClient() === 'wolfhouse-somo' && s.price_unit === 'per_lesson') unit = '/lesson';
     var per = s.per_guest === false ? '' : '/guest';
     var price = '€' + (Number(s.price_cents || 0) / 100).toFixed(2);
     out += '<option value="service:' + escHtml(String(s.id)) + '">' +
