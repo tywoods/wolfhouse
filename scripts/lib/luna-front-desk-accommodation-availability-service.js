@@ -10,6 +10,7 @@
  */
 
 const crypto = require('crypto');
+const { resolveRoomFillRanking } = require('./luna-room-fill-policy');
 const { resolveQuoteRoomTypeFromPreference, computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
 const {
   runAvailabilityBedSelection,
@@ -152,7 +153,7 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
   };
 }
 
-function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
+function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, roomFillRanking = null) {
   const {
     guestCount,
     roomType,
@@ -252,6 +253,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
     const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
     const capacityPick = runAvailabilityBedSelection({
       bedRows,
+      roomFillRanking,
       occupiedBedCodes,
       allowedBedCodes,
       blockRows,
@@ -282,6 +284,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command) {
       if (readyForGenderAssign) {
         const genderPick = runAvailabilityBedSelection({
           bedRows,
+          roomFillRanking,
           occupiedBedCodes,
           allowedBedCodes,
           blockRows,
@@ -494,6 +497,7 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
 
   let bedRows;
   let blockRows;
+  let hasSavedFillPolicy = false;
   try {
     const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [command.clientSlug]);
     const blocksRes = await pg.query(
@@ -502,16 +506,34 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
     );
     bedRows = bedsRes.rows;
     blockRows = blocksRes.rows;
+    hasSavedFillPolicy = bedRows.some(row => row.room_fill_policy != null);
+    // Zero active rooms have no inventory row on which to project the policy.
+    // Check only that empty-inventory fallback edge; never resurrect disabled rooms.
+    if (!bedRows.length && command.clientSlug === WOLFHOUSE_CLIENT_SLUG && command.demoCalendarEnrichment !== false) {
+      const saved = await pg.query("SELECT to_jsonb(c)->'settings'->'luna_room_fill_policy' AS room_fill_policy FROM clients c WHERE c.slug = $1", [command.clientSlug]);
+      hasSavedFillPolicy = saved.rows.some(row => row.room_fill_policy != null);
+    }
   } catch (err) {
     return fail(500, 'db_error', err.message);
   }
 
   if (command.demoCalendarEnrichment !== false) {
-    bedRows = resolveBedCalendarRoomRows(command.clientSlug, bedRows);
+    // A saved policy belongs to real inventory; never add unranked CSV/disabled rooms.
+    if (!hasSavedFillPolicy) {
+      bedRows = resolveBedCalendarRoomRows(command.clientSlug, bedRows);
+    }
     blockRows = filterDemoCalendarBlocks(blockRows);
   }
 
-  const inventory = computeWolfhouseAvailabilityInventory(bedRows, blockRows, command);
+  const fill = resolveRoomFillRanking({ clientSlug: command.clientSlug, bedRows, blockRows,
+    checkIn: command.checkIn, checkOut: command.checkOut });
+  const exactSelection = command.assignmentMode !== true
+    && Array.isArray(command.transportBody?.selected_bed_codes) && command.transportBody.selected_bed_codes.length > 0;
+  if (!exactSelection && !['active', 'not_configured', 'not_applicable'].includes(fill.status)) {
+    return fail(409, 'room_fill_policy_requires_review', 'Room selection could not be confirmed',
+      { room_fill_status: fill.status, write_performed: false });
+  }
+  const inventory = computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, fill.byRoom);
   const body = buildCanonicalAvailabilityBody(command, inventory, dateEval);
 
   return { ok: true, status: 200, body };

@@ -184,6 +184,7 @@ function readOnlyInventory(bedRows, blocks = []) {
   const calls = [];
   return { calls, query: async (sql, params) => {
     calls.push({ sql, params });
+    if (sql.includes('offer_idempotency_lookup')) return { rows: [] }; // No prior create in this read-only fixture.
     if (/FROM wh_pricing_items/.test(sql)) return { rows: [] }; // saved-policy read, JSON seed if no override
     if (sql === getBedCalendarRoomsQuery()) return { rows: bedRows };
     if (sql === getBedCalendarBlocksQuery()) return { rows: blocks };
@@ -262,7 +263,7 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   const result = await executeWolfhouseBookingCreate(pg, built.command);
   assert.equal(result.ok, false);
   assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
-  assert.equal(pg.calls.length, 2); // current room/block SELECTs, no writes
+  assert.equal(pg.calls.length, 3); // idempotency lookup + current room/block SELECTs, no writes
 });
 
 async function main() {

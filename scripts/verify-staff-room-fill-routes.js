@@ -157,7 +157,7 @@ test('sunset is refused and the research flag is not read as a hotel control', a
   await routes.handleRoomFillGet({}, {}, {}, sunset);
   assert.equal(sent[0].status, 403);
   assert.equal(sent[0].body.error, 'unsupported_tenant');
-  assert.equal(sent[0].body.activationStatus, 'not_connected');
+  assert.equal(sent[0].body.activationStatus, 'connected');
   assert.equal(state.writes.length, 0);
   assert.equal(state.sql.some((sql) => sql.includes('room-fill-catalogue')), false);
 });
@@ -167,7 +167,7 @@ test('get returns a suggested order and does not invent a saved policy', async (
   const { routes, sent } = harness(state);
   await routes.handleRoomFillGet({}, {}, {}, wolf);
   assert.equal(sent[0].status, 200);
-  assert.equal(sent[0].body.activationStatus, 'not_connected');
+  assert.equal(sent[0].body.activationStatus, 'connected');
   assert.equal(sent[0].body.policyStatus, 'not_configured');
   assert.equal(sent[0].body.policy, null);
   assert.deepEqual(sent[0].body.suggestedPolicy.roomPriority, [R1, R2]);
@@ -241,7 +241,7 @@ test('preview is read-only and does not create a reservation', async () => {
   assert.equal(sent[0].body.reservationCreated, false);
   assert.equal(sent[0].body.decision.reservationCreated, false);
   assert.equal(sent[0].body.decision.selected[0].roomId, R2);
-  assert.equal(sent[0].body.activationStatus, 'not_connected');
+  assert.equal(sent[0].body.activationStatus, 'connected');
   assert.equal(state.writes.length, 0);
   assert.equal(state.settings.luna_room_fill_policy, undefined);
 });
