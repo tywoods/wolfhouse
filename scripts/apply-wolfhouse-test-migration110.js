@@ -24,6 +24,8 @@ const TARGET = Object.freeze({
   database: RECOVERY_TARGET.database, port: RECOVERY_TARGET.port,
 });
 function requireThat(condition, message) { if (!condition) throw new Error(message); }
+requireThat(TARGET.host === 'luna-pg-shared.postgres.database.azure.com'
+  && TARGET.database === 'wolfhouse_staging', 'Wolfhouse shared PostgreSQL target configuration mismatch');
 function assertTarget(o) {
   for (const key of Object.keys(TARGET)) requireThat(o[key] === TARGET[key], `${key} target mismatch`);
   requireThat(o.migration === '110', 'migration must be exactly 110 (forward only)');

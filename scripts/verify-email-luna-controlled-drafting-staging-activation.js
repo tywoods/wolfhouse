@@ -527,18 +527,18 @@ assert.equal(loopbackTls.ssl, false);
 assert.equal(loopbackTls.tls_mode, 'loopback_cleartext');
 assert.equal(loopbackTls.connectionTimeoutMillis, DIRECT_LOGIN_CONNECTION_TIMEOUT_MS);
 const azureNoCa = resolveEmailLunaDirectLoginPoolTransport({
-  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+  host: 'luna-pg-shared.postgres.database.azure.com',
 });
 assert.equal(azureNoCa.ok, false);
 assert.equal(azureNoCa.reason, 'pg_ca_unproven');
 assert.equal(azureNoCa.ssl, null);
 const azureCa = resolveEmailLunaDirectLoginPoolTransport({
-  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+  host: 'luna-pg-shared.postgres.database.azure.com',
   caText: '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
 });
 assert.equal(azureCa.ok, true);
 assert.equal(azureCa.ssl.rejectUnauthorized, true);
-assert.equal(azureCa.ssl.servername, 'luna-sunset-staging-pg-app.postgres.database.azure.com');
+assert.equal(azureCa.ssl.servername, 'luna-pg-shared.postgres.database.azure.com');
 assert.equal(azureCa.tls_mode, 'verify-full');
 assert.equal(DIRECT_LOGIN_CONNECTION_TIMEOUT_MS > 0 && DIRECT_LOGIN_CONNECTION_TIMEOUT_MS <= 10000, true);
 console.log('  PASS  TLS config is truthful; Azure missing CA fails; loopback is cleartext; timeout bounded');

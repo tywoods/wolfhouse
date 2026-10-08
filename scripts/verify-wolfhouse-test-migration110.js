@@ -14,6 +14,10 @@ const base = () => ({ target: 'wolfhouse-staging', migration: '110', host: RECOV
   database: RECOVERY_TARGET.database, port: RECOVERY_TARGET.port });
 const argv = () => ['--target', 'wolfhouse-staging', '--migration', '110', '--host', RECOVERY_TARGET.postgresHost,
   '--database', RECOVERY_TARGET.database, '--port', '5432'];
+test('Wolfhouse migration110 remains locked to the shared host and Wolfhouse database', () => {
+  assert.equal(RECOVERY_TARGET.postgresHost, 'luna-pg-shared.postgres.database.azure.com');
+  assert.equal(RECOVERY_TARGET.database, 'wolfhouse_staging');
+});
 function owner() {
   assert.ok(fs.existsSync(SCRIPT), 'dedicated supported migration110 owner must exist');
   return require(SCRIPT);

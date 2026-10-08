@@ -9,7 +9,7 @@
  *   WOLFHOUSE_DATABASE_URL=postgres://... \
  *   node scripts/fixtures/sunset-staging-staff-user.js
  *
- * Fail-closed: only luna-sunset-staging-pg-app / sunset_staging.
+ * Fail-closed: only luna-pg-shared / sunset_staging.
  * Never logs password or password_hash.
  */
 
@@ -18,7 +18,7 @@ const readline = require('readline');
 const { withPgClient } = require('../lib/pg-connect');
 
 const ALLOW_ENV_KEY = 'ALLOW_SUNSET_STAFF_USER_SEED';
-const APPROVED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const APPROVED_DB = 'sunset_staging';
 const CLIENT_SLUG = 'sunset';
 const STAFF_USER_SOURCE = 'sunset_staging_staff_user';

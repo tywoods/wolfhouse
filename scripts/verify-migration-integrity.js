@@ -461,7 +461,7 @@ pass(
   pass(
     'red-forbidden-azure-host',
     !assertSafeDatabaseTarget({
-      host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+      host: 'luna-pg-shared.postgres.database.azure.com',
       port: 5432,
       database: 'wh_mig_test',
     }).ok,

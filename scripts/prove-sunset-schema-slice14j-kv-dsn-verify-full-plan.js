@@ -549,7 +549,7 @@ async function main() {
     const ok = mutationPlanMatchesLocked(plan)
       && plan.secretName === 'sunset-database-url'
       && plan.keyVaultName === 'luna-sunset-staging-kv'
-      && plan.postgresHost === 'luna-sunset-staging-pg-app.postgres.database.azure.com'
+      && plan.postgresHost === 'luna-pg-shared.postgres.database.azure.com'
       && plan.mutation.to === 'verify-full'
       && plan.mutation.preserveUserMetadata === true
       && plan.mutation.retainExact.includes('contentType')

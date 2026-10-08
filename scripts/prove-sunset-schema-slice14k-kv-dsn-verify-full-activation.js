@@ -617,7 +617,7 @@ Default / missing / wrong gates → **zero HTTP / zero writes**. Rollback remain
 |------|-------|
 | Vault / secret | \`luna-sunset-staging-kv\` / \`sunset-database-url\` |
 | Identity / VM | \`wh-staging-identity\` / \`lunabox\` in \`wh-staging-rg\` |
-| PG host / database | \`luna-sunset-staging-pg-app.postgres.database.azure.com\` / \`sunset_staging\` |
+| PG host / database | \`luna-pg-shared.postgres.database.azure.com\` / \`sunset_staging\` |
 | Mutation | \`sslmode\` only → \`verify-full\` (metadata preserved) |
 | PUT count | exactly 1 (no retries) |
 
@@ -635,7 +635,7 @@ npm run phase-d:kv-dsn-verify-full-apply -- \\
   --managed-identity wh-staging-identity \\
   --key-vault luna-sunset-staging-kv \\
   --secret-name sunset-database-url \\
-  --postgres-server luna-sunset-staging-pg-app \\
+  --postgres-server luna-pg-shared \\
   --database sunset_staging
 \`\`\`
 

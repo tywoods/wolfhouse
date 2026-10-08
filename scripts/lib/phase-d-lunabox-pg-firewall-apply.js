@@ -5,7 +5,7 @@
  *
  * Locked ARM apply adapter for exactly one PostgreSQL Flexible Server firewall
  * rule: AllowLunaboxEgress start=end=20.238.124.76 on existing
- * luna-sunset-staging-pg-app. Standalone Bicep declares the resource; this
+ * luna-pg-shared. Standalone Bicep declares the resource; this
  * adapter performs one gated ARM REST PUT of that rule only.
  *
  * Never opens a PostgreSQL client. Never deploys main.bicep. Never deletes or

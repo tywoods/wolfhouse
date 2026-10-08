@@ -7,11 +7,11 @@
  * Staging activation (post-merge only):
  *   ALLOW_SUNSET_ADMIN_PRICE_SEED=1 \
  *   SUNSET_ADMIN_PRICE_SEED_STAGING_DB_ALLOW=1 \
- *   WOLFHOUSE_DATABASE_URL='postgres://...@luna-sunset-staging-pg-app.postgres.database.azure.com/sunset_staging' \
+ *   WOLFHOUSE_DATABASE_URL='postgres://...@luna-pg-shared.postgres.database.azure.com/sunset_staging' \
  *   node scripts/fixtures/sunset-somo-group-course-price-seed.js --execute
  */
 
-const EXPECTED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const EXPECTED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const EXPECTED_DB = 'sunset_staging';
 const TENANT_ID = 'sunset';
 const CLIENT_SLUG = 'sunset';

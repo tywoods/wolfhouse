@@ -28,7 +28,7 @@ const {
 const TARGETS = Object.freeze({
   subscriptionId: '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9',
   resourceGroup: 'luna-sunset-staging-rg',
-  postgresServer: 'luna-sunset-staging-pg-app',
+  postgresServer: 'luna-pg-shared',
   postgresHost: EXPECTED_HOST,
   database: EXPECTED_DATABASE,
   keyVault: 'luna-sunset-staging-kv',

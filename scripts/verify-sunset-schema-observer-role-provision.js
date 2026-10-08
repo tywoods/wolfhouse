@@ -124,7 +124,7 @@ async function main() {
   pass('live-apply-enabled', LIVE_APPLY_ENABLED === true);
   pass('locked-subscription', TARGETS.subscriptionId === '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9');
   pass('locked-rg', TARGETS.resourceGroup === 'luna-sunset-staging-rg');
-  pass('locked-pg', TARGETS.postgresServer === 'luna-sunset-staging-pg-app');
+  pass('locked-pg', TARGETS.postgresServer === 'luna-pg-shared');
   pass('locked-db', TARGETS.database === 'sunset_staging' && TARGETS.database === EXPECTED_DATABASE);
   pass('locked-host', TARGETS.postgresHost === EXPECTED_HOST);
   pass('locked-kv', TARGETS.keyVault === 'luna-sunset-staging-kv');

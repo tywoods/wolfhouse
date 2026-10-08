@@ -4,7 +4,7 @@
  * prove-sunset-schema-slice14n-lunabox-pg-firewall — FOUNDATION Slice 14N
  *
  * Offline RED/GREEN (injected HTTP) → exactly ONE live ARM PUT of
- * AllowLunaboxEgress (20.238.124.76) on luna-sunset-staging-pg-app via
+ * AllowLunaboxEgress (20.238.124.76) on luna-pg-shared via
  * managed-identity ARM REST. No PostgreSQL client/query. No main.bicep deploy.
  * No delete/broaden/retry. Cost actual/amortized before+after (safe totals only).
  */

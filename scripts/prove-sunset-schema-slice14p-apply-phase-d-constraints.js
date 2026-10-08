@@ -1313,7 +1313,7 @@ Outcome code: \`${outcome}\`.
 
 Sequence: post-firewall prestate → credential preflight → exactly one gated constraint-apply transaction (\`application_name=wh-sunset-phase-d-constraint-apply\`, advisory lock, zero-count aggregate, exactly two \`ADD CONSTRAINT\` from byte-locked 028, catalog verify, COMMIT) → canonical observer read-only compare. On blocker: stop (no retry). Verify never re-runs live.
 
-Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`.
+Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-pg-shared.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`.
 
 ## Operator command (constraint-apply; default-disabled)
 
