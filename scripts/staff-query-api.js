@@ -21916,6 +21916,10 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 }
 .luna-header-mode-head{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
 .luna-header-mode-title{font-weight:700;font-size:14px;color:var(--text)}
+/* Wolfhouse Personal Luna disclosures reuse Pricing's header class and typography. */
+.staff-collapse-toggle.portal-admin-section-hdr .cc-section-hdr,
+.staff-collapse-toggle.portal-admin-section-hdr .luna-header-mode-title{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;margin:0}
+.staff-collapse-toggle.portal-admin-section-hdr .luna-header-mode-head{margin:0}
 .luna-header-mode-sub{font-size:12px;color:var(--luna-teal-dark);opacity:.72}
 .luna-header-mode-seg{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px}
 .luna-header-mode-btn{
@@ -46959,10 +46963,10 @@ function lgsCreateStripeLink(){
     var button = document.createElement('button');
     button.type = 'button';
     button.id = toggleId;
-    button.className = 'staff-collapse-toggle';
+    button.className = 'staff-collapse-toggle portal-admin-section-hdr';
     var body = document.createElement('div');
     body.id = cardId + '-body';
-    body.className = 'staff-collapse-body';
+    body.className = 'staff-collapse-body portal-admin-section-body';
     button.setAttribute('aria-controls', body.id);
     card.insertBefore(button, title);
     button.appendChild(title);
