@@ -1204,7 +1204,7 @@ Outcome code: \`${outcome}\`.
 
 Sequence: post-firewall ARM/outbound prestate → merged 14F/14G metadata credential-preflight → exactly one merged 14D/14E managed-identity count-only path (\`application_name=wh-sunset-phase-d-preflight\`, \`BEGIN READ ONLY\`, transaction_read_only verify, locked catalog checks, exact 14A aggregate for total_rows/date_window_violations/price_unit_violations, COMMIT/ROLLBACK, end). On blocker: existing secret-free classifier; no retry. Verify never re-runs live.
 
-Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, firewall **\`AllowLunaboxEgress\`** \`20.238.124.76/32\`.
+Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-pg-shared.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, firewall **\`AllowLunaboxEgress\`** \`20.238.124.76/32\`.
 
 ## Operator command (count-only; default-disabled)
 

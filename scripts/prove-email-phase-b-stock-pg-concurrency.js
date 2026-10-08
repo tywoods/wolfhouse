@@ -57,7 +57,7 @@ const PINNED_SERVER_IDENTITY_ENV = 'SUNSET_EMAIL_PHASE_B_STOCK_PG_PINNED_SERVER_
 
 const REQUIRED_TARGET = 'sunset-staging';
 const REQUIRED_DATABASE = 'sunset_staging';
-const REQUIRED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const REQUIRED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const AZURE_PG_HOST_SUFFIX = '.postgres.database.azure.com';
 const REGISTRY_DOC_SCHEMA = 'stock_pg_registry_v1';
 const WORKER_EVIDENCE_SCHEMA = 'stock_pg_worker_evidence_v1';

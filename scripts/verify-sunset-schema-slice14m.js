@@ -222,7 +222,7 @@ async function main() {
     && MI_LOADER_LOCKS.secretName === 'sunset-database-url'
     && MI_LOADER_LOCKS.sslmode === 'verify-full'
     && TARGETS.applicationName === 'wh-sunset-phase-d-preflight'
-    && TARGETS.postgresHost === 'luna-sunset-staging-pg-app.postgres.database.azure.com'
+    && TARGETS.postgresHost === 'luna-pg-shared.postgres.database.azure.com'
     && contract.managedIdentityLocks.managedIdentityName === 'wh-staging-identity'
     && contract.managedIdentityLocks.applicationName === 'wh-sunset-phase-d-preflight');
 

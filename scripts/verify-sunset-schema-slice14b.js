@@ -187,8 +187,8 @@ async function main() {
   pass('locked-targets',
     TARGETS.subscriptionId === '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9'
     && TARGETS.resourceGroup === 'luna-sunset-staging-rg'
-    && TARGETS.postgresServer === 'luna-sunset-staging-pg-app'
-    && TARGETS.postgresHost === 'luna-sunset-staging-pg-app.postgres.database.azure.com'
+    && TARGETS.postgresServer === 'luna-pg-shared'
+    && TARGETS.postgresHost === 'luna-pg-shared.postgres.database.azure.com'
     && TARGETS.database === 'sunset_staging'
     && TARGETS.sslmode === 'verify-full'
     && TARGETS.applicationName === 'wh-sunset-phase-d-preflight'

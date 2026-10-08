@@ -179,7 +179,7 @@ function main() {
   pass('mutation-locks-exact',
     DSN_PLAN_LOCKS.secretName === 'sunset-database-url'
     && DSN_PLAN_LOCKS.keyVaultName === 'luna-sunset-staging-kv'
-    && DSN_PLAN_LOCKS.postgresHost === 'luna-sunset-staging-pg-app.postgres.database.azure.com'
+    && DSN_PLAN_LOCKS.postgresHost === 'luna-pg-shared.postgres.database.azure.com'
     && DSN_PLAN_LOCKS.port === 5432
     && DSN_PLAN_LOCKS.database === 'sunset_staging'
     && DSN_PLAN_LOCKS.targetSslmode === 'verify-full'
