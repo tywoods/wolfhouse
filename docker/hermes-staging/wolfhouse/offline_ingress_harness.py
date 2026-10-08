@@ -5,6 +5,7 @@ _run_agent and real context-preserving executor, then the installed loop hook.
 """
 import ast
 import asyncio
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -37,6 +38,25 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     runner._running_agents = {}
     runner._session_run_generations = {}
     runner._active_session_leases = {}
+    # The combined image wraps _handle_message with the reviewed admission owner.
+    # Exercise that owner against an isolated journal rather than bypassing it.
+    try:
+        import gateway.identity_admission_owner as admission_owner
+    except ModuleNotFoundError:
+        import importlib
+        import gateway
+        packaged_gateway = str(Path(__file__).resolve().parents[1] / 'gateway')
+        if packaged_gateway not in gateway.__path__:
+            gateway.__path__.append(packaged_gateway)
+        importlib.invalidate_caches()
+        import gateway.identity_admission_owner as admission_owner
+    runner._wh_test_admission_tmp = tempfile.TemporaryDirectory()
+    adapter_path = Path('/opt/hermes/proposed_admission_lock_adapter.py')
+    if not adapter_path.is_file():
+        adapter_path = Path(__file__).resolve().parents[1] / 'proposed_admission_lock_adapter.py'
+    admission_owner._ADAPTER_PATH = str(adapter_path)
+    runner._admission_lock_owner = admission_owner.IdentityAdmissionOwner(
+        str(Path(runner._wh_test_admission_tmp.name) / 'owner.journal'))
     runner._is_user_authorized = lambda source: True
     runner._session_key_for_source = lambda source: 'key1'
     runner._is_telegram_topic_root_lobby = lambda source: False
