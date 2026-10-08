@@ -42,6 +42,7 @@ COPY apply_crowsnest_ai_usage_patch.py /etc/hermes-staging/apply_crowsnest_ai_us
 COPY apply_luna_executor_handoff_patch.py /etc/hermes-staging/apply_luna_executor_handoff_patch.py
 COPY test_luna_executor_handoff_patch.py /etc/hermes-staging/test_luna_executor_handoff_patch.py
 COPY apply_luna_live_loop_trace_patch.py /etc/hermes-staging/apply_luna_live_loop_trace_patch.py
+COPY apply_luna_soul_trust_patch.py /etc/hermes-staging/apply_luna_soul_trust_patch.py
 COPY test_luna_live_loop_trace_patch.py /etc/hermes-staging/test_luna_live_loop_trace_patch.py
 COPY apply_luna_append_body_receipt_patch.py /etc/hermes-staging/apply_luna_append_body_receipt_patch.py
 COPY apply_water_cooler_a2a_adapter_patch.py /etc/hermes-staging/apply_water_cooler_a2a_adapter_patch.py
@@ -72,6 +73,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
  && python -c "import asyncpg" \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
+ && python /etc/hermes-staging/apply_luna_soul_trust_patch.py \
  && python /etc/hermes-staging/verify_luna_effective_soul.py --hermes-root /opt/hermes \
  && cd /etc/hermes-staging \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \

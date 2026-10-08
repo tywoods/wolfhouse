@@ -279,15 +279,25 @@ def _receipt_value(value: Any) -> Any:
         return value
 
 
+def _redacted_receipt_value(value: Any) -> Any:
+    """Preserve typed structure while recursively redacting credentials."""
+    from wolfhouse.luna_append_body_receipt import snapshot_append_body, _redact_frozen
+    snapshot = snapshot_append_body(_receipt_value(value))
+    if snapshot.capture_failure:
+        return {"capture_failure": snapshot.capture_failure}
+    return _redact_frozen(snapshot.frozen_value)
+
+
 def _typed_failure(value: Any) -> Any:
-    typed = _receipt_value(value)
+    typed = _redacted_receipt_value(value)
     if isinstance(typed, dict):
         failed = (
             typed.get("ok") is False
             or typed.get("success") is False
             or bool(typed.get("error"))
             or bool(typed.get("blocked"))
-            or str(typed.get("outcome") or "").upper() in {"FAILED", "REFUSED", "INTENTIONALLY_BLOCKED"}
+            or str(typed.get("outcome") or "").upper() in {"FAILED", "FAILURE", "ERROR", "REFUSED", "INTENTIONALLY_BLOCKED"}
+            or str(typed.get("status") or "").upper() in {"FAILED", "FAILURE", "ERROR", "REFUSED", "BLOCKED"}
         )
         return typed if failed else None
     if isinstance(typed, str) and typed.lower().startswith(("error", "refused", "blocked")):
@@ -303,7 +313,7 @@ def record_tool_attempt(*, name: Any, arguments: Any, result: Any, call_id: Any 
     if scope is None:
         return
     tool_name = str(name or "").strip()
-    args = _receipt_value(arguments)
+    args = _redacted_receipt_value(arguments)
     if not isinstance(args, dict):
         args = {"raw": args}
     failure = (
@@ -323,15 +333,23 @@ def record_tool_attempt(*, name: Any, arguments: Any, result: Any, call_id: Any 
         "result_summary": (
             {"success": False, "error": "tool_handler_exception", "error_type": str(error_type or "Exception")}
             if str(producer or "") == "caught_exception"
-            else summarize_tool_result(_receipt_value(result))
+            else summarize_tool_result(_redacted_receipt_value(result))
         ),
     }
-    # Staff transport is observed before the executor append boundary. Enrich the
-    # matching transport receipt rather than reporting one logical attempt twice.
-    for existing in reversed(scope.tool_calls):
-        if existing.get("name") == tool_name and not existing.get("call_id"):
-            existing.update(receipt)
-            return
+    # Staff transport is observed before the executor append boundary. Collapse
+    # every still-unowned transport row for this logical tool into diagnostics on
+    # one call-id-correlated attempt; never guess which same-name row to enrich.
+    pending = [
+        row for row in scope.tool_calls
+        if row.get("name") == tool_name and not row.get("call_id")
+    ]
+    if pending:
+        pending_ids = {id(row) for row in pending}
+        scope.tool_calls[:] = [row for row in scope.tool_calls if id(row) not in pending_ids]
+        receipt["staff_transports"] = [
+            {"result_summary": _redacted_receipt_value(row.get("result_summary"))}
+            for row in pending
+        ]
     scope.tool_calls.append(receipt)
 
 

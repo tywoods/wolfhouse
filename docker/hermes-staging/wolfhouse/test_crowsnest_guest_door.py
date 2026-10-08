@@ -467,7 +467,7 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         try:
             door.record_tool_attempt(
                 name="quote_booking",
-                arguments='{"check_in":"2026-10-10","guest_count":2}',
+                arguments='{"check_in":"2026-10-10","guest_count":2,"password":"do-not-store"}',
                 result='{"ok":false,"error":{"code":"quote_owner_turn_missing","missing":["owner_turn"]}}',
                 call_id="call-quote-1",
                 api_request_id="req-model-1",
@@ -483,6 +483,7 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt["api_request_id"], "req-model-1")
         self.assertEqual(receipt["name"], "quote_booking")
         self.assertEqual(receipt["args"]["guest_count"], 2)
+        self.assertEqual(receipt["args"]["password"], "[REDACTED]")
         self.assertEqual(receipt["typed_failure"]["error"]["code"], "quote_owner_turn_missing")
         self.assertEqual(receipt["typed_failure"]["error"]["missing"], ["owner_turn"])
         self.assertEqual(receipt["outcome"], "failure")
@@ -491,7 +492,8 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         import wolfhouse.crowsnest_guest_door as door
 
         scope = CrowsnestGuestScope.create("+34600111888")
-        scope.tool_calls.append({"name": "quote_booking", "result_summary": "ok"})
+        scope.tool_calls.append({"name": "quote_booking", "result_summary": "first"})
+        scope.tool_calls.append({"name": "quote_booking", "result_summary": "second"})
         token = door._SCOPE.set(scope)
         try:
             door.record_tool_attempt(
@@ -507,6 +509,21 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scope.tool_calls[0]["outcome"], "success")
         self.assertIsNone(scope.tool_calls[0]["typed_failure"])
         self.assertNotIn("typed_result", scope.tool_calls[0])
+        self.assertEqual(len(scope.tool_calls[0]["staff_transports"]), 2)
+
+    async def test_status_error_is_a_typed_failure(self):
+        import wolfhouse.crowsnest_guest_door as door
+        scope = CrowsnestGuestScope.create("+34600111666")
+        token = door._SCOPE.set(scope)
+        try:
+            door.record_tool_attempt(
+                name="lookup", arguments={}, result={"status": "error", "reason": "unavailable"},
+                call_id="call-status-error",
+            )
+        finally:
+            door._SCOPE.reset(token)
+        self.assertEqual(scope.tool_calls[0]["outcome"], "failure")
+        self.assertEqual(scope.tool_calls[0]["typed_failure"]["status"], "error")
 
     async def test_executor_exception_receipt_is_typed_and_does_not_leak_exception_text(self):
         import wolfhouse.crowsnest_guest_door as door

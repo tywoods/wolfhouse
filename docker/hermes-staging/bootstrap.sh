@@ -62,7 +62,7 @@ write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 # Luna's identity is larger than Hermes' dynamic context-file cap. Keep the
 # complete SOUL in the effective system prompt; never accept head/tail truncation.
-context_file_max_chars: 120000
+context_file_max_chars: 200000
 model:
   default: gpt-5.5
   provider: openai-codex

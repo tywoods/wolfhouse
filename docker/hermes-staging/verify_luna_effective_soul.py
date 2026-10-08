@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import importlib
+import importlib.util
 import re
 import sys
 import tempfile
@@ -49,6 +50,7 @@ def omitted_headings(source: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hermes-root", default="/opt/hermes")
+    parser.add_argument("--prompt-builder-file")
     args = parser.parse_args()
     source = SOUL.read_text(encoding="utf-8").strip()
     cap = configured_cap()
@@ -57,21 +59,37 @@ def main() -> int:
 
     hermes_root = str(Path(args.hermes_root).resolve())
     sys.path.insert(0, hermes_root)
-    pb = importlib.import_module("agent.prompt_builder")
-    old_config = getattr(pb, "_config_readonly")
+    if args.prompt_builder_file:
+        spec = importlib.util.spec_from_file_location("agent.prompt_builder", args.prompt_builder_file)
+        if spec is None or spec.loader is None:
+            raise AssertionError("could not load patched prompt_builder")
+        pb = importlib.util.module_from_spec(spec)
+        sys.modules["agent.prompt_builder"] = pb
+        spec.loader.exec_module(pb)
+    else:
+        pb = importlib.import_module("agent.prompt_builder")
+    config_module = importlib.import_module("hermes_cli.config")
+    old_home = getattr(pb, "get_hermes_home")
+    old_load_config = getattr(config_module, "load_config")
     try:
-        setattr(pb, "_config_readonly", lambda _key: {"context_file_max_chars": cap})
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             (home / "SOUL.md").write_text(source, encoding="utf-8")
-            effective = pb.load_soul_md(context_length=272_000, home_override=home)
+            setattr(pb, "get_hermes_home", lambda: home)
+            setattr(config_module, "load_config", lambda: {"context_file_max_chars": cap})
+            effective = pb.load_soul_md(context_length=272_000)
     finally:
-        setattr(pb, "_config_readonly", old_config)
+        setattr(pb, "get_hermes_home", old_home)
+        setattr(config_module, "load_config", old_load_config)
 
     if not effective:
         raise AssertionError("Hermes load_soul_md returned no effective identity")
     if "[...truncated SOUL.md:" in effective:
         raise AssertionError("effective SOUL still contains Hermes truncation marker")
+    if effective != source:
+        raise AssertionError(
+            f"effective SOUL differs from source: source={len(source)} effective={len(effective)}"
+        )
 
     dropped = omitted_headings(source)
     missing = [heading for heading in dropped if heading not in effective]
