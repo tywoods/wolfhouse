@@ -20409,6 +20409,13 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .staff-collapse-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0 0 8px;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .staff-collapse-caret{flex:0 0 auto;color:var(--text-2);font-size:14px;line-height:1}
 .staff-collapse-body[hidden]{display:none!important}
+#staff-coming-soon-card{position:relative;margin:14px 0;border:1px solid var(--border);border-radius:16px;background:var(--surface-2,var(--surface));opacity:.55;filter:grayscale(.55);overflow:hidden;pointer-events:none}
+#staff-coming-soon-card .staff-coming-soon-note{padding:12px 16px 4px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.01em}
+#staff-coming-soon-card .cc-section{margin:0;border:0;border-radius:0;box-shadow:none;background:transparent}
+#staff-coming-soon-card .cc-section+.cc-section{border-top:1px solid var(--border)}
+#staff-coming-soon-card .staff-collapse-toggle{cursor:not-allowed}
+.staff-coming-soon-section{opacity:.55;filter:grayscale(.55);pointer-events:none}
+.staff-coming-soon-section .staff-collapse-toggle{cursor:not-allowed}
 /* Only admitted Wolfhouse gets these buttons; include header actions and late-owned siblings. */
 .staff-collapse-toggle[aria-expanded="false"] ~ *{display:none!important}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
@@ -46952,6 +46959,10 @@ function lgsCreateStripeLink(){
   var roomRoot = document.getElementById('staff-room-fill');
   var roomHome = document.createComment('Room Placement home');
   var setupCard = null;
+  var comingSoonCard = null;
+  var comingSoonHomes = [];
+  var comingSoonDisabledStates = [];
+  var comingSoonSections = [];
   var tourIntro = document.querySelector('#wrap-to [data-i18n="tourOperator.intro"]');
   var tourIntroCard = tourIntro && tourIntro.closest('.card');
   var tourIntroHidden = tourIntroCard ? tourIntroCard.hidden : false;
@@ -47011,6 +47022,23 @@ function lgsCreateStripeLink(){
       setupCard.remove();
       setupCard = null;
     }
+    if (comingSoonCard) {
+      comingSoonDisabledStates.forEach(function (entry) { entry.control.disabled = entry.disabled; });
+      comingSoonDisabledStates = [];
+      comingSoonHomes.forEach(function (entry) {
+        if (entry.home.parentNode) entry.home.parentNode.insertBefore(entry.section, entry.home);
+        entry.home.remove();
+      });
+      comingSoonHomes = [];
+      comingSoonCard.remove();
+      comingSoonCard = null;
+    }
+    comingSoonSections.forEach(function (section) {
+      section.classList.remove('staff-coming-soon-section');
+      section.removeAttribute('aria-disabled');
+      section.removeAttribute('inert');
+    });
+    comingSoonSections = [];
   }
   function applyContext(context) {
     context = context || { client: '', key: '' };
@@ -47037,6 +47065,40 @@ function lgsCreateStripeLink(){
         personality.parentNode.insertBefore(setupCard, personality);
         syncRoomPermission();
       }
+      {
+        var disabledIds = ['cc-staff-whatsapp-numbers', 'cc-staff-notification-settings', 'cc-automated-staff-notifications'];
+        var disabledSections = disabledIds.map(function (id) { return document.getElementById(id); }).filter(Boolean);
+        if (disabledSections.length) {
+          comingSoonSections = disabledSections;
+          comingSoonSections.forEach(function (section) {
+            section.classList.add('staff-coming-soon-section');
+            section.setAttribute('aria-disabled', 'true');
+            section.setAttribute('inert', '');
+          });
+          comingSoonCard = document.getElementById('staff-coming-soon-card');
+          if (!comingSoonCard) {
+            comingSoonCard = document.createElement('div');
+            comingSoonCard.id = 'staff-coming-soon-card';
+            comingSoonCard.className = 'staff-coming-soon-card';
+            var comingSoonNote = document.createElement('div');
+            comingSoonNote.className = 'staff-coming-soon-note';
+            comingSoonNote.textContent = 'Coming soon';
+            comingSoonCard.appendChild(comingSoonNote);
+            comingSoonHomes = disabledSections.map(function (section) {
+              var home = document.createComment(section.id + ' home');
+              section.parentNode.insertBefore(home, section);
+              return { section: section, home: home };
+            });
+            comingSoonCard._staffHomes = comingSoonHomes;
+            disabledSections[0].parentNode.insertBefore(comingSoonCard, disabledSections[0]);
+          } else {
+            comingSoonHomes = comingSoonCard._staffHomes || [];
+          }
+          comingSoonCard.setAttribute('aria-disabled', 'true');
+          comingSoonCard.setAttribute('inert', '');
+          disabledSections.forEach(function (section) { comingSoonCard.appendChild(section); });
+        }
+      }
       [
         ['cc-house-notes', 'staff-notes-toggle'],
         ['cc-staff-whatsapp-numbers', 'staff-numbers-toggle'],
@@ -47048,6 +47110,12 @@ function lgsCreateStripeLink(){
         ['to-op-panel', 'staff-room-block-toggle'],
         ['to-rr-panel', 'staff-room-release-toggle']
       ].forEach(function (entry) { enhance(entry[0], entry[1]); });
+      if (comingSoonCard) {
+        comingSoonDisabledStates = Array.prototype.map.call(
+          comingSoonCard.querySelectorAll('button,input,select,textarea'),
+          function (control) { var state = { control: control, disabled: control.disabled }; control.disabled = true; return state; }
+        );
+      }
     }
     window.dispatchEvent(new CustomEvent('staff-disclosure-context', { detail: { client: activeClient, key: contextKey } }));
   }
