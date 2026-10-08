@@ -72,7 +72,7 @@ const clone = x => JSON.parse(JSON.stringify(x));
       assert.equal(typeof release, 'function'); release();
       await page.waitForFunction(() => !window.__roomFillState.builder.pending);
       assert.equal((await state()).mode, before.mode);
-      assert.deepEqual((await state()).order.slice(0, 2), before.order);
+      assert.deepEqual((await state()).order.slice(0, before.order.length), before.order);
       assert.match(await page.locator('#staff-room-fill-live').textContent(), /Room 12 saved/);
       for (const editedNumber of ['15', '0']) {
         mode = 'abort';

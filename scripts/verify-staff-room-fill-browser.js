@@ -16,6 +16,10 @@ const js = fs.readFileSync(path.join(__dirname, 'browser', 'staff-room-fill.js')
 const NOTICE = 'Settings and preview only — not connected to booking placement.';
 const R1 = '11111111-1111-4111-8111-111111111111';
 const R2 = '22222222-2222-4222-8222-222222222222';
+const ROOM_IDS = [R1, R2].concat(Array.from({ length: 8 }, (_, index) => {
+  const number = index + 3;
+  return `${String(number).padStart(8, '0')}-0000-4000-8000-${String(number).padStart(12, '0')}`;
+}));
 
 const envelope = {
   success: true,
@@ -25,13 +29,13 @@ const envelope = {
   policy: {
     contractVersion: 1,
     fillMode: 'house',
-    roomPriority: [R1, R2],
+    roomPriority: ROOM_IDS,
     roomPrioritySource: 'custom',
   },
   suggestedPolicy: {
     contractVersion: 1,
     fillMode: 'house',
-    roomPriority: [R1, R2],
+    roomPriority: ROOM_IDS,
     roomPrioritySource: 'default_numeric',
   },
   settingsRevision: 'a'.repeat(64),
@@ -39,16 +43,20 @@ const envelope = {
   requiresReview: false,
   removedRoomIds: [],
   unrankedRoomIds: [],
-  catalogue: [
-    { roomId: R1, roomCode: 'R1', roomNumber: 1, capacity: 4, active: true, label: 'Room 1', genderLabel: 'Mixed' },
-    { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2', genderLabel: 'Female' },
-  ],
+  catalogue: ROOM_IDS.map((roomId, index) => ({
+    roomId, roomCode: `R${index + 1}`, roomNumber: index + 1, capacity: index + 2,
+    active: true, label: `Room ${index + 1}`,
+    genderLabel: index % 3 === 0 ? 'Female' : index % 3 === 1 ? 'Male' : 'Mixed',
+    genderEditable: true, sellingMode: index === 2 || index === 5 ? 'private' : 'shared',
+    sellingModeEditable: true, genderReview: null, restrictionLabel: null,
+  })),
   legacyNote: 'This order is not the current booking allocator and is not connected to booking placement.',
 };
 
 const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <button type="button" id="staff-luna-intelligence-toggle" role="switch" aria-checked="false">Off</button>
 <div id="staff-room-fill" hidden></div>
+<script>window.calendarInvalidations=0;function bcInvalidateBedCalendar(){window.calendarInvalidations+=1}</script>
 <script>${js}</script>
 </body></html>`;
 
@@ -125,6 +133,18 @@ async function main() {
         }
         if (request.method() === 'PUT') {
           const posted = JSON.parse(request.postData());
+          if (request.url().includes('/gender')) {
+            const roomId = decodeURIComponent(request.url().split('/rooms/')[1].split('/gender')[0]);
+            const saved = JSON.parse(JSON.stringify(envelope));
+            saved.catalogRevision = 'c'.repeat(64);
+            saved.catalogue = saved.catalogue.map(room => room.roomId === roomId ? {
+              ...room,
+              genderLabel: posted.gender ? posted.gender.charAt(0).toUpperCase() + posted.gender.slice(1) : room.genderLabel,
+              sellingMode: posted.sellingMode || room.sellingMode,
+            } : room);
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
+            return;
+          }
           const saved = { ...envelope, policy: { contractVersion: 1, fillMode: posted.fillMode, roomPriority: posted.roomPriority, roomPrioritySource: posted.roomPrioritySource } };
           const createdId = '12121212-1212-4121-8121-121212121212';
           if (posted.roomPriority.includes(createdId) && !saved.catalogue.some((room) => room.roomId === createdId)) {
@@ -139,6 +159,21 @@ async function main() {
       if (await page.locator('#staff-room-fill-notice').count()) fail(`${width} obsolete banner remains`);
       if (await page.locator('#staff-room-fill .rf-card').count() < 3) fail(`${width} missing placement cards`);
       if (await page.locator('#staff-room-builder').count() !== 1) fail(`${width} missing room builder`);
+      if (await page.locator('#staff-room-fill-list .rf-gender-edit').count() !== 10) fail(`${width} not every room has an editor`);
+      if (await page.locator('#staff-room-fill-list select[id^="rf-selling-"]').count() !== 10) fail(`${width} missing selling mode dropdowns`);
+      if (await page.locator('#staff-room-fill-list select[id^="rf-gender-"]').count() !== 10) fail(`${width} missing gender dropdowns`);
+      if (await page.locator('#staff-room-fill-list button[id^="rf-gender-save-"]').count() !== 10) fail(`${width} missing Save buttons`);
+      if (await page.locator('#staff-room-fill-list button[id^="rf-gender-cancel-"]').count() !== 10) fail(`${width} missing Cancel buttons`);
+      if (await page.locator('#staff-room-fill-list .rf-moves button').count() !== 20) fail(`${width} missing reorder arrows`);
+      const freshRoomText = await page.locator('#staff-room-fill-list').innerText();
+      if (/Operator|Needs review/.test(freshRoomText)) fail(`${width} legacy lock labels remain: ${freshRoomText}`);
+      await page.screenshot({ path: path.join(OUT, `room-setup-all-editable-${width}.png`), fullPage: true });
+      const roomSeven = ROOM_IDS[6];
+      await page.locator(`#rf-selling-${roomSeven}`).selectOption('private_optional');
+      await page.locator(`#rf-gender-save-${roomSeven}`).click();
+      await page.waitForFunction(() => window.calendarInvalidations === 1);
+      const roomSave = calls.find(call => call.width === width && call.method === 'PUT' && call.url.includes(`/rooms/${encodeURIComponent(roomSeven)}/gender`));
+      if (!roomSave || JSON.parse(roomSave.body).sellingMode !== 'private_optional') fail(`${width} room save did not reach canonical Staff endpoint`);
       if (!(await page.locator('#staff-room-builder').count())) throw new Error('RED: room builder not implemented');
       const beforeBuilder = calls.length;
       await page.locator('#rf-builder-number').fill('12');
@@ -146,7 +181,7 @@ async function main() {
       await page.locator('input[name="rf-builder-gender"][value="mixed"]').check();
       if (!(await page.locator('#rf-builder-summary').innerText()).includes('Room 12 · 6 beds · Mixed')) fail('live builder summary');
       await page.locator('#rf-builder-add').click();
-      await page.waitForFunction(() => document.querySelectorAll('#staff-room-fill-list [data-room-id]').length === 3);
+      await page.waitForFunction(() => document.querySelectorAll('#staff-room-fill-list [data-room-id]').length === 11);
       if (calls.filter((call) => call.width === width && call.method === 'POST' && call.url.includes('/rooms')).length !== 1) fail('save did not create a room');
       if (!(await page.locator('#staff-room-fill-list').innerText()).includes('Female') && !(await page.locator('#staff-room-fill-list').innerText()).includes('Mixed')) fail('priority rows hide gender');
       if (await page.locator('.rf-draft').count()) fail('saved room was kept as a draft');
@@ -159,7 +194,7 @@ async function main() {
       for (const value of ['0', '-1', '1.5', '9007199254740992']) {
         await page.locator('#rf-builder-beds').fill(value);
         await page.locator('#rf-builder-add').click();
-        if (await page.locator('#staff-room-fill-list [data-room-id]').count() !== 3) fail('invalid bed count accepted: ' + value);
+        if (await page.locator('#staff-room-fill-list [data-room-id]').count() !== 11) fail('invalid bed count accepted: ' + value);
       }
       if (calls.filter((call) => call.width === width && call.method === 'POST' && call.url.includes('/rooms')).length !== 1) fail('invalid or duplicate save wrote again');
       const research = await page.locator('#staff-luna-intelligence-toggle').innerText();
@@ -171,7 +206,7 @@ async function main() {
       await page.locator('#staff-room-fill-cancel').click();
       if ((await page.locator('input[value="house"]').isChecked()) !== true) fail(`${width} cancel did not restore`);
       await page.locator('#staff-room-fill-reset').click();
-      const puts = calls.filter((call) => call.width === width && call.method === 'PUT');
+      const puts = calls.filter((call) => call.width === width && call.method === 'PUT' && !call.url.includes('/gender'));
       if (puts.length !== 0) fail(`${width} reset or cancel saved`);
       await page.locator('input[name="checkIn"]').fill('2026-10-10');
       await page.locator('input[name="checkOut"]').fill('2026-10-11');

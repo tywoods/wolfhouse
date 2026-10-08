@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { Client } = require('pg');
 const { startDisposablePostgresHarness } = require('./lib/disposable-postgres-harness');
 const { createRoomFillInventory } = require('./lib/staff-room-fill-inventory');
-const { catalogRevisionFor, roomGenderPresentation, settingsRevisionFor } = require('./lib/staff-room-fill-policy');
+const { catalogRevisionFor, projectRoom, roomGenderPresentation, settingsRevisionFor } = require('./lib/staff-room-fill-policy');
 const { resolveBedCalendarRoomRows } = require('./lib/wolfhouse-inventory-source');
 const { getBedCalendarRoomsQuery } = require('./lib/staff-bed-calendar-queries');
 
@@ -18,13 +18,22 @@ function presentationChecks() {
   assert.equal(roomGenderPresentation({ roomType: 'mixed', genderStrategy: 'Flexible' }).genderLabel, 'Mixed');
   assert.equal(roomGenderPresentation({ roomType: 'matrimonial_or_mixed', genderStrategy: 'Flexible' }).genderLabel, 'Mixed');
   const unknown = roomGenderPresentation({ roomType: '', genderStrategy: 'Flexible' });
-  assert.equal(unknown.genderLabel, 'Unspecified');
-  assert.equal(unknown.reviewLabel, 'Needs review');
+  assert.equal(unknown.genderLabel, 'Mixed');
+  assert.equal(unknown.reviewLabel, null);
   const conflict = roomGenderPresentation({ roomType: 'female_only', genderStrategy: 'Male preferred' });
-  assert.equal(conflict.genderLabel, 'Unspecified');
+  assert.equal(conflict.genderLabel, 'Male');
   const operator = roomGenderPresentation({ roomType: 'mixed', genderStrategy: 'Flexible', oftenUsedByOperator: true });
   assert.equal(operator.genderLabel, 'Mixed');
-  assert.equal(operator.restrictionLabel, 'Operator');
+  const operatorRoom = projectRoom({
+    roomId: R1, roomCode: 'R7', roomNumber: 7, capacity: 4, active: true,
+    roomType: 'operator_surfweek', sellingMode: 'shared', genderStrategy: 'Flexible',
+    canBeMatrimonial: false, oftenUsedByOperator: true, staticWarnings: [], beds: [],
+  }, 1);
+  assert.equal(operatorRoom.genderLabel, 'Mixed');
+  assert.equal(operatorRoom.genderReview, null);
+  assert.equal(operatorRoom.genderEditable, true);
+  assert.equal(operatorRoom.sellingModeEditable, true);
+  assert.equal(operatorRoom.restrictionLabel, null);
 }
 
 function fallbackKeepsPgOnlyRoom() {
