@@ -17116,7 +17116,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-banner strong{color:var(--text)}
 .portal-admin-sections{display:grid;grid-template-columns:1fr;gap:14px}
 .portal-admin-section{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft)}
-.portal-admin-section-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
+.portal-admin-section-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;font-family:var(--admin-heading-font,var(--font-sans));font-size:var(--admin-heading-size,18px);font-weight:var(--admin-heading-weight,700);text-transform:var(--admin-heading-transform,none);letter-spacing:var(--admin-heading-spacing,-.02em);color:var(--text);margin-bottom:10px}
 .portal-admin-section-body{font-size:13px;color:var(--text);line-height:1.55}
 .portal-admin-kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border-soft)}
 .portal-admin-kv:first-child{border-top:none;padding-top:0}
@@ -17704,14 +17704,21 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 #tab-admin.active{display:block}
 #tab-bookings.active{display:block}
 #tab-admin,#tab-bookings{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+#tab-admin{--admin-heading-font:var(--font-sans);--admin-heading-size:18px;--admin-heading-weight:700;--admin-heading-transform:none;--admin-heading-spacing:-.02em}
 #tab-admin input,#tab-admin textarea,#tab-admin select,
 #tab-bookings input,#tab-bookings textarea,#tab-bookings select{font-family:var(--font-sans)}
-/* Camps, Lessons and Services tab — same serif house style as Admin/Customers (form inputs stay sans). */
-#tab-services{--svc-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
+#tab-admin input,#tab-admin textarea,#tab-admin select,#tab-admin label{font-size:13px}
+#tab-admin .portal-admin-tabpanel button:not(.portal-admin-section-hdr){font-size:12px;font-weight:600}
+/* Admin uses one deterministic sans stack; no device-dependent standalone Camps serif. */
+#tab-services{font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
 #tab-services input,#tab-services textarea,#tab-services select{font-family:var(--font-sans)}
+#tab-admin #tab-services em,#tab-admin #tab-services i,#tab-admin #tab-services .portal-admin-muted{font-style:normal}
 #tab-admin .portal-admin-section-hdr,#tab-admin .portal-admin-subsection-title,#tab-admin .portal-admin-price-title{font-family:var(--font-sans)}
-#tab-admin .portal-admin-pack-title{font-family:var(--font-display);font-weight:600}
-#tab-admin .portal-admin-lesson-title{font-family:var(--font-display);font-weight:600}
+#tab-admin .portal-admin-title,#tab-admin .portal-admin-school-heading,#tab-admin .portal-admin-pack-title,#tab-admin .portal-admin-lesson-title,
+#tab-admin .pfb-sec,#tab-admin .luna-header-mode-title,#tab-admin .bc-op-title{
+  font-family:var(--admin-heading-font);font-size:var(--admin-heading-size);font-weight:var(--admin-heading-weight);
+  text-transform:var(--admin-heading-transform);letter-spacing:var(--admin-heading-spacing);font-style:normal;color:var(--text)
+}
 #tab-admin .btn,#tab-admin .portal-admin-pill{font-family:inherit}
 .portal-admin-subtabs{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:0 0 16px;max-width:100%;overflow-x:hidden;box-sizing:border-box}
 .portal-admin-subtab{appearance:none;-webkit-appearance:none;flex:1 1 auto;min-width:44px;min-height:44px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);color:var(--text-2);font:inherit;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer;box-sizing:border-box;text-align:center}
@@ -17928,7 +17935,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-card-head [data-email-flow-error]:not([hidden]){grid-column:1 / -1;font-size:12px;color:#b91c1c}
 .portal-admin-email-card-head .portal-admin-email-card-title{flex:1;min-width:0}
 .portal-admin-email-card-head .portal-admin-email-status{grid-column:1 / -1;grid-row:2;justify-self:start;margin-left:0;flex-shrink:0}
-.portal-admin-email-card-title{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em}
+.portal-admin-email-card-title{margin:0;font-family:var(--admin-heading-font,var(--font-sans));font-size:var(--admin-heading-size,18px);font-weight:var(--admin-heading-weight,700);letter-spacing:var(--admin-heading-spacing,-.02em);text-transform:var(--admin-heading-transform,none)}
 .portal-admin-email-card-copy,.portal-admin-email-card-meta{margin:0;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-email-card-meta{margin-top:auto}
 .portal-admin-email-status{display:inline-flex;align-items:center;width:max-content;font-size:12px;font-weight:650;padding:4px 10px;border-radius:999px}
@@ -20405,6 +20412,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 /* Only admitted Wolfhouse gets these buttons; include header actions and late-owned siblings. */
 .staff-collapse-toggle[aria-expanded="false"] ~ *{display:none!important}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
+#hn-text{font-size:13px}
 /* Staff Numbers edit mode */
 .swn-edit-btn{background:transparent;border:none;cursor:pointer;padding:2px 6px;font-size:14px;color:var(--text-2);line-height:1;border-radius:4px;transition:color .15s,background .15s}
 .swn-edit-btn:hover{color:var(--text);background:var(--surface-soft)}
@@ -21920,6 +21928,7 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 .staff-collapse-toggle.portal-admin-section-hdr .cc-section-hdr,
 .staff-collapse-toggle.portal-admin-section-hdr .luna-header-mode-title{font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;margin:0}
 .staff-collapse-toggle.portal-admin-section-hdr .luna-header-mode-head{margin:0}
+#tab-admin .staff-collapse-toggle.portal-admin-section-hdr{font-family:var(--admin-heading-font);font-size:var(--admin-heading-size);font-weight:var(--admin-heading-weight);text-transform:var(--admin-heading-transform);letter-spacing:var(--admin-heading-spacing)}
 .luna-header-mode-sub{font-size:12px;color:var(--luna-teal-dark);opacity:.72}
 .luna-header-mode-seg{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px}
 .luna-header-mode-btn{
