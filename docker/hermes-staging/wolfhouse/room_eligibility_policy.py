@@ -117,7 +117,8 @@ def decide_room_eligibility(
     flags = _availability_flags(available)
     accepted_mixed = preference in {"mixed", "shared"} and flags["mixed"]
     private = private_room_chosen or preference in _PRIVATE
-    rows = _traveler_rows(travelers, {
+    specific_rows = [row for row in (travelers or []) if isinstance(row, dict)]
+    rows = _traveler_rows(specific_rows, {
         "name": name,
         "hint": hint,
         "confidence": confidence,
@@ -125,11 +126,18 @@ def decide_room_eligibility(
         "explicit_gender": explicit_gender,
     })
     statement = _explicit(explicit_gender)
-    if not statement:
-        for row in rows:
-            statement = _explicit(row.get("explicit_gender") or row.get("explicit_statement"))
-            if statement:
-                break
+    row_statements = [
+        _explicit(row.get("explicit_gender") or row.get("explicit_statement"))
+        for row in specific_rows[:count]
+    ]
+    has_row_statement = any(row_statements)
+    if has_row_statement:
+        # Person-level facts are more specific than a caller-level group label.
+        # Every slot must be explicit before a gendered whole-group result exists.
+        statement = ""
+        if len(specific_rows) == count and all(row_statements):
+            statement = (row_statements[0] if len(set(row_statements)) == 1
+                         else "mixed")
 
     base = {
         "threshold": PROVISIONAL_HINT_THRESHOLD,

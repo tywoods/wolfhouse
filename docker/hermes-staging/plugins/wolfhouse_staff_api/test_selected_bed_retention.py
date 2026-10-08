@@ -29,8 +29,10 @@ class SelectedBedRetention(unittest.TestCase):
             check_in='2026-10-14', check_out='2026-10-16', package_code='package_none',
             room_preference='shared', group_gender='mixed',
             selected_bed_codes=['R8-B3', 'R4-B1'],
-            room_name_hints=[{'name': 'Alice', 'hint': 'female', 'confidence': .99},
-                             {'name': 'Bob', 'hint': 'male', 'confidence': .99}])
+            room_name_hints=[{'name': 'Alice', 'hint': 'female', 'confidence': .99,
+                              'explicit_gender': 'female'},
+                             {'name': 'Bob', 'hint': 'male', 'confidence': .99,
+                              'explicit_gender': 'male'}])
         self.beds = [{'bed_code': 'R8-B3', 'room_code': 'R8', 'room_type': 'female_only'},
                      {'bed_code': 'R4-B1', 'room_code': 'R4', 'room_type': 'male_only'}]
         self.calls = []

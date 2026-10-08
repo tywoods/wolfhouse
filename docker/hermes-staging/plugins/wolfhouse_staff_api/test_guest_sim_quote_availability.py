@@ -109,6 +109,118 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
 
+    def test_mixed_gendered_selection_is_never_relabelled_from_filtered_subset(self):
+        receipt = {'success': True, 'has_enough_beds': True,
+                   'selected_bed_codes': ['A1', 'B1'],
+                   'available_beds': [
+                       {'bed_code': 'A1', 'room_code': 'A', 'room_type': 'male_only'},
+                       {'bed_code': 'B1', 'room_code': 'B', 'room_type': 'female_only'},
+                   ]}
+        result, _ = self.invoke('check_availability', {**self.params, 'group_gender': 'male'}, receipt)
+        self.assertEqual(result['selected_room_types'], ['male_only', 'female_only'])
+        self.assertIsNone(result['selected_room_description'])
+        self.assertIsNone(result['guest_safe_room_label'])
+        self.assertEqual(result['selected_bed_codes'], ['A1', 'B1'])
+
+    def test_raw_booking_receipt_resumes_adapter_but_completed_receipt_short_circuits(self):
+        import sys
+        from wolfhouse import accepted_quote as ledger
+
+        raw = {'success': True, 'write_performed': True,
+               'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'}
+        completed = {**raw, 'post_booking_email': {
+            'requested': True, 'saved': True, 'sent': False,
+            'send_performed': False, 'outcome': 'saved'}}
+        calls = []
+        def adapter(params, **kwargs):
+            calls.append(dict(params))
+            return json.dumps(completed)
+        guarded = plugin._quote_owner_handler('create_booking_from_plan', adapter)
+        ticket = {'owner': 'ticket'}
+        with patch.dict(sys.modules, {'agent.conversation_loop': object()}), \
+                patch.object(ledger, 'prepare_create', return_value=ticket), \
+                patch.object(ledger, 'record_create_completion') as record:
+            with patch.object(ledger, 'dispatch_recovery', return_value={
+                    'receipt': raw, 'adapter_completed': False}):
+                result = json.loads(guarded({'email': 'alex@example.test'}))
+            self.assertEqual(result['post_booking_email']['outcome'], 'saved')
+            self.assertEqual(len(calls), 1, 'raw receipt must resume adapter work')
+            record.assert_called_once_with(ticket, completed)
+
+            calls.clear()
+            record.reset_mock()
+            with patch.object(ledger, 'dispatch_recovery', return_value={
+                    'receipt': completed, 'adapter_completed': True}):
+                replay = json.loads(guarded({'email': 'alex@example.test'}))
+            self.assertEqual(replay['post_booking_email']['outcome'], 'saved')
+            self.assertEqual(calls, [], 'completed adapter work must not run twice')
+            record.assert_not_called()
+
+    def test_post_booking_email_save_outcomes_replay_and_no_write_fences(self):
+        payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
+        created = {'success': True, 'write_performed': True}
+        fields = {'booking_code': 'UNIT-EMAIL'}
+        cases = (
+            ({'success': True, 'write_performed': True, 'email_sent': True}, True, 'saved'),
+            ({'success': False, 'write_performed': False, 'error': 'refused'}, False, 'refused'),
+            ({'success': False, 'error': 'timeout'}, False, 'unknown'),
+        )
+        for adapter_result, saved, outcome in cases:
+            with self.subTest(outcome=outcome), patch.object(plugin, '_post_bot', return_value=adapter_result) as post:
+                result = plugin._save_post_booking_email(payload, created, fields)
+                self.assertEqual(result['saved'], saved)
+                self.assertEqual(result['outcome'], outcome)
+                self.assertFalse(result['sent'])
+                self.assertFalse(result['send_performed'])
+                post.assert_called_once_with('/bookings/update-contact', {
+                    'client_slug': 'wolfhouse-somo', 'booking_code': 'UNIT-EMAIL',
+                    'email': 'alex@example.test',
+                })
+
+        prior = {'post_booking_email': {'requested': True, 'saved': True, 'sent': False,
+                                        'send_performed': False, 'outcome': 'saved'}}
+        with patch.object(plugin, '_post_bot') as post:
+            self.assertEqual(plugin._save_post_booking_email(payload, created, fields, prior),
+                             prior['post_booking_email'])
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': False, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email(payload,
+                {'success': True, 'write_performed': False}, fields))
+            self.assertIsNone(plugin._save_post_booking_email({}, created, fields))
+            post.assert_not_called()
+
+    def test_post_booking_contact_owner_status_controls_replay_transport(self):
+        from wolfhouse import accepted_quote as ledger
+        payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
+        created = {'success': True, 'write_performed': True}
+        fields = {'booking_code': 'UNIT-EMAIL'}
+        ticket = {'owner': 'opaque'}
+
+        with patch.object(ledger, 'post_booking_contact_status',
+                          return_value={'status': 'unknown'}), \
+                patch.object(ledger, 'begin_post_booking_contact') as begin, \
+                patch.object(plugin, '_post_bot') as post:
+            result = plugin._save_post_booking_email(
+                payload, created, fields, prior_receipt=created, ticket=ticket)
+        self.assertEqual(result['outcome'], 'unknown')
+        self.assertTrue(result['uncertain'])
+        self.assertFalse(result['sent'])
+        begin.assert_not_called()
+        post.assert_not_called()
+
+        with patch.object(ledger, 'post_booking_contact_status',
+                          return_value={'status': 'pending'}), \
+                patch.object(ledger, 'begin_post_booking_contact',
+                             return_value={'perform': True, 'contact': {'status': 'unknown'}}), \
+                patch.object(ledger, 'complete_post_booking_contact') as complete, \
+                patch.object(plugin, '_post_bot',
+                             return_value={'success': True, 'write_performed': True}):
+            result = plugin._save_post_booking_email(
+                payload, created, fields, prior_receipt=created, ticket=ticket)
+        self.assertEqual(result['outcome'], 'saved')
+        complete.assert_called_once()
+        self.assertFalse(complete.call_args.kwargs['outcome']['sent'])
+
     def test_failed_or_malformed_availability_cannot_project_beds(self):
         for receipt in (
             {'success': False, 'available_beds': [{'bed_code': 'M1'}], 'selected_room_code': 'MIX'},

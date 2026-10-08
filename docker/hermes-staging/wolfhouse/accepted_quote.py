@@ -46,14 +46,166 @@ _PREFIX = 'wolfhouse.accepted_quote.v1:'
 _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner', default=None)
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
-           'add_ons', 'catalog_selections', 'selected_bed_codes')
+           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_create = None
 _before_create = None
+_exact_gateway_retry: ContextVar[object | None] = ContextVar(
+    'wolfhouse_exact_gateway_retry', default=None)
+
+
+class _OneShotExactRetry:
+    """One claim shared by copied ContextVar executor contexts."""
+    def __init__(self, frozen):
+        self.frozen = deepcopy(frozen)
+        self.lock = RLock()
+        self.claimed = False
+
+    def take(self):
+        with self.lock:
+            if self.claimed:
+                return 'spent', None
+            self.claimed = True
+            return 'claimed', deepcopy(self.frozen)
 
 
 class QuoteBoundaryError(ValueError):
     pass
+
+
+_RECOVERY_FIELDS = {
+    'session_key', 'session_id', 'identity', 'message_id', 'raw_digest',
+    'scope_digest', 'operation_key', 'epoch',
+}
+
+
+def _owner_operation_key(state):
+    return 'luna-owner-' + hashlib.sha256(_encode({
+        'scope': state['scope'], 'incarnation': state['incarnation'],
+        'offer': state.get('offer_message'),
+        'acceptance': state['acceptance_message'],
+        'plan': state['plan'], 'quote': state['quote'],
+    }).encode()).hexdigest()[:32]
+
+
+def _frozen_recovery(state, *, session_key, session_id, identity, message_id, raw):
+    if (not isinstance(state, dict) or type(identity) is not tuple or len(identity) != 3
+            or identity[2] != message_id or type(raw) is not str
+            or state.get('status') != 'accepted'
+            or not isinstance(state.get('scope'), dict)
+            or state['scope'].get('ID') != session_id
+            or state['scope'].get('KEY') != session_key
+            or state['scope'].get('PLATFORM') != identity[0]
+            or state['scope'].get('CHAT_ID') != identity[1]
+            or not isinstance(state.get('checked_offer'), dict)
+            or state.get('auto_acceptance') is not True
+            or not (state.get('dispatch_pending') or isinstance(state.get('receipt'), dict))
+            or state.get('acceptance_message') != message_id
+            or state.get('acceptance_raw_digest') != hashlib.sha256(raw.encode()).hexdigest()
+            or type(state.get('epoch')) is not int):
+        return None
+    try:
+        return {
+            'session_key': session_key,
+            'session_id': session_id,
+            'identity': identity,
+            'message_id': message_id,
+            'raw_digest': hashlib.sha256(raw.encode()).hexdigest(),
+            'scope_digest': hashlib.sha256(_encode(state['scope']).encode()).hexdigest(),
+            'operation_key': _owner_operation_key(state),
+            'epoch': state['epoch'],
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def recovery_capability_precheck(frozen, state, *, session_key, session_id, identity, raw):
+    """Validate the frozen operation before observe_owner_turn can mutate state."""
+    if not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS:
+        return False
+    current = _frozen_recovery(
+        state, session_key=session_key, session_id=session_id, identity=identity,
+        message_id=identity[2] if type(identity) is tuple and len(identity) == 3 else None,
+        raw=raw)
+    return current == frozen
+
+
+def recovery_capability_matches(frozen, state, *, session_key, session_id, identity, raw):
+    if not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS:
+        return False
+    current = _frozen_recovery(
+        state, session_key=session_key, session_id=session_id, identity=identity,
+        message_id=identity[2] if type(identity) is tuple and len(identity) == 3 else None,
+        raw=raw)
+    if current is None or current.get('epoch') != frozen.get('epoch') + 1:
+        return False
+    return {key: value for key, value in current.items() if key != 'epoch'} == {
+        key: value for key, value in frozen.items() if key != 'epoch'
+    }
+
+
+def _arm_exact_gateway_retry_for_owner(frozen):
+    """Arm one internal frozen recovery; request fields cannot construct it."""
+    if (not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS
+            or type(frozen.get('epoch')) is not int
+            or any(type(frozen.get(key)) is not str or not frozen.get(key) for key in (
+                'session_key', 'session_id', 'message_id', 'raw_digest',
+                'scope_digest', 'operation_key'))
+            or type(frozen['identity']) is not tuple or len(frozen['identity']) != 3
+            or frozen['identity'][2] != frozen['message_id']):
+        return False
+    _exact_gateway_retry.set(_OneShotExactRetry(frozen))
+    return True
+
+
+def _consume_exact_gateway_retry():
+    capability = _exact_gateway_retry.get()
+    _exact_gateway_retry.set(None)
+    if not isinstance(capability, _OneShotExactRetry):
+        return 'absent', None
+    return capability.take()
+
+
+def exact_gateway_recovery_capability(*, runner, session_key, identity, message_id, raw):
+    """Return one ledger-proven frozen operation capability, else None."""
+    if (type(identity) is not tuple or len(identity) != 3
+            or identity[2] != message_id or type(raw) is not str):
+        return None
+    store = getattr(runner, 'session_store', None)
+    entry = getattr(store, '_entries', {}).get(session_key) if store is not None else None
+    session_id = getattr(entry, 'session_id', None)
+    db = getattr(runner, '_session_db', None)
+    if not session_id or db is None or not hasattr(db, '_lock') or not hasattr(db, '_conn'):
+        return None
+    try:
+        with db._lock:
+            rows = db._conn.execute(
+                'SELECT value FROM state_meta WHERE key LIKE ?', (_PREFIX + '%',)
+            ).fetchall()
+        matches = []
+        for row in rows:
+            state = json.loads(row[0])
+            frozen = _frozen_recovery(
+                state, session_key=session_key, session_id=session_id,
+                identity=identity, message_id=message_id, raw=raw)
+            if frozen is not None:
+                matches.append(frozen)
+        return matches[0] if len(matches) == 1 else None
+    except Exception:
+        return None
+
+
+def arm_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    frozen = exact_gateway_recovery_capability(
+        runner=runner, session_key=session_key, identity=identity,
+        message_id=message_id, raw=raw)
+    return frozen is not None and _arm_exact_gateway_retry_for_owner(frozen)
+
+
+def supports_exact_gateway_retry(*, runner, session_key, identity, message_id, raw):
+    return exact_gateway_recovery_capability(
+        runner=runner, session_key=session_key, identity=identity,
+        message_id=message_id, raw=raw) is not None
 
 
 def _encode(value):
@@ -77,6 +229,31 @@ def _scope(agent):
     if not isinstance(db, SessionDB):
         raise QuoteBoundaryError('quote_owner_sessiondb_missing')
     return db, {**values, 'tenant': tenant}
+
+
+def _prevalidate_exact_gateway_retry(agent, frozen, raw):
+    """Read-only validation before owner observation can alter any authorization."""
+    try:
+        db, scope = _scope(agent)
+        identity_scope = {key: value for key, value in scope.items() if key != 'MESSAGE_ID'}
+        key = _PREFIX + hashlib.sha256(_encode(identity_scope).encode()).hexdigest()
+        with db._lock:
+            session = db._conn.execute(
+                'SELECT started_at, ended_at FROM sessions WHERE id=?', (scope['ID'],)
+            ).fetchone()
+            found = db._conn.execute(
+                'SELECT value FROM state_meta WHERE key=?', (key,)
+            ).fetchone()
+        if session is None or session[1] is not None or found is None:
+            return False
+        state = json.loads(found[0])
+        if state.get('incarnation') != session[0] or state.get('scope') != identity_scope:
+            return False
+        return recovery_capability_precheck(
+            frozen, state, session_key=scope['KEY'], session_id=scope['ID'],
+            identity=(scope['PLATFORM'], scope['CHAT_ID'], scope['MESSAGE_ID']), raw=raw)
+    except Exception:
+        return False
 
 
 def _transaction(fn):
@@ -370,6 +547,7 @@ def record_quote(params, response):
         state.pop('receipt', None)
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
+        state.pop('post_booking_contact', None)
         state.update(plan=plan, quote=deepcopy(response) if valid else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
@@ -421,9 +599,73 @@ def dispatch_recovery(prepared):
     """Owner-only receipt/recovery state, never a model-supplied retry boolean."""
     def inspect(state, ingress):
         _validate_dispatch_ticket(prepared, state)
-        return {'receipt': deepcopy(state.get('completion') or state.get('receipt')),
-                'pending': bool(state.get('checked_offer') and state.get('dispatch_pending'))}
+        completion = state.get('completion')
+        return {
+            'receipt': deepcopy(completion or state.get('receipt')),
+            'adapter_completed': isinstance(completion, dict),
+            'pending': bool(state.get('checked_offer') and state.get('dispatch_pending')),
+        }
     return _transaction(inspect)
+
+
+def _contact_transition(state, action, *, identity, outcome=None):
+    """Pure state machine for the owner-owned post-booking contact substep."""
+    receipt = state.get('receipt')
+    if (not isinstance(identity, dict)
+            or set(identity) != {'email', 'booking_code'}
+            or any(not isinstance(identity.get(key), str) or not identity[key]
+                   for key in ('email', 'booking_code'))
+            or not isinstance(receipt, dict)
+            or (receipt.get('booking_code') is not None
+                and receipt.get('booking_code') != identity['booking_code'])):
+        raise QuoteBoundaryError('post_booking_contact_identity_missing')
+    contact = state.get('post_booking_contact')
+    if contact is None:
+        if action != 'ensure':
+            raise QuoteBoundaryError('post_booking_contact_not_pending')
+        contact = {'status': 'pending', 'identity': deepcopy(identity)}
+        state['post_booking_contact'] = contact
+    elif contact.get('identity') != identity:
+        raise QuoteBoundaryError('post_booking_contact_identity_changed')
+    if action == 'ensure':
+        return deepcopy(contact)
+    if action == 'begin':
+        if contact.get('status') != 'pending':
+            return {'perform': False, 'contact': deepcopy(contact)}
+        # Persist uncertainty before transport. A process death from this point
+        # can never cause a blind retry of a write that may have reached Staff.
+        contact['status'] = 'unknown'
+        return {'perform': True, 'contact': deepcopy(contact)}
+    if action == 'complete':
+        if contact.get('status') != 'unknown' or not isinstance(outcome, dict):
+            raise QuoteBoundaryError('post_booking_contact_completion_invalid')
+        contact.update(status='completed', outcome=deepcopy(outcome))
+        return deepcopy(contact)
+    raise QuoteBoundaryError('post_booking_contact_action_invalid')
+
+
+def post_booking_contact_status(prepared, *, email, booking_code):
+    identity = {'email': email, 'booking_code': booking_code}
+    def ensure(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'ensure', identity=identity)
+    return _transaction(ensure)
+
+
+def begin_post_booking_contact(prepared, *, email, booking_code):
+    identity = {'email': email, 'booking_code': booking_code}
+    def begin(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'begin', identity=identity)
+    return _transaction(begin)
+
+
+def complete_post_booking_contact(prepared, *, email, booking_code, outcome):
+    identity = {'email': email, 'booking_code': booking_code}
+    def complete(state, ingress):
+        _validate_dispatch_ticket(prepared, state)
+        return _contact_transition(state, 'complete', identity=identity, outcome=outcome)
+    return _transaction(complete)
 
 
 def record_create_completion(prepared, response):
@@ -550,6 +792,15 @@ def finalize_offer_response(result):
     return _transaction(present)
 
 
+def _exact_retry_refusal(user_message, args, kwargs):
+    text = ('I could not verify that this booking recovery still matches the '
+            'original accepted setup. We need to check it before proceeding.')
+    history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+    return {'completed': True, 'final_response': text, 'api_calls': 0,
+            'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
+                         {'role': 'assistant', 'content': text}]}
+
+
 def install_owner_hook(create_handler=None, before_create=None):
     global _registered_create, _before_create
     if create_handler is not None:
@@ -561,6 +812,15 @@ def install_owner_hook(create_handler=None, before_create=None):
     @wraps(original)
     def owned(agent, user_message, *args, **kwargs):
         close_turn()
+        retry_state, exact_retry = _consume_exact_gateway_retry()
+        if retry_state == 'spent':
+            # A copied executor context saw the real token, but another context
+            # already consumed it. This is a terminal refusal, never ordinary chat.
+            return _exact_retry_refusal(user_message, args, kwargs)
+        if retry_state == 'claimed' and not _prevalidate_exact_gateway_retry(
+                agent, exact_retry, user_message):
+            # Refuse before observe_owner_turn can alter a replacement offer.
+            return _exact_retry_refusal(user_message, args, kwargs)
         try:
             from .original_inbound import consume
             try:
@@ -571,9 +831,26 @@ def install_owner_hook(create_handler=None, before_create=None):
                     capability.parent = inbound
                     capability.lock = inbound.lock
             except QuoteBoundaryError:
-                # Unsupported/unbound ingress retains ordinary conversation,
-                # but no ledger authority, including ambient fixture bindings.
+                # Unsupported/unbound ordinary ingress retains conversation but an
+                # internally armed exact retry may never fall through to the model.
                 close_turn()
+                if exact_retry is not None:
+                    return _exact_retry_refusal(user_message, args, kwargs)
+            if exact_retry is not None:
+                try:
+                    recovery_valid = _transaction(lambda state, ingress: recovery_capability_matches(
+                        exact_retry,
+                        state,
+                        session_key=ingress['KEY'],
+                        session_id=ingress['ID'],
+                        identity=(ingress['PLATFORM'], ingress['CHAT_ID'], ingress['MESSAGE_ID']),
+                        raw=user_message,
+                    ))
+                except QuoteBoundaryError:
+                    recovery_valid = False
+                if recovery_valid is not True:
+                    close_turn()
+                    return _exact_retry_refusal(user_message, args, kwargs)
             if _current.get() is not None and _registered_create is not None:
                 automatic = _transaction(lambda state, ingress: (
                     ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
@@ -597,6 +874,8 @@ def install_owner_hook(create_handler=None, before_create=None):
                             'messages': [*deepcopy(history), {'role': 'user', 'content': user_message},
                                          {'role': 'assistant', 'content': text}],
                             'booking_result': receipt}
+            if exact_retry is not None:
+                return _exact_retry_refusal(user_message, args, kwargs)
             result = original(agent, user_message, *args, **kwargs)
             if _current.get() is not None:
                 return finalize_offer_response(result)
