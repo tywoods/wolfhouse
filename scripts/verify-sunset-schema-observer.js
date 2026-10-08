@@ -66,7 +66,8 @@ async function main() {
   pass('cli-exists', fs.existsSync(OBSERVE_CLI));
   pass('lib-application-name', APPLICATION_NAME === 'wh-sunset-schema-observer');
   pass('lib-dsn-env', OBSERVER_DSN_ENV === 'SUNSET_SCHEMA_OBSERVER_DATABASE_URL');
-  pass('lib-expected-host', EXPECTED_HOST.includes('luna-sunset-staging-pg-app'));
+  pass('lib-expected-host', EXPECTED_HOST === 'luna-pg-shared.postgres.database.azure.com');
+  pass('lib-expected-database', EXPECTED_DATABASE === 'sunset_staging');
   pass('lib-expected-db', EXPECTED_DATABASE === 'sunset_staging');
   pass('lib-ledger-excluded-name', LEDGER_TABLE === 'schema_migration_ledger');
   pass('sql-registry-has-enums', SQL_REGISTRY_IDS.includes('enums'));

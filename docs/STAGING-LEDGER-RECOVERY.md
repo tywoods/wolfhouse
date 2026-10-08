@@ -36,8 +36,8 @@
 | environment | `staging` |
 | subscriptionId | `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9` |
 | resourceGroup | `wh-staging-rg` |
-| postgresServer | `wh-staging-pg-app` |
-| postgresHost | `wh-staging-pg-app.postgres.database.azure.com` |
+| postgresServer | `luna-pg-shared` |
+| postgresHost | `luna-pg-shared.postgres.database.azure.com` |
 | database | `wolfhouse_staging` |
 | port / sslmode | `5432` / `verify-full` |
 | applicationName | `wh-staging-ledger-recovery` |
