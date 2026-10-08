@@ -82,9 +82,14 @@ def assert_required_sections(source: str, effective: str) -> int:
     dropped = omitted_headings(source)
     missing = [heading for heading in dropped if heading not in effective]
     required = [
+        "## Quote, payment choice, and language (repair rules)",
+        "**Per-guest payment-link labels:**",
+        "## When first choice is unavailable — quote the alternative immediately",
+        "## After a quote — keep the same beds when booking",
+        "## Room arrangement and accepted-offer continuity",
+        "## Revalidation preserves consent; operation claims require evidence",
+        "### Accepted consent survives unchanged revalidation",
         "**Quote failure recovery (hard):**",
-        "## Changing an existing booking",
-        "## Live booking placement and post-booking continuity",
     ]
     missing_required = [item for item in required if item not in effective]
     if missing or missing_required:

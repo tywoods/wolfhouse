@@ -1218,6 +1218,46 @@ def _validate_gateway_original(source):
         raise RuntimeError('original-inbound owner imports changed')
 
 
+def apply_original_message_identity_source(source: str) -> str:
+    """Carry immutable inbound identity beside the mutable delivery reply anchor."""
+    call_anchor = '                event_message_id=self._reply_anchor_for_event(event),\n'
+    call_value = call_anchor + '                _wh_original_message_id=event.message_id,\n'
+    signature_anchor = '        event_message_id: Optional[str] = None,\n'
+    signature_value = signature_anchor + '        _wh_original_message_id: Optional[str] = None,\n'
+    inner_anchor = '                _interrupt_depth=_interrupt_depth, event_message_id=event_message_id,\n'
+    inner_value = inner_anchor + '                _wh_original_message_id=_wh_original_message_id,\n'
+
+    if '_wh_original_message_id=event.message_id,' not in source:
+        if source.count(call_anchor) != 1:
+            raise RuntimeError('original message identity call anchor missing/ambiguous')
+        source = source.replace(call_anchor, call_value, 1)
+    if '_wh_original_message_id: Optional[str] = None,' not in source:
+        for owner_name in ('_run_agent', '_run_agent_inner'):
+            owner_anchor = f'    async def {owner_name}(\n'
+            if source.count(owner_anchor) != 1:
+                raise RuntimeError('original message identity owner missing/ambiguous: ' + owner_name)
+            start = source.index(owner_anchor)
+            end = source.index('    ) -> ', start)
+            signature = source[start:end]
+            if signature.count(signature_anchor) != 1:
+                raise RuntimeError('original message identity signature anchor missing/ambiguous: ' + owner_name)
+            signature = signature.replace(signature_anchor, signature_value, 1)
+            source = source[:start] + signature + source[end:]
+    if '_wh_original_message_id=_wh_original_message_id,' not in source:
+        if source.count(inner_anchor) != 2:
+            raise RuntimeError('original message identity inner-call anchor missing/ambiguous')
+        source = source.replace(inner_anchor, inner_value)
+
+    if source.count('_wh_original_message_id=event.message_id,') != 1:
+        raise RuntimeError('original message identity call changed/duplicated')
+    if source.count('_wh_original_message_id: Optional[str] = None,') != 2:
+        raise RuntimeError('original message identity signature changed/duplicated')
+    if source.count('_wh_original_message_id=_wh_original_message_id,') != 2:
+        raise RuntimeError('original message identity inner call changed/duplicated')
+    compile(source, '<gateway-original-message-identity>', 'exec')
+    return source
+
+
 def _validate_api_original(source):
     tree = ast.parse(source)
     owner = _inbound_owner(tree, 'APIServerAdapter', '_run_agent')
@@ -1424,6 +1464,7 @@ def apply_patches(run_path: Path) -> dict:
                 1,
             )
 
+    s = apply_original_message_identity_source(s)
     s = apply_original_inbound_source(s)
     run_path.write_text(s, encoding="utf-8")
     plain = apply_run_plain_reply_patch(run_path)

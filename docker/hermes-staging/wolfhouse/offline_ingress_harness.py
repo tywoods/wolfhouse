@@ -16,8 +16,10 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     from gateway.config import Platform
     from gateway.session import SessionSource
     from gateway.platforms.base import MessageEvent
-    from apply_gateway_patches import apply_original_inbound_source
-    source_text = apply_original_inbound_source(Path(runtime.__file__).read_text())
+    from apply_gateway_patches import apply_original_inbound_source, apply_original_message_identity_source
+    source_text = apply_original_inbound_source(
+        apply_original_message_identity_source(Path(runtime.__file__).read_text())
+    )
     tree = ast.parse(source_text)
     owner = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'GatewayRunner')
     methods = [n for n in owner.body if isinstance(n, ast.AsyncFunctionDef)
@@ -64,7 +66,8 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
         if before_worker is not None:
             before_worker(event, source)
         return await runner._run_agent(event.text or '', '', [], source, agent.session_id,
-            session_key='key1', event_message_id=event.message_id)
+            session_key='key1', event_message_id=event.message_id,
+            _wh_original_message_id=event.message_id)
     runner._handle_message_with_agent = dispatch
     async def run():
         results = [{'action': 'rewrite', 'text': rewrite}] if rewrite is not None else []

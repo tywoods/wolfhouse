@@ -6,7 +6,7 @@ import argparse
 import hashlib
 from pathlib import Path
 
-APPROVED_BASE_SHA256 = "43c547be772bac507b31f180b26e4f61018a9f21b1552bafde5f6843477702c7"
+APPROVED_BASE_SHA256 = "5b64e8714d423bee705f27ba211eb8d1f712065b2f4f4d6d14b2bbc0d0004efb"
 MAX_CHARS = 200_000
 ANCHOR = "3. **A material term changed:** obtain a new authoritative quote that reflects the changed dates, guest allocation, selected beds, room arrangement, services, total or payment terms. Explain the changed setup and amount, then obtain fresh acceptance before creating the booking. Never carry old consent across a material change.\n"
 RECOVERY = """

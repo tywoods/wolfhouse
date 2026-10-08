@@ -283,6 +283,22 @@ class OriginalIngressTests(unittest.TestCase):
         self.assertEqual(first, path.read_bytes())
         self.assertEqual(original, Path(runtime.__file__).read_bytes())
 
+    def test_gateway_keeps_original_event_identity_separate_from_reply_anchor(self):
+        import gateway.run as runtime
+        from apply_gateway_patches import apply_patches
+        path = Path(self.temp.name) / 'run-original-id.py'
+        original = Path(runtime.__file__).read_text(encoding='utf-8')
+        path.write_text(original, encoding='utf-8')
+        apply_patches(path)
+        patched = path.read_text(encoding='utf-8')
+        self.assertEqual(patched.count('_wh_original_message_id=event.message_id,'), 1)
+        self.assertEqual(patched.count('_wh_original_message_id: Optional[str] = None,'), 2)
+        self.assertEqual(patched.count('_wh_original_message_id=_wh_original_message_id,'), 2)
+        self.assertIn('event_message_id=self._reply_anchor_for_event(event),', patched)
+        first = path.read_bytes()
+        apply_patches(path)
+        self.assertEqual(first, path.read_bytes())
+
 
 class StopIterationProof(Exception):
     pass

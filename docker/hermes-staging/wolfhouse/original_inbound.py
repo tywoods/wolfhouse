@@ -109,7 +109,7 @@ def gateway_run_owner(fn):
                 with cap.lock:
                     expected = dict(_source(v['source']), SOURCE=_source(v['source'])['PLATFORM'],
                         ID=v['session_id'], KEY=v['session_key'],
-                        MESSAGE_ID=str(v['event_message_id'] or ''), tenant=cap.tenant)
+                        MESSAGE_ID=str(v['_wh_original_message_id'] or ''), tenant=cap.tenant)
                     if (cap.closed or cap.used or cap.binding is None
                             or cap.binding[0] is not getattr(self, '_session_db', None)
                             or cap.binding[1] != expected):
