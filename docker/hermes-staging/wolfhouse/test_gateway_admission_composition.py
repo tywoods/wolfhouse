@@ -37,7 +37,29 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         self.assertIn("self._release_running_agent_state(_quick_key)", composed)
         self.assertEqual(compose_source(composed), composed)
 
+    def test_clean_source_initializes_same_owner_without_legacy_markers(self):
+        from install_gateway_admission import compose_source
+
+        source = '''
+class GatewayRunner:
+    def __init__(self):
+        self._running_agents = {}
+
+    async def _handle_message(self, event):
+        source = event.source
+        _quick_key = "session"
+        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL
+'''
+        composed = compose_source(source)
+        self.assertEqual(composed.count('/opt/data/luna-admission/owner.journal'), 1)
+        self.assertIn('from gateway.identity_admission_owner import IdentityAdmissionOwner', composed)
+        self.assertLess(composed.index('self._admission_lock_owner = IdentityAdmissionOwner'),
+                        composed.index('self._running_agents = {}'))
+        self.assertEqual(compose_source(composed), composed)
+
     def test_fresh_message_admits_once_and_completed_exact_replay_uses_first_yes_owner(self):
+        import fcntl
+        import os
         import gateway.identity_admission_owner as admission_owner
         from wolfhouse import gateway_admission_integration as admission
 
@@ -56,6 +78,17 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
                 str(Path(tmp) / "owner.journal"))
             admission._arm_exact_first_yes_retry = lambda **kw: calls.append(kw) or True
             self.assertTrue(admission.admit_gateway_message(runner, Event(), Event.source, "session-1"))
+            journal = runner._admission_lock_owner._journal_path(
+                ("whatsapp", "chat-1", "wamid-1"))
+            held = os.open(journal, os.O_RDWR)
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                self.assertFalse(admission.admit_gateway_message(
+                    runner, Event(), Event.source, "session-1"))
+                self.assertEqual(calls, [], 'locked custody must refuse recovery')
+            finally:
+                fcntl.flock(held, fcntl.LOCK_UN)
+                os.close(held)
             self.assertTrue(admission.admit_gateway_message(runner, Event(), Event.source, "session-1"))
             runner._admission_lock_owner._release_inner()
             runner._admission_lock_owner._anchor._journal.close()
@@ -144,14 +177,52 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         from contextvars import copy_context
         first = copy_context()
         second = copy_context()
-        self.assertEqual(first.run(_consume_exact_gateway_retry), frozen)
-        self.assertIsNone(second.run(_consume_exact_gateway_retry))
-        self.assertIsNone(_consume_exact_gateway_retry())
+        self.assertEqual(first.run(_consume_exact_gateway_retry), ('claimed', frozen))
+        self.assertEqual(second.run(_consume_exact_gateway_retry), ('spent', None))
+        self.assertEqual(_consume_exact_gateway_retry(), ('spent', None))
+
+    def test_spent_or_refused_retry_never_reaches_model_or_owner_mutation(self):
+        import sys
+        import types
+        from contextvars import copy_context
+        from unittest.mock import patch
+        from wolfhouse import accepted_quote as ledger
+
+        calls = []
+        conversation = types.ModuleType('agent.conversation_loop')
+        conversation.run_conversation = lambda *args, **kwargs: calls.append('model') or {
+            'completed': True, 'final_response': 'model'}
+        agent_module = types.ModuleType('agent')
+        agent_module.conversation_loop = conversation
+        frozen = {
+            "session_key": "session-3", "session_id": "sid-3",
+            "identity": ("whatsapp", "chat-3", "mid-3"), "message_id": "mid-3",
+            "raw_digest": "frozen-digest", "scope_digest": "scope-digest",
+            "operation_key": "luna-owner-operation", "epoch": 7,
+        }
+        with patch.dict(sys.modules, {
+                'agent': agent_module, 'agent.conversation_loop': conversation}):
+            ledger.install_owner_hook()
+            self.assertTrue(ledger._arm_exact_gateway_retry_for_owner(frozen))
+            first = copy_context()
+            spent = copy_context()
+            self.assertEqual(first.run(ledger._consume_exact_gateway_retry), ('claimed', frozen))
+            response = spent.run(conversation.run_conversation, object(), 'thanks')
+            self.assertEqual(response['api_calls'], 0)
+            self.assertEqual(calls, [])
+
+            self.assertTrue(ledger._arm_exact_gateway_retry_for_owner(frozen))
+            with patch.object(ledger, '_prevalidate_exact_gateway_retry', return_value=False), \
+                    patch.object(ledger, 'observe_owner_turn', side_effect=AssertionError('mutated')):
+                refused = conversation.run_conversation(object(), 'thanks')
+            self.assertEqual(refused['api_calls'], 0)
+            self.assertEqual(calls, [])
 
     def test_first_yes_owner_allows_only_completed_or_interrupted_exact_operation(self):
         from wolfhouse.accepted_quote import (
             exact_gateway_recovery_capability,
             recovery_capability_matches,
+            recovery_capability_precheck,
             supports_exact_gateway_retry,
         )
         import hashlib
@@ -192,6 +263,16 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         self.assertTrue(supports_exact_gateway_retry(**kwargs))
         frozen = exact_gateway_recovery_capability(**kwargs)
         self.assertIsInstance(frozen, dict)
+        self.assertTrue(recovery_capability_precheck(
+            frozen, base, session_key="session-3", session_id="sid-3",
+            identity=("whatsapp", "chat-3", "mid-3"), raw=raw))
+        replacement = json.loads(json.dumps(base))
+        replacement["plan"] = {"selected_bed_codes": ["OTHER"]}
+        self.assertFalse(recovery_capability_precheck(
+            frozen, replacement, session_key="session-3", session_id="sid-3",
+            identity=("whatsapp", "chat-3", "mid-3"), raw=raw))
+        self.assertEqual(replacement["status"], "accepted",
+                         'precheck must not mutate replacement authorization')
         observed = json.loads(json.dumps(base))
         observed["epoch"] += 1
         self.assertTrue(recovery_capability_matches(

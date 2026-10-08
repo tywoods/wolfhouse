@@ -64,9 +64,9 @@ class _OneShotExactRetry:
     def take(self):
         with self.lock:
             if self.claimed:
-                return None
+                return 'spent', None
             self.claimed = True
-            return deepcopy(self.frozen)
+            return 'claimed', deepcopy(self.frozen)
 
 
 class QuoteBoundaryError(ValueError):
@@ -119,6 +119,17 @@ def _frozen_recovery(state, *, session_key, session_id, identity, message_id, ra
         return None
 
 
+def recovery_capability_precheck(frozen, state, *, session_key, session_id, identity, raw):
+    """Validate the frozen operation before observe_owner_turn can mutate state."""
+    if not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS:
+        return False
+    current = _frozen_recovery(
+        state, session_key=session_key, session_id=session_id, identity=identity,
+        message_id=identity[2] if type(identity) is tuple and len(identity) == 3 else None,
+        raw=raw)
+    return current == frozen
+
+
 def recovery_capability_matches(frozen, state, *, session_key, session_id, identity, raw):
     if not isinstance(frozen, dict) or set(frozen) != _RECOVERY_FIELDS:
         return False
@@ -151,7 +162,7 @@ def _consume_exact_gateway_retry():
     capability = _exact_gateway_retry.get()
     _exact_gateway_retry.set(None)
     if not isinstance(capability, _OneShotExactRetry):
-        return None
+        return 'absent', None
     return capability.take()
 
 
@@ -218,6 +229,31 @@ def _scope(agent):
     if not isinstance(db, SessionDB):
         raise QuoteBoundaryError('quote_owner_sessiondb_missing')
     return db, {**values, 'tenant': tenant}
+
+
+def _prevalidate_exact_gateway_retry(agent, frozen, raw):
+    """Read-only validation before owner observation can alter any authorization."""
+    try:
+        db, scope = _scope(agent)
+        identity_scope = {key: value for key, value in scope.items() if key != 'MESSAGE_ID'}
+        key = _PREFIX + hashlib.sha256(_encode(identity_scope).encode()).hexdigest()
+        with db._lock:
+            session = db._conn.execute(
+                'SELECT started_at, ended_at FROM sessions WHERE id=?', (scope['ID'],)
+            ).fetchone()
+            found = db._conn.execute(
+                'SELECT value FROM state_meta WHERE key=?', (key,)
+            ).fetchone()
+        if session is None or session[1] is not None or found is None:
+            return False
+        state = json.loads(found[0])
+        if state.get('incarnation') != session[0] or state.get('scope') != identity_scope:
+            return False
+        return recovery_capability_precheck(
+            frozen, state, session_key=scope['KEY'], session_id=scope['ID'],
+            identity=(scope['PLATFORM'], scope['CHAT_ID'], scope['MESSAGE_ID']), raw=raw)
+    except Exception:
+        return False
 
 
 def _transaction(fn):
@@ -776,7 +812,15 @@ def install_owner_hook(create_handler=None, before_create=None):
     @wraps(original)
     def owned(agent, user_message, *args, **kwargs):
         close_turn()
-        exact_retry = _consume_exact_gateway_retry()
+        retry_state, exact_retry = _consume_exact_gateway_retry()
+        if retry_state == 'spent':
+            # A copied executor context saw the real token, but another context
+            # already consumed it. This is a terminal refusal, never ordinary chat.
+            return _exact_retry_refusal(user_message, args, kwargs)
+        if retry_state == 'claimed' and not _prevalidate_exact_gateway_retry(
+                agent, exact_retry, user_message):
+            # Refuse before observe_owner_turn can alter a replacement offer.
+            return _exact_retry_refusal(user_message, args, kwargs)
         try:
             from .original_inbound import consume
             try:
