@@ -257,7 +257,7 @@ ok(
 
 // --- Safety helpers still refuse bad hosts ---
 const badAzure = assertSafeDatabaseTarget({
-  host: 'luna-pg-shared.postgres.database.azure.com',
+  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
   database: 'wh_mig_x',
   port: 5432,
 });

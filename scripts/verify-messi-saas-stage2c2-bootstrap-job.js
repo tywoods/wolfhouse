@@ -188,9 +188,9 @@ async function main() {
   let bootstrap; try { bootstrap = require('./bootstrap-synthetic-tenant-db'); } catch (_) { bootstrap = null; }
   ok('default_still_refuses_azure', !assertSafeDatabaseTarget(tgt(HOST, DB)).ok);
   ok('default_still_refuses_sunset', !assertSafeDatabaseTarget(tgt(
-    'luna-pg-shared.postgres.database.azure.com', 'sunset_staging')).ok);
+    'luna-sunset-staging-pg-app.postgres.database.azure.com', 'sunset_staging')).ok);
   ok('sunset_noop_still_exact', assertSafeDatabaseTarget(tgt(
-    'luna-pg-shared.postgres.database.azure.com', 'sunset_staging'),
+    'luna-sunset-staging-pg-app.postgres.database.azure.com', 'sunset_staging'),
   { allowSunsetStagingCanonicalRunnerNoop: true }).ok);
   ok('sunset_noop_rejects_synthetic_host', !assertSafeDatabaseTarget(tgt(HOST, DB),
     { allowSunsetStagingCanonicalRunnerNoop: true }).ok);
@@ -200,7 +200,7 @@ async function main() {
   ok('cap_rejects_forged_db', !assertSafeDatabaseTarget(tgt(HOST, 'other_staging'), syn(SLUG)).ok);
   ok('cap_rejects_forged_slug', !assertSafeDatabaseTarget(tgt(HOST, DB), syn('other')).ok);
   ok('cap_rejects_sunset_slug', !assertSafeDatabaseTarget(tgt(
-    'luna-pg-shared.postgres.database.azure.com', 'sunset_staging'), syn('sunset')).ok);
+    'luna-sunset-staging-pg-app.postgres.database.azure.com', 'sunset_staging'), syn('sunset')).ok);
   ok('cap_rejects_wolfhouse', !assertSafeDatabaseTarget(tgt(
     'luna-wolfhouse-staging-pg-app.postgres.database.azure.com', 'wolfhouse_staging'), syn('wolfhouse')).ok);
   ok('cap_rejects_prod_slug', !assertSafeDatabaseTarget(tgt(
@@ -242,7 +242,7 @@ async function main() {
     ok('attestation_forged_pg_id', !bootstrap.assertSyntheticAttestation({ ...att, postgresServerId: PG_ID.replace('pg-app', 'pg-evil') }).ok);
     ok('attestation_reserved_sunset', !bootstrap.assertSyntheticAttestation({
       ...att, tenantSlug: 'sunset',
-      expectedHost: 'luna-pg-shared.postgres.database.azure.com', expectedDatabase: 'sunset_staging',
+      expectedHost: 'luna-sunset-staging-pg-app.postgres.database.azure.com', expectedDatabase: 'sunset_staging',
     }).ok);
     const secret = 'S3cretPassw0rd_EXTRA';
     const dsn = `postgresql://admin:${secret}@${HOST}:5432/${DB}?sslmode=verify-full`;
