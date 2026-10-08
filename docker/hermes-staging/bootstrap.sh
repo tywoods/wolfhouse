@@ -60,6 +60,9 @@ LUNA_SOUL_VERSION="33"
 
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
+# Luna's approved identity is loaded byte-for-byte. This cap is above the
+# generated SOUL length; verify_luna_effective_soul.py proves no truncation.
+context_file_max_chars: 200000
 model:
   default: gpt-5.5
   provider: openai-codex
