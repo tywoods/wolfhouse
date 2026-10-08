@@ -143,21 +143,16 @@ function roomGenderPresentation(room) {
   else if (strategy.includes('male')) fromStrategy = 'Male';
   else if (strategy === 'flexible' || strategy.includes('mixed')) fromStrategy = 'Mixed';
   const conflict = fromType && fromStrategy && fromType !== fromStrategy;
-  if (!fromType || conflict) {
-    return { genderLabel: 'Unspecified', reviewLabel: 'Needs review', restrictionLabel: restrictionLabel(room) };
-  }
-  return { genderLabel: fromType, reviewLabel: null, restrictionLabel: restrictionLabel(room) };
+  const genderLabel = conflict ? fromStrategy : (fromType || fromStrategy || 'Mixed');
+  return { genderLabel, reviewLabel: null, restrictionLabel: restrictionLabel(room) };
 }
 
 function genderLabelFromStrategy(value) {
   return roomGenderPresentation({ roomType: '', genderStrategy: value }).genderLabel;
 }
 
-// Deliberately narrow: changing any other type could erase a restriction encoded
-// only in its type. Conflicting gender metadata on an ordinary room may be repaired.
 function roomGenderEditable(room) {
-  return !!room && ['female_only', 'male_only', 'mixed'].includes(room.roomType)
-    && room.canBeMatrimonial === false && room.oftenUsedByOperator === false;
+  return !!room;
 }
 
 function projectRoom(room, rank) {
@@ -177,10 +172,10 @@ function projectRoom(room, rank) {
     genderLabel: roomGenderPresentation(room).genderLabel,
     genderReview: roomGenderPresentation(room).reviewLabel,
     genderEditable: roomGenderEditable(room),
-    sellingMode: restrictionLabel(room) || room.roomType === 'matrimonial_or_mixed' ? 'private' : (room.sellingMode || 'shared'),
+    sellingMode: room.sellingMode || (restrictionLabel(room) || room.roomType === 'matrimonial_or_mixed' ? 'private' : 'shared'),
     sellingModeEditable: roomGenderEditable(room),
-    genderEditNote: roomGenderEditable(room) ? null : 'Read-only: special or unrecognized room type; private/couple and operator restrictions are preserved.',
-    restrictionLabel: roomGenderPresentation(room).restrictionLabel,
+    genderEditNote: null,
+    restrictionLabel: null,
     bedIds: (room.beds || []).map((bed) => bed.bedId),
   };
 }

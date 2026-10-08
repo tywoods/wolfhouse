@@ -102,13 +102,22 @@ async function main() {
     }
     for (const [type, matrimonial, operator] of [['private',false,false],['couple',false,false],['matrimonial_or_mixed',false,false],['operator',false,false],['unknown',false,false],['',false,false],['shared',false,false],['mixed',true,false],['mixed',false,true]]) {
       await db.query('UPDATE rooms SET room_type=$1, can_be_matrimonial=$2, often_used_by_operator=$3 WHERE id=$4', [type,matrimonial,operator,R]);
-      const current = await get(); assert.equal(current.catalogue[0].genderEditable, false); assert.match(current.catalogue[0].genderEditNote, /Read-only/);
-      const previous = await snapshot(); const response = await put({ gender: 'mixed', expectedCatalogRevision: current.catalogRevision });
-      assert.equal(response.status, 422, type); assert.equal(response.body.error, 'room_gender_read_only');
-      assert.deepEqual(await snapshot(), previous, 'special state unchanged: ' + type);
+      const current = await get();
+      assert.equal(current.catalogue[0].genderEditable, true, type);
+      assert.equal(current.catalogue[0].sellingModeEditable, true, type);
+      assert.equal(current.catalogue[0].genderReview, null, type);
+      assert.equal(current.catalogue[0].restrictionLabel, null, type);
+      const response = await put({ gender: 'mixed', expectedCatalogRevision: current.catalogRevision });
+      assert.equal(response.status, 200, type);
+      const canonicalRoom = (await db.query('SELECT room_type, gender_strategy, can_be_matrimonial, often_used_by_operator FROM rooms WHERE id=$1', [R])).rows[0];
+      assert.equal(canonicalRoom.room_type, 'mixed', type);
+      assert.equal(canonicalRoom.gender_strategy, 'Flexible', type);
+      assert.equal(canonicalRoom.can_be_matrimonial, matrimonial, type + ' preserves matrimonial flag');
+      assert.equal(canonicalRoom.often_used_by_operator, operator, type + ' preserves operator flag');
     }
     await db.query("UPDATE rooms SET room_type='female_only', gender_strategy='Female preferred', can_be_matrimonial=false, often_used_by_operator=false WHERE id=$1", [R]);
     const fresh = await get();
+    const auditBeforeConcurrent = audit.length;
     let previous = await snapshot();
     const noop = await put({ gender: 'female', expectedCatalogRevision: fresh.catalogRevision });
     assert.equal(noop.status, 200); assert.equal(noop.body.unchanged, true); assert.deepEqual(await snapshot(), previous);
@@ -118,13 +127,13 @@ async function main() {
     assert.equal(failed.status, 503); assert.deepEqual(await snapshot(), previous, 'SQL update rolls back if authoritative readback fails');
     const concurrent = await Promise.all(['male','mixed'].map(gender => put({ gender, expectedCatalogRevision: fresh.catalogRevision })));
     assert.deepEqual(concurrent.map(r => r.status).sort(), [200,409]);
-    assert.equal(audit.length, 2, 'one mutation wins shared CAS');
+    assert.equal(audit.length, auditBeforeConcurrent + 1, 'one mutation wins shared CAS');
     assert.deepEqual(await stable(), baseline);
     const winning = concurrent.find(r => r.status === 200).body;
     const conflictSave = {}; await makeRoutes().handleRoomFillPut({}, { headers: {}, body: JSON.stringify({ contractVersion: 1, fillMode: 'room', roomPriority: [R], roomPrioritySource: 'custom', expectedCatalogRevision: fresh.catalogRevision, expectedSettingsRevision: null }) }, conflictSave, user);
     assert.equal(conflictSave.status, 409, 'pre-edit placement revision is rejected');
     fs.writeFileSync(path.join(OUT, 'sql-results.json'), JSON.stringify({ passed: true, backend: 'disk-backed PGlite', directory: dir, before, reopened, winning, audit, preserved: await stable(), simultaneousStatuses: concurrent.map(r => r.status) }, null, 2));
-    console.log('PASS strict role/tenant/origin/JSON/id/CAS denials; special read-only; no-op; readback rollback; simultaneous CAS; stale placement');
+    console.log('PASS strict role/tenant/origin/JSON/id/CAS denials; legacy room normalization; no-op; readback rollback; simultaneous CAS; stale placement');
     console.log('PASS update → commit → disk DB reopen → GET; canonical eligibility; identity/assignment/settings preserved; old/new audit');
   } finally { await db.close(); }
 }

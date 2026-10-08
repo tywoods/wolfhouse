@@ -534,7 +534,7 @@
     var select = document.createElement('select');
     select.id = 'rf-gender-' + id;
     select.setAttribute('aria-label', 'Gender for ' + labelFor(room));
-    [['', 'Needs review — choose'], ['female', 'Female'], ['male', 'Male'], ['mixed', 'Mixed']].forEach(function (pair) {
+    [['', 'Choose gender'], ['female', 'Female'], ['male', 'Male'], ['mixed', 'Mixed']].forEach(function (pair) {
       var opt = document.createElement('option'); opt.value = pair[0]; opt.textContent = pair[1];
       opt.disabled = !pair[0]; select.appendChild(opt);
     });

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { PGlite } = require('@electric-sql/pglite');
 const { createRoomFillRoutes } = require('./lib/staff-room-fill-routes');
+const { runAvailabilityBedSelection } = require('./lib/luna-bed-allocator');
 const C = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const R = '11111111-1111-4111-8111-111111111111';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -57,9 +58,22 @@ async function main() {
     assert.equal((await f.put({ sellingMode:'shared',expectedCatalogRevision:reopened.catalogRevision },{...user,role:'viewer'})).status,403);
     await f.query("UPDATE rooms SET room_type='operator_surfweek', often_used_by_operator=true");
     const legacy = await f.get();
-    assert.equal(legacy.catalogue[0].sellingMode,'private');
-    assert.equal(legacy.catalogue[0].sellingModeEditable,false);
-    assert.equal((await f.put({ sellingMode:'shared',expectedCatalogRevision:legacy.catalogRevision })).status,422);
+    assert.equal(legacy.catalogue[0].sellingModeEditable,true);
+    assert.equal(legacy.catalogue[0].genderEditable,true);
+    assert.equal(legacy.catalogue[0].restrictionLabel,null);
+    const normalized = await f.put({ sellingMode:'shared',gender:'mixed',expectedCatalogRevision:legacy.catalogRevision });
+    assert.equal(normalized.status,200);
+    assert.equal(normalized.body.catalogue[0].sellingMode,'shared');
+    assert.equal(normalized.body.catalogue[0].genderLabel,'Mixed');
+    const preserved = (await f.query('SELECT often_used_by_operator FROM rooms')).rows[0];
+    assert.equal(preserved.often_used_by_operator,true,'Staff edit must not clear operator protection data');
+    const bedRows = [{ bed_code:'R1-B1',room_code:'R1',room_type:'mixed',gender_strategy:'Flexible',capacity:1,
+      can_be_matrimonial:false,often_used_by_operator:true,bed_active:true,bed_sellable:true,selling_mode:'shared' }];
+    const protectedSelection = runAvailabilityBedSelection({ bedRows,
+      blockRows:[{ bed_code:'R1-B1',room_code:'R1',assignment_type:'operator_block' }],
+      guestCount:1,roomPreference:'shared',groupGender:'mixed' });
+    assert.deepEqual(protectedSelection.selected_bed_codes,[],
+      'Tour Operator assignment remains unavailable after Room Setup normalization');
     fs.writeFileSync(path.join(out,'persistence.json'),JSON.stringify({passed:true,before,reopened,audit:f.audit},null,2));
     console.log('PASS room selling mode route → SQL → COMMIT → disk reopen → GET; type/gender identity; CAS/retry/invalid/role/legacy protections');
   } finally { await f.close(); }
