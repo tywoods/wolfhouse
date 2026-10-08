@@ -25,6 +25,9 @@ const EXPECTED_WH_LABELS = ['Finance', 'Pricing', 'Luna Staff', 'Camps, Lessons 
 const PLACEHOLDER_SUBTABS = [];
 const HOSTED_SUBTABS = { 'luna-staff': 'tab-ask-luna', services: 'tab-services', 'tour-operator': 'tab-tour-operator' };
 const NESTED_NAV_TABS = ['ask-luna', 'services', 'tour-operator'];
+const FONT_SCREENSHOT_DIR = process.env.ADMIN_FONT_SCREENSHOT_DIR
+  ? path.resolve(process.env.ADMIN_FONT_SCREENSHOT_DIR)
+  : null;
 
 let passed = 0;
 let failed = 0;
@@ -117,8 +120,17 @@ function createPortalServer(html) {
       });
     }
     if (pathname.startsWith('/staff/assets/')) { res.writeHead(204); return res.end(); }
+    if (pathname === '/staff/admin/finance/summary') {
+      return sendJson(res, 200, { success: true, summary: { redesign: {} } });
+    }
+    if (pathname === '/staff/luna-intelligence') {
+      return sendJson(res, 200, { success: true, enabled: false, client_slug: WH_CLIENT });
+    }
+    if (pathname === '/staff/luna-personality') {
+      return sendJson(res, 200, { success: true, personality_id: 'sunny' });
+    }
     if (pathname.startsWith('/staff/')) {
-      return sendJson(res, 200, { success: true, rows: [], conversations: [], offerings: [], services: [], days: [], counts: {} });
+      return sendJson(res, 200, { success: true, rows: [], conversations: [], offerings: [], services: [], locations: [], endpoints: [], days: [], counts: {} });
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('not found');
@@ -304,6 +316,54 @@ async function runWolfhouse(playwright, browser) {
     equal('Finance is the default selected sub-tab',
       subTabs.filter((s) => s.selected === 'true').map((s) => s.key), ['finance']);
 
+    if (FONT_SCREENSHOT_DIR) fs.mkdirSync(FONT_SCREENSHOT_DIR, { recursive: true });
+    const headerSelectorByTab = {
+      finance: '.pfb-sec',
+      pricing: '.portal-admin-section-hdr',
+      'luna-staff': '.portal-admin-section-hdr',
+      services: '.portal-admin-title',
+      'tour-operator': '.portal-admin-section-hdr',
+      email: '.portal-admin-email-card-title',
+    };
+    for (const key of FONT_SCREENSHOT_DIR ? EXPECTED_WH_SUBTABS : []) {
+      // Reload before each capture: screenshots prove the real fresh-load state.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction((slug) => document.getElementById('c-client')?.value === slug, WH_CLIENT);
+      await page.locator('button.tab-btn[data-tab="admin"]').click();
+      await page.locator(`#wh-admin-tab-${key}`).click();
+      const panel = page.locator(`#wh-admin-panel-${key}`);
+      await panel.waitFor({ state: 'visible' });
+      const heading = panel.locator(headerSelectorByTab[key]).first();
+      await heading.waitFor({ state: 'visible' });
+      const style = await heading.evaluate((node) => {
+        const cs = getComputedStyle(node);
+        return {
+          family: cs.fontFamily,
+          size: cs.fontSize,
+          weight: cs.fontWeight,
+          transform: cs.textTransform,
+          spacing: cs.letterSpacing,
+          style: cs.fontStyle,
+        };
+      });
+      check(`${key} header uses Instrument Sans`, /Instrument Sans/i.test(style.family), JSON.stringify(style));
+      equal(`${key} header size`, style.size, '18px');
+      equal(`${key} header weight`, style.weight, '700');
+      equal(`${key} header case remains mixed`, style.transform, 'none');
+      equal(`${key} header spacing`, style.spacing, '-0.36px');
+      equal(`${key} header is not italic`, style.style, 'normal');
+      if (['pricing', 'luna-staff', 'tour-operator'].includes(key)) {
+        const disclosureState = await panel.locator('.staff-collapse-toggle').evaluateAll((nodes) => nodes.map((node) => ({
+          expanded: node.getAttribute('aria-expanded'),
+          text: (node.textContent || '').trim().replace(/\s+/g, ' '),
+        })));
+        check(`${key} disclosures remain collapsed on fresh load`, disclosureState.length > 0 && disclosureState.every((row) => row.expanded === 'false'), JSON.stringify(disclosureState));
+      }
+      if (FONT_SCREENSHOT_DIR) {
+        await page.screenshot({ path: path.join(FONT_SCREENSHOT_DIR, `fresh-${key}.png`), fullPage: true });
+      }
+    }
+
     for (const key of PLACEHOLDER_SUBTABS) {
       await page.locator(`#wh-admin-tab-${key}`).click();
       const state = await page.evaluate((subKey) => {
@@ -342,7 +402,7 @@ async function runWolfhouse(playwright, browser) {
 
     // Drive production Room Block and Room Release submit handlers. Responses and
     // refresh dependencies vary, but no result renderer is invoked by the test.
-    await verifyRealTourOperatorFlows(browser, base);
+    if (!FONT_SCREENSHOT_DIR) await verifyRealTourOperatorFlows(browser, base);
 
     check('no uncaught page errors on Wolfhouse Admin', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
