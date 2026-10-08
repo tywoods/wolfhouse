@@ -2,8 +2,8 @@
 """Reproducibly compose reviewed admission into the narrow gateway seam."""
 from __future__ import annotations
 
-import importlib.util
 import ast
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -63,7 +63,7 @@ def compose_source(source: str) -> str:
         return source
     legacy_start = source.count(LEGACY_START)
     legacy_end = source.count(LEGACY_END)
-    if legacy_start or legacy_end:
+    if legacy_start:
         if legacy_start != 1 or legacy_end != 1:
             raise RuntimeError("legacy gateway admission veto missing or ambiguous")
         start = source.index(LEGACY_START)
@@ -72,6 +72,9 @@ def compose_source(source: str) -> str:
             raise RuntimeError("legacy gateway admission owner is missing or malformed")
         # Replace the LIVE veto; its existing owner and namespace stay untouched.
         source = source[:start] + source[end:]
+    elif legacy_end > 1:
+        # The capacity comment is normal clean source, but duplicates are not.
+        raise RuntimeError("gateway capacity seam is ambiguous")
     elif source.count(LIVE_JOURNAL) == 0:
         # A clean installed gateway has no LIVE owner yet. Initialize that same
         # reviewed owner in GatewayRunner.__init__, never a parallel namespace.

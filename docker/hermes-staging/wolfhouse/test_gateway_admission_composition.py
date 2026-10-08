@@ -26,16 +26,21 @@ class GatewayAdmissionCompositionTests(unittest.TestCase):
         from install_gateway_admission import compose_source
 
         source = '''\nclass GatewayRunner:\n    def __init__(self):\n        self._admission_lock_owner = IdentityAdmissionOwner(\n            "/opt/data/luna-admission/owner.journal"\n        )\n\n    async def _handle_message(self, event):\n        source = event.source\n        _quick_key = "session"\n        # Existing adapter admit on this message identity, before session claim.\n        _legacy = True\n        if _legacy:\n            return None\n\n        # ── Claim this session before any await ───────────────────────\n        _active_session_lease, _limit_message = self._claim_active_session_slot(\n            _quick_key,\n            source,\n        )\n        if _limit_message is not None:\n            return _limit_message\n        if _active_session_lease is not None:\n            if not hasattr(self, "_active_session_leases"):\n                self._active_session_leases = {}\n            self._active_session_leases[_quick_key] = _active_session_lease\n        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL\n'''
-        composed = compose_source(source)
-        claim = composed.index("self._claim_active_session_slot")
-        admission = composed.index("admit_gateway_message")
-        sentinel = composed.index("self._running_agents[_quick_key]")
-        self.assertLess(claim, admission)
-        self.assertLess(admission, sentinel)
-        self.assertNotIn("Existing adapter admit on this message identity", composed)
-        self.assertIn("/opt/data/luna-admission/owner.journal", composed)
-        self.assertIn("self._release_running_agent_state(_quick_key)", composed)
-        self.assertEqual(compose_source(composed), composed)
+        patched_source = source.replace(
+            'class GatewayRunner:',
+            '_wolfhouse_gateway_runner = None\n\nclass GatewayRunner:', 1)
+        for label, candidate in (('direct', source), ('gateway-patched', patched_source)):
+            with self.subTest(label=label):
+                composed = compose_source(candidate)
+                claim = composed.index("self._claim_active_session_slot")
+                admission = composed.index("admit_gateway_message")
+                sentinel = composed.index("self._running_agents[_quick_key]")
+                self.assertLess(claim, admission)
+                self.assertLess(admission, sentinel)
+                self.assertNotIn("Existing adapter admit on this message identity", composed)
+                self.assertIn("/opt/data/luna-admission/owner.journal", composed)
+                self.assertIn("self._release_running_agent_state(_quick_key)", composed)
+                self.assertEqual(compose_source(composed), composed)
 
     def test_clean_source_initializes_same_owner_without_legacy_markers(self):
         from install_gateway_admission import compose_source
@@ -48,14 +53,44 @@ class GatewayRunner:
     async def _handle_message(self, event):
         source = event.source
         _quick_key = "session"
+        # ── Claim this session before any await ───────────────────────
         self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL
 '''
-        composed = compose_source(source)
-        self.assertEqual(composed.count('/opt/data/luna-admission/owner.journal'), 1)
-        self.assertIn('from gateway.identity_admission_owner import IdentityAdmissionOwner', composed)
-        self.assertLess(composed.index('self._admission_lock_owner = IdentityAdmissionOwner'),
-                        composed.index('self._running_agents = {}'))
-        self.assertEqual(compose_source(composed), composed)
+        patched_source = source.replace(
+            'class GatewayRunner:',
+            '_wolfhouse_gateway_runner = None\n\nclass GatewayRunner:', 1)
+        for label, candidate in (('direct', source), ('gateway-patched', patched_source)):
+            with self.subTest(label=label):
+                composed = compose_source(candidate)
+                self.assertEqual(composed.count('/opt/data/luna-admission/owner.journal'), 1)
+                self.assertIn(
+                    'from gateway.identity_admission_owner import IdentityAdmissionOwner',
+                    composed)
+                self.assertLess(
+                    composed.index('self._admission_lock_owner = IdentityAdmissionOwner'),
+                    composed.index('self._running_agents = {}'))
+                self.assertEqual(compose_source(composed), composed)
+
+    def test_legacy_detection_keeps_malformed_distinctive_blocks_closed(self):
+        from install_gateway_admission import compose_source
+
+        partial = '''
+class GatewayRunner:
+    def __init__(self):
+        self._running_agents = {}
+    async def _handle_message(self, event):
+        source = event.source
+        _quick_key = "session"
+        # Existing adapter admit on this message identity, before session claim.
+        self._running_agents[_quick_key] = _AGENT_PENDING_SENTINEL
+'''
+        with self.assertRaisesRegex(RuntimeError, 'legacy gateway admission veto'):
+            compose_source(partial)
+        duplicate_clean_seam = partial.replace(
+            '        # Existing adapter admit on this message identity, before session claim.\n',
+            '        # ── Claim this session before any await ───────────────────────\n' * 2)
+        with self.assertRaisesRegex(RuntimeError, 'capacity seam is ambiguous'):
+            compose_source(duplicate_clean_seam)
 
     def test_fresh_message_admits_once_and_completed_exact_replay_uses_first_yes_owner(self):
         import fcntl
