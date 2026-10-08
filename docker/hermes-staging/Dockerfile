@@ -42,7 +42,6 @@ COPY apply_crowsnest_ai_usage_patch.py /etc/hermes-staging/apply_crowsnest_ai_us
 COPY apply_luna_executor_handoff_patch.py /etc/hermes-staging/apply_luna_executor_handoff_patch.py
 COPY test_luna_executor_handoff_patch.py /etc/hermes-staging/test_luna_executor_handoff_patch.py
 COPY apply_luna_live_loop_trace_patch.py /etc/hermes-staging/apply_luna_live_loop_trace_patch.py
-COPY apply_luna_soul_trust_patch.py /etc/hermes-staging/apply_luna_soul_trust_patch.py
 COPY test_luna_live_loop_trace_patch.py /etc/hermes-staging/test_luna_live_loop_trace_patch.py
 COPY apply_luna_append_body_receipt_patch.py /etc/hermes-staging/apply_luna_append_body_receipt_patch.py
 COPY apply_water_cooler_a2a_adapter_patch.py /etc/hermes-staging/apply_water_cooler_a2a_adapter_patch.py
@@ -53,7 +52,10 @@ COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_gu
 COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patch_idempotency.py
 COPY verify_discord_session_continuity.py /etc/hermes-staging/verify_discord_session_continuity.py
 COPY verify_wolfhouse_luna_instance.py /etc/hermes-staging/verify_wolfhouse_luna_instance.py
-COPY verify_luna_effective_soul.py /etc/hermes-staging/verify_luna_effective_soul.py
+COPY SOUL.approved-base.md /etc/hermes-staging/SOUL.approved-base.md
+COPY SOUL.approved-full.md /etc/hermes-staging/SOUL.approved-full.md
+COPY build_luna_serving_soul.py /etc/hermes-staging/build_luna_serving_soul.py
+COPY test_build_luna_serving_soul.py /etc/hermes-staging/test_build_luna_serving_soul.py
 COPY verify_deckhand_instance.py /etc/hermes-staging/verify_deckhand_instance.py
 COPY verify_water_cooler_a2a_pilot.py /etc/hermes-staging/verify_water_cooler_a2a_pilot.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
@@ -73,8 +75,8 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
  && python -c "import asyncpg" \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
- && python /etc/hermes-staging/apply_luna_soul_trust_patch.py \
- && python /etc/hermes-staging/verify_luna_effective_soul.py --hermes-root /opt/hermes \
+ && python /etc/hermes-staging/build_luna_serving_soul.py --check \
+ && python -m unittest /etc/hermes-staging/test_build_luna_serving_soul.py -v \
  && cd /etc/hermes-staging \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \

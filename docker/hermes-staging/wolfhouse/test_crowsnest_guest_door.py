@@ -492,8 +492,16 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         import wolfhouse.crowsnest_guest_door as door
 
         scope = CrowsnestGuestScope.create("+34600111888")
-        scope.tool_calls.append({"name": "quote_booking", "result_summary": "first"})
-        scope.tool_calls.append({"name": "quote_booking", "result_summary": "second"})
+        scope.tool_calls.append({
+            "name": "quote_booking", "result_summary": "first",
+            "simulator_guard": ["blocked_preview_only"],
+            "effective_capability": {"capability": "wolfhouse_staging_booking", "admitted": False},
+        })
+        scope.tool_calls.append({
+            "name": "quote_booking", "result_summary": "second",
+            "simulator_guard": None,
+            "effective_capability": {"capability": "wolfhouse_staging_booking", "admitted": True},
+        })
         token = door._SCOPE.set(scope)
         try:
             door.record_tool_attempt(
@@ -510,6 +518,11 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(scope.tool_calls[0]["typed_failure"])
         self.assertNotIn("typed_result", scope.tool_calls[0])
         self.assertEqual(len(scope.tool_calls[0]["staff_transports"]), 2)
+        transports = scope.tool_calls[0]["staff_transports"]
+        self.assertEqual(transports[0]["simulator_guard"], ["blocked_preview_only"])
+        self.assertFalse(transports[0]["effective_capability"]["admitted"])
+        self.assertIsNone(transports[1]["simulator_guard"])
+        self.assertTrue(transports[1]["effective_capability"]["admitted"])
 
     async def test_status_error_is_a_typed_failure(self):
         import wolfhouse.crowsnest_guest_door as door

@@ -248,6 +248,25 @@ class OrdinaryAppendPatchTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(AssertionError):
                 _assert_ordinary_event_inventory(self, rows)
 
+    def test_existing_receipt_patched_executor_upgrades_without_unrelated_byte_changes(self):
+        source = Path("/opt/hermes/agent/tool_executor.py").read_text()
+        legacy = source
+        for old, current in image_patch.PATCHES:
+            expected = 2 if "Error executing tool" in old else 1
+            predecessor = image_patch._legacy_variant(current)
+            self.assertEqual(legacy.count(old), expected)
+            legacy = legacy.replace(old, predecessor)
+        upgraded = image_patch.patch_text(legacy)
+        self.assertEqual(image_patch.patch_text(upgraded), upgraded)
+        restored = upgraded
+        for _old, current in reversed(image_patch.PATCHES):
+            predecessor = image_patch._legacy_variant(current)
+            if predecessor != current:
+                restored = restored.replace(current, predecessor)
+        self.assertEqual(restored, legacy)
+        self.assertIn("_record_crowsnest_tool_attempt", upgraded)
+        self.assertIn("_append_receipt_error_type", upgraded)
+
     def test_pinned_owner_patch_is_idempotent_and_uses_exception_snapshot_and_correct_correlation(self):
         source = Path("/opt/hermes/agent/tool_executor.py").read_text()
         once = image_patch.patch_text(source)
@@ -309,6 +328,9 @@ plugins_pkg = module('hermes_cli'); plugins_pkg.__path__ = []
 plugins = module('hermes_cli.plugins', get_pre_tool_call_block_message=lambda *a, **kw: None)
 module('agent.agent_runtime_helpers', agent_runtime_owns_post_tool_hook=lambda *a: False)
 module('model_tools', _emit_post_tool_call_hook=noop)
+crowsnest_receipts = []
+module('wolfhouse.crowsnest_guest_door',
+       record_tool_attempt=lambda **kw: crowsnest_receipts.append(kw))
 from agent import tool_executor as owner
 from wolfhouse import luna_append_body_receipt as receipt
 from wolfhouse import luna_capture_identity_trace as sink
@@ -412,7 +434,7 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
                   'off_output': off_output, 'off_snapshot_calls': len(snapshot_calls), 'rows': rows,
                   'envelopes': envelopes, 'real_owner_output': real_owner_output,
                   'envelope_paths': envelope_paths, 'handle_after': None if handle_after is None else handle_after.expected_call_id,
-                  'metadata_calls': metadata.calls}, default=str))
+                  'metadata_calls': metadata.calls, 'crowsnest_receipts': crowsnest_receipts}, default=str))
 '''
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "hermes"
@@ -443,6 +465,16 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
         self.assertTrue(all(row["api_request_id"] == "api-request-real" for row in result["envelopes"]))
         self.assertEqual(len(result["envelope_paths"]), 1, result)
         self.assertEqual(result["real_owner_output"][0]["tool_call_id"], "sealed-owner-call")
+        receipts = result["crowsnest_receipts"]
+        self.assertEqual(
+            [row["call_id"] for row in receipts],
+            ["c1", "c2", "c3", "c4", "c5", "sealed-owner-call"],
+        )
+        refused = receipts[0]
+        self.assertEqual(refused["name"], "reject")
+        self.assertEqual(refused["producer"], "local_validation_rejection")
+        self.assertEqual(json.loads(refused["result"]), {"error": "local-denied"})
+        self.assertEqual(refused["api_request_id"], "api-request-real")
 
 
 if __name__ == "__main__":

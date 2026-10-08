@@ -347,7 +347,11 @@ def record_tool_attempt(*, name: Any, arguments: Any, result: Any, call_id: Any 
         pending_ids = {id(row) for row in pending}
         scope.tool_calls[:] = [row for row in scope.tool_calls if id(row) not in pending_ids]
         receipt["staff_transports"] = [
-            {"result_summary": _redacted_receipt_value(row.get("result_summary"))}
+            {
+                "result_summary": _redacted_receipt_value(row.get("result_summary")),
+                "simulator_guard": _redacted_receipt_value(row.get("simulator_guard")),
+                "effective_capability": _redacted_receipt_value(row.get("effective_capability")),
+            }
             for row in pending
         ]
     scope.tool_calls.append(receipt)

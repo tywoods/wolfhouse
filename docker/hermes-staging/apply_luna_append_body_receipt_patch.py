@@ -77,13 +77,38 @@ PATCHES = (
 )
 
 
+def _legacy_variant(patched: str) -> str:
+    """Model the already-installed predecessor without replacing its owner bytes."""
+    legacy = patched.replace(
+        "                _append_receipt_error_type = type(tool_error).__name__\n", ""
+    )
+    start = legacy.find(
+        "        try:\n"
+        "            from wolfhouse.crowsnest_guest_door import record_tool_attempt as _record_crowsnest_tool_attempt\n"
+    )
+    if start >= 0:
+        end_marker = (
+            "        try:\n"
+            "            from wolfhouse.luna_call1_failure_envelope import append_result as _lr32_call1_append\n"
+        )
+        end = legacy.find(end_marker, start)
+        if end < 0:
+            raise RuntimeError("legacy append-body upgrade boundary drift")
+        legacy = legacy[:start] + legacy[end:]
+    return legacy
+
+
 def patch_text(source: str) -> str:
     candidate = source
     for old, new in PATCHES:
         expected = 2 if "Error executing tool" in old else 1
-        if new in candidate:
-            if candidate.count(new) != expected:
-                raise RuntimeError("patched hook multiplicity drift")
+        legacy = _legacy_variant(new)
+        if candidate.count(new) == expected:
+            continue
+        if legacy != new and candidate.count(legacy) == expected:
+            # Upgrade only the existing receipt-owned fragments. This preserves
+            # every unrelated byte in the installed executor.
+            candidate = candidate.replace(legacy, new)
             continue
         if candidate.count(old) != expected:
             raise RuntimeError("append-body anchor drift")
