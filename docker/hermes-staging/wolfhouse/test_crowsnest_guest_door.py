@@ -459,6 +459,74 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
 
+    async def test_local_tool_refusal_is_recorded_with_request_and_full_typed_failure(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34600111999")
+        token = door._SCOPE.set(scope)
+        try:
+            door.record_tool_attempt(
+                name="quote_booking",
+                arguments='{"check_in":"2026-10-10","guest_count":2}',
+                result='{"ok":false,"error":{"code":"quote_owner_turn_missing","missing":["owner_turn"]}}',
+                call_id="call-quote-1",
+                api_request_id="req-model-1",
+                producer="local_validation_rejection",
+            )
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertEqual(len(scope.tool_calls), 1)
+        receipt = scope.tool_calls[0]
+        self.assertEqual(receipt["request_id"], scope.request_id)
+        self.assertEqual(receipt["call_id"], "call-quote-1")
+        self.assertEqual(receipt["api_request_id"], "req-model-1")
+        self.assertEqual(receipt["name"], "quote_booking")
+        self.assertEqual(receipt["args"]["guest_count"], 2)
+        self.assertEqual(receipt["typed_failure"]["error"]["code"], "quote_owner_turn_missing")
+        self.assertEqual(receipt["typed_failure"]["error"]["missing"], ["owner_turn"])
+        self.assertEqual(receipt["outcome"], "failure")
+
+    async def test_executor_receipt_enriches_staff_transport_without_duplicate(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34600111888")
+        scope.tool_calls.append({"name": "quote_booking", "result_summary": "ok"})
+        token = door._SCOPE.set(scope)
+        try:
+            door.record_tool_attempt(
+                name="quote_booking", arguments='{"guest_count":2}',
+                result='{"ok":true,"total":908}', call_id="call-quote-2",
+                api_request_id="req-model-2", producer="executor_return",
+            )
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertEqual(len(scope.tool_calls), 1)
+        self.assertEqual(scope.tool_calls[0]["request_id"], scope.request_id)
+        self.assertEqual(scope.tool_calls[0]["outcome"], "success")
+        self.assertIsNone(scope.tool_calls[0]["typed_failure"])
+        self.assertNotIn("typed_result", scope.tool_calls[0])
+
+    async def test_executor_exception_receipt_is_typed_and_does_not_leak_exception_text(self):
+        import wolfhouse.crowsnest_guest_door as door
+        scope = CrowsnestGuestScope.create("+34600001777")
+        token = door._SCOPE.set(scope)
+        try:
+            door.record_tool_attempt(
+                name="quote_booking", arguments={"guest_count": 2},
+                result="Error executing tool 'quote_booking': password=should-not-leak",
+                call_id="call-exception", producer="caught_exception", error_type="RuntimeError",
+            )
+        finally:
+            door._SCOPE.reset(token)
+        receipt = scope.tool_calls[0]
+        self.assertEqual(receipt["request_id"], scope.request_id)
+        self.assertEqual(receipt["typed_failure"], {
+            "success": False, "error": "tool_handler_exception", "error_type": "RuntimeError",
+        })
+        self.assertNotIn("should-not-leak", repr(receipt))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import json
 import os
 import re
 import uuid
@@ -266,6 +267,72 @@ def current_crowsnest_scope() -> Optional[CrowsnestGuestScope]:
         return _TASK_OWNERS.get(task) if task is not None else None
     except RuntimeError:
         return None
+
+
+def _receipt_value(value: Any) -> Any:
+    """Preserve a complete typed tool value while normalizing JSON strings."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _typed_failure(value: Any) -> Any:
+    typed = _receipt_value(value)
+    if isinstance(typed, dict):
+        failed = (
+            typed.get("ok") is False
+            or typed.get("success") is False
+            or bool(typed.get("error"))
+            or bool(typed.get("blocked"))
+            or str(typed.get("outcome") or "").upper() in {"FAILED", "REFUSED", "INTENTIONALLY_BLOCKED"}
+        )
+        return typed if failed else None
+    if isinstance(typed, str) and typed.lower().startswith(("error", "refused", "blocked")):
+        return typed
+    return None
+
+
+def record_tool_attempt(*, name: Any, arguments: Any, result: Any, call_id: Any = None,
+                        api_request_id: Any = None, producer: Any = None,
+                        error_type: Any = None) -> None:
+    """Record every owned simulator tool attempt, including pre-Staff refusals."""
+    scope = current_crowsnest_scope()
+    if scope is None:
+        return
+    tool_name = str(name or "").strip()
+    args = _receipt_value(arguments)
+    if not isinstance(args, dict):
+        args = {"raw": args}
+    failure = (
+        {"success": False, "error": "tool_handler_exception", "error_type": str(error_type or "Exception")}
+        if str(producer or "") == "caught_exception"
+        else _typed_failure(result)
+    )
+    receipt = {
+        "request_id": scope.request_id,
+        "api_request_id": str(api_request_id) if api_request_id is not None else None,
+        "call_id": str(call_id) if call_id is not None else None,
+        "name": tool_name,
+        "args": args,
+        "producer": str(producer) if producer is not None else None,
+        "outcome": "failure" if failure is not None else "success",
+        "typed_failure": failure,
+        "result_summary": (
+            {"success": False, "error": "tool_handler_exception", "error_type": str(error_type or "Exception")}
+            if str(producer or "") == "caught_exception"
+            else summarize_tool_result(_receipt_value(result))
+        ),
+    }
+    # Staff transport is observed before the executor append boundary. Enrich the
+    # matching transport receipt rather than reporting one logical attempt twice.
+    for existing in reversed(scope.tool_calls):
+        if existing.get("name") == tool_name and not existing.get("call_id"):
+            existing.update(receipt)
+            return
+    scope.tool_calls.append(receipt)
 
 
 def staff_transport_denial(path):

@@ -52,6 +52,7 @@ COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_gu
 COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patch_idempotency.py
 COPY verify_discord_session_continuity.py /etc/hermes-staging/verify_discord_session_continuity.py
 COPY verify_wolfhouse_luna_instance.py /etc/hermes-staging/verify_wolfhouse_luna_instance.py
+COPY verify_luna_effective_soul.py /etc/hermes-staging/verify_luna_effective_soul.py
 COPY verify_deckhand_instance.py /etc/hermes-staging/verify_deckhand_instance.py
 COPY verify_water_cooler_a2a_pilot.py /etc/hermes-staging/verify_water_cooler_a2a_pilot.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
@@ -71,6 +72,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
  && python -c "import asyncpg" \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
+ && python /etc/hermes-staging/verify_luna_effective_soul.py --hermes-root /opt/hermes \
  && cd /etc/hermes-staging \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
