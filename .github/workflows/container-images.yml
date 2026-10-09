@@ -1,0 +1,205 @@
+name: Container images
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-images-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate container build contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify build workflow contract
+        run: node scripts/verify-container-build-workflow.js
+      - name: Luna SOUL hygiene
+        run: npm run check:soul-clean
+      - name: Hermes no-send flags
+        run: node scripts/verify-hermes-send-flags.js
+      - name: Run Crow's Nest gate
+        run: npm run verify:crowsnest
+
+  pr-build:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: wh-staff-api
+            dockerfile: ./Dockerfile
+            context: .
+          - name: sunset-staff-api
+            dockerfile: ./Dockerfile.luna-sunset-staff-api
+            context: .
+          - name: crowsnest
+            dockerfile: ./Dockerfile.crowsnest
+            context: .
+          - name: wh-hermes-staging
+            dockerfile: docker/hermes-staging/Dockerfile
+            context: docker/hermes-staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - id: source
+        name: Resolve deterministic source metadata
+        shell: bash
+        run: echo "built_at=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+      - name: Build ${{ matrix.name }} without publication
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: false
+          tags: local.invalid/${{ matrix.name }}:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            CROWSNEST_BUILD_SHA=${{ github.sha }}
+            CROWSNEST_BUILT_AT=${{ steps.source.outputs.built_at }}
+
+  publish:
+    name: Publish ${{ matrix.name }}
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: container-publish
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: wh-staff-api
+            image: ghcr.io/tywoods/wh-staff-api
+            dockerfile: ./Dockerfile
+            context: .
+          - name: sunset-staff-api
+            image: ghcr.io/tywoods/sunset-staff-api
+            dockerfile: ./Dockerfile.luna-sunset-staff-api
+            context: .
+          - name: crowsnest
+            image: ghcr.io/tywoods/crowsnest
+            dockerfile: ./Dockerfile.crowsnest
+            context: .
+          - name: wh-hermes-staging
+            image: ghcr.io/tywoods/wh-hermes-staging
+            dockerfile: docker/hermes-staging/Dockerfile
+            context: docker/hermes-staging
+    steps:
+      - name: Check out current master
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Require exact dispatched master
+        env:
+          DISPATCHED_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$DISPATCHED_SHA"
+          node scripts/assert-deploy-from-master.js
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          test -z "$(git config --local --get-all http.https://github.com/.extraheader || true)"
+      - name: Set deterministic build timestamp
+        id: source
+        run: echo "built_at=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Refuse publication to an existing non-private package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_NAME: ${{ matrix.name }}
+        shell: bash
+        run: |
+          if gh api "/users/tywoods/packages/container/${PACKAGE_NAME}" >"$RUNNER_TEMP/package.json" 2>"$RUNNER_TEMP/package.error"; then
+            jq -e '.visibility == "private"' "$RUNNER_TEMP/package.json" >/dev/null
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/package.error"; then
+            : # New packages inherit GitHub's private default.
+          else
+            cat "$RUNNER_TEMP/package.error" >&2
+            echo "Cannot prove package privacy" >&2
+            exit 1
+          fi
+      - name: Authenticate to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish immutable candidate
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.source.outputs.built_at }}
+          build-args: |
+            CROWSNEST_BUILD_SHA=${{ github.sha }}
+            CROWSNEST_BUILT_AT=${{ steps.source.outputs.built_at }}
+          sbom: true
+          provenance: mode=max
+      - name: Attest registry digest
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Record immutable artifact identity
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+          CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          BUILT_AT: ${{ steps.source.outputs.built_at }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          payload = {key.lower(): os.environ[key] for key in ('IMAGE', 'DIGEST', 'SOURCE_SHA', 'CONTEXT', 'DOCKERFILE', 'BUILT_AT')}
+          with open('container-image-receipt.json', 'w', encoding='utf-8') as handle:
+              json.dump(payload, handle, sort_keys=True, indent=2)
+              handle.write('\n')
+          PY
+      - name: Upload digest receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-image-${{ matrix.name }}-${{ github.sha }}
+          path: container-image-receipt.json
+          if-no-files-found: error
+          retention-days: 30

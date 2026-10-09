@@ -31,3 +31,34 @@ docs/knowledge/whatsapp-raw
 docs/knowledge/whatsapp-private
 config/clients/*.secrets.json
 *WhatsApp Chat*.txt
+
+# Container-publisher trust boundary: never upload repository metadata, local
+# credentials, databases, exports, encrypted archives, or review scratch.
+.github
+.env.*
+**/.env
+**/.env.*
+.npmrc
+**/.npmrc
+.netrc
+**/.netrc
+.pypirc
+**/.pypirc
+.ssh
+**/.ssh
+.docker
+**/.docker/config.json
+*.pem
+*.key
+*.p12
+*credentials*.json
+*service-account*.json
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.tar
+*.age
+artifacts
+_work
+review-packet-*
