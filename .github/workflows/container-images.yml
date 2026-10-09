@@ -3,6 +3,12 @@ name: Container images
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      owner_approved_new_packages_json:
+        description: 'Exact JSON array of the four approved *-private replacement package names'
+        required: true
+        default: '[]'
+        type: string
 
 permissions:
   contents: read
@@ -30,6 +36,17 @@ jobs:
         run: npm ci
       - name: Verify build workflow contract
         run: node scripts/verify-container-build-workflow.js
+      - name: Validate owner-approved replacement package targets
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DISPATCH_ACTOR: ${{ github.actor }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          NEW_PACKAGES_JSON: ${{ inputs.owner_approved_new_packages_json }}
+          WH_STAFF_PACKAGE: wh-staff-api-private
+          SUNSET_STAFF_PACKAGE: sunset-staff-api-private
+          CROWSNEST_PACKAGE: crowsnest-private
+          WH_HERMES_PACKAGE: wh-hermes-staging-private
+        run: node scripts/verify-container-package-targets.js
       - name: Luna SOUL hygiene
         run: npm run check:soul-clean
       - name: Hermes no-send flags
@@ -96,24 +113,28 @@ jobs:
       attestations: write
       id-token: write
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 1
       matrix:
         include:
           - name: wh-staff-api
-            image: ghcr.io/tywoods/wh-staff-api
+            package: wh-staff-api-private
+            image: ghcr.io/tywoods/wh-staff-api-private
             dockerfile: ./Dockerfile
             context: .
           - name: sunset-staff-api
-            image: ghcr.io/tywoods/sunset-staff-api
+            package: sunset-staff-api-private
+            image: ghcr.io/tywoods/sunset-staff-api-private
             dockerfile: ./Dockerfile.luna-sunset-staff-api
             context: .
           - name: crowsnest
-            image: ghcr.io/tywoods/crowsnest
+            package: crowsnest-private
+            image: ghcr.io/tywoods/crowsnest-private
             dockerfile: ./Dockerfile.crowsnest
             context: .
           - name: wh-hermes-staging
-            image: ghcr.io/tywoods/wh-hermes-staging
+            package: wh-hermes-staging-private
+            image: ghcr.io/tywoods/wh-hermes-staging-private
             dockerfile: docker/hermes-staging/Dockerfile
             context: docker/hermes-staging
     steps:
@@ -138,13 +159,16 @@ jobs:
       - name: Refuse publication to an existing non-private package
         env:
           GH_TOKEN: ${{ github.token }}
-          PACKAGE_NAME: ${{ matrix.name }}
+          PACKAGE_NAME: ${{ matrix.package }}
+          NEW_PACKAGES_JSON: ${{ inputs.owner_approved_new_packages_json }}
+          DISPATCH_ACTOR: ${{ github.actor }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
         run: |
           if gh api "/users/tywoods/packages/container/${PACKAGE_NAME}" >"$RUNNER_TEMP/package.json" 2>"$RUNNER_TEMP/package.error"; then
             jq -e '.visibility == "private"' "$RUNNER_TEMP/package.json" >/dev/null
           elif grep -q 'HTTP 404' "$RUNNER_TEMP/package.error"; then
-            : # New packages inherit GitHub's private default.
+            node scripts/verify-first-package-creation.js
           else
             cat "$RUNNER_TEMP/package.error" >&2
             echo "Cannot prove package privacy" >&2
@@ -174,6 +198,20 @@ jobs:
             CROWSNEST_BUILT_AT=${{ steps.source.outputs.built_at }}
           sbom: true
           provenance: mode=max
+      - name: Require private package after push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_NAME: ${{ matrix.package }}
+        shell: bash
+        run: |
+          gh api "/users/tywoods/packages/container/${PACKAGE_NAME}" >"$RUNNER_TEMP/package-after-push.json"
+          jq -e '.visibility == "private"' "$RUNNER_TEMP/package-after-push.json" >/dev/null
+      - name: Require anonymous denial for exact digest
+        shell: bash
+        run: >-
+          python3 scripts/verify-ghcr-anonymous-denial.py
+          "${{ matrix.image }}"
+          "${{ steps.build.outputs.digest }}"
       - name: Attest registry digest
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
