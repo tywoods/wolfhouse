@@ -2,21 +2,23 @@
 
 This repository publishes **candidate artifacts only** from GitHub-hosted runners. Publication is not deployment acceptance and never changes OVH, lunabox, Azure Container Apps, Caddy, callers, bots, or live mounts.
 
-## Images
+## Image build checks and replacement targets
 
-| Package | Dockerfile | Context |
-|---|---|---|
-| `ghcr.io/tywoods/wh-staff-api` | `Dockerfile` | repository root |
-| `ghcr.io/tywoods/sunset-staff-api` | `Dockerfile.luna-sunset-staff-api` | repository root |
-| `ghcr.io/tywoods/crowsnest` | `Dockerfile.crowsnest` | repository root |
-| `ghcr.io/tywoods/wh-hermes-staging` | `docker/hermes-staging/Dockerfile` | `docker/hermes-staging` |
+| Stable check name | Approved replacement package | Dockerfile | Context |
+|---|---|---|---|
+| `wh-staff-api` | `ghcr.io/tywoods/wh-staff-api-private` | `Dockerfile` | repository root |
+| `sunset-staff-api` | `ghcr.io/tywoods/sunset-staff-api-private` | `Dockerfile.luna-sunset-staff-api` | repository root |
+| `crowsnest` | `ghcr.io/tywoods/crowsnest-private` | `Dockerfile.crowsnest` | repository root |
+| `wh-hermes-staging` | `ghcr.io/tywoods/wh-hermes-staging-private` | `docker/hermes-staging/Dockerfile` | `docker/hermes-staging` |
+
+The four stable check names do not select registry destinations. The workflow pins the accepted four-name `*-private` replacement map above. The repository owner must approve exactly those four package names in `owner_approved_new_packages_json`; missing, alternate, duplicate, or extra names fail before publication.
 
 ## Trust boundaries
 
 - Pull requests run secretless validation plus `push: false` builds of all four images with `contents: read`; every PR triggers the workflow and no PR can publish.
 - Publication requires a manual dispatch of `.github/workflows/container-images.yml` from `master` and the `container-publish` GitHub environment.
 - The publisher runs `scripts/assert-deploy-from-master.js` unchanged, then scrubs checkout credentials before context upload.
-- Before any push, the publisher allows a missing/new package or proves an existing package is private; any other visibility/API result fails closed.
+- Before any push, the publisher proves the actual replacement package target is private. A missing package is not treated as safe: first creation requires a manual dispatch by the repository owner and exact membership in the validated four-name approval set. Immediately after the first push, the job must prove that same target is private and complete the anonymous bearer challenge flow against its exact pushed digest. A bound GHCR token-endpoint `401`/`403` or final exact-manifest `401`/`403` proves anonymous refusal. Anonymous `200`, missing manifest, unreadable visibility, redirects, malformed data, foreign issuer metadata, or network ambiguity fails closed and cancels later serialized matrix items.
 - Each package receives only the full current-master commit SHA tag. There is no `latest` tag or deployment step.
 - Every third-party action is pinned to a full commit SHA.
 - The publisher uses only the job-scoped `GITHUB_TOKEN` with `contents: read`, `packages: write`, `attestations: write`, and `id-token: write`.
@@ -41,12 +43,15 @@ npm run verify:crowsnest
 ## Publish
 
 1. Merge a reviewed PR into current `master` after required gates are green.
-2. Dispatch **Container images** on `master`.
+2. Dispatch **Container images** on `master` as the repository owner. Set `owner_approved_new_packages_json` to exactly `["wh-staff-api-private","sunset-staff-api-private","crowsnest-private","wh-hermes-staging-private"]`. The workflow binds package metadata checks, image tags, post-push checks, anonymous verification, attestations, and receipts to that fixed accepted replacement map while the five existing required check names remain stable.
 3. Confirm the run head equals current remote `master`.
 4. Record all four `image@sha256:…` identities and the workflow run URL.
-5. Query package visibility and require private ACLs.
-6. Using a separate read-only package identity, pull each candidate by digest into an isolated no-effect environment. Anonymous pulls must fail.
-7. Verify image labels, expected entrypoints and tenant modes. For Hermes, prove the approved runtime/SOUL/plugin overlay is preserved before any later runtime replacement.
+5. Query package visibility and require private ACLs. The workflow repeats this readback immediately after each push.
+6. Run `python3 scripts/verify-ghcr-anonymous-denial.py IMAGE DIGEST`. The production client accepts only `ghcr.io`, exact realm `https://ghcr.io/token`, service `ghcr.io`, and exact repository pull scope. It never follows redirects. After a valid challenge, a token-endpoint or final exact-digest `401`/`403` proves refusal only when its `application/json` Registry v2 error body is non-empty, well formed, and contains exclusively recognized `DENIED` or `UNAUTHORIZED` codes. HTML policy blocks, empty or malformed JSON, unrelated error codes, missing manifests, foreign issuers, redirects, network errors, and any anonymous manifest `200` fail closed. The receipt identifies whether denial occurred at token issuance or final manifest authorization and records the recognized codes.
+7. After separate token-use authorization, run `python3 scripts/pull-ghcr-digest-helper-free.py --username tywoods IMAGE DIGEST` once per image from an interactive TTY. If no-echo input is unavailable or `getpass` would fall back, the client refuses to continue. It binds the challenge to the exact GHCR realm/service/scope; token and manifest redirects are refused. Registry blob redirects are followed only through a bounded HTTPS-only path, with registry Authorization stripped before the redirected request. The client validates response `Content-Type`, cross-checks any JSON `mediaType`, validates OCI structure/descriptors, recursively fetches every index child, config and layer, and verifies every digest and declared size. Verified size and manifest media type remain cached; every repeated descriptor must agree before network deduplication. Unsupported, conflicting or malformed objects fail; manifest-only access is never reported as a finished pull. Process-owned temporary bytes are removed on success, failure, SIGINT, SIGTERM, SIGHUP and SIGQUIT.
+8. Verify image labels, expected entrypoints and tenant modes. For Hermes, prove the approved runtime/SOUL/plugin overlay is preserved before any later runtime replacement.
+
+Neither validation client executes the Docker CLI, reads `DOCKER_CONFIG`, uses `HOME` credential state, imports process-execution facilities, or invokes credential helpers. Do not replace them with an empty temporary Docker config: helper auto-discovery makes that construction unsafe. The authenticated pull is validation only; persistent login remains a separate approval and must not reuse temporary credentials.
 
 Do not use a GitHub job token as a permanent host credential. Do not promote `latest`, deploy automatically, delete failed packages, or replace serving containers from this workflow.
 
