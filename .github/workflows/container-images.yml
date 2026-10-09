@@ -62,7 +62,7 @@ jobs:
             dockerfile: docker/hermes-staging/Dockerfile
             context: docker/hermes-staging
     steps:
-      - uses: actions/checkout@1af3b93b9732c4a4ec561c2202e2af60e910e0ed # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - id: source
