@@ -20409,7 +20409,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .staff-collapse-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin:0 0 8px;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .staff-collapse-caret{flex:0 0 auto;color:var(--text-2);font-size:14px;line-height:1}
 .staff-collapse-body[hidden]{display:none!important}
-#staff-coming-soon-card{position:relative;margin:14px 0;border:1px solid var(--border);border-radius:16px;background:var(--surface-2,var(--surface));opacity:.55;filter:grayscale(.55);overflow:hidden;pointer-events:none}
+#staff-coming-soon-card{position:relative;margin:14px 0;border:0;border-radius:16px;background:transparent;opacity:.55;filter:grayscale(.55);overflow:hidden;pointer-events:none}
 #staff-coming-soon-card .staff-coming-soon-note{padding:12px 16px 4px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.01em}
 #staff-coming-soon-card .cc-section{margin:0;border:0;border-radius:0;box-shadow:none;background:transparent}
 #staff-coming-soon-card .cc-section+.cc-section{border-top:1px solid var(--border)}
