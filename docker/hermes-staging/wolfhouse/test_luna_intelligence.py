@@ -43,6 +43,21 @@ class IntelligenceTests(unittest.TestCase):
                 self.assertEqual(worker.call_count, 1)
             li.clear_guest_turn()
 
+    def test_wolfhouse_france_direct_staff_origin_is_exactly_allowlisted(self):
+        from wolfhouse import luna_intelligence as li
+        source = SimpleNamespace(platform='whatsapp_cloud', user_id='synthetic-user', chat_id='synthetic-chat')
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'http://staff-staging.lunafrontdesk.com:3036'}
+        setting = {'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}
+        with patch.dict(os.environ, env), patch.object(li, 'fetch_setting', return_value=setting):
+            li.bind_guest_turn(source)
+            self.assertIsNotNone(li._admitted())
+            li.clear_guest_turn()
+        env['WOLFHOUSE_STAFF_API_BASE_URL'] = 'http://staff-staging.lunafrontdesk.com:3037'
+        with patch.dict(os.environ, env), patch.object(li, 'fetch_setting', return_value=setting):
+            li.bind_guest_turn(source)
+            self.assertIsNone(li._admitted())
+
     def test_ordinary_turn_bind_clear_closes_copied_context_and_non_guest_is_denied(self):
         import contextvars
         from wolfhouse import luna_intelligence as li, luna_personality as lp
