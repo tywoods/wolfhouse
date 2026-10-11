@@ -171,11 +171,26 @@ async function main() {
     assert.deepEqual(settings.luna_room_fill_policy.roomPriority, [R2]);
     const replay = await archiveRoomFillRoom(client, input(bodyFor(policy, 'op-archive-empty-11'), { policy, revisions: { catalogRevision: 'stale', settingsRevision: 'stale' } }));
     assert.equal(replay.duplicate, true);
+    assert.equal(replay.archiveOperationId, 'op-archive-empty-11');
     assert.equal((await client.query('SELECT count(*)::int AS n FROM staff_room_fill_inventory_operations WHERE operation_id = $1', ['op-archive-empty-11'])).rows[0].n, 1);
+    const replayUser = { client_id: CLIENT, client_slug: 'wolfhouse-somo', role: 'operator', staff_user_id: 'staff-1' };
+    const replayRoutes = createRoomFillRoutes({
+      sendJSON(_res, status, body) { return { status, body }; },
+      readBody: async (req) => JSON.stringify(req.body || {}),
+      withPgClient: (fn) => fn(client),
+      appendAuditLog() {},
+    });
+    const replayed = await replayRoutes.handleRoomFillArchive(R11, {}, {
+      headers: { host: 'staff.test', origin: 'http://staff.test' },
+      body: bodyFor(policy, 'op-archive-empty-11'),
+    }, {}, replayUser);
+    assert.equal(replayed.status, 200);
+    assert.equal(replayed.body.duplicate, true);
+    assert.equal(replayed.body.archiveOperationId, 'op-archive-empty-11');
 
     const restored = await restoreRoomFillRoom(client, input({
       operationId: 'op-restore-empty-11',
-      expectedArchiveOperationId: 'op-archive-empty-11',
+      expectedArchiveOperationId: replayed.body.archiveOperationId,
       expectedSettingsRevision: settingsRevisionFor(settings.luna_room_fill_policy),
       expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
     }, {
@@ -269,6 +284,9 @@ async function main() {
       VALUES ($1, $2, 'D-1', 'confirmed', 'unassigned', CURRENT_DATE - 4, CURRENT_DATE - 1, 'R11')`, [dated, CLIENT]);
     await assert.rejects(() => client.query(`UPDATE bookings SET check_out = CURRENT_DATE + 2 WHERE id = $1`, [dated]), /archived_room_admission/);
     assert.match(migration, /UPDATE OF status, room_to_block_id, primary_room_code, check_in, check_out, assignment_status/);
+    const primaryLock = migration.slice(migration.indexOf('IF NEW.primary_room_code'), migration.indexOf('SELECT r.archived_at INTO room_archived', migration.indexOf('IF NEW.primary_room_code')));
+    assert.doesNotMatch(primaryLock, /archived_at IS NOT NULL/);
+    assert.match(primaryLock, /booking_occupancy_lock_key\('bed'/);
     assert.match(migration, /BEFORE INSERT OR UPDATE\s+ON booking_beds/);
     const calendar = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
     const historyGate = calendar.indexOf('archivedHistoryRooms && res.data.archivedHistoryRooms.length');
@@ -351,6 +369,59 @@ async function main() {
       assert.equal((await client.query('SELECT count(*)::int AS n FROM booking_beds WHERE booking_id = $1', [raceBooking])).rows[0].n, 0);
     } finally {
       await racer.end();
+    }
+    const afterRace = (await client.query('SELECT settings FROM clients WHERE id = $1', [CLIENT])).rows[0].settings.luna_room_fill_policy;
+    const liveWithoutR2 = rooms().filter((room) => room.roomId !== R11 && room.roomId !== R2);
+    await restoreRoomFillRoom(client, input({
+      operationId: 'op-restore-race-r2',
+      expectedArchiveOperationId: 'op-archive-race',
+      expectedSettingsRevision: settingsRevisionFor(afterRace),
+      expectedCatalogRevision: catalogRevisionFor(liveWithoutR2),
+    }, {
+      roomId: R2,
+      policy: afterRace,
+      revisions: {
+        settingsRevision: settingsRevisionFor(afterRace),
+        catalogRevision: catalogRevisionFor(liveWithoutR2),
+      },
+      omit: R11,
+    }));
+    const reactivator = new Client(harness.admin);
+    await reactivator.connect();
+    try {
+      await reactivator.query(`SET statement_timeout = '4000'`);
+      const primaryPolicy = (await client.query('SELECT settings FROM clients WHERE id = $1', [CLIENT])).rows[0].settings.luna_room_fill_policy;
+      const primaryBooking = '13131313-1313-4131-8131-131313131313';
+      await client.query(`INSERT INTO bookings (id, client_id, booking_code, status, assignment_status, check_in, check_out, primary_room_code)
+        VALUES ($1, $2, 'P-RACE', 'expired', 'unassigned', CURRENT_DATE - 5, CURRENT_DATE - 1, 'R2')`, [primaryBooking, CLIENT]);
+      let reactivation;
+      const primaryRace = await archiveRoomFillRoom(client, input({
+        operationId: 'op-archive-primary-race',
+        expectedSettingsRevision: settingsRevisionFor(primaryPolicy),
+        expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+      }, {
+        roomId: R2,
+        policy: primaryPolicy,
+        revisions: {
+          settingsRevision: settingsRevisionFor(primaryPolicy),
+          catalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+        },
+        omit: R11,
+        beforeCommit: async () => {
+          reactivation = reactivator.query(`UPDATE bookings
+            SET status = 'confirmed', assignment_status = 'assigned', check_out = CURRENT_DATE + 3
+            WHERE id = $1`, [primaryBooking]);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        },
+      }));
+      assert.equal(primaryRace.roomId, R2);
+      await assert.rejects(reactivation, /archived_room_admission/);
+      const left = (await client.query('SELECT status, check_out > CURRENT_DATE AS future FROM bookings WHERE id = $1', [primaryBooking])).rows[0];
+      assert.equal(left.status, 'expired');
+      assert.equal(left.future, false);
+      assert.equal((await client.query('SELECT archived_at IS NOT NULL AS archived FROM rooms WHERE id = $1', [R2])).rows[0].archived, true);
+    } finally {
+      await reactivator.end();
     }
     console.log(JSON.stringify({ ok: true, backend: harness.backend, roomId: R11, concurrent: true }));
   } finally {

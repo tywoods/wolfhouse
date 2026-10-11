@@ -858,12 +858,16 @@
   function archivePayload(roomId) {
     var s = state();
     var server = s.server || {};
-    if (!s.archiveOperationId) s.archiveOperationId = 'op-archive-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     return {
-      operationId: s.archiveOperationId,
+      operationId: retainedOperationId('archiveOps', roomId, 'op-archive'),
       expectedSettingsRevision: server.settingsRevision || null,
       expectedCatalogRevision: server.catalogRevision,
     };
+  }
+
+  function clearRecoveryFor(action, roomId) {
+    var s = state();
+    if (s.recovery && s.recovery.action === action && s.recovery.roomId === roomId) s.recovery = null;
   }
 
   function confirmDelete(room) {
@@ -873,15 +877,15 @@
     var frozen = s.frozenRequests[key];
     if (!frozen) {
       if (!s.archiveModal || !s.archiveModal.eligible || s.archivePending) return;
-      if (!s.archiveOperationId) s.archiveOperationId = nextOperationId('op-archive');
+      var operationId = retainedOperationId('archiveOps', room.roomId, 'op-archive');
       var server = s.server || {};
       frozen = s.frozenRequests[key] = {
         action: 'archive',
         roomId: room.roomId,
         label: labelFor(room),
-        operationId: s.archiveOperationId,
+        operationId: operationId,
         payload: {
-          operationId: s.archiveOperationId,
+          operationId: operationId,
           expectedSettingsRevision: server.settingsRevision || null,
           expectedCatalogRevision: server.catalogRevision,
         },
@@ -914,8 +918,8 @@
           };
         } else {
           delete s.frozenRequests[key];
-          s.archiveOperationId = null;
-          s.recovery = null;
+          clearRetainedOperation('archiveOps', room.roomId);
+          clearRecoveryFor('archive', room.roomId);
           s.archiveModal = s.archiveModal || { roomId: room.roomId, label: frozen.label, blockers: [] };
           s.archiveModal.phase = 'blocked';
           s.archiveModal.eligible = false;
@@ -928,8 +932,8 @@
         return;
       }
       delete s.frozenRequests[key];
-      s.archiveOperationId = null;
-      s.recovery = null;
+      clearRetainedOperation('archiveOps', room.roomId);
+      clearRecoveryFor('archive', room.roomId);
       s.archiveModal = null;
       s.archiveNotice = null;
       s.archiveUndo = {
@@ -938,7 +942,7 @@
         archiveOperationId: res.body.archiveOperationId,
         operationId: 'op-undo-' + (res.body.archiveOperationId || room.roomId),
       };
-      applyServer(res.body);
+      applyServer(res.body, { keepDraft: true });
       paint();
       say(labelFor(room) + ' deleted.');
       if (document.documentElement.getAttribute('data-portal-client') !== 'sunset' && typeof bcInvalidateBedCalendar === 'function') {
@@ -1053,9 +1057,9 @@
       }
       delete s.frozenRequests['restore:' + opKey];
       clearRetainedOperation('restoreOps', opKey);
-      s.archiveUndo = null;
+      if (!s.archiveUndo || s.archiveUndo.roomId === item.roomId) s.archiveUndo = null;
       s.archiveNotice = null;
-      s.recovery = null;
+      clearRecoveryFor('restore', item.roomId);
       applyServer(res.body);
       paint();
       say(item.label + ' restored' + (res.body.placedAt ? ' at priority ' + res.body.placedAt : '') + '.');
@@ -1126,7 +1130,7 @@
     confirm.className = 'rf-danger';
     confirm.textContent = 'Delete';
     confirm.disabled = modal.phase === 'checking' || modal.checkFailed || !modal.eligible || placementBusy()
-      || !!(state().recovery && state().recovery.action === 'archive' && !state().recovery.definite);
+      || !!(state().recovery && state().recovery.action === 'archive' && state().recovery.roomId === modal.roomId && !state().recovery.definite);
     confirm.addEventListener('click', function () { confirmDelete({ roomId: modal.roomId, roomNumber: null, label: modal.label }); });
     actions.appendChild(cancel);
     actions.appendChild(confirm);
@@ -1283,9 +1287,24 @@
     return form;
   }
 
-  function applyServer(server) {
+  function applyServer(server, options) {
     var s = state();
+    var keep = options && options.keepDraft && s.dirty;
+    var kept = keep ? {
+      draftMode: s.draftMode,
+      draftOrder: (s.draftOrder || []).slice(),
+      source: s.source,
+      touched: s.touched,
+    } : null;
     s.server = server;
+    if (kept) {
+      s.draftMode = kept.draftMode;
+      s.draftOrder = kept.draftOrder;
+      s.source = kept.source;
+      s.touched = kept.touched;
+      s.dirty = true;
+      return;
+    }
     var policy = server && server.policyStatus === 'saved' ? server.policy : server && server.suggestedPolicy;
     s.draftMode = policy && policy.fillMode === 'room' ? 'room' : 'house';
     s.draftOrder = policy && policy.roomPriority ? policy.roomPriority.slice() : [];

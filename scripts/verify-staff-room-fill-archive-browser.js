@@ -233,7 +233,122 @@ async function main() {
       throw new Error('retry did not resend the frozen payload ' + JSON.stringify(archivePosts));
     }
     await retryPage.close();
-    console.log(JSON.stringify({ ok: true, out: OUT, restoreOperationId: restoreBodies[0], lateLoads: 4, frozenRetry: true }));
+
+    const leakPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const leakPosts = [];
+    const liveBoth = {
+      ...envelope,
+      catalogue: [
+        { roomId: R11, roomCode: 'R11', roomNumber: 11, capacity: 4, active: true, label: 'Room 11', genderLabel: 'Mixed' },
+        { roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2', genderLabel: 'Mixed' },
+      ],
+      archivedRooms: [],
+      policy: { ...envelope.policy, roomPriority: [R11, R2] },
+    };
+    await leakPage.route('**/staff/luna-intelligence/room-fill**', async (route) => {
+      const request = route.request();
+      const url = request.url();
+      if (url.includes('/archive-check')) {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, eligible: true, checkFailed: false, blockers: [] }) });
+        return;
+      }
+      if (url.includes('/archive') && request.method() === 'POST') {
+        const posted = JSON.parse(request.postData() || '{}');
+        leakPosts.push(posted);
+        if (leakPosts.length === 1) {
+          await route.abort();
+          return;
+        }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...liveBoth, success: true, archiveOperationId: posted.operationId, catalogue: liveBoth.catalogue.filter((room) => !url.includes(R2)), policy: { ...envelope.policy, fillMode: 'house', roomPriority: [R11] } }) });
+        return;
+      }
+      if (url.includes('/restore') && request.method() === 'POST') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(liveBoth) });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...envelope,
+          catalogue: [{ roomId: R11, roomCode: 'R11', roomNumber: 11, capacity: 4, active: true, label: 'Room 11', genderLabel: 'Mixed' }],
+          archivedRooms: [{ roomId: R2, roomCode: 'R2', label: 'Room 2', bedCount: 2, archivedAt: '2026-10-10T10:00:00Z', archiveOperationId: 'op-archive-r2' }],
+          policy: { ...envelope.policy, roomPriority: [R11] },
+        }),
+      });
+    });
+    await leakPage.goto(`http://127.0.0.1:${port}/?theme=light`, { waitUntil: 'networkidle' });
+    await leakPage.locator('#rf-delete-' + R11).click();
+    await leakPage.locator('#rf-delete-confirm').click();
+    await leakPage.waitForSelector('#rf-archive-retry');
+    await leakPage.locator('#rf-delete-cancel').click();
+    await leakPage.locator('#rf-deleted-rooms').locator('summary').click();
+    await leakPage.getByRole('button', { name: 'Restore Room 2' }).click();
+    await leakPage.waitForFunction(() => window.__roomFillState && window.__roomFillState.archivePending === false && (window.__roomFillState.server.catalogue || []).some((room) => room.roomId === '22222222-2222-4222-8222-222222222222'));
+    const recoveryAfterRestore = await leakPage.evaluate(() => window.__roomFillState.recovery);
+    if (!recoveryAfterRestore || recoveryAfterRestore.roomId !== R11 || recoveryAfterRestore.action !== 'archive') {
+      throw new Error('restore cleared another room recovery ' + JSON.stringify(recoveryAfterRestore));
+    }
+    await leakPage.locator('#rf-delete-' + R2).click();
+    await leakPage.locator('#rf-delete-confirm').click();
+    await leakPage.waitForFunction(() => window.__roomFillState && window.__roomFillState.archivePending === false);
+    if (leakPosts.length < 2 || leakPosts[0].operationId === leakPosts[1].operationId) {
+      throw new Error('delete reused another room operation id ' + JSON.stringify(leakPosts.map((post) => post.operationId)));
+    }
+    const recoveryAfterOtherDelete = await leakPage.evaluate(() => window.__roomFillState.recovery);
+    if (!recoveryAfterOtherDelete || recoveryAfterOtherDelete.roomId !== R11) {
+      throw new Error('unrelated delete cleared recovery ' + JSON.stringify(recoveryAfterOtherDelete));
+    }
+    await leakPage.close();
+
+    const draftPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    let draftAttempts = 0;
+    await draftPage.route('**/staff/luna-intelligence/room-fill**', async (route) => {
+      const request = route.request();
+      if (request.url().includes('/archive-check')) {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, eligible: true, checkFailed: false, blockers: [] }) });
+        return;
+      }
+      if (request.url().includes('/archive') && request.method() === 'POST') {
+        draftAttempts += 1;
+        if (draftAttempts === 1) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ success: false, error: 'server' }) });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...envelope,
+            success: true,
+            archiveOperationId: 'op-archive-draft',
+            catalogue: envelope.catalogue.filter((room) => room.roomId !== R11),
+            policy: { ...envelope.policy, fillMode: 'house', roomPriority: [R2] },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(envelope) });
+    });
+    await draftPage.goto(`http://127.0.0.1:${port}/?theme=light`, { waitUntil: 'networkidle' });
+    await draftPage.locator('#rf-delete-' + R11).click();
+    await draftPage.locator('#rf-delete-confirm').click();
+    await draftPage.waitForSelector('#rf-archive-retry');
+    await draftPage.locator('#rf-delete-cancel').click();
+    await draftPage.locator('input[name="staff-room-fill-mode"][value="room"]').check();
+    await draftPage.locator('#rf-archive-retry').click();
+    await draftPage.waitForFunction(() => window.__roomFillState && window.__roomFillState.archivePending === false);
+    const draftLeft = await draftPage.evaluate(() => ({
+      mode: window.__roomFillState.draftMode,
+      dirty: window.__roomFillState.dirty,
+      checked: document.querySelector('input[name="staff-room-fill-mode"][value="room"]').checked,
+      status: document.getElementById('staff-room-fill-status').textContent,
+    }));
+    if (draftLeft.mode !== 'room' || draftLeft.dirty !== true || draftLeft.checked !== true || !draftLeft.status.includes('Unsaved settings')) {
+      throw new Error('retry replaced unsaved fill draft ' + JSON.stringify(draftLeft));
+    }
+    await draftPage.close();
+    console.log(JSON.stringify({ ok: true, out: OUT, restoreOperationId: restoreBodies[0], lateLoads: 4, frozenRetry: true, scopedIds: true, draftKept: true }));
   } finally {
     await browser.close();
     server.close();

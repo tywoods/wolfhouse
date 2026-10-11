@@ -309,7 +309,14 @@ async function archiveOnce(pg, input, parsed) {
         throw fail(409, 'operation_conflict');
       }
       await pg.query('COMMIT');
-      return { duplicate: true, action: 'archive', roomId: receipt.room_id, receipt, settingsWrite: false };
+      return {
+        duplicate: true,
+        action: 'archive',
+        roomId: receipt.room_id,
+        archiveOperationId: receipt.operation_id,
+        receipt,
+        settingsWrite: false,
+      };
     }
     const state = await input.readLockedState(pg);
     if (parsed.expectedCatalogRevision !== state.revisions.catalogRevision) throw fail(409, 'stale_catalog');

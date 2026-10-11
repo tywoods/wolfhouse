@@ -189,7 +189,6 @@ BEGIN
         JOIN beds bd ON bd.room_id = r.id
        WHERE r.client_id = NEW.client_id
          AND r.room_code = NEW.primary_room_code
-         AND r.archived_at IS NOT NULL
        ORDER BY bd.id
     LOOP
       PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('bed', rec.bed_id));

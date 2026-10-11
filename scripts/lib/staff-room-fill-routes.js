@@ -553,7 +553,9 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
         action: result.action,
         roomId: result.roomId,
         roomCode: result.roomCode || null,
-        archiveOperationId: result.archiveOperationId || null,
+        archiveOperationId: result.archiveOperationId
+          || (result.action === 'archive' && result.receipt && result.receipt.operation_id)
+          || null,
         placedAt: result.placedAt || null,
       },
     };
