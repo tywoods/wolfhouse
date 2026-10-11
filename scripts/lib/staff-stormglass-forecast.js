@@ -552,7 +552,7 @@ const FORECAST_HORIZON_DAYS = 10;
 const FORECAST_PARAMS = [
   'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
   'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
-  'currentSpeed', 'currentDirection', 'waterTemperature', 'tideHeight',
+  'currentSpeed', 'currentDirection', 'waterTemperature',
 ].join(',');
 const FORECAST_FIELDS = Object.freeze([
   ['waveHeight', 'wave_height_m'], ['swellHeight', 'swell_height_m'],
@@ -561,6 +561,9 @@ const FORECAST_FIELDS = Object.freeze([
   ['airTemperature', 'air_temperature_c'], ['precipitation', 'precipitation_mm_per_h'],
   ['cloudCover', 'cloud_cover_pct'], ['currentSpeed', 'current_speed_mps'],
   ['currentDirection', 'current_direction_deg'], ['waterTemperature', 'water_temperature_c'],
+  // tideHeight is intentionally not requested from /v2/weather/point because
+  // Stormglass rejects it there. Keep the output field so coverage explicitly
+  // marks tide unavailable and Intelligence can perform a bounded fallback.
   ['tideHeight', 'tide_height_m'],
 ]);
 const forecastCache = new Map();
