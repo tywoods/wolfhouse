@@ -274,6 +274,37 @@ async function main() {
     const historyGate = calendar.indexOf('archivedHistoryRooms && res.data.archivedHistoryRooms.length');
     assert.ok(historyGate > 0, 'last-room history stays on the schedule');
     assert.doesNotMatch(calendar.slice(historyGate, historyGate + 180), /rooms\.push|concat\(res\.data\.archivedHistoryRooms\)/);
+    assert.match(calendar, /bc-history-cell">'\s*\+\s*inner/);
+    assert.match(calendar, /\.bc-day-cell\[data-date\]:not\(\.bc-history-cell\)/);
+    await assert.rejects(() => client.query(`UPDATE rooms SET room_code = 'R99' WHERE id = $1`, [R11]), /archived_room_identity/);
+    assert.equal((await client.query('SELECT room_code FROM rooms WHERE id = $1', [R11])).rows[0].room_code, 'R11');
+    await assert.rejects(() => client.query(`UPDATE beds SET room_id = $2, sellable = TRUE WHERE id = $1`, [B1, R2]), /archived_room_membership/);
+    const stayed = (await client.query('SELECT room_id::text, sellable FROM beds WHERE id = $1', [B1])).rows[0];
+    assert.equal(stayed.room_id, R11);
+    assert.equal(stayed.sellable, false);
+    const archiveOp = (await client.query('SELECT archive_operation_id FROM rooms WHERE id = $1', [R11])).rows[0].archive_operation_id;
+    await client.query(`SELECT set_config('wolfhouse.room_restore', 'on', false)`);
+    await client.query(`UPDATE beds SET sellable = TRUE WHERE id = $1`, [B1]);
+    await client.query(`SELECT set_config('wolfhouse.room_restore', 'off', false)`);
+    await client.query(`UPDATE staff_room_fill_inventory_operations
+      SET snapshot = snapshot #- '{beds,0,sellable}'
+      WHERE client_id = $1::uuid AND operation_id = $2`, [CLIENT, archiveOp]);
+    const corruptPolicy = (await client.query('SELECT settings FROM clients WHERE id = $1', [CLIENT])).rows[0].settings.luna_room_fill_policy;
+    await assert.rejects(() => restoreRoomFillRoom(client, input({
+      operationId: 'op-restore-corrupt',
+      expectedArchiveOperationId: archiveOp,
+      expectedSettingsRevision: settingsRevisionFor(corruptPolicy),
+      expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+    }, {
+      policy: corruptPolicy,
+      revisions: {
+        settingsRevision: settingsRevisionFor(corruptPolicy),
+        catalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+      },
+      omit: R11,
+    })), (err) => err.error === 'snapshot_conflict');
+    assert.equal((await client.query('SELECT sellable, room_id::text FROM beds WHERE id = $1', [B1])).rows[0].sellable, true);
+    assert.equal((await client.query('SELECT archived_at IS NOT NULL AS archived FROM rooms WHERE id = $1', [R11])).rows[0].archived, true);
 
     const user = { client_id: CLIENT, client_slug: 'wolfhouse-somo', role: 'operator', staff_user_id: 'staff-1' };
     const routes = createRoomFillRoutes({
@@ -288,7 +319,40 @@ async function main() {
     assert.equal(missing.body.error, 'room_not_found');
     const sunset = await routes.handleRoomFillArchive(R2, {}, { headers: { host: 'staff.test', origin: 'http://staff.test' }, body: {} }, {}, { ...user, client_slug: 'sunset' });
     assert.equal(sunset.body.error, 'unsupported_tenant');
-    console.log(JSON.stringify({ ok: true, backend: harness.backend, roomId: R11 }));
+    const racer = new Client(harness.admin);
+    await racer.connect();
+    try {
+      await racer.query(`SET statement_timeout = '4000'`);
+      const racePolicy = (await client.query('SELECT settings FROM clients WHERE id = $1', [CLIENT])).rows[0].settings.luna_room_fill_policy;
+      const raceBooking = '12121212-1212-4121-8121-121212121212';
+      await client.query(`INSERT INTO bookings (id, client_id, booking_code, status, check_in, check_out)
+        VALUES ($1, $2, 'RACE-1', 'confirmed', CURRENT_DATE, CURRENT_DATE + 2)`, [raceBooking, CLIENT]);
+      let admission;
+      const archivedRace = await archiveRoomFillRoom(client, input({
+        operationId: 'op-archive-race',
+        expectedSettingsRevision: settingsRevisionFor(racePolicy),
+        expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+      }, {
+        roomId: R2,
+        policy: racePolicy,
+        revisions: {
+          settingsRevision: settingsRevisionFor(racePolicy),
+          catalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+        },
+        omit: R11,
+        beforeCommit: async () => {
+          admission = racer.query(`INSERT INTO booking_beds (client_id, booking_id, bed_id, assignment_start_date, assignment_end_date, assignment_type)
+            VALUES ($1, $2, $3, CURRENT_DATE, CURRENT_DATE + 2, 'guest')`, [CLIENT, raceBooking, B2]);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        },
+      }));
+      assert.equal(archivedRace.roomId, R2);
+      await assert.rejects(admission, /archived_room_admission/);
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM booking_beds WHERE booking_id = $1', [raceBooking])).rows[0].n, 0);
+    } finally {
+      await racer.end();
+    }
+    console.log(JSON.stringify({ ok: true, backend: harness.backend, roomId: R11, concurrent: true }));
   } finally {
     await client.end();
     harness.cleanup();

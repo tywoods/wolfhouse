@@ -36,6 +36,14 @@ AS $$
 BEGIN
   IF OLD.archived_at IS NOT NULL
      AND current_setting('wolfhouse.room_restore', true) IS DISTINCT FROM 'on' THEN
+    IF NEW.room_code IS DISTINCT FROM OLD.room_code
+       OR NEW.name IS DISTINCT FROM OLD.name
+       OR NEW.client_id IS DISTINCT FROM OLD.client_id
+       OR NEW.house IS DISTINCT FROM OLD.house
+       OR NEW.room_type IS DISTINCT FROM OLD.room_type
+       OR NEW.capacity IS DISTINCT FROM OLD.capacity THEN
+      RAISE EXCEPTION 'archived_room_identity';
+    END IF;
     NEW.archived_at := OLD.archived_at;
     NEW.archive_operation_id := OLD.archive_operation_id;
     NEW.active := FALSE;
@@ -56,14 +64,32 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   archived timestamptz;
+  old_archived timestamptz;
 BEGIN
   IF current_setting('wolfhouse.room_restore', true) = 'on' THEN
     RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.room_id IS NOT NULL THEN
+    SELECT r.archived_at INTO old_archived
+      FROM rooms r
+     WHERE r.id = OLD.room_id;
+    IF old_archived IS NOT NULL
+       AND (NEW.room_id IS DISTINCT FROM OLD.room_id
+            OR NEW.bed_code IS DISTINCT FROM OLD.bed_code
+            OR NEW.client_id IS DISTINCT FROM OLD.client_id) THEN
+      RAISE EXCEPTION 'archived_room_membership';
+    END IF;
   END IF;
   SELECT r.archived_at INTO archived
     FROM rooms r
    WHERE r.id = NEW.room_id;
   IF archived IS NOT NULL THEN
+    IF TG_OP = 'INSERT' THEN
+      RAISE EXCEPTION 'archived_room_membership';
+    END IF;
+    IF NEW.room_id IS DISTINCT FROM OLD.room_id THEN
+      RAISE EXCEPTION 'archived_room_membership';
+    END IF;
     NEW.active := FALSE;
     NEW.sellable := FALSE;
   END IF;

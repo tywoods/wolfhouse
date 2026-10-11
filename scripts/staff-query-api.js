@@ -36690,6 +36690,7 @@ function bcCellInCurrentSelection(td){
   return !!(r && date >= r.start && date <= r.end);
 }
 function bcHandleCellClick(td){
+  if (td && td.classList && td.classList.contains('bc-history-cell')) return;
   var date = td && td.dataset && td.dataset.date;
   var room = td && td.dataset && td.dataset.room;
   var bed  = td && td.dataset && td.dataset.bed;
@@ -38271,7 +38272,11 @@ function renderBedCalendar(data){
           continue;
         }
         if (segsAt.length > 1){
-          html += renderBcTurnoverDayCell((days[pos] || {}).date || '', _rc, _bc, segsAt);
+          if (room.history_only) {
+            html += renderBcTurnoverDayCell((days[pos] || {}).date || '', '', '', segsAt, true);
+          } else {
+            html += renderBcTurnoverDayCell((days[pos] || {}).date || '', _rc, _bc, segsAt, false);
+          }
           pos++;
           continue;
         }
@@ -38284,7 +38289,9 @@ function renderBedCalendar(data){
         }
         var spanStartDate = (days[pos] || {}).date || '';
         var turnoverOut = bcTurnoverCheckoutOnDay(bedBlocks, spanStartDate, spanBlkIdx);
-        html += renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen, turnoverOut);
+        var blockHtml = renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen, turnoverOut);
+        if (room.history_only) blockHtml = blockHtml.replace('class="bc-day-cell', 'class="bc-day-cell bc-history-cell');
+        html += blockHtml;
         pos += spanLen;
       }
       html += '</tr>';
@@ -38352,7 +38359,7 @@ function renderBedCalendar(data){
   });
 
   /* Wire empty-cell clicks for selection model (Stage 8.3c, read-only) */
-  wrap.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
+  wrap.querySelectorAll('.bc-day-cell[data-date]:not(.bc-history-cell)').forEach(function(td){
     td.addEventListener('click', function(){ bcHandleCellClick(this); });
   });
   bcWireRoomHideButtons();
@@ -38529,10 +38536,13 @@ function bcGroupPaintBits(blk){
   var attr = (key ? ' data-group-key="' + escHtml(key) + '"' : '') + style;
   return { cls: cls, attr: attr };
 }
-function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
+function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs, historyOnly){
   var primary = bcTurnoverPrimarySeg(segs);
   var checkout = bcTurnoverCheckoutSeg(segs);
-  if (!primary) return '<td class="bc-day-cell" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '"></td>';
+  if (!primary) {
+    if (historyOnly) return '<td class="bc-day-cell bc-history-cell"></td>';
+    return '<td class="bc-day-cell" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '"></td>';
+  }
 
   var inner = '';
   if (checkout && checkout.idx !== primary.idx){
@@ -38547,6 +38557,7 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin' + priStripe + '" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
+  if (historyOnly) return '<td class="bc-day-cell bc-day-cell-turnover bc-history-cell">' + inner + '</td>';
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
 }
 

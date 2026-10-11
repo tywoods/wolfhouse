@@ -231,6 +231,26 @@ function snapshotFor(room, beds, policy, priority) {
   };
 }
 
+function assertSnapshotShape(snapshot, room, beds) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw fail(409, 'snapshot_conflict');
+  if (typeof snapshot.roomActive !== 'boolean') throw fail(409, 'snapshot_conflict');
+  if (typeof snapshot.roomCode !== 'string' || snapshot.roomCode !== room.room_code) throw fail(409, 'snapshot_conflict');
+  if (!Array.isArray(snapshot.beds)) throw fail(409, 'snapshot_conflict');
+  const seen = new Set();
+  for (const bed of snapshot.beds) {
+    if (!bed || typeof bed !== 'object' || Array.isArray(bed)) throw fail(409, 'snapshot_conflict');
+    if (typeof bed.bedId !== 'string' || !UUID_RE.test(bed.bedId)) throw fail(409, 'snapshot_conflict');
+    if (typeof bed.active !== 'boolean' || typeof bed.sellable !== 'boolean') throw fail(409, 'snapshot_conflict');
+    if (seen.has(bed.bedId)) throw fail(409, 'snapshot_conflict');
+    seen.add(bed.bedId);
+  }
+  const currentIds = beds.map((bed) => bed.bed_id).sort();
+  const savedIds = snapshot.beds.map((bed) => bed.bedId).sort();
+  if (currentIds.length !== savedIds.length || currentIds.some((id, index) => id !== savedIds[index])) {
+    throw fail(409, 'snapshot_conflict');
+  }
+}
+
 function placeRestored(policy, rooms, room, snapshot) {
   const others = (policy.roomPriority || []).filter((id) => id !== room.room_id);
   if (policy.roomPrioritySource === 'default_numeric') {
@@ -392,13 +412,9 @@ async function restoreOnce(pg, input, parsed) {
       /* room-archive-snapshot */
     `, [input.clientId, parsed.expectedArchiveOperationId]);
     const snapshot = journal.rows && journal.rows[0] && journal.rows[0].snapshot;
-    if (!snapshot || !Array.isArray(snapshot.beds)) throw fail(409, 'snapshot_conflict');
     const beds = await loadBeds(pg, input.clientId, input.roomId);
-    const currentIds = beds.map((bed) => bed.bed_id).sort();
-    const savedIds = snapshot.beds.map((bed) => bed.bedId).sort();
-    if (currentIds.length !== savedIds.length || currentIds.some((id, index) => id !== savedIds[index])) {
-      throw fail(409, 'snapshot_conflict');
-    }
+    assertSnapshotShape(snapshot, room, beds);
+    const currentIds = beds.map((bed) => bed.bed_id);
     await lockBeds(pg, currentIds);
     await pg.query(`SELECT set_config('wolfhouse.room_restore', 'on', true)`);
     await pg.query(`
@@ -406,14 +422,14 @@ async function restoreOnce(pg, input, parsed) {
          SET active = $3, archived_at = NULL, archive_operation_id = NULL
        WHERE client_id = $1::uuid AND id = $2::uuid
       /* room-archive-restore-room */
-    `, [input.clientId, input.roomId, snapshot.roomActive === true]);
+    `, [input.clientId, input.roomId, snapshot.roomActive]);
     for (const bed of snapshot.beds) {
       await pg.query(`
         UPDATE beds
            SET active = $3, sellable = $4
          WHERE client_id = $1::uuid AND id = $2::uuid AND room_id = $5::uuid
         /* room-archive-restore-bed */
-      `, [input.clientId, bed.bedId, bed.active === true, bed.sellable === true, input.roomId]);
+      `, [input.clientId, bed.bedId, bed.active, bed.sellable, input.roomId]);
     }
     let placedAt = null;
     if (state.policy) {
