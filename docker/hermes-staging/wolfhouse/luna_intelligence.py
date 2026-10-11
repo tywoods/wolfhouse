@@ -235,7 +235,7 @@ def _without_calendar_dates(query):
 
 
 _FORECAST_QUERY = re.compile(
-    r'\b(?:waves?|swell|wind|raining|rain|temperature|temp|clouds?|tides?|forecast|weather|olas|llueve|lluvia|marea|viento|temperatura|nubes)\b',
+    r'\b(?:waves?|swell|wind|raining|rain|temperature|temp|clouds?|tides?|forecast|weather|olas|llueve|lluvia|mareas?|viento|temperatura|nubes)\b',
     re.I)
 
 
@@ -266,7 +266,7 @@ _ASKED_FORECAST_FIELDS = (
     ('precipitation_mm_per_h', re.compile(r'\b(?:rain|raining|llueve|lluvia|precip)\b', re.I)),
     ('air_temperature_c', re.compile(r'\b(?:temp|temperature|temperatura)\b', re.I)),
     ('cloud_cover_pct', re.compile(r'\b(?:clouds?|nubes)\b', re.I)),
-    ('tide_height_m', re.compile(r'\b(?:tides?|marea)\b', re.I)),
+    ('tide_height_m', re.compile(r'\b(?:tides?|mareas?)\b', re.I)),
     ('current_speed_mps', re.compile(r'\b(?:current|corriente)\b', re.I)),
 )
 
