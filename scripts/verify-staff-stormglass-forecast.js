@@ -5,6 +5,7 @@
  */
 
 const {
+  FORECAST_PARAMS,
   fetchSurfForecastForStaff,
   setStormglassFetchForTests,
   stormglassErrorBodySnippet,
@@ -40,6 +41,7 @@ function sampleHours() {
 }
 
 async function main() {
+  check('SG0', !FORECAST_PARAMS.split(',').includes('tideHeight'), 'weather/point params exclude unsupported tideHeight');
   const savedKey = process.env.STORMGLASS_API_KEY;
   process.env.STORMGLASS_API_KEY = 'test-stormglass-key';
 

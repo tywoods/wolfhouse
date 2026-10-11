@@ -552,7 +552,7 @@ const FORECAST_HORIZON_DAYS = 10;
 const FORECAST_PARAMS = [
   'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
   'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
-  'currentSpeed', 'currentDirection', 'waterTemperature', 'tideHeight',
+  'currentSpeed', 'currentDirection', 'waterTemperature',
 ].join(',');
 const FORECAST_FIELDS = Object.freeze([
   ['waveHeight', 'wave_height_m'], ['swellHeight', 'swell_height_m'],
@@ -561,7 +561,6 @@ const FORECAST_FIELDS = Object.freeze([
   ['airTemperature', 'air_temperature_c'], ['precipitation', 'precipitation_mm_per_h'],
   ['cloudCover', 'cloud_cover_pct'], ['currentSpeed', 'current_speed_mps'],
   ['currentDirection', 'current_direction_deg'], ['waterTemperature', 'water_temperature_c'],
-  ['tideHeight', 'tide_height_m'],
 ]);
 const forecastCache = new Map();
 
@@ -632,7 +631,7 @@ async function fetchStormglassForecast(opts) {
     success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
     retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
     missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
-    units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
+    units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s' },
     cache_hit: false,
   };
   forecastCache.set(cacheKey, { cachedAt: Date.now(), value });
