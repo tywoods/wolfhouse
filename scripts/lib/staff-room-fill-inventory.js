@@ -22,7 +22,8 @@ VALUES ($1::uuid, $2, $3, $4::uuid, $5::jsonb)
 /* room-fill-receipt-insert */
 `;
 const ROOM_LOOKUP_SQL = `
-SELECT id::text AS room_id, room_code, gender_strategy, capacity
+SELECT id::text AS room_id, room_code, gender_strategy, capacity,
+       NULLIF(to_jsonb(rooms)->>'archived_at', '') AS archived_at
 FROM rooms
 WHERE client_id = $1::uuid AND room_code = $2
 LIMIT 1
@@ -173,7 +174,7 @@ async function createRoomFillInventory(pg, input) {
     const existing = await pg.query(ROOM_LOOKUP_SQL, [input.clientId, roomCode]);
     if (existing.rows && existing.rows[0]) {
       await pg.query('ROLLBACK');
-      throw fail(409, 'room_exists');
+      throw fail(409, existing.rows[0].archived_at ? 'room_archived' : 'room_exists');
     }
     const inserted = await pg.query(ROOM_INSERT_SQL, [
       input.clientId,

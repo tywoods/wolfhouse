@@ -42,6 +42,7 @@ SELECT
   CASE WHEN c.slug = 'wolfhouse-somo' AND to_jsonb(c)->'settings'->'luna_room_fill_policy' IS NOT NULL THEN (
     SELECT jsonb_agg(jsonb_build_object('room_id', rf.id::text, 'room_code', rf.room_code))
     FROM rooms rf WHERE rf.client_id = c.id AND rf.room_code NOT LIKE 'DEMO-%'
+      AND COALESCE(to_jsonb(rf)->>'archived_at', '') = ''
   ) END AS room_fill_catalogue,
   r.room_code,
   r.name                    AS room_name,
@@ -66,6 +67,7 @@ INNER JOIN clients c ON c.id = r.client_id
 LEFT JOIN beds bd ON bd.room_id = r.id AND bd.client_id = r.client_id AND bd.active = TRUE
 WHERE c.slug = $1
   AND r.active = TRUE
+  AND COALESCE(to_jsonb(r)->>'archived_at', '') = ''
   ${wolfhouseExcludeDemoRoomsSql('r')}
 ORDER BY
   COALESCE(r.fill_priority, r.sort_order, 999) ASC,
@@ -164,8 +166,48 @@ ORDER BY b.status, b.payment_status
 `;
 }
 
+function getArchivedHistoryRoomsQuery() {
+  return `
+SELECT
+  r.id::text                AS room_id,
+  r.room_code,
+  r.name                    AS room_name,
+  r.house,
+  r.room_type,
+  r.capacity,
+  COALESCE(r.sort_order, r.fill_priority, 999) AS room_sort_order,
+  r.fill_priority,
+  r.gender_strategy,
+  r.can_be_matrimonial,
+  r.often_used_by_operator,
+  bd.id::text               AS bed_id,
+  bd.bed_code,
+  bd.bed_label,
+  bd.bed_number,
+  bd.planning_row_label     AS bed_planning_label,
+  bd.active                 AS bed_active,
+  bd.sellable               AS bed_sellable,
+  'Archived — history only' AS history_label
+FROM rooms r
+INNER JOIN clients c ON c.id = r.client_id
+LEFT JOIN beds bd ON bd.room_id = r.id AND bd.client_id = r.client_id
+WHERE c.slug = $1
+  AND COALESCE(to_jsonb(r)->>'archived_at', '') <> ''
+  AND EXISTS (
+    SELECT 1
+      FROM booking_beds bb
+      INNER JOIN beds hbd ON hbd.id = bb.bed_id
+     WHERE hbd.room_id = r.id
+       AND bb.assignment_start_date < $3::date
+       AND bb.assignment_end_date > $2::date
+  )
+/* room-archive-history */
+`;
+}
+
 module.exports = {
   getBedCalendarRoomsQuery,
   getBedCalendarBlocksQuery,
   getBedCalendarSummaryQuery,
+  getArchivedHistoryRoomsQuery,
 };

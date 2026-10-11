@@ -218,6 +218,9 @@ const {
   ROOM_FILL_PREVIEW_PATH,
   ROOM_CREATE_PATH,
   ROOM_GENDER_PATH_RE,
+  ROOM_ARCHIVE_CHECK_RE,
+  ROOM_ARCHIVE_RE,
+  ROOM_RESTORE_RE,
   createRoomFillRoutes,
 } = require('./lib/staff-room-fill-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
@@ -733,6 +736,7 @@ const {
   getBedCalendarRoomsQuery,
   getBedCalendarBlocksQuery,
   getBedCalendarSummaryQuery,
+  getArchivedHistoryRoomsQuery,
 } = require('./lib/staff-bed-calendar-queries');
 const {
   annotateCalendarBlocks,
@@ -745,6 +749,8 @@ const {
   resolveBedCalendarRoomRows,
   filterDemoCalendarBlocks,
   isWolfhouseInventoryClient,
+  loadArchivedRoomCodes,
+  archivedFallbackOptions,
 } = require('./lib/wolfhouse-inventory-source');
 const {
   getBookingDetailQuery,
@@ -2683,7 +2689,7 @@ const {
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
-const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut } = createRoomFillRoutes({
+const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut, handleRoomFillArchiveCheck, handleRoomFillArchive, handleRoomFillRestore } = createRoomFillRoutes({
   sendJSON, readBody, withPgClient, appendAuditLog,
 });
 
@@ -36684,6 +36690,7 @@ function bcCellInCurrentSelection(td){
   return !!(r && date >= r.start && date <= r.end);
 }
 function bcHandleCellClick(td){
+  if (td && td.classList && td.classList.contains('bc-history-cell')) return;
   var date = td && td.dataset && td.dataset.date;
   var room = td && td.dataset && td.dataset.room;
   var bed  = td && td.dataset && td.dataset.bed;
@@ -38151,6 +38158,12 @@ function renderBedCalendar(data){
 
   /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
   rooms = bcSortRoomsForDisplay(rooms);
+  var historyRooms = (data.archivedHistoryRooms || []).map(function(room) {
+    room.history_only = true;
+    room.history_label = room.history_label || 'Archived — history only';
+    return room;
+  });
+  rooms = rooms.concat(historyRooms);
 
   /* SCHEDULE-GROUP-BOOKING-UI-001 — mark multi-room groups; pebble stays on bars.
      SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — do not insert an above-room banner. */
@@ -38197,6 +38210,7 @@ function renderBedCalendar(data){
     var roomLabel = escHtml(rcMatch ? 'Room ' + rcMatch[1] : (rnMatch ? 'Room ' + rnMatch[1] : room.room_code));
     /* Only append a real human room name — never another R# code. */
     if (room.room_name && room.room_name !== room.room_code && !rnMatch) roomLabel += ' &mdash; ' + escHtml(room.room_name);
+    if (room.history_only) roomLabel += ' <span class="bc-history-label">Archived — history only</span>';
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
     var metaHtml = ' <span style="' + metaStyle + '">' + escHtml(bcFormatRoomMetaLabel(room)) + '</span>';
     var hideBtn = ' <button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
@@ -38249,12 +38263,20 @@ function renderBedCalendar(data){
         var segsAt = daySegments[pos] || [];
         if (segsAt.length === 0){
           var _diEmpty = (days[pos] || {}).date || '';
-          html += '<td class="bc-day-cell" data-date="' + _diEmpty + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+          if (room.history_only) {
+            html += '<td class="bc-day-cell bc-history-cell"></td>';
+          } else {
+            html += '<td class="bc-day-cell" data-date="' + _diEmpty + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+          }
           pos++;
           continue;
         }
         if (segsAt.length > 1){
-          html += renderBcTurnoverDayCell((days[pos] || {}).date || '', _rc, _bc, segsAt);
+          if (room.history_only) {
+            html += renderBcTurnoverDayCell((days[pos] || {}).date || '', '', '', segsAt, true);
+          } else {
+            html += renderBcTurnoverDayCell((days[pos] || {}).date || '', _rc, _bc, segsAt, false);
+          }
           pos++;
           continue;
         }
@@ -38267,7 +38289,9 @@ function renderBedCalendar(data){
         }
         var spanStartDate = (days[pos] || {}).date || '';
         var turnoverOut = bcTurnoverCheckoutOnDay(bedBlocks, spanStartDate, spanBlkIdx);
-        html += renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen, turnoverOut);
+        var blockHtml = renderBookingBlock(segsAt[0].blk, segsAt[0].idx, spanLen, turnoverOut);
+        if (room.history_only) blockHtml = blockHtml.replace('class="bc-day-cell', 'class="bc-day-cell bc-history-cell');
+        html += blockHtml;
         pos += spanLen;
       }
       html += '</tr>';
@@ -38335,7 +38359,7 @@ function renderBedCalendar(data){
   });
 
   /* Wire empty-cell clicks for selection model (Stage 8.3c, read-only) */
-  wrap.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
+  wrap.querySelectorAll('.bc-day-cell[data-date]:not(.bc-history-cell)').forEach(function(td){
     td.addEventListener('click', function(){ bcHandleCellClick(this); });
   });
   bcWireRoomHideButtons();
@@ -38512,10 +38536,13 @@ function bcGroupPaintBits(blk){
   var attr = (key ? ' data-group-key="' + escHtml(key) + '"' : '') + style;
   return { cls: cls, attr: attr };
 }
-function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
+function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs, historyOnly){
   var primary = bcTurnoverPrimarySeg(segs);
   var checkout = bcTurnoverCheckoutSeg(segs);
-  if (!primary) return '<td class="bc-day-cell" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '"></td>';
+  if (!primary) {
+    if (historyOnly) return '<td class="bc-day-cell bc-history-cell"></td>';
+    return '<td class="bc-day-cell" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '"></td>';
+  }
 
   var inner = '';
   if (checkout && checkout.idx !== primary.idx){
@@ -38530,6 +38557,7 @@ function renderBcTurnoverDayCell(dayDate, roomCode, bedCode, segs){
   inner += '<div class="bc-block ' + priColor + priGroup.cls + ' bc-block-checkin-layer bc-block-thin' + priStripe + '" data-bidx="' + primary.idx + '"' + priGroup.attr + ' title="' + bcTurnoverCellTooltip(segs) + '">' +
     bcCalendarBlockInnerHtml(primary.blk, bcTurnoverVisibleLabel(primary.blk)) + '</div>';
 
+  if (historyOnly) return '<td class="bc-day-cell bc-day-cell-turnover bc-history-cell">' + inner + '</td>';
   return '<td class="bc-day-cell bc-day-cell-turnover" data-date="' + dayDate + '" data-room="' + escHtml(roomCode) + '" data-bed="' + escHtml(bedCode) + '">' + inner + '</td>';
 }
 
@@ -45959,7 +45987,7 @@ function loadBedCalendar(afterRender, options){
         if (typeof afterRender === 'function') afterRender(null, false);
         return;
       }
-      if (!res.data.rooms || res.data.rooms.length === 0){
+      if ((!res.data.rooms || res.data.rooms.length === 0) && !(res.data.archivedHistoryRooms && res.data.archivedHistoryRooms.length)){
         el('bc-state').textContent = t('calendar.state.noRooms');
         if (typeof afterRender === 'function') afterRender(null, false);
         return;
@@ -52573,8 +52601,33 @@ async function handleBedCalendar(query, res, user) {
     return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
   }
 
-  roomRows = resolveBedCalendarRoomRows(clientSlug, roomRows);
+  const canonicalRoomRows = roomRows;
+  roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows);
   blockRows = filterDemoCalendarBlocks(blockRows);
+  let archivedHistoryRooms = [];
+  if (isWolfhouseInventoryClient(clientSlug)) {
+    try {
+      const archiveState = await withPgClient(async (pg) => {
+        const loaded = await loadArchivedRoomCodes(pg, clientSlug);
+        let history = [];
+        try {
+          history = (await pg.query(getArchivedHistoryRoomsQuery(), [clientSlug, startISO, endISO])).rows || [];
+        } catch (_) {
+          history = [];
+        }
+        return { loaded, history };
+      });
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, archivedFallbackOptions(archiveState.loaded));
+      archivedHistoryRooms = buildRoomHierarchy(archiveState.history).map((room) => ({
+        ...room,
+        history_only: true,
+        history_label: 'Archived — history only',
+        allocation_enabled: false,
+      }));
+    } catch (_) {
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, { archiveLookupFailed: true });
+    }
+  }
 
   let calendarGuestRows = [];
   const calendarBookingIds = [...new Set(blockRows.map((row) => row.booking_id).filter(Boolean))];
@@ -52645,6 +52698,7 @@ async function handleBedCalendar(query, res, user) {
     end:          endISO,
     days,
     rooms,
+    archivedHistoryRooms,
     blocks,
     summary:      summaryRows,
     warnings:     [],
@@ -53104,9 +53158,11 @@ async function handleTourOperatorRooms(query, res, user) {
   const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   try {
-    const roomRows = await withPgClient((pg) =>
-      pg.query(getBedCalendarRoomsQuery(), [clientSlug]).then((r) => r.rows));
-    const rooms = buildRoomHierarchy(resolveBedCalendarRoomRows(clientSlug, roomRows));
+    const rooms = buildRoomHierarchy(await withPgClient(async (pg) => {
+      const roomRows = (await pg.query(getBedCalendarRoomsQuery(), [clientSlug])).rows;
+      const archived = await loadArchivedRoomCodes(pg, clientSlug);
+      return resolveBedCalendarRoomRows(clientSlug, roomRows, archivedFallbackOptions(archived));
+    }));
     return sendJSON(res, 200, {
       success: true,
       client_slug: clientSlug,
@@ -56730,6 +56786,24 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  const roomArchiveCheck = pathname.match(ROOM_ARCHIVE_CHECK_RE);
+  if (roomArchiveCheck && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillArchiveCheck(roomArchiveCheck[1], parsed.query, req, res, auth.user);
+  }
+  const roomArchive = pathname.match(ROOM_ARCHIVE_RE);
+  if (roomArchive && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillArchive(roomArchive[1], parsed.query, req, res, auth.user);
+  }
+  const roomRestore = pathname.match(ROOM_RESTORE_RE);
+  if (roomRestore && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillRestore(roomRestore[1], parsed.query, req, res, auth.user);
   }
   const roomGenderMatch = pathname.match(ROOM_GENDER_PATH_RE);
   if (roomGenderMatch && method === 'PUT') {

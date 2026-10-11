@@ -79,6 +79,14 @@
       '#staff-room-fill .rf-code{font-weight:650}',
       '#staff-room-fill .rf-meta{font-size:13px;line-height:1.35;min-width:0;overflow-wrap:anywhere}',
       '#staff-room-fill .rf-moves{display:flex;gap:4px;margin-left:auto}',
+      '#staff-room-fill .rf-delete-cell{margin-left:16px;flex:0 0 44px}',
+      '#staff-room-fill .rf-delete{width:44px;height:44px;min-width:44px;min-height:44px;padding:0;border-color:transparent;color:var(--muted,#737b77)}',
+      '#staff-room-fill .rf-delete:hover,#staff-room-fill .rf-delete:focus-visible{color:#ad4747}',
+      '#staff-room-fill .rf-modal-back{position:fixed;inset:0;background:rgba(20,24,22,.45);display:grid;place-items:center;z-index:40}',
+      '#staff-room-fill .rf-modal{width:min(440px,calc(100% - 32px));background:var(--surface,#fff);color:inherit;border-radius:12px;padding:20px;border:1px solid var(--border-soft,#ddd)}',
+      '#staff-room-fill .rf-danger{background:#ad4747;color:#fff;border-color:transparent}',
+      '#staff-room-fill .rf-deleted{margin-top:12px}',
+      '@media(max-width:540px){#staff-room-fill .rf-delete-cell{margin-left:auto}}',
       '#staff-room-fill .rf-gender-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;font-size:13px}',
       '#staff-room-fill .rf-gender-edit select{width:auto;max-width:100%;padding:5px 8px;min-height:32px}',
       '#staff-room-fill .rf-gender-status{flex-basis:100%;font-size:12px}',
@@ -95,7 +103,26 @@
       '#staff-room-fill .rf-builder-form .rf-genders label{flex-direction:row}',
       '#staff-room-fill .rf-genders label:has(input:checked){outline:2px solid currentColor;outline-offset:2px}',
       '#staff-room-fill input[type=radio]{accent-color:var(--staff-green-text,#315b42);width:16px;min-width:16px;max-width:16px;height:16px;flex:0 0 16px}',
-      '@media(max-width:420px){#staff-room-fill .rf-meta{flex:1 1 100%}}'
+      '@media(max-width:420px){#staff-room-fill .rf-meta{flex:1 1 100%}}',
+      '@media(max-width:540px){',
+      '#staff-room-fill .rf-card{padding:10px 12px}',
+      '#staff-room-fill .rf-row{display:grid;grid-template-columns:36px 28px minmax(0,1fr) auto auto;grid-template-areas:"handle rank name moves delete" "gender gender gender gender gender";align-items:center;column-gap:6px;row-gap:6px;padding:8px 0}',
+      '#staff-room-fill .rf-handle{grid-area:handle;width:36px;height:36px;min-width:36px;min-height:36px;padding:0}',
+      '#staff-room-fill .rf-rank{grid-area:rank;width:28px;height:28px;min-width:28px}',
+      '#staff-room-fill .rf-identity{grid-area:name;gap:1px;flex:unset}',
+      '#staff-room-fill .rf-code{font-size:14px;line-height:1.15}',
+      '#staff-room-fill .rf-meta{flex:0 1 auto;font-size:12px;line-height:1.15}',
+      '#staff-room-fill .rf-moves{grid-area:moves;margin-left:0;flex-wrap:nowrap;gap:4px}',
+      '#staff-room-fill .rf-moves button{width:36px;height:36px;min-width:36px;min-height:36px;padding:0}',
+      '#staff-room-fill .rf-delete-cell{grid-area:delete;margin-left:12px;flex:0 0 36px}',
+      '#staff-room-fill .rf-delete{width:36px;height:36px;min-width:36px;min-height:36px}',
+      '#staff-room-fill .rf-gender-edit{grid-area:gender;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;min-width:0}',
+      '#staff-room-fill .rf-gender-edit select{width:100%;min-width:0;max-width:100%;min-height:36px;padding:4px 6px;font-size:13px}',
+      '#staff-room-fill .rf-gender-edit button{min-width:36px;min-height:36px;height:36px;padding:0 8px;font-size:12px}',
+      '#staff-room-fill .rf-gender-edit:not(.rf-gender-dirty)>button{display:none}',
+      '#staff-room-fill .rf-gender-status:empty{display:none}',
+      '#staff-room-fill .rf-gender-status:not(:empty){grid-column:1 / -1;min-width:0}',
+      '}'
     ].join('');
     document.head.appendChild(style);
   }
@@ -108,12 +135,14 @@
     if (!s.builder) s.builder = { number: '', beds: '', gender: '', drafts: [] };
     if (!s.previewFields) s.previewFields = {};
     if (!s.genderDrafts) s.genderDrafts = {};
+    if (!s.archiveUndo) s.archiveUndo = null;
+    if (s.deletedOpen == null) s.deletedOpen = false;
     return s;
   }
 
   function placementBusy() {
     var s = state();
-    return !!(s.pending || s.genderPending || s.builder.pending || s.builder.retryPayload);
+    return !!(s.pending || s.genderPending || s.builder.pending || s.builder.retryPayload || s.archivePending);
   }
 
   function labelFor(room) {
@@ -215,6 +244,14 @@
     priorityHelp.textContent = 'Drag to reorder, use the arrow buttons, or press Alt + ↑ / ↓ on a room.';
     priority.appendChild(priorityHelp);
     priority.appendChild(list);
+    priority.appendChild(deletedRooms());
+    if (!s.draftOrder.length) {
+      var empty = document.createElement('p');
+      empty.id = 'rf-no-rooms';
+      empty.className = 'rf-help';
+      empty.textContent = 'No rooms yet';
+      priority.appendChild(empty);
+    }
     var workspace = document.createElement('div');
     workspace.className = 'rf-workspace';
     workspace.appendChild(priority);
@@ -267,6 +304,21 @@
     out.className = 'rf-preview-out';
     out.setAttribute('role', 'status');
     preview.appendChild(out);
+    if (s.archiveUndo) {
+      var undo = document.createElement('p');
+      undo.id = 'rf-archive-undo';
+      undo.className = 'rf-help';
+      undo.appendChild(document.createTextNode(s.archiveUndo.label + ' deleted. '));
+      var undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.id = 'rf-archive-undo-btn';
+      undoBtn.textContent = 'Undo';
+      undoBtn.addEventListener('click', function () { restoreArchived(s.archiveUndo); });
+      undo.appendChild(undoBtn);
+      priority.appendChild(undo);
+    }
+    if (s.recovery && !s.archiveModal) priority.appendChild(recoveryBanner(s.recovery));
+    if (s.archiveModal) root.appendChild(deleteModal(s.archiveModal));
   }
 
   function card(title) {
@@ -419,6 +471,12 @@
         b.pending = false;
         if (!res.body || res.body.success !== true) {
           var knownRejection = res.status >= 400 && res.status < 500 && !res.unreadable;
+          if (knownRejection && res.body && res.body.error === 'room_archived') {
+            b.saveError = 'Room ' + savedNumber + ' is deleted. Restore it from Deleted rooms.';
+            b.retryPayload = null;
+            paint();
+            return;
+          }
           b.saveError = knownRejection
             ? 'Could not save the room. Inventory was not changed.'
             : 'The save did not finish. Inventory may have changed. Retry uses the same request.';
@@ -510,10 +568,10 @@
     var id = room.roomId;
     if (room.genderEditable !== true) return document.createDocumentFragment();
     var wrap = document.createElement('div');
-    wrap.className = 'rf-gender-edit';
     var current = String(room.genderLabel || '').toLowerCase();
     if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
     var draft = s.genderDrafts[id];
+    wrap.className = 'rf-gender-edit' + (draft ? ' rf-gender-dirty' : '');
     var sellingMode = draft && draft.sellingMode || room.sellingMode || 'shared';
     if (room.sellingMode !== undefined) {
       var selling = document.createElement('select');
@@ -698,7 +756,483 @@
     row.appendChild(identity);
     row.appendChild(genderEditor(room));
     row.appendChild(moves);
+    var deleter = document.createElement('button');
+    deleter.type = 'button';
+    deleter.className = 'rf-delete';
+    deleter.id = 'rf-delete-' + id;
+    deleter.textContent = '×';
+    deleter.title = 'Delete ' + labelFor(room);
+    deleter.setAttribute('aria-label', 'Delete ' + labelFor(room));
+    deleter.disabled = placementBusy();
+    deleter.addEventListener('mousedown', function (event) { event.stopPropagation(); });
+    deleter.addEventListener('dragstart', function (event) { event.preventDefault(); });
+    deleter.draggable = false;
+    deleter.addEventListener('click', function () { openDelete(room); });
+    var deleteCell = document.createElement('span');
+    deleteCell.className = 'rf-delete-cell';
+    deleteCell.appendChild(deleter);
+    row.appendChild(deleteCell);
     return row;
+  }
+
+  function unsavedEdits() {
+    var s = state();
+    if (s.dirty) return true;
+    var drafts = s.genderDrafts || {};
+    return Object.keys(drafts).some(function (id) {
+      var draft = drafts[id];
+      return draft && (draft.value || draft.sellingMode) && draft.message !== 'Saved';
+    });
+  }
+
+  function openDelete(room) {
+    if (placementBusy()) return;
+    if (unsavedEdits()) {
+      say('Save or cancel your changes first');
+      var status = el('staff-room-fill-status');
+      if (status) status.textContent = 'Save or cancel your changes first';
+      return;
+    }
+    var s = state();
+    s.archiveModal = {
+      roomId: room.roomId,
+      label: labelFor(room),
+      phase: 'checking',
+      blockers: [],
+      eligible: false,
+      checkFailed: false,
+    };
+    paint();
+    var cancel = el('rf-delete-cancel');
+    if (cancel) cancel.focus();
+    fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(room.roomId) + '/archive-check', {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (res) {
+      if (!state().archiveModal || state().archiveModal.roomId !== room.roomId) return;
+      if (!res.body || res.body.success !== true) {
+        state().archiveModal.phase = 'failed';
+        state().archiveModal.checkFailed = true;
+        state().archiveModal.eligible = false;
+      } else {
+        state().archiveModal.phase = 'ready';
+        state().archiveModal.eligible = res.body.eligible === true && res.body.checkFailed !== true;
+        state().archiveModal.checkFailed = res.body.checkFailed === true;
+        state().archiveModal.blockers = res.body.blockers || [];
+      }
+      paint();
+      var next = el('rf-delete-cancel');
+      if (next) next.focus();
+    }).catch(function () {
+      if (!state().archiveModal) return;
+      state().archiveModal.phase = 'failed';
+      state().archiveModal.checkFailed = true;
+      state().archiveModal.eligible = false;
+      paint();
+    });
+  }
+
+  function recoveryBanner(recovery) {
+    var banner = document.createElement('p');
+    banner.id = 'rf-archive-recovery';
+    banner.className = 'rf-error';
+    banner.setAttribute('role', 'alert');
+    banner.appendChild(document.createTextNode(recovery.message + ' '));
+    if (!recovery.definite) {
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.id = 'rf-archive-retry';
+      retry.textContent = 'Retry this request';
+      retry.disabled = !!state().archivePending;
+      retry.addEventListener('click', function () {
+        if (recovery.action === 'restore') {
+          restoreArchived({
+            roomId: recovery.roomId,
+            label: recovery.label,
+            archiveOperationId: recovery.archiveOperationId,
+          });
+        } else {
+          confirmDelete({ roomId: recovery.roomId, label: recovery.label });
+        }
+      });
+      banner.appendChild(retry);
+    }
+    return banner;
+  }
+
+  function closeDelete() {
+    var roomId = state().archiveModal && state().archiveModal.roomId;
+    state().archiveModal = null;
+    paint();
+    var button = roomId && el('rf-delete-' + roomId);
+    if (button) button.focus();
+    else {
+      var heading = document.querySelector('#staff-room-fill .rf-title');
+      if (heading) heading.focus();
+    }
+  }
+
+  function archivePayload(roomId) {
+    var s = state();
+    var server = s.server || {};
+    return {
+      operationId: retainedOperationId('archiveOps', roomId, 'op-archive'),
+      expectedSettingsRevision: server.settingsRevision || null,
+      expectedCatalogRevision: server.catalogRevision,
+    };
+  }
+
+  function clearRecoveryFor(action, roomId) {
+    var s = state();
+    if (s.recovery && s.recovery.action === action && s.recovery.roomId === roomId) s.recovery = null;
+  }
+
+  function confirmDelete(room) {
+    var s = state();
+    if (!s.frozenRequests) s.frozenRequests = {};
+    var key = 'archive:' + room.roomId;
+    var frozen = s.frozenRequests[key];
+    if (!frozen) {
+      if (!s.archiveModal || !s.archiveModal.eligible || s.archivePending) return;
+      var operationId = retainedOperationId('archiveOps', room.roomId, 'op-archive');
+      var server = s.server || {};
+      frozen = s.frozenRequests[key] = {
+        action: 'archive',
+        roomId: room.roomId,
+        label: labelFor(room),
+        operationId: operationId,
+        payload: {
+          operationId: operationId,
+          expectedSettingsRevision: server.settingsRevision || null,
+          expectedCatalogRevision: server.catalogRevision,
+        },
+      };
+    } else if (s.archivePending) return;
+    s.loadSequence = (s.loadSequence || 0) + 1;
+    var generation = s.archiveGeneration = (s.archiveGeneration || 0) + 1;
+    s.archivePending = true;
+    paint();
+    fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(room.roomId) + '/archive', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(frozen.payload),
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; }).catch(function () {
+        return { status: res.status, unreadable: true };
+      });
+    }).then(function (res) {
+      if (!currentState(s) || generation !== s.archiveGeneration) return;
+      s.archivePending = false;
+      if (!res.body || res.body.success !== true) {
+        var uncertain = !(res.status >= 400 && res.status < 500) || res.unreadable;
+        if (uncertain) {
+          s.recovery = {
+            action: 'archive',
+            roomId: room.roomId,
+            label: frozen.label,
+            message: 'Could not confirm deletion. Retry this request.',
+          };
+        } else {
+          delete s.frozenRequests[key];
+          clearRetainedOperation('archiveOps', room.roomId);
+          clearRecoveryFor('archive', room.roomId);
+          s.archiveModal = s.archiveModal || { roomId: room.roomId, label: frozen.label, blockers: [] };
+          s.archiveModal.phase = 'blocked';
+          s.archiveModal.eligible = false;
+          s.archiveModal.blockers = (res.body && res.body.blockers) || [];
+          s.archiveModal.checkFailed = !!(res.body && res.body.checkFailed);
+        }
+        paint();
+        var retry = el('rf-archive-retry');
+        if (retry) retry.focus();
+        return;
+      }
+      delete s.frozenRequests[key];
+      clearRetainedOperation('archiveOps', room.roomId);
+      clearRecoveryFor('archive', room.roomId);
+      s.archiveModal = null;
+      s.archiveNotice = null;
+      s.archiveUndo = {
+        roomId: room.roomId,
+        label: labelFor(room),
+        archiveOperationId: res.body.archiveOperationId,
+        operationId: 'op-undo-' + (res.body.archiveOperationId || room.roomId),
+      };
+      applyServer(res.body, { keepDraft: true });
+      paint();
+      say(labelFor(room) + ' deleted.');
+      if (document.documentElement.getAttribute('data-portal-client') !== 'sunset' && typeof bcInvalidateBedCalendar === 'function') {
+        bcInvalidateBedCalendar();
+      }
+      var heading = document.querySelector('#staff-room-fill .rf-title');
+      if (heading) heading.setAttribute('tabindex', '-1');
+      if (heading) heading.focus();
+    }).catch(function () {
+      if (!currentState(s) || generation !== s.archiveGeneration) return;
+      s.archivePending = false;
+      s.recovery = {
+        action: 'archive',
+        roomId: room.roomId,
+        label: frozen.label,
+        message: 'Could not confirm deletion. Retry this request.',
+      };
+      paint();
+      var retry = el('rf-archive-retry');
+      if (retry) retry.focus();
+    });
+  }
+
+  function nextOperationId(prefix) {
+    return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function retainedOperationId(bucket, key, prefix) {
+    var s = state();
+    if (!s[bucket]) s[bucket] = {};
+    if (!s[bucket][key]) s[bucket][key] = nextOperationId(prefix);
+    return s[bucket][key];
+  }
+
+  function clearRetainedOperation(bucket, key) {
+    var s = state();
+    if (s[bucket]) delete s[bucket][key];
+  }
+
+  function stillThisScreen(s, generation) {
+    return currentState(s) && generation === s.restoreGeneration
+      && (!admittedContext || admittedContext.client === 'wolfhouse-somo');
+  }
+
+  function restoreArchived(item) {
+    var s = state();
+    if (placementBusy() || !item) return;
+    if (unsavedEdits()) {
+      say('Save or cancel your changes first');
+      return;
+    }
+    var server = s.server || {};
+    var opKey = item.roomId + ':' + (item.archiveOperationId || '');
+    if (!s.frozenRequests) s.frozenRequests = {};
+    var frozen = s.frozenRequests['restore:' + opKey];
+    if (!frozen) {
+      frozen = s.frozenRequests['restore:' + opKey] = {
+        action: 'restore',
+        roomId: item.roomId,
+        label: item.label,
+        archiveOperationId: item.archiveOperationId,
+        operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
+        payload: {
+          operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
+          expectedArchiveOperationId: item.archiveOperationId,
+          expectedSettingsRevision: server.settingsRevision || null,
+          expectedCatalogRevision: server.catalogRevision,
+        },
+      };
+    } else if (s.archivePending) return;
+    s.loadSequence = (s.loadSequence || 0) + 1;
+    var generation = s.restoreGeneration = (s.restoreGeneration || 0) + 1;
+    s.archivePending = true;
+    paint();
+    fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(item.roomId) + '/restore', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(frozen.payload),
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; }).catch(function () {
+        return { status: res.status, unreadable: true };
+      });
+    }).then(function (res) {
+      if (!stillThisScreen(s, generation)) return;
+      s.archivePending = false;
+      if (!res.body || res.body.success !== true) {
+        var uncertain = !(res.status >= 400 && res.status < 500) || res.unreadable;
+        if (uncertain) {
+          s.recovery = {
+            action: 'restore',
+            roomId: item.roomId,
+            label: item.label,
+            archiveOperationId: item.archiveOperationId,
+            message: 'Could not confirm restore. Retry this request.',
+          };
+        } else {
+          delete s.frozenRequests['restore:' + opKey];
+          clearRetainedOperation('restoreOps', opKey);
+          s.recovery = {
+            action: 'restore',
+            roomId: item.roomId,
+            label: item.label,
+            message: 'Could not restore the room.',
+            definite: true,
+          };
+        }
+        paint();
+        var retry = el('rf-restore-retry-' + item.roomId) || el('rf-archive-retry');
+        if (retry) retry.focus();
+        return;
+      }
+      delete s.frozenRequests['restore:' + opKey];
+      clearRetainedOperation('restoreOps', opKey);
+      if (!s.archiveUndo || s.archiveUndo.roomId === item.roomId) s.archiveUndo = null;
+      s.archiveNotice = null;
+      clearRecoveryFor('restore', item.roomId);
+      applyServer(res.body);
+      paint();
+      say(item.label + ' restored' + (res.body.placedAt ? ' at priority ' + res.body.placedAt : '') + '.');
+      if (document.documentElement.getAttribute('data-portal-client') !== 'sunset' && typeof bcInvalidateBedCalendar === 'function') {
+        bcInvalidateBedCalendar();
+      }
+    }).catch(function () {
+      if (!stillThisScreen(s, generation)) return;
+      s.archivePending = false;
+      s.recovery = {
+        action: 'restore',
+        roomId: item.roomId,
+        label: item.label,
+        archiveOperationId: item.archiveOperationId,
+        message: 'Could not confirm restore. Retry this request.',
+      };
+      paint();
+      var retry = el('rf-restore-retry-' + item.roomId) || el('rf-archive-retry');
+      if (retry) retry.focus();
+    });
+  }
+
+  function deleteModal(modal) {
+    var back = document.createElement('div');
+    back.className = 'rf-modal-back';
+    var dialog = document.createElement('div');
+    dialog.className = 'rf-modal';
+    dialog.id = 'rf-delete-modal';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'rf-delete-title');
+    var title = document.createElement('h4');
+    title.id = 'rf-delete-title';
+    title.className = 'rf-card-title';
+    title.textContent = 'Delete ' + modal.label + '?';
+    var body = document.createElement('p');
+    if (modal.phase === 'checking') body.textContent = 'Checking bookings and holds…';
+    else if (modal.checkFailed) body.textContent = 'Could not check bookings and holds. Delete stays disabled.';
+    else if (modal.blockers && modal.blockers.length && modal.blockers[0].kind === 'external_mapping') {
+      body.textContent = 'This room is linked to an external calendar. Remove its bed mappings before deleting it.';
+    } else if (modal.blockers && modal.blockers.length) {
+      body.textContent = modal.label + ' still has bookings or holds. Reassign them, or cancel/release them through the booking workflow, before deleting this room.';
+    } else body.textContent = 'Its beds will be removed from available inventory, Luna and the active Schedule. Past bookings will be kept. You can undo this from Deleted rooms.';
+    dialog.appendChild(title);
+    dialog.appendChild(body);
+    if (state().recovery && state().recovery.roomId === modal.roomId && state().recovery.action === 'archive') {
+      dialog.appendChild(recoveryBanner(state().recovery));
+    }
+    (modal.blockers || []).forEach(function (blocker) {
+      var line = document.createElement('p');
+      line.className = 'rf-help';
+      var link = document.createElement('a');
+      link.href = blocker.scheduleHref || '#tab-bed-calendar';
+      link.textContent = (blocker.reference || blocker.kind || 'Booking') + (blocker.start ? ' · ' + blocker.start + '–' + (blocker.end || '') : '');
+      line.appendChild(link);
+      dialog.appendChild(line);
+    });
+    var actions = document.createElement('div');
+    actions.className = 'rf-actions';
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.id = 'rf-delete-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', closeDelete);
+    var confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.id = 'rf-delete-confirm';
+    confirm.className = 'rf-danger';
+    confirm.textContent = 'Delete';
+    confirm.disabled = modal.phase === 'checking' || modal.checkFailed || !modal.eligible || placementBusy()
+      || !!(state().recovery && state().recovery.action === 'archive' && state().recovery.roomId === modal.roomId && !state().recovery.definite);
+    confirm.addEventListener('click', function () { confirmDelete({ roomId: modal.roomId, roomNumber: null, label: modal.label }); });
+    actions.appendChild(cancel);
+    actions.appendChild(confirm);
+    dialog.appendChild(actions);
+    dialog.addEventListener('keydown', function (event) {
+      if (event.key !== 'Tab') return;
+      var nodes = [cancel, confirm].filter(function (node) { return !node.disabled; });
+      if (!nodes.length) return;
+      var first = nodes[0];
+      var last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    back.appendChild(dialog);
+    return back;
+  }
+
+  function deletedRooms() {
+    var details = document.createElement('details');
+    details.id = 'rf-deleted-rooms';
+    details.className = 'rf-deleted';
+    details.open = state().deletedOpen === true;
+    details.addEventListener('toggle', function () { state().deletedOpen = details.open; });
+    var summary = document.createElement('summary');
+    summary.textContent = 'Deleted rooms';
+    details.appendChild(summary);
+    var rooms = (state().server && state().server.archivedRooms) || [];
+    if (!rooms.length) {
+      var empty = document.createElement('p');
+      empty.className = 'rf-help';
+      empty.textContent = 'No deleted rooms.';
+      details.appendChild(empty);
+      return details;
+    }
+    rooms.forEach(function (room) {
+      var row = document.createElement('div');
+      row.className = 'rf-row';
+      var name = document.createElement('span');
+      name.textContent = (room.label || room.roomCode) + ' · ' + (room.bedCount || 0) + ' beds';
+      var when = document.createElement('span');
+      when.className = 'rf-meta';
+      when.textContent = room.archivedAt ? 'Deleted ' + room.archivedAt : 'Deleted';
+      var restore = document.createElement('button');
+      restore.type = 'button';
+      restore.textContent = 'Restore';
+      restore.setAttribute('aria-label', 'Restore ' + (room.label || room.roomCode));
+      restore.disabled = placementBusy();
+      restore.addEventListener('click', function () {
+        restoreArchived({
+          roomId: room.roomId,
+          label: room.label || room.roomCode,
+          archiveOperationId: room.archiveOperationId,
+        });
+      });
+      row.appendChild(name);
+      row.appendChild(when);
+      if (state().recovery && state().recovery.roomId === room.roomId && state().recovery.action === 'restore') {
+        var restoreError = document.createElement('p');
+        restoreError.id = 'rf-restore-error-' + room.roomId;
+        restoreError.className = 'rf-error';
+        restoreError.setAttribute('role', 'alert');
+        restoreError.textContent = state().recovery.message;
+        row.appendChild(restoreError);
+        if (!state().recovery.definite) {
+          var restoreRetry = document.createElement('button');
+          restoreRetry.type = 'button';
+          restoreRetry.id = 'rf-restore-retry-' + room.roomId;
+          restoreRetry.textContent = 'Retry this request';
+          restoreRetry.disabled = placementBusy();
+          restoreRetry.addEventListener('click', function () {
+            restoreArchived({
+              roomId: room.roomId,
+              label: room.label || room.roomCode,
+              archiveOperationId: room.archiveOperationId,
+            });
+          });
+          row.appendChild(restoreRetry);
+        }
+      }
+      row.appendChild(restore);
+      details.appendChild(row);
+    });
+    return details;
   }
 
   function moveId(id, toIndex, focusLabel) {
@@ -772,9 +1306,26 @@
     return form;
   }
 
-  function applyServer(server) {
+  function applyServer(server, options) {
     var s = state();
+    var keep = options && options.keepDraft && s.dirty;
+    var kept = keep ? {
+      draftMode: s.draftMode,
+      draftOrder: (s.draftOrder || []).slice(),
+      source: s.source,
+      touched: s.touched,
+    } : null;
     s.server = server;
+    if (kept) {
+      var live = {};
+      ((server && server.catalogue) || []).forEach(function (room) { live[room.roomId] = true; });
+      s.draftMode = kept.draftMode;
+      s.draftOrder = kept.draftOrder.filter(function (id) { return live[id]; });
+      s.source = kept.source;
+      s.touched = kept.touched;
+      s.dirty = true;
+      return;
+    }
     var policy = server && server.policyStatus === 'saved' ? server.policy : server && server.suggestedPolicy;
     s.draftMode = policy && policy.fillMode === 'room' ? 'room' : 'house';
     s.draftOrder = policy && policy.roomPriority ? policy.roomPriority.slice() : [];
@@ -920,7 +1471,10 @@
   }
 
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') dragging = null;
+    if (event.key === 'Escape') {
+      dragging = null;
+      if (state().archiveModal && !state().archivePending) closeDelete();
+    }
     if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
     var active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-room-id]') : null;
     if (!active) return;

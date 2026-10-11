@@ -60,7 +60,7 @@ const {
 } = require('./luna-front-desk-accommodation-availability-service');
 const { validateExplicitBedSelection, rejectIncompatiblePreselectedBeds } = require('./luna-bed-allocator');
 const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./staff-bed-calendar-queries');
-const { resolveBedCalendarRoomRows } = require('./wolfhouse-inventory-source');
+const { resolveBedCalendarRoomRows, loadArchivedRoomCodes, archivedFallbackOptions } = require('./wolfhouse-inventory-source');
 
 const BOOKING_CREATE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
@@ -142,7 +142,8 @@ function roomMismatchFail(reasonCode, extra = {}) {
 async function loadPolicyBedRows(pg, clientSlug) {
   if (!pg) return [];
   const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
-  return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || []);
+  const archived = await loadArchivedRoomCodes(pg, clientSlug);
+  return resolveBedCalendarRoomRows(clientSlug, (bedsRes && bedsRes.rows) || [], archivedFallbackOptions(archived));
 }
 
 function rejectUnsafeAssignedBeds(assignedBedCodes, bedRows, groupGender) {

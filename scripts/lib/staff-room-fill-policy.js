@@ -188,9 +188,16 @@ function boolish(value) {
   return value === true || value === 'true' || value === 't' || value === 1;
 }
 
-function projectCatalogueRows(rows) {
-  const byRoom = new Map();
+function projectCatalogueRows(rows, options) {
+  const allowEmpty = !!(options && options.allowEmpty);
+  const sourceRows = [];
+  const archivedSource = [];
   for (const row of rows || []) {
+    if (row && row.archived_at) archivedSource.push(row);
+    else sourceRows.push(row);
+  }
+  const byRoom = new Map();
+  for (const row of sourceRows) {
     const roomId = row.room_id == null ? '' : String(row.room_id).trim();
     if (!UUID_RE.test(roomId)) {
       return { ok: false, status: 503, error: 'missing_canonical_room_id' };
@@ -253,8 +260,11 @@ function projectCatalogueRows(rows) {
       staticWarnings,
     };
   });
-  if (!rooms.length) return { ok: false, status: 503, error: 'inventory_unavailable' };
-  return { ok: true, rooms };
+  if (!rooms.length) {
+    if (!allowEmpty) return { ok: false, status: 503, error: 'inventory_unavailable' };
+    return { ok: true, rooms: [], archivedRows: archivedSource };
+  }
+  return { ok: true, rooms, archivedRows: archivedSource };
 }
 
 function suggestedPolicy(rooms) {

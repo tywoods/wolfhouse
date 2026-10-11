@@ -23,6 +23,7 @@ const {
 } = require('./staff-room-fill-policy');
 const { previewRoomFill } = require('./staff-room-fill-preview');
 const { createRoomFillInventory, updateRoomFillGender, parseGenderRequest } = require('./staff-room-fill-inventory');
+const { archiveRoomFillRoom, checkRoomArchive, restoreRoomFillRoom } = require('./staff-room-fill-archive');
 
 const ROOM_FILL_PATH = '/staff/luna-intelligence/room-fill';
 const ROOM_FILL_PREVIEW_PATH = '/staff/luna-intelligence/room-fill/preview';
@@ -51,7 +52,9 @@ SELECT
   bd.bed_code,
   bd.bed_number,
   bd.active AS bed_active,
-  bd.sellable AS bed_sellable
+  bd.sellable AS bed_sellable,
+  NULLIF(to_jsonb(r)->>'archived_at', '') AS archived_at,
+  NULLIF(to_jsonb(r)->>'archive_operation_id', '') AS archive_operation_id
 FROM rooms r
 INNER JOIN clients c ON c.id = r.client_id
 LEFT JOIN beds bd ON bd.room_id = r.id AND bd.client_id = r.client_id
@@ -115,6 +118,9 @@ ORDER BY bed_number ASC, bed_code ASC
 `;
 const ROOM_CREATE_PATH = '/staff/luna-intelligence/room-fill/rooms';
 const ROOM_GENDER_PATH_RE = /^\/staff\/luna-intelligence\/room-fill\/rooms\/([^/]+)\/gender$/;
+const ROOM_ARCHIVE_CHECK_RE = /^\/staff\/luna-intelligence\/room-fill\/rooms\/([^/]+)\/archive-check$/;
+const ROOM_ARCHIVE_RE = /^\/staff\/luna-intelligence\/room-fill\/rooms\/([^/]+)\/archive$/;
+const ROOM_RESTORE_RE = /^\/staff\/luna-intelligence\/room-fill\/rooms\/([^/]+)\/restore$/;
 const GENDER_SAVE = Object.freeze({
   female: { genderStrategy: 'Female preferred', roomType: 'female_only' },
   male: { genderStrategy: 'Male preferred', roomType: 'male_only' },
@@ -158,10 +164,30 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
 
   async function loadCatalogue(clientId) {
     const result = await withPgClient((pg) => pg.query(CATALOGUE_SQL, [clientId]));
-    return projectCatalogueRows(result.rows || []);
+    return projectCatalogueRows(result.rows || [], { allowEmpty: true });
   }
 
-  function envelope(row, rooms, storedResult) {
+  function projectArchivedRooms(rows) {
+    const byRoom = new Map();
+    for (const row of rows || []) {
+      const roomId = row.room_id == null ? '' : String(row.room_id);
+      if (!byRoom.has(roomId)) {
+        byRoom.set(roomId, {
+          roomId,
+          roomCode: row.room_code,
+          roomName: row.room_name || '',
+          label: row.room_name || row.room_code,
+          bedCount: 0,
+          archivedAt: row.archived_at,
+          archiveOperationId: row.archive_operation_id || null,
+        });
+      }
+      if (row.bed_id) byRoom.get(roomId).bedCount += 1;
+    }
+    return [...byRoom.values()];
+  }
+
+  function envelope(row, rooms, storedResult, archivedRows) {
     const catalogRevision = catalogRevisionFor(rooms);
     const stored = storedResult && storedResult.ok ? storedResult.policy : null;
     const review = reviewState(stored, rooms);
@@ -185,6 +211,8 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
         .slice()
         .sort((a, b) => (rankOf.get(a.roomId) || 9999) - (rankOf.get(b.roomId) || 9999))
         .map((room) => projectRoom(room, rankOf.get(room.roomId) || null)),
+      archivedRooms: projectArchivedRooms(archivedRows),
+      emptyCatalogue: rooms.length === 0,
       legacyNote: 'This order is not the current booking allocator and is not connected to booking placement.',
     };
   }
@@ -197,7 +225,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
       const catalogue = await loadCatalogue(tenant.row.id);
       if (!catalogue.ok) return fail(res, catalogue.status, catalogue.error);
       const stored = parseStoredPolicy(tenant.row.settings && tenant.row.settings[SETTINGS_KEY]);
-      return sendJSON(res, 200, envelope(tenant.row, catalogue.rooms, stored.ok ? stored : stored));
+      return sendJSON(res, 200, envelope(tenant.row, catalogue.rooms, stored.ok ? stored : stored, catalogue.archivedRows));
     } catch (_) {
       return fail(res, 503, 'inventory_unavailable');
     }
@@ -245,7 +273,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
             return;
           }
           const catalogueResult = await pg.query(CATALOGUE_SQL, [row.id]);
-          const catalogue = projectCatalogueRows(catalogueResult.rows || []);
+          const catalogue = projectCatalogueRows(catalogueResult.rows || [], { allowEmpty: true });
           if (!catalogue.ok) {
             await pg.query('ROLLBACK');
             savedBody = { status: catalogue.status, error: catalogue.error };
@@ -270,7 +298,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
           if (same) {
             await pg.query('COMMIT');
             unchanged = true;
-            savedBody = { status: 200, row, rooms: catalogue.rooms, stored };
+            savedBody = { status: 200, row, rooms: catalogue.rooms, stored, archivedRows: catalogue.archivedRows };
             return;
           }
           if (body.expectedSettingsRevision !== currentRevision) {
@@ -297,6 +325,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
             row: saved || row,
             rooms: catalogue.rooms,
             stored: { ok: true, policy: validated.policy },
+            archivedRows: catalogue.archivedRows,
           };
         } catch (err) {
           try { await pg.query('ROLLBACK'); } catch (_) { /* already closed */ }
@@ -305,7 +334,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
       });
       if (!savedBody) return fail(res, 503, 'inventory_unavailable');
       if (savedBody.error) return fail(res, savedBody.status, savedBody.error);
-      return sendJSON(res, 200, { ...envelope(savedBody.row, savedBody.rooms, savedBody.stored), unchanged });
+      return sendJSON(res, 200, { ...envelope(savedBody.row, savedBody.rooms, savedBody.stored, savedBody.archivedRows), unchanged });
     } catch (_) {
       return fail(res, 503, 'inventory_unavailable');
     }
@@ -402,7 +431,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
         readLockedState: async (locked) => {
           const client = await locked.query(CLIENT_SQL, [tenant.row.id]);
           const catalogue = await locked.query(CATALOGUE_SQL, [tenant.row.id]);
-          const projected = projectCatalogueRows(catalogue.rows || []);
+          const projected = projectCatalogueRows(catalogue.rows || [], { allowEmpty: true });
           if (!projected.ok) throw fail(projected.status, projected.error);
           const stored = parseStoredPolicy(client.rows[0] && client.rows[0].settings && client.rows[0].settings[SETTINGS_KEY]);
           if (!stored.ok) throw fail(stored.status, stored.error);
@@ -436,7 +465,7 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
         bedIds: created.bedIds,
         calendarRoomId: created.roomId,
         calendarBedIds: created.bedIds,
-        ...envelope(freshClient.rows[0], fresh.rooms, freshStored.ok ? freshStored : freshStored),
+        ...envelope(freshClient.rows[0], fresh.rooms, freshStored.ok ? freshStored : freshStored, fresh.archivedRows),
       });
     } catch (err) {
       if (err && err.status) return fail(res, err.status, err.error || err.message);
@@ -463,9 +492,9 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
           const reject = (status, error) => { throw Object.assign(new Error(error), { status, error }); };
           if (!client) reject(404, 'client_not_found');
           if (client.slug !== SUPPORTED_CLIENT_SLUG || (user.client_slug && client.slug !== user.client_slug)) reject(403, 'unsupported_tenant');
-          const catalogue = projectCatalogueRows((await locked.query(CATALOGUE_SQL, [client.id])).rows);
+          const catalogue = projectCatalogueRows((await locked.query(CATALOGUE_SQL, [client.id])).rows, { allowEmpty: true });
           if (!catalogue.ok) reject(catalogue.status, catalogue.error);
-          return { row: client, rooms: catalogue.rooms, stored: parseStoredPolicy(client.settings && client.settings[SETTINGS_KEY]) };
+          return { row: client, rooms: catalogue.rooms, archivedRows: catalogue.archivedRows, stored: parseStoredPolicy(client.settings && client.settings[SETTINGS_KEY]) };
         },
       }));
       if (!result.unchanged && typeof appendAuditLog === 'function') {
@@ -474,13 +503,142 @@ function createRoomFillRoutes({ sendJSON, readBody, withPgClient, appendAuditLog
           old: result.old, new: result.new, old_catalog_revision: parsed.body.expectedCatalogRevision,
           new_catalog_revision: catalogRevisionFor(result.rooms) });
       }
-      return sendJSON(res, 200, { ...envelope(result.row, result.rooms, result.stored), roomId, unchanged: result.unchanged });
+      return sendJSON(res, 200, { ...envelope(result.row, result.rooms, result.stored, result.archivedRows), roomId, unchanged: result.unchanged });
     } catch (err) {
       return fail(res, err.status || 503, err.error || 'room_gender_update_failed');
     }
   }
 
-  return { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut };
+  function mutationInput(user, roomId, body) {
+    return {
+      clientId: user.client_id,
+      roomId,
+      user,
+      body,
+      lockSql: CLIENT_SQL.replace('LIMIT 1', 'LIMIT 1 FOR UPDATE'),
+      saveSql: SAVE_SQL,
+      readLockedState: async (locked) => {
+        const reject = (status, error) => { throw Object.assign(new Error(error), { status, error }); };
+        const client = (await locked.query(CLIENT_SQL, [user.client_id])).rows[0];
+        if (!client) reject(404, 'client_not_found');
+        if (client.slug !== SUPPORTED_CLIENT_SLUG || (user.client_slug && client.slug !== user.client_slug)) {
+          reject(403, 'unsupported_tenant');
+        }
+        const projected = projectCatalogueRows((await locked.query(CATALOGUE_SQL, [client.id])).rows, { allowEmpty: true });
+        if (!projected.ok) reject(projected.status, projected.error);
+        const stored = parseStoredPolicy(client.settings && client.settings[SETTINGS_KEY]);
+        if (!stored.ok) reject(stored.status, stored.error);
+        return {
+          rooms: projected.rooms,
+          policy: stored.policy,
+          revisions: {
+            catalogRevision: catalogRevisionFor(projected.rooms),
+            settingsRevision: stored.policy ? settingsRevisionFor(stored.policy) : null,
+          },
+        };
+      },
+    };
+  }
+
+  async function finishMutation(user, result) {
+    const fresh = await loadCatalogue(user.client_id);
+    if (!fresh.ok) return { error: fresh };
+    const freshClient = await withPgClient((pg) => pg.query(CLIENT_SQL, [user.client_id]));
+    const row = freshClient.rows && freshClient.rows[0];
+    const freshStored = parseStoredPolicy(row && row.settings && row.settings[SETTINGS_KEY]);
+    return {
+      body: {
+        ...envelope(row, fresh.rooms, freshStored.ok ? freshStored : freshStored, fresh.archivedRows),
+        duplicate: result.duplicate === true,
+        action: result.action,
+        roomId: result.roomId,
+        roomCode: result.roomCode || null,
+        archiveOperationId: result.archiveOperationId
+          || (result.action === 'archive' && result.receipt && result.receipt.operation_id)
+          || null,
+        placedAt: result.placedAt || null,
+      },
+    };
+  }
+
+  async function handleRoomFillArchiveCheck(roomId, query, req, res, user) {
+    if (Object.keys(query || {}).length) return fail(res, 400, 'caller_parameters_rejected');
+    try {
+      const tenant = await loadTenant(user);
+      if (tenant.error) return fail(res, tenant.error.status, tenant.error.error);
+      if (!['operator', 'admin', 'owner'].includes(user.role)) return fail(res, 403, 'forbidden');
+      const checked = await withPgClient((pg) => checkRoomArchive(pg, {
+        clientId: tenant.row.id,
+        roomId,
+        user,
+      }));
+      return sendJSON(res, 200, {
+        success: true,
+        eligible: checked.eligible === true,
+        checkFailed: checked.checkFailed === true,
+        blockers: checked.blockers,
+      });
+    } catch (err) {
+      return fail(res, err.status || 503, err.error || 'archive_check_failed');
+    }
+  }
+
+  async function handleRoomFillArchive(roomId, query, req, res, user) {
+    if (Object.keys(query || {}).length) return fail(res, 400, 'caller_parameters_rejected');
+    const origin = originProblem(req);
+    if (origin) return fail(res, 403, origin);
+    const parsed = await readJson(req);
+    if (!parsed.ok) return fail(res, 400, 'invalid_json');
+    try {
+      const tenant = await loadTenant(user);
+      if (tenant.error) return fail(res, tenant.error.status, tenant.error.error);
+      const result = await withPgClient((pg) => archiveRoomFillRoom(pg, mutationInput(user, roomId, parsed.body)));
+      const finished = await finishMutation(user, result);
+      if (finished.error) return fail(res, finished.error.status, finished.error.error);
+      return sendJSON(res, 200, { success: true, archived: true, ...finished.body });
+    } catch (err) {
+      if (err && err.status) {
+        return sendJSON(res, err.status, {
+          success: false,
+          error: err.error || err.message,
+          blockers: err.blockers || [],
+          checkFailed: err.checkFailed === true,
+          activationStatus: ACTIVATION_STATUS,
+        });
+      }
+      return fail(res, 503, 'room_archive_failed');
+    }
+  }
+
+  async function handleRoomFillRestore(roomId, query, req, res, user) {
+    if (Object.keys(query || {}).length) return fail(res, 400, 'caller_parameters_rejected');
+    const origin = originProblem(req);
+    if (origin) return fail(res, 403, origin);
+    const parsed = await readJson(req);
+    if (!parsed.ok) return fail(res, 400, 'invalid_json');
+    try {
+      const tenant = await loadTenant(user);
+      if (tenant.error) return fail(res, tenant.error.status, tenant.error.error);
+      const result = await withPgClient((pg) => restoreRoomFillRoom(pg, mutationInput(user, roomId, parsed.body)));
+      const finished = await finishMutation(user, result);
+      if (finished.error) return fail(res, finished.error.status, finished.error.error);
+      return sendJSON(res, 200, { success: true, restored: true, ...finished.body });
+    } catch (err) {
+      if (err && err.status) return fail(res, err.status, err.error || err.message);
+      return fail(res, 503, 'room_restore_failed');
+    }
+  }
+
+  return {
+    handleRoomFillGet,
+    handleRoomFillPut,
+    handleRoomFillPreview,
+    handleRoomFillCreate,
+    handleRoomFillGenderPut,
+    handleRoomFillArchiveCheck,
+    handleRoomFillArchive,
+    handleRoomFillRestore,
+  };
 }
 
 module.exports = {
@@ -488,5 +646,8 @@ module.exports = {
   ROOM_FILL_PREVIEW_PATH,
   ROOM_CREATE_PATH,
   ROOM_GENDER_PATH_RE,
+  ROOM_ARCHIVE_CHECK_RE,
+  ROOM_ARCHIVE_RE,
+  ROOM_RESTORE_RE,
   createRoomFillRoutes,
 };
