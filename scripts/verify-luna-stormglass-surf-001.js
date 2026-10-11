@@ -131,6 +131,26 @@ async function main() {
     assert.equal(partial.booking_truth.balance_due_cents, 4000);
     assert.equal(partial.needs_human, false);
   });
+  const tideOff = await runStormglassGuestTurn({
+    tenant: 'wolfhouse-somo',
+    message: 'tide forecast Somo today',
+    lang: 'en',
+    intelligenceEnabled: false,
+    forecast: {
+      coverage: 'partial',
+      missing_fields: ['tide_height_m'],
+      location: { label: 'Somo', location_id: 'wolfhouse-somo' },
+      source: 'stormglass',
+      retrieved_at: '2026-10-24T08:00:00.000Z',
+      hourly: [{ wave_height_m: 1.1, tide_height_m: null }],
+    },
+  });
+  check('SGS9b missing tide remains explicit but Intelligence OFF makes zero fallback calls', () => {
+    assert.deepEqual(tideOff.trace.public_research_fields, []);
+    assert.equal(tideOff.trace.public_research_calls, 0);
+    assert.equal(tideOff.forecast.missing_fields[0], 'tide_height_m');
+    assert.equal(tideOff.needs_human, false);
+  });
   const quota = await runStormglassGuestTurn({
     tenant: 'sunset',
     locationId: 'sunset-somo',
@@ -144,6 +164,6 @@ async function main() {
     assert.equal(quota.needs_human, false);
     assert.equal(quota.invented_forecast, false);
   });
-  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/10)`);
+  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/11)`);
 }
 main().catch((err) => { console.error(err); process.exitCode = 1; });

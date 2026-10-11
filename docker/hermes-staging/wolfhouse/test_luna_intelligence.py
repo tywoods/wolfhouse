@@ -136,5 +136,28 @@ class IntelligenceTests(unittest.TestCase):
             self.assertEqual(worker.call_count, 1)
             li.clear_guest_turn()
 
+    def test_missing_tide_falls_back_only_when_intelligence_is_on(self):
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp', user_id='synthetic-user', chat_id='synthetic-chat')
+        enabled = {'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}
+        fixture = {'success': True, 'results': [{'url': 'https://example.org/tides', 'title': 'Tides', 'description': 'Current tide forecast'}]}
+        with patch.dict(os.environ, env), patch.object(li, 'fetch_setting', return_value=enabled), patch.object(li, 'run_bounded', return_value=fixture) as worker:
+            li.bind_guest_turn(source)
+            li.record_stormglass_result({'coverage': 'partial', 'missing_fields': ['tide_height_m'], 'source': 'stormglass'})
+            result = json.loads(li.search_public_info({'query': 'tide forecast Somo today'}))
+            self.assertTrue(result['success'])
+            self.assertEqual(worker.call_count, 1)
+            li.clear_guest_turn()
+        disabled = {'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': False}
+        with patch.dict(os.environ, env), patch.object(li, 'fetch_setting', return_value=disabled), patch.object(li, 'run_bounded') as worker:
+            li.bind_guest_turn(source)
+            li.record_stormglass_result({'coverage': 'partial', 'missing_fields': ['tide_height_m'], 'source': 'stormglass'})
+            result = json.loads(li.search_public_info({'query': 'tide forecast Somo today'}))
+            self.assertEqual(result['error'], 'intelligence_off')
+            worker.assert_not_called()
+            li.clear_guest_turn()
+
 if __name__ == '__main__':
     unittest.main()
