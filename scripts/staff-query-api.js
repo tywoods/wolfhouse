@@ -20902,6 +20902,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .bc-chips{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin}
 #tab-bed-calendar .bc-chip{flex:0 0 auto}
 #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{content:'';flex:0 0 50%}
+@media (max-width:768px){
+  #tab-bed-calendar .bc-chips::before,#tab-bed-calendar .bc-chips::after{display:none}
+}
 /* Compact bed column: apply outside the mobile-only block, including fixed-layout desktop tables. */
 #tab-bed-calendar .bc-bed-cell.bc-bed-col{white-space:nowrap;width:44px;min-width:44px;max-width:44px;box-sizing:border-box;text-align:center}
 #tab-bed-calendar .bc-grid thead th.bc-bed-head{min-width:44px;width:44px;box-sizing:border-box}
@@ -23797,7 +23800,8 @@ button.inbox-chat-guest-name:hover{opacity:.82}
 @media(max-width:768px){
   #bc-drawer-card-booking #bc-field-group-contact .ctx-field-kv-grid{grid-template-columns:minmax(0,1fr)}
   #bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) button,.bc-drawer-file-tabs > .bc-drawer-tabs button,.bc-drawer-overview-panel > .bc-drawer-overview-card > .bc-card-collapse,.booking-body-content button{min-height:44px;min-width:44px}
-  #bc-drawer-card-booking :is(#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .ctx-field-read-row .ctx-field-header{width:44px}
+  #bc-drawer-card-booking :is(#bc-field-group-guests,#bc-field-group-contact,#bc-field-group-dates,#bc-field-group-package) .btn-bc-field-edit{width:28px;height:28px;min-width:28px;min-height:28px;font-size:18px;border-width:1px}
+  #bc-drawer-card-booking .ctx-field-read-row .ctx-field-header{width:28px}
 }
 </style>
 </head>
