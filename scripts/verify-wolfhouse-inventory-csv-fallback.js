@@ -72,6 +72,12 @@ test('complete canonical catalogue bypasses fallback at the existing threshold',
   assert.deepEqual(resolve(SLUG, rows.concat(demo)), rows);
 });
 
+test('archived CSV room codes stay out of fallback, including an empty PG result', () => {
+  assert.equal(resolve(SLUG, [], { archivedRoomCodes: ['R1'] }).some((row) => row.room_code === 'R1'), false);
+  assert.equal(resolve(SLUG, [], { archiveLookupFailed: true }).length, 0);
+  assert.ok(resolve(SLUG, []).some((row) => row.room_code === 'R1'));
+});
+
 test('non-Wolfhouse inventory is returned unchanged, including demo rows', () => {
   const rows = canonicalRows(2).concat({ room_code: 'DEMO-R1', bed_id: null });
   assert.strictEqual(resolve('sunset', rows), rows);
@@ -122,6 +128,9 @@ async function fixture() {
     const emptyQueries = new Set([queries.getBedCalendarBlocksQuery(), queries.getBedCalendarSummaryQuery(), 'fixture-empty-accent']);
     const calendarPg = { query(sql, args) {
       if (emptyQueries.has(sql)) return Promise.resolve({ rows: [] });
+      if (String(sql).includes('room-archive-codes') || String(sql).includes('room-archive-history')) {
+        return Promise.resolve({ rows: [] });
+      }
       assert.equal(sql, queries.getBedCalendarRoomsQuery(), 'unexpected calendar SQL');
       return db.query(sql, args);
     } };

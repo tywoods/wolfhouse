@@ -218,6 +218,9 @@ const {
   ROOM_FILL_PREVIEW_PATH,
   ROOM_CREATE_PATH,
   ROOM_GENDER_PATH_RE,
+  ROOM_ARCHIVE_CHECK_RE,
+  ROOM_ARCHIVE_RE,
+  ROOM_RESTORE_RE,
   createRoomFillRoutes,
 } = require('./lib/staff-room-fill-routes');
 const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
@@ -733,6 +736,7 @@ const {
   getBedCalendarRoomsQuery,
   getBedCalendarBlocksQuery,
   getBedCalendarSummaryQuery,
+  getArchivedHistoryRoomsQuery,
 } = require('./lib/staff-bed-calendar-queries');
 const {
   annotateCalendarBlocks,
@@ -745,6 +749,8 @@ const {
   resolveBedCalendarRoomRows,
   filterDemoCalendarBlocks,
   isWolfhouseInventoryClient,
+  loadArchivedRoomCodes,
+  archivedFallbackOptions,
 } = require('./lib/wolfhouse-inventory-source');
 const {
   getBookingDetailQuery,
@@ -2683,7 +2689,7 @@ const {
 const { handleLunaIntelligenceGet, handleLunaIntelligencePut } = createLunaIntelligenceRoutes({
   sendJSON, readBody, withPgClient,
 });
-const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut } = createRoomFillRoutes({
+const { handleRoomFillGet, handleRoomFillPut, handleRoomFillPreview, handleRoomFillCreate, handleRoomFillGenderPut, handleRoomFillArchiveCheck, handleRoomFillArchive, handleRoomFillRestore } = createRoomFillRoutes({
   sendJSON, readBody, withPgClient, appendAuditLog,
 });
 
@@ -38151,6 +38157,12 @@ function renderBedCalendar(data){
 
   /* Display order R1–R10 (natural numeric room_code); fill_priority unchanged for assignment */
   rooms = bcSortRoomsForDisplay(rooms);
+  var historyRooms = (data.archivedHistoryRooms || []).map(function(room) {
+    room.history_only = true;
+    room.history_label = room.history_label || 'Archived — history only';
+    return room;
+  });
+  rooms = rooms.concat(historyRooms);
 
   /* SCHEDULE-GROUP-BOOKING-UI-001 — mark multi-room groups; pebble stays on bars.
      SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — do not insert an above-room banner. */
@@ -38197,6 +38209,7 @@ function renderBedCalendar(data){
     var roomLabel = escHtml(rcMatch ? 'Room ' + rcMatch[1] : (rnMatch ? 'Room ' + rnMatch[1] : room.room_code));
     /* Only append a real human room name — never another R# code. */
     if (room.room_name && room.room_name !== room.room_code && !rnMatch) roomLabel += ' &mdash; ' + escHtml(room.room_name);
+    if (room.history_only) roomLabel += ' <span class="bc-history-label">Archived — history only</span>';
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
     var metaHtml = ' <span style="' + metaStyle + '">' + escHtml(bcFormatRoomMetaLabel(room)) + '</span>';
     var hideBtn = ' <button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
@@ -38249,7 +38262,11 @@ function renderBedCalendar(data){
         var segsAt = daySegments[pos] || [];
         if (segsAt.length === 0){
           var _diEmpty = (days[pos] || {}).date || '';
-          html += '<td class="bc-day-cell" data-date="' + _diEmpty + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+          if (room.history_only) {
+            html += '<td class="bc-day-cell bc-history-cell"></td>';
+          } else {
+            html += '<td class="bc-day-cell" data-date="' + _diEmpty + '" data-room="' + escHtml(_rc) + '" data-bed="' + escHtml(_bc) + '"></td>';
+          }
           pos++;
           continue;
         }
@@ -52573,8 +52590,33 @@ async function handleBedCalendar(query, res, user) {
     return sendJSON(res, 500, { success: false, error: 'query failed', detail: err.message });
   }
 
-  roomRows = resolveBedCalendarRoomRows(clientSlug, roomRows);
+  const canonicalRoomRows = roomRows;
+  roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows);
   blockRows = filterDemoCalendarBlocks(blockRows);
+  let archivedHistoryRooms = [];
+  if (isWolfhouseInventoryClient(clientSlug)) {
+    try {
+      const archiveState = await withPgClient(async (pg) => {
+        const loaded = await loadArchivedRoomCodes(pg, clientSlug);
+        let history = [];
+        try {
+          history = (await pg.query(getArchivedHistoryRoomsQuery(), [clientSlug, startISO, endISO])).rows || [];
+        } catch (_) {
+          history = [];
+        }
+        return { loaded, history };
+      });
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, archivedFallbackOptions(archiveState.loaded));
+      archivedHistoryRooms = buildRoomHierarchy(archiveState.history).map((room) => ({
+        ...room,
+        history_only: true,
+        history_label: 'Archived — history only',
+        allocation_enabled: false,
+      }));
+    } catch (_) {
+      roomRows = resolveBedCalendarRoomRows(clientSlug, canonicalRoomRows, { archiveLookupFailed: true });
+    }
+  }
 
   let calendarGuestRows = [];
   const calendarBookingIds = [...new Set(blockRows.map((row) => row.booking_id).filter(Boolean))];
@@ -52645,6 +52687,7 @@ async function handleBedCalendar(query, res, user) {
     end:          endISO,
     days,
     rooms,
+    archivedHistoryRooms,
     blocks,
     summary:      summaryRows,
     warnings:     [],
@@ -53104,9 +53147,11 @@ async function handleTourOperatorRooms(query, res, user) {
   const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   try {
-    const roomRows = await withPgClient((pg) =>
-      pg.query(getBedCalendarRoomsQuery(), [clientSlug]).then((r) => r.rows));
-    const rooms = buildRoomHierarchy(resolveBedCalendarRoomRows(clientSlug, roomRows));
+    const rooms = buildRoomHierarchy(await withPgClient(async (pg) => {
+      const roomRows = (await pg.query(getBedCalendarRoomsQuery(), [clientSlug])).rows;
+      const archived = await loadArchivedRoomCodes(pg, clientSlug);
+      return resolveBedCalendarRoomRows(clientSlug, roomRows, archivedFallbackOptions(archived));
+    }));
     return sendJSON(res, 200, {
       success: true,
       client_slug: clientSlug,
@@ -56730,6 +56775,24 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleLunaIntelligenceGet(parsed.query, req, res, auth.user);
+  }
+  const roomArchiveCheck = pathname.match(ROOM_ARCHIVE_CHECK_RE);
+  if (roomArchiveCheck && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillArchiveCheck(roomArchiveCheck[1], parsed.query, req, res, auth.user);
+  }
+  const roomArchive = pathname.match(ROOM_ARCHIVE_RE);
+  if (roomArchive && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillArchive(roomArchive[1], parsed.query, req, res, auth.user);
+  }
+  const roomRestore = pathname.match(ROOM_RESTORE_RE);
+  if (roomRestore && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleRoomFillRestore(roomRestore[1], parsed.query, req, res, auth.user);
   }
   const roomGenderMatch = pathname.match(ROOM_GENDER_PATH_RE);
   if (roomGenderMatch && method === 'PUT') {

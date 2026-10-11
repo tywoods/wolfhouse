@@ -213,18 +213,45 @@ function csvInventoryToBedCalendarRows(inventory) {
  * Resolve bed-calendar room rows for Wolfhouse: drop DEMO rooms; fall back to CSV
  * for absent rooms when PG has fewer than MIN_REAL_ROOMS real rooms.
  */
-function resolveBedCalendarRoomRows(clientSlug, pgRows) {
+function resolveBedCalendarRoomRows(clientSlug, pgRows, options) {
+  const opts = options || {};
   if (!isWolfhouseInventoryClient(clientSlug)) return pgRows || [];
-  const filtered = filterDemoRoomRows(pgRows);
+  const excluded = new Set(opts.archivedRoomCodes || []);
+  const filtered = filterDemoRoomRows(pgRows).filter((row) => !excluded.has(row.room_code));
+  if (opts.archiveLookupFailed === true) return filtered;
   if (countDistinctRooms(filtered) >= MIN_REAL_ROOMS) return filtered;
   const inv = loadWolfhouseInventoryFromCsv();
   if (!inv.rooms.length) return filtered;
   // Canonical rooms own their entire bed set and metadata, even with no active
   // beds. Mixing CSV beds into an existing room can drop saved beds or invent
   // ghost beds; fallback is only for room codes absent from the PG result.
+  // Archived codes stay excluded even when PG returns no active rows.
   const known = new Set(filtered.map((row) => row.room_code).filter(Boolean));
-  const fallback = csvInventoryToBedCalendarRows(inv).filter((row) => !known.has(row.room_code));
+  const fallback = csvInventoryToBedCalendarRows(inv).filter((row) => !known.has(row.room_code) && !excluded.has(row.room_code));
   return filtered.concat(fallback);
+}
+
+async function loadArchivedRoomCodes(pg, clientSlug) {
+  if (!isWolfhouseInventoryClient(clientSlug)) return { ok: true, codes: [] };
+  if (!pg || typeof pg.query !== 'function') return { ok: false, error: 'archive_lookup_unavailable' };
+  try {
+    const result = await pg.query(`
+      SELECT r.room_code
+        FROM rooms r
+        INNER JOIN clients c ON c.id = r.client_id
+       WHERE c.slug = $1
+         AND COALESCE(to_jsonb(r)->>'archived_at', '') <> ''
+      /* room-archive-codes */
+    `, [clientSlug]);
+    return { ok: true, codes: (result.rows || []).map((row) => row.room_code).filter(Boolean) };
+  } catch (err) {
+    return { ok: false, error: err && err.message };
+  }
+}
+
+function archivedFallbackOptions(loaded) {
+  if (!loaded || loaded.ok !== true) return { archiveLookupFailed: true };
+  return { archivedRoomCodes: loaded.codes || [] };
 }
 
 function filterDemoCalendarBlocks(blockRows) {
@@ -284,6 +311,8 @@ module.exports = {
   filterDemoRoomRows,
   filterDemoCalendarBlocks,
   resolveBedCalendarRoomRows,
+  loadArchivedRoomCodes,
+  archivedFallbackOptions,
   csvInventoryToBedCalendarRows,
   wolfhouseExcludeDemoRoomsSql,
   wolfhouseExcludeDemoBookingsSql,

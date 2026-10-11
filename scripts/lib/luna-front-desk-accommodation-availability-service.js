@@ -25,6 +25,8 @@ const {
 const {
   resolveBedCalendarRoomRows,
   filterDemoCalendarBlocks,
+  loadArchivedRoomCodes,
+  archivedFallbackOptions,
 } = require('./wolfhouse-inventory-source');
 
 const AVAILABILITY_CHANNELS = Object.freeze({
@@ -520,7 +522,8 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
   if (command.demoCalendarEnrichment !== false) {
     // A saved policy belongs to real inventory; never add unranked CSV/disabled rooms.
     if (!hasSavedFillPolicy) {
-      bedRows = resolveBedCalendarRoomRows(command.clientSlug, bedRows);
+      const archived = await loadArchivedRoomCodes(pg, command.clientSlug);
+      bedRows = resolveBedCalendarRoomRows(command.clientSlug, bedRows, archivedFallbackOptions(archived));
     }
     blockRows = filterDemoCalendarBlocks(blockRows);
   }
