@@ -1298,8 +1298,10 @@
     } : null;
     s.server = server;
     if (kept) {
+      var live = {};
+      ((server && server.catalogue) || []).forEach(function (room) { live[room.roomId] = true; });
       s.draftMode = kept.draftMode;
-      s.draftOrder = kept.draftOrder;
+      s.draftOrder = kept.draftOrder.filter(function (id) { return live[id]; });
       s.source = kept.source;
       s.touched = kept.touched;
       s.dirty = true;

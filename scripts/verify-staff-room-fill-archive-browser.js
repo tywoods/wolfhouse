@@ -303,8 +303,25 @@ async function main() {
 
     const draftPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     let draftAttempts = 0;
+    const draftPuts = [];
     await draftPage.route('**/staff/luna-intelligence/room-fill**', async (route) => {
       const request = route.request();
+      if (request.method() === 'PUT') {
+        const posted = JSON.parse(request.postData() || '{}');
+        draftPuts.push(posted);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...envelope,
+            success: true,
+            catalogue: envelope.catalogue.filter((room) => room.roomId !== R11),
+            policy: { ...envelope.policy, fillMode: posted.fillMode, roomPriority: posted.roomPriority },
+            policyStatus: 'saved',
+          }),
+        });
+        return;
+      }
       if (request.url().includes('/archive-check')) {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, eligible: true, checkFailed: false, blockers: [] }) });
         return;
@@ -338,14 +355,32 @@ async function main() {
     await draftPage.locator('input[name="staff-room-fill-mode"][value="room"]').check();
     await draftPage.locator('#rf-archive-retry').click();
     await draftPage.waitForFunction(() => window.__roomFillState && window.__roomFillState.archivePending === false);
-    const draftLeft = await draftPage.evaluate(() => ({
+    const draftLeft = await draftPage.evaluate((archivedId) => ({
       mode: window.__roomFillState.draftMode,
       dirty: window.__roomFillState.dirty,
+      order: window.__roomFillState.draftOrder.slice(),
       checked: document.querySelector('input[name="staff-room-fill-mode"][value="room"]').checked,
       status: document.getElementById('staff-room-fill-status').textContent,
+      showsArchived: document.getElementById('staff-room-fill').innerText.includes(archivedId),
+    }), R11);
+    if (draftLeft.mode !== 'room' || draftLeft.dirty !== true || draftLeft.checked !== true || !draftLeft.status.includes('Unsaved settings') || draftLeft.order.indexOf(R11) !== -1 || draftLeft.order.indexOf(R2) === -1 || draftLeft.showsArchived) {
+      throw new Error('retry did not keep a saveable fill draft ' + JSON.stringify(draftLeft));
+    }
+    await draftPage.locator('#staff-room-fill-save').click();
+    await draftPage.waitForFunction(() => {
+      const status = document.getElementById('staff-room-fill-status');
+      return status && status.textContent.indexOf('Placement settings saved.') !== -1;
+    });
+    if (draftPuts.length !== 1 || draftPuts[0].fillMode !== 'room' || draftPuts[0].roomPriority.indexOf(R11) !== -1 || draftPuts[0].roomPriority.indexOf(R2) === -1) {
+      throw new Error('save did not send the reconciled draft ' + JSON.stringify(draftPuts));
+    }
+    const saved = await draftPage.evaluate(() => ({
+      mode: window.__roomFillState.draftMode,
+      dirty: window.__roomFillState.dirty,
+      status: document.getElementById('staff-room-fill-status').textContent,
     }));
-    if (draftLeft.mode !== 'room' || draftLeft.dirty !== true || draftLeft.checked !== true || !draftLeft.status.includes('Unsaved settings')) {
-      throw new Error('retry replaced unsaved fill draft ' + JSON.stringify(draftLeft));
+    if (saved.mode !== 'room' || saved.dirty !== false || saved.status.indexOf('Unsaved settings') !== -1) {
+      throw new Error('save did not clear the retained draft ' + JSON.stringify(saved));
     }
     await draftPage.close();
     console.log(JSON.stringify({ ok: true, out: OUT, restoreOperationId: restoreBodies[0], lateLoads: 4, frozenRetry: true, scopedIds: true, draftKept: true }));
