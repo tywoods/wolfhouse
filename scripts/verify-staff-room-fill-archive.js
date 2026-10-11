@@ -215,6 +215,45 @@ async function main() {
       },
       omit: R11,
     })), (err) => err.status === 409);
+    await assert.rejects(() => restoreRoomFillRoom(client, input({
+      operationId: 'op-restore-empty-11',
+      expectedArchiveOperationId: 'op-archive-again',
+      expectedSettingsRevision: settingsRevisionFor(afterAgain),
+      expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+    }, {
+      policy: afterAgain,
+      revisions: {
+        settingsRevision: settingsRevisionFor(afterAgain),
+        catalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+      },
+      omit: R11,
+    })), (err) => err.error === 'operation_conflict');
+    const secondRestore = await restoreRoomFillRoom(client, input({
+      operationId: 'op-restore-second-11',
+      expectedArchiveOperationId: 'op-archive-again',
+      expectedSettingsRevision: settingsRevisionFor(afterAgain),
+      expectedCatalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+    }, {
+      policy: afterAgain,
+      revisions: {
+        settingsRevision: settingsRevisionFor(afterAgain),
+        catalogRevision: catalogRevisionFor(rooms().filter((room) => room.roomId !== R11)),
+      },
+      omit: R11,
+    }));
+    assert.equal(secondRestore.action, 'restore');
+    const afterSecond = (await client.query('SELECT settings FROM clients WHERE id = $1', [CLIENT])).rows[0].settings.luna_room_fill_policy;
+    await archiveRoomFillRoom(client, input({
+      operationId: 'op-archive-admission',
+      expectedSettingsRevision: settingsRevisionFor(afterSecond),
+      expectedCatalogRevision: catalogRevisionFor(rooms()),
+    }, {
+      policy: afterSecond,
+      revisions: {
+        catalogRevision: catalogRevisionFor(rooms()),
+        settingsRevision: settingsRevisionFor(afterSecond),
+      },
+    }));
 
     await assert.rejects(() => client.query(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [BOOKING]), /archived_room_admission/);
     const live = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01';
@@ -222,6 +261,15 @@ async function main() {
       VALUES ($1, $2, 'C-1', 'confirmed', CURRENT_DATE, CURRENT_DATE + 2)`, [live, CLIENT]);
     await assert.rejects(() => client.query(`INSERT INTO booking_beds (client_id, booking_id, bed_id, assignment_start_date, assignment_end_date, assignment_type)
       VALUES ($1, $2, $3, CURRENT_DATE, CURRENT_DATE + 2, 'guest')`, [CLIENT, live, B1]), /archived_room_admission/);
+    const coded = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    await assert.rejects(() => client.query(`INSERT INTO bookings (id, client_id, booking_code, status, assignment_status, check_in, check_out, primary_room_code)
+      VALUES ($1, $2, 'P-1', 'confirmed', 'assigned', CURRENT_DATE, CURRENT_DATE + 3, 'R11')`, [coded, CLIENT]), /archived_room_admission/);
+    const dated = '99999999-9999-4999-8999-999999999999';
+    await client.query(`INSERT INTO bookings (id, client_id, booking_code, status, assignment_status, check_in, check_out, primary_room_code)
+      VALUES ($1, $2, 'D-1', 'confirmed', 'unassigned', CURRENT_DATE - 4, CURRENT_DATE - 1, 'R11')`, [dated, CLIENT]);
+    await assert.rejects(() => client.query(`UPDATE bookings SET check_out = CURRENT_DATE + 2 WHERE id = $1`, [dated]), /archived_room_admission/);
+    assert.match(migration, /UPDATE OF status, room_to_block_id, primary_room_code, check_in, check_out, assignment_status/);
+    assert.match(migration, /BEFORE INSERT OR UPDATE\s+ON booking_beds/);
 
     const user = { client_id: CLIENT, client_slug: 'wolfhouse-somo', role: 'operator', staff_user_id: 'staff-1' };
     const routes = createRoomFillRoutes({

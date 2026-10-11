@@ -84,7 +84,54 @@ async function main() {
       if (await page.locator('#rf-delete-modal').count()) throw new Error('escape did not close');
       await page.close();
     }
-    console.log(JSON.stringify({ ok: true, out: OUT }));
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    let releaseRestore;
+    const restoreBodies = [];
+    await page.route('**/staff/luna-intelligence/room-fill**', async (route) => {
+      const request = route.request();
+      if (request.url().includes('/restore')) {
+        const posted = JSON.parse(request.postData() || '{}');
+        restoreBodies.push(posted.operationId);
+        if (!releaseRestore) await new Promise((resolve) => { releaseRestore = resolve; });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...envelope,
+            catalogue: [{ roomId: R11, roomCode: 'R11', roomNumber: 11, capacity: 4, active: true, label: 'Room 11', genderLabel: 'Mixed' }],
+            archivedRooms: [],
+            policy: { ...envelope.policy, roomPriority: [R11] },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...envelope,
+          catalogue: [{ roomId: R2, roomCode: 'R2', roomNumber: 2, capacity: 2, active: true, label: 'Room 2', genderLabel: 'Mixed' }],
+          archivedRooms: [{ roomId: R11, roomCode: 'R11', label: 'Room 11', bedCount: 4, archivedAt: '2026-10-10T10:00:00Z', archiveOperationId: 'op-archive-a' }],
+          policy: { ...envelope.policy, roomPriority: [R2] },
+        }),
+      });
+    });
+    await page.goto(`http://127.0.0.1:${port}/?theme=light`, { waitUntil: 'networkidle' });
+    await page.locator('#rf-deleted-rooms').locator('summary').click();
+    await page.getByRole('button', { name: 'Restore Room 11' }).click();
+    await page.waitForFunction(() => window.__roomFillState && window.__roomFillState.archivePending === true);
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('staff-disclosure-context', { detail: { client: 'sunset', key: 'sunset' } }));
+    });
+    releaseRestore();
+    await page.waitForTimeout(300);
+    const leaked = await page.locator('#staff-room-fill').innerText();
+    if (leaked.includes('Room 11') && !leaked.includes('Could not load')) {
+      throw new Error('late restore painted Wolfhouse rooms after Sunset: ' + leaked.slice(0, 180));
+    }
+    if (restoreBodies.length !== 1) throw new Error('restore did not send one operation');
+    await page.close();
+    console.log(JSON.stringify({ ok: true, out: OUT, restoreOperationId: restoreBodies[0] }));
   } finally {
     await browser.close();
     server.close();

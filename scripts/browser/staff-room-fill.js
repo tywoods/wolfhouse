@@ -894,6 +894,27 @@
     });
   }
 
+  function nextOperationId(prefix) {
+    return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function retainedOperationId(bucket, key, prefix) {
+    var s = state();
+    if (!s[bucket]) s[bucket] = {};
+    if (!s[bucket][key]) s[bucket][key] = nextOperationId(prefix);
+    return s[bucket][key];
+  }
+
+  function clearRetainedOperation(bucket, key) {
+    var s = state();
+    if (s[bucket]) delete s[bucket][key];
+  }
+
+  function stillThisScreen(s, generation) {
+    return currentState(s) && generation === s.restoreGeneration
+      && (!admittedContext || admittedContext.client === 'wolfhouse-somo');
+  }
+
   function restoreArchived(item) {
     var s = state();
     if (placementBusy() || !item) return;
@@ -902,12 +923,14 @@
       return;
     }
     var server = s.server || {};
+    var opKey = item.roomId + ':' + (item.archiveOperationId || '');
     var payload = {
-      operationId: item.operationId,
+      operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
       expectedArchiveOperationId: item.archiveOperationId,
       expectedSettingsRevision: server.settingsRevision || null,
       expectedCatalogRevision: server.catalogRevision,
     };
+    var generation = s.restoreGeneration = (s.restoreGeneration || 0) + 1;
     s.archivePending = true;
     paint();
     fetch('/staff/luna-intelligence/room-fill/rooms/' + encodeURIComponent(item.roomId) + '/restore', {
@@ -918,18 +941,29 @@
     }).then(function (res) {
       return res.json().then(function (body) { return { status: res.status, body: body }; });
     }).then(function (res) {
+      if (!stillThisScreen(s, generation)) return;
       s.archivePending = false;
       if (!res.body || res.body.success !== true) {
-        s.archiveNotice = 'Could not restore the room.';
+        if (!(res.status >= 400 && res.status < 500)) {
+          s.archiveNotice = 'Could not confirm restore. Refresh or retry this request.';
+        } else {
+          clearRetainedOperation('restoreOps', opKey);
+          s.archiveNotice = 'Could not restore the room.';
+        }
         paint();
         return;
       }
+      clearRetainedOperation('restoreOps', opKey);
       s.archiveUndo = null;
+      s.archiveNotice = null;
       applyServer(res.body);
       paint();
       say(item.label + ' restored' + (res.body.placedAt ? ' at priority ' + res.body.placedAt : '') + '.');
-      if (typeof bcInvalidateBedCalendar === 'function') bcInvalidateBedCalendar();
+      if (document.documentElement.getAttribute('data-portal-client') !== 'sunset' && typeof bcInvalidateBedCalendar === 'function') {
+        bcInvalidateBedCalendar();
+      }
     }).catch(function () {
+      if (!stillThisScreen(s, generation)) return;
       s.archivePending = false;
       s.archiveNotice = 'Could not confirm restore. Refresh or retry this request.';
       paint();
@@ -1039,7 +1073,6 @@
           roomId: room.roomId,
           label: room.label || room.roomCode,
           archiveOperationId: room.archiveOperationId,
-          operationId: 'op-restore-' + room.roomId,
         });
       });
       row.appendChild(name);

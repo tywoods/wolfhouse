@@ -117,7 +117,7 @@ $$;
 
 DROP TRIGGER IF EXISTS zz_booking_beds_reject_archived_admission_trg ON booking_beds;
 CREATE TRIGGER zz_booking_beds_reject_archived_admission_trg
-  BEFORE INSERT OR UPDATE OF booking_id, client_id, bed_id, assignment_start_date, assignment_end_date
+  BEFORE INSERT OR UPDATE
   ON booking_beds
   FOR EACH ROW
   EXECUTE PROCEDURE public.booking_beds_reject_archived_room();
@@ -156,6 +156,33 @@ BEGIN
     END IF;
   END IF;
 
+  IF NEW.primary_room_code IS NOT NULL AND btrim(NEW.primary_room_code) <> '' THEN
+    FOR rec IN
+      SELECT bd.id AS bed_id
+        FROM rooms r
+        JOIN beds bd ON bd.room_id = r.id
+       WHERE r.client_id = NEW.client_id
+         AND r.room_code = NEW.primary_room_code
+         AND r.archived_at IS NOT NULL
+       ORDER BY bd.id
+    LOOP
+      PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('bed', rec.bed_id));
+    END LOOP;
+    SELECT r.archived_at INTO room_archived
+      FROM rooms r
+     WHERE r.client_id = NEW.client_id
+       AND r.room_code = NEW.primary_room_code
+     ORDER BY r.archived_at DESC NULLS LAST
+     LIMIT 1;
+    IF room_archived IS NOT NULL AND (
+         NEW.check_out > (now() AT TIME ZONE 'Europe/Madrid')::date
+         OR NEW.status::text = 'checked_in'
+         OR COALESCE(NEW.assignment_status::text, '') IN ('assigned', 'assigning', 'needs_review')
+       ) THEN
+      RAISE EXCEPTION 'archived_room_admission';
+    END IF;
+  END IF;
+
   FOR rec IN
     SELECT bb.bed_id
       FROM booking_beds bb
@@ -178,7 +205,7 @@ $$;
 
 DROP TRIGGER IF EXISTS zz_bookings_reject_archived_admission_trg ON bookings;
 CREATE TRIGGER zz_bookings_reject_archived_admission_trg
-  BEFORE INSERT OR UPDATE OF status, room_to_block_id
+  BEFORE INSERT OR UPDATE OF status, room_to_block_id, primary_room_code, check_in, check_out, assignment_status
   ON bookings
   FOR EACH ROW
   EXECUTE PROCEDURE public.bookings_reject_archived_room_admission();
