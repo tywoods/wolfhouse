@@ -314,6 +314,45 @@ def _stormglass_public_block(params):
     return None
 
 
+def deterministic_tide_fallback(message_text, day, location):
+    """Resolve a guest-requested missing tide fact without relying on model tool choice."""
+    if 'tide_height_m' not in _asked_forecast_fields(message_text):
+        return None
+    turn = _current.get()
+    tenant = getattr(turn, 'tenant', '') if turn is not None and not turn.closed else ''
+    label = str((location or {}).get('label') or '').strip()
+    if tenant == 'wolfhouse-somo':
+        place = 'Somo Cantabria'
+    elif tenant == 'sunset':
+        place = re.sub(r'[^A-Za-zÀ-ÿ0-9 .-]', '', label)[:60] or 'Santander Cantabria'
+    else:
+        return json.loads(failure('intelligence_off'))
+    requested_day = 'tomorrow' if str(day).strip().lower() == 'tomorrow' else 'today'
+    searched = json.loads(search_public_info({'query': f'{place} tide times {requested_day}'}))
+    if searched.get('success') is not True:
+        return searched
+    for source in searched.get('sources', [])[:3]:
+        source_id = source.get('source_id') if isinstance(source, dict) else None
+        if not source_id:
+            continue
+        read = json.loads(read_public_source({'source_id': source_id}))
+        if read.get('success') is True:
+            return {
+                'success': True,
+                'source': {
+                    'source_id': source_id,
+                    'url': read.get('url') or source.get('url'),
+                    'title': source.get('title'),
+                    'retrieved_at': read.get('retrieved_at'),
+                },
+                'content': read.get('content'),
+                'untrusted_content_warning': read.get('untrusted_content_warning'),
+                'guidance': ('Use only tide times/heights explicitly present in this public source. '
+                             'Name the public source; never attribute these facts to Stormglass.'),
+            }
+    return json.loads(failure('public_source_unavailable'))
+
+
 def search_public_info(params, **kwargs):
     blocked = _stormglass_public_block(params)
     if blocked:

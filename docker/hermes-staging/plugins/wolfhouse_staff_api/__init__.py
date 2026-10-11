@@ -1723,7 +1723,28 @@ def get_surf_report(params, **kwargs):
         record_stormglass_result(recorded)
     except Exception:
         pass
+    public_tide_fallback = None
+    hourly = data.get("hourly") if isinstance(data.get("hourly"), list) else []
+    has_tide_data = any(isinstance(row, dict) and row.get("tide_height_m") is not None
+                        for row in hourly)
+    if "tide_height_m" in (data.get("missing_fields") or []) or not has_tide_data:
+        try:
+            from wolfhouse.luna_intelligence import deterministic_tide_fallback
+            public_tide_fallback = deterministic_tide_fallback(
+                payload.get("message_text"), data.get("day") or payload["day"], location)
+        except Exception:
+            public_tide_fallback = None
     reply = _clean(data.get("reply"))
+    guest_safe_next_action = reply or None
+    if isinstance(public_tide_fallback, dict) and public_tide_fallback.get("success") is True:
+        source = public_tide_fallback.get("source") or {}
+        guest_safe_next_action = (
+            "Public tide fallback succeeded. Answer the guest's tide question from this public "
+            "source only, name it explicitly, and do not attribute it to Stormglass. "
+            f"Source: {source.get('title') or source.get('url')}. "
+            f"URL: {source.get('url')}. Retrieved content: "
+            f"{public_tide_fallback.get('content') or ''}"
+        )
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "get_surf_report",
@@ -1738,8 +1759,12 @@ def get_surf_report(params, **kwargs):
         "fallback_reason": data.get("fallback_reason"),
         "units": data.get("units"),
         "hourly": data.get("hourly"),
-        "next_action": "send_surf_report_reply",
-        "guest_safe_next_action": reply or None,
+        "public_tide_fallback": public_tide_fallback,
+        "next_action": ("answer_tide_from_public_fallback"
+                        if isinstance(public_tide_fallback, dict)
+                        and public_tide_fallback.get("success") is True
+                        else "send_surf_report_reply"),
+        "guest_safe_next_action": guest_safe_next_action,
         # Forecast failure is not a team handoff. The reply explains the limit.
         "staff_review_needed": False,
         "do_not_escalate": True,

@@ -159,5 +159,39 @@ class IntelligenceTests(unittest.TestCase):
             worker.assert_not_called()
             li.clear_guest_turn()
 
+    def test_short_tide_surf_report_runs_public_fallback_without_model_choice(self):
+        import wolfhouse_staff_api as plugin
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp_cloud', user_id='synthetic-user', chat_id='synthetic-chat')
+        setting = {'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}
+        stormglass = {
+            'success': True, 'coverage': 'partial', 'missing_fields': ['tide_height_m'],
+            'location': {'location_id': 'wolfhouse-somo', 'label': 'Somo'},
+            'provenance': {'source': 'stormglass', 'retrieved_at': '2026-10-11T08:00:00Z'},
+            'hourly': [{'time': '2026-10-11T09:00:00Z', 'tide_height_m': None}],
+        }
+        provider = [
+            {'success': True, 'results': [{'url': 'https://example.org/somo-tides',
+                                           'title': 'Somo tides', 'description': 'Today tide times'}]},
+            {'success': True, 'content': 'Low tide 11:10 0.53 m. High tide 17:22 4.13 m.'},
+        ]
+        with patch.dict(os.environ, env), \
+                patch.object(li, 'fetch_setting', return_value=setting), \
+                patch.object(plugin, '_post_bot', return_value=stormglass), \
+                patch.object(li, 'run_bounded', side_effect=provider) as worker:
+            li.bind_guest_turn(source)
+            result = json.loads(plugin.get_surf_report({
+                'day': 'today', 'message_text': 'tides today?', 'lang': 'en'}))
+            self.assertTrue(result['public_tide_fallback']['success'])
+            self.assertEqual(result['public_tide_fallback']['source']['url'],
+                             'https://example.org/somo-tides')
+            self.assertIn('Low tide 11:10', result['public_tide_fallback']['content'])
+            self.assertIn('Low tide 11:10', result['guest_safe_next_action'])
+            self.assertIn('public source', result['guest_safe_next_action'].lower())
+            self.assertEqual([call.args[0] for call in worker.call_args_list], ['search', 'read'])
+            li.clear_guest_turn()
+
 if __name__ == '__main__':
     unittest.main()
