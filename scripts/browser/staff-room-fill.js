@@ -103,7 +103,26 @@
       '#staff-room-fill .rf-builder-form .rf-genders label{flex-direction:row}',
       '#staff-room-fill .rf-genders label:has(input:checked){outline:2px solid currentColor;outline-offset:2px}',
       '#staff-room-fill input[type=radio]{accent-color:var(--staff-green-text,#315b42);width:16px;min-width:16px;max-width:16px;height:16px;flex:0 0 16px}',
-      '@media(max-width:420px){#staff-room-fill .rf-meta{flex:1 1 100%}}'
+      '@media(max-width:420px){#staff-room-fill .rf-meta{flex:1 1 100%}}',
+      '@media(max-width:540px){',
+      '#staff-room-fill .rf-card{padding:10px 12px}',
+      '#staff-room-fill .rf-row{display:grid;grid-template-columns:36px 28px minmax(0,1fr) auto auto;grid-template-areas:"handle rank name moves delete" "gender gender gender gender gender";align-items:center;column-gap:6px;row-gap:6px;padding:8px 0}',
+      '#staff-room-fill .rf-handle{grid-area:handle;width:36px;height:36px;min-width:36px;min-height:36px;padding:0}',
+      '#staff-room-fill .rf-rank{grid-area:rank;width:28px;height:28px;min-width:28px}',
+      '#staff-room-fill .rf-identity{grid-area:name;gap:1px;flex:unset}',
+      '#staff-room-fill .rf-code{font-size:14px;line-height:1.15}',
+      '#staff-room-fill .rf-meta{flex:0 1 auto;font-size:12px;line-height:1.15}',
+      '#staff-room-fill .rf-moves{grid-area:moves;margin-left:0;flex-wrap:nowrap;gap:4px}',
+      '#staff-room-fill .rf-moves button{width:36px;height:36px;min-width:36px;min-height:36px;padding:0}',
+      '#staff-room-fill .rf-delete-cell{grid-area:delete;margin-left:12px;flex:0 0 36px}',
+      '#staff-room-fill .rf-delete{width:36px;height:36px;min-width:36px;min-height:36px}',
+      '#staff-room-fill .rf-gender-edit{grid-area:gender;display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0}',
+      '#staff-room-fill .rf-gender-edit select{flex:1 1 0;width:0;min-width:0;max-width:100%;min-height:36px;padding:4px 6px;font-size:13px}',
+      '#staff-room-fill .rf-gender-edit button{flex:0 0 auto;min-width:36px;min-height:36px;height:36px;padding:0 8px;font-size:12px}',
+      '#staff-room-fill .rf-gender-edit:not(.rf-gender-dirty)>button{display:none}',
+      '#staff-room-fill .rf-gender-status:empty{display:none}',
+      '#staff-room-fill .rf-gender-status:not(:empty){flex-basis:100%}',
+      '}'
     ].join('');
     document.head.appendChild(style);
   }
@@ -549,10 +568,10 @@
     var id = room.roomId;
     if (room.genderEditable !== true) return document.createDocumentFragment();
     var wrap = document.createElement('div');
-    wrap.className = 'rf-gender-edit';
     var current = String(room.genderLabel || '').toLowerCase();
     if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
     var draft = s.genderDrafts[id];
+    wrap.className = 'rf-gender-edit' + (draft ? ' rf-gender-dirty' : '');
     var sellingMode = draft && draft.sellingMode || room.sellingMode || 'shared';
     if (room.sellingMode !== undefined) {
       var selling = document.createElement('select');
