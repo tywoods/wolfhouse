@@ -270,6 +270,10 @@ async function main() {
     await assert.rejects(() => client.query(`UPDATE bookings SET check_out = CURRENT_DATE + 2 WHERE id = $1`, [dated]), /archived_room_admission/);
     assert.match(migration, /UPDATE OF status, room_to_block_id, primary_room_code, check_in, check_out, assignment_status/);
     assert.match(migration, /BEFORE INSERT OR UPDATE\s+ON booking_beds/);
+    const calendar = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+    const historyGate = calendar.indexOf('archivedHistoryRooms && res.data.archivedHistoryRooms.length');
+    assert.ok(historyGate > 0, 'last-room history stays on the schedule');
+    assert.doesNotMatch(calendar.slice(historyGate, historyGate + 180), /rooms\.push|concat\(res\.data\.archivedHistoryRooms\)/);
 
     const user = { client_id: CLIENT, client_slug: 'wolfhouse-somo', role: 'operator', staff_user_id: 'staff-1' };
     const routes = createRoomFillRoutes({

@@ -45976,7 +45976,7 @@ function loadBedCalendar(afterRender, options){
         if (typeof afterRender === 'function') afterRender(null, false);
         return;
       }
-      if (!res.data.rooms || res.data.rooms.length === 0){
+      if ((!res.data.rooms || res.data.rooms.length === 0) && !(res.data.archivedHistoryRooms && res.data.archivedHistoryRooms.length)){
         el('bc-state').textContent = t('calendar.state.noRooms');
         if (typeof afterRender === 'function') afterRender(null, false);
         return;

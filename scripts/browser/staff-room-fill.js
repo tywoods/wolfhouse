@@ -298,6 +298,7 @@
       undo.appendChild(undoBtn);
       priority.appendChild(undo);
     }
+    if (s.recovery && !s.archiveModal) priority.appendChild(recoveryBanner(s.recovery));
     if (s.archiveModal) root.appendChild(deleteModal(s.archiveModal));
   }
 
@@ -814,6 +815,34 @@
     });
   }
 
+  function recoveryBanner(recovery) {
+    var banner = document.createElement('p');
+    banner.id = 'rf-archive-recovery';
+    banner.className = 'rf-error';
+    banner.setAttribute('role', 'alert');
+    banner.appendChild(document.createTextNode(recovery.message + ' '));
+    if (!recovery.definite) {
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.id = 'rf-archive-retry';
+      retry.textContent = 'Retry this request';
+      retry.disabled = !!state().archivePending;
+      retry.addEventListener('click', function () {
+        if (recovery.action === 'restore') {
+          restoreArchived({
+            roomId: recovery.roomId,
+            label: recovery.label,
+            archiveOperationId: recovery.archiveOperationId,
+          });
+        } else {
+          confirmDelete({ roomId: recovery.roomId, label: recovery.label });
+        }
+      });
+      banner.appendChild(retry);
+    }
+    return banner;
+  }
+
   function closeDelete() {
     var roomId = state().archiveModal && state().archiveModal.roomId;
     state().archiveModal = null;
@@ -839,8 +868,26 @@
 
   function confirmDelete(room) {
     var s = state();
-    if (!s.archiveModal || !s.archiveModal.eligible || s.archivePending) return;
-    var payload = archivePayload(room.roomId);
+    if (!s.frozenRequests) s.frozenRequests = {};
+    var key = 'archive:' + room.roomId;
+    var frozen = s.frozenRequests[key];
+    if (!frozen) {
+      if (!s.archiveModal || !s.archiveModal.eligible || s.archivePending) return;
+      if (!s.archiveOperationId) s.archiveOperationId = nextOperationId('op-archive');
+      var server = s.server || {};
+      frozen = s.frozenRequests[key] = {
+        action: 'archive',
+        roomId: room.roomId,
+        label: labelFor(room),
+        operationId: s.archiveOperationId,
+        payload: {
+          operationId: s.archiveOperationId,
+          expectedSettingsRevision: server.settingsRevision || null,
+          expectedCatalogRevision: server.catalogRevision,
+        },
+      };
+    } else if (s.archivePending) return;
+    s.loadSequence = (s.loadSequence || 0) + 1;
     var generation = s.archiveGeneration = (s.archiveGeneration || 0) + 1;
     s.archivePending = true;
     paint();
@@ -848,7 +895,7 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(frozen.payload),
     }).then(function (res) {
       return res.json().then(function (body) { return { status: res.status, body: body }; }).catch(function () {
         return { status: res.status, unreadable: true };
@@ -857,18 +904,32 @@
       if (!currentState(s) || generation !== s.archiveGeneration) return;
       s.archivePending = false;
       if (!res.body || res.body.success !== true) {
-        s.archiveModal = s.archiveModal || { roomId: room.roomId, label: labelFor(room), blockers: [] };
-        s.archiveModal.phase = 'blocked';
-        s.archiveModal.eligible = false;
-        s.archiveModal.blockers = (res.body && res.body.blockers) || [];
-        s.archiveModal.checkFailed = !(res.status >= 400 && res.status < 500) || !!(res.body && res.body.checkFailed);
-        if (!(res.status >= 400 && res.status < 500) || res.unreadable) {
-          s.archiveNotice = 'Could not confirm deletion. Refresh or retry this request.';
+        var uncertain = !(res.status >= 400 && res.status < 500) || res.unreadable;
+        if (uncertain) {
+          s.recovery = {
+            action: 'archive',
+            roomId: room.roomId,
+            label: frozen.label,
+            message: 'Could not confirm deletion. Retry this request.',
+          };
+        } else {
+          delete s.frozenRequests[key];
+          s.archiveOperationId = null;
+          s.recovery = null;
+          s.archiveModal = s.archiveModal || { roomId: room.roomId, label: frozen.label, blockers: [] };
+          s.archiveModal.phase = 'blocked';
+          s.archiveModal.eligible = false;
+          s.archiveModal.blockers = (res.body && res.body.blockers) || [];
+          s.archiveModal.checkFailed = !!(res.body && res.body.checkFailed);
         }
         paint();
+        var retry = el('rf-archive-retry');
+        if (retry) retry.focus();
         return;
       }
+      delete s.frozenRequests[key];
       s.archiveOperationId = null;
+      s.recovery = null;
       s.archiveModal = null;
       s.archiveNotice = null;
       s.archiveUndo = {
@@ -889,8 +950,15 @@
     }).catch(function () {
       if (!currentState(s) || generation !== s.archiveGeneration) return;
       s.archivePending = false;
-      s.archiveNotice = 'Could not confirm deletion. Refresh or retry this request.';
+      s.recovery = {
+        action: 'archive',
+        roomId: room.roomId,
+        label: frozen.label,
+        message: 'Could not confirm deletion. Retry this request.',
+      };
       paint();
+      var retry = el('rf-archive-retry');
+      if (retry) retry.focus();
     });
   }
 
@@ -924,12 +992,24 @@
     }
     var server = s.server || {};
     var opKey = item.roomId + ':' + (item.archiveOperationId || '');
-    var payload = {
-      operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
-      expectedArchiveOperationId: item.archiveOperationId,
-      expectedSettingsRevision: server.settingsRevision || null,
-      expectedCatalogRevision: server.catalogRevision,
-    };
+    if (!s.frozenRequests) s.frozenRequests = {};
+    var frozen = s.frozenRequests['restore:' + opKey];
+    if (!frozen) {
+      frozen = s.frozenRequests['restore:' + opKey] = {
+        action: 'restore',
+        roomId: item.roomId,
+        label: item.label,
+        archiveOperationId: item.archiveOperationId,
+        operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
+        payload: {
+          operationId: retainedOperationId('restoreOps', opKey, 'op-restore'),
+          expectedArchiveOperationId: item.archiveOperationId,
+          expectedSettingsRevision: server.settingsRevision || null,
+          expectedCatalogRevision: server.catalogRevision,
+        },
+      };
+    } else if (s.archivePending) return;
+    s.loadSequence = (s.loadSequence || 0) + 1;
     var generation = s.restoreGeneration = (s.restoreGeneration || 0) + 1;
     s.archivePending = true;
     paint();
@@ -937,25 +1017,45 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(frozen.payload),
     }).then(function (res) {
-      return res.json().then(function (body) { return { status: res.status, body: body }; });
+      return res.json().then(function (body) { return { status: res.status, body: body }; }).catch(function () {
+        return { status: res.status, unreadable: true };
+      });
     }).then(function (res) {
       if (!stillThisScreen(s, generation)) return;
       s.archivePending = false;
       if (!res.body || res.body.success !== true) {
-        if (!(res.status >= 400 && res.status < 500)) {
-          s.archiveNotice = 'Could not confirm restore. Refresh or retry this request.';
+        var uncertain = !(res.status >= 400 && res.status < 500) || res.unreadable;
+        if (uncertain) {
+          s.recovery = {
+            action: 'restore',
+            roomId: item.roomId,
+            label: item.label,
+            archiveOperationId: item.archiveOperationId,
+            message: 'Could not confirm restore. Retry this request.',
+          };
         } else {
+          delete s.frozenRequests['restore:' + opKey];
           clearRetainedOperation('restoreOps', opKey);
-          s.archiveNotice = 'Could not restore the room.';
+          s.recovery = {
+            action: 'restore',
+            roomId: item.roomId,
+            label: item.label,
+            message: 'Could not restore the room.',
+            definite: true,
+          };
         }
         paint();
+        var retry = el('rf-restore-retry-' + item.roomId) || el('rf-archive-retry');
+        if (retry) retry.focus();
         return;
       }
+      delete s.frozenRequests['restore:' + opKey];
       clearRetainedOperation('restoreOps', opKey);
       s.archiveUndo = null;
       s.archiveNotice = null;
+      s.recovery = null;
       applyServer(res.body);
       paint();
       say(item.label + ' restored' + (res.body.placedAt ? ' at priority ' + res.body.placedAt : '') + '.');
@@ -965,8 +1065,16 @@
     }).catch(function () {
       if (!stillThisScreen(s, generation)) return;
       s.archivePending = false;
-      s.archiveNotice = 'Could not confirm restore. Refresh or retry this request.';
+      s.recovery = {
+        action: 'restore',
+        roomId: item.roomId,
+        label: item.label,
+        archiveOperationId: item.archiveOperationId,
+        message: 'Could not confirm restore. Retry this request.',
+      };
       paint();
+      var retry = el('rf-restore-retry-' + item.roomId) || el('rf-archive-retry');
+      if (retry) retry.focus();
     });
   }
 
@@ -993,11 +1101,8 @@
     } else body.textContent = 'Its beds will be removed from available inventory, Luna and the active Schedule. Past bookings will be kept. You can undo this from Deleted rooms.';
     dialog.appendChild(title);
     dialog.appendChild(body);
-    if (state().archiveNotice) {
-      var notice = document.createElement('p');
-      notice.className = 'rf-error';
-      notice.textContent = state().archiveNotice;
-      dialog.appendChild(notice);
+    if (state().recovery && state().recovery.roomId === modal.roomId && state().recovery.action === 'archive') {
+      dialog.appendChild(recoveryBanner(state().recovery));
     }
     (modal.blockers || []).forEach(function (blocker) {
       var line = document.createElement('p');
@@ -1020,7 +1125,8 @@
     confirm.id = 'rf-delete-confirm';
     confirm.className = 'rf-danger';
     confirm.textContent = 'Delete';
-    confirm.disabled = modal.phase === 'checking' || modal.checkFailed || !modal.eligible || placementBusy();
+    confirm.disabled = modal.phase === 'checking' || modal.checkFailed || !modal.eligible || placementBusy()
+      || !!(state().recovery && state().recovery.action === 'archive' && !state().recovery.definite);
     confirm.addEventListener('click', function () { confirmDelete({ roomId: modal.roomId, roomNumber: null, label: modal.label }); });
     actions.appendChild(cancel);
     actions.appendChild(confirm);
@@ -1077,6 +1183,29 @@
       });
       row.appendChild(name);
       row.appendChild(when);
+      if (state().recovery && state().recovery.roomId === room.roomId && state().recovery.action === 'restore') {
+        var restoreError = document.createElement('p');
+        restoreError.id = 'rf-restore-error-' + room.roomId;
+        restoreError.className = 'rf-error';
+        restoreError.setAttribute('role', 'alert');
+        restoreError.textContent = state().recovery.message;
+        row.appendChild(restoreError);
+        if (!state().recovery.definite) {
+          var restoreRetry = document.createElement('button');
+          restoreRetry.type = 'button';
+          restoreRetry.id = 'rf-restore-retry-' + room.roomId;
+          restoreRetry.textContent = 'Retry this request';
+          restoreRetry.disabled = placementBusy();
+          restoreRetry.addEventListener('click', function () {
+            restoreArchived({
+              roomId: room.roomId,
+              label: room.label || room.roomCode,
+              archiveOperationId: room.archiveOperationId,
+            });
+          });
+          row.appendChild(restoreRetry);
+        }
+      }
       row.appendChild(restore);
       details.appendChild(row);
     });
