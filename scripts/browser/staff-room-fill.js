@@ -116,12 +116,12 @@
       '#staff-room-fill .rf-moves button{width:36px;height:36px;min-width:36px;min-height:36px;padding:0}',
       '#staff-room-fill .rf-delete-cell{grid-area:delete;margin-left:12px;flex:0 0 36px}',
       '#staff-room-fill .rf-delete{width:36px;height:36px;min-width:36px;min-height:36px}',
-      '#staff-room-fill .rf-gender-edit{grid-area:gender;display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0}',
-      '#staff-room-fill .rf-gender-edit select{flex:1 1 0;width:0;min-width:0;max-width:100%;min-height:36px;padding:4px 6px;font-size:13px}',
-      '#staff-room-fill .rf-gender-edit button{flex:0 0 auto;min-width:36px;min-height:36px;height:36px;padding:0 8px;font-size:12px}',
+      '#staff-room-fill .rf-gender-edit{grid-area:gender;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;min-width:0}',
+      '#staff-room-fill .rf-gender-edit select{width:100%;min-width:0;max-width:100%;min-height:36px;padding:4px 6px;font-size:13px}',
+      '#staff-room-fill .rf-gender-edit button{min-width:36px;min-height:36px;height:36px;padding:0 8px;font-size:12px}',
       '#staff-room-fill .rf-gender-edit:not(.rf-gender-dirty)>button{display:none}',
       '#staff-room-fill .rf-gender-status:empty{display:none}',
-      '#staff-room-fill .rf-gender-status:not(:empty){flex-basis:100%}',
+      '#staff-room-fill .rf-gender-status:not(:empty){grid-column:1 / -1;min-width:0}',
       '}'
     ].join('');
     document.head.appendChild(style);
