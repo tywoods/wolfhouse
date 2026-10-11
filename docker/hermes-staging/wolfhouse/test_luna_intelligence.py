@@ -159,5 +159,82 @@ class IntelligenceTests(unittest.TestCase):
             worker.assert_not_called()
             li.clear_guest_turn()
 
+    def test_registered_surf_contract_requires_question_and_omission_fails_before_staff(self):
+        import wolfhouse_staff_api as plugin
+        registered = {}
+        ctx = SimpleNamespace(register_tool=lambda **kw: registered.update({kw['name']: kw}))
+        with patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            plugin.register(ctx)
+        schema = registered['get_surf_report']['schema']['parameters']
+        self.assertIn('message_text', schema['required'])
+        with patch.object(plugin, '_post_bot') as staff:
+            result = json.loads(registered['get_surf_report']['handler']({'day': 'today'}))
+        self.assertEqual(result['error'], 'question_required')
+        self.assertEqual(result['next_action'], 'retry_get_surf_report_with_message_text')
+        staff.assert_not_called()
+
+    def test_spanish_plural_tide_uses_automatic_public_fallback(self):
+        import wolfhouse_staff_api as plugin
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp_cloud', user_id='synthetic-user', chat_id='synthetic-chat')
+        stormglass = {
+            'success': True, 'coverage': 'partial', 'missing_fields': ['tide_height_m'],
+            'location': {'location_id': 'wolfhouse-somo', 'label': 'Somo'},
+            'hourly': [{'time': '2026-10-11T09:00:00Z', 'tide_height_m': None}],
+        }
+        provider = [
+            {'success': True, 'results': [{'url': 'https://example.org/mareas',
+                                           'title': 'Mareas de Somo', 'description': 'Mareas de hoy'}]},
+            {'success': True, 'content': 'Bajamar 11:10, 0.53 m. Pleamar 17:22, 4.13 m.'},
+        ]
+        with patch.dict(os.environ, env), \
+                patch.object(li, 'fetch_setting', return_value={
+                    'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}), \
+                patch.object(plugin, '_post_bot', return_value=stormglass), \
+                patch.object(li, 'run_bounded', side_effect=provider) as worker:
+            li.bind_guest_turn(source)
+            result = json.loads(plugin.get_surf_report({
+                'day': 'today', 'message_text': '¿Mareas hoy?', 'lang': 'es'}))
+            self.assertTrue(result['public_tide_fallback']['success'])
+            self.assertIn('Bajamar 11:10', result['guest_safe_next_action'])
+            self.assertEqual([call.args[0] for call in worker.call_args_list], ['search', 'read'])
+            li.clear_guest_turn()
+
+    def test_short_tide_surf_report_runs_public_fallback_without_model_choice(self):
+        import wolfhouse_staff_api as plugin
+        from wolfhouse import luna_intelligence as li
+        env = {'LUNA_CLIENT_SLUG': 'wolfhouse-somo', 'HERMES_ROLE': 'luna',
+               'WOLFHOUSE_STAFF_API_BASE_URL': 'https://staff-staging.lunafrontdesk.com'}
+        source = SimpleNamespace(platform='whatsapp_cloud', user_id='synthetic-user', chat_id='synthetic-chat')
+        setting = {'success': True, 'client_slug': 'wolfhouse-somo', 'enabled': True}
+        stormglass = {
+            'success': True, 'coverage': 'partial', 'missing_fields': ['tide_height_m'],
+            'location': {'location_id': 'wolfhouse-somo', 'label': 'Somo'},
+            'provenance': {'source': 'stormglass', 'retrieved_at': '2026-10-11T08:00:00Z'},
+            'hourly': [{'time': '2026-10-11T09:00:00Z', 'tide_height_m': None}],
+        }
+        provider = [
+            {'success': True, 'results': [{'url': 'https://example.org/somo-tides',
+                                           'title': 'Somo tides', 'description': 'Today tide times'}]},
+            {'success': True, 'content': 'Low tide 11:10 0.53 m. High tide 17:22 4.13 m.'},
+        ]
+        with patch.dict(os.environ, env), \
+                patch.object(li, 'fetch_setting', return_value=setting), \
+                patch.object(plugin, '_post_bot', return_value=stormglass), \
+                patch.object(li, 'run_bounded', side_effect=provider) as worker:
+            li.bind_guest_turn(source)
+            result = json.loads(plugin.get_surf_report({
+                'day': 'today', 'message_text': 'tides today?', 'lang': 'en'}))
+            self.assertTrue(result['public_tide_fallback']['success'])
+            self.assertEqual(result['public_tide_fallback']['source']['url'],
+                             'https://example.org/somo-tides')
+            self.assertIn('Low tide 11:10', result['public_tide_fallback']['content'])
+            self.assertIn('Low tide 11:10', result['guest_safe_next_action'])
+            self.assertIn('public source', result['guest_safe_next_action'].lower())
+            self.assertEqual([call.args[0] for call in worker.call_args_list], ['search', 'read'])
+            li.clear_guest_turn()
+
 if __name__ == '__main__':
     unittest.main()
