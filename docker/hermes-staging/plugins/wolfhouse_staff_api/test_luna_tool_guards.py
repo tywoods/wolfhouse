@@ -193,6 +193,27 @@ fake = with_fake({"/bookings/update-contact": {"success": False, "error": "email
 ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "bad"}))
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
+print("\n== cancel_unpaid_booking authoritative boundary result ==")
+fake = with_fake({"/bookings/cancel-unpaid": {
+    "success": True, "cancelled": True, "write_performed": True,
+    "booking": {"booking_code": "MB-A"},
+    "guest_safe_next_action": "Your booking has been cancelled.",
+}})
+cu = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 611 222 333"}))
+check("CU1 confirmed unpaid cancellation succeeds", cu.get("success") is True and cu.get("cancelled") is True)
+check("CU2 uses write-boundary route", fake.calls[-1][0].endswith("/bookings/cancel-unpaid"))
+check("CU3 binds trusted session phone and ignores caller override", bool(fake.calls[-1][1].get("phone")) and fake.calls[-1][1].get("phone") != "+34611222333")
+
+fake = with_fake({"/bookings/cancel-unpaid": {
+    "success": False, "cancelled": False, "write_performed": False,
+    "staff_review_needed": True, "handoff_reason": "paid_or_unknown_cancellation",
+    "blocked_reason": "payment_exists",
+}})
+cb = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 611 222 333"}))
+check("CU4 paid cancellation is not reported cancelled", cb.get("success") is False and cb.get("cancelled") is False)
+check("CU5 paid cancellation requires staff review", cb.get("staff_review_needed") is True)
+check("CU6 paid cancellation contains no refund terms", "refund" not in json.dumps(cb).lower())
+
 
 print("\n== flag_needs_human ==")
 

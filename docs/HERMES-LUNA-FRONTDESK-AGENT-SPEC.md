@@ -415,15 +415,16 @@ Perfect, here’s what I have:
 - Santander arrival transfer
 - Total: €1080
 
-Would you like to pay the €200 deposit now, or the full €1080?
+Would you like to pay the returned deposit amount now, or the full €1080?
 ```
 
 ### 11.1 Deposit rule
 
-- Package booking deposit: **€200**.
-- Custom pack / shorter stay deposit: **€100**.
+- Staff Pricing is the source of truth for current deposit amounts.
+- Preserve the configured duration tiers and group/per-person semantics; package category does not supply a fallback amount.
+- Quote only the amount returned by the Staff Pricing-backed quote or payment-link response.
 
-Do not invent deposit amounts. Use Staff API/config as source of truth, but enforce this business rule in tests.
+Do not invent, remember, or enforce fixed deposit amounts in instructions or tests. Regression tests use non-default saved Staff Pricing values to prove the returned quote and payment-link facts remain authoritative.
 
 ### 11.2 Payment link message
 
@@ -636,7 +637,7 @@ scripts/lib/luna-hermes-e2e-rehearsal.js
 scripts/verify-stage57c-hermes-luna-e2e-rehearsal.js
 ```
 
-It simulates: greeting → dates/guests → availability → package selection → quote with €200 package deposit → booking/payment link → transfer save → payment status truth. Staff API is mocked, WhatsApp is never sent.
+It simulates: greeting → dates/guests → availability → package selection → Staff Pricing-backed quote and deposit → booking/payment link → transfer save → payment status truth. Staff API is mocked, WhatsApp is never sent.
 
 ## 19. Trap/regression fixtures
 
@@ -651,7 +652,7 @@ Must pass before WhatsApp webhook cutover:
 7. Less than 7 nights -> service offer, no package forcing.
 8. Santander package transfer -> included; collect flight/time later if unknown.
 9. Bilbao transfer -> extra; quote/check before promising.
-10. Deposit amounts: package €200, shorter/custom €100.
+10. Deposit amounts: current non-default Staff Pricing values flow through quote and payment-link responses; no package-category or fixed-amount fallback.
 11. Payment link sent -> not confirmed until payment truth.
 12. Stripe payment truth -> automatic confirmation.
 13. Post-booking flight details -> update transfer.

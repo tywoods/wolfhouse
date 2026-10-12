@@ -151,6 +151,9 @@ const {
   sanitizeStripeSessionIdForAudit,
 } = require('./lib/bot-test-booking-cancel-payments');
 const {
+  executeGuestUnpaidCancellationBoundary,
+} = require('./lib/guest-unpaid-cancellation');
+const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
@@ -51677,6 +51680,89 @@ async function handleBotListBookingsByPhone(req, res, user, authMode) {
   }
 }
 
+// POST /staff/bot/bookings/cancel-unpaid
+// Guest-owned cancellation. Payment eligibility is decided again under the booking
+// row lock in the same transaction as the cancellation write.
+async function handleBotGuestCancelUnpaid(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, cancelled: false, error: 'invalid or missing JSON body' });
+  }
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  const bookingCode = String(body.booking_code || '').trim();
+  const phone = String(body.phone || body.guest_phone || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!bookingCode || bookingCode.length > 64 || SQL_INJECT_RE.test(bookingCode)) {
+    return sendJSON(res, 400, { success: false, cancelled: false, error: 'valid booking_code is required' });
+  }
+  if (!phone) return sendJSON(res, 400, { success: false, cancelled: false, error: 'guest phone is required' });
+
+  const auditBase = {
+    ts: new Date().toISOString(), intent: 'api:bot_guest_cancel_unpaid',
+    category: 'bot_guest_booking_cancel', client_slug: clientSlug,
+    booking_code: bookingCode, source: 'luna_guest', auth_mode: authMode || null,
+    staff_user_id: user ? user.staff_user_id : 'luna-bot-internal',
+  };
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const boundary = await executeGuestUnpaidCancellationBoundary(pg, {
+          clientSlug, bookingCode, phone,
+        });
+        if (boundary.blocked) {
+          await pg.query('ROLLBACK');
+          return boundary;
+        }
+        const evidenceRow = boundary.evidenceRow;
+        const updateRes = { rows: [boundary.updatedRow] };
+        const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [clientSlug, evidenceRow.booking_id]);
+        const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
+        const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [clientSlug, evidenceRow.booking_id]);
+        await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, evidenceRow.booking_id);
+        await pg.query('COMMIT');
+        return {
+          row: updateRes.rows[0],
+          bedsReleased: delRes.rowCount != null ? delRes.rowCount : bedsBefore,
+        };
+      } catch (err) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw err;
+      }
+    });
+
+    if (result.blocked) {
+      appendAuditLog({ ...auditBase, success: false, cancelled: false, blocked_reason: result.reason, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 409, {
+        success: false, cancelled: false, write_performed: false,
+        staff_review_needed: true,
+        handoff_reason: 'paid_or_unknown_cancellation',
+        blocked_reason: result.reason,
+        guest_safe_next_action: 'I’ll ask the team to help with this cancellation.',
+      });
+    }
+    appendAuditLog({ ...auditBase, success: true, cancelled: true, beds_released_count: result.bedsReleased, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, {
+      success: true, cancelled: true, write_performed: true,
+      staff_review_needed: false, booking: result.row,
+      beds_released_count: result.bedsReleased,
+      guest_safe_next_action: 'Your booking has been cancelled.',
+      no_payment_write: true, no_whatsapp: true, no_n8n: true,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, cancelled: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, {
+      success: false, cancelled: false, write_performed: false,
+      staff_review_needed: true, handoff_reason: 'paid_or_unknown_cancellation',
+      error: 'cancellation check failed',
+      guest_safe_next_action: 'I’ll ask the team to help with this cancellation.',
+    });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /staff/bot/bookings/update-contact  (Luna: update guest name/email)
 //   Name/email only — never package/dates/payment. Validated; audited; no payment,
@@ -55941,6 +56027,17 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotSurfReport(req, res, user, authMode));
+  }
+
+  if (pathname === '/staff/bot/bookings/cancel-unpaid') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/cancel-unpaid' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotGuestCancelUnpaid(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/bookings/by-phone') {

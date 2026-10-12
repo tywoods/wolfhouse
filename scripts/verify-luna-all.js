@@ -39,6 +39,8 @@ function run(label, script, extraArgs) {
 const full = process.argv.includes('--full');
 const steps = [
   ['verify:luna-soul-clean', 'verify-luna-soul-clean.js'],
+  ['verify:guest-unpaid-cancellation', 'verify-guest-unpaid-cancellation.js'],
+  ['verify:deposit-instruction-authority', 'verify-deposit-instruction-authority.js'],
   ['verify:luna-no-gender-after-pay-intent', 'verify-luna-no-gender-after-pay-intent.js'],
   ['verify:luna-persist-guest-names', 'verify-luna-persist-guest-names.js'],
   ['verify:wolfhouse-paylink-map-private-skip', 'verify-wolfhouse-paylink-map-private-skip.js'],
