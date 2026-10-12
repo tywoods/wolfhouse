@@ -69,7 +69,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertNotIn('reserved', result['final_response'])
         self.assertIn('Alex', result['final_response'])
         self.assertNotIn('M1', result['final_response'])
-        self.assertIn('a bed in the mixed room', result['final_response'])
+        self.assertIn('Alex and Sam: two beds in the same mixed room.', result['final_response'])
         self.assertIn('700.00 EUR', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
         self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
@@ -111,20 +111,100 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertNotIn('DORM-12', text)
         self.assertNotIn('ROOM-9', text)
         self.assertTrue(text.endswith('Shall I create this booking?'))
-        self.turn('plain-yes', 'yes')
+
+    def test_unchanged_offer_keeps_consent_and_revised_offer_asks_again(self):
+        plan = dict(check_in='2026-10-19', check_out='2026-10-22', guest_count=1,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}], payment_choice='deposit')
+        beds = [dict(bed_code='DORM-12', room_code='ROOM-9', gender_strategy='mixed')]
+        response = self._checked_offer(plan, beds)
+        self.agent.session_id = 'revised-consent'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('revised-q', 'Quote this please')
+        ledger.record_quote(plan, response)
+        first = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        self.assertTrue(first['final_response'].endswith('Shall I create this booking?'))
+        self.turn('revised-yes', 'yes')
+        ledger.record_quote({}, {**response, 'reply_draft': 'cosmetic only'})
+        unchanged = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'kept draft',
+            'messages': [{'role': 'assistant', 'content': 'kept draft'}],
+        })
+        self.assertEqual(unchanged['final_response'], 'kept draft')
+        self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
         changed = deepcopy(response)
-        changed['total_cents'] += 100
-        changed['offer_revision']['total_cents'] += 100
+        changed['total_cents'] += 1000
+        changed['offer_revision']['total_cents'] += 1000
         ledger.record_quote(plan, changed)
         again = ledger.finalize_offer_response({
             'completed': True, 'final_response': 'draft',
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
-        self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', again['final_response'])
-        self.assertNotIn('Shall I create this booking?', again['final_response'])
+        self.assertIn('210.00 EUR', again['final_response'])
+        self.assertTrue(again['final_response'].endswith('Shall I create this updated booking?'))
         self.assertNotIn('DORM-12', again['final_response'])
         with self.assertRaises(ledger.QuoteBoundaryError):
             ledger.prepare_create({})
+        self.turn('revised-yes-2', 'yes')
+        self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+
+    def test_same_room_and_split_room_copy_differ_without_codes(self):
+        plan = dict(check_in='2026-11-01', check_out='2026-11-08', guest_count=2,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}, {'name': 'Sam'}], payment_choice='full')
+        same_beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                     dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        split_beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                      dict(bed_code='N1', room_code='N', gender_strategy='mixed')]
+        texts = {}
+        for label, beds in (('same', same_beds), ('split', split_beds)):
+            self.agent.session_id = 'rooms-' + label
+            self.db.create_session(self.agent.session_id, source='whatsapp')
+            self.turn('rooms-q-' + label, 'Quote this please')
+            ledger.record_quote(plan, self._checked_offer(plan, beds))
+            shown = ledger.finalize_offer_response({
+                'completed': True, 'final_response': 'draft',
+                'messages': [{'role': 'assistant', 'content': 'draft'}],
+            })
+            texts[label] = shown['final_response']
+            self.assertNotIn('M1', texts[label])
+            self.assertNotIn('N1', texts[label])
+            self.assertNotIn('room M', texts[label])
+            self.assertNotIn('room N', texts[label])
+        self.assertIn('Alex and Sam: two beds in the same mixed room.', texts['same'])
+        self.assertIn('Alex and Sam: beds in two separate mixed rooms.', texts['split'])
+        self.assertNotEqual(texts['same'], texts['split'])
+
+    def test_preview_tool_shows_room_type_includes_line(self):
+        root = Path(__file__).resolve().parents[3]
+        script = """
+const { computePackagePricePreview } = require('./scripts/lib/booking-guests');
+const { loadConfig } = require('./scripts/lib/wolfhouse-quote-calculator');
+const input = JSON.parse(process.argv[1]);
+console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
+"""
+        for room, expected in (
+            ('shared', 'Includes: 7 nights in a dorm bed, T-shirt'),
+            ('private', 'Includes: 7 nights in a private room, T-shirt'),
+            ('double', 'Includes: 7 nights in a double room, T-shirt'),
+        ):
+            preview = json.loads(subprocess.check_output(['node', '-e', script, json.dumps({
+                'client_slug': 'wolfhouse-somo', 'check_in': '2027-07-01', 'check_out': '2027-07-08',
+                'guest_count': 2, 'room_type': room,
+            })], cwd=root))
+            with patch.object(plugin, '_post_bot', return_value=preview):
+                visible = json.loads(plugin.preview_package_prices({
+                    'check_in': '2027-07-01', 'check_out': '2027-07-08', 'guest_count': 2,
+                    'room_type': room,
+                }))
+            self.assertEqual(visible['malibu']['includes_line'], expected)
+            self.assertEqual(visible['packages']['malibu']['includes_line'], expected)
+            self.assertEqual(visible['malibu']['total_cents'], preview['packages']['malibu']['total_cents'])
+            self.assertEqual(visible['malibu']['inclusions'], preview['packages']['malibu']['inclusions'])
+            self.assertNotIn('dorm', visible['malibu']['includes_line']) if room != 'shared' else None
 
     def test_incomplete_checked_responses_never_present_accept_ready_question(self):
         mutations = [
