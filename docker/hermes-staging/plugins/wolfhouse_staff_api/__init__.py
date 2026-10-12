@@ -83,18 +83,7 @@ def _normalize_payment_choice(value):
 
 
 def _session_guest_phone():
-    """Best-effort WhatsApp sender phone from Hermes gateway context.
-
-    Luna should not have to invent/pass the WhatsApp sender number. The
-    gateway binds per-turn source identifiers in contextvars; for WhatsApp
-    these are the guest's phone-like user/chat ids. Some tool execution paths
-    can lose contextvars, so Wolfhouse gateway patches also export a per-turn
-    process-env fallback.
-    """
-    # SECURITY: prefer the per-turn contextvar source first — it is isolated per
-    # turn, so it cannot bleed an owner's number into a concurrent guest turn. The
-    # process-env fallback below is shared process-wide and only safe under serial
-    # turn processing; use it only when contextvars are genuinely unavailable.
+    """Best-effort WhatsApp sender phone from Hermes gateway context."""
     try:
         from gateway.session_context import get_session_env
         platform = _clean(get_session_env("HERMES_SESSION_PLATFORM", "")).lower()
@@ -105,8 +94,6 @@ def _session_guest_phone():
                     return phone
     except Exception:
         pass
-    # Last-resort process-env fallback (set per-turn by the gateway patch, cleared at
-    # turn end). Shared across concurrent turns — see SECURITY note above.
     for key in (
         "WOLFHOUSE_WHATSAPP_GUEST_PHONE",
         "WHATSAPP_GUEST_PHONE",
@@ -116,6 +103,27 @@ def _session_guest_phone():
         phone = _normalize_phone(os.getenv(key, ""))
         if phone:
             return phone
+    return ""
+
+
+def _live_turn_guest_phone():
+    """Return only the live WhatsApp sender bound to this execution turn.
+
+    Destructive guest actions must never use process-wide environment fallbacks:
+    those values can outlive or overlap a turn. Missing, expired, or non-WhatsApp
+    ContextVar identity therefore fails closed before Staff API transport.
+    """
+    try:
+        from gateway.session_context import get_session_env
+        platform = _clean(get_session_env("HERMES_SESSION_PLATFORM", "")).lower()
+        if platform not in {"whatsapp", "whatsapp_cloud"}:
+            return ""
+        for key in ("HERMES_SESSION_USER_ID", "HERMES_SESSION_CHAT_ID"):
+            phone = _normalize_phone(get_session_env(key, ""))
+            if phone:
+                return phone
+    except Exception:
+        return ""
     return ""
 
 
@@ -1809,7 +1817,7 @@ def cancel_unpaid_booking(params, **kwargs):
     payload = dict(params or {})
     booking_code = _clean(payload.get("booking_code"))
     # Destructive guest actions bind ownership only to trusted inbound context.
-    phone = _normalize_phone(_session_guest_phone())
+    phone = _normalize_phone(_live_turn_guest_phone())
     if not booking_code:
         return _json_result({
             "success": False, "cancelled": False, "tool": "cancel_unpaid_booking",

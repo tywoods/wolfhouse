@@ -3,6 +3,7 @@
 const KNOWN_UNPAID_BOOKING_STATUSES = new Set(['not_requested', 'waiting_payment', 'unpaid', 'pending', 'failed']);
 
 function finiteNonNegativeInt(value) {
+  if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
@@ -27,16 +28,17 @@ function classifyGuestCancellationPaymentEvidence(row) {
     row.guest_positive_count,
     row.guest_paid_status_count,
     row.guest_unknown_status_count,
+    row.guest_unknown_amount_count,
   ].map(finiteNonNegativeInt);
   if (!KNOWN_UNPAID_BOOKING_STATUSES.has(status) || values.some((n) => n === null)) {
     return { eligible: false, reason: 'payment_evidence_unknown' };
   }
-  const [bookingPaid, depositPaid, , paymentPositive, paymentCaptured, paymentUnknown, paymentEventPaid,
-    , guestPositive, guestPaid, guestUnknown] = values;
-  if (paymentUnknown > 0 || guestUnknown > 0) {
+  const [bookingPaid, depositPaid, paymentRows, paymentPositive, paymentCaptured, paymentUnknown, paymentEventPaid,
+    , guestPositive, guestPaid, guestUnknown, guestUnknownAmount] = values;
+  if (paymentUnknown > 0 || guestUnknown > 0 || guestUnknownAmount > 0) {
     return { eligible: false, reason: 'payment_evidence_unknown' };
   }
-  if (bookingPaid > 0 || depositPaid > 0 || paymentPositive > 0 || paymentCaptured > 0 || paymentEventPaid > 0 || guestPositive > 0 || guestPaid > 0) {
+  if (paymentRows > 0 || bookingPaid > 0 || depositPaid > 0 || paymentPositive > 0 || paymentCaptured > 0 || paymentEventPaid > 0 || guestPositive > 0 || guestPaid > 0) {
     return { eligible: false, reason: 'payment_exists' };
   }
   return { eligible: true, reason: 'authoritative_zero_payment' };
@@ -61,6 +63,7 @@ SELECT TRUE AS booking_found,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND COALESCE(bg.amount_paid_cents,0)>0) AS guest_positive_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_paid_status_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired','paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_unknown_status_count,
+       (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND bg.amount_paid_cents IS NULL) AS guest_unknown_amount_count,
        NOT (
          (COALESCE(b.amount_paid_cents,0)=0 AND COALESCE(b.deposit_paid_cents,0)=0 AND LOWER(COALESCE(b.payment_status::text,'')) IN ('deposit_paid','partially_paid','paid'))
          OR (COALESCE(b.amount_paid_cents,0)>0 AND LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed'))
@@ -79,12 +82,12 @@ WHERE b.client_id=c.id
   AND c.slug=$1
   AND b.id::text=$2
   AND regexp_replace(COALESCE(b.phone,''), '[^0-9]', '', 'g') = regexp_replace($3, '[^0-9]', '', 'g')
-  AND COALESCE(b.amount_paid_cents,0)=0
-  AND COALESCE(b.deposit_paid_cents,0)=0
+  AND b.amount_paid_cents=0
+  AND b.deposit_paid_cents=0
   AND LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed')
-  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (COALESCE(p.amount_paid_cents,0)>0 OR LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
+  AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id)
   AND NOT EXISTS (SELECT 1 FROM payment_events pe WHERE pe.client_id=b.client_id AND (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated'))
-  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (COALESCE(bg.amount_paid_cents,0)>0 OR LOWER(COALESCE(bg.payment_status,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
+  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (bg.amount_paid_cents IS NULL OR bg.amount_paid_cents>0 OR LOWER(COALESCE(bg.payment_status,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
 RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status
 `;
 

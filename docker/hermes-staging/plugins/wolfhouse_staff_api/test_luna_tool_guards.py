@@ -16,6 +16,7 @@ the Hermes container (or any box with Python 3):
 import json
 import os
 import sys
+import types
 
 # Import the plugin package by name (parent "plugins" dir on the path).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -194,6 +195,19 @@ ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "b
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
 print("\n== cancel_unpaid_booking authoritative boundary result ==")
+_prior_gateway = sys.modules.get("gateway")
+_prior_session_context = sys.modules.get("gateway.session_context")
+_turn = {
+    "HERMES_SESSION_PLATFORM": "whatsapp_cloud",
+    "HERMES_SESSION_USER_ID": "+34600000001",
+    "HERMES_SESSION_CHAT_ID": "+34600000001",
+}
+_gateway = types.ModuleType("gateway")
+_gateway.__path__ = []
+_session_context = types.ModuleType("gateway.session_context")
+setattr(_session_context, "get_session_env", lambda key, default="": _turn.get(key, default))
+sys.modules["gateway"] = _gateway
+sys.modules["gateway.session_context"] = _session_context
 fake = with_fake({"/bookings/cancel-unpaid": {
     "success": True, "cancelled": True, "write_performed": True,
     "booking": {"booking_code": "MB-A"},
@@ -202,7 +216,7 @@ fake = with_fake({"/bookings/cancel-unpaid": {
 cu = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 611 222 333"}))
 check("CU1 confirmed unpaid cancellation succeeds", cu.get("success") is True and cu.get("cancelled") is True)
 check("CU2 uses write-boundary route", fake.calls[-1][0].endswith("/bookings/cancel-unpaid"))
-check("CU3 binds trusted session phone and ignores caller override", bool(fake.calls[-1][1].get("phone")) and fake.calls[-1][1].get("phone") != "+34611222333")
+check("CU3 binds trusted live-turn phone and ignores caller override", fake.calls[-1][1].get("phone") == "+34600000001")
 
 fake = with_fake({"/bookings/cancel-unpaid": {
     "success": False, "cancelled": False, "write_performed": False,
@@ -213,6 +227,34 @@ cb = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34
 check("CU4 paid cancellation is not reported cancelled", cb.get("success") is False and cb.get("cancelled") is False)
 check("CU5 paid cancellation requires staff review", cb.get("staff_review_needed") is True)
 check("CU6 paid cancellation contains no refund terms", "refund" not in json.dumps(cb).lower())
+
+# A stale process-wide value must never substitute for cleared or foreign turn context.
+_prior_stale_phone = os.environ.get("WOLFHOUSE_WHATSAPP_GUEST_PHONE")
+os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = "+34999999999"
+_turn.update({"HERMES_SESSION_PLATFORM": "whatsapp_cloud", "HERMES_SESSION_USER_ID": "", "HERMES_SESSION_CHAT_ID": ""})
+fake = with_fake({"/bookings/cancel-unpaid": {"success": True, "cancelled": True}})
+missing = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34999999999"}))
+check("CU7 cleared turn identity fails closed", missing.get("cancelled") is False and missing.get("staff_review_needed") is True)
+check("CU8 cleared turn identity stops before transport", fake.calls == [])
+
+_turn.update({"HERMES_SESSION_PLATFORM": "discord", "HERMES_SESSION_USER_ID": "+34600000001", "HERMES_SESSION_CHAT_ID": "+34600000001"})
+fake = with_fake({"/bookings/cancel-unpaid": {"success": True, "cancelled": True}})
+foreign = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A"}))
+check("CU9 foreign turn identity fails closed", foreign.get("cancelled") is False and foreign.get("staff_review_needed") is True)
+check("CU10 foreign turn identity stops before transport", fake.calls == [])
+
+if _prior_stale_phone is None:
+    os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
+else:
+    os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = _prior_stale_phone
+if _prior_gateway is None:
+    sys.modules.pop("gateway", None)
+else:
+    sys.modules["gateway"] = _prior_gateway
+if _prior_session_context is None:
+    sys.modules.pop("gateway.session_context", None)
+else:
+    sys.modules["gateway.session_context"] = _prior_session_context
 
 
 print("\n== flag_needs_human ==")

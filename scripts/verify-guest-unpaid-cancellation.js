@@ -19,7 +19,7 @@ function eligible(overrides = {}) {
     booking_payment_status: 'waiting_payment',
     booking_amount_paid_cents: 0,
     booking_deposit_paid_cents: 0,
-    payment_row_count: 1,
+    payment_row_count: 0,
     payment_positive_count: 0,
     payment_captured_count: 0,
     payment_unknown_status_count: 0,
@@ -28,6 +28,7 @@ function eligible(overrides = {}) {
     guest_positive_count: 0,
     guest_paid_status_count: 0,
     guest_unknown_status_count: 0,
+    guest_unknown_amount_count: 0,
     evidence_consistent: true,
     ...overrides,
   };
@@ -37,14 +38,18 @@ assert.deepEqual(classifyGuestCancellationPaymentEvidence(eligible()), { eligibl
 for (const [name, patch, reason] of [
   ['booking aggregate', { booking_amount_paid_cents: 1 }, 'payment_exists'],
   ['deposit aggregate', { booking_deposit_paid_cents: 1 }, 'payment_exists'],
+  ['pending or open checkout payment row', { payment_row_count: 1 }, 'payment_exists'],
   ['captured payment row', { payment_captured_count: 1 }, 'payment_exists'],
   ['provider paid event before aggregate update', { payment_event_paid_count: 1 }, 'payment_exists'],
   ['partial payment row', { payment_positive_count: 1 }, 'payment_exists'],
   ['one paid guest', { guest_positive_count: 1 }, 'payment_exists'],
   ['guest paid status', { guest_paid_status_count: 1 }, 'payment_exists'],
   ['unknown booking payment state', { booking_payment_status: null }, 'payment_evidence_unknown'],
+  ['unknown booking amount', { booking_amount_paid_cents: null }, 'payment_evidence_unknown'],
+  ['unknown booking deposit', { booking_deposit_paid_cents: null }, 'payment_evidence_unknown'],
   ['unknown payment row status', { payment_unknown_status_count: 1 }, 'payment_evidence_unknown'],
   ['unknown guest payment status', { guest_unknown_status_count: 1 }, 'payment_evidence_unknown'],
+  ['unknown guest amount', { guest_unknown_amount_count: 1 }, 'payment_evidence_unknown'],
   ['inconsistent aggregate', { evidence_consistent: false }, 'payment_evidence_inconsistent'],
   ['wrong phone', { phone_matches: false }, 'booking_not_owned'],
 ]) {
@@ -58,6 +63,9 @@ assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /client_slug|c\.slug/i, 'tenant 
 assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /phone/i, 'guest ownership must be in SQL');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /status\s*=\s*'cancelled'/i);
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /NOT EXISTS[\s\S]*payments/i, 'write itself must recheck payment rows');
+assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /NOT EXISTS \(SELECT 1 FROM payments p WHERE p\.client_id=b\.client_id AND p\.booking_id=b\.id\)/i, 'any payment or checkout row blocks cancellation');
+assert.doesNotMatch(GUEST_CANCEL_BOOKING_UPDATE_SQL, /COALESCE\(b\.(?:amount_paid_cents|deposit_paid_cents),0\)=0/i, 'unknown booking money must not become zero');
+assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /bg\.amount_paid_cents IS NULL/i, 'unknown guest money must block the write');
 assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /checkout\.session\.async_payment_succeeded/i, 'async Stripe success is payment truth');
 assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /pe\.booking_id=b\.id OR EXISTS[\s\S]*ep\.id=pe\.payment_id/i, 'provider events linked through payment_id are included');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /checkout\.session\.async_payment_succeeded/i, 'write guard blocks async Stripe success');
