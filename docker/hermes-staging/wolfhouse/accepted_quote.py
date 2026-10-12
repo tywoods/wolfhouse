@@ -319,6 +319,90 @@ def _transaction(fn):
         return db._execute_write(work)
 
 
+def _plain_stay_date(value):
+    """Guest date only. Invalid values stay unchanged; never invent a date."""
+    text = str(value or '').strip()
+    match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
+    if not match:
+        return text
+    try:
+        day = date(int(match[1]), int(match[2]), int(match[3]))
+    except ValueError:
+        return text
+    weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+    return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
+
+
+def _guest_count_label(count):
+    return '1 guest' if count == 1 else f'{count} guests'
+
+
+def _join_names(names):
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f'{names[0]} and {names[1]}'
+    return ', '.join(names[:-1]) + f', and {names[-1]}'
+
+
+def _count_word(count):
+    words = ('two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten')
+    return words[count - 2] if 2 <= count <= 10 else str(count)
+
+
+def _room_kind(offer, room):
+    if offer.get('room_type') == 'private':
+        return 'private room'
+    labels = {'female_only': "women's room", 'male_only': "men's room",
+              'mixed': 'mixed room', 'flexible': 'shared room'}
+    return labels.get(room.get('gender_strategy'), 'room')
+
+
+def _guest_room_lines(plan, offer):
+    """Group people by frozen room without showing bed or room codes."""
+    rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+    groups = []
+    index = {}
+    for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
+        room = rooms[code]
+        kind = _room_kind(offer, room)
+        key = (room.get('room_code'), kind)
+        if key not in index:
+            index[key] = len(groups)
+            groups.append({'kind': kind, 'names': []})
+        groups[index[key]]['names'].append(guest['name'])
+    by_kind = {}
+    for group in groups:
+        by_kind.setdefault(group['kind'], []).append(group)
+    lines = []
+    emitted = set()
+    for group in groups:
+        kind = group['kind']
+        if kind in emitted:
+            continue
+        same = by_kind[kind]
+        emitted.add(kind)
+        if len(same) > 1 and all(len(item['names']) == 1 for item in same):
+            names = [name for item in same for name in item['names']]
+            lines.append(f"{_join_names(names)}: beds in {_count_word(len(same))} separate {kind}s.")
+            continue
+        first = True
+        for item in same:
+            who = _join_names(item['names'])
+            beds = len(item['names'])
+            if len(same) == 1 and beds == 1:
+                lines.append(f"{who}: a bed in the {kind}.")
+            elif len(same) == 1:
+                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}.")
+            elif beds == 1:
+                where = f"the {kind}" if first else f"a separate {kind}"
+                lines.append(f"{who}: a bed in {where}.")
+            else:
+                where = f"the same {kind}" if first else f"a separate {kind}"
+                lines.append(f"{who}: {_count_word(beds)} beds in {where}.")
+            first = False
+    return lines
 def _accepts(raw, plan):
     text = re.sub(r'\s+', ' ', raw.strip().lower()).rstrip('.!')
     if text in ('i accept the quote', 'i accept this quote', 'book this', 'book this quote',
@@ -447,6 +531,7 @@ def observe_owner_turn(agent, raw):
         if (not price_consent and re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I)):
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
+            state.pop('accepted_offer_snapshot', None)
         elif re.search(r'\b(change|revise|remove|instead|without|different|add)\b', raw, re.I):
             state.update(status='revision', quote=None)
             state.pop('acceptance_message', None)
@@ -470,6 +555,8 @@ def observe_owner_turn(agent, raw):
                          or _accepts_complete_presented_offer(raw, presented)))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
+            if state.get('checked_offer'):
+                state['accepted_offer_snapshot'] = deepcopy(state['checked_offer'])
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):
             # Changed or unsupported booking acceptance needs a fresh quote, never
             # silently falls back to the former quote (including accepted state).
@@ -803,19 +890,13 @@ def finalize_offer_response(result):
         def money(cents):
             return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
         plan = state['plan']
-        lines = [f"{offer['check_in']} to {offer['check_out']} — {offer['guest_count']} guests."]
-        rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+        lines = [f"{_plain_stay_date(offer['check_in'])} to {_plain_stay_date(offer['check_out'])} — {_guest_count_label(offer['guest_count'])}."]
+        lines.extend(_guest_room_lines(plan, offer))
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
                 return 'Accommodation only'
             return str(code).removeprefix('package_').replace('_', ' ').capitalize()
-        room_labels = {'female_only': "women's room", 'male_only': "men's room",
-                       'mixed': 'mixed room', 'flexible': 'shared room'}
-        for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
-            room = rooms[code]
-            kind = ('private room' if offer['room_type'] == 'private' else
-                    room_labels.get(room['gender_strategy'], 'room'))
-            lines.append(f"{guest['name']}: bed {code}, {kind} {room['room_code']}.")
+
         lines.append(label(offer['package_code']) + '.')
         for item in offer['guest_packages']:
             number = item.get('guest_number')
@@ -840,7 +921,11 @@ def finalize_offer_response(result):
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
         lines.append('Availability checked, subject to confirmation when booking.')
-        lines.append('Shall I create this booking?')
+        prior = state.get('accepted_offer_snapshot')
+        question = ('Shall I create this updated booking?'
+                    if isinstance(prior, dict) and prior != offer
+                    else 'Shall I create this booking?')
+        lines.append(question)
         text = '\n'.join(lines)
         output = deepcopy(result)
         output['final_response'] = text
