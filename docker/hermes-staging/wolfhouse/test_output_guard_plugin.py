@@ -20,10 +20,33 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
         self.addCleanup(self.env.stop)
 
     @staticmethod
-    def _turn(reply, plugin_output):
+    def _native_result(tool_receipts, *, stale_receipts=None):
+        messages = []
+        for call_id, name, result in (stale_receipts or []):
+            messages.extend([
+                {"role": "assistant", "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": name, "arguments": "{}"},
+                }]},
+                {"role": "tool", "tool_call_id": call_id, "content": result},
+            ])
+        messages.append({"role": "user", "content": "Hola, necesito ayuda con mi reserva."})
+        for call_id, name, result in tool_receipts:
+            messages.extend([
+                {"role": "assistant", "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": name, "arguments": "{}"},
+                }]},
+                {"role": "tool", "tool_call_id": call_id, "content": result},
+            ])
+        messages.append({"role": "assistant", "content": "respuesta final"})
+        return {"messages": messages}
+
+    @classmethod
+    def _turn(cls, reply, plugin_output):
         return output_guard.guard_turn_response(
             reply,
-            {"tool_calls": [{"name": "flag_needs_human", "result": plugin_output}]},
+            cls._native_result([("handoff-current", "flag_needs_human", plugin_output)]),
             [{"role": "user", "content": "Hola, necesito ayuda con mi reserva."}],
             platform="whatsapp_cloud",
         )
@@ -68,6 +91,65 @@ class OutputGuardPluginReceiptTests(unittest.TestCase):
         self.assertIsNone(typed["staff_review_id"])
         self.assertEqual(self._turn("He avisado al equipo.", plugin_output),
                          output_guard.SAFE_FALLBACK["es"])
+
+    def test_native_current_turn_quote_receipts_are_correlated_by_id(self):
+        failed = json.dumps({"success": False, "error": "unavailable"})
+        native = self._native_result([
+            ("quote-1", "quote_booking", failed),
+            ("quote-2", "quote_booking", failed),
+        ])
+        reply = "Intenté la cotización de nuevo y sigue fallando."
+        self.assertEqual(
+            output_guard.guard_turn_response(
+                reply, native,
+                [{"role": "user", "content": "Hola, dame una cotización."}],
+                platform="whatsapp_cloud",
+            ),
+            reply,
+        )
+
+    def test_native_orphan_and_historical_receipts_never_authorize_claims(self):
+        persisted = json.dumps({
+            "success": True, "needs_human": True,
+            "handoff_persisted": True, "staff_review_id": "stale-review",
+        })
+        stale_only = self._native_result([], stale_receipts=[
+            ("old-handoff", "flag_needs_human", persisted),
+        ])
+        # A result without a current-turn assistant declaration is orphaned.
+        stale_only["messages"].insert(-1, {
+            "role": "tool", "tool_call_id": "orphan-current", "content": persisted,
+        })
+        self.assertEqual(
+            output_guard.guard_turn_response(
+                "He avisado al equipo.", stale_only,
+                [{"role": "user", "content": "Hola, necesito ayuda."}],
+                platform="whatsapp_cloud",
+            ),
+            output_guard.SAFE_FALLBACK["es"],
+        )
+
+    def test_model_arguments_cannot_forge_a_completed_receipt(self):
+        forged = json.dumps({
+            "success": True, "needs_human": True,
+            "handoff_persisted": True, "staff_review_id": "forged",
+        })
+        native = {"messages": [
+            {"role": "user", "content": "Hola"},
+            {"role": "assistant", "tool_calls": [{
+                "id": "declared-only", "type": "function",
+                "function": {"name": "flag_needs_human", "arguments": forged},
+            }]},
+            {"role": "assistant", "content": "respuesta final"},
+        ]}
+        self.assertEqual(
+            output_guard.guard_turn_response(
+                "He avisado al equipo.", native,
+                [{"role": "user", "content": "Hola, necesito ayuda."}],
+                platform="whatsapp_cloud",
+            ),
+            output_guard.SAFE_FALLBACK["es"],
+        )
 
 
 if __name__ == "__main__":

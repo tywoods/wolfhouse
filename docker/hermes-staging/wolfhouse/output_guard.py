@@ -549,7 +549,78 @@ def guard_reply(
 # (warn) — wrong parsing only yields noisy logs, never a mangled guest reply —
 # so this is safe to ship even with shape uncertainty.
 
+def _obj_get(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _native_current_turn_tool_calls(messages: Any) -> List[Dict[str, Any]]:
+    """Join completed current-turn tool results to assistant declarations by ID.
+
+    Names come only from assistant tool-call declarations and results only from
+    later role=tool messages carrying the same ID. The finalizer includes the
+    full session transcript, so the last user message is the authority boundary.
+    Orphans, duplicate IDs, declarations without results, and prior-turn rows
+    are ignored fail-closed.
+    """
+    rows = list(messages or [])
+    boundary = -1
+    for index in range(len(rows) - 1, -1, -1):
+        if str(_obj_get(rows[index], "role", "")).lower() == "user":
+            boundary = index
+            break
+    if boundary < 0:
+        return []
+
+    declarations: Dict[str, List[Tuple[int, str]]] = {}
+    results: Dict[str, List[Tuple[int, Any]]] = {}
+    current_rows = rows[boundary + 1:]
+    for index, message in enumerate(current_rows):
+        role = str(_obj_get(message, "role", "")).lower()
+        if role == "assistant":
+            for call in (_obj_get(message, "tool_calls", None) or []):
+                call_id = str(_obj_get(call, "id", "") or "").strip()
+                function = _obj_get(call, "function", None)
+                name = str(_obj_get(function, "name", "") or "").strip()
+                if call_id and name:
+                    declarations.setdefault(call_id, []).append((index, name))
+        elif role == "tool":
+            call_id = str(_obj_get(message, "tool_call_id", "") or "").strip()
+            if call_id:
+                results.setdefault(call_id, []).append(
+                    (index, _obj_get(message, "content", None)))
+
+    completed: List[Dict[str, Any]] = []
+    for call_id, declared in declarations.items():
+        matched_results = results.get(call_id, [])
+        if len(declared) != 1 or len(matched_results) != 1:
+            continue
+        declaration_index, name = declared[0]
+        result_index, result = matched_results[0]
+        if result_index <= declaration_index or result is None:
+            continue
+        if isinstance(result, str) and result.strip().lower().startswith("[result "):
+            continue
+        completed.append({
+            "name": name,
+            "args": {},
+            "result": result,
+            "result_summary": str(result or ""),
+            "tool_call_id": call_id,
+            "_result_index": result_index,
+        })
+    completed.sort(key=lambda receipt: receipt["_result_index"])
+    for receipt in completed:
+        receipt.pop("_result_index", None)
+    return completed
+
+
 def _tool_calls_from_agent_result(agent_result: Any) -> List[Dict[str, Any]]:
+    messages = _obj_get(agent_result, "messages", None) if agent_result is not None else None
+    if messages is not None:
+        return _native_current_turn_tool_calls(messages)
+
     raw = None
     if agent_result is not None:
         raw = getattr(agent_result, "tool_calls", None)
