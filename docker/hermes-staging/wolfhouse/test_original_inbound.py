@@ -228,6 +228,10 @@ class OriginalIngressTests(unittest.TestCase):
             async def _run_agent(self, **kwargs):
                 return kwargs
 
+            async def _run_agent_inner(self):
+                with original_inbound.gateway_followup_event_owner(None, None, None, None):
+                    return None
+
         class Spoofed:
             async def _handle_message(self, event):
                 return event
@@ -239,6 +243,12 @@ class OriginalIngressTests(unittest.TestCase):
         Spoofed._run_agent._wolfhouse_gateway_run_owner = True
         self.assertTrue(original_inbound.gateway_runtime_ready(Ready))
         self.assertFalse(original_inbound.gateway_runtime_ready(Spoofed))
+
+        class MissingQueuedCapture(Ready):
+            async def _run_agent_inner(self):
+                return None
+
+        self.assertFalse(original_inbound.gateway_runtime_ready(MissingQueuedCapture))
         with patch.object(original_inbound.OriginalInbound, 'bind',
                           side_effect=RuntimeError('queued probe broken')):
             self.assertFalse(original_inbound.gateway_runtime_ready(Ready))
@@ -254,6 +264,11 @@ class OriginalIngressTests(unittest.TestCase):
             text='Yes, quote this', message_id='queued-1',
             source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
                                  chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                return queued
+        asyncio.run(Capture().handle(event))
         with gateway_followup_event_owner(self.db, event, 's1', 'queued-key'):
             cap = original_inbound._current.get()
             self.assertEqual(cap.text, 'Yes, quote this')
@@ -262,13 +277,69 @@ class OriginalIngressTests(unittest.TestCase):
             self.assertFalse(cap.closed)
         self.assertTrue(cap.closed)
         self.assertIsNone(original_inbound._current.get())
-        with self.assertRaisesRegex(ledger.QuoteBoundaryError,
-                                    'original_inbound_queued_event_invalid'):
-            with gateway_followup_event_owner(
-                    self.db, SimpleNamespace(text='forged', source=event.source,
-                                             message_id='forged', internal=False),
-                    's1', 'queued-key'):
-                self.fail('forged event entered owner scope')
+        with gateway_followup_event_owner(self.db, None, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_queued_rewrite_uses_immutable_original_and_identity(self):
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        event = MessageEvent(
+            text='Not yet', message_id='queued-refusal',
+            source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                                 chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                queued.text = 'I accept the quote'
+
+        asyncio.run(Capture().handle(event))
+        with original_inbound.gateway_followup_event_owner(
+                self.db, event, 's1', 'queued-key'):
+            self.assertEqual(original_inbound._current.get().text, 'Not yet')
+
+        event.message_id = 'mutated-message-id'
+        with original_inbound.gateway_followup_event_owner(
+                self.db, event, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_queued_binding_failure_closes_and_restores_context(self):
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        event = MessageEvent(
+            text='Not yet', message_id='queued-bind-failure',
+            source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                                 chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                return None
+        asyncio.run(Capture().handle(event))
+        sentinel = object()
+        token = original_inbound._current.set(sentinel)
+        created = []
+        real = original_inbound.OriginalInbound
+        class RecordingInbound(real):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                created.append(self)
+            def bind(self, *args, **kwargs):
+                raise RuntimeError('queued bind exploded')
+        try:
+            with patch.object(original_inbound, 'OriginalInbound', RecordingInbound):
+                with self.assertRaisesRegex(RuntimeError, 'queued bind exploded'):
+                    with original_inbound.gateway_followup_event_owner(
+                            self.db, event, 's1', 'queued-key'):
+                        self.fail('binding failure entered scope')
+            self.assertIs(original_inbound._current.get(), sentinel)
+            self.assertTrue(created[0].closed)
+        finally:
+            original_inbound._current.reset(token)
 
     def test_swallowed_owner_boundary_rejections_emit_exact_stage_and_reason(self):
         from gateway.config import Platform

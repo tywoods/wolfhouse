@@ -5,6 +5,7 @@ lock, one-use bit and revocation; cancellation invalidates executor descendants.
 """
 from contextlib import contextmanager
 from contextvars import ContextVar
+import dis
 from functools import wraps
 import inspect
 import logging
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 _current = ContextVar('wolfhouse_original_inbound', default=None)
 _EVENT_OWNER_TOKEN = object()
 _RUN_OWNER_TOKEN = object()
+_QUEUE_SNAPSHOT_ATTR = '_wolfhouse_original_inbound_snapshot'
 
 
 def _source(source):
@@ -61,6 +63,9 @@ def gateway_event_owner(fn):
     @wraps(fn)
     async def owned(self, event, *args, **kwargs):
         source = _source(event.source)
+        snapshot = (event.text, source, str(event.message_id or ''),
+                    bool(getattr(event, 'internal', False)))
+        setattr(event, _QUEUE_SNAPSHOT_ATTR, snapshot)
         cap = OriginalInbound(event.text, source, event.message_id,
                               getattr(event, 'internal', False))
         token = _current.set(cap if cap.tenant and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud') else None)
@@ -106,19 +111,27 @@ def bind_gateway_session(db, session_id, session_key, source, message_id):
 
 @contextmanager
 def gateway_followup_event_owner(db, event, session_id, session_key):
-    """Mint authority only for an adapter-owned queued event."""
+    """Mint authority only from the immutable adapter-ingress snapshot."""
     from gateway.platforms.base import MessageEvent
-    from .accepted_quote import QuoteBoundaryError
-    if not isinstance(event, MessageEvent) or getattr(event, 'internal', False):
-        raise QuoteBoundaryError('original_inbound_queued_event_invalid')
-    source = _source(event.source)
-    cap = OriginalInbound(event.text, source, event.message_id,
-                          getattr(event, 'internal', False))
-    eligible = cap.tenant and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud')
+    snapshot = getattr(event, _QUEUE_SNAPSHOT_ATTR, None)
+    valid = (isinstance(event, MessageEvent) and isinstance(snapshot, tuple)
+             and len(snapshot) == 4)
+    if valid:
+        original_text, original_source, original_message_id, original_internal = snapshot
+        source = _source(event.source)
+        valid = (not original_internal and source == original_source
+                 and str(event.message_id or '') == original_message_id)
+    else:
+        original_text, original_source, original_message_id, original_internal = (None, {}, '', True)
+        source = {}
+    cap = OriginalInbound(original_text, original_source, original_message_id,
+                          original_internal)
+    eligible = (valid and cap.tenant
+                and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud'))
     token = _current.set(cap if eligible else None)
-    if eligible:
-        bind_gateway_session(db, session_id, session_key, event.source, event.message_id)
     try:
+        if eligible:
+            cap.bind(db, session_id, session_key, source, original_message_id)
         yield
     finally:
         cap.close()
@@ -190,6 +203,8 @@ def _queued_seam_probe():
         text='readiness probe', message_id='wolfhouse-readiness-probe',
         source=source,
     )
+    setattr(event, _QUEUE_SNAPSHOT_ATTR,
+            (event.text, _source(source), event.message_id, False))
     before = _current.get()
     cap = None
     db = ProbeDB()
@@ -205,11 +220,20 @@ def _queued_seam_probe():
 
 
 def gateway_runtime_ready(runner_type):
+    queued = getattr(runner_type, '_run_agent_inner', None)
+    instructions = list(dis.get_instructions(queued)) if callable(queued) else []
+    queued_names = set(getattr(getattr(queued, '__code__', None), 'co_names', ()))
+    queued_ready = (
+        ('_wh_followup_original' in queued_names
+         or 'gateway_followup_event_owner' in queued_names)
+        and any(item.opname == 'BEFORE_WITH' for item in instructions)
+    )
     wrappers_ready = (
         getattr(getattr(runner_type, '_handle_message', None),
                 '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
         and getattr(getattr(runner_type, '_run_agent', None),
                     '_wolfhouse_gateway_run_owner_token', None) is _RUN_OWNER_TOKEN
+        and queued_ready
     )
     if not wrappers_ready:
         return False
