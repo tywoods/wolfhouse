@@ -46,11 +46,12 @@ def read_gateway_run() -> str:
 def verify_live_turn_owner_lifecycle() -> bool:
     """Exercise the patched gateway methods, including copied-context revocation."""
     gateway_run = importlib.import_module("gateway.run")
+    from gateway.config import Platform
     from wolfhouse.live_turn_owner import live_turn_guest_phone
 
     runner = object.__new__(gateway_run.GatewayRunner)
     runner.adapters = {}
-    platform = SimpleNamespace(value="whatsapp_cloud")
+    platform = Platform.WHATSAPP_CLOUD
     source = SimpleNamespace(
         platform=platform,
         chat_id="+34600000001",
