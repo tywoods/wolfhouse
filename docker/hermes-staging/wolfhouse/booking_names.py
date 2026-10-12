@@ -516,8 +516,13 @@ def _identity(payload, scope):
     if scope['tenant'] == 'wolfhouse-somo' and 'guests' in payload:
         raw = payload['guests']
         if isinstance(raw, list) and len(raw) <= 128:
-            result['guests'] = [{'name': _text(item.get('name', item.get('guest_name', ''))
-                                      if isinstance(item, dict) else item)} for item in raw]
+            result['guests'] = []
+            for item in raw:
+                guest = {'name': _text(item.get('name', item.get('guest_name', ''))
+                                       if isinstance(item, dict) else item)}
+                if isinstance(item, dict) and item.get('explicit_gender') in {'male', 'female'}:
+                    guest['explicit_gender'] = item['explicit_gender']
+                result['guests'].append(guest)
         else:
             result['guests'] = []
     return result

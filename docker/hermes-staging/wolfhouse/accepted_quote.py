@@ -355,6 +355,7 @@ def _accepts_complete_presented_offer(raw, offer):
     cents = int(match[6]) * 100 + int((match[7] or '').ljust(2, '0'))
     arrangement = offer.get('room_arrangement')
     male_room = (offer.get('room_type') == 'shared'
+                 and offer.get('resolved_room_claim') == 'male_shared'
                  and isinstance(arrangement, list) and bool(arrangement)
                  and all(isinstance(row, dict)
                          and str(row.get('gender_strategy') or '').lower().startswith('male')
@@ -387,6 +388,21 @@ def _contact_continuity(raw):
         part and part[0].isalpha() and all(
             char.isalpha() or unicodedata.category(char).startswith('M')
             for char in part) for part in parts))
+
+
+def _accepts_price_booking(raw, offer):
+    """Bounded explicit consent that refers to the immediately presented price."""
+    match = re.fullmatch(
+        r"\s*yes,?\s+i accept that price,?\s+please book it under\s+(.+?)\.?(?:\s+i['’]ll pay the deposit later\.?)?\s*",
+        raw, re.I)
+    if not match or offer.get('payment_choice') != 'deposit':
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    claimed = normalize(match[1])
+    assignments = offer.get('guest_bed_assignments')
+    names = [normalize(row.get('guest_name')) for row in assignments
+             if isinstance(row, dict) and row.get('guest_name')] if isinstance(assignments, list) else []
+    return bool(claimed and claimed in names)
 
 
 def observe_owner_turn(agent, raw):
@@ -424,8 +440,11 @@ def observe_owner_turn(agent, raw):
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
         presented = state.pop('presented_offer', None)
+        price_consent = bool(presented and state.get('checked_offer')
+                             and presented == state['checked_offer']
+                             and _accepts_price_booking(raw, presented))
         # IDs stay durable for the incarnation; do not age out replay protection.
-        if re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I):
+        if (not price_consent and re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I)):
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
         elif re.search(r'\b(change|revise|remove|instead|without|different|add)\b', raw, re.I):
@@ -446,7 +465,8 @@ def observe_owner_turn(agent, raw):
         elif state['status'] == 'offered' and state['quote'] and (
                 _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
-                    and (re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
+                    and (price_consent
+                         or re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
                          or _accepts_complete_presented_offer(raw, presented)))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))

@@ -4320,7 +4320,9 @@ def capture_booking_names(params, **kwargs):
             or (params.get("clear") is True and len(params) != 1)
             or ("guest_count" in params and (type(params["guest_count"]) is not int or params["guest_count"] < 1))
             or ("guests" in params and (not isinstance(params["guests"], list) or any(
-                not isinstance(g, dict) or set(g) != {"name"} or not isinstance(g["name"], str)
+                not isinstance(g, dict) or set(g) not in ({"name"}, {"name", "explicit_gender"})
+                or not isinstance(g["name"], str)
+                or ("explicit_gender" in g and g["explicit_gender"] not in {"male", "female"})
                 for g in params["guests"])))
         )
     result = {"tool": "capture_booking_names", "success": False, "status": "not_saved"}
@@ -4628,6 +4630,7 @@ def register(ctx):
             "description": "Roster context only; not booking count authority."})
     description = (
         "Capture guest-supplied booking names as soon as they are known, even before dates or quote. "
+        "For Wolfhouse only, preserve explicit_gender on that named traveler only when the guest explicitly self-states male or female; never infer gender from a name, title, room request, or companion. "
         "Use structured names, preserve compound names, order, duplicate people and unnamed slots. "
         "Corrections update only supplied identity fields; contact and occupants are independent. "
         "Empty contact stays empty. Count changes retain known names for clarification, not incompatible roster auto-fill. "
