@@ -1200,7 +1200,10 @@ def _canonical_once(tree, owner, code, direct=False):
 
 def _validate_gateway_original(source):
     tree = ast.parse(source)
-    for method, decorator in (('_handle_message', '_wh_gateway_event_owner'), ('_run_agent', '_wh_gateway_run_owner')):
+    for method, decorator in (
+            ('_handle_message', '_wh_gateway_event_owner'),
+            ('_handle_active_session_busy_message', '_wh_gateway_busy_owner'),
+            ('_run_agent', '_wh_gateway_run_owner')):
         owner = _inbound_owner(tree, 'GatewayRunner', method)
         decorators = [d for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                       for d in n.decorator_list if isinstance(d, ast.Name) and d.id == decorator]
@@ -1213,9 +1216,23 @@ def _validate_gateway_original(source):
     expected_import = ast.parse('from wolfhouse.original_inbound import bind_gateway_session as _wh_bind_original').body[0]
     if owner.body.index(bind) != index + 2 or not _ast_equal(owner.body[index + 1], expected_import):
         raise RuntimeError('original-inbound bind not at pre-enrichment seam')
-    expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_run_owner as _wh_gateway_run_owner').body[0]
+    expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_busy_event_owner as _wh_gateway_busy_owner, gateway_run_owner as _wh_gateway_run_owner, gateway_followup_event_owner as _wh_followup_original').body[0]
     if sum(_ast_equal(n, expected) for n in tree.body) != 1:
         raise RuntimeError('original-inbound owner imports changed')
+    owner = _inbound_owner(tree, 'GatewayRunner', '_run_agent_inner')
+    followups = [n for n in ast.walk(owner) if isinstance(n, ast.With)
+                 and any(isinstance(item.context_expr, ast.Call)
+                         and isinstance(item.context_expr.func, ast.Name)
+                         and item.context_expr.func.id == '_wh_followup_original'
+                         for item in n.items)]
+    if len(followups) != 1:
+        raise RuntimeError('queued original-inbound seam missing/ambiguous')
+    expected_call = ast.parse(
+        'with _wh_followup_original(self._session_db, pending_event, session_id, session_key):\n'
+        '    followup_result = await self._run_agent(message=next_message, context_prompt=context_prompt, history=updated_history, source=next_source, session_id=session_id, session_key=session_key, run_generation=run_generation, _interrupt_depth=_interrupt_depth + 1, event_message_id=next_message_id, channel_prompt=next_channel_prompt)'
+    ).body[0]
+    if not _ast_equal(followups[0], expected_call):
+        raise RuntimeError('queued original-inbound seam changed')
 
 
 def _validate_api_original(source):
@@ -1245,13 +1262,31 @@ def _validate_api_original(source):
 
 def apply_original_inbound_source(source: str) -> str:
     """Decorate exact runtime owners; missing/duplicate seams fail the build."""
-    if any(marker in source for marker in ('_wh_gateway_event_owner', '_wh_gateway_run_owner',
-                                           '_wh_bind_original', '# Wolfhouse original inbound:')):
-        # An installed/partial patch is validation-only, never silently healed.
+    markers = ('_wh_gateway_event_owner', '_wh_gateway_run_owner',
+               '_wh_bind_original', '# Wolfhouse original inbound:')
+    already_patched = any(marker in source for marker in markers)
+    if already_patched and '_wh_followup_original' in source and '_wh_gateway_busy_owner' in source:
         _validate_gateway_original(source)
         compile(source, '<gateway-original-inbound>', 'exec')
         return source
+    legacy_import = (
+        'from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, '
+        'gateway_run_owner as _wh_gateway_run_owner\n')
+    queued_import = (
+        'from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, '
+        'gateway_run_owner as _wh_gateway_run_owner, '
+        'gateway_followup_event_owner as _wh_followup_original\n')
+    if already_patched:
+        # Accept only the exact previous owner patch generations.
+        prior_import = queued_import if queued_import in source else legacy_import
+        # Partial or mutated installations still fail closed.
+        if (source.count(prior_import) != 1
+                or source.count('    @_wh_gateway_event_owner\n') != 1
+                or source.count('    @_wh_gateway_run_owner\n') != 1
+                or source.count('# Wolfhouse original inbound: bind incarnation before enrichment.') != 1):
+            raise RuntimeError('legacy original-inbound patch changed')
     for name, decorator in (('_handle_message', 'gateway_event_owner'),
+                            ('_handle_active_session_busy_message', 'gateway_busy_owner'),
                             ('_run_agent', 'gateway_run_owner')):
         tag = '    @_wh_' + decorator + '\n'
         if tag in source:
@@ -1266,12 +1301,19 @@ def apply_original_inbound_source(source: str) -> str:
         lines.insert(owners[0].lineno - 1, tag)
         source = ''.join(lines)
     imports = ('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, '
-               'gateway_run_owner as _wh_gateway_run_owner\n')
+               'gateway_busy_event_owner as _wh_gateway_busy_owner, '
+               'gateway_run_owner as _wh_gateway_run_owner, '
+               'gateway_followup_event_owner as _wh_followup_original\n')
     if imports not in source:
-        anchor = 'from contextvars import copy_context\n'
-        if source.count(anchor) != 1:
-            raise RuntimeError('original-inbound import anchor missing/ambiguous')
-        source = source.replace(anchor, anchor + imports, 1)
+        if source.count(queued_import) == 1:
+            source = source.replace(queued_import, imports, 1)
+        elif source.count(legacy_import) == 1:
+            source = source.replace(legacy_import, imports, 1)
+        else:
+            anchor = 'from contextvars import copy_context\n'
+            if source.count(anchor) != 1:
+                raise RuntimeError('original-inbound import anchor missing/ambiguous')
+            source = source.replace(anchor, anchor + imports, 1)
     bind_tag = '# Wolfhouse original inbound: bind incarnation before enrichment.'
     if bind_tag not in source:
         anchor = '        _session_env_tokens = self._set_session_env(context)\n'
@@ -1280,6 +1322,27 @@ def apply_original_inbound_source(source: str) -> str:
         source = source.replace(anchor, anchor + '        ' + bind_tag + '\n'
             '        from wolfhouse.original_inbound import bind_gateway_session as _wh_bind_original\n'
             '        _wh_bind_original(self._session_db, session_entry.session_id, session_key, source, event.message_id)\n', 1)
+    if '_wh_followup_original(self._session_db, pending_event, session_id, session_key)' not in source:
+        tree = ast.parse(source)
+        owner = _inbound_owner(tree, 'GatewayRunner', '_run_agent_inner')
+        calls = [n for n in ast.walk(owner) if isinstance(n, (ast.Assign, ast.AnnAssign))
+                 and isinstance(getattr(n, 'value', None), ast.Await)
+                 and isinstance(n.value.value, ast.Call)
+                 and isinstance(n.value.value.func, ast.Attribute)
+                 and isinstance(n.value.value.func.value, ast.Name)
+                 and n.value.value.func.value.id == 'self'
+                 and n.value.value.func.attr == '_run_agent'
+                 and any(isinstance(t, ast.Name) and t.id == 'followup_result'
+                         for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))]
+        if len(calls) != 1:
+            raise RuntimeError('queued original-inbound followup anchor missing/ambiguous')
+        call = calls[0]
+        lines = source.splitlines(keepends=True)
+        start, end = call.lineno - 1, call.end_lineno
+        indent = lines[start][:len(lines[start]) - len(lines[start].lstrip())]
+        block = ''.join(indent + '    ' + line[len(indent):] for line in lines[start:end])
+        lines[start:end] = [indent + 'with _wh_followup_original(self._session_db, pending_event, session_id, session_key):\n', block]
+        source = ''.join(lines)
     _validate_gateway_original(source)
     compile(source, '<gateway-original-inbound>', 'exec')
     return source

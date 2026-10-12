@@ -8,6 +8,9 @@ class PatchMutants(unittest.TestCase):
     def test_gateway_mutants(self):
         import gateway.run as runtime
         original = apply_original_inbound_source(Path(runtime.__file__).read_text())
+        followup = ('with _wh_followup_original(self._session_db, pending_event, '
+                    'session_id, session_key):')
+        self.assertIn(followup, original)
         self.assertEqual(original, apply_original_inbound_source(original))
         call = '_wh_bind_original(self._session_db, session_entry.session_id, session_key, source, event.message_id)'
         mutants = {
@@ -18,6 +21,9 @@ class PatchMutants(unittest.TestCase):
             'duplicate': original.replace('        '+call, '        '+call+'\n        '+call),
             'movedowner': original.replace('    @_wh_gateway_event_owner\n', '').replace('    async def _run_agent(', '    @_wh_gateway_event_owner\n    async def _run_agent('),
             'missingbody': original.replace('    @_wh_gateway_event_owner\n', '    # @_wh_gateway_event_owner\n'),
+            'missingqueuedowner': original.replace(
+                'with _wh_followup_original(self._session_db, pending_event, session_id, session_key):',
+                'with __import__("contextlib").nullcontext():'),
         }
         for name, source in mutants.items():
             with self.subTest(name=name), self.assertRaises(RuntimeError): apply_original_inbound_source(source)

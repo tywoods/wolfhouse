@@ -140,31 +140,34 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_quote_owner_hook_fails_before_live_guard_install(self):
         import sys
         import wolfhouse.crowsnest_guest_door as door
-        from wolfhouse import accepted_quote
+        from wolfhouse import accepted_quote, original_inbound
 
         fake_loop = SimpleNamespace(run_conversation=lambda *a, **k: None)
         fake_agent = SimpleNamespace(conversation_loop=fake_loop)
-        with patch.dict(sys.modules, {"agent": fake_agent}), \
+        fake_gateway = SimpleNamespace(GatewayRunner=object)
+        with patch.dict(sys.modules, {"agent": fake_agent, "gateway.run": fake_gateway}), \
+                patch.object(original_inbound, "gateway_runtime_ready", return_value=True), \
                 patch.object(accepted_quote, "install_owner_hook", return_value=None):
             with self.assertRaisesRegex(RuntimeError, "quote_owner_hook_unavailable"):
                 door._ensure_quote_owner_hook()
 
-    async def test_quote_owner_hook_is_verified_after_install(self):
+    async def test_copied_boolean_quote_owner_marker_is_rejected(self):
         import sys
         import wolfhouse.crowsnest_guest_door as door
-        from wolfhouse import accepted_quote
+        from wolfhouse import accepted_quote, original_inbound
 
         def bare(*args, **kwargs):
             return None
+        bare._wolfhouse_quote_owner = True
         fake_loop = SimpleNamespace(run_conversation=bare)
         fake_agent = SimpleNamespace(conversation_loop=fake_loop)
+        fake_gateway = SimpleNamespace(GatewayRunner=object)
 
-        def install():
-            fake_loop.run_conversation._wolfhouse_quote_owner = True
-
-        with patch.dict(sys.modules, {"agent": fake_agent}), \
-                patch.object(accepted_quote, "install_owner_hook", side_effect=install):
-            door._ensure_quote_owner_hook()
+        with patch.dict(sys.modules, {"agent": fake_agent, "gateway.run": fake_gateway}), \
+                patch.object(original_inbound, "gateway_runtime_ready", return_value=True), \
+                patch.object(accepted_quote, "install_owner_hook", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "quote_owner_hook_unavailable"):
+                door._ensure_quote_owner_hook()
 
     async def test_timeout_cancel_and_late_completion_never_fall_back_to_external_transport(self):
         phone = "+34" + "600111333"

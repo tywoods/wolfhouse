@@ -5,19 +5,47 @@ lock, one-use bit and revocation; cancellation invalidates executor descendants.
 """
 from contextlib import contextmanager
 from contextvars import ContextVar
+from collections import OrderedDict
 from functools import wraps
 import inspect
+import logging
 import os
 from threading import RLock
 from uuid import uuid4
 
+
+logger = logging.getLogger(__name__)
+
 _current = ContextVar('wolfhouse_original_inbound', default=None)
+_EVENT_OWNER_TOKEN = object()
+_RUN_OWNER_TOKEN = object()
+_QUEUE_SNAPSHOT_ATTR = '_wolfhouse_original_inbound_snapshot'
+_QUEUE_SNAPSHOTS = OrderedDict()
+_QUEUE_SNAPSHOT_LIMIT = 4096
 
 
 def _source(source):
     return dict(PLATFORM=str(getattr(source.platform, 'value', source.platform)),
                 CHAT_ID=str(source.chat_id or ''), USER_ID=str(source.user_id or ''),
                 THREAD_ID=str(source.thread_id or ''))
+
+
+def _snapshot_key(source, message_id):
+    identity = _source(source)
+    return (identity['PLATFORM'], identity['CHAT_ID'], identity['USER_ID'],
+            identity['THREAD_ID'], str(message_id or ''))
+
+
+def _capture_snapshot(event):
+    snapshot = (event.text, _source(event.source), str(event.message_id or ''),
+                bool(getattr(event, 'internal', False)))
+    setattr(event, _QUEUE_SNAPSHOT_ATTR, snapshot)
+    key = _snapshot_key(event.source, event.message_id)
+    _QUEUE_SNAPSHOTS[key] = snapshot
+    _QUEUE_SNAPSHOTS.move_to_end(key)
+    while len(_QUEUE_SNAPSHOTS) > _QUEUE_SNAPSHOT_LIMIT:
+        _QUEUE_SNAPSHOTS.popitem(last=False)
+    return snapshot
 
 
 class OriginalInbound:
@@ -55,7 +83,8 @@ def gateway_event_owner(fn):
     @wraps(fn)
     async def owned(self, event, *args, **kwargs):
         source = _source(event.source)
-        cap = OriginalInbound(event.text, source, event.message_id,
+        snapshot = _capture_snapshot(event)
+        cap = OriginalInbound(snapshot[0], source, event.message_id,
                               getattr(event, 'internal', False))
         token = _current.set(cap if cap.tenant and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud') else None)
         try:
@@ -63,7 +92,11 @@ def gateway_event_owner(fn):
         finally:
             cap.close()
             _current.reset(token)
+    owned._wolfhouse_gateway_event_owner_token = _EVENT_OWNER_TOKEN
     return owned
+
+
+gateway_busy_event_owner = gateway_event_owner
 
 
 @contextmanager
@@ -88,9 +121,48 @@ def bind_gateway_session(db, session_id, session_key, source, message_id):
         return
     try:
         cap.bind(db, session_id, session_key, _source(source), message_id)
-    except QuoteBoundaryError:
+    except QuoteBoundaryError as exc:
+        logger.warning(
+            "quote_owner_boundary_rejected stage=session_binding reason=%s",
+            str(exc),
+        )
         cap.close()
         _current.set(None)
+
+
+@contextmanager
+def gateway_followup_event_owner(db, event, session_id, session_key):
+    """Mint authority only from the immutable adapter-ingress snapshot."""
+    from gateway.platforms.base import MessageEvent
+    snapshot = getattr(event, _QUEUE_SNAPSHOT_ATTR, None)
+    if isinstance(event, MessageEvent):
+        captured = _QUEUE_SNAPSHOTS.pop(
+            _snapshot_key(event.source, event.message_id), None)
+        if snapshot is None:
+            snapshot = captured
+    valid = (isinstance(event, MessageEvent) and isinstance(snapshot, tuple)
+             and len(snapshot) == 4)
+    if valid:
+        original_text, original_source, original_message_id, original_internal = snapshot
+        source = _source(event.source)
+        valid = (not original_internal and source == original_source
+                 and str(event.message_id or '') == original_message_id
+                 and event.text == original_text)
+    else:
+        original_text, original_source, original_message_id, original_internal = (None, {}, '', True)
+        source = {}
+    cap = OriginalInbound(original_text, original_source, original_message_id,
+                          original_internal)
+    eligible = (valid and cap.tenant
+                and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud'))
+    token = _current.set(cap if eligible else None)
+    try:
+        if eligible:
+            cap.bind(db, session_id, session_key, source, original_message_id)
+        yield
+    finally:
+        cap.close()
+        _current.reset(token)
 
 
 def gateway_run_owner(fn):
@@ -115,7 +187,11 @@ def gateway_run_owner(fn):
                             or cap.binding[0] is not getattr(self, '_session_db', None)
                             or cap.binding[1] != expected):
                         raise QuoteBoundaryError('original_inbound_identity_mismatch')
-            except QuoteBoundaryError:
+            except QuoteBoundaryError as exc:
+                logger.warning(
+                    'quote_owner_boundary_rejected stage=runner_validation reason=%s',
+                    str(exc),
+                )
                 # Queued/internal follow-ups cannot inherit the initiating event.
                 # Keep ordinary conversation available with no consent authority.
                 token = _current.set(None)
@@ -127,7 +203,116 @@ def gateway_run_owner(fn):
                 return await fn(self, *args, **kwargs)
         finally:
             cap.close()
+    owned._wolfhouse_gateway_run_owner_token = _RUN_OWNER_TOKEN
     return owned
+
+
+def _queued_seam_probe(helper):
+    """Actively prove a queued MessageEvent mints, binds, closes and resets."""
+    from gateway.config import Platform
+    from gateway.platforms.base import MessageEvent
+    from gateway.session import SessionSource
+
+    class ProbeDB:
+        @staticmethod
+        def get_session(session_id):
+            if session_id == 'wolfhouse-readiness-probe':
+                return {'started_at': 1, 'ended_at': None}
+            return None
+
+    source = SessionSource(
+        platform=Platform.WHATSAPP_CLOUD,
+        chat_id='wolfhouse-readiness-probe',
+        user_id='wolfhouse-readiness-probe',
+        thread_id=None,
+    )
+    event = MessageEvent(
+        text='readiness probe', message_id='wolfhouse-readiness-probe',
+        source=source,
+    )
+    setattr(event, _QUEUE_SNAPSHOT_ATTR,
+            (event.text, _source(source), event.message_id, False))
+    before = _current.get()
+    cap = None
+    db = ProbeDB()
+    with helper(
+            db, event, 'wolfhouse-readiness-probe',
+            'agent:main:whatsapp_cloud:dm:wolfhouse-readiness-probe'):
+        cap = _current.get()
+        if (cap is None or cap.closed or cap.binding is None
+                or cap.binding[0] is not db
+                or cap.binding[1].get('MESSAGE_ID') != event.message_id):
+            return False
+    return cap.closed and _current.get() is before
+
+
+def _queued_helper_binding(fn):
+    import ast
+    import textwrap
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    except (OSError, TypeError, IndentationError, SyntaxError):
+        return False
+    owners = [node for node in ast.walk(tree)
+              if isinstance(node, ast.AsyncFunctionDef)
+              and node.name == '_run_agent_inner']
+    if len(owners) != 1:
+        return False
+    owner = owners[0]
+    helper_calls = [item.context_expr for node in ast.walk(owner)
+                    if isinstance(node, ast.With) for item in node.items
+                    if isinstance(item.context_expr, ast.Call)
+                    and ((isinstance(item.context_expr.func, ast.Name)
+                          and item.context_expr.func.id == '_wh_followup_original')
+                         or (isinstance(item.context_expr.func, ast.Attribute)
+                             and item.context_expr.func.attr == 'gateway_followup_event_owner'))]
+    workers = [node for node in ast.walk(owner) if isinstance(node, ast.Await)
+               and isinstance(node.value, ast.Call)
+               and isinstance(node.value.func, ast.Attribute)
+               and node.value.func.attr == '_run_agent']
+    if len(helper_calls) != 1 or len(workers) != 1:
+        return None
+    helper_call = helper_calls[0]
+    helper_with = next((node for node in ast.walk(owner)
+                        if isinstance(node, ast.With)
+                        and any(item.context_expr is helper_call for item in node.items)), None)
+    if helper_with is None or workers[0] not in list(ast.walk(helper_with)):
+        return None
+    helper_expr = helper_call.func
+    closure = inspect.getclosurevars(fn)
+    bindings = dict(closure.globals)
+    bindings.update(closure.nonlocals)
+    if isinstance(helper_expr, ast.Name):
+        helper = bindings.get(helper_expr.id)
+    elif isinstance(helper_expr, ast.Attribute):
+        if not isinstance(helper_expr.value, ast.Name):
+            return None
+        owner_module = bindings.get(helper_expr.value.id)
+        helper = getattr(owner_module, helper_expr.attr, None)
+    else:
+        return None
+    return helper if helper is gateway_followup_event_owner else None
+
+
+def gateway_runtime_ready(runner_type):
+    queued = getattr(runner_type, '_run_agent_inner', None)
+    queued_helper = _queued_helper_binding(queued) if callable(queued) else None
+    wrappers_ready = (
+        getattr(getattr(runner_type, '_handle_message', None),
+                '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
+        and getattr(getattr(runner_type, '_handle_active_session_busy_message', None),
+                    '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
+        and getattr(getattr(runner_type, '_run_agent', None),
+                    '_wolfhouse_gateway_run_owner_token', None) is _RUN_OWNER_TOKEN
+        and queued_helper is not None
+    )
+    if not wrappers_ready:
+        return False
+    try:
+        return bool(_queued_seam_probe(queued_helper))
+    except Exception:
+        logger.exception('queued original-inbound readiness probe failed')
+        return False
 
 
 def api_original(text, session_id):

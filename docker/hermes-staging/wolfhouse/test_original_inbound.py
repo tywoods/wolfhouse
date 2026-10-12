@@ -5,12 +5,15 @@ from contextvars import copy_context
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
+from typing import Any
 import unittest
 from unittest.mock import patch
 
 from hermes_state import SessionDB
 from wolfhouse import accepted_quote as ledger
 from wolfhouse.offline_ingress_harness import gateway_ingress
+
+_wh_followup_original: Any = None
 
 
 class OriginalIngressTests(unittest.TestCase):
@@ -215,6 +218,237 @@ class OriginalIngressTests(unittest.TestCase):
             event.message_id = 'other-trigger'
         with self.assertRaises(StopIterationProof):
             self.run_gateway('I accept the quote', 'before-message-change', body, before_worker=replace_message)
+
+    def test_gateway_readiness_requires_opaque_active_capture_and_worker_decorators(self):
+        from wolfhouse import original_inbound
+
+        class Ready:
+            @original_inbound.gateway_event_owner
+            async def _handle_message(self, event):
+                return event
+
+            @original_inbound.gateway_busy_event_owner
+            async def _handle_active_session_busy_message(self, event, session_key):
+                return True
+
+            @original_inbound.gateway_run_owner
+            async def _run_agent(self, **kwargs):
+                return kwargs
+
+            async def _run_agent_inner(self):
+                with original_inbound.gateway_followup_event_owner(None, None, None, None):
+                    return await self._run_agent()
+
+        class Spoofed:
+            async def _handle_message(self, event):
+                return event
+
+            async def _run_agent(self, **kwargs):
+                return kwargs
+
+        Spoofed._handle_message._wolfhouse_gateway_event_owner = True
+        Spoofed._run_agent._wolfhouse_gateway_run_owner = True
+        self.assertTrue(original_inbound.gateway_runtime_ready(Ready))
+        self.assertFalse(original_inbound.gateway_runtime_ready(Spoofed))
+
+        class MissingQueuedCapture(Ready):
+            async def _run_agent_inner(self):
+                return None
+
+        self.assertFalse(original_inbound.gateway_runtime_ready(MissingQueuedCapture))
+
+        class BypassedWorker(Ready):
+            async def _run_agent_inner(self):
+                with original_inbound.gateway_followup_event_owner(None, None, None, None):
+                    pass
+                return await self._run_agent()
+
+        self.assertFalse(original_inbound.gateway_runtime_ready(BypassedWorker))
+
+        from contextlib import contextmanager
+        @contextmanager
+        def no_owner(*_args, **_kwargs):
+            yield
+
+        helper_globals = Ready._run_agent_inner.__globals__
+        missing = object()
+        previous = helper_globals.get('_wh_followup_original', missing)
+        helper_globals['_wh_followup_original'] = no_owner
+        try:
+            class ReplacedBinding(Ready):
+                async def _run_agent_inner(self):
+                    with _wh_followup_original(None, None, None, None):
+                        return await self._run_agent()
+
+            self.assertFalse(
+                original_inbound.gateway_runtime_ready(ReplacedBinding))
+        finally:
+            if previous is missing:
+                helper_globals.pop('_wh_followup_original', None)
+            else:
+                helper_globals['_wh_followup_original'] = previous
+
+        with patch.object(original_inbound.OriginalInbound, 'bind',
+                          side_effect=RuntimeError('queued probe broken')):
+            self.assertFalse(original_inbound.gateway_runtime_ready(Ready))
+
+    def test_genuine_queued_event_gets_fresh_bound_owner_only_for_its_scope(self):
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        gateway_followup_event_owner = original_inbound.gateway_followup_event_owner
+        event = MessageEvent(
+            text='Yes, quote this', message_id='queued-1',
+            source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                                 chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                return queued
+        asyncio.run(Capture().handle(event))
+        with gateway_followup_event_owner(self.db, event, 's1', 'queued-key'):
+            cap = original_inbound._current.get()
+            self.assertEqual(cap.text, 'Yes, quote this')
+            self.assertEqual(cap.message_id, 'queued-1')
+            self.assertEqual(cap.binding[1]['KEY'], 'queued-key')
+            self.assertFalse(cap.closed)
+        self.assertTrue(cap.closed)
+        self.assertIsNone(original_inbound._current.get())
+        with gateway_followup_event_owner(self.db, None, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_queued_rewrite_uses_immutable_original_and_identity(self):
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        event = MessageEvent(
+            text='Not yet', message_id='queued-refusal',
+            source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                                 chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                queued.text = 'I accept the quote'
+
+        asyncio.run(Capture().handle(event))
+        with original_inbound.gateway_followup_event_owner(
+                self.db, event, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+        event.message_id = 'mutated-message-id'
+        with original_inbound.gateway_followup_event_owner(
+                self.db, event, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_noop_replacement_recovers_snapshot_and_merged_text_fails_closed(self):
+        import dataclasses
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        source = SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                               chat_id='34600111222', user_id='34600111222')
+        event = MessageEvent(
+            text='I accept the quote', message_id='queued-replaced', source=source)
+
+        class Capture:
+            @original_inbound.gateway_busy_event_owner
+            async def handle(self, queued, _session_key):
+                return dataclasses.replace(queued)
+
+        replacement = asyncio.run(Capture().handle(event, 'queued-key'))
+        self.assertIsNone(getattr(
+            replacement, original_inbound._QUEUE_SNAPSHOT_ATTR, None))
+        with original_inbound.gateway_followup_event_owner(
+                self.db, replacement, 's1', 'queued-key'):
+            self.assertEqual(
+                original_inbound._current.get().text, 'I accept the quote')
+
+        merged = MessageEvent(
+            text='I accept the quote', message_id='queued-merged', source=source)
+        asyncio.run(Capture().handle(merged, 'queued-key'))
+        merged.text += '\nNot yet'
+        with original_inbound.gateway_followup_event_owner(
+                self.db, merged, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_queued_binding_failure_closes_and_restores_context(self):
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        event = MessageEvent(
+            text='Not yet', message_id='queued-bind-failure',
+            source=SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                                 chat_id='34600111222', user_id='34600111222'))
+        class Capture:
+            @original_inbound.gateway_event_owner
+            async def handle(self, queued):
+                return None
+        asyncio.run(Capture().handle(event))
+        sentinel = object()
+        token = original_inbound._current.set(sentinel)
+        created = []
+        real = original_inbound.OriginalInbound
+        class RecordingInbound(real):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                created.append(self)
+            def bind(self, *args, **kwargs):
+                raise RuntimeError('queued bind exploded')
+        try:
+            with patch.object(original_inbound, 'OriginalInbound', RecordingInbound):
+                with self.assertRaisesRegex(RuntimeError, 'queued bind exploded'):
+                    with original_inbound.gateway_followup_event_owner(
+                            self.db, event, 's1', 'queued-key'):
+                        self.fail('binding failure entered scope')
+            self.assertIs(original_inbound._current.get(), sentinel)
+            self.assertTrue(created[0].closed)
+        finally:
+            original_inbound._current.reset(token)
+
+    def test_swallowed_owner_boundary_rejections_emit_exact_stage_and_reason(self):
+        from gateway.config import Platform
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        source = SessionSource(
+            platform=Platform.WHATSAPP_CLOUD,
+            chat_id='trace-chat',
+            user_id='trace-user',
+            chat_type='dm',
+        )
+
+        class Owner:
+            @original_inbound.gateway_event_owner
+            async def handle(self, event):
+                original_inbound.bind_gateway_session(
+                    self._session_db,
+                    'missing-session',
+                    'trace-key',
+                    event.source,
+                    event.message_id,
+                )
+
+        owner = Owner()
+        owner._session_db = self.db
+        event = SimpleNamespace(
+            text='quote this',
+            source=source,
+            message_id='trace-message',
+            internal=False,
+        )
+        with self.assertLogs('wolfhouse.original_inbound', level='WARNING') as captured:
+            asyncio.run(owner.handle(event))
+        joined = '\n'.join(captured.output)
+        self.assertIn('stage=session_binding', joined)
+        self.assertIn('reason=original_inbound_session_missing', joined)
 
     def test_async_cancellation_revokes_still_running_executor_owner(self):
         from threading import Event
