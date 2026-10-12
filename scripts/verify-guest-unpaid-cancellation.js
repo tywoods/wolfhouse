@@ -84,7 +84,17 @@ const plugin = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/plugins/wo
 assert.match(plugin, /def cancel_unpaid_booking\(/);
 assert.match(plugin, /"cancel_unpaid_booking"/);
 assert.match(plugin, /paid_or_unknown_cancellation/);
+assert.match(plugin, /from wolfhouse\.live_turn_owner import live_turn_guest_phone/);
+const liveOwnerFunction = plugin.split('def _live_turn_guest_phone():')[1].split('def _base_url():')[0];
+assert.doesNotMatch(liveOwnerFunction, /get_session_env\(/,
+  'destructive identity must not call the environment-fallback accessor');
 assert.doesNotMatch(plugin, /refund amount|refund percentage/i);
+
+const gatewayPatch = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/apply_gateway_patches.py'), 'utf8');
+assert.match(gatewayPatch, /bind_live_turn_owner/,
+  'gateway turn start must bind revocable cancellation authority');
+assert.match(gatewayPatch, /close_live_turn_owner\(tokens\)[\s\S]{0,120}clear_session_vars\(tokens\)/,
+  'gateway turn close must revoke authority before clearing session vars');
 
 (async () => {
   const evidence = eligible({ booking_id: 'booking-1', client_id: 'client-1', booking_code: 'WH-1' });

@@ -107,24 +107,18 @@ def _session_guest_phone():
 
 
 def _live_turn_guest_phone():
-    """Return only the live WhatsApp sender bound to this execution turn.
+    """Return only a currently active, revocable gateway turn owner.
 
-    Destructive guest actions must never use process-wide environment fallbacks:
-    those values can outlive or overlap a turn. Missing, expired, or non-WhatsApp
-    ContextVar identity therefore fails closed before Staff API transport.
+    This deliberately does not call ``get_session_env``: that compatibility
+    accessor falls back to process environment in a never-bound context, and
+    copied ContextVars can outlive their originating turn. The gateway-owned
+    capability is revoked globally when the turn closes, so late copies fail.
     """
     try:
-        from gateway.session_context import get_session_env
-        platform = _clean(get_session_env("HERMES_SESSION_PLATFORM", "")).lower()
-        if platform not in {"whatsapp", "whatsapp_cloud"}:
-            return ""
-        for key in ("HERMES_SESSION_USER_ID", "HERMES_SESSION_CHAT_ID"):
-            phone = _normalize_phone(get_session_env(key, ""))
-            if phone:
-                return phone
+        from wolfhouse.live_turn_owner import live_turn_guest_phone
+        return _normalize_phone(live_turn_guest_phone())
     except Exception:
         return ""
-    return ""
 
 
 def _base_url():
