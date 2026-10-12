@@ -173,6 +173,10 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.runner._busy_input_mode = "queue"
         self.runner._busy_text_mode = "queue"
         adapter = WhatsAppCloudAdapter(cfg.platforms[Platform.WHATSAPP_CLOUD])
+        adapter.set_message_handler(self.runner._handle_message)
+        adapter.set_busy_session_handler(self.runner._handle_active_session_busy_message)
+        adapter._busy_text_mode = "interrupt"
+        self.adapter = adapter
         self.runner.adapters[Platform.WHATSAPP_CLOUD] = adapter
         self.runner.delivery_router.adapters = self.runner.adapters
         self.runner._session_db = self.runner.session_store._db
@@ -208,16 +212,21 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             message_id="ana-entry-0001", mirror=mirror, timeout_sec=20))
         await self._wait_thread_event(self.entered)
 
-        # Concurrent _handle_message calls hit the real busy path and populate the
-        # adapter-owned pending slot/FIFO. They are not helper-minted capabilities.
-        ana_detail = self.event("No surf package, accommodation only for Ana.", "ana-queue-0002")
+        # Enter through the real adapter active-session split.  This bypasses
+        # _handle_message, reaches the decorated busy handler, and queues the
+        # adapter-owned pending event before the recursive runner drain.
         queued = self.event("Please quote for Ana and one friend.", "ana-queue-0003")
         foreign = self.event("Unrelated foreign-session chatter.", "ana-foreign-004", "+34600009999")
-        await asyncio.gather(
-            self.runner._handle_message(ana_detail),
-            self.runner._handle_message(queued),
-            self.runner._handle_message(foreign),
-        )
+        from gateway.session import build_session_key
+        adapter_key = build_session_key(
+            queued.source, group_sessions_per_user=True,
+            thread_sessions_per_user=False)
+        self.adapter._active_sessions[adapter_key] = asyncio.Event()
+        self.adapter._session_tasks[adapter_key] = first
+        await self.adapter.handle_message(queued)
+        self.assertIsNotNone(getattr(
+            queued, original_inbound._QUEUE_SNAPSHOT_ATTR, None))
+        await self.runner._handle_message(foreign)
         self.release.set()
         first_result = await first
         self.assertTrue(first_result["ok"], first_result)

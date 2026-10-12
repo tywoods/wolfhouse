@@ -224,13 +224,17 @@ class OriginalIngressTests(unittest.TestCase):
             async def _handle_message(self, event):
                 return event
 
+            @original_inbound.gateway_busy_event_owner
+            async def _handle_active_session_busy_message(self, event, session_key):
+                return True
+
             @original_inbound.gateway_run_owner
             async def _run_agent(self, **kwargs):
                 return kwargs
 
             async def _run_agent_inner(self):
                 with original_inbound.gateway_followup_event_owner(None, None, None, None):
-                    return None
+                    return await self._run_agent()
 
         class Spoofed:
             async def _handle_message(self, event):
@@ -249,6 +253,14 @@ class OriginalIngressTests(unittest.TestCase):
                 return None
 
         self.assertFalse(original_inbound.gateway_runtime_ready(MissingQueuedCapture))
+
+        class BypassedWorker(Ready):
+            async def _run_agent_inner(self):
+                with original_inbound.gateway_followup_event_owner(None, None, None, None):
+                    pass
+                return await self._run_agent()
+
+        self.assertFalse(original_inbound.gateway_runtime_ready(BypassedWorker))
         with patch.object(original_inbound.OriginalInbound, 'bind',
                           side_effect=RuntimeError('queued probe broken')):
             self.assertFalse(original_inbound.gateway_runtime_ready(Ready))
@@ -298,11 +310,44 @@ class OriginalIngressTests(unittest.TestCase):
         asyncio.run(Capture().handle(event))
         with original_inbound.gateway_followup_event_owner(
                 self.db, event, 's1', 'queued-key'):
-            self.assertEqual(original_inbound._current.get().text, 'Not yet')
+            self.assertIsNone(original_inbound._current.get())
 
         event.message_id = 'mutated-message-id'
         with original_inbound.gateway_followup_event_owner(
                 self.db, event, 's1', 'queued-key'):
+            self.assertIsNone(original_inbound._current.get())
+
+    def test_noop_replacement_recovers_snapshot_and_merged_text_fails_closed(self):
+        import dataclasses
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent
+        from gateway.session import SessionSource
+        from wolfhouse import original_inbound
+
+        source = SessionSource(platform=Platform.WHATSAPP_CLOUD,
+                               chat_id='34600111222', user_id='34600111222')
+        event = MessageEvent(
+            text='I accept the quote', message_id='queued-replaced', source=source)
+
+        class Capture:
+            @original_inbound.gateway_busy_event_owner
+            async def handle(self, queued, _session_key):
+                return dataclasses.replace(queued)
+
+        replacement = asyncio.run(Capture().handle(event, 'queued-key'))
+        self.assertIsNone(getattr(
+            replacement, original_inbound._QUEUE_SNAPSHOT_ATTR, None))
+        with original_inbound.gateway_followup_event_owner(
+                self.db, replacement, 's1', 'queued-key'):
+            self.assertEqual(
+                original_inbound._current.get().text, 'I accept the quote')
+
+        merged = MessageEvent(
+            text='I accept the quote', message_id='queued-merged', source=source)
+        asyncio.run(Capture().handle(merged, 'queued-key'))
+        merged.text += '\nNot yet'
+        with original_inbound.gateway_followup_event_owner(
+                self.db, merged, 's1', 'queued-key'):
             self.assertIsNone(original_inbound._current.get())
 
     def test_queued_binding_failure_closes_and_restores_context(self):
