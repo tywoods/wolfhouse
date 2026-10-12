@@ -291,6 +291,41 @@ function buildPerPersonBreakdown(quote, opts) {
 /**
  * Read-only package price preview for Luna (A5).
  */
+function packageInclusions(config, code) {
+  const row = (config.packages || []).find((pkg) => pkg && String(pkg.code || '').trim().toLowerCase() === code);
+  if (!row || !Array.isArray(row.inclusions)) return null;
+  return row.inclusions.slice();
+}
+
+function plainIncludesLine(inclusions, nights) {
+  if (!Array.isArray(inclusions) || inclusions.length === 0) return null;
+  const nightLabel = nights === 1
+    ? '1 night in a dorm bed'
+    : (Number.isInteger(nights) && nights > 1 ? `${nights} nights in a dorm bed` : 'a dorm bed');
+  const labels = {
+    shared_room: nightLabel,
+    shirt: 'T-shirt',
+    surfboard_6_days: 'surfboard',
+    wetsuit_6_days: 'wetsuit',
+    surf_lesson_each_day_6_days: 'surf lessons',
+  };
+  if (inclusions.some((code) => !Object.prototype.hasOwnProperty.call(labels, code))) return null;
+  const boardAndSuit = inclusions.includes('surfboard_6_days') && inclusions.includes('wetsuit_6_days');
+  const parts = [];
+  for (const code of inclusions) {
+    if (boardAndSuit && code === 'wetsuit_6_days') continue;
+    parts.push(boardAndSuit && code === 'surfboard_6_days' ? 'board + wetsuit' : labels[code]);
+  }
+  return parts.length ? `Includes: ${parts.join(', ')}` : null;
+}
+
+function withRealInclusions(row, config, code, nights) {
+  const inclusions = packageInclusions(config, code);
+  if (!inclusions) return row;
+  const line = plainIncludesLine(inclusions, nights);
+  return line ? { ...row, inclusions, includes_line: line } : { ...row, inclusions };
+}
+
 function computePackagePricePreview(input, config) {
   config = config === undefined ? loadConfig() : (config || {});
   const clientSlug = trimStr(input.client_slug) || config.client_slug;
@@ -319,7 +354,7 @@ function computePackagePricePreview(input, config) {
     if (quote.season_code) season_code = quote.season_code;
     if (quote.nights) nights = quote.nights;
     if (!quote.success) {
-      packages[code] = { success: false, blockers: quote.blockers || [] };
+      packages[code] = withRealInclusions({ success: false, blockers: quote.blockers || [] }, config, code, nights);
       continue;
     }
     const perGuestDeposits = buildPerGuestDepositList(
@@ -342,6 +377,7 @@ function computePackagePricePreview(input, config) {
       nights: quote.nights,
       season_code: quote.season_code,
     };
+    packages[code] = withRealInclusions(packages[code], config, code, quote.nights);
   }
 
   return {

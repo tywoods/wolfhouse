@@ -226,6 +226,32 @@ test('normalization: missing choice is distinct from explicit accommodation', ()
   assert.deepEqual(context(short).guestPackagesForQuote, [{ guest_number: 1, package_code: 'package_none' }, { guest_number: 2, package_code: 'package_none' }]);
 });
 
+test('preview passes real inclusions and one plain line, never invented items', () => {
+  const cfg = config(4);
+  const preview = computePackagePricePreview(stay(7, 'waimea'), cfg);
+  const source = code => cfg.packages.find(p => p.code === code).inclusions;
+  assert.deepEqual(preview.packages.waimea.inclusions, source('waimea'));
+  assert.equal(preview.packages.waimea.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit, surf lessons');
+  assert.deepEqual(preview.packages.malibu.inclusions, source('malibu'));
+  assert.equal(preview.packages.malibu.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt');
+  assert.equal(preview.packages.malibu.includes_line.includes('surf'), false);
+  assert.deepEqual(preview.packages.uluwatu.inclusions, source('uluwatu'));
+  assert.equal(preview.packages.uluwatu.includes_line, 'Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit');
+  const weird = config(4);
+  weird.packages.find(p => p.code === 'uluwatu').inclusions = ['shared_room', 'secret_yacht'];
+  const weirdPreview = computePackagePricePreview(stay(7, 'uluwatu'), weird);
+  assert.deepEqual(weirdPreview.packages.uluwatu.inclusions, ['shared_room', 'secret_yacht']);
+  assert.equal(Object.hasOwn(weirdPreview.packages.uluwatu, 'includes_line'), false);
+  assert.equal(String(weirdPreview.packages.uluwatu.includes_line || '').includes('yacht'), false);
+  const bare = config(4);
+  delete bare.packages.find(p => p.code === 'malibu').inclusions;
+  const barePreview = computePackagePricePreview(stay(7), bare);
+  assert.equal(Object.hasOwn(barePreview.packages.malibu, 'inclusions'), false);
+  assert.equal(Object.hasOwn(barePreview.packages.malibu, 'includes_line'), false);
+  const short = computePackagePricePreview(stay(2), config(4));
+  assert.equal(Object.keys(short.packages).length, 0);
+});
+
 let failures = 0;
 for (const { name, run } of tests) {
   if (process.argv[2] && !name.startsWith(process.argv[2])) continue;

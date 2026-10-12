@@ -11,6 +11,7 @@ import json
 import os
 import re
 import unicodedata
+from datetime import date
 from threading import RLock
 
 
@@ -318,6 +319,25 @@ def _transaction(fn):
         return db._execute_write(work)
 
 
+def _plain_stay_date(value):
+    """Guest date only. Invalid values stay unchanged; never invent a date."""
+    text = str(value or '').strip()
+    match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
+    if not match:
+        return text
+    try:
+        day = date(int(match[1]), int(match[2]), int(match[3]))
+    except ValueError:
+        return text
+    weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+    return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
+
+
+def _guest_count_label(count):
+    return '1 guest' if count == 1 else f'{count} guests'
+
+
 def _accepts(raw, plan):
     text = re.sub(r'\s+', ' ', raw.strip().lower()).rstrip('.!')
     if text in ('i accept the quote', 'i accept this quote', 'book this', 'book this quote',
@@ -392,6 +412,7 @@ def observe_owner_turn(agent, raw):
         if re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I):
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
+            state.pop('guest_confirmed_create', None)
         elif re.search(r'\b(change|revise|remove|instead|without|different|add)\b', raw, re.I):
             state.update(status='revision', quote=None)
             state.pop('acceptance_message', None)
@@ -413,6 +434,7 @@ def observe_owner_turn(agent, raw):
                     and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
+            state['guest_confirmed_create'] = True
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):
             # Changed or unsupported booking acceptance needs a fresh quote, never
             # silently falls back to the former quote (including accepted state).
@@ -744,7 +766,7 @@ def finalize_offer_response(result):
         def money(cents):
             return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
         plan = state['plan']
-        lines = [f"{offer['check_in']} to {offer['check_out']} — {offer['guest_count']} guests."]
+        lines = [f"{_plain_stay_date(offer['check_in'])} to {_plain_stay_date(offer['check_out'])} — {_guest_count_label(offer['guest_count'])}."]
         rooms = {row['bed_code']: row for row in offer['room_arrangement']}
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
@@ -756,7 +778,7 @@ def finalize_offer_response(result):
             room = rooms[code]
             kind = ('private room' if offer['room_type'] == 'private' else
                     room_labels.get(room['gender_strategy'], 'room'))
-            lines.append(f"{guest['name']}: bed {code}, {kind} {room['room_code']}.")
+            lines.append(f"{guest['name']}: a bed in the {kind}.")
         lines.append(label(offer['package_code']) + '.')
         for item in offer['guest_packages']:
             number = item.get('guest_number')
@@ -781,7 +803,8 @@ def finalize_offer_response(result):
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
         lines.append('Availability checked, subject to confirmation when booking.')
-        lines.append('Shall I create this booking?')
+        if not state.get('guest_confirmed_create'):
+            lines.append('Shall I create this booking?')
         text = '\n'.join(lines)
         output = deepcopy(result)
         output['final_response'] = text

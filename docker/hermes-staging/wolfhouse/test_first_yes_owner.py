@@ -68,13 +68,63 @@ class FirstYesOwnerTests(unittest.TestCase):
                            'messages': [{'role': 'assistant', 'content': 'model says reserved'}]})
         self.assertNotIn('reserved', result['final_response'])
         self.assertIn('Alex', result['final_response'])
-        self.assertIn('M1', result['final_response'])
+        self.assertNotIn('M1', result['final_response'])
+        self.assertIn('a bed in the mixed room', result['final_response'])
         self.assertIn('700.00 EUR', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
         self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
         self.assertEqual(result['messages'][-1]['content'], result['final_response'])
         self.turn('contextual-yes', 'Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+
+    def _checked_offer(self, plan, beds):
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=20000, deposit_required_cents=10000,
+                     payment_link_amount_cents=20000, currency='EUR', package_code=plan['package_code'])
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
+            payment_choice=plan['payment_choice'], availability={**plan, 'status': 'checked',
+            'selected_bed_codes': [bed['bed_code'] for bed in beds]}, room_rows=beds))], cwd=root))
+        return dict(success=True, total_cents=20000, deposit_required_cents=10000,
+                    payment_choice_needed=False, currency='EUR', **checked)
+
+    def test_requote_after_yes_uses_plain_lines_and_does_not_ask_again(self):
+        plan = dict(check_in='2026-10-19', check_out='2026-10-22', guest_count=1,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}], payment_choice='deposit')
+        beds = [dict(bed_code='DORM-12', room_code='ROOM-9', gender_strategy='mixed')]
+        response = self._checked_offer(plan, beds)
+        self.agent.session_id = 'plain-requote'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('plain-q', 'Quote this please')
+        ledger.record_quote(plan, response)
+        first = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        text = first['final_response']
+        self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
+        self.assertNotIn('1 guests', text)
+        self.assertNotIn('2026-10-19', text)
+        self.assertIn('Alex: a bed in the mixed room.', text)
+        self.assertNotIn('DORM-12', text)
+        self.assertNotIn('ROOM-9', text)
+        self.assertTrue(text.endswith('Shall I create this booking?'))
+        self.turn('plain-yes', 'yes')
+        changed = deepcopy(response)
+        changed['total_cents'] += 100
+        changed['offer_revision']['total_cents'] += 100
+        ledger.record_quote(plan, changed)
+        again = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', again['final_response'])
+        self.assertNotIn('Shall I create this booking?', again['final_response'])
+        self.assertNotIn('DORM-12', again['final_response'])
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
 
     def test_incomplete_checked_responses_never_present_accept_ready_question(self):
         mutations = [
