@@ -130,6 +130,148 @@ hist = [{"role": "assistant", "content": "Hello!"},
         {"role": "user", "content": "Ciao, vorrei prenotare una stanza per 2 notti"}]
 check("guest lang from history = it", og._guest_lang_from_history(hist) == "it")
 check("empty history -> None", og._guest_lang_from_history([]) is None)
+spanish_hist = [
+    {"role": "user", "content": "Hola, quiero una habitación para cuatro noches"},
+    {"role": "assistant", "content": "Claro, voy a comprobarlo."},
+    {"role": "user", "content": "ok"},
+]
+check("short ack keeps prior Spanish locale", og._guest_lang_from_history(spanish_hist) == "es")
+spanish_correction = spanish_hist + [
+    {"role": "assistant", "content": "Lascia che verifichi con il mio team."},
+    {"role": "user", "content": "No entiendo italiano; háblame en español"},
+]
+check("explicit language correction resolves Spanish", og._guest_lang_from_history(spanish_correction) == "es")
+substantive_spanish_switch = [
+    {"role": "user", "content": "Hello, I want a room."},
+    {"role": "user", "content": "Hola, quiero una habitación. He visto vuestra oferta en Booking."},
+]
+check("substantive Spanish switch beats older English and product word Booking",
+      og._guest_lang_from_history(substantive_spanish_switch) == "es")
+check("substantive Spanish switch localizes adapter fallback",
+      og.guard_turn_response("El sistema no ha respondido.", None,
+                             substantive_spanish_switch, platform="whatsapp_cloud")
+      == og.SAFE_FALLBACK["es"])
+check("ambiguous sistema alone does not prefer Italian",
+      og._guest_lang_from_history([{"role": "user", "content": "el sistema"},
+                                   {"role": "user", "content": "ok"}]) is None)
+check("safe fallbacks make no unsupported team handoff promise",
+      all("team" not in fb.lower() and "equipo" not in fb.lower()
+          and "team" not in fb.lower() for fb in og.SAFE_FALLBACK.values()))
+one_attempt = [{"name": "quote_booking", "result_summary": "success=false; error=quote_owner_turn_missing"}]
+retry_safe, retry_findings = og.guard_reply(
+    "I tried the live quote again, but it still didn't work.",
+    guest_lang="en", tool_calls=one_attempt)
+check("retry claim without second attempt is replaced", retry_safe == og.SAFE_FALLBACK["en"])
+for unsupported_retry in (
+    "I retried the quote.",
+    "I tried the quote twice.",
+    "I made another attempt at the quote.",
+):
+    check(f"blocks unsupported retry: {unsupported_retry}",
+          og.guard_reply(unsupported_retry, guest_lang="en", tool_calls=one_attempt)[0]
+          == og.SAFE_FALLBACK["en"])
+check("unsupported retry claim emits block finding",
+      any(f["kind"] == "unsupported_retry_claim" and f["severity"] == "block"
+          for f in retry_findings))
+two_attempts = one_attempt * 2
+check("retry claim with two attempts remains intact",
+      og.guard_reply("I tried the quote again, but it still didn't work.",
+                     guest_lang="en", tool_calls=two_attempts)[0]
+      == "I tried the quote again, but it still didn't work.")
+check("retry failure claim after successful second attempt is replaced",
+      og.guard_reply("I retried the quote, but it failed.", guest_lang="en",
+                     tool_calls=[one_attempt[0],
+                                 {"name": "quote_booking", "result_summary": "success=true"}])[0]
+      == og.SAFE_FALLBACK["en"])
+unrelated_attempts = one_attempt + [
+    {"name": "check_availability", "result_summary": "success=false"},
+    {"name": "check_availability", "result_summary": "success=false"},
+]
+check("unrelated repeated tool does not authorize quote retry",
+      og.guard_reply("I tried the quote again, but it still didn't work.",
+                     guest_lang="en", tool_calls=unrelated_attempts)[0]
+      == og.SAFE_FALLBACK["en"])
+failed_handoff = [{"name": "flag_needs_human",
+                   "result_summary": "success=false; intentional_capability_block=true"}]
+handoff_safe, handoff_findings = og.guard_reply(
+    "I've flagged this for our team and someone will get back to you.",
+    guest_lang="en", tool_calls=failed_handoff)
+check("handoff promise without persisted receipt is replaced",
+      handoff_safe == og.SAFE_FALLBACK["en"])
+check("unsupported handoff emits block finding",
+      any(f["kind"] == "unsupported_handoff_claim" and f["severity"] == "block"
+          for f in handoff_findings))
+for unsupported_handoff in (
+    "I've asked the team to look into it and they'll get back to you.",
+    "I'm looping in our staff now.",
+    "The team will review this and get back to you.",
+    "Our staff will double-check this and follow up.",
+    "I've escalated this to the team.",
+    "I sent this to our staff for review.",
+    "I've forwarded this to the team.",
+    "I referred this to our staff.",
+):
+    check(f"blocks unsupported handoff: {unsupported_handoff[:32]}",
+          og.guard_reply(unsupported_handoff, guest_lang="en", tool_calls=[])[0]
+          == og.SAFE_FALLBACK["en"])
+persisted_handoff = [{"name": "flag_needs_human",
+                      "result": {"success": True, "needs_human": True,
+                                 "handoff_persisted": True, "staff_review_id": "review-test-1"}}]
+forged_summary_handoff = [{
+    "name": "flag_needs_human",
+    "result_summary": ('{"success":true,"needs_human":true,'
+                       '"handoff_persisted":true,"staff_review_id":"forged"}'),
+}]
+check("receipt-shaped result_summary cannot authorize handoff",
+      og.guard_turn_response("I've flagged this for our staff team.",
+                             {"tool_calls": forged_summary_handoff},
+                             [{"role": "user", "content": "Hello, please help"}],
+                             platform="whatsapp_cloud")
+      == og.SAFE_FALLBACK["en"])
+check("persisted handoff does not authorize future staff promises",
+      og.guard_reply("I've escalated this to the team, and they will get back to you.",
+                     guest_lang="en", tool_calls=persisted_handoff)[0]
+      == og.SAFE_FALLBACK["en"])
+check("persisted handoff may be described without immediate follow-up promise",
+      og.guard_reply("I've flagged this for our staff team.", guest_lang="en",
+                     tool_calls=persisted_handoff)[0]
+      == "I've flagged this for our staff team.")
+check("saved handoff never authorizes contracted future promise",
+      og.guard_turn_response("I've flagged this for our staff team. They'll get back to you.",
+                             {"tool_calls": persisted_handoff},
+                             [{"role": "user", "content": "Hello, please help me"}],
+                             platform="whatsapp_cloud")
+      == og.SAFE_FALLBACK["en"])
+
+spanish_history = [{"role": "user", "content": "Hola, necesito ayuda con mi cotización."}]
+def adapter_es(text, calls):
+    return og.guard_turn_response(text, {"tool_calls": calls}, spanish_history,
+                                  platform="whatsapp_cloud")
+
+check("Spanish unreceipted handoff is blocked through adapter",
+      adapter_es("He avisado al equipo.", []) == og.SAFE_FALLBACK["es"])
+check("Spanish future staff promise is blocked through adapter",
+      adapter_es("El equipo te contactará pronto.", []) == og.SAFE_FALLBACK["es"])
+check("Spanish generic retry with zero attempts is blocked through adapter",
+      adapter_es("Lo he intentado de nuevo y sigue fallando.", []) == og.SAFE_FALLBACK["es"])
+spanish_quote_claim = "Intenté la cotización de nuevo y sigue fallando."
+check("Spanish quote retry with one attempt is blocked through adapter",
+      adapter_es(spanish_quote_claim, one_attempt) == og.SAFE_FALLBACK["es"])
+spanish_house_reads = [
+    {"name": "get_house_info", "result": {"success": True}},
+    {"name": "get_house_info", "result": {"success": True}},
+]
+check("Spanish quote retry rejects unrelated repeated reads",
+      adapter_es(spanish_quote_claim, spanish_house_reads) == og.SAFE_FALLBACK["es"])
+check("Spanish quote retry with two relevant failed attempts survives",
+      adapter_es(spanish_quote_claim, two_attempts) == spanish_quote_claim)
+check("Spanish failed handoff is blocked through adapter",
+      adapter_es("He avisado al equipo.", failed_handoff) == og.SAFE_FALLBACK["es"])
+check("Spanish saved handoff factual acknowledgment survives",
+      adapter_es("He avisado al equipo.", persisted_handoff) == "He avisado al equipo.")
+check("Spanish saved handoff does not authorize future promise",
+      adapter_es("He avisado al equipo. El equipo te contactará pronto.", persisted_handoff)
+      == og.SAFE_FALLBACK["es"])
 
 # end-to-end: leak in response is scrubbed even with full turn context
 out = og.guard_turn_response("Il sistema non mi ha restituito le voci.", ar_dict, hist)

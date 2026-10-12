@@ -31,6 +31,24 @@ class StagingConfigTests(unittest.TestCase):
         self.assertTrue(receipt['admitted'], receipt['reasons'])
         self.assertEqual(receipt['capability'], 'wolfhouse_staging_booking_test_link')
 
+    def test_exact_france_internal_origin_keeps_tracked_staging_gates(self):
+        env = {
+            **tracked_wh_environment(),
+            'WOLFHOUSE_STAFF_API_BASE_URL': 'http://staff-staging.lunafrontdesk.com:3036',
+        }
+        receipt = evaluate_wolfhouse_staging_booking_capability(scope_active=True, env=env)
+        self.assertTrue(receipt['admitted'], receipt['reasons'])
+        for override, reason in (
+            ({'WOLFHOUSE_STAFF_API_BASE_URL': 'http://staff-staging.lunafrontdesk.com:3037'}, 'staff_destination_not_approved_staging'),
+            ({'LUNA_CLIENT_SLUG': 'sunset'}, 'wolfhouse_client_mismatch'),
+            ({'BOT_BOOKING_ENABLED': 'false'}, 'bot_booking_disabled'),
+            ({'WOLFHOUSE_STRIPE_MODE': 'live'}, 'live_stripe_key_blocked'),
+        ):
+            denied = evaluate_wolfhouse_staging_booking_capability(
+                scope_active=True, env={**env, **override})
+            self.assertFalse(denied['admitted'], denied)
+            self.assertIn(reason, denied['reasons'])
+
     def test_no_admission_for_prod_live_key_or_missing_scope(self):
         env = tracked_wh_environment()
         for override, reason in (

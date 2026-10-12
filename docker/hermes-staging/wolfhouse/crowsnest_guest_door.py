@@ -653,12 +653,46 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
         _INSTALLED_WHATSAPP.add(wa_id)
 
 
+def record_local_tool_result(
+    name: str,
+    args: Optional[Dict[str, Any]],
+    result: Any,
+    *,
+    stage: str,
+) -> bool:
+    """Audit a registered tool outcome that occurred before Staff transport.
+
+    The request-owned scope is the only sink; ordinary/live turns remain untouched.
+    """
+    scope = current_crowsnest_scope()
+    if scope is None or scope.revoked:
+        return False
+    scope.tool_calls.append({
+        "name": str(name or "unknown")[:120],
+        "args": dict(args or {}),
+        "result_summary": summarize_tool_result(result),
+        "attempt_stage": str(stage or "local")[:80],
+    })
+    return True
+
+
+def _ensure_quote_owner_hook() -> None:
+    """Install the quote owner on the active loop or fail before model/tool execution."""
+    from agent import conversation_loop
+    from wolfhouse import accepted_quote
+
+    accepted_quote.install_owner_hook()
+    if not getattr(conversation_loop.run_conversation, "_wolfhouse_quote_owner", False):
+        raise RuntimeError("quote_owner_hook_unavailable")
+
+
 async def install_live_request_guards() -> None:
     import gateway.platforms.whatsapp_cloud as whatsapp_module
 
     staff_module = _find_staff_module()
     if staff_module is None:
         raise RuntimeError("staff_plugin_unavailable")
+    _ensure_quote_owner_hook()
     install_request_owned_guards(staff_module, whatsapp_module)
 
 

@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 
 def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, internal=False,
-                    rewrite=None, before_worker=None, async_return=False):
+                    rewrite=None, before_worker=None, async_return=False,
+                    platform=None):
     import gateway.run as runtime
     from gateway.config import Platform
     from gateway.session import SessionSource
@@ -40,7 +41,8 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     runner._is_telegram_topic_root_lobby = lambda source: False
     runner._claim_active_session_slot = lambda *a: (None, None)
     runner._release_running_agent_state = lambda *a, **k: None
-    source = SessionSource(platform=Platform.WHATSAPP, chat_id='chat1', user_id='guest1', message_id=message_id)
+    source = SessionSource(platform=platform or Platform.WHATSAPP,
+                           chat_id='chat1', user_id='guest1', message_id=message_id)
     event = MessageEvent(source=source, text=raw, message_id=message_id, internal=internal)
     async def inner(message, context_prompt, history, source, session_id, **kwargs):
         return await runner._run_in_executor_with_context(model_call,
@@ -64,7 +66,7 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
         if before_worker is not None:
             before_worker(event, source)
         return await runner._run_agent(event.text or '', '', [], source, agent.session_id,
-            session_key='key1', event_message_id=event.message_id)
+            session_key='key1', event_message_id=runner._reply_anchor_for_event(event))
     runner._handle_message_with_agent = dispatch
     async def run():
         results = [{'action': 'rewrite', 'text': rewrite}] if rewrite is not None else []

@@ -1944,6 +1944,8 @@ def flag_needs_human(params, **kwargs):
         data = _post_bot("/conversation/needs-human", payload)
     ok = data.get("success") is True and data.get("needs_human") is True
     staff_handoff = data.get("staff_handoff") if isinstance(data.get("staff_handoff"), dict) else {}
+    staff_review_id = _clean(staff_handoff.get("id")) if ok else ""
+    handoff_persisted = bool(ok and staff_review_id)
     return _json_result({
         **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
                                      "needs_operator_reconciliation", "guest_safe_next_action",
@@ -1952,7 +1954,8 @@ def flag_needs_human(params, **kwargs):
         "tool": "flag_needs_human",
         "needs_human": ok,
         "conversation_id": data.get("conversation_id"),
-        "staff_review_id": staff_handoff.get("id") if ok else None,
+        "staff_review_id": staff_review_id or None,
+        "handoff_persisted": handoff_persisted,
         "conversation_paused": ok and data.get("conversation_paused") is True,
         # Only a successful Staff receipt can confirm the submitted reason.
         "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
@@ -4428,14 +4431,27 @@ def _quote_owner_handler(name, original):
                     ledger.record_create_completion(canonical, response)
             return result
         except ledger.QuoteBoundaryError as error:
-            return _json_result({'success': False, 'tool': name, 'error': str(error),
-                                 'write_performed': False, 'booking_not_created_yet': True,
-                                 'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+            failure = {'success': False, 'tool': name, 'error': str(error),
+                       'write_performed': False, 'booking_not_created_yet': True,
+                       'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+            try:
+                from wolfhouse.crowsnest_guest_door import record_local_tool_result
+                record_local_tool_result(name, canonical, failure, stage='pre_staff_rejection')
+            except (ImportError, RuntimeError):
+                pass
+            return _json_result(failure)
         except Exception:
             if active and not dispatched:
-                return _json_result({'success': False, 'tool': name, 'error': 'quote_owner_unavailable',
-                                     'write_performed': False, 'booking_not_created_yet': True,
-                                     'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+                failure = {'success': False, 'tool': name, 'error': 'quote_owner_unavailable',
+                           'write_performed': False, 'booking_not_created_yet': True,
+                           'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+                try:
+                    from wolfhouse.crowsnest_guest_door import record_local_tool_result
+                    record_local_tool_result(name, canonical, failure,
+                                             stage='pre_staff_owner_unavailable')
+                except (ImportError, RuntimeError):
+                    pass
+                return _json_result(failure)
             raise
         finally:
             if dispatch_token is not None:

@@ -62,6 +62,23 @@ class OriginalIngressTests(unittest.TestCase):
             self.run_gateway('I accept the quote', 'accept', body, enriched=enriched)
         self.assertIsNone(ledger._current.get())
 
+    def test_whatsapp_cloud_none_reply_anchor_keeps_original_owner(self):
+        from gateway.config import Platform
+
+        def offer(*a, **k):
+            ledger.record_quote(self.plan, {'success': True, 'total_cents': 65000})
+            raise StopIterationProof()
+        with self.assertRaises(StopIterationProof):
+            self.run_gateway('Please quote this', 'cloud-offer', offer,
+                             platform=Platform.WHATSAPP_CLOUD)
+
+        def accepted(*a, **k):
+            self.assertTrue(ledger.prepare_create({})['confirm'])
+            raise StopIterationProof()
+        with self.assertRaises(StopIterationProof):
+            self.run_gateway('I accept the quote', 'cloud-accept', accepted,
+                             platform=Platform.WHATSAPP_CLOUD)
+
     def test_reply_history_multimodal_and_persist_kwargs_cannot_supply_consent(self):
         from gateway.run import _wrap_current_message_with_observed_context
         self.offer_gateway()

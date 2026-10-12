@@ -22,6 +22,7 @@ ENFORCEMENT (this increment):
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,13 +55,13 @@ LEAK_PATTERNS: Tuple[re.Pattern, ...] = tuple(
 )
 
 # --- localized safe fallbacks -------------------------------------------------
-# Warm, guest-safe replacement when a leak is caught. No internals, gives a path
-# forward (a human will follow up).
+# Warm, guest-safe replacement when a leak is caught. No internals and no
+# unsupported claim that staff were notified or will follow up.
 SAFE_FALLBACK: Dict[str, str] = {
-    "en": "Let me double-check that with my team and get right back to you! 😊",
-    "it": "Lascia che verifichi con il mio team e ti rispondo subito! 😊",
-    "de": "Ich kläre das kurz mit meinem Team und melde mich gleich bei dir! 😊",
-    "es": "Déjame confirmarlo con mi equipo y te respondo enseguida! 😊",
+    "en": "I couldn't verify that just now. Give me a moment and please ask me again.",
+    "it": "Non sono riuscita a verificarlo in questo momento. Dammi un attimo e riprova, per favore.",
+    "de": "Ich konnte das gerade nicht verlässlich prüfen. Gib mir einen Moment und frag bitte noch einmal.",
+    "es": "No he podido confirmarlo ahora mismo. Dame un momento y vuelve a preguntarme, por favor.",
 }
 
 # Ask — never deny — when tool truth already shows a booking (Hernan contradiction).
@@ -116,23 +117,28 @@ def outage_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
 # English is detected POSITIVELY (common function words) so a non-English guest
 # receiving an English reply is caught, not silently passed.
 _LANG_HINTS = {
-    "it": ("ciao", "grazie", "prego", "prenotazione", "stanza", "notti", "sistema",
+    "it": ("ciao", "grazie", "prego", "prenotazione", "stanza", "notti",
            "preventivo", "lezione", "dispiace", "periodo", "tua", "sono", "siamo", "puoi"),
-    "es": ("hola", "gracias", "habitación", "reserva", "noches", "sistema", "tu", "estás"),
+    "es": ("hola", "gracias", "habitación", "reserva", "noches", "tu", "estás",
+           "quiero", "entiendo", "español", "háblame", "puedes", "marea", "mareas"),
     "de": ("hallo", "danke", "zimmer", "buchung", "nächte", "system", "deine", "ist"),
     "en": ("the", "you", "your", "and", "for", "hello", "please", "thanks",
            "booking", "room", "ready", "would", "we've", "we're"),
 }
 
 
+def _language_scores(text: str) -> Dict[str, int]:
+    low = str(text or "").lower()
+    return {
+        lang: sum(1 for word in words
+                  if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", low))
+        for lang, words in _LANG_HINTS.items()
+    }
+
+
 def detect_languages(text: str) -> set:
     """All languages with a positive keyword signal in the text (may be empty)."""
-    low = f" {str(text or '').lower()} "
-    found = set()
-    for lang, words in _LANG_HINTS.items():
-        if any(f" {w} " in low or f" {w}," in low or f" {w}." in low or f" {w}!" in low for w in words):
-            found.add(lang)
-    return found
+    return {lang for lang, score in _language_scores(text).items() if score > 0}
 
 
 def guess_language(text: str, hint: Optional[str] = None) -> str:
@@ -244,6 +250,119 @@ def find_booking_denial_contradiction(
 def booking_ask_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
     lang = (guest_lang or guess_language(text))[:2]
     return BOOKING_ASK_FALLBACK.get(lang, BOOKING_ASK_FALLBACK["en"])
+
+
+_RETRY_CLAIM_RE = re.compile(
+    r"\b(?:i\s+(?:tried|checked|ran)[^.?!]{0,80}\b(?:again|twice)|"
+    r"i\s+retried\b|i\s+made\s+another\s+attempt\b|"
+    r"(?:lo\s+he\s+intentado|(?:lo\s+)?intent[eé])[^.?!]{0,80}\bde\s+nuevo|"
+    r"volv[ií]\s+a\s+intentarlo|ho\s+riprovato)\b",
+    re.IGNORECASE,
+)
+
+
+_RETRY_TOOL_HINTS = (
+    (re.compile(r"\b(?:quot(?:e|ed|ing)|cotizaci[oó]n|presupuesto)\b", re.IGNORECASE), {"quote_booking", "preview_package_prices"}),
+    (re.compile(r"\bavailab(?:ility|le)\b", re.IGNORECASE), {"check_availability", "get_availability"}),
+    (re.compile(r"\bpay(?:ment|link)?\b", re.IGNORECASE), {"create_payment_link", "create_test_payment_link"}),
+    (re.compile(r"\bbook(?:ing|ed)?\b", re.IGNORECASE), {"create_booking_from_plan", "create_sunset_booking"}),
+)
+
+
+def find_unsupported_retry_claim(
+    text: str,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Require two recorded attempts for the operation the reply claims retried."""
+    claim = str(text or "")
+    if not _RETRY_CLAIM_RE.search(claim):
+        return None
+    calls_by_name: Dict[str, List[str]] = {}
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "").strip()
+        if name:
+            calls_by_name.setdefault(name, []).append(_tool_result_blob(call))
+    hinted = next((names for pattern, names in _RETRY_TOOL_HINTS if pattern.search(claim)), None)
+    candidates = hinted or set()
+    repeated = [(name, calls_by_name.get(name, [])) for name in candidates
+                if len(calls_by_name.get(name, [])) >= 2]
+    if not repeated:
+        return "no_matching_repeated_tool_attempt"
+    if re.search(r"\b(?:still\s+(?:did(?:n['’]?t)?\s+work|failed)|again\s+failed|"
+                 r"(?:but\s+)?it\s+failed|sigue\s+fallando|volvi[oó]\s+a\s+fallar)\b", claim, re.IGNORECASE):
+        for _, results in repeated:
+            last = results[-1].lower().replace(" ", "")
+            if '"success":true' in last or "'success':true" in last or "success=true" in last:
+                return "claimed_retry_failure_after_success"
+    return None
+
+
+_HANDOFF_CLAIM_RE = re.compile(
+    r"\b(?:flagged|notified|told|asked|contacted|escalated|sent|forwarded|referred|"
+    r"avis(?:ado|é)|notifiqu[eé]|escal[eé]|envi[eé]|remit[ií]|"
+    r"handed\s+(?:this\s+)?over|passed\s+(?:this\s+)?to|loop(?:ing|ed)?\s+in)\b"
+    r"[^.?!]{0,100}\b(?:staff|team|equipo|personal)\b|"
+    r"\b(?:staff|team|equipo|personal)\b[^.?!]{0,100}\b"
+    r"(?:will\s+(?:get\s+back|contact|follow\s+up|review|check|double-check|sort)|"
+    r"(?:is|are)\s+(?:reviewing|checking|looking\s+into))\b",
+    re.IGNORECASE,
+)
+
+
+_FUTURE_STAFF_PROMISE_RE = re.compile(
+    r"\b(?:staff|team|equipo|personal|they|someone)\b[^.?!]{0,50}\b"
+    r"(?:will|(?:is|are)\s+going\s+to)\s+"
+    r"(?:get\s+back|contact|follow\s+up|review|check|double-check|sort|look\s+into)\b|"
+    r"\b(?:they['’]ll\s+(?:get\s+back|contact|follow\s+up|review|check|double-check|sort|look\s+into))\b|"
+    r"\b(?:equipo|personal|alguien)\b[^.?!]{0,50}\b"
+    r"(?:te\s+contactar[aá]|se\s+pondr[aá]\s+en\s+contacto|revisar[aá]|comprobar[aá]|te\s+responder[aá])\b|"
+    r"\b(?:you(?:['’]ll|\s+will)\s+(?:hear\s+back|be\s+contacted))\b",
+    re.IGNORECASE,
+)
+
+
+def _typed_tool_result(call: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    # Only the actual tool result is authoritative. ``result_summary`` is
+    # display/audit text and must never mint a persisted-handoff receipt.
+    value = call.get("result")
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def find_unsupported_handoff_claim(
+    text: str,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Require a receipt for a handoff; never infer a future staff action."""
+    claim = str(text or "")
+    if _FUTURE_STAFF_PROMISE_RE.search(claim):
+        return "unsupported_future_staff_action"
+    if not _HANDOFF_CLAIM_RE.search(claim):
+        return None
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or call.get("tool") or "")
+        if name not in {"flag_needs_human", "request_human_help"}:
+            continue
+        result = _typed_tool_result(call)
+        if (result is not None
+                and result.get("success") is True
+                and result.get("needs_human") is True
+                and result.get("handoff_persisted") is True
+                and isinstance(result.get("staff_review_id"), str)
+                and bool(result["staff_review_id"].strip())):
+            return None
+    return "handoff_not_persisted"
 
 
 
@@ -400,6 +519,18 @@ def guard_reply(
         findings.append({"kind": "booking_denial_contradiction", "severity": "block", "detail": denial})
         text = booking_ask_fallback_for(reply_text, guest_lang)
 
+    retry_claim = find_unsupported_retry_claim(reply_text, tool_calls)
+    if retry_claim:
+        findings.append({"kind": "unsupported_retry_claim", "severity": "block",
+                         "detail": retry_claim})
+        text = safe_fallback_for(reply_text, guest_lang)
+
+    handoff_claim = find_unsupported_handoff_claim(reply_text, tool_calls)
+    if handoff_claim:
+        findings.append({"kind": "unsupported_handoff_claim", "severity": "block",
+                         "detail": handoff_claim})
+        text = safe_fallback_for(reply_text, guest_lang)
+
     prices = find_unsourced_prices(reply_text, tool_calls)
     if prices:
         findings.append({"kind": "unsourced_price", "severity": "warn", "detail": prices})
@@ -418,7 +549,78 @@ def guard_reply(
 # (warn) — wrong parsing only yields noisy logs, never a mangled guest reply —
 # so this is safe to ship even with shape uncertainty.
 
+def _obj_get(value: Any, key: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _native_current_turn_tool_calls(messages: Any) -> List[Dict[str, Any]]:
+    """Join completed current-turn tool results to assistant declarations by ID.
+
+    Names come only from assistant tool-call declarations and results only from
+    later role=tool messages carrying the same ID. The finalizer includes the
+    full session transcript, so the last user message is the authority boundary.
+    Orphans, duplicate IDs, declarations without results, and prior-turn rows
+    are ignored fail-closed.
+    """
+    rows = list(messages or [])
+    boundary = -1
+    for index in range(len(rows) - 1, -1, -1):
+        if str(_obj_get(rows[index], "role", "")).lower() == "user":
+            boundary = index
+            break
+    if boundary < 0:
+        return []
+
+    declarations: Dict[str, List[Tuple[int, str]]] = {}
+    results: Dict[str, List[Tuple[int, Any]]] = {}
+    current_rows = rows[boundary + 1:]
+    for index, message in enumerate(current_rows):
+        role = str(_obj_get(message, "role", "")).lower()
+        if role == "assistant":
+            for call in (_obj_get(message, "tool_calls", None) or []):
+                call_id = str(_obj_get(call, "id", "") or "").strip()
+                function = _obj_get(call, "function", None)
+                name = str(_obj_get(function, "name", "") or "").strip()
+                if call_id and name:
+                    declarations.setdefault(call_id, []).append((index, name))
+        elif role == "tool":
+            call_id = str(_obj_get(message, "tool_call_id", "") or "").strip()
+            if call_id:
+                results.setdefault(call_id, []).append(
+                    (index, _obj_get(message, "content", None)))
+
+    completed: List[Dict[str, Any]] = []
+    for call_id, declared in declarations.items():
+        matched_results = results.get(call_id, [])
+        if len(declared) != 1 or len(matched_results) != 1:
+            continue
+        declaration_index, name = declared[0]
+        result_index, result = matched_results[0]
+        if result_index <= declaration_index or result is None:
+            continue
+        if isinstance(result, str) and result.strip().lower().startswith("[result "):
+            continue
+        completed.append({
+            "name": name,
+            "args": {},
+            "result": result,
+            "result_summary": str(result or ""),
+            "tool_call_id": call_id,
+            "_result_index": result_index,
+        })
+    completed.sort(key=lambda receipt: receipt["_result_index"])
+    for receipt in completed:
+        receipt.pop("_result_index", None)
+    return completed
+
+
 def _tool_calls_from_agent_result(agent_result: Any) -> List[Dict[str, Any]]:
+    messages = _obj_get(agent_result, "messages", None) if agent_result is not None else None
+    if messages is not None:
+        return _native_current_turn_tool_calls(messages)
+
     raw = None
     if agent_result is not None:
         raw = getattr(agent_result, "tool_calls", None)
@@ -427,10 +629,12 @@ def _tool_calls_from_agent_result(agent_result: Any) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for tc in (raw or []):
         get = tc.get if isinstance(tc, dict) else (lambda k, d=None, _o=tc: getattr(_o, k, d))
+        result = get("result") or get("output")
         out.append({
             "name": get("name") or get("tool_name") or "",
             "args": get("arguments") or get("args") or {},
-            "result_summary": str(get("result_summary") or get("result") or get("output") or ""),
+            "result": result,
+            "result_summary": str(get("result_summary") or result or ""),
         })
     return out
 
@@ -441,11 +645,21 @@ def _guest_lang_from_history(history: Any) -> Optional[str]:
             role = (msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")) or ""
             if str(role).lower() in ("user", "guest", "human"):
                 content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
-                sig = detect_languages(str(content or ""))
-                for lang in ("it", "es", "de", "en"):
-                    if lang in sig:
-                        return lang
-                return None
+                raw = str(content or "").strip()
+                scores = _language_scores(raw)
+                sig = {lang for lang, score in scores.items() if score > 0}
+                if len(sig) == 1:
+                    return next(iter(sig))
+                # Only short/weak acknowledgments are allowed to defer to an
+                # older resolved locale. Substantive mixed-signal messages use
+                # their uniquely strongest language (for example Spanish copy
+                # containing the product name "Booking").
+                if len(raw) >= _SUBSTANTIAL_MIN and sig:
+                    top = max(scores.values())
+                    winners = [lang for lang, score in scores.items() if score == top]
+                    if top > 0 and len(winners) == 1:
+                        return winners[0]
+                continue
     except Exception:
         return None
     return None

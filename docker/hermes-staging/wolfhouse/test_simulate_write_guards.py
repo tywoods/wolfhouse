@@ -423,6 +423,38 @@ class WolfhouseStagingBookingCapabilityTests(unittest.TestCase):
             self.assertTrue(any(needle in w for w in warnings), (path, warnings))
             self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
 
+    def test_exact_france_internal_staff_origin_is_admitted(self):
+        cap = self._evaluate(env={
+            "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",
+        })
+        self.assertTrue(cap["admitted"], cap["reasons"])
+        self.assertEqual(cap["staff_origin"], "http://staff-staging.lunafrontdesk.com:3036")
+
+    def test_france_origin_exception_is_exact_and_keeps_all_other_gates(self):
+        for origin in (
+            "http://staff-staging.lunafrontdesk.com:3037",
+            "https://staff-staging.lunafrontdesk.com:3036",
+            "http://staff-staging.lunafrontdesk.com:3036/path",
+            "http://staff.lunafrontdesk.com:3036",
+            "http://sunset-staging.lunafrontdesk.com:3036",
+        ):
+            cap = self._evaluate(env={"WOLFHOUSE_STAFF_API_BASE_URL": origin})
+            self.assertFalse(cap["admitted"], origin)
+            self.assertIn("staff_destination_not_approved_staging", cap["reasons"])
+        for override, reason in (
+            ({"LUNA_TENANT_ID": "sunset"}, "wolfhouse_tenant_mismatch"),
+            ({"LUNA_CLIENT_SLUG": "sunset"}, "wolfhouse_client_mismatch"),
+            ({"BOT_BOOKING_ENABLED": "false"}, "bot_booking_disabled"),
+            ({"WOLFHOUSE_STRIPE_MODE": "live"}, "live_stripe_key_blocked"),
+            ({"STRIPE_SECRET_KEY": "", "WOLFHOUSE_STRIPE_MODE": ""}, "test_payment_config_missing"),
+        ):
+            cap = self._evaluate(env={
+                "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",
+                **override,
+            })
+            self.assertFalse(cap["admitted"], (override, cap))
+            self.assertIn(reason, cap["reasons"])
+
     def test_production_or_missing_binding_stays_denied(self):
         prod = self._evaluate(env={"WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.lunafrontdesk.com"})
         self.assertFalse(prod["admitted"])
