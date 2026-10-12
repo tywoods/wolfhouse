@@ -5,6 +5,7 @@ A reset, ended incarnation, unbound ingress or malformed ledger fails closed.
 """
 from contextvars import ContextVar
 from copy import deepcopy
+from datetime import date
 from functools import wraps
 import hashlib
 import json
@@ -332,6 +333,41 @@ def _accepts(raw, plan):
                 and plan.get('guest_count', 2) == 2)
 
 
+def _accepts_complete_presented_offer(raw, offer):
+    """Recognize one complete consent grammar and verify every claimed term."""
+    text = unicodedata.normalize('NFC', raw)
+    match = re.fullmatch(
+        r'\s*yes, i accept this exact quote for (\d{1,2}) to (\d{1,2}) '
+        r'(january|february|march|april|may|june|july|august|september|october|november|december) '
+        r'(\d{4}), (shared male room), total and deposit (\d+)(?:[.,](\d{1,2}))? '
+        r'(euros?|eur)\. please create the test booking and payment link[.!]?\s*',
+        text, re.I)
+    if not match or not isinstance(offer, dict):
+        return False
+    months = ('january', 'february', 'march', 'april', 'may', 'june',
+              'july', 'august', 'september', 'october', 'november', 'december')
+    year, month = int(match[4]), months.index(match[3].lower()) + 1
+    try:
+        check_in = date(year, month, int(match[1])).isoformat()
+        check_out = date(year, month, int(match[2])).isoformat()
+    except ValueError:
+        return False
+    cents = int(match[6]) * 100 + int((match[7] or '').ljust(2, '0'))
+    arrangement = offer.get('room_arrangement')
+    male_room = (offer.get('room_type') == 'shared'
+                 and isinstance(arrangement, list) and bool(arrangement)
+                 and all(isinstance(row, dict)
+                         and str(row.get('gender_strategy') or '').lower().startswith('male')
+                         for row in arrangement))
+    return (offer.get('check_in') == check_in
+            and offer.get('check_out') == check_out
+            and offer.get('total_cents') == cents
+            and offer.get('deposit_required_cents') == cents
+            and offer.get('currency') == 'EUR'
+            and match[8].lower() in ('euro', 'euros', 'eur')
+            and male_room)
+
+
 def _contact_continuity(raw):
     """Bounded contact-only grammar; never itself grants acceptance."""
     text = unicodedata.normalize('NFC', raw)
@@ -410,7 +446,8 @@ def observe_owner_turn(agent, raw):
         elif state['status'] == 'offered' and state['quote'] and (
                 _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
-                    and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))):
+                    and (re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
+                         or _accepts_complete_presented_offer(raw, presented)))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):

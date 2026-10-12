@@ -76,6 +76,98 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.turn('contextual-yes', 'Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
 
+    def packet_offer(self):
+        plan = dict(
+            check_in='2027-05-10', check_out='2027-05-12', guest_count=1,
+            package_code='package_none', room_type='shared', room_preference='shared',
+            group_gender='male', guests=[{'name': 'Alex Test'}],
+            payment_choice='deposit', add_ons=[{'code': 'meals', 'quantity': 1}],
+            selected_bed_codes=['R4-B1'])
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=9500, deposit_required_cents=9500,
+                     payment_link_amount_cents=9500, currency='EUR', package_code='package_none')
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
+            payment_choice='deposit', add_ons=plan['add_ons'],
+            availability={**plan, 'status': 'checked'},
+            room_rows=[dict(bed_code='R4-B1', room_code='R4',
+                            gender_strategy='male preferred')]))], cwd=root))
+        response = dict(success=True, total_cents=9500, deposit_required_cents=9500,
+                        payment_choice_needed=False, currency='EUR', **checked)
+        exact = ('Yes, I accept this exact quote for 10 to 12 May 2027, shared male room, '
+                 'total and deposit 95 euros. Please create the TEST booking and payment link.')
+        return plan, response, exact
+
+    def owner_state(self):
+        rows = self.db._conn.execute(
+            "SELECT value FROM state_meta WHERE key LIKE 'wolfhouse.accepted_quote.v1:%'"
+        ).fetchall()
+        return next(json.loads(row[0]) for row in rows
+                    if json.loads(row[0]).get('scope', {}).get('ID') == self.agent.session_id)
+
+    def present_packet_offer(self):
+        plan, response, exact = self.packet_offer()
+        ledger.record_quote(plan, response)
+        result = ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        state = self.owner_state()
+        self.assertIsInstance(result.get('final_response'), str)
+        self.assertEqual(state.get('presented_offer'), state.get('checked_offer'), state)
+        return plan, response, exact, result
+
+    def test_complete_packet_consent_requires_matching_presented_offer(self):
+        _plan, response, exact, _result = self.present_packet_offer()
+        self.assertTrue(ledger._accepts_complete_presented_offer(
+            exact, response['offer_revision']), response['offer_revision'])
+        self.turn('packet-consent', exact)
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['selected_bed_codes'], ['R4-B1'])
+        self.assertEqual(prepared['guests'], [{'name': 'Alex Test'}])
+
+    def test_packet_consent_rejects_contradictory_terms(self):
+        replacements = (
+            ('10 to 12 May 2027', '11 to 12 May 2027'),
+            ('95 euros', '96 euros'),
+            ('shared male room', 'shared female room'),
+            ('95 euros', '95 dollars'),
+        )
+        for index, (old, new) in enumerate(replacements):
+            with self.subTest(term=new):
+                if index:
+                    self.agent.session_id = f'contradiction-{index}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    self.turn(f'q-{index}', 'Quote this please')
+                _plan, _response, exact, _result = self.present_packet_offer()
+                self.turn(f'contradiction-{index}', exact.replace(old, new))
+                with self.assertRaises(ledger.QuoteBoundaryError):
+                    ledger.prepare_create({})
+
+    def test_packet_consent_rejects_missing_presentation(self):
+        plan, response, exact = self.packet_offer()
+        ledger.record_quote(plan, response)
+        self.turn('packet-without-presentation', exact)
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def test_packet_consent_rejects_foreign_owner_and_replay(self):
+        _plan, _response, exact, _result = self.present_packet_offer()
+        self.turn('packet-consent', exact)
+        ledger.prepare_create({})
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            self.turn('packet-consent', exact)
+        self.db.create_session('foreign-packet', source='whatsapp')
+        self.agent.session_id = 'foreign-packet'
+        self.turn('foreign-packet-consent', exact)
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def test_packet_consent_closed_owner_cannot_prepare(self):
+        _plan, _response, exact, _result = self.present_packet_offer()
+        self.turn('packet-consent', exact)
+        ledger.close_turn()
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
     def test_incomplete_checked_responses_never_present_accept_ready_question(self):
         mutations = [
             lambda r: r.update(success=False),
