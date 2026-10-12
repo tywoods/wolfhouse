@@ -679,10 +679,13 @@ def record_local_tool_result(
 def _ensure_quote_owner_hook() -> None:
     """Install the quote owner on the active loop or fail before model/tool execution."""
     from agent import conversation_loop
-    from wolfhouse import accepted_quote
+    from gateway.run import GatewayRunner
+    from wolfhouse import accepted_quote, original_inbound
 
     accepted_quote.install_owner_hook()
-    if not getattr(conversation_loop.run_conversation, "_wolfhouse_quote_owner", False):
+    if not original_inbound.gateway_runtime_ready(GatewayRunner):
+        raise RuntimeError("gateway_owner_runtime_unavailable")
+    if not accepted_quote.quote_owner_hook_ready(conversation_loop.run_conversation):
         raise RuntimeError("quote_owner_hook_unavailable")
 
 

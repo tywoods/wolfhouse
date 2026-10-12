@@ -7,11 +7,17 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 import inspect
+import logging
 import os
 from threading import RLock
 from uuid import uuid4
 
+
+logger = logging.getLogger(__name__)
+
 _current = ContextVar('wolfhouse_original_inbound', default=None)
+_EVENT_OWNER_TOKEN = object()
+_RUN_OWNER_TOKEN = object()
 
 
 def _source(source):
@@ -63,6 +69,7 @@ def gateway_event_owner(fn):
         finally:
             cap.close()
             _current.reset(token)
+    owned._wolfhouse_gateway_event_owner_token = _EVENT_OWNER_TOKEN
     return owned
 
 
@@ -88,9 +95,34 @@ def bind_gateway_session(db, session_id, session_key, source, message_id):
         return
     try:
         cap.bind(db, session_id, session_key, _source(source), message_id)
-    except QuoteBoundaryError:
+    except QuoteBoundaryError as exc:
+        logger.warning(
+            "quote_owner_boundary_rejected stage=session_binding reason=%s",
+            str(exc),
+        )
         cap.close()
         _current.set(None)
+
+
+@contextmanager
+def gateway_followup_event_owner(db, event, session_id, session_key):
+    """Mint authority only for an adapter-owned queued event."""
+    from gateway.platforms.base import MessageEvent
+    from .accepted_quote import QuoteBoundaryError
+    if not isinstance(event, MessageEvent) or getattr(event, 'internal', False):
+        raise QuoteBoundaryError('original_inbound_queued_event_invalid')
+    source = _source(event.source)
+    cap = OriginalInbound(event.text, source, event.message_id,
+                          getattr(event, 'internal', False))
+    eligible = cap.tenant and source['PLATFORM'] in ('whatsapp', 'whatsapp_cloud')
+    token = _current.set(cap if eligible else None)
+    if eligible:
+        bind_gateway_session(db, session_id, session_key, event.source, event.message_id)
+    try:
+        yield
+    finally:
+        cap.close()
+        _current.reset(token)
 
 
 def gateway_run_owner(fn):
@@ -115,7 +147,11 @@ def gateway_run_owner(fn):
                             or cap.binding[0] is not getattr(self, '_session_db', None)
                             or cap.binding[1] != expected):
                         raise QuoteBoundaryError('original_inbound_identity_mismatch')
-            except QuoteBoundaryError:
+            except QuoteBoundaryError as exc:
+                logger.warning(
+                    'quote_owner_boundary_rejected stage=runner_validation reason=%s',
+                    str(exc),
+                )
                 # Queued/internal follow-ups cannot inherit the initiating event.
                 # Keep ordinary conversation available with no consent authority.
                 token = _current.set(None)
@@ -127,7 +163,61 @@ def gateway_run_owner(fn):
                 return await fn(self, *args, **kwargs)
         finally:
             cap.close()
+    owned._wolfhouse_gateway_run_owner_token = _RUN_OWNER_TOKEN
     return owned
+
+
+def _queued_seam_probe():
+    """Actively prove a queued MessageEvent mints, binds, closes and resets."""
+    from gateway.config import Platform
+    from gateway.platforms.base import MessageEvent
+    from gateway.session import SessionSource
+
+    class ProbeDB:
+        @staticmethod
+        def get_session(session_id):
+            if session_id == 'wolfhouse-readiness-probe':
+                return {'started_at': 1, 'ended_at': None}
+            return None
+
+    source = SessionSource(
+        platform=Platform.WHATSAPP_CLOUD,
+        chat_id='wolfhouse-readiness-probe',
+        user_id='wolfhouse-readiness-probe',
+        thread_id=None,
+    )
+    event = MessageEvent(
+        text='readiness probe', message_id='wolfhouse-readiness-probe',
+        source=source,
+    )
+    before = _current.get()
+    cap = None
+    db = ProbeDB()
+    with gateway_followup_event_owner(
+            db, event, 'wolfhouse-readiness-probe',
+            'agent:main:whatsapp_cloud:dm:wolfhouse-readiness-probe'):
+        cap = _current.get()
+        if (cap is None or cap.closed or cap.binding is None
+                or cap.binding[0] is not db
+                or cap.binding[1].get('MESSAGE_ID') != event.message_id):
+            return False
+    return cap.closed and _current.get() is before
+
+
+def gateway_runtime_ready(runner_type):
+    wrappers_ready = (
+        getattr(getattr(runner_type, '_handle_message', None),
+                '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
+        and getattr(getattr(runner_type, '_run_agent', None),
+                    '_wolfhouse_gateway_run_owner_token', None) is _RUN_OWNER_TOKEN
+    )
+    if not wrappers_ready:
+        return False
+    try:
+        return bool(_queued_seam_probe())
+    except Exception:
+        logger.exception('queued original-inbound readiness probe failed')
+        return False
 
 
 def api_original(text, session_id):

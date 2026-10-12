@@ -50,6 +50,7 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_create = None
 _before_create = None
+_OWNER_HOOK_TOKEN = object()
 _exact_gateway_retry: ContextVar[object | None] = ContextVar(
     'wolfhouse_exact_gateway_retry', default=None)
 
@@ -805,9 +806,14 @@ def install_owner_hook(create_handler=None, before_create=None):
     global _registered_create, _before_create
     if create_handler is not None:
         _registered_create, _before_create = create_handler, before_create
-    from agent import conversation_loop
+    try:
+        from agent import conversation_loop
+    except ModuleNotFoundError:
+        # Standalone plugin/unit-test environments may not install Hermes.
+        # The live Crowsnest readiness check still requires this hook.
+        return
     original = conversation_loop.run_conversation
-    if getattr(original, '_wolfhouse_quote_owner', False):
+    if getattr(original, '_wolfhouse_quote_owner_token', None) is _OWNER_HOOK_TOKEN:
         return
     @wraps(original)
     def owned(agent, user_message, *args, **kwargs):
@@ -822,15 +828,19 @@ def install_owner_hook(create_handler=None, before_create=None):
             # Refuse before observe_owner_turn can alter a replacement offer.
             return _exact_retry_refusal(user_message, args, kwargs)
         try:
-            from .original_inbound import consume
+            from . import original_inbound as owner_inbound
             try:
-                inbound = consume(agent)
+                inbound = owner_inbound.consume(agent)
                 with inbound.lock:
                     observe_owner_turn(agent, inbound.text)
                     capability = _current.get()
                     capability.parent = inbound
                     capability.lock = inbound.lock
-            except QuoteBoundaryError:
+            except QuoteBoundaryError as exc:
+                owner_inbound.logger.warning(
+                    'quote_owner_boundary_rejected stage=inbound_consumption reason=%s',
+                    str(exc),
+                )
                 # Unsupported/unbound ordinary ingress retains conversation but an
                 # internally armed exact retry may never fall through to the model.
                 close_turn()
@@ -885,4 +895,9 @@ def install_owner_hook(create_handler=None, before_create=None):
             # a stale ambient binding would authorize tools after this turn exits.
             close_turn()
     owned._wolfhouse_quote_owner = True
+    owned._wolfhouse_quote_owner_token = _OWNER_HOOK_TOKEN
     conversation_loop.run_conversation = owned
+
+
+def quote_owner_hook_ready(callable_owner):
+    return getattr(callable_owner, '_wolfhouse_quote_owner_token', None) is _OWNER_HOOK_TOKEN
