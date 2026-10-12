@@ -116,6 +116,56 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row[0] for row in self.mirrored], ["inbound", "outbound", "inbound", "outbound"])
         self.assertTrue(all(row[3].startswith("crowsnest-sim:") for row in self.mirrored))
 
+    async def test_local_pre_staff_tool_rejection_is_audited_per_request(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+346001111888")
+        token = door._SCOPE.set(scope)
+        try:
+            recorded = door.record_local_tool_result(
+                "quote_booking",
+                {"check_in": "2026-10-16", "check_out": "2026-10-19"},
+                {"success": False, "error": "quote_owner_turn_missing"},
+                stage="pre_staff_rejection",
+            )
+        finally:
+            door._SCOPE.reset(token)
+        self.assertTrue(recorded)
+        self.assertEqual(scope.tool_calls[0]["name"], "quote_booking")
+        self.assertEqual(scope.tool_calls[0]["attempt_stage"], "pre_staff_rejection")
+        self.assertIn("quote_owner_turn_missing", scope.tool_calls[0]["result_summary"])
+        self.assertFalse(door.record_local_tool_result(
+            "quote_booking", {}, {"success": False}, stage="pre_staff_rejection"))
+
+    async def test_missing_quote_owner_hook_fails_before_live_guard_install(self):
+        import sys
+        import wolfhouse.crowsnest_guest_door as door
+        from wolfhouse import accepted_quote
+
+        fake_loop = SimpleNamespace(run_conversation=lambda *a, **k: None)
+        fake_agent = SimpleNamespace(conversation_loop=fake_loop)
+        with patch.dict(sys.modules, {"agent": fake_agent}), \
+                patch.object(accepted_quote, "install_owner_hook", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "quote_owner_hook_unavailable"):
+                door._ensure_quote_owner_hook()
+
+    async def test_quote_owner_hook_is_verified_after_install(self):
+        import sys
+        import wolfhouse.crowsnest_guest_door as door
+        from wolfhouse import accepted_quote
+
+        def bare(*args, **kwargs):
+            return None
+        fake_loop = SimpleNamespace(run_conversation=bare)
+        fake_agent = SimpleNamespace(conversation_loop=fake_loop)
+
+        def install():
+            fake_loop.run_conversation._wolfhouse_quote_owner = True
+
+        with patch.dict(sys.modules, {"agent": fake_agent}), \
+                patch.object(accepted_quote, "install_owner_hook", side_effect=install):
+            door._ensure_quote_owner_hook()
+
     async def test_timeout_cancel_and_late_completion_never_fall_back_to_external_transport(self):
         phone = "+34" + "600111333"
         task = asyncio.create_task(run_crowsnest_guest_turn(

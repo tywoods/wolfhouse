@@ -4428,14 +4428,27 @@ def _quote_owner_handler(name, original):
                     ledger.record_create_completion(canonical, response)
             return result
         except ledger.QuoteBoundaryError as error:
-            return _json_result({'success': False, 'tool': name, 'error': str(error),
-                                 'write_performed': False, 'booking_not_created_yet': True,
-                                 'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+            failure = {'success': False, 'tool': name, 'error': str(error),
+                       'write_performed': False, 'booking_not_created_yet': True,
+                       'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+            try:
+                from wolfhouse.crowsnest_guest_door import record_local_tool_result
+                record_local_tool_result(name, canonical, failure, stage='pre_staff_rejection')
+            except (ImportError, RuntimeError):
+                pass
+            return _json_result(failure)
         except Exception:
             if active and not dispatched:
-                return _json_result({'success': False, 'tool': name, 'error': 'quote_owner_unavailable',
-                                     'write_performed': False, 'booking_not_created_yet': True,
-                                     'next_action': 'clarify_or_requote', 'staff_review_needed': False})
+                failure = {'success': False, 'tool': name, 'error': 'quote_owner_unavailable',
+                           'write_performed': False, 'booking_not_created_yet': True,
+                           'next_action': 'clarify_or_requote', 'staff_review_needed': False}
+                try:
+                    from wolfhouse.crowsnest_guest_door import record_local_tool_result
+                    record_local_tool_result(name, canonical, failure,
+                                             stage='pre_staff_owner_unavailable')
+                except (ImportError, RuntimeError):
+                    pass
+                return _json_result(failure)
             raise
         finally:
             if dispatch_token is not None:

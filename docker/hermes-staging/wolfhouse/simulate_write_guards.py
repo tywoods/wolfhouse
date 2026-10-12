@@ -11,7 +11,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 _PREVIEW_PATH = "/staff/bot/booking-preview"
 _ADDON_PREVIEW = "/staff/bot/addon-request-preview"
 WOLFHOUSE_STAGING_BOOKING_CAPABILITY = "wolfhouse_staging_booking_test_link"
-_APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGIN = "https://staff-staging.lunafrontdesk.com"
+_APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGINS = frozenset({
+    "https://staff-staging.lunafrontdesk.com",
+    "http://staff-staging.lunafrontdesk.com:3036",
+})
 _APPROVED_WOLFHOUSE_STAGING_PAY_ORIGIN = "https://staff-staging.lunafrontdesk.com"
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -171,7 +174,7 @@ def evaluate_wolfhouse_staging_booking_capability(
     staff = _origin(source.get("WOLFHOUSE_STAFF_API_BASE_URL"))
     if not staff:
         reasons.append("staff_destination_missing")
-    elif staff != _APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGIN:
+    elif staff not in _APPROVED_WOLFHOUSE_STAGING_STAFF_ORIGINS:
         reasons.append("staff_destination_not_approved_staging")
 
     pay = _origin(source.get("PUBLIC_PAYMENT_BASE_URL"))
