@@ -207,7 +207,7 @@ def gateway_run_owner(fn):
     return owned
 
 
-def _queued_seam_probe():
+def _queued_seam_probe(helper):
     """Actively prove a queued MessageEvent mints, binds, closes and resets."""
     from gateway.config import Platform
     from gateway.platforms.base import MessageEvent
@@ -235,7 +235,7 @@ def _queued_seam_probe():
     before = _current.get()
     cap = None
     db = ProbeDB()
-    with gateway_followup_event_owner(
+    with helper(
             db, event, 'wolfhouse-readiness-probe',
             'agent:main:whatsapp_cloud:dm:wolfhouse-readiness-probe'):
         cap = _current.get()
@@ -246,7 +246,7 @@ def _queued_seam_probe():
     return cap.closed and _current.get() is before
 
 
-def _queued_worker_contained(fn):
+def _queued_helper_binding(fn):
     import ast
     import textwrap
     try:
@@ -259,24 +259,44 @@ def _queued_worker_contained(fn):
     if len(owners) != 1:
         return False
     owner = owners[0]
-    helpers = [node for node in ast.walk(owner) if isinstance(node, ast.With)
-               and any(isinstance(item.context_expr, ast.Call)
-                       and ((isinstance(item.context_expr.func, ast.Name)
-                             and item.context_expr.func.id == '_wh_followup_original')
-                            or (isinstance(item.context_expr.func, ast.Attribute)
-                                and item.context_expr.func.attr == 'gateway_followup_event_owner'))
-                       for item in node.items)]
+    helper_calls = [item.context_expr for node in ast.walk(owner)
+                    if isinstance(node, ast.With) for item in node.items
+                    if isinstance(item.context_expr, ast.Call)
+                    and ((isinstance(item.context_expr.func, ast.Name)
+                          and item.context_expr.func.id == '_wh_followup_original')
+                         or (isinstance(item.context_expr.func, ast.Attribute)
+                             and item.context_expr.func.attr == 'gateway_followup_event_owner'))]
     workers = [node for node in ast.walk(owner) if isinstance(node, ast.Await)
                and isinstance(node.value, ast.Call)
                and isinstance(node.value.func, ast.Attribute)
                and node.value.func.attr == '_run_agent']
-    return (len(helpers) == len(workers) == 1
-            and workers[0] in list(ast.walk(helpers[0])))
+    if len(helper_calls) != 1 or len(workers) != 1:
+        return None
+    helper_call = helper_calls[0]
+    helper_with = next((node for node in ast.walk(owner)
+                        if isinstance(node, ast.With)
+                        and any(item.context_expr is helper_call for item in node.items)), None)
+    if helper_with is None or workers[0] not in list(ast.walk(helper_with)):
+        return None
+    helper_expr = helper_call.func
+    closure = inspect.getclosurevars(fn)
+    bindings = dict(closure.globals)
+    bindings.update(closure.nonlocals)
+    if isinstance(helper_expr, ast.Name):
+        helper = bindings.get(helper_expr.id)
+    elif isinstance(helper_expr, ast.Attribute):
+        if not isinstance(helper_expr.value, ast.Name):
+            return None
+        owner_module = bindings.get(helper_expr.value.id)
+        helper = getattr(owner_module, helper_expr.attr, None)
+    else:
+        return None
+    return helper if helper is gateway_followup_event_owner else None
 
 
 def gateway_runtime_ready(runner_type):
     queued = getattr(runner_type, '_run_agent_inner', None)
-    queued_ready = callable(queued) and _queued_worker_contained(queued)
+    queued_helper = _queued_helper_binding(queued) if callable(queued) else None
     wrappers_ready = (
         getattr(getattr(runner_type, '_handle_message', None),
                 '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
@@ -284,12 +304,12 @@ def gateway_runtime_ready(runner_type):
                     '_wolfhouse_gateway_event_owner_token', None) is _EVENT_OWNER_TOKEN
         and getattr(getattr(runner_type, '_run_agent', None),
                     '_wolfhouse_gateway_run_owner_token', None) is _RUN_OWNER_TOKEN
-        and queued_ready
+        and queued_helper is not None
     )
     if not wrappers_ready:
         return False
     try:
-        return bool(_queued_seam_probe())
+        return bool(_queued_seam_probe(queued_helper))
     except Exception:
         logger.exception('queued original-inbound readiness probe failed')
         return False

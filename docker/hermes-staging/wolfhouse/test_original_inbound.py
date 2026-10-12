@@ -5,12 +5,15 @@ from contextvars import copy_context
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
+from typing import Any
 import unittest
 from unittest.mock import patch
 
 from hermes_state import SessionDB
 from wolfhouse import accepted_quote as ledger
 from wolfhouse.offline_ingress_harness import gateway_ingress
+
+_wh_followup_original: Any = None
 
 
 class OriginalIngressTests(unittest.TestCase):
@@ -261,6 +264,30 @@ class OriginalIngressTests(unittest.TestCase):
                 return await self._run_agent()
 
         self.assertFalse(original_inbound.gateway_runtime_ready(BypassedWorker))
+
+        from contextlib import contextmanager
+        @contextmanager
+        def no_owner(*_args, **_kwargs):
+            yield
+
+        helper_globals = Ready._run_agent_inner.__globals__
+        missing = object()
+        previous = helper_globals.get('_wh_followup_original', missing)
+        helper_globals['_wh_followup_original'] = no_owner
+        try:
+            class ReplacedBinding(Ready):
+                async def _run_agent_inner(self):
+                    with _wh_followup_original(None, None, None, None):
+                        return await self._run_agent()
+
+            self.assertFalse(
+                original_inbound.gateway_runtime_ready(ReplacedBinding))
+        finally:
+            if previous is missing:
+                helper_globals.pop('_wh_followup_original', None)
+            else:
+                helper_globals['_wh_followup_original'] = previous
+
         with patch.object(original_inbound.OriginalInbound, 'bind',
                           side_effect=RuntimeError('queued probe broken')):
             self.assertFalse(original_inbound.gateway_runtime_ready(Ready))
