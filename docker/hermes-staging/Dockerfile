@@ -89,3 +89,9 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
 # Discord bot-wake watch-list patch is also NOT applied at image build — it
 # mutates the same allow_bots admission seam A2A validates. Bootstrap applies
 # it only for HERMES_ROLE=orchestrator (Skipper / Chief of Staff wake).
+
+# The pinned upstream digest has no default Cmd. Without an explicit command,
+# main-wrapper.sh launches the interactive CLI, which exits immediately when
+# Docker supplies closed stdin and causes an s6 restart loop. Luna is an HTTP
+# gateway service, so keep its image startup contract explicit and reviewable.
+CMD ["gateway", "run"]
