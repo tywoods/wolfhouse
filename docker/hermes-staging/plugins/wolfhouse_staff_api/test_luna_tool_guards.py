@@ -193,6 +193,61 @@ fake = with_fake({"/bookings/update-contact": {"success": False, "error": "email
 ucf = json.loads(mod.update_booking_contact({"booking_code": "MB-B", "email": "bad"}))
 check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
+print("\n== cancel_unpaid_booking authoritative boundary result ==")
+from gateway.session_context import clear_session_vars, set_session_vars
+from wolfhouse.live_turn_owner import bind_live_turn_owner, close_live_turn_owner
+
+_owner_phone = "+" + "34" + "600000001"
+_tokens = set_session_vars(
+    platform="whatsapp_cloud", user_id=_owner_phone, chat_id=_owner_phone,
+)
+bind_live_turn_owner(
+    _tokens, platform="whatsapp_cloud", user_id=_owner_phone, chat_id=_owner_phone,
+)
+fake = with_fake({"/bookings/cancel-unpaid": {
+    "success": True, "cancelled": True, "write_performed": True,
+    "booking": {"booking_code": "MB-A"},
+    "guest_safe_next_action": "Your booking has been cancelled.",
+}})
+cu = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 611 222 333"}))
+check("CU1 confirmed unpaid cancellation succeeds", cu.get("success") is True and cu.get("cancelled") is True)
+check("CU2 uses write-boundary route", fake.calls[-1][0].endswith("/bookings/cancel-unpaid"))
+check("CU3 binds trusted live-turn phone and ignores caller override", fake.calls[-1][1].get("phone") == _owner_phone)
+
+fake = with_fake({"/bookings/cancel-unpaid": {
+    "success": False, "cancelled": False, "write_performed": False,
+    "staff_review_needed": True, "handoff_reason": "paid_or_unknown_cancellation",
+    "blocked_reason": "payment_exists",
+}})
+cb = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 611 222 333"}))
+check("CU4 paid cancellation is not reported cancelled", cb.get("success") is False and cb.get("cancelled") is False)
+check("CU5 paid cancellation requires staff review", cb.get("staff_review_needed") is True)
+check("CU6 paid cancellation contains no refund terms", "refund" not in json.dumps(cb).lower())
+
+# A stale process-wide value must never substitute for a closed or foreign owner.
+_prior_stale_phone = os.environ.get("WOLFHOUSE_WHATSAPP_GUEST_PHONE")
+os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = "+" + "34" + "900009999"
+close_live_turn_owner(_tokens)
+clear_session_vars(_tokens)
+fake = with_fake({"/bookings/cancel-unpaid": {"success": True, "cancelled": True}})
+missing = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A", "phone": "+34 900 009 999"}))
+check("CU7 closed turn identity fails closed", missing.get("cancelled") is False and missing.get("staff_review_needed") is True)
+check("CU8 closed turn identity stops before transport", fake.calls == [])
+
+_tokens = set_session_vars(platform="discord", user_id=_owner_phone, chat_id=_owner_phone)
+bind_live_turn_owner(_tokens, platform="discord", user_id=_owner_phone, chat_id=_owner_phone)
+fake = with_fake({"/bookings/cancel-unpaid": {"success": True, "cancelled": True}})
+foreign = json.loads(mod.cancel_unpaid_booking({"booking_code": "MB-A"}))
+check("CU9 foreign turn identity fails closed", foreign.get("cancelled") is False and foreign.get("staff_review_needed") is True)
+check("CU10 foreign turn identity stops before transport", fake.calls == [])
+close_live_turn_owner(_tokens)
+clear_session_vars(_tokens)
+
+if _prior_stale_phone is None:
+    os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
+else:
+    os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = _prior_stale_phone
+
 
 print("\n== flag_needs_human ==")
 

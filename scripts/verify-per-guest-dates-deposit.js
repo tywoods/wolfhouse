@@ -84,6 +84,7 @@ test('backend: explicit Admin rates still apply only to ordinary bookings', () =
   const current = { long_stay_cents: 31000, short_stay_cents: 14000 };
   assert.equal(wolfhouseBookingDepositCents(booking(), current), 27000);
   assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {} }), current), 93000);
+  assert.equal(wolfhouseBookingDepositCents(booking({ metadata: {}, check_out: '2026-09-06' }), current), 42000);
   assert.equal(wolfhouseBookingDepositCents({ deposit_required_cents: 20000 }), 20000);
   assert.equal(wolfhouseBookingDepositCents({ deposit_required_cents: 0 }), 0);
   assert.equal(wolfhouseBookingDepositCents({}), null);

@@ -73,6 +73,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
  && cd /etc/hermes-staging \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \
+ && PYTHONPATH=/etc/hermes-staging/plugins:/etc/hermes-staging python -m unittest wolfhouse_staff_api.test_live_turn_cancellation_owner -v \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_crowsnest_ai_usage_patch.py \
  && python /etc/hermes-staging/apply_luna_executor_handoff_patch.py \

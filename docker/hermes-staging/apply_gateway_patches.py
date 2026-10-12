@@ -142,7 +142,7 @@ SET_SESSION_ENV_NEW = '''        from gateway.session_context import set_session
                 _wolfhouse_os.environ["WHATSAPP_GUEST_PHONE"] = _wolfhouse_phone
                 _wolfhouse_os.environ["HERMES_SESSION_USER_ID"] = str(context.source.user_id or "")
                 _wolfhouse_os.environ["HERMES_SESSION_CHAT_ID"] = str(context.source.chat_id or "")
-        return set_session_vars(
+        _wolfhouse_tokens = set_session_vars(
             platform=context.source.platform.value,
             chat_id=context.source.chat_id,
             chat_name=context.source.chat_name or "",
@@ -151,6 +151,16 @@ SET_SESSION_ENV_NEW = '''        from gateway.session_context import set_session
             user_name=str(context.source.user_name) if context.source.user_name else "",
             session_key=context.session_key,
             message_id=str(context.source.message_id) if context.source.message_id else "",
+        )
+        # Destructive guest actions require a revocable live-turn owner. This
+        # capability has no process-env fallback and copied contexts lose it as
+        # soon as the originating gateway turn closes.
+        from wolfhouse.live_turn_owner import bind_live_turn_owner
+        return bind_live_turn_owner(
+            _wolfhouse_tokens,
+            platform=context.source.platform.value,
+            user_id=str(context.source.user_id or ""),
+            chat_id=str(context.source.chat_id or ""),
         )'''
 
 CLEAR_SESSION_ENV_OLD = '''        from gateway.session_context import clear_session_vars
@@ -170,7 +180,11 @@ CLEAR_SESSION_ENV_NEW = '''        from gateway.session_context import clear_ses
                 _wolfhouse_os.environ.pop(_wolfhouse_key, None)
         except Exception:
             pass
-        clear_session_vars(tokens)'''
+        try:
+            from wolfhouse.live_turn_owner import close_live_turn_owner
+            close_live_turn_owner(tokens)
+        finally:
+            clear_session_vars(tokens)'''
 
 # Agent turn handler — patch only this site (not other sanitize calls in gateway.run).
 # The first pass (image build) inserts the output-guard block between the normalize
@@ -1411,8 +1425,44 @@ def apply_patches(run_path: Path) -> dict:
 
     if SET_SESSION_ENV_OLD in s:
         s = s.replace(SET_SESSION_ENV_OLD, SET_SESSION_ENV_NEW, 1)
+    # Upgrade fresh or already-patched Hermes versions without depending on the
+    # exact set_session_vars argument list (newer Hermes adds async_delivery).
+    if "bind_live_turn_owner(" not in s:
+        _owner_return_re = re.compile(
+            r"^        return set_session_vars\(\n"
+            r"(?P<args>(?:            [^\n]*\n)+)"
+            r"        \)$",
+            re.MULTILINE,
+        )
+        _owner_matches = list(_owner_return_re.finditer(s))
+        if len(_owner_matches) != 1:
+            raise RuntimeError("gateway.run live-turn owner bind anchor not found")
+        _owner_args = _owner_matches[0].group("args")
+        _owner_return_new = (
+            "        _wolfhouse_tokens = set_session_vars(\n"
+            + _owner_args
+            + "        )\n"
+            + "        from wolfhouse.live_turn_owner import bind_live_turn_owner\n"
+            + "        return bind_live_turn_owner(\n"
+            + "            _wolfhouse_tokens,\n"
+            + "            platform=context.source.platform.value,\n"
+            + "            user_id=str(context.source.user_id or \"\"),\n"
+            + "            chat_id=str(context.source.chat_id or \"\"),\n"
+            + "        )"
+        )
+        s = _owner_return_re.sub(_owner_return_new, s, count=1)
     if CLEAR_SESSION_ENV_OLD in s:
         s = s.replace(CLEAR_SESSION_ENV_OLD, CLEAR_SESSION_ENV_NEW, 1)
+    if "close_live_turn_owner(tokens)" not in s:
+        _clear_owner_old = "        clear_session_vars(tokens)"
+        _clear_owner_new = '''        try:
+            from wolfhouse.live_turn_owner import close_live_turn_owner
+            close_live_turn_owner(tokens)
+        finally:
+            clear_session_vars(tokens)'''
+        if s.count(_clear_owner_old) != 1:
+            raise RuntimeError("gateway.run live-turn owner close anchor not found")
+        s = s.replace(_clear_owner_old, _clear_owner_new, 1)
 
     prepare_marker = '    if _gateway_platform_value(platform) != "telegram":\n        return text'
     prepare_replacement = '    if _gateway_platform_value(platform) in {"whatsapp", "whatsapp_cloud"} and _wolfhouse_is_whatsapp_internal_status_text(text):\n        return None\n    if _gateway_platform_value(platform) != "telegram":\n        return text'

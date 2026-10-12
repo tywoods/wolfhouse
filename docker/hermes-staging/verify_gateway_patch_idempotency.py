@@ -16,11 +16,15 @@ Must run inside the Hermes image (needs the gateway package importable).
 
 from __future__ import annotations
 
+import contextvars
+import importlib
 import importlib.util
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 SCRIPT = Path(__file__).resolve().parent / "apply_gateway_patches.py"
 
@@ -37,6 +41,43 @@ def read_gateway_run() -> str:
         print("gateway.run not found", file=sys.stderr)
         raise SystemExit(1)
     return Path(spec.origin).read_text(encoding="utf-8")
+
+
+def verify_live_turn_owner_lifecycle() -> bool:
+    """Exercise the patched gateway methods, including copied-context revocation."""
+    gateway_run = importlib.import_module("gateway.run")
+    from gateway.config import Platform
+    from wolfhouse.live_turn_owner import live_turn_guest_phone
+
+    runner = object.__new__(gateway_run.GatewayRunner)
+    runner.adapters = {}
+    platform = Platform.WHATSAPP_CLOUD
+    source = SimpleNamespace(
+        platform=platform,
+        chat_id="+34600000001",
+        chat_name="test",
+        thread_id=None,
+        user_id="+34600000001",
+        user_name="test",
+        message_id="msg-1",
+    )
+    context = SimpleNamespace(source=source, session_key="verify-live-owner")
+
+    os.environ["HERMES_SESSION_USER_ID"] = "+34699999999"
+    try:
+        tokens = runner._set_session_env(context)
+        if live_turn_guest_phone() != "+34600000001":
+            return False
+        late_copy = contextvars.copy_context()
+        runner._clear_session_env(tokens)
+        if late_copy.run(live_turn_guest_phone) != "":
+            return False
+        # A never-bound context cannot inherit ambient process identity.
+        if contextvars.Context().run(live_turn_guest_phone) != "":
+            return False
+        return True
+    finally:
+        os.environ.pop("HERMES_SESSION_USER_ID", None)
 
 
 def main() -> int:
@@ -66,6 +107,7 @@ def main() -> int:
             guard_before is None or guard_after.group(0) == guard_before.group(0)
         ),
         "sanitize": "_sanitize_gateway_final_response(source.platform, response)" in final,
+        "live_turn_owner_lifecycle": verify_live_turn_owner_lifecycle(),
     }
     print(checks)
     if not all(checks.values()):
