@@ -172,6 +172,7 @@ function loadWolfhouseLocationBookingSettings() {
   if (!wrap) return Promise.resolve(null);
   var operationToken = (wrap._wolfhouseOperationToken || 0) + 1;
   wrap._wolfhouseOperationToken = operationToken;
+  wrap._wolfhouseLoadGeneration = (wrap._wolfhouseLoadGeneration || 0) + 1;
   if (!wrap._wolfhouseDirty) wrap._wolfhouseDirty = { location: false, booking: false };
   if (!wrap._wolfhouseDraftVersion) wrap._wolfhouseDraftVersion = { location: 0, booking: 0 };
 
@@ -260,16 +261,20 @@ function loadWolfhouseLocationBookingSettings() {
 
   function settleWrite(guard, succeeded) {
     if (wrap._wolfhouseWriteInFlight !== guard) return Promise.resolve(null);
-    var callbackIsCurrent = guard.saveToken === wrap._wolfhouseOperationToken;
     var savedCard = succeeded && wrap._wolfhouseDraftVersion[guard.card] === guard.draftVersion
       ? guard.card
       : null;
+
+    function ownsPresentation() {
+      return guard.loadGeneration === wrap._wolfhouseLoadGeneration &&
+        guard.draftVersion === wrap._wolfhouseDraftVersion[guard.card];
+    }
 
     function finish(result) {
       if (wrap._wolfhouseWriteInFlight !== guard) return null;
       wrap._wolfhouseWriteInFlight = null;
       enableFromKnown(result.settings);
-      if (!callbackIsCurrent) return result;
+      if (!ownsPresentation()) return result;
       if (succeeded) {
         wolfhouseLocationBookingStatus(guard.card === 'location' ? refs.locationStatus : refs.bookingStatus, 'Saved.', false);
       } else {
@@ -298,7 +303,7 @@ function loadWolfhouseLocationBookingSettings() {
     return reconcile().catch(function () {
       if (wrap._wolfhouseWriteInFlight === guard) wrap._wolfhouseWriteInFlight = null;
       disableForRead();
-      if (callbackIsCurrent) {
+      if (ownsPresentation()) {
         wolfhouseLocationBookingStatus(
           guard.card === 'location' ? refs.locationStatus : refs.bookingStatus,
           'Could not reconcile the save. Reload to retry.',
@@ -341,6 +346,7 @@ function loadWolfhouseLocationBookingSettings() {
       var guard = {
         card: 'location',
         saveToken: saveToken,
+        loadGeneration: wrap._wolfhouseLoadGeneration,
         draftVersion: wrap._wolfhouseDraftVersion.location
       };
       wrap._wolfhouseWriteInFlight = guard;
@@ -364,6 +370,7 @@ function loadWolfhouseLocationBookingSettings() {
       var guard = {
         card: 'booking',
         saveToken: saveToken,
+        loadGeneration: wrap._wolfhouseLoadGeneration,
         draftVersion: wrap._wolfhouseDraftVersion.booking
       };
       wrap._wolfhouseWriteInFlight = guard;

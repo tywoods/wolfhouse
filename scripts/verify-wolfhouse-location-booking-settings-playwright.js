@@ -270,6 +270,82 @@ const { chromium } = require('playwright');
   await page.waitForFunction(() => !document.getElementById('wh-booking-save').disabled);
   assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '45');
 
+  // A PUT that settled while current cannot label a Location draft created during delayed reconciliation as Saved.
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/persisted-location');
+  await page.evaluate(() => {
+    window.__lateLocationPut = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__lateLocationPut.resolve = resolve;
+      window.__lateLocationPut.reject = reject;
+    }));
+  });
+  const requestsBeforeLateLocation = await page.evaluate(() => window.__requests.length);
+  await page.locator('#wh-location-save').click();
+  await page.evaluate(() => {
+    window.__lateLocationReconcile = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__lateLocationReconcile.resolve = resolve;
+      window.__lateLocationReconcile.reject = reject;
+    }));
+    window.__lateLocationPut.resolve({ ok: true, json: async () => ({ success: true }) });
+  });
+  await page.waitForFunction((count) => window.__requests.length === count + 2, requestsBeforeLateLocation);
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/persisted-location' },
+      booking_settings: { unpaid_hold_minutes: 45, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__lateLocationReopen = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__lateLocationReopen);
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/new-unsaved-location');
+  assert.strictEqual(await page.locator('#wh-location-status').textContent(), '');
+  await page.evaluate(() => window.__lateLocationReconcile.resolve({ ok: true, json: async () => ({
+    location: { address_text: 'STALE address', google_maps_url: 'https://maps.google.com/persisted-location' },
+    booking_settings: { unpaid_hold_minutes: 45, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+  }) }));
+  await page.waitForFunction(() => !document.getElementById('wh-location-save').disabled);
+  assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/new-unsaved-location');
+  assert.strictEqual(await page.locator('#wh-location-status').textContent(), '');
+
+  // The equivalent delayed Booking reconciliation cannot label a newer hold draft as Saved.
+  await page.locator('#wh-unpaid-hold-minutes').fill('46');
+  await page.evaluate(() => {
+    window.__lateBookingPut = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__lateBookingPut.resolve = resolve;
+      window.__lateBookingPut.reject = reject;
+    }));
+  });
+  const requestsBeforeLateBooking = await page.evaluate(() => window.__requests.length);
+  await page.locator('#wh-booking-save').click();
+  await page.evaluate(() => {
+    window.__lateBookingReconcile = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__lateBookingReconcile.resolve = resolve;
+      window.__lateBookingReconcile.reject = reject;
+    }));
+    window.__lateBookingPut.resolve({ ok: true, json: async () => ({ success: true }) });
+  });
+  await page.waitForFunction((count) => window.__requests.length === count + 2, requestsBeforeLateBooking);
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/persisted-location' },
+      booking_settings: { unpaid_hold_minutes: 46, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__lateBookingReopen = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__lateBookingReopen);
+  await page.locator('#wh-unpaid-hold-minutes').fill('30');
+  assert.strictEqual(await page.locator('#wh-booking-status').textContent(), '');
+  await page.evaluate(() => window.__lateBookingReconcile.resolve({ ok: true, json: async () => ({
+    location: { address_text: 'STALE address', google_maps_url: 'https://maps.google.com/persisted-location' },
+    booking_settings: { unpaid_hold_minutes: 46, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+  }) }));
+  await page.waitForFunction(() => !document.getElementById('wh-booking-save').disabled);
+  assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '30');
+  assert.strictEqual(await page.locator('#wh-booking-status').textContent(), '');
+
   // A deposit lock still overrides a dirty booking draft.
   await page.locator('#wh-unpaid-hold-minutes').fill('55');
   await page.evaluate(() => {
