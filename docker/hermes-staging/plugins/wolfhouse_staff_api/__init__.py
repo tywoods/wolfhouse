@@ -4626,6 +4626,10 @@ def register(ctx):
         roster = deepcopy(common_booking["guests"])
         roster["items"]["additionalProperties"] = False
         roster["items"]["properties"]["name"].pop("minLength", None)
+        roster["items"]["properties"]["explicit_gender"] = {
+            "type": "string", "enum": ["male", "female"],
+            "description": "Only the named traveler's explicit self-stated eligibility; never infer.",
+        }
         capture_properties.update(guests=roster, guest_count={"type": "integer", "minimum": 1,
             "description": "Roster context only; not booking count authority."})
     description = (

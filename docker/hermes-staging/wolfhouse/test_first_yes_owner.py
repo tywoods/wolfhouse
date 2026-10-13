@@ -133,6 +133,55 @@ class FirstYesOwnerTests(unittest.TestCase):
                      allocation_reason='cram_flipped_mixed_rooms', resolved_room_claim=None)
         self.assertFalse(ledger._accepts_complete_presented_offer(exact, mixed), mixed)
 
+    def test_neutral_offer_treats_empty_room_hints_as_absent_at_create(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('neutral-a', 'yes')
+        prepared = ledger.prepare_create({})
+        self.assertIsNone(prepared.get('room_name_hints'), prepared)
+
+    def test_capture_schema_allows_explicit_gender_for_named_traveler(self):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        item = registry.tools['capture_booking_names']['schema']['parameters']['properties']['guests']['items']
+        self.assertFalse(item['additionalProperties'])
+        self.assertEqual(item['properties']['explicit_gender']['enum'], ['male', 'female'])
+
+    def test_partial_named_eligibility_keeps_offer_fingerprint_at_commit(self):
+        root = Path(__file__).resolve().parents[3]
+        script = r'''
+const svc = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const guests = [{name:'Alex'}, {name:'Sam', explicit_gender:'female'}];
+const beds = [
+  {bed_code:'M1', room_code:'M', gender_strategy:'mixed'},
+  {bed_code:'M2', room_code:'M', gender_strategy:'mixed'},
+];
+const quote = {success:true,total_cents:20000,deposit_required_cents:10000,
+  payment_link_amount_cents:10000,currency:'EUR',package_code:'package_none'};
+const availability = {status:'checked',check_in:'2027-06-01',check_out:'2027-06-03',
+  guest_count:2,selected_bed_codes:['M1','M2'],room_type:'shared',room_preference:'mixed'};
+const accepted = svc.buildCheckedWolfhousePreviewOffer({client_slug:'wolfhouse-somo',quote,
+  availability,guests,payment_choice:'deposit',room_rows:beds}).offer_revision;
+const current = svc.currentWolfhouseOfferFromCreateCommand({clientSlug:'wolfhouse-somo',quote,
+  assignedBedCodes:['M1','M2'],availabilityChecked:true,checkIn:'2027-06-01',checkOut:'2027-06-03',
+  quoteGuestCount:2,roomType:'shared',roomPreference:'mixed',paymentChoice:'deposit',
+  effectivePackageCode:'package_none',authoritativeRoomRows:beds,
+  guestsNorm:{guests:[{guest_name:'Alex'},{guest_name:'Sam'}]},
+  transportBody:{room_name_hints:accepted.room_name_hints,accepted_offer:accepted}});
+console.log(JSON.stringify({accepted,current}));
+'''
+        result = json.loads(subprocess.check_output(['node', '-e', script], cwd=root))
+        self.assertEqual(result['accepted']['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
+        self.assertEqual(result['current']['room_name_hints'],
+                         result['accepted']['room_name_hints'])
+        self.assertEqual(result['current']['offer_fingerprint'],
+                         result['accepted']['offer_fingerprint'])
+
     def test_checked_offer_freezes_explicit_person_eligibility_and_room_resolution(self):
         plan, _response, _exact = self.packet_offer()
         plan['guests'] = [{'name': 'Alex Test', 'explicit_gender': 'male'}]

@@ -859,13 +859,14 @@ function guestsFromCreateCommand(command) {
   if (norm.length) {
     const body = src.transportBody || {};
     const hints = Array.isArray(body.room_name_hints) ? body.room_name_hints : [];
-    return norm.map((guest, index) => {
+    const normalizedName = (row) => String((row && (row.name || row.guest_name)) || '').trim().toLowerCase();
+    return norm.map((guest) => {
       const result = { name: guest.guest_name || guest.name || null };
-      const hint = hints[index];
-      const sameName = hint && String(hint.name || '').trim().toLowerCase()
-        === String(result.name || '').trim().toLowerCase();
+      const name = normalizedName(result);
+      const matches = name ? hints.filter((hint) => normalizedName(hint) === name) : [];
+      const hint = matches.length === 1 ? matches[0] : null;
       const explicit = String(guest.explicit_gender
-        || (sameName && hint.explicit_gender) || '').toLowerCase();
+        || (hint && hint.explicit_gender) || '').toLowerCase();
       if (explicit === 'male' || explicit === 'female') result.explicit_gender = explicit;
       return result;
     });

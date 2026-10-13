@@ -576,8 +576,10 @@ def _checked_plan(prepared, response, tenant):
             for guest, row in zip(guests, assignments))):
         plan['guests'] = deepcopy(guests)
     plan['selected_bed_codes'] = [row['bed_code'] for row in assignments]
-    if 'room_name_hints' in prepared:
+    if prepared.get('room_name_hints'):
         plan['room_name_hints'] = deepcopy(prepared['room_name_hints'])
+    elif not plan.get('room_name_hints'):
+        plan.pop('room_name_hints', None)
     return plan
 
 
