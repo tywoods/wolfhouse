@@ -105,6 +105,14 @@ class BlockingModelClient:
             if not self.release.wait(10):
                 raise RuntimeError("model release timeout")
         # A quote request receives a real registered-tool round, then a final.
+        if "mixed accommodation-only option" in text and not any(
+                m.get("role") == "tool" for m in messages):
+            args = {"check_in": "2027-05-10", "check_out": "2027-05-12",
+                    "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
+                    "package_code": "package_none", "catalog_selections": [],
+                    "payment_choice": "deposit", "guest_name": "Alex",
+                    "guests": [{"name": "Alex"}]}
+            return _Response(_Message(tool_calls=[_ToolCall("quote-alex", "quote_booking", args)]))
         if "quote for Ana" in text and not any(m.get("role") == "tool" for m in messages):
             args = {"check_in": "2027-05-11", "check_out": "2027-05-15",
                     "guest_count": 2, "package_code": "package_none",
@@ -179,7 +187,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.adapter = adapter
         self.runner.adapters[Platform.WHATSAPP_CLOUD] = adapter
         self.runner.delivery_router.adapters = self.runner.adapters
-        self.runner._session_db = self.runner.session_store._db
+
 
         self.staff_calls = []
         def staff(path, payload, **_kwargs):
@@ -204,6 +212,45 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
 
     async def _wait_thread_event(self, event):
         self.assertTrue(await asyncio.to_thread(event.wait, 10), "model did not enter")
+
+    async def test_new_simulator_session_accepts_mixed_accommodation_only_for_deposit_quote(self):
+        """A reused simulator lane must reopen its ended DB row before quote ownership."""
+        self.release.set()
+        mirror = lambda **_kwargs: None
+        offered = await crowsnest_guest_door.run_crowsnest_guest_turn(
+            runner=self.runner, phone="+34999001326",
+            text="Offer Alex a mixed shared-room accommodation-only option.",
+            message_id="alex-offer-0001", mirror=mirror, timeout_sec=20)
+        self.assertTrue(offered["ok"], offered)
+        # The live gateway closes the SQLite row after a completed turn while
+        # retaining the same SessionStore lane for the next guest message.
+        entry = self.runner.session_store.get_or_create_session(
+            crowsnest_guest_door._make_event(
+                crowsnest_guest_door.CrowsnestGuestScope.create("+34999001326"),
+                "probe", message_id="alex-probe-0003").source)
+        self.runner.session_store._db.end_session(entry.session_id, "agent_close")
+        quoted = await crowsnest_guest_door.run_crowsnest_guest_turn(
+            runner=self.runner, phone="+34999001326",
+            text="Yes, the mixed accommodation-only option. What is the exact total and deposit?",
+            message_id="alex-accept-0002", mirror=mirror, timeout_sec=20)
+        self.assertTrue(quoted["ok"], quoted)
+        self.assertEqual([path for path, _ in self.staff_calls], ["/booking-preview"])
+        self.assertEqual(self.staff_calls[0][1]["room_preference"], "mixed")
+        self.assertEqual(self.staff_calls[0][1]["package_code"], "package_none")
+        self.assertEqual(self.staff_calls[0][1]["payment_choice"], "deposit")
+
+    async def test_sqlite_unavailable_allows_ordinary_turn_without_booking_authority(self):
+        """Hermes' supported JSONL fallback must keep ordinary messages working."""
+        self.release.set()
+        self.runner._session_db = None
+        self.runner.session_store._db = None
+        result = await crowsnest_guest_door.run_crowsnest_guest_turn(
+            runner=self.runner, phone="+999000000009", text="Hello there",
+            message_id="fallback-regression-0001", mirror=lambda **_kwargs: None,
+            timeout_sec=20)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.staff_calls, [])
+        self.assertEqual(result["transport_calls"], 0)
 
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None

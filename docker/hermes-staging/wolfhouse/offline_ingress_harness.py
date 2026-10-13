@@ -53,11 +53,16 @@ def gateway_ingress(agent, raw, message_id, model_call, *, enriched=None, intern
     anchor_index = next(i for i, n in enumerate(binding_owner.body)
                         if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name)
                             and t.id == '_session_env_tokens' for t in n.targets))
+    bind_index = next(i for i, n in enumerate(binding_owner.body)
+                      if any(isinstance(call, ast.Call)
+                             and isinstance(call.func, ast.Name)
+                             and call.func.id == '_wh_bind_original'
+                             for call in ast.walk(n)))
     # Execute the actual inserted import/call statements from the patched owner,
     # not a fixture-written helper invocation. Upstream session selection and
     # downstream delivery remain offline edges, not a full handler proof.
     binding_code = compile(ast.fix_missing_locations(ast.Module(
-        body=binding_owner.body[anchor_index + 1:anchor_index + 3], type_ignores=[])),
+        body=binding_owner.body[anchor_index + 1:bind_index + 1], type_ignores=[])),
         '<actual-inserted-pre-enrichment-binding>', 'exec')
     async def dispatch(event, source, quick_key, generation):
         exec(binding_code, dict(namespace, self=runner,
