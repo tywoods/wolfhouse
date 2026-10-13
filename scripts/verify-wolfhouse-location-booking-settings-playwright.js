@@ -157,7 +157,7 @@ const { chromium } = require('playwright');
   await page.waitForFunction(() => document.getElementById('wh-booking-status').textContent === 'Saved.');
   assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/unsaved-location-draft');
 
-  // Reopening invalidates a pending PUT; its later success cannot fetch, paint, or replace a newer draft.
+  // Reopening keeps a pending PUT single-flight; settlement reconciles without replacing a newer draft.
   await page.locator('#wh-location-map-url').fill('https://maps.google.com/old-save');
   await page.evaluate(() => {
     window.__pendingPut = {};
@@ -176,10 +176,34 @@ const { chromium } = require('playwright');
   });
   await page.evaluate(() => window.__reopenAfterPut);
   await page.locator('#wh-location-map-url').fill('https://maps.google.com/newer-draft');
+  assert.strictEqual(await page.locator('#wh-location-save').isDisabled(), true);
+  assert.strictEqual(await page.locator('#wh-booking-save').isDisabled(), true);
   const requestsBeforeObsoletePut = await page.evaluate(() => window.__requests.length);
+  await page.evaluate(() => {
+    window.__staleReconcile = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__staleReconcile.resolve = resolve;
+      window.__staleReconcile.reject = reject;
+    }));
+  });
   await page.evaluate(() => window.__pendingPut.resolve({ ok: true, json: async () => ({ success: true }) }));
-  await page.waitForTimeout(25);
-  assert.strictEqual(await page.evaluate(() => window.__requests.length), requestsBeforeObsoletePut);
+  await page.waitForFunction((count) => window.__requests.length === count + 1, requestsBeforeObsoletePut);
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/old-save' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__loaderDuringReconcile = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__loaderDuringReconcile);
+  assert.strictEqual(await page.locator('#wh-location-save').isDisabled(), true);
+  assert.strictEqual(await page.locator('#wh-booking-save').isDisabled(), true);
+  await page.evaluate(() => window.__staleReconcile.resolve({ ok: true, json: async () => ({
+    location: { address_text: 'STALE address', google_maps_url: 'https://maps.google.com/stale' },
+    booking_settings: { unpaid_hold_minutes: 88, require_each_guest_deposit: true, locked: false, lock_reason: '' },
+  }) }));
+  await page.waitForFunction(() => !document.getElementById('wh-location-save').disabled);
+  assert.strictEqual(await page.evaluate(() => window.__requests.length), requestsBeforeObsoletePut + 2);
   assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/newer-draft');
   assert.strictEqual(await page.locator('#wh-location-map-url').isEnabled(), true);
   assert.doesNotMatch(await page.locator('#wh-location-status').textContent(), /saved|could not/i);
@@ -202,11 +226,49 @@ const { chromium } = require('playwright');
   });
   await page.evaluate(() => window.__reopenAfterFailedPut);
   await page.locator('#wh-location-map-url').fill('https://maps.google.com/newest-draft');
+  assert.strictEqual(await page.locator('#wh-location-save').isDisabled(), true);
+  assert.strictEqual(await page.locator('#wh-booking-save').isDisabled(), true);
+  await page.evaluate(() => window.__queueJson({
+    location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened-again' },
+    booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+  }));
   await page.evaluate(() => window.__pendingFailedPut.reject(new Error('obsolete PUT failed')));
-  await page.waitForTimeout(25);
+  await page.waitForFunction(() => !document.getElementById('wh-location-save').disabled);
   assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/newest-draft');
   assert.strictEqual(await page.locator('#wh-location-map-url').isEnabled(), true);
   assert.doesNotMatch(await page.locator('#wh-location-status').textContent(), /saved|could not/i);
+
+  // Booking writes use the same global single-flight guard across reopen.
+  await page.locator('#wh-unpaid-hold-minutes').fill('45');
+  await page.evaluate(() => {
+    window.__pendingBookingPut = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__pendingBookingPut.resolve = resolve;
+      window.__pendingBookingPut.reject = reject;
+    }));
+  });
+  await page.locator('#wh-booking-save').click();
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened-again' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__reopenDuringBookingPut = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__reopenDuringBookingPut);
+  assert.strictEqual(await page.locator('#wh-location-save').isDisabled(), true);
+  assert.strictEqual(await page.locator('#wh-booking-save').isDisabled(), true);
+  const requestsBeforeBlockedSaves = await page.evaluate(() => window.__requests.length);
+  await page.locator('#wh-location-save').click({ force: true });
+  await page.locator('#wh-booking-save').click({ force: true });
+  assert.strictEqual(await page.evaluate(() => window.__requests.length), requestsBeforeBlockedSaves);
+  await page.evaluate(() => window.__queueJson({
+    location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened-again' },
+    booking_settings: { unpaid_hold_minutes: 45, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+  }));
+  await page.evaluate(() => window.__pendingBookingPut.resolve({ ok: true, json: async () => ({ success: true }) }));
+  await page.waitForFunction(() => !document.getElementById('wh-booking-save').disabled);
+  assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '45');
 
   // A deposit lock still overrides a dirty booking draft.
   await page.locator('#wh-unpaid-hold-minutes').fill('55');
