@@ -368,21 +368,21 @@ async function saveTransferRule(pg, clientSlug, transferRule, actorId) {
   const params = [
     slug, transferRule.airport_code, transferRule.label, transferRule.aliases,
     transferRule.requires_package, transferRule.included_when_package,
-    transferRule.min_guest_count, transferRule.unavailable_no_package_message,
-    transferRule.unavailable_below_min_group_message, transferRule.active, actorId || null,
+    transferRule.min_guest_count, transferRule.active, actorId || null,
   ];
+  const maxFlag = Object.prototype.hasOwnProperty.call(transferRule, 'max_guest_count');
+  const maxValue = transferRule.max_guest_count == null ? null : transferRule.max_guest_count;
   if (existing.rows.length) {
     const r = await pg.query(
       `UPDATE wh_pricing_transfer_rules
           SET label = $3, aliases = $4, requires_package = $5, included_when_package = $6,
-              min_guest_count = $7, unavailable_no_package_message = $8,
-              unavailable_below_min_group_message = $9, active = $10, updated_by = $11,
-              max_guest_count = CASE WHEN $12::boolean THEN $13::integer ELSE max_guest_count END
+              min_guest_count = $7, active = $8, updated_by = $9,
+              max_guest_count = CASE WHEN $10::boolean THEN $11::integer ELSE max_guest_count END
         WHERE client_slug = $1 AND airport_code = $2 AND active = true RETURNING *`,
+      // Guest refusal text is ignored: never rewrite the old message columns.
       // Omitted max is not a clear: old clients must preserve the stored value.
       // The DB check validates effective min/max atomically, including this case.
-      [...params, Object.prototype.hasOwnProperty.call(transferRule, 'max_guest_count'),
-        transferRule.max_guest_count == null ? null : transferRule.max_guest_count],
+      [...params, maxFlag, maxValue],
     );
     return r.rows[0];
   }
@@ -391,8 +391,8 @@ async function saveTransferRule(pg, clientSlug, transferRule, actorId) {
        (client_slug, airport_code, label, aliases, requires_package, included_when_package,
         min_guest_count, unavailable_no_package_message,
         unavailable_below_min_group_message, active, updated_by, max_guest_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-    [...params, transferRule.max_guest_count == null ? null : transferRule.max_guest_count],
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8, $9, $10) RETURNING *`,
+    [...params, maxValue],
   );
   return r.rows[0];
 }

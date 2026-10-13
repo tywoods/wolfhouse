@@ -1,6 +1,11 @@
 'use strict';
 
 const { isSunsetClientSlug } = require('./sunset-luna-school-context');
+const { getClientTransferConfig } = require('./client-transfer-config');
+const {
+  composeTransferGuestFacts,
+  composeTransferGuestRefusal,
+} = require('./luna-transfer-refusal');
 
 /**
  * Stage 27test-g — Guest-friendly service/transfer side-question replies (dry-run copy only).
@@ -263,6 +268,37 @@ function buildServiceSideQuestionReply(lang, intent, messageText, options) {
   }
 }
 
+function wolfhouseTransferRule(options, airportCode) {
+  const code = String(airportCode || '').toUpperCase();
+  const passed = options && Array.isArray(options.transferRules) ? options.transferRules : null;
+  const source = passed || getClientTransferConfig('wolfhouse-somo').rules || [];
+  const rule = source.find((row) => String(row && row.airport_code || '').toUpperCase() === code) || null;
+  if (!rule) return null;
+  if (rule.label) return rule;
+  const airport = (getClientTransferConfig('wolfhouse-somo').airports || [])
+    .find((row) => row.code === code);
+  return Object.assign({}, rule, { label: airport && airport.label });
+}
+
+function bilbaoLead(lang, options, hasPackage, guests) {
+  const rule = wolfhouseTransferRule(options, 'BIO') || {
+    airport_code: 'BIO',
+    label: 'Bilbao',
+    requires_package: true,
+    min_guest_count: 4,
+    included_when_package: false,
+    per_person_extra_cents: 1500,
+  };
+  const min = rule.min_guest_count == null ? null : Number(rule.min_guest_count);
+  let reason = null;
+  if (rule.requires_package && !hasPackage) reason = 'no_package';
+  else if (min != null && guests > 0 && guests < min) reason = 'below_min';
+  const label = rule.label || 'Bilbao';
+  return reason
+    ? composeTransferGuestRefusal(rule, reason, lang, label)
+    : composeTransferGuestFacts(rule, lang, label);
+}
+
 function buildTransferSideQuestionReply(lang, messageText, options) {
   const o = options || {};
   if (isSunsetClientSlug(o.client_slug || o.clientSlug)) {
@@ -314,14 +350,9 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
   }
 
   if (mentionsBilbao) {
-    const bilbaoRule = {
-      en: 'We only arrange Bilbao airport transfers for groups of 4 or more, at €15 per person.',
-      it: 'Organizziamo transfer da Bilbao solo per gruppi da 4 o più, a €15 a persona.',
-      es: 'Solo organizamos transfers desde Bilbao para grupos de 4 o más, a €15 por persona.',
-      de: 'Bilbao-Transfers organisieren wir nur für Gruppen ab 4 Personen, €15 pro Person.',
-      fr: 'Nous organisons les transferts Bilbao seulement pour les groupes de 4 ou plus, à 15 € par personne.',
-    };
-    const bilbaoRuleText = bilbaoRule[L] || bilbaoRule.en;
+    const bilbaoRuleText = bilbaoLead(L, opts, hasPackage, guests);
+    const bio = wolfhouseTransferRule(opts, 'BIO');
+    const minGuests = bio && bio.min_guest_count != null ? Number(bio.min_guest_count) : 4;
     if (!hasPackage) {
       const map = {
         en: `${bilbaoRuleText} Without a package, we can arrange Santander airport transfer for €25, or it\'s included with Malibu, Uluwatu, or Waimea.`,
@@ -332,7 +363,7 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
       };
       return map[L] || map.en;
     }
-    if (guests > 0 && guests < 4) {
+    if (guests > 0 && minGuests != null && guests < minGuests) {
       const map = {
         en: `${bilbaoRuleText} Santander airport transfer is included with your package booking.`,
         it: `${bilbaoRuleText} Il transfer Santander è incluso con il tuo pacchetto.`,

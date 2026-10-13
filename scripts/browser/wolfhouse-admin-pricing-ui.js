@@ -745,8 +745,7 @@
     var isNew = !tr;
     var v = tr || {
       airport_code: '', label: '', requires_package: false, included_when_package: false,
-      min_guest_count: null, unavailable_no_package_message: '',
-      unavailable_below_min_group_message: '', price: null,
+      min_guest_count: null, price: null,
     };
     var unit = (v.price && v.price.unit) || 'flat';
     return '<div class="portal-admin-edit-form wh-price-transfer-form">'
@@ -785,18 +784,6 @@
       + whEsc(whT('admin.wh.pricing.maxGroup', 'Max group size')) + '</label>'
       + '<input type="number" id="wh-price-transfer-max" min="1" max="99" step="1" value="'
       + whEsc(v.max_guest_count == null ? '' : String(v.max_guest_count)) + '"></div>'
-      + '<div class="portal-admin-edit-field wh-price-wide-field">'
-      + '<label for="wh-price-transfer-msg-package">'
-      + whEsc(whT('admin.wh.pricing.msgNoPackage', 'Message when no package (shown to guests)'))
-      + '</label>'
-      + '<input type="text" id="wh-price-transfer-msg-package" maxlength="300" value="'
-      + whEsc(v.unavailable_no_package_message || '') + '"></div>'
-      + '<div class="portal-admin-edit-field wh-price-wide-field">'
-      + '<label for="wh-price-transfer-msg-group">'
-      + whEsc(whT('admin.wh.pricing.msgBelowMin', 'Message when group too small (shown to guests)'))
-      + '</label>'
-      + '<input type="text" id="wh-price-transfer-msg-group" maxlength="300" value="'
-      + whEsc(v.unavailable_below_min_group_message || '') + '"></div>'
       + editActions('save-transfer', ' data-wh-airport="' + whEsc(v.airport_code) + '"',
         isNew ? '' : actionBtn('delete-transfer', whT('admin.action.delete', 'Delete'),
           ' data-wh-airport="' + whEsc(v.airport_code) + '"',
@@ -1538,8 +1525,6 @@
         min_guest_count: inputValue('wh-price-transfer-min') || null,
         max_guest_count: inputValue('wh-price-transfer-max') === ''
           ? null : Number(inputValue('wh-price-transfer-max')),
-        unavailable_no_package_message: inputValue('wh-price-transfer-msg-package'),
-        unavailable_below_min_group_message: inputValue('wh-price-transfer-msg-group'),
       };
       if (state.busy) return;
       var version = contextVersion;
