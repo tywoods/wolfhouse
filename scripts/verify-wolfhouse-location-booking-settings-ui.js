@@ -58,17 +58,29 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(normalized)), {
   },
 });
 
-const defaults = sandbox.normalizeWolfhouseLocationBookingSettings({});
-assert.strictEqual(defaults.location.google_maps_url, 'https://maps.app.goo.gl/oPRckhqozVBvXxL16');
-assert.strictEqual(defaults.location.address_text, 'C. Mies de La Ran, 41, 39140 Somo, Cantabria');
-assert.strictEqual(defaults.booking_settings.unpaid_hold_minutes, 60);
-assert.strictEqual(defaults.booking_settings.require_each_guest_deposit, false);
-assert.strictEqual(defaults.booking_settings.locked, false);
+const blankMap = sandbox.normalizeWolfhouseLocationBookingSettings({
+  location: { address_text: 'TEST address', google_maps_url: '' },
+  booking_settings: { unpaid_hold_minutes: 60, require_each_guest_deposit: false },
+});
+assert.strictEqual(blankMap.location.google_maps_url, '');
+assert.throws(() => sandbox.normalizeWolfhouseLocationBookingSettings({}), /invalid_settings_response/);
+assert.throws(() => sandbox.normalizeWolfhouseLocationBookingSettings({
+  location: { address_text: 'TEST address', google_maps_url: 'javascript:alert(1)' },
+  booking_settings: { unpaid_hold_minutes: 60, require_each_guest_deposit: false },
+}), /invalid_settings_response/);
+assert.throws(() => sandbox.normalizeWolfhouseLocationBookingSettings({
+  location: { address_text: 'TEST address', google_maps_url: 'https://' },
+  booking_settings: { unpaid_hold_minutes: 60, require_each_guest_deposit: false },
+}), /invalid_settings_response/);
 
 assert.deepStrictEqual(
-  JSON.parse(JSON.stringify(sandbox.wolfhouseLocationPayload(' Calle Test ', 'https://maps.google.com/test '))),
-  { address_text: 'Calle Test', google_maps_url: 'https://maps.google.com/test' },
+  JSON.parse(JSON.stringify(sandbox.wolfhouseLocationPayload(' Calle Test ', ''))),
+  { address_text: 'Calle Test', google_maps_url: '' },
 );
+assert.strictEqual(sandbox.isSafeWolfhouseMapUrl(''), true);
+assert.strictEqual(sandbox.isSafeWolfhouseMapUrl('https://maps.google.com/test'), true);
+assert.strictEqual(sandbox.isSafeWolfhouseMapUrl('https://'), false);
+assert.strictEqual(sandbox.isSafeWolfhouseMapUrl('javascript:alert(1)'), false);
 assert.deepStrictEqual(
   JSON.parse(JSON.stringify(sandbox.wolfhouseBookingSettingsPayload('75', true))),
   { unpaid_hold_minutes: 75, require_each_guest_deposit: true },
