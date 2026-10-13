@@ -159,6 +159,31 @@ check('Luna Bilbao refusal follows passed settings, not saved text', () => {
   assert.equal(reply.includes('We recommend the bus'), false);
 });
 
+check('staff amount €0 wins over a leftover €50', () => {
+  const staffZero = {
+    airport_code: 'SDR',
+    label: 'Santander',
+    requires_package: false,
+    included_when_package: false,
+    price: { amount_cents: 0, unit: 'flat', currency: 'EUR' },
+    per_person_extra_cents: 5000,
+    flat_price_cents: 5000,
+    unavailable_no_package_message: 'Airport transfer is €50',
+    unavailable_below_min_group_message: 'Pay €50',
+  };
+  const facts = composeTransferGuestRefusal(staffZero, 'other', 'en', 'Santander');
+  assert.match(facts, /€0/);
+  assert.equal(facts.includes('€50'), false);
+  assert.equal(facts.includes('€25'), false);
+  assert.equal(facts.includes('Pay €50'), false);
+  const reply = buildTransferSideQuestionReply('en', 'Do you offer airport pickup?', {
+    transferRules: [staffZero],
+  });
+  assert.match(reply, /€0/);
+  assert.equal(reply.includes('€50'), false);
+  assert.equal(reply.includes('€25'), false);
+});
+
 check('Sunset transfer reply stays empty', () => {
   assert.equal(buildTransferSideQuestionReply('en', 'Do you have airport transfer from Santander?', {
     client_slug: 'sunset',

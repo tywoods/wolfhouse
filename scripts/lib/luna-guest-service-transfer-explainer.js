@@ -280,6 +280,12 @@ function wolfhouseTransferRule(options, airportCode) {
   return Object.assign({}, rule, { label: airport && airport.label });
 }
 
+function airportFacts(options, code, lang) {
+  const rule = wolfhouseTransferRule(options, code);
+  if (!rule) return '';
+  return composeTransferGuestFacts(rule, lang, rule.label || code);
+}
+
 function bilbaoLead(lang, options, hasPackage, guests) {
   const rule = wolfhouseTransferRule(options, 'BIO') || {
     airport_code: 'BIO',
@@ -339,12 +345,13 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
   const asksAboutBus = /\b(?:bus|autob[uú]s|autobus)\b/i.test(t);
 
   if (mentionsBilbao && asksAboutBus) {
+    const santander = airportFacts(opts, 'SDR', L);
     const map = {
-      en: 'Many guests take the bus from Bilbao airport — it\'s a straightforward option. We can also arrange Santander airport transfer for €25 without a package, or it\'s included with Malibu, Uluwatu, or Waimea.',
-      it: 'Molti ospiti usano il bus da Bilbao — è un\'opzione semplice. Possiamo anche organizzare il transfer Santander a €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea.',
-      es: 'Muchos huéspedes usan el autobús desde Bilbao — es una opción sencilla. También podemos organizar transfer Santander por €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea.',
-      de: 'Viele Gäste nehmen den Bus ab Bilbao — eine einfache Option. Wir können auch Santander-Transfer für €25 ohne Paket organisieren, oder inklusive mit Malibu, Uluwatu oder Waimea.',
-      fr: 'Beaucoup de clients prennent le bus depuis Bilbao — c’est une option simple. On peut aussi organiser le transfert Santander à 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea.',
+      en: `Many guests take the bus from Bilbao airport — it's a straightforward option.${santander ? ` ${santander}` : ''}`,
+      it: `Molti ospiti usano il bus da Bilbao — è un'opzione semplice.${santander ? ` ${santander}` : ''}`,
+      es: `Muchos huéspedes usan el autobús desde Bilbao — es una opción sencilla.${santander ? ` ${santander}` : ''}`,
+      de: `Viele Gäste nehmen den Bus ab Bilbao — eine einfache Option.${santander ? ` ${santander}` : ''}`,
+      fr: `Beaucoup de clients prennent le bus depuis Bilbao — c’est une option simple.${santander ? ` ${santander}` : ''}`,
     };
     return map[L] || map.en;
   }
@@ -354,12 +361,13 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
     const bio = wolfhouseTransferRule(opts, 'BIO');
     const minGuests = bio && bio.min_guest_count != null ? Number(bio.min_guest_count) : 4;
     if (!hasPackage) {
+      const santander = airportFacts(opts, 'SDR', L);
       const map = {
-        en: `${bilbaoRuleText} Without a package, we can arrange Santander airport transfer for €25, or it\'s included with Malibu, Uluwatu, or Waimea.`,
-        it: `${bilbaoRuleText} Senza pacchetto, il transfer Santander costa €25, o è incluso con Malibu, Uluwatu o Waimea.`,
-        es: `${bilbaoRuleText} Sin paquete, el transfer Santander cuesta €25, o está incluido con Malibu, Uluwatu o Waimea.`,
-        de: `${bilbaoRuleText} Ohne Paket organisieren wir Santander-Transfer für €25, oder inklusive mit Malibu, Uluwatu oder Waimea.`,
-        fr: `${bilbaoRuleText} Sans forfait, le transfert Santander est à 25 €, ou inclus avec Malibu, Uluwatu ou Waimea.`,
+        en: `${bilbaoRuleText}${santander ? ` ${santander}` : ''}`,
+        it: `${bilbaoRuleText}${santander ? ` ${santander}` : ''}`,
+        es: `${bilbaoRuleText}${santander ? ` ${santander}` : ''}`,
+        de: `${bilbaoRuleText}${santander ? ` ${santander}` : ''}`,
+        fr: `${bilbaoRuleText}${santander ? ` ${santander}` : ''}`,
       };
       return map[L] || map.en;
     }
@@ -394,14 +402,9 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
     return map[L] || map.en;
   }
 
-  const map = {
-    en: 'Santander airport transfer is €25 without a package, or included with Malibu, Uluwatu, or Waimea.',
-    it: 'Transfer Santander €25 senza pacchetto, o incluso con Malibu, Uluwatu o Waimea.',
-    es: 'Transfer Santander €25 sin paquete, o incluido con Malibu, Uluwatu o Waimea.',
-    de: 'Santander-Transfer €25 ohne Paket, oder inklusive mit Malibu, Uluwatu oder Waimea.',
-    fr: 'Transfert Santander 25 € sans forfait, ou inclus avec Malibu, Uluwatu ou Waimea.',
-  };
-  return map[L] || map.en;
+  const santander = airportFacts(opts, 'SDR', L);
+  if (santander) return santander;
+  return '';
 }
 
 module.exports = {
