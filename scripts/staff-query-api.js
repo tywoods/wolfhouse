@@ -19820,8 +19820,8 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block.bc-block-grouped{box-shadow:inset 4px 0 0 var(--bc-group-accent,#D7E3D4),var(--shadow-soft)}
 .bc-block.bc-block-grouped:hover,.bc-block.bc-block-grouped.bc-block-group-hover,.bc-block-checkout-marker.bc-block-grouped.bc-block-group-hover{filter:brightness(.95);box-shadow:inset 4px 0 0 var(--bc-group-accent,#D7E3D4),0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
-/* SCHEDULE-GROUP-BOOKING-UI-001 — multi-room group parent bar + soft Designer pebble accent */
-.bc-group-chip{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#E3D7F0;color:#534066;border:1px solid #D4C4E0;flex-shrink:0}
+/* SCHEDULE-GROUP-BOOKING-UI-001 — multi-room group parent bar. Group pebble is navy, not lilac. */
+.bc-group-chip{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#E7EEFB;color:#1E3A8A;border:1px solid #C5D4F0;flex-shrink:0}
 .bc-block-group{box-shadow:inset 0 0 0 1px rgba(83,64,102,.16),var(--shadow-soft)}
 .bc-block.bc-block-group-hover,.bc-block-checkout-marker.bc-block-group-hover{filter:brightness(.96);box-shadow:0 2px 12px rgba(83,64,102,.22),inset 0 0 0 1px rgba(83,64,102,.26)}
 .bc-group-parent-row td{border-bottom:1px solid transparent;padding:0;height:calc(16px * var(--bc-zoom, 1));background:transparent}
@@ -19834,7 +19834,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-group-parent-pad{background:transparent!important}
 /* SCHEDULE-LAST-DAY-NAME-DARK-STRIP-001 — no above-room group banner. Group pebble stays on bars. */
 .bc-group-parent-row{display:none!important}
-.bc-legend-sw-group{background:#E3D7F0;border-left-color:#B39BCB}
+.bc-legend-sw-group{background:#E7EEFB;border-left-color:#1E3A8A}
 .bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
 .bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB}
@@ -20562,12 +20562,12 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
-[data-theme="dark"] .bc-group-chip{background:#2E2838;color:#E3D7F0;border-color:#7a68a0}
+[data-theme="dark"] .bc-group-chip{background:#1E3A8A;color:#F8FAFC;border-color:#93C5FD}
 [data-theme="dark"] .bc-block-group{box-shadow:inset 0 0 0 1px rgba(216,200,232,.22),var(--shadow-soft)}
 [data-theme="dark"] .bc-block.bc-block-group-hover,[data-theme="dark"] .bc-block-checkout-marker.bc-block-group-hover{box-shadow:0 2px 12px rgba(122,104,160,.35),inset 0 0 0 1px rgba(216,200,232,.35)}
 [data-theme="dark"] .bc-group-parent-label{background:#2d2d2d;color:#E3D7F0;border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-group-parent-bar{background:linear-gradient(90deg,rgba(90,72,112,.9) 0%,rgba(60,80,100,.75) 100%);border-color:#7a68a0}
-[data-theme="dark"] .bc-legend-sw-group{background:#2E2838;border-left-color:#7a68a0}
+[data-theme="dark"] .bc-legend-sw-group{background:#1E3A8A;border-left-color:#93C5FD}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
 [data-theme="dark"] .btn-bc-block-pebble{background:#2d2d2d;color:var(--text-2);border-color:var(--border)}

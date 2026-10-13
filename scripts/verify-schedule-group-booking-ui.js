@@ -32,7 +32,10 @@ function ok(name, cond, detail) {
 console.log('[1] Static markers — CSS, legend, helpers, i18n');
 ok('job marker in CSS', /SCHEDULE-GROUP-BOOKING-UI-001/.test(api));
 ok('parent bar CSS', /\.bc-group-parent-bar\{/.test(api));
-ok('soft lilac pebble chip CSS', /\.bc-group-chip\{[^}]*#E3D7F0/.test(api));
+ok('navy group pebble chip CSS', /\.bc-group-chip\{[^}]*background:#E7EEFB;color:#1E3A8A/.test(api));
+ok('dark group pebble stays navy and readable', /\[data-theme="dark"\] \.bc-group-chip\{background:#1E3A8A;color:#F8FAFC/.test(api));
+ok('group pebble is not the paid, price, or transfer pebble',
+  !/#DDE8E2|#F5E0D0|#EDE7F6|#E3D7F0/.test((api.match(/\.bc-group-chip\{[^}]+\}/) || [''])[0]));
 ok('group block accent CSS', /\.bc-block-group\{/.test(api));
 ok('cross-room hover CSS', /\.bc-block-group-hover/.test(api));
 ok('legend swatch', /bc-legend-sw-group/.test(api));
