@@ -1225,15 +1225,13 @@ def _validate_gateway_original(source):
             raise RuntimeError('original-inbound decorator owner changed: ' + method)
     owner = _inbound_owner(tree, 'GatewayRunner', '_handle_message_with_agent')
     anchor = _canonical_once(tree, owner, '_session_env_tokens = self._set_session_env(context)', True)
-    reopen_row = _canonical_once(tree, owner, '_wh_owner_row = self._session_db.get_session(session_entry.session_id)', True)
-    reopen = _canonical_once(tree, owner, 'if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n    self._session_db.reopen_session(session_entry.session_id)', True)
+    storage_guard = _canonical_once(tree, owner, 'if self._session_db is not None:\n    _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n    if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n        self._session_db.reopen_session(session_entry.session_id)', True)
     bind = _canonical_once(tree, owner, '_wh_bind_original(self._session_db, session_entry.session_id, session_key, source, event.message_id)', True)
     index = owner.body.index(anchor)
     expected_import = ast.parse('from wolfhouse.original_inbound import bind_gateway_session as _wh_bind_original').body[0]
     if (not _ast_equal(owner.body[index + 1], expected_import)
-            or owner.body.index(reopen_row) != index + 2
-            or owner.body.index(reopen) != index + 3
-            or owner.body.index(bind) != index + 4):
+            or owner.body.index(storage_guard) != index + 2
+            or owner.body.index(bind) != index + 3):
         raise RuntimeError('original-inbound bind not at pre-enrichment seam')
     expected = ast.parse('from wolfhouse.original_inbound import gateway_event_owner as _wh_gateway_event_owner, gateway_busy_event_owner as _wh_gateway_busy_owner, gateway_run_owner as _wh_gateway_run_owner, gateway_followup_event_owner as _wh_followup_original').body[0]
     if sum(_ast_equal(n, expected) for n in tree.body) != 1:
@@ -1291,6 +1289,7 @@ def apply_original_inbound_source(source: str) -> str:
     already_patched = any(marker in source for marker in markers)
     if (already_patched and '_wh_followup_original' in source
             and '_wh_gateway_busy_owner' in source
+            and 'if self._session_db is not None:' in source
             and '_wh_owner_row = self._session_db.get_session(' in source):
         _validate_gateway_original(source)
         compile(source, '<gateway-original-inbound>', 'exec')
@@ -1342,10 +1341,20 @@ def apply_original_inbound_source(source: str) -> str:
     bind_call = ('        _wh_bind_original(self._session_db, session_entry.session_id, '
                  'session_key, source, event.message_id)\n')
     reopen_block = (
+        '        if self._session_db is not None:\n'
+        '            _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n'
+        '            if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n'
+        '                self._session_db.reopen_session(session_entry.session_id)\n'
+    )
+    unguarded_reopen_block = (
         '        _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n'
         '        if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n'
         '            self._session_db.reopen_session(session_entry.session_id)\n'
     )
+    if unguarded_reopen_block in source:
+        if source.count(unguarded_reopen_block) != 1:
+            raise RuntimeError('original-inbound unguarded reopen changed/ambiguous')
+        source = source.replace(unguarded_reopen_block, reopen_block, 1)
     if bind_tag in source and '_wh_owner_row = self._session_db.get_session(' not in source:
         if source.count(bind_call) != 1:
             raise RuntimeError('original-inbound existing bind anchor missing/ambiguous')

@@ -239,6 +239,19 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.staff_calls[0][1]["package_code"], "package_none")
         self.assertEqual(self.staff_calls[0][1]["payment_choice"], "deposit")
 
+    async def test_sqlite_unavailable_allows_ordinary_turn_without_booking_authority(self):
+        """Hermes' supported JSONL fallback must keep ordinary messages working."""
+        self.release.set()
+        self.runner._session_db = None
+        self.runner.session_store._db = None
+        result = await crowsnest_guest_door.run_crowsnest_guest_turn(
+            runner=self.runner, phone="+999000000009", text="Hello there",
+            message_id="fallback-regression-0001", mirror=lambda **_kwargs: None,
+            timeout_sec=20)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.staff_calls, [])
+        self.assertEqual(result["transport_calls"], 0)
+
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None
         first = asyncio.create_task(crowsnest_guest_door.run_crowsnest_guest_turn(
