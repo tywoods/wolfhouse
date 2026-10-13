@@ -1287,10 +1287,13 @@ def apply_original_inbound_source(source: str) -> str:
         'gateway_run_owner as _wh_gateway_run_owner, '
         'gateway_followup_event_owner as _wh_followup_original\n')
     already_patched = any(marker in source for marker in markers)
+    guarded_owner_reopen_prefix = (
+        '        if self._session_db is not None:\n'
+        '            _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n'
+    )
     if (already_patched and '_wh_followup_original' in source
             and '_wh_gateway_busy_owner' in source
-            and 'if self._session_db is not None:' in source
-            and '_wh_owner_row = self._session_db.get_session(' in source):
+            and guarded_owner_reopen_prefix in source):
         _validate_gateway_original(source)
         compile(source, '<gateway-original-inbound>', 'exec')
         return source

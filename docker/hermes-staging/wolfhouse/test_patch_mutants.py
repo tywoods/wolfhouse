@@ -28,6 +28,47 @@ class PatchMutants(unittest.TestCase):
         for name, source in mutants.items():
             with self.subTest(name=name), self.assertRaises(RuntimeError): apply_original_inbound_source(source)
 
+    def test_gateway_owner_reopen_generation_lifecycle(self):
+        """Unrelated DB guards must not hide the rejected-generation migration."""
+        import gateway.run as runtime
+        installed = Path(runtime.__file__).read_text()
+        successor = apply_original_inbound_source(installed)
+        guard = (
+            '        if self._session_db is not None:\n'
+            '            _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n'
+            '            if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n'
+            '                self._session_db.reopen_session(session_entry.session_id)\n'
+        )
+        unguarded = (
+            '        _wh_owner_row = self._session_db.get_session(session_entry.session_id)\n'
+            '        if _wh_owner_row is not None and _wh_owner_row.get("ended_at") is not None:\n'
+            '            self._session_db.reopen_session(session_entry.session_id)\n'
+        )
+        bind_call = ('        _wh_bind_original(self._session_db, session_entry.session_id, '
+                     'session_key, source, event.message_id)\n')
+        self.assertEqual(successor.count(guard), 1)
+        # Preserve and prove the unrelated guards which caused the broad selector bug.
+        self.assertGreater(successor.count('if self._session_db is not None:') - 1, 0)
+        paths = {
+            'clean/current-runtime': installed,
+            'base-generated': successor.replace(guard, '', 1),
+            '3c845618-generated': successor.replace(guard, unguarded, 1),
+            'successor': successor,
+        }
+        for name, source in paths.items():
+            with self.subTest(name=name):
+                migrated = apply_original_inbound_source(source)
+                self.assertEqual(migrated, successor)
+                self.assertEqual(apply_original_inbound_source(migrated), migrated)
+        mutants = {
+            'wrong_guard': successor.replace(
+                guard, guard.replace('self._session_db is not None', 'True'), 1),
+            'missing_bind': successor.replace(bind_call, '', 1),
+        }
+        for name, source in mutants.items():
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                apply_original_inbound_source(source)
+
     def test_api_mutants(self):
         import gateway.platforms.api_server as runtime
         with tempfile.TemporaryDirectory() as tmp:
