@@ -333,7 +333,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             text="Yes, the mixed accommodation-only option. What is the exact total and deposit?",
             message_id="alex-accept-0002", mirror=mirror, timeout_sec=20)
         self.assertTrue(quoted["ok"], quoted)
-        self.assertEqual([path for path, _ in self.staff_calls], ["/booking-preview"])
+        self.assertEqual([path for path, _ in self.staff_calls], ["/staff/bot/booking-preview"])
         self.assertEqual(self.staff_calls[0][1]["room_preference"], "mixed")
         self.assertEqual(self.staff_calls[0][1]["package_code"], "package_none")
         self.assertEqual(self.staff_calls[0][1]["payment_choice"], "deposit")
@@ -451,7 +451,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(.01)
         self.assertEqual(
-            [p for p, _ in self.staff_calls], ["/booking-preview"],
+            [p for p, _ in self.staff_calls], ["/staff/bot/booking-preview"],
             {"model_requests": self.model_requests, "first_result": first_result,
              "staff_calls": self.staff_calls},
         )
