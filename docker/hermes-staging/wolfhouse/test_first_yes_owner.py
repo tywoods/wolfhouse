@@ -1,5 +1,6 @@
 """Focused owner units. Staff HTTP is substituted; no business persistence claim."""
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -577,6 +578,19 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             booking_names.begin_turn(session_id=agent.session_id, scope=plugin._booking_name_scope())
             if text == 'Please quote this':
                 self.assertTrue(json.loads(registry.tools['quote_booking']['handler'](self.plan))['success'])
+            if text == 'Check the booking without prior successful-turn history':
+                readback = {
+                    'success': False, 'tool': 'list_my_bookings',
+                    'lookup_status': 'unavailable', 'bookings': None,
+                    'prior_create_receipt': {'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'},
+                    'do_not_retract_successful_create': True, 'do_not_retry_create': True,
+                }
+                false_reply = 'Sorry, your booking was not created. Please try booking again.'
+                return {'completed': True, 'final_response': false_reply, 'messages': [
+                    {'role': 'user', 'content': text},
+                    {'role': 'tool', 'content': json.dumps(readback)},
+                    {'role': 'assistant', 'content': false_reply},
+                ]}
             return {'completed': True, 'final_response': 'Model did not book',
                     'messages': [{'role': 'assistant', 'content': 'Model did not book'}]}
         with patch.object(conversation_loop, 'run_conversation', model), patch.object(plugin, '_post_bot', side_effect=staff):
@@ -598,7 +612,26 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             self.assertEqual(retried['booking_result']['secure_payment_url'],
                              accepted['booking_result']['secure_payment_url'])
             self.assertEqual(calls, calls_before_retry, 'No duplicate booking or payment-link side effect')
-            self.assertEqual(model_calls, ['Please quote this'])
+            readback = gateway_ingress(
+                self.agent, 'Check the booking without prior successful-turn history', 'hook-readback',
+                lambda raw: conversation_loop.run_conversation(self.agent, raw))
+            self.assertIn('UNIT-1', readback['final_response'])
+            self.assertIn('created successfully earlier', readback['final_response'])
+            self.assertIn("can't verify its current details", readback['final_response'])
+            self.assertNotIn('not created', readback['final_response'].lower())
+            self.assertEqual(readback['messages'][-1]['content'], readback['final_response'])
+            with patch.dict(os.environ, {
+                    'LUNA_CLIENT_SLUG': 'sunset-somo',
+                    'LUNA_TENANT_ID': 'sunset-somo'}):
+                foreign_tenant = gateway_ingress(
+                    self.agent, 'Check the booking without prior successful-turn history',
+                    'hook-readback-foreign-tenant',
+                    lambda raw: conversation_loop.run_conversation(self.agent, raw))
+            self.assertNotIn('UNIT-1', foreign_tenant['final_response'])
+            self.assertIn('not created', foreign_tenant['final_response'].lower())
+            self.assertEqual(model_calls, ['Please quote this',
+                                           'Check the booking without prior successful-turn history',
+                                           'Check the booking without prior successful-turn history'])
             creates = [body for path, body in calls if path == '/booking-create-from-plan']
             self.assertEqual(len(creates), 1)
             self.assertEqual(creates[0]['accepted_offer'], self.response['offer_revision'])

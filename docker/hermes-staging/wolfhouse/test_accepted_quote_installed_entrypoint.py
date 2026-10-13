@@ -92,6 +92,7 @@ class _Completions:
 
 class BlockingModelClient:
     """OpenAI-compatible deterministic client; first turn blocks for queueing."""
+    adversarial_readback = False
     def __init__(self, entered, release, seen, **_kwargs):
         self.entered, self.release, self.seen = entered, release, seen
         self.chat = SimpleNamespace(completions=_Completions(self))
@@ -183,6 +184,10 @@ class BlockingModelClient:
         if last_tool and last_tool.get("tool") == "cancel_unpaid_booking":
             return _Response(_Message(content="Your booking was cancelled."))
         if last_tool and last_tool.get("tool") == "list_my_bookings":
+            if self.adversarial_readback:
+                return _Response(_Message(content=(
+                    "Sorry, your booking was not created. Please try booking again."
+                )))
             if last_tool.get("lookup_status") == "unavailable":
                 receipt = last_tool.get("prior_create_receipt") or {}
                 ref = receipt.get("booking_code")
@@ -201,6 +206,8 @@ class BlockingModelClient:
 
 class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        BlockingModelClient.adversarial_readback = False
+        self.addCleanup(setattr, BlockingModelClient, "adversarial_readback", False)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         plugin_root = Path(__file__).resolve().parents[1] / "plugins"
@@ -436,12 +443,16 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list_tools[-1]["lookup_status"], "found")
         self.assertEqual(list_tools[-1]["prior_create_receipt"]["booking_code"], "ALPHA-1330")
 
-        for mode, ident in (("malformed", "france-live-list-malformed"),
+        BlockingModelClient.adversarial_readback = True
+        self.saved_bookings.clear()
+        for mode, ident in (("ok", "france-live-list-empty"),
+                            ("malformed", "france-live-list-malformed"),
                             ("error", "france-live-list-error")):
             self.list_response_mode = mode
             unavailable = await turn("Check my booking again.", ident)
             self.assertIn("ALPHA-1330", unavailable["reply_text"], unavailable)
-            self.assertIn("won't recreate", unavailable["reply_text"], unavailable)
+            self.assertIn("created successfully earlier", unavailable["reply_text"], unavailable)
+            self.assertIn("can't verify its current details", unavailable["reply_text"], unavailable)
             self.assertNotIn("not created", unavailable["reply_text"].lower(), unavailable)
             self.assertEqual(len([(path, body) for path, body in self.staff_calls
                                   if path == "/staff/bot/booking-create-from-plan"]), 1,
@@ -454,11 +465,8 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             timeout_sec=20)
         self.assertTrue(wrong_owner["ok"], wrong_owner)
         self.assertNotIn("ALPHA-1330", wrong_owner["reply_text"], wrong_owner)
+        self.assertIn("not created", wrong_owner["reply_text"].lower(), wrong_owner)
 
-        self.saved_bookings[0]["client_slug"] = "sunset"
-        wrong_tenant = await turn("Show me my booking.", "france-live-list-wrong-tenant")
-        self.assertNotIn("ALPHA-1330", wrong_tenant["reply_text"], wrong_tenant)
-        self.saved_bookings[0]["client_slug"] = "wolfhouse-somo"
 
     async def test_new_simulator_session_accepts_mixed_accommodation_only_for_deposit_quote(self):
         """A reused simulator lane must reopen its ended DB row before quote ownership."""
@@ -564,7 +572,8 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.saved_bookings.clear()
         empty = await turn("Find the booking you just created.", "cancel-flow-08")
         self.assertNotIn("only quoted", empty["reply_text"].lower())
-        self.assertIn("can't find", empty["reply_text"].lower())
+        self.assertIn("created successfully earlier", empty["reply_text"].lower())
+        self.assertIn("can't verify its current details", empty["reply_text"].lower())
 
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None
