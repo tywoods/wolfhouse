@@ -1141,34 +1141,41 @@ def create_booking_from_plan(params, **kwargs):
                 and all(isinstance(code, str) and code for code in codes)
                 and len(set(codes)) == len(codes)
             )
-            hint_aligned = (
-                aligned and isinstance(hints, list) and isinstance(guests, list)
-                and len(hints) == len(guests) == len(codes)
-                and all(isinstance(hint, dict) and _clean(hint.get("name")) == guest["name"]
-                        for hint, guest in zip(hints, guests))
-            )
-            # Only explicit traveler eligibility can authorize a gendered bed.
-            # Legacy name-hint/confidence fields are deliberately ignored.
-            interpreted = [
-                _clean(hint.get("explicit_gender")).lower() for hint in (hints or [])
-            ] if hint_aligned else []
-            # Neutral private acceptance does not assert demographics. Likewise,
-            # mixed-only acceptance without explicit eligibility needs none. Any
-            # gendered bed retains the strict ordered person-to-bed contract.
+            guest_list = guests if isinstance(guests, list) else []
+            guest_names = [
+                _clean(guest.get("name")) for guest in guest_list
+            ] if len(guest_list) == len(codes) and all(
+                isinstance(guest, dict) for guest in guest_list) else []
+            eligibility_by_name = {}
+            sparse_hints_bound = aligned and len(guest_names) == len(codes) and isinstance(hints, list)
+            if sparse_hints_bound:
+                for hint in hints:
+                    name = _clean(hint.get("name")) if isinstance(hint, dict) else ""
+                    gender = _clean(hint.get("explicit_gender")).lower() if isinstance(hint, dict) else ""
+                    if (not name or gender not in {"female", "male"}
+                            or guest_names.count(name) != 1 or name in eligibility_by_name):
+                        sparse_hints_bound = False
+                        break
+                    eligibility_by_name[name] = gender
+            # Neutral private acceptance does not assert demographics. Mixed beds
+            # accept unknown travelers while retaining any sparse, person-bound
+            # explicit facts. A gendered bed still requires the matching fact for
+            # the traveler at that frozen guest/bed index.
             private_neutral = aligned and room_decision.get("private_room") and all(
                 isinstance(bed_lookup.get(code), str)
                 and bed_lookup[code] in {"private", "couple_private", "private_room"}
                 for code in codes
             )
+            sparse_compatible = sparse_hints_bound and all(
+                bed_lookup.get(code) == "mixed"
+                or eligibility_by_name.get(guest_names[index]) in {"female", "male"}
+                and bed_lookup.get(code) == eligibility_by_name[guest_names[index]] + "_only"
+                for index, code in enumerate(codes)
+            )
             mixed_neutral = aligned and hints is None and all(
                 bed_lookup.get(code) == "mixed" for code in codes
             )
-            compatible = private_neutral or mixed_neutral or (hint_aligned and all(
-                gender in {"female", "male"}
-                and (bed_lookup.get(code) == "mixed"
-                     or bed_lookup.get(code) == gender + "_only")
-                for code, gender in zip(codes, interpreted)
-            ))
+            compatible = private_neutral or mixed_neutral or sparse_compatible
             if (not compatible or not isinstance(facts, dict)
                     or facts.get("success") is not True
                     or facts.get("has_enough_beds") is False):

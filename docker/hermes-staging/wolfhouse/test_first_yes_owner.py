@@ -510,6 +510,81 @@ console.log(JSON.stringify({accepted,current}));
             self.assertEqual(creates[0]['room_name_hints'],
                              [{'name': 'Alex Test', 'explicit_gender': 'male'}])
 
+    def _run_sparse_registered_create(self, room_rows, available_beds):
+        from wolfhouse import booking_names
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        guests = [{'name': 'Alex'}, {'name': 'Sam', 'explicit_gender': 'female'}]
+        plan = {**self.plan, 'guests': guests, 'selected_bed_codes': ['M1', 'M2']}
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=70000, deposit_required_cents=20000,
+                     payment_link_amount_cents=70000, currency='EUR', package_code='package_none')
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=guests, payment_choice='full',
+            availability={**plan, 'status': 'checked'}, room_rows=room_rows))], cwd=root))
+        response = dict(success=True, total_cents=70000, deposit_required_cents=20000,
+                        payment_choice_needed=False, currency='EUR', **checked)
+        quote_params = {key: deepcopy(value) for key, value in plan.items() if key != 'guests'}
+        calls = []
+        def staff(path, body):
+            calls.append((path, deepcopy(body)))
+            if path == '/booking-preview': return deepcopy(response)
+            if path == '/availability-check':
+                return {**deepcopy(response['availability']), 'success': True,
+                        'has_enough_beds': True, 'available_beds': deepcopy(available_beds)}
+            if path.startswith('/payments/') and path.endswith('/create-stripe-link'):
+                return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/sparse'}
+            if path == '/bookings/update-contact':
+                return {'success': True, 'write_performed': True, 'email_sent': False}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True, 'booking_id': 'sparse-booking',
+                    'booking_code': 'SPARSE-1', 'payment_id': 'sparse-payment'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            plugin.register(registry)
+            agent_token = booking_names._agent.set(self.agent)
+            self.addCleanup(booking_names._agent.reset, agent_token)
+            booking_names.begin_turn(session_id=self.agent.session_id, scope=plugin._booking_name_scope())
+            captured = json.loads(registry.tools['capture_booking_names']['handler']({
+                'guest_count': 2, 'guests': guests}))
+            self.assertTrue(captured['success'], captured)
+            quoted = json.loads(registry.tools['quote_booking']['handler'](quote_params))
+            self.assertTrue(quoted['success'], quoted)
+            ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+            self.turn('sparse-a', 'yes')
+            created = json.loads(registry.tools['create_booking_from_plan']['handler']({}))
+        return created, calls
+
+    def test_sparse_explicit_eligibility_reaches_registered_create_on_mixed_beds(self):
+        room_rows = [dict(bed_code=code, room_code='M', gender_strategy='mixed')
+                     for code in ('M1', 'M2')]
+        available = [dict(bed_code=code, room_code='M', room_type='mixed',
+                          gender_strategy='mixed') for code in ('M1', 'M2')]
+        created, calls = self._run_sparse_registered_create(room_rows, available)
+        self.assertTrue(created['success'], {'created': created, 'calls': calls})
+        creates = [body for path, body in calls if path == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0]['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
+        self.assertEqual(creates[0]['guests'], [{'name': 'Alex'}, {'name': 'Sam'}])
+
+    def test_sparse_unknown_person_cannot_use_gendered_bed(self):
+        room_rows = [dict(bed_code='M1', room_code='A', gender_strategy='male preferred'),
+                     dict(bed_code='M2', room_code='S', gender_strategy='female preferred')]
+        available = [dict(bed_code='M1', room_code='A', room_type='male_only',
+                          gender_strategy='male preferred'),
+                     dict(bed_code='M2', room_code='S', room_type='female_only',
+                          gender_strategy='female preferred')]
+        created, calls = self._run_sparse_registered_create(room_rows, available)
+        self.assertFalse(created['success'], created)
+        self.assertEqual(created['error'], 'accepted_bed_selection_revalidation_required')
+        self.assertEqual([body for path, body in calls if path == '/booking-create-from-plan'], [])
+        self.assertEqual(created['accepted_setup']['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
+
     def test_post_booking_email_save_outcomes_and_no_write_fences(self):
         payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}
         created = {'success': True, 'write_performed': True}
