@@ -102,13 +102,13 @@ class FirstYesOwnerTests(unittest.TestCase):
         ledger.record_quote(plan, response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
 
-        self.turn('france-confirm-1', 'Yes, please create this booking now.')
+        self.turn('france-confirm-1', 'Yes, create it.')
         first = ledger.prepare_create({})
         self.assertEqual(first['accepted_offer']['offer_fingerprint'],
                          response['offer_revision']['offer_fingerprint'])
         first_key = first['idempotency_key']
 
-        self.turn('france-confirm-2', 'Yes, please create this booking now.')
+        self.turn('france-confirm-2', 'Yes, create it.')
         retry = ledger.prepare_create({})
         self.assertEqual(retry['idempotency_key'], first_key)
         self.assertEqual(retry['accepted_offer'], first['accepted_offer'])
@@ -305,10 +305,10 @@ console.log(JSON.stringify({accepted,current}));
                 with self.assertRaises(ledger.QuoteBoundaryError):
                     ledger.prepare_create({})
 
-    def test_packet_consent_rejects_missing_presentation(self):
-        plan, response, exact = self.packet_offer()
+    def test_pronoun_confirmation_rejects_missing_presentation(self):
+        plan, response, _exact = self.packet_offer()
         ledger.record_quote(plan, response)
-        self.turn('packet-without-presentation', exact)
+        self.turn('packet-without-presentation', 'Yes, create it.')
         with self.assertRaises(ledger.QuoteBoundaryError):
             ledger.prepare_create({})
 

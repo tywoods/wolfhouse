@@ -119,7 +119,7 @@ class BlockingModelClient:
             return _Response(_Message(content=(
                 "Hi Test Unpaid Alpha! We have availability for one adult from 20–23 May 2027, "
                 "accommodation only. Would you be happy with a mixed shared room?")))
-        if "Yes, please create this booking now." in latest and not tool_messages:
+        if "Yes, create it." in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall(
                 "france-create", "create_booking_from_plan", france_args)]))
         if "I accept the quote and choose the 100 euro deposit option." in latest and not tool_messages:
@@ -424,7 +424,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             "My name is Test Unpaid Alpha.", "france-live-01")
         await turn("A mixed shared room is fine.", "france-live-02")
         await turn("I accept the quote and choose the 100 euro deposit option.", "france-live-03")
-        created = await turn("Yes, please create this booking now.", "france-live-04")
+        created = await turn("Yes, create it.", "france-live-04")
         self.assertIn("ALPHA-1330", created["reply_text"], {
             "created": created, "staff_calls": self.staff_calls,
             "model_requests": self.model_requests[-3:]})
@@ -435,7 +435,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.registry._tools["create_booking_from_plan"].handler,
                       self.create_handler)
 
-        replay = await turn("Yes, please create this booking now.", "france-live-05")
+        replay = await turn("Yes, create it.", "france-live-05")
         self.assertIn("ALPHA-1330", replay["reply_text"], replay)
         self.assertEqual(len([(path, body) for path, body in self.staff_calls
                               if path == "/staff/bot/booking-create-from-plan"]), 1,
