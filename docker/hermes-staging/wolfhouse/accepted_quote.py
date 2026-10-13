@@ -417,6 +417,13 @@ def _accepts(raw, plan):
                 and plan.get('guest_count', 2) == 2)
 
 
+def _accepts_presented_booking_confirmation(raw):
+    """Recognize a bounded create confirmation only at the checked-offer seam."""
+    return bool(re.fullmatch(
+        r'\s*yes,?\s+(?:please\s+)?(?:create|book)\s+(?:this|the)\s+booking(?:\s+now)?[.!]?\s*',
+        raw, re.I))
+
+
 def _accepts_complete_presented_offer(raw, offer):
     """Recognize one complete consent grammar and verify every claimed term."""
     text = unicodedata.normalize('NFC', raw)
@@ -527,6 +534,7 @@ def observe_owner_turn(agent, raw):
         price_consent = bool(presented and state.get('checked_offer')
                              and presented == state['checked_offer']
                              and _accepts_price_booking(raw, presented))
+        booking_confirmation = _accepts_presented_booking_confirmation(raw)
         # IDs stay durable for the incarnation; do not age out replay protection.
         if (not price_consent and re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I)):
             state.update(status='clarify', quote=None)
@@ -552,11 +560,18 @@ def observe_owner_turn(agent, raw):
                     and presented == state['checked_offer']
                     and (price_consent
                          or re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
+                         or booking_confirmation
                          or _accepts_complete_presented_offer(raw, presented)))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
             if state.get('checked_offer'):
                 state['accepted_offer_snapshot'] = deepcopy(state['checked_offer'])
+        elif (state['status'] == 'accepted' and booking_confirmation
+                and state.get('checked_offer')
+                and state.get('accepted_offer_snapshot') == state['checked_offer']):
+            # A same-owner repeat retains only the already-issued operation. Its
+            # stable idempotency key and receipt path prevent another Staff create.
+            pass
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):
             # Changed or unsupported booking acceptance needs a fresh quote, never
             # silently falls back to the former quote (including accepted state).

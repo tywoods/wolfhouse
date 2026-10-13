@@ -108,6 +108,32 @@ class BlockingModelClient:
             self.entered.set()
             if not self.release.wait(10):
                 raise RuntimeError("model release timeout")
+        france_args = {"check_in": "2027-05-20", "check_out": "2027-05-23",
+                       "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
+                       "package_code": "package_none", "catalog_selections": [],
+                       "payment_choice": "deposit", "guest_name": "Test Unpaid Alpha",
+                       "guests": [{"name": "Test Unpaid Alpha"}]}
+        if latest.startswith("Hi, I need accommodation only for one adult from 20 May 2027"):
+            return _Response(_Message(content=(
+                "Hi Test Unpaid Alpha! We have availability for one adult from 20–23 May 2027, "
+                "accommodation only. Would you be happy with a mixed shared room?")))
+        if "Yes, please create this booking now." in text and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall(
+                "france-create", "create_booking_from_plan", france_args)]))
+        if "I accept the quote and choose the 100 euro deposit option." in text and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall(
+                "france-requote", "quote_booking", france_args)]))
+        if "A mixed shared room is fine." in text and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall(
+                "france-quote", "quote_booking", france_args)]))
+        if last_tool and last_tool.get("tool") == "create_booking_from_plan" and last_tool.get("success"):
+            return _Response(_Message(content="Booking ALPHA-1330 created."))
+        if (last_tool and last_tool.get("tool") == "quote_booking"
+                and ("A mixed shared room is fine." in text
+                     or "I accept the quote and choose the 100 euro deposit option." in text)):
+            return _Response(_Message(content=(
+                "Your accommodation-only quote for 20–23 May 2027 is €120 total. "
+                "Deposit: €100. Shall I create this booking?")))
         # A quote request receives a real registered-tool round, then a final.
         if "mixed accommodation-only option" in text and not any(
                 m.get("role") == "tool" for m in messages):
@@ -247,16 +273,45 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             self.staff_calls.append((path, dict(payload)))
             route = path.removeprefix("/staff/bot")
             if route == "/availability-check":
+                bed = "R1-B1" if payload.get("check_in") == "2027-05-20" else "R3-B1"
+                room = "R1" if bed == "R1-B1" else "R3"
                 return {"success": True, "has_enough_beds": True,
-                        "selected_bed_codes": ["R3-B1"],
-                        "available_beds": [{"bed_code": "R3-B1", "room_code": "R3",
-                                            "room_type": "mixed"}]}
+                        "selected_bed_codes": [bed],
+                        "available_beds": [{"bed_code": bed, "room_code": room,
+                                            "room_type": "mixed", "gender_strategy": "flexible"}]}
+            if route == "/booking-preview" and payload.get("guest_name") == "Test Unpaid Alpha":
+                offer = {"v": 1, "client_slug": "wolfhouse-somo",
+                         "check_in": "2027-05-20", "check_out": "2027-05-23",
+                         "guest_count": 1, "guest_bed_assignments": [{
+                             "guest_index": 0, "guest_name": "test unpaid alpha", "bed_code": "R1-B1"}],
+                         "room_arrangement": [{"bed_code": "R1-B1", "room_code": "R1",
+                                               "gender_strategy": "flexible"}],
+                         "room_type": "shared", "room_preference": "mixed",
+                         "gender_preference": None, "package_code": "package_none",
+                         "guest_packages": [], "add_ons": [], "total_cents": 12000,
+                         "deposit_required_cents": 10000, "payment_link_amount_cents": 10000,
+                         "currency": "EUR", "payment_choice": "deposit",
+                         "per_guest_payment_links": False, "payment_distribution": [],
+                         "availability_checked": True, "offer_revision_version": 1,
+                         "offer_fingerprint": "9fe256211e9ed1a8a412c942cea16218bc623bea74a8e47493c740754965f414"}
+                return {"success": True, "total_cents": 12000,
+                        "deposit_required_cents": 10000, "payment_choice_needed": False,
+                        "currency": "EUR", "offer_revision": offer,
+                        "availability": {"status": "checked", "availability_checked": True,
+                            "selected_bed_codes": ["R1-B1"],
+                            "guest_bed_assignments": offer["guest_bed_assignments"],
+                            "room_arrangement": offer["room_arrangement"],
+                            "check_in": "2027-05-20", "check_out": "2027-05-23",
+                            "guest_count": 1, "room_type": "shared"}}
             if route == "/booking-create-from-plan":
-                row = {"booking_code": "CASEY-100", "check_in": "2027-06-10", "check_out": "2027-06-12",
-                       "guest_count": 1, "guest_name": "Casey", "status": "pending", "payment_status": "unpaid"}
+                code = "ALPHA-1330" if payload.get("guest_name") == "Test Unpaid Alpha" else "CASEY-100"
+                row = {"booking_code": code, "check_in": payload.get("check_in", "2027-06-10"),
+                       "check_out": payload.get("check_out", "2027-06-12"),
+                       "guest_count": 1, "guest_name": payload.get("guest_name", "Casey"),
+                       "status": "pending", "payment_status": "unpaid"}
                 self.saved_bookings[:] = [row]
-                return {"success": True, "write_performed": True, "booking_code": "CASEY-100",
-                        "booking_id": "casey-id", "payment_status": "unpaid"}
+                return {"success": True, "write_performed": True, "booking_code": code,
+                        "booking_id": code.lower() + "-id", "payment_status": "unpaid"}
             if route == "/bookings/by-phone":
                 return {"success": True, "count": len(self.saved_bookings), "bookings": list(self.saved_bookings)}
             if route == "/bookings/cancel-unpaid":
@@ -303,6 +358,10 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             return BlockingModelClient(self.entered, self.release, self.model_requests, **kwargs)
         self.model_patch = patch.object(run_agent, "OpenAI", side_effect=client_factory)
         self.model_patch.start(); self.addCleanup(self.model_patch.stop)
+        import agent.agent_runtime_helpers as runtime_helpers
+        self.runtime_helpers_patch = patch.object(
+            runtime_helpers, "_ra", return_value=run_agent)
+        self.runtime_helpers_patch.start(); self.addCleanup(self.runtime_helpers_patch.stop)
 
 
     def event(self, text, ident, phone="+34600111222"):
@@ -311,6 +370,40 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
 
     async def _wait_thread_event(self, event):
         self.assertTrue(await asyncio.to_thread(event.wait, 10), "model did not enter")
+
+    async def test_z_exact_france_failed_transcript_creates_once_and_replays_idempotently(self):
+        """Replay the failed turns through real ingress/registry/guard; only Staff transport is intercepted."""
+        self.release.set()
+        phone = "+34900001330"
+
+        async def turn(text, ident):
+            result = await crowsnest_guest_door.run_crowsnest_guest_turn(
+                runner=self.runner, phone=phone, text=text, message_id=ident,
+                mirror=lambda **_kwargs: None, timeout_sec=20)
+            self.assertTrue(result["ok"], result)
+            return result
+
+        await turn(
+            "Hi, I need accommodation only for one adult from 20 May 2027 to 23 May 2027. "
+            "My name is Test Unpaid Alpha.", "france-live-01")
+        await turn("A mixed shared room is fine.", "france-live-02")
+        await turn("I accept the quote and choose the 100 euro deposit option.", "france-live-03")
+        created = await turn("Yes, please create this booking now.", "france-live-04")
+        self.assertIn("ALPHA-1330", created["reply_text"], {
+            "created": created, "staff_calls": self.staff_calls,
+            "model_requests": self.model_requests[-3:]})
+        create_calls = [(path, body) for path, body in self.staff_calls
+                        if path == "/staff/bot/booking-create-from-plan"]
+        self.assertEqual(len(create_calls), 1, self.staff_calls)
+        self.assertIn("/staff/bot/booking-create-from-plan", [p for p, _, _ in self.guard_calls])
+        self.assertIs(self.registry._tools["create_booking_from_plan"].handler,
+                      self.create_handler)
+
+        replay = await turn("Yes, please create this booking now.", "france-live-05")
+        self.assertIn("ALPHA-1330", replay["reply_text"], replay)
+        self.assertEqual(len([(path, body) for path, body in self.staff_calls
+                              if path == "/staff/bot/booking-create-from-plan"]), 1,
+                         self.staff_calls)
 
     async def test_new_simulator_session_accepts_mixed_accommodation_only_for_deposit_quote(self):
         """A reused simulator lane must reopen its ended DB row before quote ownership."""

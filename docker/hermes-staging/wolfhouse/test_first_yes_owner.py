@@ -89,6 +89,29 @@ class FirstYesOwnerTests(unittest.TestCase):
         return dict(success=True, total_cents=20000, deposit_required_cents=10000,
                     payment_choice_needed=False, currency='EUR', **checked)
 
+    def test_exact_france_confirmation_preserves_same_checked_offer_consent(self):
+        plan = dict(check_in='2027-05-20', check_out='2027-05-23', guest_count=1,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Test Unpaid Alpha'}], payment_choice='deposit')
+        beds = [dict(bed_code='R1-B1', room_code='R1', gender_strategy='flexible')]
+        response = self._checked_offer(plan, beds)
+        self.agent.session_id = 'france-exact-confirmation'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('france-quote', 'I accept the quote and choose the 100 euro deposit option.')
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+
+        self.turn('france-confirm-1', 'Yes, please create this booking now.')
+        first = ledger.prepare_create({})
+        self.assertEqual(first['accepted_offer']['offer_fingerprint'],
+                         response['offer_revision']['offer_fingerprint'])
+        first_key = first['idempotency_key']
+
+        self.turn('france-confirm-2', 'Yes, please create this booking now.')
+        retry = ledger.prepare_create({})
+        self.assertEqual(retry['idempotency_key'], first_key)
+        self.assertEqual(retry['accepted_offer'], first['accepted_offer'])
+
     def test_requote_after_yes_uses_plain_lines_and_does_not_ask_again(self):
         plan = dict(check_in='2026-10-19', check_out='2026-10-22', guest_count=1,
                     package_code='package_none', room_type='shared', room_preference='mixed',
