@@ -29,8 +29,9 @@ function normalizeWolfhouseLocationBookingSettings(raw) {
   var locked = booking.locked === true || raw.locked === true;
   var lockReason = booking.lock_reason || raw.lock_reason || '';
   if (typeof lockReason !== 'string') throw new Error('invalid_settings_response');
-  var mapUrl = location.google_maps_url.trim();
-  if (!isSafeWolfhouseMapUrl(mapUrl)) throw new Error('invalid_settings_response');
+  var rawMapUrl = location.google_maps_url;
+  if (!isSafeWolfhouseMapUrl(rawMapUrl)) throw new Error('invalid_settings_response');
+  var mapUrl = rawMapUrl.trim();
   return {
     location: {
       address_text: location.address_text.trim(),
@@ -46,11 +47,13 @@ function normalizeWolfhouseLocationBookingSettings(raw) {
 }
 
 function isSafeWolfhouseMapUrl(value) {
-  var text = String(value || '').trim();
+  var raw = String(value || '');
+  if (/[\u0000-\u001F\u007F-\u009F]/.test(raw)) return false;
+  var text = raw.trim();
   if (!text) return true;
   try {
     var parsed = new URL(text);
-    return parsed.protocol === 'https:' && !!parsed.hostname;
+    return parsed.protocol === 'https:' && !!parsed.hostname && !parsed.username && !parsed.password;
   } catch (_error) {
     return false;
   }
@@ -167,6 +170,9 @@ function loadWolfhouseLocationBookingSettings() {
   } catch (_error) { return Promise.resolve(null); }
   var wrap = ensureWolfhouseLocationBookingCards();
   if (!wrap) return Promise.resolve(null);
+  var operationToken = (wrap._wolfhouseOperationToken || 0) + 1;
+  wrap._wolfhouseOperationToken = operationToken;
+  if (!wrap._wolfhouseDirty) wrap._wolfhouseDirty = { location: false, booking: false };
 
   var refs = {
     addressText: document.getElementById('wh-location-address-text'),
@@ -196,12 +202,19 @@ function loadWolfhouseLocationBookingSettings() {
       : 'OFF — one guest deposit locks the whole booking.';
   }
 
-  function paint(settings) {
+  function paint(settings, savedCard) {
+    var bookingLocked = settings.booking_settings.locked === true && settings.booking_settings.lock_reason === 'deposit_received';
     wrap._wolfhouseSettings = settings;
     refs.addressText.textContent = settings.location.address_text;
-    refs.map.value = settings.location.google_maps_url;
-    refs.hold.value = String(settings.booking_settings.unpaid_hold_minutes);
-    refs.each.checked = settings.booking_settings.require_each_guest_deposit;
+    if (savedCard === 'location' || !wrap._wolfhouseDirty.location) {
+      refs.map.value = settings.location.google_maps_url;
+      if (savedCard === 'location') wrap._wolfhouseDirty.location = false;
+    }
+    if (savedCard === 'booking' || !wrap._wolfhouseDirty.booking || bookingLocked) {
+      refs.hold.value = String(settings.booking_settings.unpaid_hold_minutes);
+      refs.each.checked = settings.booking_settings.require_each_guest_deposit;
+      if (savedCard === 'booking' || bookingLocked) wrap._wolfhouseDirty.booking = false;
+    }
     updateMapAction();
     updateDepositHelp();
     applyWolfhouseBookingSettingsLock(refs, settings.booking_settings);
@@ -224,17 +237,17 @@ function loadWolfhouseLocationBookingSettings() {
     applyWolfhouseBookingSettingsLock(refs, settings.booking_settings);
   }
 
-  function readAndPaint() {
+  function readAndPaint(token, savedCard) {
     var readToken = (wrap._wolfhouseReadToken || 0) + 1;
     wrap._wolfhouseReadToken = readToken;
     disableForRead();
     return wolfhouseLocationBookingRead().then(function (settings) {
-      if (readToken !== wrap._wolfhouseReadToken) return { applied: false, settings: null };
-      paint(settings);
+      if (token !== wrap._wolfhouseOperationToken || readToken !== wrap._wolfhouseReadToken) return { applied: false, settings: null };
+      paint(settings, savedCard);
       enableFromKnown(settings);
       return { applied: true, settings: settings };
     }).catch(function (error) {
-      if (readToken !== wrap._wolfhouseReadToken) return { applied: false, settings: null };
+      if (token !== wrap._wolfhouseOperationToken || readToken !== wrap._wolfhouseReadToken) return { applied: false, settings: null };
       throw error;
     });
   }
@@ -242,25 +255,43 @@ function loadWolfhouseLocationBookingSettings() {
   if (!wrap._wolfhouseSettings) paint(WH_LOCATION_BOOKING_DEFAULTS);
   if (wrap.dataset.wired !== '1') {
     wrap.dataset.wired = '1';
-    refs.map.addEventListener('input', updateMapAction);
-    refs.each.addEventListener('change', updateDepositHelp);
+    refs.map.addEventListener('input', function () {
+      wrap._wolfhouseDirty.location = true;
+      wrap._wolfhouseOperationToken = (wrap._wolfhouseOperationToken || 0) + 1;
+      updateMapAction();
+    });
+    refs.hold.addEventListener('input', function () {
+      wrap._wolfhouseDirty.booking = true;
+      wrap._wolfhouseOperationToken = (wrap._wolfhouseOperationToken || 0) + 1;
+    });
+    refs.each.addEventListener('change', function () {
+      wrap._wolfhouseDirty.booking = true;
+      wrap._wolfhouseOperationToken = (wrap._wolfhouseOperationToken || 0) + 1;
+      updateDepositHelp();
+    });
     refs.locationSave.addEventListener('click', function () {
       if (refs.locationSave.disabled || !wrap._wolfhouseSettings) return;
-      var payload = wolfhouseLocationPayload(wrap._wolfhouseSettings.location.address_text, refs.map.value);
-      if (!isSafeWolfhouseMapUrl(payload.google_maps_url)) {
+      if (!isSafeWolfhouseMapUrl(refs.map.value)) {
         wolfhouseLocationBookingStatus(refs.locationStatus, 'Enter a valid https map link, or clear the field.', true);
         return;
       }
+      var payload = wolfhouseLocationPayload(wrap._wolfhouseSettings.location.address_text, refs.map.value);
+      var saveToken = (wrap._wolfhouseOperationToken || 0) + 1;
+      wrap._wolfhouseOperationToken = saveToken;
       disableForRead();
       wolfhouseLocationBookingStatus(refs.locationStatus, 'Saving…', false);
       wolfhouseLocationBookingPut('/staff/admin/location', payload)
-        .then(readAndPaint)
+        .then(function () {
+          if (saveToken !== wrap._wolfhouseOperationToken) return { applied: false, settings: null };
+          return readAndPaint(saveToken, 'location');
+        })
         .then(function (result) {
-          if (!result.applied) return;
+          if (!result || !result.applied || saveToken !== wrap._wolfhouseOperationToken) return;
           wolfhouseLocationBookingStatus(refs.locationStatus, 'Saved.', false);
           wolfhouseLocationBookingStatus(refs.bookingStatus, '', false);
         })
         .catch(function () {
+          if (saveToken !== wrap._wolfhouseOperationToken) return;
           disableForRead();
           wolfhouseLocationBookingStatus(refs.locationStatus, 'Could not confirm saved location. Reload to retry.', true);
         });
@@ -273,16 +304,22 @@ function loadWolfhouseLocationBookingSettings() {
         wolfhouseLocationBookingStatus(refs.bookingStatus, 'Enter a hold time of at least 1 minute.', true);
         return;
       }
+      var saveToken = (wrap._wolfhouseOperationToken || 0) + 1;
+      wrap._wolfhouseOperationToken = saveToken;
       disableForRead();
       wolfhouseLocationBookingStatus(refs.bookingStatus, 'Saving…', false);
       wolfhouseLocationBookingPut('/staff/admin/booking-settings', payload)
-        .then(readAndPaint)
+        .then(function () {
+          if (saveToken !== wrap._wolfhouseOperationToken) return { applied: false, settings: null };
+          return readAndPaint(saveToken, 'booking');
+        })
         .then(function (result) {
-          if (!result.applied) return;
+          if (!result || !result.applied || saveToken !== wrap._wolfhouseOperationToken) return;
           wolfhouseLocationBookingStatus(refs.bookingStatus, 'Saved.', false);
           wolfhouseLocationBookingStatus(refs.locationStatus, '', false);
         })
         .catch(function () {
+          if (saveToken !== wrap._wolfhouseOperationToken) return;
           disableForRead();
           wolfhouseLocationBookingStatus(refs.bookingStatus, 'Could not confirm saved booking settings. Reload to retry.', true);
         });
@@ -292,7 +329,7 @@ function loadWolfhouseLocationBookingSettings() {
   disableForRead();
   wolfhouseLocationBookingStatus(refs.locationStatus, 'Loading…', false);
   wolfhouseLocationBookingStatus(refs.bookingStatus, 'Loading…', false);
-  return readAndPaint().then(function (settings) {
+  return readAndPaint(operationToken, null).then(function (settings) {
     if (!settings.applied) return null;
     wolfhouseLocationBookingStatus(refs.locationStatus, '', false);
     wolfhouseLocationBookingStatus(refs.bookingStatus, '', false);

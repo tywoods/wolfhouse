@@ -46,6 +46,10 @@ const { chromium } = require('playwright');
   await page.locator('#wh-location-save').click();
   assert.strictEqual(await page.evaluate(() => window.__requests.length), initialCount);
   assert.match(await page.locator('#wh-location-status').textContent(), /valid https/i);
+  await page.locator('#wh-location-map-url').fill('https://user:pass@maps.google.com/private');
+  await page.locator('#wh-location-save').click();
+  assert.strictEqual(await page.evaluate(() => window.__requests.length), initialCount);
+  assert.match(await page.locator('#wh-location-status').textContent(), /valid https/i);
   await page.locator('#wh-location-map-url').fill('');
   await page.evaluate(() => {
     window.__queueJson({ success: true });
@@ -126,6 +130,96 @@ const { chromium } = require('playwright');
   assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '25');
   assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').isEnabled(), true);
   assert.strictEqual(await page.locator('#wh-booking-save').isEnabled(), true);
+
+  // Saving one card preserves the other card's dirty draft.
+  await page.locator('#wh-unpaid-hold-minutes').fill('44');
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/new-location');
+  await page.evaluate(() => {
+    window.__queueJson({ success: true });
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/new-location' },
+      booking_settings: { unpaid_hold_minutes: 99, require_each_guest_deposit: true, locked: false, lock_reason: '' },
+    });
+  });
+  await page.locator('#wh-location-save').click();
+  await page.waitForFunction(() => document.getElementById('wh-location-status').textContent === 'Saved.');
+  assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '44');
+
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/unsaved-location-draft');
+  await page.evaluate(() => {
+    window.__queueJson({ success: true });
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/server-location' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+  });
+  await page.locator('#wh-booking-save').click();
+  await page.waitForFunction(() => document.getElementById('wh-booking-status').textContent === 'Saved.');
+  assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/unsaved-location-draft');
+
+  // Reopening invalidates a pending PUT; its later success cannot fetch, paint, or replace a newer draft.
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/old-save');
+  await page.evaluate(() => {
+    window.__pendingPut = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__pendingPut.resolve = resolve;
+      window.__pendingPut.reject = reject;
+    }));
+  });
+  await page.locator('#wh-location-save').click();
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__reopenAfterPut = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__reopenAfterPut);
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/newer-draft');
+  const requestsBeforeObsoletePut = await page.evaluate(() => window.__requests.length);
+  await page.evaluate(() => window.__pendingPut.resolve({ ok: true, json: async () => ({ success: true }) }));
+  await page.waitForTimeout(25);
+  assert.strictEqual(await page.evaluate(() => window.__requests.length), requestsBeforeObsoletePut);
+  assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/newer-draft');
+  assert.strictEqual(await page.locator('#wh-location-map-url').isEnabled(), true);
+  assert.doesNotMatch(await page.locator('#wh-location-status').textContent(), /saved|could not/i);
+
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/old-failing-save');
+  await page.evaluate(() => {
+    window.__pendingFailedPut = {};
+    window.__responses.push(new Promise((resolve, reject) => {
+      window.__pendingFailedPut.resolve = resolve;
+      window.__pendingFailedPut.reject = reject;
+    }));
+  });
+  await page.locator('#wh-location-save').click();
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened-again' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: false, lock_reason: '' },
+    });
+    window.__reopenAfterFailedPut = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__reopenAfterFailedPut);
+  await page.locator('#wh-location-map-url').fill('https://maps.google.com/newest-draft');
+  await page.evaluate(() => window.__pendingFailedPut.reject(new Error('obsolete PUT failed')));
+  await page.waitForTimeout(25);
+  assert.strictEqual(await page.locator('#wh-location-map-url').inputValue(), 'https://maps.google.com/newest-draft');
+  assert.strictEqual(await page.locator('#wh-location-map-url').isEnabled(), true);
+  assert.doesNotMatch(await page.locator('#wh-location-status').textContent(), /saved|could not/i);
+
+  // A deposit lock still overrides a dirty booking draft.
+  await page.locator('#wh-unpaid-hold-minutes').fill('55');
+  await page.evaluate(() => {
+    window.__queueJson({
+      location: { address_text: 'CURRENT address', google_maps_url: 'https://maps.google.com/reopened' },
+      booking_settings: { unpaid_hold_minutes: 44, require_each_guest_deposit: false, locked: true, lock_reason: 'deposit_received' },
+    });
+    window.__lockedRefresh = window.loadWolfhouseLocationBookingSettings();
+  });
+  await page.evaluate(() => window.__lockedRefresh);
+  assert.strictEqual(await page.locator('#wh-unpaid-hold-minutes').inputValue(), '44');
+  assert.strictEqual(await page.locator('#wh-booking-save').isDisabled(), true);
 
   const heading = await page.locator('#wh-booking-settings-card .portal-admin-section-hdr-title').evaluate((el) => ({
     text: el.textContent,

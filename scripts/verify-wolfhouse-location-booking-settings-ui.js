@@ -72,6 +72,17 @@ assert.throws(() => sandbox.normalizeWolfhouseLocationBookingSettings({
   location: { address_text: 'TEST address', google_maps_url: 'https://' },
   booking_settings: { unpaid_hold_minutes: 60, require_each_guest_deposit: false },
 }), /invalid_settings_response/);
+for (const unsafeMap of [
+  'https://user:pass@maps.google.com/example',
+  'https://maps.google.com/example\n',
+  'https://maps.google.com/\u0000example',
+]) {
+  assert.strictEqual(sandbox.isSafeWolfhouseMapUrl(unsafeMap), false, unsafeMap);
+  assert.throws(() => sandbox.normalizeWolfhouseLocationBookingSettings({
+    location: { address_text: 'TEST address', google_maps_url: unsafeMap },
+    booking_settings: { unpaid_hold_minutes: 60, require_each_guest_deposit: false },
+  }), /invalid_settings_response/);
+}
 
 assert.deepStrictEqual(
   JSON.parse(JSON.stringify(sandbox.wolfhouseLocationPayload(' Calle Test ', ''))),
