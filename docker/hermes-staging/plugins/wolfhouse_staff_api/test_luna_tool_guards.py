@@ -181,6 +181,31 @@ check("L2 passes a normalized phone to the route", bool(fake.calls[-1][1].get("p
 check("L3 listing never escalates", lb.get("do_not_escalate") is True)
 
 fake = with_fake({
+    "/bookings/by-phone": {"success": True, "count": 0},
+})
+malformed = json.loads(mod.list_my_bookings({"phone": "+491****2307"}))
+check("L4 malformed HTTP-200 is unavailable, not an empty list",
+      malformed.get("success") is False
+      and malformed.get("lookup_status") == "unavailable"
+      and malformed.get("error") == "booking_lookup_malformed_response"
+      and malformed.get("bookings") is None,
+      malformed)
+
+fake = with_fake({
+    "/bookings/by-phone": {"success": False, "staff_api_status": "http_error",
+                             "status": 503, "error": "booking lookup failed: replica unavailable",
+                             "staff_review_needed": True},
+})
+failed = json.loads(mod.list_my_bookings({"phone": "+491****2307"}))
+check("L5 HTTP error remains unavailable with upstream detail",
+      failed.get("success") is False
+      and failed.get("lookup_status") == "unavailable"
+      and failed.get("status") == 503
+      and failed.get("error") == "booking lookup failed: replica unavailable"
+      and failed.get("bookings") is None,
+      failed)
+
+fake = with_fake({
     "/bookings/update-contact": {"success": True, "updated_fields": ["email"], "write_performed": True,
                                  "booking": {"booking_code": "MB-B", "email": "ana@example.com"}},
 })

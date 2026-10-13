@@ -770,6 +770,22 @@ def dispatch_recovery(prepared):
     return _transaction(inspect)
 
 
+def current_create_receipt():
+    """Return only the current owner scope's completed create receipt, if any.
+
+    Readback tools use this to avoid retracting a Staff write that the same
+    conversation already completed. The receipt remains capability/SessionDB
+    scoped; callers cannot supply an identity or inspect another owner.
+    """
+    def inspect(state, ingress):
+        receipt = state.get('completion') or state.get('receipt')
+        return deepcopy(receipt) if isinstance(receipt, dict) else None
+    try:
+        return _transaction(inspect)
+    except QuoteBoundaryError:
+        return None
+
+
 def _contact_transition(state, action, *, identity, outcome=None):
     """Pure state machine for the owner-owned post-booking contact substep."""
     receipt = state.get('receipt')

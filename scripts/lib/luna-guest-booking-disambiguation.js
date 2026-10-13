@@ -10,7 +10,7 @@
 const RELEVANT_STATUSES_SQL = `'confirmed','hold'`;
 const RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due'`;
 const CANCELLATION_RELEVANT_STATUSES_SQL = `'confirmed','hold','payment_pending'`;
-const CANCELLATION_RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due','waiting_payment','unpaid','pending'`;
+const CANCELLATION_RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due','waiting_payment','unpaid','pending','not_requested'`;
 
 function trimStr(v) {
   if (v == null) return '';
