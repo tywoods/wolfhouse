@@ -922,10 +922,15 @@ def finalize_offer_response(result):
                             default=-1)
             current_tools = [item for item in messages[last_user + 1:]
                              if isinstance(item, dict) and item.get('role') == 'tool']
-            try:
-                readback = json.loads(current_tools[-1].get('content') or '{}') if current_tools else {}
-            except (TypeError, ValueError):
-                readback = {}
+            readback = {}
+            for tool_message in reversed(current_tools):
+                try:
+                    candidate = json.loads(tool_message.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(candidate, dict) and candidate.get('tool') == 'list_my_bookings':
+                    readback = candidate
+                    break
             prior = readback.get('prior_create_receipt') if isinstance(readback, dict) else None
             reference = receipt.get('booking_code') or receipt.get('booking_id')
             prior_reference = ((prior.get('booking_code') or prior.get('booking_id'))

@@ -591,6 +591,29 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                     {'role': 'tool', 'content': json.dumps(readback)},
                     {'role': 'assistant', 'content': false_reply},
                 ]}
+            if text == 'Honor the newer authoritative booking readback':
+                receipt = {'booking_id': 'unit-booking', 'booking_code': 'UNIT-1'}
+                stale = {'success': False, 'tool': 'list_my_bookings',
+                         'lookup_status': 'unavailable', 'bookings': None,
+                         'prior_create_receipt': receipt,
+                         'do_not_retract_successful_create': True,
+                         'do_not_retry_create': True}
+                payment = {'success': True, 'tool': 'get_payment_status',
+                           'payment_truth_known': False}
+                found = {'success': True, 'tool': 'list_my_bookings',
+                         'lookup_status': 'found',
+                         'bookings': [{'booking_code': 'UNIT-1'}],
+                         'prior_create_receipt': receipt,
+                         'do_not_retract_successful_create': True,
+                         'do_not_retry_create': True}
+                model_reply = 'Latest authoritative booking readback was used.'
+                return {'completed': True, 'final_response': model_reply, 'messages': [
+                    {'role': 'user', 'content': text},
+                    {'role': 'tool', 'content': json.dumps(stale)},
+                    {'role': 'tool', 'content': json.dumps(payment)},
+                    {'role': 'tool', 'content': json.dumps(found)},
+                    {'role': 'assistant', 'content': model_reply},
+                ]}
             return {'completed': True, 'final_response': 'Model did not book',
                     'messages': [{'role': 'assistant', 'content': 'Model did not book'}]}
         with patch.object(conversation_loop, 'run_conversation', model), patch.object(plugin, '_post_bot', side_effect=staff):
@@ -620,6 +643,12 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             self.assertIn("can't verify its current details", readback['final_response'])
             self.assertNotIn('not created', readback['final_response'].lower())
             self.assertEqual(readback['messages'][-1]['content'], readback['final_response'])
+            newer = gateway_ingress(
+                self.agent, 'Honor the newer authoritative booking readback',
+                'hook-readback-newer-authoritative',
+                lambda raw: conversation_loop.run_conversation(self.agent, raw))
+            self.assertEqual(newer['final_response'],
+                             'Latest authoritative booking readback was used.')
             with patch.dict(os.environ, {
                     'LUNA_CLIENT_SLUG': 'sunset-somo',
                     'LUNA_TENANT_ID': 'sunset-somo'}):
@@ -631,6 +660,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             self.assertIn('not created', foreign_tenant['final_response'].lower())
             self.assertEqual(model_calls, ['Please quote this',
                                            'Check the booking without prior successful-turn history',
+                                           'Honor the newer authoritative booking readback',
                                            'Check the booking without prior successful-turn history'])
             creates = [body for path, body in calls if path == '/booking-create-from-plan']
             self.assertEqual(len(creates), 1)

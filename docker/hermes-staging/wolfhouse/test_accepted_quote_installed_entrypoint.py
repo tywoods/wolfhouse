@@ -93,6 +93,7 @@ class _Completions:
 class BlockingModelClient:
     """OpenAI-compatible deterministic client; first turn blocks for queueing."""
     adversarial_readback = False
+    chained_readback = False
     def __init__(self, entered, release, seen, **_kwargs):
         self.entered, self.release, self.seen = entered, release, seen
         self.chat = SimpleNamespace(completions=_Completions(self))
@@ -183,7 +184,14 @@ class BlockingModelClient:
             return _Response(_Message(content="I couldn't cancel that booking. A teammate will take over."))
         if last_tool and last_tool.get("tool") == "cancel_unpaid_booking":
             return _Response(_Message(content="Your booking was cancelled."))
+        if last_tool and last_tool.get("tool") == "get_payment_status" and self.adversarial_readback:
+            return _Response(_Message(content=(
+                "Sorry, your booking was not created. Please try booking again."
+            )))
         if last_tool and last_tool.get("tool") == "list_my_bookings":
+            if self.adversarial_readback and self.chained_readback:
+                return _Response(_Message(tool_calls=[_ToolCall(
+                    "payment-alpha", "get_payment_status", {"booking_code": "ALPHA-1330"})]))
             if self.adversarial_readback:
                 return _Response(_Message(content=(
                     "Sorry, your booking was not created. Please try booking again."
@@ -207,7 +215,9 @@ class BlockingModelClient:
 class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         BlockingModelClient.adversarial_readback = False
+        BlockingModelClient.chained_readback = False
         self.addCleanup(setattr, BlockingModelClient, "adversarial_readback", False)
+        self.addCleanup(setattr, BlockingModelClient, "chained_readback", False)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         plugin_root = Path(__file__).resolve().parents[1] / "plugins"
@@ -454,6 +464,28 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             self.assertIn("created successfully earlier", unavailable["reply_text"], unavailable)
             self.assertIn("can't verify its current details", unavailable["reply_text"], unavailable)
             self.assertNotIn("not created", unavailable["reply_text"].lower(), unavailable)
+            self.assertEqual(len([(path, body) for path, body in self.staff_calls
+                                  if path == "/staff/bot/booking-create-from-plan"]), 1,
+                             self.staff_calls)
+
+        BlockingModelClient.chained_readback = True
+        for mode, ident in (("ok", "france-live-chain-empty"),
+                            ("malformed", "france-live-chain-malformed"),
+                            ("error", "france-live-chain-error")):
+            self.list_response_mode = mode
+            unavailable = await turn("Check my booking again.", ident)
+            self.assertIn("ALPHA-1330", unavailable["reply_text"], unavailable)
+            self.assertIn("created successfully earlier", unavailable["reply_text"], unavailable)
+            self.assertIn("can't verify its current details", unavailable["reply_text"], unavailable)
+            self.assertNotIn("not created", unavailable["reply_text"].lower(), unavailable)
+            final_request = self.model_requests[-1]
+            latest_user = max(index for index, item in enumerate(final_request)
+                              if item.get("role") == "user")
+            current_tools = [json.loads(item["content"])["tool"]
+                             for item in final_request[latest_user + 1:]
+                             if item.get("role") == "tool"]
+            self.assertEqual(current_tools,
+                             ["list_my_bookings", "get_payment_status"])
             self.assertEqual(len([(path, body) for path, body in self.staff_calls
                                   if path == "/staff/bot/booking-create-from-plan"]), 1,
                              self.staff_calls)
