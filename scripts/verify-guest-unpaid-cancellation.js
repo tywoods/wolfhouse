@@ -90,7 +90,8 @@ assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /amount_paid_cents/i, 'write itsel
   assert.equal(rows[0].booking_code, 'WH-UNPAID');
   assert.match(calls[0].sql, /JOIN clients/i);
   assert.match(calls[0].sql, /c\.slug\s*=\s*\$2/i, 'lookup is trusted-tenant scoped');
-  assert.match(calls[0].sql, /'waiting_payment','unpaid','pending'/i);
+  assert.match(calls[0].sql, /'waiting_payment','unpaid','pending','not_requested'/i,
+    'fresh Staff-created unpaid rows remain discoverable before booking payment status is projected');
   assert.deepEqual(calls[0].params, ['%600000001%', 'wolfhouse-somo']);
   assert.deepEqual(mapCancellationGuestBookingRows(rows), [{
     booking_code: 'WH-UNPAID', check_in: '2026-11-01', check_out: '2026-11-08',

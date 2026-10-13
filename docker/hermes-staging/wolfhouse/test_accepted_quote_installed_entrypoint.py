@@ -92,6 +92,8 @@ class _Completions:
 
 class BlockingModelClient:
     """OpenAI-compatible deterministic client; first turn blocks for queueing."""
+    adversarial_readback = False
+    chained_readback = False
     def __init__(self, entered, release, seen, **_kwargs):
         self.entered, self.release, self.seen = entered, release, seen
         self.chat = SimpleNamespace(completions=_Completions(self))
@@ -117,13 +119,13 @@ class BlockingModelClient:
             return _Response(_Message(content=(
                 "Hi Test Unpaid Alpha! We have availability for one adult from 20–23 May 2027, "
                 "accommodation only. Would you be happy with a mixed shared room?")))
-        if "Yes, please create this booking now." in text and not tool_messages:
+        if "Yes, please create this booking now." in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall(
                 "france-create", "create_booking_from_plan", france_args)]))
-        if "I accept the quote and choose the 100 euro deposit option." in text and not tool_messages:
+        if "I accept the quote and choose the 100 euro deposit option." in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall(
                 "france-requote", "quote_booking", france_args)]))
-        if "A mixed shared room is fine." in text and not tool_messages:
+        if "A mixed shared room is fine." in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall(
                 "france-quote", "quote_booking", france_args)]))
         if last_tool and last_tool.get("tool") == "create_booking_from_plan" and last_tool.get("success"):
@@ -159,7 +161,8 @@ class BlockingModelClient:
             return _Response(_Message(tool_calls=[_ToolCall("quote-casey", "quote_booking", booking_args)]))
         if latest.startswith("I accept the quote.") and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("create-casey", "create_booking_from_plan", booking_args)]))
-        if "Show my saved unpaid bookings" in latest and not tool_messages:
+        if ("Show my saved unpaid bookings" in latest or "Show me my booking" in latest
+                or "Check my booking again" in latest) and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("list-casey", "list_my_bookings", {})]))
         for marker, code in (("Cancel CASEY-100", "CASEY-100"), ("Cancel PAID-200", "PAID-200"),
                              ("Cancel FOREIGN-300", "FOREIGN-300")):
@@ -181,7 +184,25 @@ class BlockingModelClient:
             return _Response(_Message(content="I couldn't cancel that booking. A teammate will take over."))
         if last_tool and last_tool.get("tool") == "cancel_unpaid_booking":
             return _Response(_Message(content="Your booking was cancelled."))
+        if last_tool and last_tool.get("tool") == "get_payment_status" and self.adversarial_readback:
+            return _Response(_Message(content=(
+                "Sorry, your booking was not created. Please try booking again."
+            )))
         if last_tool and last_tool.get("tool") == "list_my_bookings":
+            if self.adversarial_readback and self.chained_readback:
+                return _Response(_Message(tool_calls=[_ToolCall(
+                    "payment-alpha", "get_payment_status", {"booking_code": "ALPHA-1330"})]))
+            if self.adversarial_readback:
+                return _Response(_Message(content=(
+                    "Sorry, your booking was not created. Please try booking again."
+                )))
+            if last_tool.get("lookup_status") == "unavailable":
+                receipt = last_tool.get("prior_create_receipt") or {}
+                ref = receipt.get("booking_code")
+                return _Response(_Message(content=(
+                    "I can't verify the booking details right now. "
+                    + (("The successful create receipt for " + ref + " still stands; ") if ref else "")
+                    + "I won't recreate it or claim it failed.")))
             rows = last_tool.get("bookings") or []
             if len(rows) > 1:
                 return _Response(_Message(content="Which booking should I cancel: " + ", ".join(r["booking_code"] for r in rows) + "?"))
@@ -193,6 +214,10 @@ class BlockingModelClient:
 
 class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        BlockingModelClient.adversarial_readback = False
+        BlockingModelClient.chained_readback = False
+        self.addCleanup(setattr, BlockingModelClient, "adversarial_readback", False)
+        self.addCleanup(setattr, BlockingModelClient, "chained_readback", False)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         plugin_root = Path(__file__).resolve().parents[1] / "plugins"
@@ -269,6 +294,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
 
         self.staff_calls = []
         self.saved_bookings = []
+        self.list_response_mode = "ok"
         def staff(path, payload, **_kwargs):
             self.staff_calls.append((path, dict(payload)))
             route = path.removeprefix("/staff/bot")
@@ -308,12 +334,22 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
                 row = {"booking_code": code, "check_in": payload.get("check_in", "2027-06-10"),
                        "check_out": payload.get("check_out", "2027-06-12"),
                        "guest_count": 1, "guest_name": payload.get("guest_name", "Casey"),
-                       "status": "pending", "payment_status": "unpaid"}
+                       "status": "pending", "payment_status": "unpaid",
+                       "phone": payload.get("phone"),
+                       "client_slug": payload.get("client_slug") or "wolfhouse-somo"}
                 self.saved_bookings[:] = [row]
                 return {"success": True, "write_performed": True, "booking_code": code,
                         "booking_id": code.lower() + "-id", "payment_status": "unpaid"}
             if route == "/bookings/by-phone":
-                return {"success": True, "count": len(self.saved_bookings), "bookings": list(self.saved_bookings)}
+                if self.list_response_mode == "malformed":
+                    return {"success": True, "count": 0}
+                if self.list_response_mode == "error":
+                    return {"success": False, "staff_api_status": "http_error", "status": 503,
+                            "error": "booking lookup failed: replica unavailable"}
+                rows = [row for row in self.saved_bookings
+                        if (not row.get("phone") or row.get("phone") == payload.get("phone"))
+                        and (row.get("client_slug") or "wolfhouse-somo") == (payload.get("client_slug") or "wolfhouse-somo")]
+                return {"success": True, "count": len(rows), "bookings": rows}
             if route == "/bookings/cancel-unpaid":
                 code = payload.get("booking_code")
                 if code == "CASEY-100":
@@ -404,6 +440,65 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([(path, body) for path, body in self.staff_calls
                               if path == "/staff/bot/booking-create-from-plan"]), 1,
                          self.staff_calls)
+
+        listed = await turn("Show me my booking.", "france-live-list-01")
+        self.assertIn("ALPHA-1330", listed["reply_text"], listed)
+        self.assertEqual(len([(path, body) for path, body in self.staff_calls
+                              if path == "/staff/bot/booking-create-from-plan"]), 1,
+                         self.staff_calls)
+        last_request = self.model_requests[-1]
+        list_tools = [json.loads(item["content"]) for item in last_request
+                      if item.get("role") == "tool" and "list_my_bookings" in item.get("content", "")]
+        self.assertTrue(list_tools, last_request)
+        self.assertEqual(list_tools[-1]["lookup_status"], "found")
+        self.assertEqual(list_tools[-1]["prior_create_receipt"]["booking_code"], "ALPHA-1330")
+
+        BlockingModelClient.adversarial_readback = True
+        self.saved_bookings.clear()
+        for mode, ident in (("ok", "france-live-list-empty"),
+                            ("malformed", "france-live-list-malformed"),
+                            ("error", "france-live-list-error")):
+            self.list_response_mode = mode
+            unavailable = await turn("Check my booking again.", ident)
+            self.assertIn("ALPHA-1330", unavailable["reply_text"], unavailable)
+            self.assertIn("created successfully earlier", unavailable["reply_text"], unavailable)
+            self.assertIn("can't verify its current details", unavailable["reply_text"], unavailable)
+            self.assertNotIn("not created", unavailable["reply_text"].lower(), unavailable)
+            self.assertEqual(len([(path, body) for path, body in self.staff_calls
+                                  if path == "/staff/bot/booking-create-from-plan"]), 1,
+                             self.staff_calls)
+
+        BlockingModelClient.chained_readback = True
+        for mode, ident in (("ok", "france-live-chain-empty"),
+                            ("malformed", "france-live-chain-malformed"),
+                            ("error", "france-live-chain-error")):
+            self.list_response_mode = mode
+            unavailable = await turn("Check my booking again.", ident)
+            self.assertIn("ALPHA-1330", unavailable["reply_text"], unavailable)
+            self.assertIn("created successfully earlier", unavailable["reply_text"], unavailable)
+            self.assertIn("can't verify its current details", unavailable["reply_text"], unavailable)
+            self.assertNotIn("not created", unavailable["reply_text"].lower(), unavailable)
+            final_request = self.model_requests[-1]
+            latest_user = max(index for index, item in enumerate(final_request)
+                              if item.get("role") == "user")
+            current_tools = [json.loads(item["content"])["tool"]
+                             for item in final_request[latest_user + 1:]
+                             if item.get("role") == "tool"]
+            self.assertEqual(current_tools,
+                             ["list_my_bookings", "get_payment_status"])
+            self.assertEqual(len([(path, body) for path, body in self.staff_calls
+                                  if path == "/staff/bot/booking-create-from-plan"]), 1,
+                             self.staff_calls)
+
+        self.list_response_mode = "ok"
+        wrong_owner = await crowsnest_guest_door.run_crowsnest_guest_turn(
+            runner=self.runner, phone="+" + "34" + "9" * 9, text="Show me my booking.",
+            message_id="france-live-list-wrong-owner", mirror=lambda **_kwargs: None,
+            timeout_sec=20)
+        self.assertTrue(wrong_owner["ok"], wrong_owner)
+        self.assertNotIn("ALPHA-1330", wrong_owner["reply_text"], wrong_owner)
+        self.assertIn("not created", wrong_owner["reply_text"].lower(), wrong_owner)
+
 
     async def test_new_simulator_session_accepts_mixed_accommodation_only_for_deposit_quote(self):
         """A reused simulator lane must reopen its ended DB row before quote ownership."""
@@ -509,7 +604,8 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.saved_bookings.clear()
         empty = await turn("Find the booking you just created.", "cancel-flow-08")
         self.assertNotIn("only quoted", empty["reply_text"].lower())
-        self.assertIn("can't find", empty["reply_text"].lower())
+        self.assertIn("created successfully earlier", empty["reply_text"].lower())
+        self.assertIn("can't verify its current details", empty["reply_text"].lower())
 
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None

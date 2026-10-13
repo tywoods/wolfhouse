@@ -1798,17 +1798,65 @@ def list_my_bookings(params, **kwargs):
     phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
     if phone:
         payload["phone"] = phone
-    data = _post_bot("/bookings/by-phone", payload)
-    bookings = data.get("bookings") if isinstance(data.get("bookings"), list) else []
+    data = _post_bot("/bookings/by-phone", {"phone": phone})
+    prior_receipt = None
+    try:
+        from wolfhouse.accepted_quote import current_create_receipt
+        prior_receipt = current_create_receipt()
+    except Exception:
+        prior_receipt = None
+    if not isinstance(data, dict) or data.get("success") is not True:
+        source = data if isinstance(data, dict) else {}
+        return _json_result({
+            "success": False, "tool": "list_my_bookings",
+            "lookup_status": "unavailable", "bookings": None,
+            "error": _safe_text(source.get("error") or "booking_lookup_unavailable"),
+            **({"status": source.get("status")} if source.get("status") is not None else {}),
+            **({"staff_api_status": source.get("staff_api_status")}
+               if source.get("staff_api_status") is not None else {}),
+            "prior_create_receipt": prior_receipt,
+            "do_not_retract_successful_create": True,
+            "do_not_retry_create": True,
+            "booking_status_unknown": True,
+            "staff_review_needed": True,
+            "guest_safe_next_action": (
+                "I can’t verify your booking details right now. I won’t recreate or contradict "
+                "a booking that was already confirmed; I’ll ask the team to check it."
+            ),
+        })
+    if "bookings" not in data or not isinstance(data.get("bookings"), list):
+        return _json_result({
+            "success": False, "tool": "list_my_bookings",
+            "lookup_status": "unavailable", "bookings": None,
+            "error": "booking_lookup_malformed_response",
+            "prior_create_receipt": prior_receipt,
+            "do_not_retract_successful_create": True,
+            "do_not_retry_create": True,
+            "booking_status_unknown": True,
+            "staff_review_needed": True,
+            "guest_safe_next_action": (
+                "I can’t verify your booking details right now. I won’t recreate or contradict "
+                "a booking that was already confirmed; I’ll ask the team to check it."
+            ),
+        })
+    bookings = data["bookings"]
+    empty_after_create = not bookings and bool(prior_receipt)
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": True,
         "tool": "list_my_bookings",
-        "count": data.get("count") if data.get("count") is not None else len(bookings),
-        # Each booking: {booking_code, check_in, check_out, guest_count, guest_name, status, payment_status}.
-        # If more than one, list them (code + dates) and ask which before changing anything.
+        "lookup_status": "found" if bookings else "empty",
+        "count": len(bookings),
         "bookings": bookings,
-        "staff_review_needed": False,
-        "do_not_escalate": True,
+        "prior_create_receipt": prior_receipt,
+        "do_not_retract_successful_create": True,
+        "do_not_retry_create": True,
+        "booking_status_unknown": not bool(bookings),
+        "staff_review_needed": empty_after_create,
+        "do_not_escalate": not empty_after_create,
+        **({"guest_safe_next_action": (
+            "I can’t locate the booking details yet, but the earlier successful create receipt "
+            "still stands. I won’t recreate it; I’ll ask the team to verify the booking."
+        )} if empty_after_create else {}),
     })
 
 

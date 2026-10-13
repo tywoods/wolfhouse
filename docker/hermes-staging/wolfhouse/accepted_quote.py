@@ -770,6 +770,22 @@ def dispatch_recovery(prepared):
     return _transaction(inspect)
 
 
+def current_create_receipt():
+    """Return only the current owner scope's completed create receipt, if any.
+
+    Readback tools use this to avoid retracting a Staff write that the same
+    conversation already completed. The receipt remains capability/SessionDB
+    scoped; callers cannot supply an identity or inspect another owner.
+    """
+    def inspect(state, ingress):
+        receipt = state.get('completion') or state.get('receipt')
+        return deepcopy(receipt) if isinstance(receipt, dict) else None
+    try:
+        return _transaction(inspect)
+    except QuoteBoundaryError:
+        return None
+
+
 def _contact_transition(state, action, *, identity, outcome=None):
     """Pure state machine for the owner-owned post-booking contact substep."""
     receipt = state.get('receipt')
@@ -893,11 +909,45 @@ def dispatch_create(prepared, transport):
 
 
 def finalize_offer_response(result):
-    """Own the actual returned question; quote tool success is not presentation."""
+    """Own quote presentation and successful-create truth in the returned reply."""
     if (not isinstance(result, dict) or result.get('completed') is not True
             or result.get('failed') or result.get('interrupted') or result.get('error')):
         return result
     def present(state, ingress):
+        messages = result.get('messages')
+        receipt = state.get('completion') or state.get('receipt')
+        if isinstance(messages, list) and isinstance(receipt, dict):
+            last_user = max((index for index, item in enumerate(messages)
+                             if isinstance(item, dict) and item.get('role') == 'user'),
+                            default=-1)
+            current_tools = [item for item in messages[last_user + 1:]
+                             if isinstance(item, dict) and item.get('role') == 'tool']
+            readback = {}
+            for tool_message in reversed(current_tools):
+                try:
+                    candidate = json.loads(tool_message.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(candidate, dict) and candidate.get('tool') == 'list_my_bookings':
+                    readback = candidate
+                    break
+            prior = readback.get('prior_create_receipt') if isinstance(readback, dict) else None
+            reference = receipt.get('booking_code') or receipt.get('booking_id')
+            prior_reference = ((prior.get('booking_code') or prior.get('booking_id'))
+                               if isinstance(prior, dict) else None)
+            lookup_status = readback.get('lookup_status') if isinstance(readback, dict) else None
+            if (readback.get('tool') == 'list_my_bookings'
+                    and lookup_status in ('empty', 'unavailable')
+                    and reference and prior_reference == reference):
+                text = (f"Booking {reference} was created successfully earlier. "
+                        "I can't verify its current details right now.")
+                output = deepcopy(result)
+                output['final_response'] = text
+                output_messages = output.get('messages')
+                if (isinstance(output_messages, list) and output_messages
+                        and output_messages[-1].get('role') == 'assistant'):
+                    output_messages[-1]['content'] = text
+                return output
         offer = state.get('checked_offer')
         if (state['status'] != 'offered' or not offer or not state.get('quote')
                 or state.get('offer_message') != ingress['MESSAGE_ID']):
