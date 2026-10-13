@@ -420,7 +420,7 @@ def _accepts(raw, plan):
 def _accepts_presented_booking_confirmation(raw):
     """Recognize a bounded create confirmation only at the checked-offer seam."""
     return bool(re.fullmatch(
-        r'\s*yes,?\s+(?:please\s+)?(?:create|book)\s+(?:this|the)\s+booking(?:\s+now)?[.!]?\s*',
+        r'\s*yes,?\s+(?:please\s+)?(?:create|book)\s+(?:(?:this|the)\s+booking|it)(?:\s+now)?[.!]?\s*',
         raw, re.I))
 
 
