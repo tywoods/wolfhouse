@@ -423,6 +423,26 @@ class WolfhouseStagingBookingCapabilityTests(unittest.TestCase):
             self.assertTrue(any(needle in w for w in warnings), (path, warnings))
             self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
 
+    def test_admitted_capability_allows_exact_owned_cancel_route_only(self):
+        cap = self._evaluate()
+        norm, body, warnings = guard_bot_path_and_payload(
+            "/staff/bot/bookings/cancel-unpaid",
+            {"booking_code": "WH-OWNED", "phone": "+34999999999", "allow_writes": True},
+            allow_writes=False, wolfhouse_capability=cap,
+            synthetic_identity="+999000000000001",
+        )
+        self.assertEqual(norm, "/staff/bot/bookings/cancel-unpaid")
+        self.assertEqual(body["phone"], "+999000000000001")
+        self.assertNotIn("allow_writes", body)
+        self.assertIn("allowed_wolfhouse_staging_owned_unpaid_cancel", warnings)
+        self.assertFalse(is_simulate_write_blocked(warnings))
+        for path in ("/staff/bot/bookings/cancel-unpaid/extra", "/staff/bot/bookings/cancel"):
+            _norm, _body, denied = guard_bot_path_and_payload(
+                path, {"booking_code": "WH-OWNED"}, allow_writes=False,
+                wolfhouse_capability=cap, synthetic_identity="+999000000000001",
+            )
+            self.assertTrue(is_simulate_write_blocked(denied), (path, denied))
+
     def test_exact_france_internal_staff_origin_is_admitted(self):
         cap = self._evaluate(env={
             "WOLFHOUSE_STAFF_API_BASE_URL": "http://staff-staging.lunafrontdesk.com:3036",

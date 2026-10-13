@@ -10,6 +10,11 @@ const {
   GUEST_CANCEL_BOOKING_UPDATE_SQL,
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
+const {
+  loadActiveGuestBookings,
+  loadCancellationGuestBookings,
+  mapCancellationGuestBookingRows,
+} = require('./lib/luna-guest-booking-disambiguation');
 
 function eligible(overrides = {}) {
   return {
@@ -71,6 +76,31 @@ assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /pe\.booking_id=b\.id OR EXISTS[
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /checkout\.session\.async_payment_succeeded/i, 'write guard blocks async Stripe success');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /pe\.booking_id=b\.id OR EXISTS[\s\S]*ep\.id=pe\.payment_id/i, 'write guard includes indirect payment-event ownership');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /amount_paid_cents/i, 'write itself must recheck booking aggregates');
+
+// Discovery uses a separate tenant-scoped cancellation query; service callers
+// retain the existing paid-only active-booking semantics.
+(async () => {
+  const calls = [];
+  const pg = { query: async (sql, params) => { calls.push({ sql, params }); return { rows: [{
+    booking_id: 'booking-1', booking_code: 'WH-UNPAID', check_in: '2026-11-01',
+    check_out: '2026-11-08', status: 'payment_pending', payment_status: 'waiting_payment',
+    guest_count: 1, guest_name: 'Test Guest',
+  }] }; } };
+  const rows = await loadCancellationGuestBookings(pg, { phone: '+34 600 000 001', clientSlug: 'wolfhouse-somo' });
+  assert.equal(rows[0].booking_code, 'WH-UNPAID');
+  assert.match(calls[0].sql, /JOIN clients/i);
+  assert.match(calls[0].sql, /c\.slug\s*=\s*\$2/i, 'lookup is trusted-tenant scoped');
+  assert.match(calls[0].sql, /'waiting_payment','unpaid','pending'/i);
+  assert.deepEqual(calls[0].params, ['%600000001%', 'wolfhouse-somo']);
+  assert.deepEqual(mapCancellationGuestBookingRows(rows), [{
+    booking_code: 'WH-UNPAID', check_in: '2026-11-01', check_out: '2026-11-08',
+    guest_count: 1, guest_name: 'Test Guest', status: 'payment_pending', payment_status: 'waiting_payment',
+  }], 'actual list_my_bookings JSON retains cancellation row shape');
+  calls.length = 0;
+  await loadActiveGuestBookings(pg, { phone: '+34 600 000 001' });
+  assert.match(calls[0].sql, /'deposit_paid','paid','full_paid','balance_due'/);
+  assert.doesNotMatch(calls[0].sql, /waiting_payment/, 'legacy active lookup stays paid-only');
+})().catch((err) => { console.error(err); process.exitCode = 1; });
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL, /payments[\s\S]*FOR UPDATE/i);
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_GUEST_ROWS_LOCK_SQL, /booking_guests[\s\S]*FOR UPDATE/i);
 assert.match(require('./lib/guest-unpaid-cancellation').GUEST_CANCEL_PAYMENT_EVENT_ROWS_LOCK_SQL, /payment_events[\s\S]*FOR UPDATE/i);

@@ -9,6 +9,8 @@
 
 const RELEVANT_STATUSES_SQL = `'confirmed','hold'`;
 const RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due'`;
+const CANCELLATION_RELEVANT_STATUSES_SQL = `'confirmed','hold','payment_pending'`;
+const CANCELLATION_RELEVANT_PAYMENT_SQL = `'deposit_paid','paid','full_paid','balance_due','waiting_payment','unpaid','pending'`;
 
 function trimStr(v) {
   if (v == null) return '';
@@ -45,6 +47,40 @@ async function loadActiveGuestBookings(pg, opts) {
   )).rows;
 
   return rows;
+}
+
+/** Cancellation discovery includes saved unpaid bookings but remains bound to
+ * both the trusted tenant and sender. Eligibility stays at the write boundary. */
+async function loadCancellationGuestBookings(pg, opts) {
+  const o = opts || {};
+  if (!pg || typeof pg.query !== 'function') return [];
+  const phone = trimStr(o.phone).replace(/\D/g, '');
+  const clientSlug = trimStr(o.clientSlug);
+  if (!phone || !clientSlug) return [];
+  const suffix = phone.slice(-9);
+  return (await pg.query(
+    `SELECT b.id::text AS booking_id,
+            b.booking_code, b.check_in::date AS check_in, b.check_out::date AS check_out,
+            b.status::text AS status, b.payment_status::text AS payment_status,
+            b.guest_count, b.guest_name
+       FROM bookings b
+       JOIN clients c ON c.id = b.client_id
+      WHERE b.phone LIKE $1
+        AND c.slug = $2
+        AND b.status::text IN (${CANCELLATION_RELEVANT_STATUSES_SQL})
+        AND b.payment_status::text IN (${CANCELLATION_RELEVANT_PAYMENT_SQL})
+      ORDER BY b.check_in ASC
+      LIMIT 5`,
+    [`%${suffix}%`, clientSlug],
+  )).rows;
+}
+
+function mapCancellationGuestBookingRows(rows) {
+  return (rows || []).map((r) => ({
+    booking_code: r.booking_code, check_in: r.check_in, check_out: r.check_out,
+    guest_count: r.guest_count, guest_name: r.guest_name,
+    status: r.status, payment_status: r.payment_status,
+  }));
 }
 
 /**
@@ -166,6 +202,8 @@ function detectServiceTypeFromText(text) {
 
 module.exports = {
   loadActiveGuestBookings,
+  loadCancellationGuestBookings,
+  mapCancellationGuestBookingRows,
   needsBookingDisambiguation,
   buildBookingChoiceReply,
   parseBookingSelectionFromMessage,
