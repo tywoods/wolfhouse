@@ -68,13 +68,336 @@ class FirstYesOwnerTests(unittest.TestCase):
                            'messages': [{'role': 'assistant', 'content': 'model says reserved'}]})
         self.assertNotIn('reserved', result['final_response'])
         self.assertIn('Alex', result['final_response'])
-        self.assertIn('M1', result['final_response'])
+        self.assertNotIn('M1', result['final_response'])
+        self.assertIn('Alex and Sam: two beds in the same mixed room.', result['final_response'])
         self.assertIn('700.00 EUR', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
         self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
         self.assertEqual(result['messages'][-1]['content'], result['final_response'])
         self.turn('contextual-yes', 'Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+
+    def _checked_offer(self, plan, beds):
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=20000, deposit_required_cents=10000,
+                     payment_link_amount_cents=20000, currency='EUR', package_code=plan['package_code'])
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
+            payment_choice=plan['payment_choice'], availability={**plan, 'status': 'checked',
+            'selected_bed_codes': [bed['bed_code'] for bed in beds]}, room_rows=beds))], cwd=root))
+        return dict(success=True, total_cents=20000, deposit_required_cents=10000,
+                    payment_choice_needed=False, currency='EUR', **checked)
+
+    def test_requote_after_yes_uses_plain_lines_and_does_not_ask_again(self):
+        plan = dict(check_in='2026-10-19', check_out='2026-10-22', guest_count=1,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}], payment_choice='deposit')
+        beds = [dict(bed_code='DORM-12', room_code='ROOM-9', gender_strategy='mixed')]
+        response = self._checked_offer(plan, beds)
+        self.agent.session_id = 'plain-requote'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('plain-q', 'Quote this please')
+        ledger.record_quote(plan, response)
+        first = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        text = first['final_response']
+        self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
+        self.assertNotIn('1 guests', text)
+        self.assertNotIn('2026-10-19', text)
+        self.assertIn('Alex: a bed in the mixed room.', text)
+        self.assertNotIn('DORM-12', text)
+        self.assertNotIn('ROOM-9', text)
+        self.assertTrue(text.endswith('Shall I create this booking?'))
+
+    def packet_offer(self):
+        plan = dict(
+            check_in='2027-05-10', check_out='2027-05-12', guest_count=1,
+            package_code='package_none', room_type='shared', room_preference='shared',
+            group_gender='male', guests=[{'name': 'Alex Test', 'explicit_gender': 'male'}],
+            payment_choice='deposit', add_ons=[{'code': 'meals', 'quantity': 1}],
+            selected_bed_codes=['R4-B1'])
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=9500, deposit_required_cents=9500,
+                     payment_link_amount_cents=9500, currency='EUR', package_code='package_none')
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
+            payment_choice='deposit', add_ons=plan['add_ons'],
+            availability={**plan, 'status': 'checked',
+                          'allocation_reason': 'cram_gender_eligible_rooms'},
+            room_rows=[dict(bed_code='R4-B1', room_code='R4',
+                            gender_strategy='male preferred')]))], cwd=root))
+        response = dict(success=True, total_cents=9500, deposit_required_cents=9500,
+                        payment_choice_needed=False, currency='EUR', **checked)
+        exact = ('Yes, I accept this exact quote for 10 to 12 May 2027, shared male room, '
+                 'total and deposit 95 euros. Please create the TEST booking and payment link.')
+        return plan, response, exact
+
+    def owner_state(self):
+        rows = self.db._conn.execute(
+            "SELECT value FROM state_meta WHERE key LIKE 'wolfhouse.accepted_quote.v1:%'"
+        ).fetchall()
+        return next(json.loads(row[0]) for row in rows
+                    if json.loads(row[0]).get('scope', {}).get('ID') == self.agent.session_id)
+
+    def present_packet_offer(self):
+        plan, response, exact = self.packet_offer()
+        ledger.record_quote(plan, response)
+        result = ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        state = self.owner_state()
+        self.assertIsInstance(result.get('final_response'), str)
+        self.assertEqual(state.get('presented_offer'), state.get('checked_offer'), state)
+        return plan, response, exact, result
+
+    def test_complete_packet_consent_requires_matching_presented_offer(self):
+        _plan, response, exact, _result = self.present_packet_offer()
+        self.assertTrue(ledger._accepts_complete_presented_offer(
+            exact, response['offer_revision']), response['offer_revision'])
+        self.turn('packet-consent', exact)
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['selected_bed_codes'], ['R4-B1'])
+        self.assertEqual(prepared['guests'],
+                         [{'name': 'Alex Test', 'explicit_gender': 'male'}])
+
+    def test_complete_consent_rejects_flipped_mixed_allocation(self):
+        _plan, response, exact = self.packet_offer()
+        mixed = deepcopy(response['offer_revision'])
+        mixed.update(room_preference='mixed', group_gender='mixed',
+                     allocation_reason='cram_flipped_mixed_rooms', resolved_room_claim=None)
+        self.assertFalse(ledger._accepts_complete_presented_offer(exact, mixed), mixed)
+
+    def test_neutral_offer_treats_empty_room_hints_as_absent_at_create(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('neutral-a', 'yes')
+        prepared = ledger.prepare_create({})
+        self.assertIsNone(prepared.get('room_name_hints'), prepared)
+
+    def test_capture_schema_allows_explicit_gender_for_named_traveler(self):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        item = registry.tools['capture_booking_names']['schema']['parameters']['properties']['guests']['items']
+        self.assertFalse(item['additionalProperties'])
+        self.assertEqual(item['properties']['explicit_gender']['enum'], ['male', 'female'])
+
+    def test_partial_named_eligibility_keeps_offer_fingerprint_at_commit(self):
+        root = Path(__file__).resolve().parents[3]
+        script = r'''
+const svc = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const guests = [{name:'Alex'}, {name:'Sam', explicit_gender:'female'}];
+const beds = [
+  {bed_code:'M1', room_code:'M', gender_strategy:'mixed'},
+  {bed_code:'M2', room_code:'M', gender_strategy:'mixed'},
+];
+const quote = {success:true,total_cents:20000,deposit_required_cents:10000,
+  payment_link_amount_cents:10000,currency:'EUR',package_code:'package_none'};
+const availability = {status:'checked',check_in:'2027-06-01',check_out:'2027-06-03',
+  guest_count:2,selected_bed_codes:['M1','M2'],room_type:'shared',room_preference:'mixed'};
+const accepted = svc.buildCheckedWolfhousePreviewOffer({client_slug:'wolfhouse-somo',quote,
+  availability,guests,payment_choice:'deposit',room_rows:beds}).offer_revision;
+const current = svc.currentWolfhouseOfferFromCreateCommand({clientSlug:'wolfhouse-somo',quote,
+  assignedBedCodes:['M1','M2'],availabilityChecked:true,checkIn:'2027-06-01',checkOut:'2027-06-03',
+  quoteGuestCount:2,roomType:'shared',roomPreference:'mixed',paymentChoice:'deposit',
+  effectivePackageCode:'package_none',authoritativeRoomRows:beds,
+  guestsNorm:{guests:[{guest_name:'Alex'},{guest_name:'Sam'}]},
+  transportBody:{room_name_hints:accepted.room_name_hints,accepted_offer:accepted}});
+console.log(JSON.stringify({accepted,current}));
+'''
+        result = json.loads(subprocess.check_output(['node', '-e', script], cwd=root))
+        self.assertEqual(result['accepted']['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
+        self.assertEqual(result['current']['room_name_hints'],
+                         result['accepted']['room_name_hints'])
+        self.assertEqual(result['current']['offer_fingerprint'],
+                         result['accepted']['offer_fingerprint'])
+
+    def test_checked_offer_freezes_explicit_person_eligibility_and_room_resolution(self):
+        plan, _response, _exact = self.packet_offer()
+        plan['guests'] = [{'name': 'Alex Test', 'explicit_gender': 'male'}]
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=9500, deposit_required_cents=9500,
+                     payment_link_amount_cents=9500, currency='EUR', package_code='package_none')
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
+            payment_choice='deposit', add_ons=plan['add_ons'],
+            availability={**plan, 'status': 'checked', 'allocation_reason': 'gendered_fit'},
+            room_rows=[dict(bed_code='R4-B1', room_code='R4',
+                            gender_strategy='male preferred')]))], cwd=root))
+        offer = checked['offer_revision']
+        self.assertEqual(offer.get('room_name_hints'),
+                         [{'name': 'Alex Test', 'explicit_gender': 'male'}])
+        self.assertEqual(offer.get('resolved_room_claim'), 'male_shared')
+        self.turn('eligibility-q', 'Quote this please')
+        ledger.record_quote(plan, dict(success=True, total_cents=9500,
+            deposit_required_cents=9500, payment_choice_needed=False,
+            currency='EUR', **checked))
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('eligibility-a', self.packet_offer()[2])
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared.get('room_name_hints'),
+                         [{'name': 'Alex Test', 'explicit_gender': 'male'}])
+
+    def test_named_price_consent_accepts_only_matching_frozen_guest(self):
+        plan, response, _exact = self.packet_offer()
+        plan['guests'] = [{'name': 'Liam Carter', 'explicit_gender': 'male'}]
+        response['offer_revision']['guest_bed_assignments'][0]['guest_name'] = 'liam carter'
+        self.turn('liam-q', 'Quote this please')
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        wording = "Yes, I accept that price, please book it under Liam Carter. I'll pay the deposit later."
+        self.turn('liam-a', wording)
+        self.assertEqual(ledger.prepare_create({})['guests'][0]['name'], 'Liam Carter')
+
+        self.turn('liam-q2', 'Quote this please')
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('liam-a2', wording.replace('Liam Carter', 'Alex Other'))
+        with self.assertRaisesRegex(ledger.QuoteBoundaryError, 'quote_owner_acceptance_required'):
+            ledger.prepare_create({})
+
+    def test_packet_consent_rejects_contradictory_terms(self):
+        replacements = (
+            ('10 to 12 May 2027', '11 to 12 May 2027'),
+            ('95 euros', '96 euros'),
+            ('shared male room', 'shared female room'),
+            ('95 euros', '95 dollars'),
+        )
+        for index, (old, new) in enumerate(replacements):
+            with self.subTest(term=new):
+                if index:
+                    self.agent.session_id = f'contradiction-{index}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    self.turn(f'q-{index}', 'Quote this please')
+                _plan, _response, exact, _result = self.present_packet_offer()
+                self.turn(f'contradiction-{index}', exact.replace(old, new))
+                with self.assertRaises(ledger.QuoteBoundaryError):
+                    ledger.prepare_create({})
+
+    def test_packet_consent_rejects_missing_presentation(self):
+        plan, response, exact = self.packet_offer()
+        ledger.record_quote(plan, response)
+        self.turn('packet-without-presentation', exact)
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def test_packet_consent_rejects_foreign_owner_and_replay(self):
+        _plan, _response, exact, _result = self.present_packet_offer()
+        self.turn('packet-consent', exact)
+        ledger.prepare_create({})
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            self.turn('packet-consent', exact)
+        self.db.create_session('foreign-packet', source='whatsapp')
+        self.agent.session_id = 'foreign-packet'
+        self.turn('foreign-packet-consent', exact)
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+
+    def test_packet_consent_closed_owner_cannot_prepare(self):
+        _plan, _response, exact, _result = self.present_packet_offer()
+        self.turn('packet-consent', exact)
+        ledger.close_turn()
+
+    def test_unchanged_offer_keeps_consent_and_revised_offer_asks_again(self):
+        plan = dict(check_in='2026-10-19', check_out='2026-10-22', guest_count=1,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}], payment_choice='deposit')
+        beds = [dict(bed_code='DORM-12', room_code='ROOM-9', gender_strategy='mixed')]
+        response = self._checked_offer(plan, beds)
+        self.agent.session_id = 'revised-consent'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('revised-q', 'Quote this please')
+        ledger.record_quote(plan, response)
+        first = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        self.assertTrue(first['final_response'].endswith('Shall I create this booking?'))
+        self.turn('revised-yes', 'yes')
+        ledger.record_quote({}, {**response, 'reply_draft': 'cosmetic only'})
+        unchanged = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'kept draft',
+            'messages': [{'role': 'assistant', 'content': 'kept draft'}],
+        })
+        self.assertEqual(unchanged['final_response'], 'kept draft')
+        self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+        changed = deepcopy(response)
+        changed['total_cents'] += 1000
+        changed['offer_revision']['total_cents'] += 1000
+        ledger.record_quote(plan, changed)
+        again = ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'draft',
+            'messages': [{'role': 'assistant', 'content': 'draft'}],
+        })
+        self.assertIn('210.00 EUR', again['final_response'])
+        self.assertTrue(again['final_response'].endswith('Shall I create this updated booking?'))
+        self.assertNotIn('DORM-12', again['final_response'])
+        with self.assertRaises(ledger.QuoteBoundaryError):
+            ledger.prepare_create({})
+        self.turn('revised-yes-2', 'yes')
+        self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+
+    def test_same_room_and_split_room_copy_differ_without_codes(self):
+        plan = dict(check_in='2026-11-01', check_out='2026-11-08', guest_count=2,
+                    package_code='package_none', room_type='shared', room_preference='mixed',
+                    guests=[{'name': 'Alex'}, {'name': 'Sam'}], payment_choice='full')
+        same_beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                     dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        split_beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                      dict(bed_code='N1', room_code='N', gender_strategy='mixed')]
+        texts = {}
+        for label, beds in (('same', same_beds), ('split', split_beds)):
+            self.agent.session_id = 'rooms-' + label
+            self.db.create_session(self.agent.session_id, source='whatsapp')
+            self.turn('rooms-q-' + label, 'Quote this please')
+            ledger.record_quote(plan, self._checked_offer(plan, beds))
+            shown = ledger.finalize_offer_response({
+                'completed': True, 'final_response': 'draft',
+                'messages': [{'role': 'assistant', 'content': 'draft'}],
+            })
+            texts[label] = shown['final_response']
+            self.assertNotIn('M1', texts[label])
+            self.assertNotIn('N1', texts[label])
+            self.assertNotIn('room M', texts[label])
+            self.assertNotIn('room N', texts[label])
+        self.assertIn('Alex and Sam: two beds in the same mixed room.', texts['same'])
+        self.assertIn('Alex and Sam: beds in two separate mixed rooms.', texts['split'])
+        self.assertNotEqual(texts['same'], texts['split'])
+
+    def test_preview_tool_shows_room_type_includes_line(self):
+        root = Path(__file__).resolve().parents[3]
+        script = """
+const { computePackagePricePreview } = require('./scripts/lib/booking-guests');
+const { loadConfig } = require('./scripts/lib/wolfhouse-quote-calculator');
+const input = JSON.parse(process.argv[1]);
+console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
+"""
+        for room, expected in (
+            ('shared', 'Includes: 7 nights in a dorm bed, T-shirt'),
+            ('private', 'Includes: 7 nights in a private room, T-shirt'),
+            ('double', 'Includes: 7 nights in a double room, T-shirt'),
+        ):
+            preview = json.loads(subprocess.check_output(['node', '-e', script, json.dumps({
+                'client_slug': 'wolfhouse-somo', 'check_in': '2027-07-01', 'check_out': '2027-07-08',
+                'guest_count': 2, 'room_type': room,
+            })], cwd=root))
+            with patch.object(plugin, '_post_bot', return_value=preview):
+                visible = json.loads(plugin.preview_package_prices({
+                    'check_in': '2027-07-01', 'check_out': '2027-07-08', 'guest_count': 2,
+                    'room_type': room,
+                }))
+            self.assertEqual(visible['malibu']['includes_line'], expected)
+            self.assertEqual(visible['packages']['malibu']['includes_line'], expected)
+            self.assertEqual(visible['malibu']['total_cents'], preview['packages']['malibu']['total_cents'])
+            self.assertEqual(visible['malibu']['inclusions'], preview['packages']['malibu']['inclusions'])
+            self.assertNotIn('dorm', visible['malibu']['includes_line']) if room != 'shared' else None
 
     def test_incomplete_checked_responses_never_present_accept_ready_question(self):
         mutations = [
@@ -264,6 +587,131 @@ class FirstYesOwnerTests(unittest.TestCase):
             self.assertTrue(accepted['booking_result']['post_booking_email']['saved'])
             self.assertFalse(accepted['booking_result']['post_booking_email']['sent'])
             self.assertEqual(accepted['booking_result']['post_booking_email']['outcome'], 'saved')
+
+    def test_capture_to_registered_create_preserves_explicit_person_eligibility(self):
+        from wolfhouse import booking_names
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plan, response, exact = self.packet_offer()
+        quote_params = {key: deepcopy(value) for key, value in plan.items() if key != 'guests'}
+        calls = []
+        def staff(path, body):
+            calls.append((path, deepcopy(body)))
+            if path == '/booking-preview': return deepcopy(response)
+            if path == '/availability-check':
+                return {**deepcopy(response['availability']), 'success': True,
+                        'has_enough_beds': True,
+                        'allocation_reason': 'cram_gender_eligible_rooms',
+                        'available_beds': [{'bed_code': 'R4-B1', 'room_code': 'R4',
+                                            'room_type': 'male_only',
+                                            'gender_strategy': 'male preferred'}]}
+            if path.startswith('/payments/') and path.endswith('/create-stripe-link'):
+                return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/alex'}
+            self.assertEqual(path, '/booking-create-from-plan')
+            self.assertEqual(body.get('room_name_hints'),
+                             [{'name': 'Alex Test', 'explicit_gender': 'male'}])
+            return {'success': True, 'write_performed': True, 'booking_id': 'alex-booking',
+                    'booking_code': 'ALEX-1', 'payment_id': 'alex-payment'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            plugin.register(registry)
+            agent_token = booking_names._agent.set(self.agent)
+            self.addCleanup(booking_names._agent.reset, agent_token)
+            booking_names.begin_turn(session_id=self.agent.session_id, scope=plugin._booking_name_scope())
+            captured = json.loads(registry.tools['capture_booking_names']['handler']({
+                'guest_count': 1,
+                'guests': [{'name': 'Alex Test', 'explicit_gender': 'male'}],
+            }))
+            self.assertTrue(captured['success'], captured)
+            quoted = json.loads(registry.tools['quote_booking']['handler'](quote_params))
+            self.assertTrue(quoted['success'])
+            ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+            self.turn('alex-a', exact)
+            created = json.loads(registry.tools['create_booking_from_plan']['handler']({}))
+            self.assertTrue(created['success'], {'created': created, 'calls': calls})
+            self.assertEqual(created['booking_code'], 'ALEX-1')
+            creates = [body for path, body in calls if path == '/booking-create-from-plan']
+            self.assertEqual(len(creates), 1)
+            self.assertEqual(creates[0]['guests'], [{'name': 'Alex Test'}])
+            self.assertEqual(creates[0]['room_name_hints'],
+                             [{'name': 'Alex Test', 'explicit_gender': 'male'}])
+
+    def _run_sparse_registered_create(self, room_rows, available_beds):
+        from wolfhouse import booking_names
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        guests = [{'name': 'Alex'}, {'name': 'Sam', 'explicit_gender': 'female'}]
+        plan = {**self.plan, 'guests': guests, 'selected_bed_codes': ['M1', 'M2']}
+        root = Path(__file__).resolve().parents[3]
+        source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
+        quote = dict(success=True, total_cents=70000, deposit_required_cents=20000,
+                     payment_link_amount_cents=70000, currency='EUR', package_code='package_none')
+        checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            client_slug='wolfhouse-somo', quote=quote, guests=guests, payment_choice='full',
+            availability={**plan, 'status': 'checked'}, room_rows=room_rows))], cwd=root))
+        response = dict(success=True, total_cents=70000, deposit_required_cents=20000,
+                        payment_choice_needed=False, currency='EUR', **checked)
+        quote_params = {key: deepcopy(value) for key, value in plan.items() if key != 'guests'}
+        calls = []
+        def staff(path, body):
+            calls.append((path, deepcopy(body)))
+            if path == '/booking-preview': return deepcopy(response)
+            if path == '/availability-check':
+                return {**deepcopy(response['availability']), 'success': True,
+                        'has_enough_beds': True, 'available_beds': deepcopy(available_beds)}
+            if path.startswith('/payments/') and path.endswith('/create-stripe-link'):
+                return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/sparse'}
+            if path == '/bookings/update-contact':
+                return {'success': True, 'write_performed': True, 'email_sent': False}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True, 'booking_id': 'sparse-booking',
+                    'booking_code': 'SPARSE-1', 'payment_id': 'sparse-payment'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            plugin.register(registry)
+            agent_token = booking_names._agent.set(self.agent)
+            self.addCleanup(booking_names._agent.reset, agent_token)
+            booking_names.begin_turn(session_id=self.agent.session_id, scope=plugin._booking_name_scope())
+            captured = json.loads(registry.tools['capture_booking_names']['handler']({
+                'guest_count': 2, 'guests': guests}))
+            self.assertTrue(captured['success'], captured)
+            quoted = json.loads(registry.tools['quote_booking']['handler'](quote_params))
+            self.assertTrue(quoted['success'], quoted)
+            ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+            self.turn('sparse-a', 'yes')
+            created = json.loads(registry.tools['create_booking_from_plan']['handler']({}))
+        return created, calls
+
+    def test_sparse_explicit_eligibility_reaches_registered_create_on_mixed_beds(self):
+        room_rows = [dict(bed_code=code, room_code='M', gender_strategy='mixed')
+                     for code in ('M1', 'M2')]
+        available = [dict(bed_code=code, room_code='M', room_type='mixed',
+                          gender_strategy='mixed') for code in ('M1', 'M2')]
+        created, calls = self._run_sparse_registered_create(room_rows, available)
+        self.assertTrue(created['success'], {'created': created, 'calls': calls})
+        creates = [body for path, body in calls if path == '/booking-create-from-plan']
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(creates[0]['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
+        self.assertEqual(creates[0]['guests'], [{'name': 'Alex'}, {'name': 'Sam'}])
+
+    def test_sparse_unknown_person_cannot_use_gendered_bed(self):
+        room_rows = [dict(bed_code='M1', room_code='A', gender_strategy='male preferred'),
+                     dict(bed_code='M2', room_code='S', gender_strategy='female preferred')]
+        available = [dict(bed_code='M1', room_code='A', room_type='male_only',
+                          gender_strategy='male preferred'),
+                     dict(bed_code='M2', room_code='S', room_type='female_only',
+                          gender_strategy='female preferred')]
+        created, calls = self._run_sparse_registered_create(room_rows, available)
+        self.assertFalse(created['success'], created)
+        self.assertEqual(created['error'], 'accepted_bed_selection_revalidation_required')
+        self.assertEqual([body for path, body in calls if path == '/booking-create-from-plan'], [])
+        self.assertEqual(created['accepted_setup']['room_name_hints'],
+                         [{'name': 'Sam', 'explicit_gender': 'female'}])
 
     def test_post_booking_email_save_outcomes_and_no_write_fences(self):
         payload = {'client_slug': 'wolfhouse-somo', 'email': 'alex@example.test'}

@@ -677,6 +677,21 @@ function normalizeRoomArrangement(raw) {
     .sort((a, b) => a.bed_code.localeCompare(b.bed_code));
 }
 
+function resolvedSharedRoomClaim(availability, roomArrangement) {
+  const reason = String((availability && availability.allocation_reason) || '').trim().toLowerCase();
+  const rows = Array.isArray(roomArrangement) ? roomArrangement : [];
+  if ((availability && availability.room_type) !== 'shared'
+    || (availability && availability.group_gender) !== 'male'
+    || !reason
+    || reason.includes('flipped')
+    || reason.includes('mixed')
+    || !rows.length
+    || rows.some((row) => !String((row && row.gender_strategy) || '').toLowerCase().startsWith('male'))) {
+    return null;
+  }
+  return 'male_shared';
+}
+
 function normalizePaymentDistribution(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.map((row) => ({
@@ -718,6 +733,14 @@ function wolfhouseOfferPayload(offer) {
     room_type: src.room_type || null,
     room_preference: src.room_preference || null,
     gender_preference: src.gender_preference || null,
+    resolved_room_claim: src.resolved_room_claim || null,
+    room_name_hints: Array.isArray(src.room_name_hints)
+      ? src.room_name_hints.map((row) => ({
+        name: String((row && row.name) || '').trim(),
+        explicit_gender: ['male', 'female'].includes(String((row && row.explicit_gender) || '').toLowerCase())
+          ? String(row.explicit_gender).toLowerCase() : null,
+      })).filter((row) => row.name && row.explicit_gender)
+      : [],
     package_code: src.package_code || null,
     guest_packages: normalizeOfferGuestPackages(src.guest_packages),
     add_ons: normalizeOfferAddOns(src.add_ons),
@@ -834,10 +857,35 @@ function guestsFromCreateCommand(command) {
   const src = command && typeof command === 'object' ? command : {};
   const norm = src.guestsNorm && Array.isArray(src.guestsNorm.guests) ? src.guestsNorm.guests : [];
   if (norm.length) {
-    return norm.map((guest) => ({ name: guest.guest_name || guest.name || null }));
+    const body = src.transportBody || {};
+    const hints = Array.isArray(body.room_name_hints) ? body.room_name_hints : [];
+    const normalizedName = (row) => String((row && (row.name || row.guest_name)) || '').trim().toLowerCase();
+    return norm.map((guest) => {
+      const result = { name: guest.guest_name || guest.name || null };
+      const name = normalizedName(result);
+      const matches = name ? hints.filter((hint) => normalizedName(hint) === name) : [];
+      const hint = matches.length === 1 ? matches[0] : null;
+      const explicit = String(guest.explicit_gender
+        || (hint && hint.explicit_gender) || '').toLowerCase();
+      if (explicit === 'male' || explicit === 'female') result.explicit_gender = explicit;
+      return result;
+    });
   }
   const body = src.transportBody || {};
-  if (Array.isArray(body.guests) && body.guests.length) return body.guests;
+  if (Array.isArray(body.guests) && body.guests.length) {
+    const hints = Array.isArray(body.room_name_hints) ? body.room_name_hints : [];
+    return body.guests.map((guest, index) => {
+      if (!guest || typeof guest !== 'object' || guest.explicit_gender) return guest;
+      const hint = hints[index];
+      const sameName = hint && String(hint.name || '').trim().toLowerCase()
+        === String(guest.name || '').trim().toLowerCase();
+      const explicit = sameName ? String(hint.explicit_gender || '').toLowerCase() : '';
+      return explicit === 'male' || explicit === 'female'
+        ? { ...guest, explicit_gender: explicit }
+        : guest;
+    });
+  }
+  if (Array.isArray(body.room_name_hints) && body.room_name_hints.length) return body.room_name_hints;
   if (src.guestName) return [{ name: src.guestName }];
   return [];
 }
@@ -862,6 +910,8 @@ function currentWolfhouseOfferFromCreateCommand(command) {
       group_gender: src.groupGender || src.genderPreference || null,
       gender_preference: src.genderPreference || null,
       allocation_reason: src.allocationReason || null,
+      resolved_room_claim: src.transportBody && src.transportBody.accepted_offer
+        ? src.transportBody.accepted_offer.resolved_room_claim || null : null,
     },
     guests: guestsFromCreateCommand(src),
     payment_choice: src.paymentChoice,
@@ -935,6 +985,9 @@ function buildCheckedWolfhousePreviewOffer(input) {
     group_gender: availability.group_gender,
     gender_preference: availability.gender_preference,
     allocation_reason: availability.allocation_reason,
+    resolved_room_claim: availability.resolved_room_claim
+      || resolvedSharedRoomClaim(availability, roomArrangement),
+    room_name_hints: guests,
     package_code: quote.package_code || src.package_code || null,
     guest_packages: src.guest_packages || [],
     add_ons: src.add_ons || [],
@@ -1072,6 +1125,8 @@ async function rereadWolfhouseOfferForCommit(pg, command) {
       group_gender: src.groupGender || src.genderPreference || null,
       gender_preference: src.genderPreference || null,
       allocation_reason: src.allocationReason || null,
+      resolved_room_claim: src.transportBody && src.transportBody.accepted_offer
+        ? src.transportBody.accepted_offer.resolved_room_claim || null : null,
     },
     guests: guestsFromCreateCommand(src),
     payment_choice: src.paymentChoice,

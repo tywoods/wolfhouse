@@ -5,6 +5,7 @@ A reset, ended incarnation, unbound ingress or malformed ledger fails closed.
 """
 from contextvars import ContextVar
 from copy import deepcopy
+from datetime import date
 from functools import wraps
 import hashlib
 import json
@@ -318,6 +319,90 @@ def _transaction(fn):
         return db._execute_write(work)
 
 
+def _plain_stay_date(value):
+    """Guest date only. Invalid values stay unchanged; never invent a date."""
+    text = str(value or '').strip()
+    match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
+    if not match:
+        return text
+    try:
+        day = date(int(match[1]), int(match[2]), int(match[3]))
+    except ValueError:
+        return text
+    weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+    return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
+
+
+def _guest_count_label(count):
+    return '1 guest' if count == 1 else f'{count} guests'
+
+
+def _join_names(names):
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f'{names[0]} and {names[1]}'
+    return ', '.join(names[:-1]) + f', and {names[-1]}'
+
+
+def _count_word(count):
+    words = ('two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten')
+    return words[count - 2] if 2 <= count <= 10 else str(count)
+
+
+def _room_kind(offer, room):
+    if offer.get('room_type') == 'private':
+        return 'private room'
+    labels = {'female_only': "women's room", 'male_only': "men's room",
+              'mixed': 'mixed room', 'flexible': 'shared room'}
+    return labels.get(room.get('gender_strategy'), 'room')
+
+
+def _guest_room_lines(plan, offer):
+    """Group people by frozen room without showing bed or room codes."""
+    rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+    groups = []
+    index = {}
+    for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
+        room = rooms[code]
+        kind = _room_kind(offer, room)
+        key = (room.get('room_code'), kind)
+        if key not in index:
+            index[key] = len(groups)
+            groups.append({'kind': kind, 'names': []})
+        groups[index[key]]['names'].append(guest['name'])
+    by_kind = {}
+    for group in groups:
+        by_kind.setdefault(group['kind'], []).append(group)
+    lines = []
+    emitted = set()
+    for group in groups:
+        kind = group['kind']
+        if kind in emitted:
+            continue
+        same = by_kind[kind]
+        emitted.add(kind)
+        if len(same) > 1 and all(len(item['names']) == 1 for item in same):
+            names = [name for item in same for name in item['names']]
+            lines.append(f"{_join_names(names)}: beds in {_count_word(len(same))} separate {kind}s.")
+            continue
+        first = True
+        for item in same:
+            who = _join_names(item['names'])
+            beds = len(item['names'])
+            if len(same) == 1 and beds == 1:
+                lines.append(f"{who}: a bed in the {kind}.")
+            elif len(same) == 1:
+                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}.")
+            elif beds == 1:
+                where = f"the {kind}" if first else f"a separate {kind}"
+                lines.append(f"{who}: a bed in {where}.")
+            else:
+                where = f"the same {kind}" if first else f"a separate {kind}"
+                lines.append(f"{who}: {_count_word(beds)} beds in {where}.")
+            first = False
+    return lines
 def _accepts(raw, plan):
     text = re.sub(r'\s+', ' ', raw.strip().lower()).rstrip('.!')
     if text in ('i accept the quote', 'i accept this quote', 'book this', 'book this quote',
@@ -330,6 +415,42 @@ def _accepts(raw, plan):
                 and selections[0].get('service_code') in (match[1], match[1] + '_class')
                 and selections[0].get('quantity') == 2
                 and plan.get('guest_count', 2) == 2)
+
+
+def _accepts_complete_presented_offer(raw, offer):
+    """Recognize one complete consent grammar and verify every claimed term."""
+    text = unicodedata.normalize('NFC', raw)
+    match = re.fullmatch(
+        r'\s*yes, i accept this exact quote for (\d{1,2}) to (\d{1,2}) '
+        r'(january|february|march|april|may|june|july|august|september|october|november|december) '
+        r'(\d{4}), (shared male room), total and deposit (\d+)(?:[.,](\d{1,2}))? '
+        r'(euros?|eur)\. please create the test booking and payment link[.!]?\s*',
+        text, re.I)
+    if not match or not isinstance(offer, dict):
+        return False
+    months = ('january', 'february', 'march', 'april', 'may', 'june',
+              'july', 'august', 'september', 'october', 'november', 'december')
+    year, month = int(match[4]), months.index(match[3].lower()) + 1
+    try:
+        check_in = date(year, month, int(match[1])).isoformat()
+        check_out = date(year, month, int(match[2])).isoformat()
+    except ValueError:
+        return False
+    cents = int(match[6]) * 100 + int((match[7] or '').ljust(2, '0'))
+    arrangement = offer.get('room_arrangement')
+    male_room = (offer.get('room_type') == 'shared'
+                 and offer.get('resolved_room_claim') == 'male_shared'
+                 and isinstance(arrangement, list) and bool(arrangement)
+                 and all(isinstance(row, dict)
+                         and str(row.get('gender_strategy') or '').lower().startswith('male')
+                         for row in arrangement))
+    return (offer.get('check_in') == check_in
+            and offer.get('check_out') == check_out
+            and offer.get('total_cents') == cents
+            and offer.get('deposit_required_cents') == cents
+            and offer.get('currency') == 'EUR'
+            and match[8].lower() in ('euro', 'euros', 'eur')
+            and male_room)
 
 
 def _contact_continuity(raw):
@@ -351,6 +472,21 @@ def _contact_continuity(raw):
         part and part[0].isalpha() and all(
             char.isalpha() or unicodedata.category(char).startswith('M')
             for char in part) for part in parts))
+
+
+def _accepts_price_booking(raw, offer):
+    """Bounded explicit consent that refers to the immediately presented price."""
+    match = re.fullmatch(
+        r"\s*yes,?\s+i accept that price,?\s+please book it under\s+(.+?)\.?(?:\s+i['’]ll pay the deposit later\.?)?\s*",
+        raw, re.I)
+    if not match or offer.get('payment_choice') != 'deposit':
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    claimed = normalize(match[1])
+    assignments = offer.get('guest_bed_assignments')
+    names = [normalize(row.get('guest_name')) for row in assignments
+             if isinstance(row, dict) and row.get('guest_name')] if isinstance(assignments, list) else []
+    return bool(claimed and claimed in names)
 
 
 def observe_owner_turn(agent, raw):
@@ -388,10 +524,14 @@ def observe_owner_turn(agent, raw):
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
         presented = state.pop('presented_offer', None)
+        price_consent = bool(presented and state.get('checked_offer')
+                             and presented == state['checked_offer']
+                             and _accepts_price_booking(raw, presented))
         # IDs stay durable for the incarnation; do not age out replay protection.
-        if re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I):
+        if (not price_consent and re.search(r'\b(no|not now|not yet|stop|postpone|later|unsure|maybe|wait|hold off|do not book|don.t book|cancel)\b', raw, re.I)):
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
+            state.pop('accepted_offer_snapshot', None)
         elif re.search(r'\b(change|revise|remove|instead|without|different|add)\b', raw, re.I):
             state.update(status='revision', quote=None)
             state.pop('acceptance_message', None)
@@ -410,9 +550,13 @@ def observe_owner_turn(agent, raw):
         elif state['status'] == 'offered' and state['quote'] and (
                 _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
-                    and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))):
+                    and (price_consent
+                         or re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
+                         or _accepts_complete_presented_offer(raw, presented)))):
             state.update(status='accepted', acceptance_message=message, acceptance_raw_digest=raw_digest)
             state['auto_acceptance'] = bool(presented and presented == state.get('checked_offer'))
+            if state.get('checked_offer'):
+                state['accepted_offer_snapshot'] = deepcopy(state['checked_offer'])
         elif re.search(r'\b(create|book|accept)\b', raw, re.I) or re.search(r'\d', raw):
             # Changed or unsupported booking acceptance needs a fresh quote, never
             # silently falls back to the former quote (including accepted state).
@@ -519,8 +663,10 @@ def _checked_plan(prepared, response, tenant):
             for guest, row in zip(guests, assignments))):
         plan['guests'] = deepcopy(guests)
     plan['selected_bed_codes'] = [row['bed_code'] for row in assignments]
-    if 'room_name_hints' in prepared:
+    if prepared.get('room_name_hints'):
         plan['room_name_hints'] = deepcopy(prepared['room_name_hints'])
+    elif not plan.get('room_name_hints'):
+        plan.pop('room_name_hints', None)
     return plan
 
 
@@ -744,19 +890,13 @@ def finalize_offer_response(result):
         def money(cents):
             return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
         plan = state['plan']
-        lines = [f"{offer['check_in']} to {offer['check_out']} — {offer['guest_count']} guests."]
-        rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+        lines = [f"{_plain_stay_date(offer['check_in'])} to {_plain_stay_date(offer['check_out'])} — {_guest_count_label(offer['guest_count'])}."]
+        lines.extend(_guest_room_lines(plan, offer))
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
                 return 'Accommodation only'
             return str(code).removeprefix('package_').replace('_', ' ').capitalize()
-        room_labels = {'female_only': "women's room", 'male_only': "men's room",
-                       'mixed': 'mixed room', 'flexible': 'shared room'}
-        for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
-            room = rooms[code]
-            kind = ('private room' if offer['room_type'] == 'private' else
-                    room_labels.get(room['gender_strategy'], 'room'))
-            lines.append(f"{guest['name']}: bed {code}, {kind} {room['room_code']}.")
+
         lines.append(label(offer['package_code']) + '.')
         for item in offer['guest_packages']:
             number = item.get('guest_number')
@@ -781,7 +921,11 @@ def finalize_offer_response(result):
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
         lines.append('Availability checked, subject to confirmation when booking.')
-        lines.append('Shall I create this booking?')
+        prior = state.get('accepted_offer_snapshot')
+        question = ('Shall I create this updated booking?'
+                    if isinstance(prior, dict) and prior != offer
+                    else 'Shall I create this booking?')
+        lines.append(question)
         text = '\n'.join(lines)
         output = deepcopy(result)
         output['final_response'] = text
