@@ -131,7 +131,7 @@ class BlockingModelClient:
             return _Response(_Message(content="Casey's 10–12 June 2027 mixed shared stay is €650 total; deposit selected. Shall I book it?"))
         if "Prepare Casey's cancellable booking" in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("quote-casey", "quote_booking", booking_args)]))
-        if "I accept the quote" in latest and not tool_messages:
+        if latest.startswith("I accept the quote.") and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("create-casey", "create_booking_from_plan", booking_args)]))
         if "Show my saved unpaid bookings" in latest and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("list-casey", "list_my_bookings", {})]))
@@ -174,12 +174,15 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict(os.environ, {
             "HERMES_HOME": str(hermes_home),
             "LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna",
+            "LUNA_TENANT_ID": "wolfhouse-somo",
             "BOT_BOOKING_ENABLED": "true", "WHATSAPP_DRY_RUN": "true",
             "OPENROUTER_API_KEY": "installed-regression-key",
             "GATEWAY_ALLOW_ALL_USERS": "true",
             "HERMES_GATEWAY_BUSY_ACK_ENABLED": "false",
             "HERMES_BUNDLED_PLUGINS": str(plugin_root),
-            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.invalid",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "PUBLIC_PAYMENT_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "STRIPE_MODE": "test",
             "LUNA_BOT_INTERNAL_TOKEN": "installed-regression-token",
         })
         self.env.start(); self.addCleanup(self.env.stop)
@@ -219,15 +222,10 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.registry = registry
         self.assertIs(self.registry._tools["quote_booking"].handler, self.registry._tools["quote_booking"].handler)
         self.assertEqual(self.registry._tools["quote_booking"].name, "quote_booking")
-        self.original_create_handler = self.registry._tools["create_booking_from_plan"].handler
-        def create_handler(params, **kwargs):
-            if (params or {}).get("guest_name") == "Casey":
-                response = self.plugin._post_bot("/booking-create-from-plan", dict(params or {}))
-                return json.dumps({**response, "tool": "create_booking_from_plan"})
-            return self.original_create_handler(params, **kwargs)
-        self.registry._tools["create_booking_from_plan"].handler = create_handler
-        self.addCleanup(setattr, self.registry._tools["create_booking_from_plan"],
-                        "handler", self.original_create_handler)
+        self.create_handler = self.registry._tools["create_booking_from_plan"].handler
+        self.handler_globals = self.create_handler.__globals__
+        for name in ("list_my_bookings", "cancel_unpaid_booking"):
+            self.assertIs(self.registry._tools[name].handler.__globals__, self.handler_globals)
 
         import run_agent
         self.run_agent = run_agent
@@ -247,15 +245,21 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.saved_bookings = []
         def staff(path, payload, **_kwargs):
             self.staff_calls.append((path, dict(payload)))
-            if path == "/booking-create-from-plan":
+            route = path.removeprefix("/staff/bot")
+            if route == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "selected_bed_codes": ["R3-B1"],
+                        "available_beds": [{"bed_code": "R3-B1", "room_code": "R3",
+                                            "room_type": "mixed"}]}
+            if route == "/booking-create-from-plan":
                 row = {"booking_code": "CASEY-100", "check_in": "2027-06-10", "check_out": "2027-06-12",
                        "guest_count": 1, "guest_name": "Casey", "status": "pending", "payment_status": "unpaid"}
                 self.saved_bookings[:] = [row]
                 return {"success": True, "write_performed": True, "booking_code": "CASEY-100",
                         "booking_id": "casey-id", "payment_status": "unpaid"}
-            if path == "/bookings/by-phone":
+            if route == "/bookings/by-phone":
                 return {"success": True, "count": len(self.saved_bookings), "bookings": list(self.saved_bookings)}
-            if path == "/bookings/cancel-unpaid":
+            if route == "/bookings/cancel-unpaid":
                 code = payload.get("booking_code")
                 if code == "CASEY-100":
                     self.saved_bookings.clear()
@@ -264,13 +268,33 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
                 return {"success": False, "cancelled": False, "write_performed": False,
                         "blocked_reason": "payment_exists" if code == "PAID-200" else "owner_mismatch",
                         "staff_review_needed": True}
-            if path == "/conversation/needs-human":
+            if route == "/conversation/needs-human":
                 return {"success": True, "needs_human": True, "conversation_paused": False,
                         "staff_handoff": {"id": "review-cancel"}}
             return {"success": True, "total_cents": 65000, "currency": "EUR"}
-        self.staff_patch = patch.object(self.plugin, "_post_bot", side_effect=staff)
-        self.staff_patch.start(); self.addCleanup(self.staff_patch.stop)
-        await crowsnest_guest_door.install_live_request_guards()
+        self.guard_calls = []
+        real_request_guard = crowsnest_guest_door.guard_bot_path_and_payload
+        def observed_request_guard(path, payload, **kwargs):
+            self.guard_calls.append((path, dict(payload or {}), dict(kwargs)))
+            return real_request_guard(path, payload, **kwargs)
+        self.guard_patch = patch.object(
+            crowsnest_guest_door, "guard_bot_path_and_payload",
+            side_effect=observed_request_guard)
+        self.guard_patch.start(); self.addCleanup(self.guard_patch.stop)
+        # Plugin discovery can reload the manifest module after the global registry
+        # has retained handlers from the prior installed module. Bind the real
+        # registered handlers' transport dictionary to the real request guard, and
+        # mock only the captured Staff transport below that guard.
+        original_post = self.handler_globals["_post_bot"]
+        original_phone = self.handler_globals["_session_guest_phone"]
+        staff_boundary = SimpleNamespace(_post_bot=staff, _session_guest_phone=original_phone)
+        import gateway.platforms.whatsapp_cloud as whatsapp_module
+        crowsnest_guest_door._ensure_quote_owner_hook()
+        crowsnest_guest_door.install_request_owned_guards(staff_boundary, whatsapp_module)
+        self.handler_globals["_post_bot"] = staff_boundary._post_bot
+        self.handler_globals["_session_guest_phone"] = staff_boundary._session_guest_phone
+        self.addCleanup(self.handler_globals.__setitem__, "_post_bot", original_post)
+        self.addCleanup(self.handler_globals.__setitem__, "_session_guest_phone", original_phone)
 
         self.entered = threading.Event()
         self.release = threading.Event()
@@ -331,7 +355,8 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.release.set()
         # Live-turn owner binding/revocation has a dedicated exact-handler suite.
         # Keep this flow test focused on the ordinary model/registry/Staff path.
-        owner_patch = patch.object(self.plugin, "_live_turn_guest_phone", return_value="+349****1777")
+        owner_patch = patch.dict(
+            self.handler_globals, {"_live_turn_guest_phone": lambda: "+349****1777"})
         owner_patch.start(); self.addCleanup(owner_patch.stop)
 
         async def turn(text, ident):
@@ -343,11 +368,17 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             return result
 
         await turn("Prepare Casey's cancellable booking quote.", "cancel-flow-01")
-        # Cancellation is the subject of this regression; accepted-quote creation
-        # has its own installed-entrypoint suite. The setup keeps the real model
-        # loop, registry dispatch, and Staff boundary while isolating that prerequisite.
-        created = await turn("I accept the quote. Book this now.", "cancel-flow-02")
-        self.assertIn("/booking-create-from-plan", [p for p, _ in self.staff_calls], created)
+        # Exercise the registered create handler and the request-owned guard. Only
+        # the Staff transport beneath that guard is synthetic in this regression.
+        created = await turn("I accept the quote.", "cancel-flow-02")
+        self.assertIs(
+            self.registry._tools["create_booking_from_plan"].handler,
+            self.create_handler,
+        )
+        self.assertIn("/staff/bot/booking-create-from-plan", [p for p, _ in self.staff_calls], {
+            "created": created, "last_model_request": self.model_requests[-1] if self.model_requests else None,
+        })
+        self.assertIn("/staff/bot/booking-create-from-plan", [p for p, _, _ in self.guard_calls])
         self.assertEqual(self.saved_bookings[0]["payment_status"], "unpaid")
         listed = await turn("Show my saved unpaid bookings.", "cancel-flow-03")
         self.assertIn("CASEY-100", listed["reply_text"])
@@ -355,8 +386,10 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertIn("was cancelled", cancelled["reply_text"], {
             "result": cancelled, "model_messages": self.model_requests[-1] if self.model_requests else None,
         })
-        cancel_calls = [(p, body) for p, body in self.staff_calls if p == "/bookings/cancel-unpaid"]
+        cancel_calls = [(p, body) for p, body in self.staff_calls
+                        if p == "/staff/bot/bookings/cancel-unpaid"]
         self.assertEqual(cancel_calls[-1][1]["booking_code"], "CASEY-100")
+        self.assertIn("/staff/bot/bookings/cancel-unpaid", [p for p, _, _ in self.guard_calls])
 
         before = len(cancel_calls)
         self.saved_bookings[:] = [
@@ -365,17 +398,19 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         ]
         ambiguous = await turn("Which of my bookings can I cancel?", "cancel-flow-05")
         self.assertIn("Which booking", ambiguous["reply_text"])
-        self.assertEqual(len([p for p, _ in self.staff_calls if p == "/bookings/cancel-unpaid"]), before)
+        self.assertEqual(len([p for p, _ in self.staff_calls
+                              if p == "/staff/bot/bookings/cancel-unpaid"]), before)
         refused = await turn("Cancel PAID-200 explicitly.", "cancel-flow-06")
         refusal_copy = [str(m.get("content") or "") for request in self.model_requests
                         for m in request if m.get("role") == "assistant"]
         self.assertTrue(any("couldn't cancel" in text for text in refusal_copy), refusal_copy)
         self.assertFalse(any("was cancelled" in text for text in refusal_copy[-2:]), refusal_copy[-2:])
-        self.assertIn("/conversation/needs-human", [p for p, _ in self.staff_calls])
+        self.assertIn("/staff/bot/conversation/needs-human", [p for p, _ in self.staff_calls])
         foreign = await turn("Cancel FOREIGN-300 explicitly.", "cancel-flow-07")
         self.assertNotIn("was cancelled", foreign["reply_text"])
         foreign_calls = [body for path, body in self.staff_calls
-                         if path == "/bookings/cancel-unpaid" and body.get("booking_code") == "FOREIGN-300"]
+                         if path == "/staff/bot/bookings/cancel-unpaid"
+                         and body.get("booking_code") == "FOREIGN-300"]
         self.assertEqual(len(foreign_calls), 1)
         self.assertNotEqual(foreign_calls[0].get("phone"), "+34999999999")
         self.saved_bookings.clear()
