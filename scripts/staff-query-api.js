@@ -490,7 +490,10 @@ const {
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
 const { factualForecastReply } = require('./lib/luna-stormglass-guest-turn');
-const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
+const {
+  loadCancellationGuestBookings,
+  mapCancellationGuestBookingRows,
+} = require('./lib/luna-guest-booking-disambiguation');
 const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman, clearStaffNeedsHuman } = require('./lib/luna-guest-handoff-persist');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
@@ -51654,18 +51657,12 @@ async function handleBotListBookingsByPhone(req, res, user, authMode) {
   }
   const phone = String(body.phone || body.guest_phone || '').trim();
   if (!phone) return sendJSON(res, 400, { success: false, error: 'phone is required' });
+  const clientSlug = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
 
   try {
-    const rows = await withPgClient((pg) => loadActiveGuestBookings(pg, { phone }));
-    const bookings = (rows || []).map((r) => ({
-      booking_code:   r.booking_code,
-      check_in:       r.check_in,
-      check_out:      r.check_out,
-      guest_count:    r.guest_count,
-      guest_name:     r.guest_name,
-      status:         r.status,
-      payment_status: r.payment_status,
-    }));
+    const rows = await withPgClient((pg) => loadCancellationGuestBookings(pg, { phone, clientSlug }));
+    const bookings = mapCancellationGuestBookingRows(rows);
     return sendJSON(res, 200, {
       success:  true,
       tool:     'list_my_bookings',

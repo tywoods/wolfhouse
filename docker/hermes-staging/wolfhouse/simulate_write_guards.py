@@ -252,6 +252,14 @@ def _route_admitted_wolfhouse_staging(
         routed.pop("conversation_id", None)
         routed["phone"] = routed["guest_phone"] = synthetic_identity
         return norm, routed, ["allowed_wolfhouse_staging_synthetic_handoff"]
+    if norm == "/staff/bot/bookings/cancel-unpaid":
+        # Exact route only. Ownership is rebound to the server-created identity;
+        # Staff still locks the booking and applies all payment checks.
+        if not re.fullmatch(r"\+999[0-9]{12}", synthetic_identity):
+            return _deny(norm, routed, "blocked_cancel_identity_missing")
+        routed.pop("guest_phone", None)
+        routed["phone"] = synthetic_identity
+        return norm, routed, ["allowed_wolfhouse_staging_owned_unpaid_cancel"]
 
     if "create-balance-link" in norm:
         return _deny(norm, routed, "blocked_balance_link_not_admitted")

@@ -100,6 +100,10 @@ class BlockingModelClient:
         messages = request.get("messages") or []
         self.seen.append(messages)
         text = "\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "user")
+        latest_user_index = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
+        latest = str(messages[latest_user_index].get("content") or "") if latest_user_index >= 0 else ""
+        tool_messages = [m for m in messages[latest_user_index + 1:] if m.get("role") == "tool"]
+        last_tool = json.loads(tool_messages[-1]["content"]) if tool_messages else None
         if not self.entered.is_set():
             self.entered.set()
             if not self.release.wait(10):
@@ -118,6 +122,46 @@ class BlockingModelClient:
                     "guest_count": 2, "package_code": "package_none",
                     "catalog_selections": [], "guest_name": "Ana"}
             return _Response(_Message(tool_calls=[_ToolCall("quote-ana", "quote_booking", args)]))
+        booking_args = {"check_in": "2027-06-10", "check_out": "2027-06-12",
+                        "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
+                        "package_code": "package_none", "catalog_selections": [],
+                        "payment_choice": "deposit", "guest_name": "Casey",
+                        "guests": [{"name": "Casey"}]}
+        if "Prepare Casey's cancellable booking" in latest and tool_messages:
+            return _Response(_Message(content="Casey's 10–12 June 2027 mixed shared stay is €650 total; deposit selected. Shall I book it?"))
+        if "Prepare Casey's cancellable booking" in latest and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall("quote-casey", "quote_booking", booking_args)]))
+        if latest.startswith("I accept the quote.") and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall("create-casey", "create_booking_from_plan", booking_args)]))
+        if "Show my saved unpaid bookings" in latest and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall("list-casey", "list_my_bookings", {})]))
+        for marker, code in (("Cancel CASEY-100", "CASEY-100"), ("Cancel PAID-200", "PAID-200"),
+                             ("Cancel FOREIGN-300", "FOREIGN-300")):
+            if marker in latest and not tool_messages:
+                return _Response(_Message(tool_calls=[_ToolCall(
+                    "cancel-" + code, "cancel_unpaid_booking", {"booking_code": code})]))
+        if "Which of my bookings can I cancel?" in latest and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall("list-many", "list_my_bookings", {})]))
+        if "Find the booking you just created" in latest and not tool_messages:
+            return _Response(_Message(tool_calls=[_ToolCall("list-empty", "list_my_bookings", {})]))
+        if last_tool and last_tool.get("tool") == "quote_booking":
+            return _Response(_Message(content="Casey's 10–12 June 2027 mixed shared stay is €650 total; deposit selected. Shall I book it?"))
+        if last_tool and last_tool.get("tool") == "cancel_unpaid_booking" and not last_tool.get("cancelled"):
+            if not any(json.loads(m["content"]).get("tool") == "flag_needs_human" for m in tool_messages):
+                return _Response(_Message(
+                    content="I couldn't cancel that booking. A teammate will take over.",
+                    tool_calls=[_ToolCall("handoff-cancel", "flag_needs_human",
+                        {"reason": "paid_cancellation_or_reschedule"})]))
+            return _Response(_Message(content="I couldn't cancel that booking. A teammate will take over."))
+        if last_tool and last_tool.get("tool") == "cancel_unpaid_booking":
+            return _Response(_Message(content="Your booking was cancelled."))
+        if last_tool and last_tool.get("tool") == "list_my_bookings":
+            rows = last_tool.get("bookings") or []
+            if len(rows) > 1:
+                return _Response(_Message(content="Which booking should I cancel: " + ", ".join(r["booking_code"] for r in rows) + "?"))
+            if not rows:
+                return _Response(_Message(content="I can't find the saved booking yet."))
+            return _Response(_Message(content="Saved unpaid booking: " + rows[0]["booking_code"]))
         return _Response(_Message(content="Ana turn completed."))
 
 
@@ -130,12 +174,15 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict(os.environ, {
             "HERMES_HOME": str(hermes_home),
             "LUNA_CLIENT_SLUG": "wolfhouse-somo", "HERMES_ROLE": "luna",
+            "LUNA_TENANT_ID": "wolfhouse-somo",
             "BOT_BOOKING_ENABLED": "true", "WHATSAPP_DRY_RUN": "true",
             "OPENROUTER_API_KEY": "installed-regression-key",
             "GATEWAY_ALLOW_ALL_USERS": "true",
             "HERMES_GATEWAY_BUSY_ACK_ENABLED": "false",
             "HERMES_BUNDLED_PLUGINS": str(plugin_root),
-            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.invalid",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "PUBLIC_PAYMENT_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "STRIPE_MODE": "test",
             "LUNA_BOT_INTERNAL_TOKEN": "installed-regression-token",
         })
         self.env.start(); self.addCleanup(self.env.stop)
@@ -161,7 +208,8 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
 
         import gateway.run as runtime
         self.runtime = runtime
-        self.assertTrue(str(Path(runtime.__file__).resolve()).startswith("/opt/hermes/"))
+        self.assertTrue(str(Path(runtime.__file__).resolve()).startswith(
+            str(Path(os.getenv("HERMES_INSTALL_ROOT") or "/opt/hermes").resolve()) + "/"))
         self.assertTrue(original_inbound.gateway_runtime_ready(runtime.GatewayRunner))
         cfg = GatewayConfig(
             platforms={Platform.WHATSAPP_CLOUD: PlatformConfig(
@@ -174,6 +222,10 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.registry = registry
         self.assertIs(self.registry._tools["quote_booking"].handler, self.registry._tools["quote_booking"].handler)
         self.assertEqual(self.registry._tools["quote_booking"].name, "quote_booking")
+        self.create_handler = self.registry._tools["create_booking_from_plan"].handler
+        self.handler_globals = self.create_handler.__globals__
+        for name in ("list_my_bookings", "cancel_unpaid_booking"):
+            self.assertIs(self.registry._tools[name].handler.__globals__, self.handler_globals)
 
         import run_agent
         self.run_agent = run_agent
@@ -190,12 +242,59 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
 
 
         self.staff_calls = []
+        self.saved_bookings = []
         def staff(path, payload, **_kwargs):
             self.staff_calls.append((path, dict(payload)))
+            route = path.removeprefix("/staff/bot")
+            if route == "/availability-check":
+                return {"success": True, "has_enough_beds": True,
+                        "selected_bed_codes": ["R3-B1"],
+                        "available_beds": [{"bed_code": "R3-B1", "room_code": "R3",
+                                            "room_type": "mixed"}]}
+            if route == "/booking-create-from-plan":
+                row = {"booking_code": "CASEY-100", "check_in": "2027-06-10", "check_out": "2027-06-12",
+                       "guest_count": 1, "guest_name": "Casey", "status": "pending", "payment_status": "unpaid"}
+                self.saved_bookings[:] = [row]
+                return {"success": True, "write_performed": True, "booking_code": "CASEY-100",
+                        "booking_id": "casey-id", "payment_status": "unpaid"}
+            if route == "/bookings/by-phone":
+                return {"success": True, "count": len(self.saved_bookings), "bookings": list(self.saved_bookings)}
+            if route == "/bookings/cancel-unpaid":
+                code = payload.get("booking_code")
+                if code == "CASEY-100":
+                    self.saved_bookings.clear()
+                    return {"success": True, "cancelled": True, "write_performed": True,
+                            "booking": {"booking_code": code}}
+                return {"success": False, "cancelled": False, "write_performed": False,
+                        "blocked_reason": "payment_exists" if code == "PAID-200" else "owner_mismatch",
+                        "staff_review_needed": True}
+            if route == "/conversation/needs-human":
+                return {"success": True, "needs_human": True, "conversation_paused": False,
+                        "staff_handoff": {"id": "review-cancel"}}
             return {"success": True, "total_cents": 65000, "currency": "EUR"}
-        self.staff_patch = patch.object(self.plugin, "_post_bot", side_effect=staff)
-        self.staff_patch.start(); self.addCleanup(self.staff_patch.stop)
-        await crowsnest_guest_door.install_live_request_guards()
+        self.guard_calls = []
+        real_request_guard = crowsnest_guest_door.guard_bot_path_and_payload
+        def observed_request_guard(path, payload, **kwargs):
+            self.guard_calls.append((path, dict(payload or {}), dict(kwargs)))
+            return real_request_guard(path, payload, **kwargs)
+        self.guard_patch = patch.object(
+            crowsnest_guest_door, "guard_bot_path_and_payload",
+            side_effect=observed_request_guard)
+        self.guard_patch.start(); self.addCleanup(self.guard_patch.stop)
+        # Plugin discovery can reload the manifest module after the global registry
+        # has retained handlers from the prior installed module. Bind the real
+        # registered handlers' transport dictionary to the real request guard, and
+        # mock only the captured Staff transport below that guard.
+        original_post = self.handler_globals["_post_bot"]
+        original_phone = self.handler_globals["_session_guest_phone"]
+        staff_boundary = SimpleNamespace(_post_bot=staff, _session_guest_phone=original_phone)
+        import gateway.platforms.whatsapp_cloud as whatsapp_module
+        crowsnest_guest_door._ensure_quote_owner_hook()
+        crowsnest_guest_door.install_request_owned_guards(staff_boundary, whatsapp_module)
+        self.handler_globals["_post_bot"] = staff_boundary._post_bot
+        self.handler_globals["_session_guest_phone"] = staff_boundary._session_guest_phone
+        self.addCleanup(self.handler_globals.__setitem__, "_post_bot", original_post)
+        self.addCleanup(self.handler_globals.__setitem__, "_session_guest_phone", original_phone)
 
         self.entered = threading.Event()
         self.release = threading.Event()
@@ -234,7 +333,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
             text="Yes, the mixed accommodation-only option. What is the exact total and deposit?",
             message_id="alex-accept-0002", mirror=mirror, timeout_sec=20)
         self.assertTrue(quoted["ok"], quoted)
-        self.assertEqual([path for path, _ in self.staff_calls], ["/booking-preview"])
+        self.assertEqual([path for path, _ in self.staff_calls], ["/staff/bot/booking-preview"])
         self.assertEqual(self.staff_calls[0][1]["room_preference"], "mixed")
         self.assertEqual(self.staff_calls[0][1]["package_code"], "package_none")
         self.assertEqual(self.staff_calls[0][1]["payment_choice"], "deposit")
@@ -251,6 +350,73 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.staff_calls, [])
         self.assertEqual(result["transport_calls"], 0)
+
+    async def test_ordinary_entrypoint_create_list_select_cancel_and_fail_closed_variants(self):
+        self.release.set()
+        # Live-turn owner binding/revocation has a dedicated exact-handler suite.
+        # Keep this flow test focused on the ordinary model/registry/Staff path.
+        owner_patch = patch.dict(
+            self.handler_globals, {"_live_turn_guest_phone": lambda: "+349****1777"})
+        owner_patch.start(); self.addCleanup(owner_patch.stop)
+
+        async def turn(text, ident):
+            phone = "+34900001777"
+            result = await crowsnest_guest_door.run_crowsnest_guest_turn(
+                runner=self.runner, phone=phone, text=text, message_id=ident,
+                mirror=lambda **_kwargs: None, timeout_sec=20)
+            self.assertTrue(result["ok"], result)
+            return result
+
+        await turn("Prepare Casey's cancellable booking quote.", "cancel-flow-01")
+        # Exercise the registered create handler and the request-owned guard. Only
+        # the Staff transport beneath that guard is synthetic in this regression.
+        created = await turn("I accept the quote.", "cancel-flow-02")
+        self.assertIs(
+            self.registry._tools["create_booking_from_plan"].handler,
+            self.create_handler,
+        )
+        self.assertIn("/staff/bot/booking-create-from-plan", [p for p, _ in self.staff_calls], {
+            "created": created, "last_model_request": self.model_requests[-1] if self.model_requests else None,
+        })
+        self.assertIn("/staff/bot/booking-create-from-plan", [p for p, _, _ in self.guard_calls])
+        self.assertEqual(self.saved_bookings[0]["payment_status"], "unpaid")
+        listed = await turn("Show my saved unpaid bookings.", "cancel-flow-03")
+        self.assertIn("CASEY-100", listed["reply_text"])
+        cancelled = await turn("Cancel CASEY-100 explicitly.", "cancel-flow-04")
+        self.assertIn("was cancelled", cancelled["reply_text"], {
+            "result": cancelled, "model_messages": self.model_requests[-1] if self.model_requests else None,
+        })
+        cancel_calls = [(p, body) for p, body in self.staff_calls
+                        if p == "/staff/bot/bookings/cancel-unpaid"]
+        self.assertEqual(cancel_calls[-1][1]["booking_code"], "CASEY-100")
+        self.assertIn("/staff/bot/bookings/cancel-unpaid", [p for p, _, _ in self.guard_calls])
+
+        before = len(cancel_calls)
+        self.saved_bookings[:] = [
+            {"booking_code": "ONE-1", "check_in": "2027-07-01", "check_out": "2027-07-02", "payment_status": "unpaid"},
+            {"booking_code": "TWO-2", "check_in": "2027-08-01", "check_out": "2027-08-02", "payment_status": "unpaid"},
+        ]
+        ambiguous = await turn("Which of my bookings can I cancel?", "cancel-flow-05")
+        self.assertIn("Which booking", ambiguous["reply_text"])
+        self.assertEqual(len([p for p, _ in self.staff_calls
+                              if p == "/staff/bot/bookings/cancel-unpaid"]), before)
+        refused = await turn("Cancel PAID-200 explicitly.", "cancel-flow-06")
+        refusal_copy = [str(m.get("content") or "") for request in self.model_requests
+                        for m in request if m.get("role") == "assistant"]
+        self.assertTrue(any("couldn't cancel" in text for text in refusal_copy), refusal_copy)
+        self.assertFalse(any("was cancelled" in text for text in refusal_copy[-2:]), refusal_copy[-2:])
+        self.assertIn("/staff/bot/conversation/needs-human", [p for p, _ in self.staff_calls])
+        foreign = await turn("Cancel FOREIGN-300 explicitly.", "cancel-flow-07")
+        self.assertNotIn("was cancelled", foreign["reply_text"])
+        foreign_calls = [body for path, body in self.staff_calls
+                         if path == "/staff/bot/bookings/cancel-unpaid"
+                         and body.get("booking_code") == "FOREIGN-300"]
+        self.assertEqual(len(foreign_calls), 1)
+        self.assertNotEqual(foreign_calls[0].get("phone"), "+34999999999")
+        self.saved_bookings.clear()
+        empty = await turn("Find the booking you just created.", "cancel-flow-08")
+        self.assertNotIn("only quoted", empty["reply_text"].lower())
+        self.assertIn("can't find", empty["reply_text"].lower())
 
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None
@@ -285,7 +451,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(.01)
         self.assertEqual(
-            [p for p, _ in self.staff_calls], ["/booking-preview"],
+            [p for p, _ in self.staff_calls], ["/staff/bot/booking-preview"],
             {"model_requests": self.model_requests, "first_result": first_result,
              "staff_calls": self.staff_calls},
         )
