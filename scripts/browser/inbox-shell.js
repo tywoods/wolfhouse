@@ -1347,7 +1347,8 @@ function inboxShellLoadGlobalPause(){
 function persistInboxShellChannelMode(channel, value){
   var gen = ++inboxShellPersistGen;
   inboxShellSetBusy(true);
-  var stored = inboxShellLoadStoredModes();
+  var previous = inboxShellLoadStoredModes();
+  var stored = { whatsapp: previous.whatsapp, email: previous.email };
   if (channel === 'email') stored.email = inboxShellNormalizeEmail(value);
   else stored.whatsapp = inboxShellNormalizeWhatsApp(value);
   inboxShellStoreModes(stored);
@@ -1355,14 +1356,20 @@ function persistInboxShellChannelMode(channel, value){
   function done(ok){
     if (gen !== inboxShellPersistGen) return;
     inboxShellSetBusy(false);
-    if (!ok) inboxShellApplyUiModes(inboxShellLoadStoredModes());
-    else inboxShellApplyUiModes(stored);
+    if (!ok) {
+      inboxShellStoreModes(previous);
+      inboxShellApplyUiModes(previous);
+    } else inboxShellApplyUiModes(stored);
   }
 
   return fetch('/staff/auth/prefs', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ inbox_channel_modes: stored }),
+    body: JSON.stringify({ inbox_channel_modes: (function(){
+      var changed = {};
+      changed[channel] = channel === 'email' ? stored.email : stored.whatsapp;
+      return changed;
+    })() }),
   }).then(function(r){
     return r.text().then(function(raw){
       var data = null;

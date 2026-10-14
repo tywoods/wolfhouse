@@ -104,7 +104,9 @@ function createSchemaShapedClients(opts) {
     if (/UPDATE clients/.test(n) && /jsonb_set/.test(n) && /id=\$1::uuid/.test(n)) {
       const row = clients.get(id);
       if (!row) return { rows: [] };
-      const nextModes = typeof params[1] === 'string' ? JSON.parse(params[1]) : params[1];
+      const nextModes = params.length >= 3
+        ? { ...(((row.settings || {}).inbox_channel_modes) || {}), [params[2]]: params[1] }
+        : (typeof params[1] === 'string' ? JSON.parse(params[1]) : params[1]);
       const col = /SET settings = jsonb_set/.test(n) ? 'settings' : 'metadata';
       if (!columns.has(col)) throw pgUndefinedColumn(col);
       const current = row[col] && typeof row[col] === 'object' ? { ...row[col] } : {};
@@ -350,7 +352,7 @@ async function main() {
     assert.doesNotMatch(src, /catch \{\s*return current;\s*\}/);
     assert.doesNotMatch(src, /catch \{\s*return snapshotModes\(null\);\s*\}/);
     assert.match(src, /if \(!row\) throw unproven\(\)/);
-    assert.match(liveSrc, /if \(stored !== value\) throw new Error\('channel_mode_unproven'\)/);
+    assert.match(src, /if \(persistedStored\[ch\] !== value\) throw unproven\(\)/);
     assert.match(liveSrc, /failedReason = 'channel_mode_unproven'/);
     console.log('  PASS  store SQL + fail-closed source contract');
   }

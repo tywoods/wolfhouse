@@ -50,11 +50,12 @@ const {
 // that normally read from an HTTP req stream.
 // Supports both .on('data') style and for-await-of (Symbol.asyncIterator).
 // ─────────────────────────────────────────────────────────────────────────────
-function makeInMemoryBotReq(bodyObj, headers) {
+function makeInMemoryBotReq(bodyObj, headers, boundClientSlug) {
   const payload = JSON.stringify(bodyObj || {});
   return {
     method:  'POST',
     headers: { ...(headers || {}) },
+    _botBoundClientSlug: boundClientSlug || null,
     on(event, cb) {
       if (event === 'data') cb(Buffer.from(payload, 'utf8'));
       if (event === 'end') cb();
@@ -528,6 +529,14 @@ async function handleBotPaymentStatus(req, res, user, authMode, ctx) {
 }
 
 async function requirePortalAutomaticWriteAdmission(req, res, ctx) {
+  if (!String(ctx.boundClientSlug || '').trim()) {
+    ctx.sendJSON(res, 403, {
+      success: false, reason_code: 'booking_context_unbound', policy_source: 'staff_portal',
+      write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+      staff_review_needed: false, do_not_escalate: true,
+    });
+    return false;
+  }
   if (ctx.boundClientSlug !== 'wolfhouse-somo') return true;
   const phone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
   if (!/^\+[0-9]{8,15}$/.test(phone) || typeof ctx.resolveAutomaticBookingAdmission !== 'function') {
@@ -536,10 +545,20 @@ async function requirePortalAutomaticWriteAdmission(req, res, ctx) {
   }
   let decision;
   try {
-    decision = await ctx.withPgClient((pg) => ctx.resolveAutomaticBookingAdmission(pg, {
-      client_slug: ctx.boundClientSlug,
-      guest_phone: phone,
-    }));
+    decision = await ctx.withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const admitted = await ctx.resolveAutomaticBookingAdmission(pg, {
+          client_slug: ctx.boundClientSlug,
+          guest_phone: phone,
+        });
+        await pg.query('COMMIT');
+        return admitted;
+      } catch (err) {
+        try { await pg.query('ROLLBACK'); } catch (_) { /* original error wins */ }
+        throw err;
+      }
+    });
   } catch (_err) {
     ctx.sendJSON(res, 503, {
       success: false, reason_code: 'booking_policy_unavailable',
@@ -800,7 +819,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
           makeInMemoryBotReq({
             client_slug: clientSlug,
             payment_target: paymentTarget,
-          }, req.headers),
+          }, req.headers, ctx.boundClientSlug),
           linkCapture,
           user,
           authMode,
@@ -897,6 +916,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   const tenantGate = await gateBotPaymentUuidCallbackTenantAcl({
     paymentId,
     boundClientSlug: ctx.boundClientSlug,
+    trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
     withPgClient,
   });
   if (tenantGate.error) {
@@ -1148,6 +1168,13 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
 
   if (!bookingRow) {
     return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+  }
+  if (authMode === 'bot_token') {
+    const digits = (value) => String(value || '').replace(/\D/g, '');
+    const trustedGuestPhone = req.headers && req.headers['x-luna-guest-phone'];
+    if (!digits(trustedGuestPhone) || digits(bookingRow.phone) !== digits(trustedGuestPhone)) {
+      return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+    }
   }
 
   if (bookingStatusIsCancelled(bookingRow.status)) {
@@ -1578,6 +1605,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   try {
     const checkout = await require('./per-guest-checkout').run({
       withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId,
+      trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
       successUrl: stripeCheckoutSessionSuccessUrl(),
       cancelUrl: stripeCheckoutSessionCancelUrl(),
     });
@@ -1607,7 +1635,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     if (err.message === 'guest_payment_unallocated_booking_receipt') return sendJSON(res, 409, {
       success: false, error: err.message, message: err.publicMessage,
     });
-    const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
+    const status = err.httpStatus || (/not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500);
     return sendJSON(res, status, { success: false, error: err.message });
   }
 

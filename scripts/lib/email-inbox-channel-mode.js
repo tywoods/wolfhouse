@@ -32,9 +32,14 @@ SELECT settings->'inbox_channel_modes' AS inbox_channel_modes
 const SQL_STORE_CLIENT_CHANNEL_MODES = `
 UPDATE clients
    SET settings = jsonb_set(
-     COALESCE(settings, '{}'::jsonb),
-     '{inbox_channel_modes}',
-     $2::jsonb,
+     jsonb_set(
+       COALESCE(settings, '{}'::jsonb),
+       '{inbox_channel_modes}',
+       COALESCE(settings->'inbox_channel_modes', '{}'::jsonb),
+       true
+     ),
+     ARRAY['inbox_channel_modes', $3::text],
+     to_jsonb($2::text),
      true
    )
  WHERE id=$1::uuid
@@ -129,19 +134,15 @@ function createEmailInboxChannelModeStore(deps) {
       throw unproven();
     }
     try {
-      const current = await loadStoredModes(clientId);
-      const next = freeze({ ...current, [ch]: value });
       const stored = await withPgClient(async (pg) => pg.query(SQL_STORE_CLIENT_CHANNEL_MODES, [
         clientId,
-        JSON.stringify(next),
+        value,
+        ch,
       ]));
       const row = stored && Array.isArray(stored.rows) && stored.rows.length === 1 ? stored.rows[0] : null;
       if (!row) throw unproven();
       const persistedStored = storedModesFromRow(row);
       if (persistedStored[ch] !== value) throw unproven();
-      for (const [key, expected] of Object.entries(current)) {
-        if (key !== ch && persistedStored[key] !== expected) throw unproven();
-      }
       return snapshotModes(persistedStored);
     } catch (err) {
       if (err && err.message === CHANNEL_MODE_UNPROVEN) throw err;

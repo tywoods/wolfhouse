@@ -51560,30 +51560,47 @@ async function loadClientInboxChannelModes(clientId) {
   return inboxChannelModesFromUnknown(await loadClientInboxChannelModesStore(clientId));
 }
 
-async function saveClientInboxChannelModes(clientId, modes) {
-  const current = await loadClientInboxChannelModesStore(clientId);
-  const next = { ...current };
+async function saveClientInboxChannelModes(clientId, modes, pgClient = null) {
+  const entries = [];
   for (const channel of ['whatsapp', 'email']) {
     if (!Object.prototype.hasOwnProperty.call(modes || {}, channel)) continue;
     const value = inboxChannelModeStoreFromValue(modes[channel]);
     if (!value) throw new Error('invalid_channel_mode');
-    next[channel] = value;
+    entries.push([channel, value]);
   }
-  const row = await withPgClient(async (pgClient) => {
-    const result = await pgClient.query(
-      `UPDATE clients
-          SET settings = jsonb_set(
-            COALESCE(settings, '{}'::jsonb),
-            '{inbox_channel_modes}',
-            $2::jsonb,
-            true
-          )
-        WHERE id = $1::uuid
-        RETURNING settings->'inbox_channel_modes' AS inbox_channel_modes`,
-      [clientId, JSON.stringify(next)]
-    );
-    return result.rows[0] || null;
-  });
+  const run = async (pg) => {
+    let row = null;
+    for (const [channel, value] of entries) {
+      const result = await pg.query(
+        `UPDATE clients
+            SET settings = jsonb_set(
+              jsonb_set(
+                COALESCE(settings, '{}'::jsonb),
+                '{inbox_channel_modes}',
+                COALESCE(settings->'inbox_channel_modes', '{}'::jsonb),
+                true
+              ),
+              ARRAY['inbox_channel_modes', $3::text],
+              to_jsonb($2::text),
+              true
+            )
+          WHERE id = $1::uuid
+          RETURNING settings->'inbox_channel_modes' AS inbox_channel_modes`,
+        [clientId, value, channel]
+      );
+      row = result.rows[0] || null;
+      if (!row) return null;
+    }
+    if (!entries.length) {
+      const result = await pg.query(
+        `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes FROM clients WHERE id=$1::uuid LIMIT 1`,
+        [clientId]
+      );
+      row = result.rows[0] || null;
+    }
+    return row;
+  };
+  const row = pgClient ? await run(pgClient) : await withPgClient(run);
   if (!row) return null;
   return inboxChannelModesFromUnknown(row.inbox_channel_modes);
 }
@@ -51651,43 +51668,54 @@ async function handleAuthPrefs(req, res) {
   }
 
   try {
-    let savedPanel = hasPanelKey ? null : inboxGuestPanelFromMetadata(auth.user.metadata);
-    let savedModes = null;
-    // Shared mode prerequisites and mutation happen before the personal preference
-    // write, so an unavailable settings read cannot leave a mixed PATCH partial.
-    if (hasModesKey) {
-      savedModes = await saveClientInboxChannelModes(auth.user.client_id, modes);
-      if (!savedModes) {
-        return sendJSON(res, 404, { success: false, error: 'client_not_found' });
+    const saved = await withPgClient(async (pgClient) => {
+      await pgClient.query('BEGIN');
+      try {
+        let savedPanel = hasPanelKey ? null : inboxGuestPanelFromMetadata(auth.user.metadata);
+        let savedModes;
+        if (hasModesKey) {
+          savedModes = await saveClientInboxChannelModes(auth.user.client_id, modes, pgClient);
+          if (!savedModes) throw Object.assign(new Error('client_not_found'), { httpStatus: 404 });
+        } else {
+          const modeResult = await pgClient.query(
+            `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes FROM clients WHERE id=$1::uuid LIMIT 1`,
+            [auth.user.client_id]
+          );
+          const modeRow = modeResult.rows[0] || null;
+          if (!modeRow) throw Object.assign(new Error('client_not_found'), { httpStatus: 404 });
+          savedModes = inboxChannelModesFromUnknown(modeRow.inbox_channel_modes);
+        }
+        if (hasPanelKey) {
+          const result = await pgClient.query(
+            `UPDATE staff_users
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+              WHERE id = $1::uuid
+                AND client_id = $2::uuid
+                AND status = 'active'
+              RETURNING metadata`,
+            [auth.user.staff_user_id, auth.user.client_id, JSON.stringify({ inbox_guest_panel: panel })]
+          );
+          const row = result.rows[0] || null;
+          if (!row) throw Object.assign(new Error('staff_user_not_found'), { httpStatus: 404 });
+          savedPanel = inboxGuestPanelFromMetadata(row.metadata);
+        }
+        await pgClient.query('COMMIT');
+        return { savedPanel, savedModes };
+      } catch (err) {
+        try { await pgClient.query('ROLLBACK'); } catch (_) { /* original error wins */ }
+        throw err;
       }
-    } else {
-      savedModes = await loadClientInboxChannelModes(auth.user.client_id);
-    }
-    if (hasPanelKey) {
-      const row = await withPgClient(async (pgClient) => {
-        const result = await pgClient.query(
-          `UPDATE staff_users
-              SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
-            WHERE id = $1::uuid
-              AND client_id = $2::uuid
-              AND status = 'active'
-            RETURNING metadata`,
-          [auth.user.staff_user_id, auth.user.client_id, JSON.stringify({ inbox_guest_panel: panel })]
-        );
-        return result.rows[0] || null;
-      });
-      if (!row) {
-        return sendJSON(res, 404, { success: false, error: 'staff_user_not_found' });
-      }
-      savedPanel = inboxGuestPanelFromMetadata(row.metadata);
-    }
+    });
     return sendJSON(res, 200, {
       success: true,
-      inbox_guest_panel: savedPanel,
-      inbox_channel_modes: savedModes,
+      inbox_guest_panel: saved.savedPanel,
+      inbox_channel_modes: saved.savedModes,
       persisted: true,
     });
-  } catch (_err) {
+  } catch (err) {
+    if (err && err.httpStatus === 404) {
+      return sendJSON(res, 404, { success: false, error: err.message });
+    }
     return sendJSON(res, 500, { success: false, error: 'prefs_save_failed' });
   }
 }
