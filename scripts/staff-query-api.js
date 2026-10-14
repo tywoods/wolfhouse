@@ -192,7 +192,12 @@ const {
   createWolfhousePricingRoutes,
 } = require('./lib/wolfhouse-pricing-routes');
 const wolfhousePricingStore = require('./lib/wolfhouse-pricing-store');
-const { applyOverlayRentalPricesToConfig, applyOverlayPackageItemsToConfig, listManualBookingPackages } = require('./lib/wolfhouse-pricing-resolve');
+const {
+  applyOverlayRentalPricesToConfig,
+  applyOverlayPackageItemsToConfig,
+  applyAuthoritativeSeasonsToConfig,
+  listManualBookingPackages,
+} = require('./lib/wolfhouse-pricing-resolve');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -10005,21 +10010,30 @@ async function handleBookingRemoveService(req, res, user) {
 
 async function loadWolfhouseQuoteConfigWithOverlay({ strict = false } = {}) {
   const base = loadConfig();
+  let seasons;
+  try {
+    seasons = await withPgClient((pg) => wolfhousePricingStore.loadSeasons(pg, 'wolfhouse-somo'));
+  } catch (cause) {
+    const err = new Error('authoritative Pricing seasons are unavailable');
+    err.code = 'PRICING_SEASONS_UNAVAILABLE';
+    err.cause = cause;
+    throw err;
+  }
+
+  const authoritative = applyAuthoritativeSeasonsToConfig(base, seasons);
   try {
     return await withPgClient(async (pg) => {
       // Preview/dry-run callers are read-only; schema initialization belongs to
       // migrations or authorized Admin writes, never policy lookup.
       const rules = await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo');
       const items = await wolfhousePricingStore.loadItems(pg, 'wolfhouse-somo');
-      const next = applyOverlayRentalPricesToConfig(base, rules);
+      const next = applyOverlayRentalPricesToConfig(authoritative, rules);
       return applyOverlayPackageItemsToConfig(next, items);
     });
-  } catch (_err) {
-    // Prices may fall back to JSON, but eligibility must not revert to a stale
-    // seed after staff have changed the policy in Admin Pricing.
-    // Financial writes require successful reads of BOTH read-only Admin sources.
-    if (strict) throw _err;
-    return { ...base, package_min_nights: null };
+  } catch (cause) {
+    if (strict) throw cause;
+    console.warn('[wolfhouse.quote] price/item overlay unavailable; using bundled prices with authoritative DB seasons:', cause.message);
+    return authoritative;
   }
 }
 

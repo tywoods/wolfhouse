@@ -46,6 +46,7 @@ const steps = [
   ['verify:wolfhouse-paylink-map-private-skip', 'verify-wolfhouse-paylink-map-private-skip.js'],
   ['verify:wolfhouse-hospitality-first', 'verify-wolfhouse-hospitality-first.js'],
   ['verify:guest-addon-pricing', 'verify-guest-addon-pricing.js'],
+  ['verify:authoritative-pricing-seasons', 'verify-authoritative-pricing-seasons.js'],
   ['verify:guest-room-type-supplement', 'verify-guest-room-type-supplement.js'],
   ['verify:luna-singular-person-date-range', 'verify-luna-singular-person-date-range.js'],
   ['verify:per-person-gear-room-pref', 'verify-per-person-gear-room-pref.js'],

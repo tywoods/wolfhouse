@@ -265,6 +265,29 @@ function mergeSeasons(configSeasonList, dbSeasonList) {
   return Array.from(merged.values());
 }
 
+/** Replace every bundled season with the authoritative active Pricing rows. */
+function applyAuthoritativeSeasonsToConfig(config, dbSeasons) {
+  if (!Array.isArray(dbSeasons) || dbSeasons.length === 0) {
+    const err = new Error('authoritative Pricing seasons are unavailable');
+    err.code = 'PRICING_SEASONS_UNAVAILABLE';
+    throw err;
+  }
+  const seasons = dbSeasons
+    .filter((season) => season && season.active !== false)
+    .map((season) => ({
+      ...season,
+      ranges: Array.isArray(season.ranges)
+        ? season.ranges.map((range) => ({ ...range }))
+        : [],
+    }));
+  if (seasons.length === 0) {
+    const err = new Error('authoritative Pricing seasons are unavailable');
+    err.code = 'PRICING_SEASONS_UNAVAILABLE';
+    throw err;
+  }
+  return { ...(config || {}), seasons };
+}
+
 /**
  * Look up one price. Season-specific rows win over season-agnostic ones so a
  * package can be priced per season while a wetsuit stays flat all year.
@@ -805,6 +828,7 @@ module.exports = {
   configTransferRules,
   mergePricingRules,
   mergeSeasons,
+  applyAuthoritativeSeasonsToConfig,
   lookupRule,
   resolvePackagePriceForDate,
 };
