@@ -211,10 +211,7 @@ function evaluateLunaBookingWriteEligibility(dryRunPlan, input, env) {
     blockedReasons.push('dry_run_plan_not_ready_for_booking');
   }
 
-  // ── 8. Env / explicit approvals (required for write_ready) ────────────────
-  if (e.BOT_BOOKING_ENABLED !== 'true') {
-    requiredApprovals.push('BOT_BOOKING_ENABLED');
-  }
+  // ── 8. Explicit request approvals (required for write_ready) ───────────────
   if (src.confirm !== true) {
     requiredApprovals.push('confirm_true');
   }

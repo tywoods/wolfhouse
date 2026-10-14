@@ -530,6 +530,17 @@ const OFFER_HTTP_NEXT_ACTION = Object.freeze({
   availability_changed: 're_quote',
   write_recovery_required: 'recover_write',
   idempotency_payload_mismatch: 'clarify_offer',
+  booking_policy_wrong_tenant: 'respect_portal_policy',
+  booking_context_unbound: 'respect_portal_policy',
+  booking_global_paused: 'respect_portal_policy',
+  booking_conversation_paused: 'respect_portal_policy',
+  booking_needs_human: 'respect_portal_policy',
+  booking_channel_off: 'respect_portal_policy',
+  booking_channel_draft: 'respect_portal_policy',
+  booking_policy_unavailable: 'retry_policy_lookup',
+  booking_tenant_unconfigured: 'retry_policy_lookup',
+  booking_channel_unconfigured: 'retry_policy_lookup',
+  booking_channel_invalid: 'retry_policy_lookup',
 });
 
 function mapBotBookingCreateBlockedHttp(row, status) {
@@ -543,6 +554,9 @@ function mapBotBookingCreateBlockedHttp(row, status) {
       success: false,
       blocked: true,
       reason_code: reason,
+      policy_source: src.policy_source || null,
+      booking_allowed: false,
+      policy_unavailable: nextAction === 'retry_policy_lookup',
       detail: src.detail || null,
       error: src.error || 'The booking was not created.',
       write_performed: false,

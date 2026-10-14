@@ -12,8 +12,7 @@
  * Each handler is self-contained except for shared utilities passed in via ctx.
  * ctx shape: { sendJSON, send400, readBody, appendAuditLog, withPgClient,
  *              guestPaymentLinkObservability, handlePostBookingTransfer,
- *              DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
- *              STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+ *              DEFAULT_CLIENT, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
  *              stripeCheckoutRedirectUrlsConfigured,
  *              stripeCheckoutSessionSuccessUrl, stripeCheckoutSessionCancelUrl }
  */
@@ -528,6 +527,37 @@ async function handleBotPaymentStatus(req, res, user, authMode, ctx) {
   }
 }
 
+async function requirePortalAutomaticWriteAdmission(req, res, ctx) {
+  if (ctx.boundClientSlug !== 'wolfhouse-somo') return true;
+  const phone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
+  if (!/^\+[0-9]{8,15}$/.test(phone) || typeof ctx.resolveAutomaticBookingAdmission !== 'function') {
+    ctx.sendJSON(res, 403, { success: false, reason_code: 'booking_context_unbound', write_performed: false });
+    return false;
+  }
+  let decision;
+  try {
+    decision = await ctx.withPgClient((pg) => ctx.resolveAutomaticBookingAdmission(pg, {
+      client_slug: ctx.boundClientSlug,
+      guest_phone: phone,
+    }));
+  } catch (_err) {
+    ctx.sendJSON(res, 503, {
+      success: false, reason_code: 'booking_policy_unavailable',
+      policy_source: 'staff_portal', write_performed: false,
+      creates_stripe_link: false, sends_whatsapp: false,
+      staff_review_needed: false, do_not_escalate: true,
+    });
+    return false;
+  }
+  if (decision.allowed) return true;
+  ctx.sendJSON(res, decision.unavailable ? 503 : 403, {
+    success: false, reason_code: decision.reason, policy_source: decision.source,
+    write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+    staff_review_needed: false, do_not_escalate: true,
+  });
+  return false;
+}
+
 function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   const claimed = !!(body
     && body.simulator_synthetic === true
@@ -543,7 +573,6 @@ function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   else if (!key.startsWith('sk_test_') && mode !== 'test') reasons.push('test_payment_config_missing');
   const pay = String(ctx.PUBLIC_PAYMENT_BASE_URL || '').trim().replace(/\/+$/, '').toLowerCase();
   if (pay && pay !== 'https://staff-staging.lunafrontdesk.com') reasons.push('public_pay_origin_not_approved_staging');
-  if (!ctx.BOT_BOOKING_ENABLED) reasons.push('bot_booking_disabled');
   return {
     claimed: true,
     ok: reasons.length === 0,
@@ -559,6 +588,7 @@ function shouldRequireWolfhouseOfferIdentity(budget) {
 
 function mapCreateFromPlanOfferBridge(result) {
   const src = result && typeof result === 'object' ? result : {};
+  const portalPolicyReason = String(src.reason_code || '').startsWith('booking_');
   const nextAction = {
     offer_identity_required: 'clarify_offer',
     offer_unchecked: 're_quote',
@@ -566,7 +596,10 @@ function mapCreateFromPlanOfferBridge(result) {
     availability_changed: 're_quote',
     write_recovery_required: 'recover_write',
     idempotency_payload_mismatch: 'clarify_offer',
-  }[src.reason_code];
+  }[src.reason_code] || (portalPolicyReason
+    ? (src.reason_code.includes('unavailable') || src.reason_code.includes('unconfigured') || src.reason_code.includes('invalid')
+      ? 'retry_policy_lookup' : 'respect_portal_policy')
+    : null);
   if (!nextAction) return src;
   return {
     ...src,
@@ -767,7 +800,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
           makeInMemoryBotReq({
             client_slug: clientSlug,
             payment_target: paymentTarget,
-          }),
+          }, req.headers),
           linkCapture,
           user,
           authMode,
@@ -818,7 +851,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   const {
     sendJSON, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -840,13 +873,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     return wolfhouseSimulatorBlock(sendJSON, res, simulatorBudget);
   }
 
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
+  if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, {
       success: false,
@@ -1032,7 +1059,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   const {
     sendJSON, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -1051,13 +1078,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
 
   const started = Date.now();
 
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error: 'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
+  if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, {
       success: false,
@@ -1511,7 +1532,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   const {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     DEFAULT_CLIENT,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -1519,9 +1540,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     STAFF_ACTIONS_ENABLED,
   } = ctx;
 
-  if (!BOT_BOOKING_ENABLED && !STAFF_ACTIONS_ENABLED) {
-    return sendJSON(res, 403, { success: false, error: 'Bot booking is disabled.', bot_booking_enabled: false });
-  }
+  if (authMode === 'bot_token' && !(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, { success: false, error: 'Stripe links disabled.', stripe_links_enabled: false });
   }

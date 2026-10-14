@@ -81,8 +81,18 @@ function parseJsonb(value) {
   return {};
 }
 
+function storedModesFromRow(row) {
+  const raw = parseJsonb(row && (ownData(row, 'inbox_channel_modes') || row.inbox_channel_modes));
+  const out = {};
+  for (const channel of CHANNELS) {
+    const value = ownData(raw, channel) || raw[channel];
+    if (EMAIL_INBOX_CHANNEL_MODES.includes(value)) out[channel] = value;
+  }
+  return out;
+}
+
 function modesFromRow(row) {
-  return snapshotModes(parseJsonb(row && (ownData(row, 'inbox_channel_modes') || row.inbox_channel_modes)));
+  return snapshotModes(storedModesFromRow(row));
 }
 
 function unproven() {
@@ -93,10 +103,15 @@ function createEmailInboxChannelModeStore(deps) {
   if (!deps || typeof deps.withPgClient !== 'function') throw new Error('channel_mode_store_deps');
   const withPgClient = deps.withPgClient;
 
-  async function loadModes(clientId) {
+  async function loadStoredModes(clientId) {
     const loaded = await withPgClient(async (pg) => pg.query(SQL_LOAD_CLIENT_CHANNEL_MODES, [clientId]));
     const row = loaded && Array.isArray(loaded.rows) && loaded.rows.length === 1 ? loaded.rows[0] : null;
-    return modesFromRow(row);
+    if (!row) throw unproven();
+    return storedModesFromRow(row);
+  }
+
+  async function loadModes(clientId) {
+    return snapshotModes(await loadStoredModes(clientId));
   }
 
   async function getChannelMode(clientId, channel) {
@@ -110,22 +125,24 @@ function createEmailInboxChannelModeStore(deps) {
 
   async function putChannelMode(clientId, channel, value) {
     const ch = normalizeChannel(channel);
-    if (!ch || typeof clientId !== 'string' || !clientId) throw unproven();
+    if (!ch || typeof clientId !== 'string' || !clientId || !EMAIL_INBOX_CHANNEL_MODES.includes(value)) {
+      throw unproven();
+    }
     try {
-      const current = await loadModes(clientId);
-      const next = freeze({
-        email: ch === 'email' ? normalizeEmailMode(value) : current.email,
-        whatsapp: ch === 'whatsapp' ? normalizeWhatsAppMode(value) : current.whatsapp,
-      });
+      const current = await loadStoredModes(clientId);
+      const next = freeze({ ...current, [ch]: value });
       const stored = await withPgClient(async (pg) => pg.query(SQL_STORE_CLIENT_CHANNEL_MODES, [
         clientId,
         JSON.stringify(next),
       ]));
       const row = stored && Array.isArray(stored.rows) && stored.rows.length === 1 ? stored.rows[0] : null;
       if (!row) throw unproven();
-      const persisted = modesFromRow(row);
-      if (persisted.email !== next.email || persisted.whatsapp !== next.whatsapp) throw unproven();
-      return persisted;
+      const persistedStored = storedModesFromRow(row);
+      if (persistedStored[ch] !== value) throw unproven();
+      for (const [key, expected] of Object.entries(current)) {
+        if (key !== ch && persistedStored[key] !== expected) throw unproven();
+      }
+      return snapshotModes(persistedStored);
     } catch (err) {
       if (err && err.message === CHANNEL_MODE_UNPROVEN) throw err;
       throw unproven();

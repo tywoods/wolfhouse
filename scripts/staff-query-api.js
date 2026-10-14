@@ -1208,8 +1208,6 @@ const CUSTOMER_OUTREACH_WHATSAPP_ENABLED = process.env.CUSTOMER_OUTREACH_WHATSAP
 const BOT_BOOKING_ENABLED = process.env.BOT_BOOKING_ENABLED === 'true';
 // Stage 8.8.27 — Luna bot guest add-on create (service row + optional payment + Stripe link).
 const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 'true';
-// Phase 9.4b — Luna guest pause/resume writes (bot_pause_states SoT). Default OFF.
-const BOT_PAUSE_CONTROLS_ENABLED = process.env.BOT_PAUSE_CONTROLS_ENABLED === 'true';
 // Phase 10.3b — Staff booking move write (single-bed, same dates). Default OFF.
 // Staff Portal bed moves enabled by default (set BOOKING_MOVE_WRITE_ENABLED=false to disable).
 const BOOKING_MOVE_WRITE_ENABLED = process.env.BOOKING_MOVE_WRITE_ENABLED !== 'false';
@@ -1434,6 +1432,19 @@ function assertStaffClientAccess(user, clientSlug, res) {
     return false;
   }
   return true;
+}
+
+function assertStaffMutationClientAccess(user, clientSlug, res) {
+  try {
+    return assertStaffClientAccess(user, clientSlug, res);
+  } catch (_err) {
+    sendJSON(res, 503, {
+      success: false,
+      error: 'client_access_unavailable',
+      client_slug: clientSlug,
+    });
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11314,17 +11325,6 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
 // Does NOT mutate conversations.bot_mode, bookings, payments, or service records.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function botPauseControlsDisabledResponse() {
-  return {
-    success:           false,
-    enabled:           false,
-    error:             'bot_pause_controls_disabled',
-    paused:            false,
-    bot_paused:        false,
-    live_send_blocked: false,
-  };
-}
-
 // buildDefaultActivePauseResponse and buildPausedStateResponse are imported
 // from ./lib/staff-inbox-helpers.js (shared with composite and verifier).
 
@@ -11578,6 +11578,7 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
   if (!conversationId && !guestPhone) {
     return send400(res, 'conversation_id or guest_phone is required');
   }
@@ -11659,6 +11660,7 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
   if (!conversationId && !guestPhone) {
     return send400(res, 'conversation_id or guest_phone is required');
   }
@@ -11725,18 +11727,6 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
 async function handleBotPausePost(req, res, user) {
   const started = Date.now();
 
-  if (!BOT_PAUSE_CONTROLS_ENABLED) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.pause',
-      category: 'bot_pause_api',
-      success: false,
-      error: 'bot_pause_controls_disabled',
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 403, botPauseControlsDisabledResponse());
-  }
-
   let body = {};
   try {
     body = JSON.parse((await readBody(req)) || '{}');
@@ -11744,7 +11734,7 @@ async function handleBotPausePost(req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String(body.client_slug || (user && user.client_slug) || '').trim();
   const conversationId = body.conversation_id != null
     ? String(body.conversation_id).trim() || null
     : null;
@@ -11755,6 +11745,7 @@ async function handleBotPausePost(req, res, user) {
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffMutationClientAccess(user, clientSlug, res)) return;
   if (!conversationId && !guestPhone) {
     return send400(res, 'conversation_id or guest_phone is required');
   }
@@ -11822,18 +11813,6 @@ async function handleBotPausePost(req, res, user) {
 async function handleBotResumePost(req, res, user) {
   const started = Date.now();
 
-  if (!BOT_PAUSE_CONTROLS_ENABLED) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:bot.resume',
-      category: 'bot_pause_api',
-      success: false,
-      error: 'bot_pause_controls_disabled',
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 403, botPauseControlsDisabledResponse());
-  }
-
   let body = {};
   try {
     body = JSON.parse((await readBody(req)) || '{}');
@@ -11841,7 +11820,7 @@ async function handleBotResumePost(req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String(body.client_slug || (user && user.client_slug) || '').trim();
   const conversationId = body.conversation_id != null
     ? String(body.conversation_id).trim() || null
     : null;
@@ -11852,6 +11831,7 @@ async function handleBotResumePost(req, res, user) {
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffMutationClientAccess(user, clientSlug, res)) return;
   if (!conversationId && !guestPhone) {
     return send400(res, 'conversation_id or guest_phone is required');
   }
@@ -11980,10 +11960,6 @@ async function handleBotGlobalPauseStateGet(query, res, user) {
 async function handleBotGlobalPausePost(req, res, user) {
   const started = Date.now();
 
-  if (!BOT_PAUSE_CONTROLS_ENABLED) {
-    return sendJSON(res, 403, botPauseControlsDisabledResponse());
-  }
-
   let body = {};
   try {
     body = JSON.parse((await readBody(req)) || '{}');
@@ -11991,10 +11967,11 @@ async function handleBotGlobalPausePost(req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String(body.client_slug || (user && user.client_slug) || '').trim();
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffMutationClientAccess(user, clientSlug, res)) return;
 
   const pausedBy = resolveStaffActorId(user, body, 'global-pause-local-dev');
 
@@ -12039,10 +12016,6 @@ async function handleBotGlobalPausePost(req, res, user) {
 async function handleBotGlobalResumePost(req, res, user) {
   const started = Date.now();
 
-  if (!BOT_PAUSE_CONTROLS_ENABLED) {
-    return sendJSON(res, 403, botPauseControlsDisabledResponse());
-  }
-
   let body = {};
   try {
     body = JSON.parse((await readBody(req)) || '{}');
@@ -12050,10 +12023,11 @@ async function handleBotGlobalResumePost(req, res, user) {
     return send400(res, 'invalid JSON body');
   }
 
-  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const clientSlug = String(body.client_slug || (user && user.client_slug) || '').trim();
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'client_slug is required');
   }
+  if (!assertStaffMutationClientAccess(user, clientSlug, res)) return;
 
   const resumedBy = resolveStaffActorId(user, body, 'global-resume-local-dev');
 
@@ -12596,7 +12570,7 @@ async function handleBotBookingWriteEligibility(req, res, user, authMode) {
 
   try {
     const dryRunPlan = await withPgClient((pg) => runLunaGuestBookingDryRun(body, { pg }));
-    const eligibility = evaluateLunaBookingWriteEligibility(dryRunPlan, body, process.env);
+    const eligibility = evaluateLunaBookingWriteEligibility(dryRunPlan, body);
     const elapsed = Date.now() - started;
 
     appendAuditLog({
@@ -14301,6 +14275,7 @@ async function handleBotTransferSave(req, res, user, authMode) {
     handlePostBookingTransfer,
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -14311,6 +14286,7 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
     sendJSON, readBody, withPgClient,
     DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -14323,8 +14299,9 @@ async function handleBotPaymentStatus(req, res, user, authMode) {
 async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
   return _handleBotBookingCreateFromPlan(req, res, user, authMode, {
     sendJSON, send400, readBody, appendAuditLog, makeInMemoryBotReq,
-    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
+    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     handleBotBookingCreate,
     handlePostBookingTransfer,
     handleBotGuestPaymentCreateLink,
@@ -15850,8 +15827,9 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   return _handleBotPaymentCreateStripeLink(paymentId, req, res, user, authMode, {
     sendJSON, withPgClient, appendAuditLog, readBody,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     PUBLIC_PAYMENT_BASE_URL: process.env.PUBLIC_PAYMENT_BASE_URL || '',
     WOLFHOUSE_STRIPE_MODE: process.env.WOLFHOUSE_STRIPE_MODE || '',
     STAFF_AUTH_REQUIRED, STAFF_ACTIONS_ENABLED,
@@ -15865,9 +15843,10 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode) {
   return _handleBotCreateBalancePaymentLink(req, res, user, authMode, {
     sendJSON, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
@@ -15889,6 +15868,7 @@ async function handleBotPackagePricePreview(req, res, user, authMode) {
     sendJSON, send400, readBody, DEFAULT_CLIENT,
     loadWolfhouseQuoteConfigWithOverlay,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -15896,9 +15876,10 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   return _handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode, {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
@@ -15909,6 +15890,7 @@ async function handleBotGuestPaymentStatus(req, res, user, authMode) {
   return _handleBotGuestPaymentStatus(req, res, user, authMode, {
     sendJSON, send400, readBody, withPgClient, DEFAULT_CLIENT,
     boundClientSlug: req && req._botBoundClientSlug,
+    resolveAutomaticBookingAdmission: resolveWolfhouseAutomaticBookingAdmission,
   });
 }
 
@@ -15918,7 +15900,7 @@ async function handleStaffGenerateGuestPaymentLink(req, res, user) {
     assertStaffClientAccess, delegatedHandler: _handleBotGuestPaymentCreateLink,
     delegatedContext: {
       sendJSON, send400, readBody, withPgClient, appendAuditLog, guestPaymentLinkObservability,
-      BOT_BOOKING_ENABLED: false, STAFF_ACTIONS_ENABLED: true, STRIPE_LINKS_ENABLED,
+      STAFF_ACTIONS_ENABLED: true, STRIPE_LINKS_ENABLED,
       STRIPE_SECRET_KEY, DEFAULT_CLIENT, stripeCheckoutRedirectUrlsConfigured,
       stripeCheckoutSessionSuccessUrl, stripeCheckoutSessionCancelUrl,
     },
@@ -15962,6 +15944,17 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       write_performed: false,
     });
   }
+  const phoneDigits = (value) => String(value || '').replace(/\D/g, '');
+  const requestedGuestPhones = [body.phone, body.guest_phone]
+    .filter((value) => value != null && String(value).trim() !== '');
+  if (requestedGuestPhones.some((value) => phoneDigits(value) !== phoneDigits(trustedGuestPhone))) {
+    return sendJSON(res, 403, {
+      success: false, reason_code: 'booking_identity_mismatch',
+      error: 'Booking guest does not match the authenticated Luna turn.',
+      write_performed: false, no_write_performed: true,
+    });
+  }
+  body = { ...body, phone: trustedGuestPhone, guest_phone: trustedGuestPhone };
 
   // ── 3. Actor ──────────────────────────────────────────────────────────────
   const actorId   = user ? user.staff_user_id : 'luna-bot-internal';
@@ -16050,6 +16043,13 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const assignedBedCodes = row.assignedBedCodes || cmd.assignedBedCodes;
   const elapsed = Date.now() - started;
 
+  const typedBlocked = mapBotBookingCreateBlockedHttp(row, execResult.status);
+  if (!execResult.ok && typedBlocked) {
+    appendAuditLog({ ...auditBase, success: false, blocked: true,
+      block_reason: row.reason_code, elapsed_ms: elapsed });
+    return sendJSON(res, typedBlocked.status, typedBlocked.body);
+  }
+
   if (!execResult.ok && !row._duplicate && !row._blocked && !row._safety_violation) {
     appendAuditLog({ ...auditBase, success: false, error: row.error || 'write_failed', elapsed_ms: elapsed });
     if (execResult.status === 400) return send400(res, row.error || 'invalid request');
@@ -16073,13 +16073,6 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       message:      'Booking already exists for this request (idempotent).',
       creates_stripe_link: false, sends_whatsapp: false, whatsapp_dry_run: true,
     });
-  }
-
-  const typedBlocked = mapBotBookingCreateBlockedHttp(row, execResult.status);
-  if (!execResult.ok && typedBlocked) {
-    appendAuditLog({ ...auditBase, success: false, blocked: true,
-      block_reason: row.reason_code, elapsed_ms: elapsed });
-    return sendJSON(res, typedBlocked.status, typedBlocked.body);
   }
 
   // Preserve typed commit-time policy rejection before the generic SQL block mapper.
@@ -35734,9 +35727,6 @@ function lunaGlobalPauseLoad(){
     .then(function(data){
       if (!data || !data.success){
         lunaGlobalPauseUpdateUi(false);
-        if (data && data.error === 'bot_pause_controls_disabled'){
-          lunaGlobalPauseSetStatus('Pause controls are disabled on this environment.', true);
-        }
         return;
       }
       var paused = data.paused === true || data.bot_paused === true;
@@ -51500,7 +51490,7 @@ function inboxGuestPanelFromMetadata(meta) {
 }
 
 function inboxChannelModeFromValue(value) {
-  return value === 'auto' ? 'auto' : 'draft';
+  return value === 'auto' || value === 'off' ? value : 'draft';
 }
 
 function inboxChannelModesFromUnknown(raw) {
@@ -51527,10 +51517,12 @@ function inboxChannelModesStoreFromUnknown(raw) {
     try { src = JSON.parse(src); } catch (_e) { src = null; }
   }
   const obj = src && typeof src === 'object' && !Array.isArray(src) ? src : {};
-  return {
-    whatsapp: inboxChannelModeStoreFromValue(obj.whatsapp) || 'draft',
-    email: inboxChannelModeStoreFromValue(obj.email) || 'draft',
-  };
+  const modes = {};
+  for (const channel of ['whatsapp', 'email']) {
+    const value = inboxChannelModeStoreFromValue(obj[channel]);
+    if (value) modes[channel] = value;
+  }
+  return modes;
 }
 
 /**
@@ -51546,22 +51538,19 @@ function mergeInboxUiChannelMode(currentStoreValue, uiValue) {
 }
 
 async function loadClientInboxChannelModesStore(clientId) {
-  if (!clientId) return inboxChannelModesStoreFromUnknown(null);
-  try {
-    const row = await withPgClient(async (pgClient) => {
-      const result = await pgClient.query(
-        `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes
-           FROM clients
-          WHERE id = $1::uuid
-          LIMIT 1`,
-        [clientId]
-      );
-      return result.rows[0] || null;
-    });
-    return inboxChannelModesStoreFromUnknown(row && row.inbox_channel_modes);
-  } catch (_err) {
-    return inboxChannelModesStoreFromUnknown(null);
-  }
+  if (!clientId) throw new Error('channel_modes_client_unbound');
+  const row = await withPgClient(async (pgClient) => {
+    const result = await pgClient.query(
+      `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes
+         FROM clients
+        WHERE id = $1::uuid
+        LIMIT 1`,
+      [clientId]
+    );
+    return result.rows[0] || null;
+  });
+  if (!row) throw new Error('channel_modes_client_not_found');
+  return inboxChannelModesStoreFromUnknown(row.inbox_channel_modes);
 }
 
 async function loadClientInboxChannelModes(clientId) {
@@ -51572,12 +51561,14 @@ async function loadClientInboxChannelModes(clientId) {
 }
 
 async function saveClientInboxChannelModes(clientId, modes) {
-  const ui = inboxChannelModesFromUnknown(modes);
   const current = await loadClientInboxChannelModesStore(clientId);
-  const next = {
-    whatsapp: mergeInboxUiChannelMode(current.whatsapp, ui.whatsapp),
-    email: mergeInboxUiChannelMode(current.email, ui.email),
-  };
+  const next = { ...current };
+  for (const channel of ['whatsapp', 'email']) {
+    if (!Object.prototype.hasOwnProperty.call(modes || {}, channel)) continue;
+    const value = inboxChannelModeStoreFromValue(modes[channel]);
+    if (!value) throw new Error('invalid_channel_mode');
+    next[channel] = value;
+  }
   const row = await withPgClient(async (pgClient) => {
     const result = await pgClient.query(
       `UPDATE clients
@@ -51612,6 +51603,17 @@ async function handleAuthPrefs(req, res) {
     return sendJSON(res, 400, { success: false, error: 'prefs_patch_empty' });
   }
 
+  if (hasModesKey && (!auth.user || !hasRole(auth.user.role, 'operator'))) {
+    return sendJSON(res, 403, { success: false, error: 'operator_role_required' });
+  }
+  if (hasModesKey) {
+    const targetClientSlug = String((auth.user && auth.user.client_slug) || '').trim();
+    if (!targetClientSlug) {
+      return sendJSON(res, 503, { success: false, error: 'client_access_unavailable' });
+    }
+    if (!assertStaffMutationClientAccess(auth.user, targetClientSlug, res)) return;
+  }
+
   let panel = null;
   if (hasPanelKey) {
     panel = body.inbox_guest_panel;
@@ -51632,7 +51634,12 @@ async function handleAuthPrefs(req, res) {
         error: 'inbox_channel_modes must be an object',
       });
     }
-    modes = inboxChannelModesFromUnknown(rawModes);
+    for (const [channel, value] of Object.entries(rawModes)) {
+      if (!['whatsapp', 'email'].includes(channel) || !['auto', 'draft', 'off'].includes(value)) {
+        return sendJSON(res, 400, { success: false, error: 'invalid_channel_mode' });
+      }
+    }
+    modes = { ...rawModes };
   }
 
   if (!STAFF_AUTH_REQUIRED || !auth.user || !auth.user.staff_user_id) {
@@ -51646,6 +51653,16 @@ async function handleAuthPrefs(req, res) {
   try {
     let savedPanel = hasPanelKey ? null : inboxGuestPanelFromMetadata(auth.user.metadata);
     let savedModes = null;
+    // Shared mode prerequisites and mutation happen before the personal preference
+    // write, so an unavailable settings read cannot leave a mixed PATCH partial.
+    if (hasModesKey) {
+      savedModes = await saveClientInboxChannelModes(auth.user.client_id, modes);
+      if (!savedModes) {
+        return sendJSON(res, 404, { success: false, error: 'client_not_found' });
+      }
+    } else {
+      savedModes = await loadClientInboxChannelModes(auth.user.client_id);
+    }
     if (hasPanelKey) {
       const row = await withPgClient(async (pgClient) => {
         const result = await pgClient.query(
@@ -51663,14 +51680,6 @@ async function handleAuthPrefs(req, res) {
         return sendJSON(res, 404, { success: false, error: 'staff_user_not_found' });
       }
       savedPanel = inboxGuestPanelFromMetadata(row.metadata);
-    }
-    if (hasModesKey) {
-      savedModes = await saveClientInboxChannelModes(auth.user.client_id, modes);
-      if (!savedModes) {
-        return sendJSON(res, 404, { success: false, error: 'client_not_found' });
-      }
-    } else {
-      savedModes = await loadClientInboxChannelModes(auth.user.client_id);
     }
     return sendJSON(res, 200, {
       success: true,
@@ -56420,7 +56429,7 @@ async function router(req, res) {
 
   // ── Phase 9.4b — Luna guest bot pause/resume (bot_pause_states SoT) ─────────
   // GET pause-state: read-only; defaults active when table missing.
-  // POST pause/resume: gated by BOT_PAUSE_CONTROLS_ENABLED (default OFF).
+  // POST pause/resume: operator+ and authenticated target-tenant ACL.
   // Staff session auth (operator+ for writes). Does NOT touch conversations.bot_mode.
   if (pathname === '/staff/bot/pause-state') {
     if (method !== 'GET') {
@@ -56484,7 +56493,7 @@ async function router(req, res) {
 
   // ── Phase 9.6 — Guest automation dry-run pause gate (read-only) ─────────────
   // POST check-guest-automation-gate: n8n/bot dry-run gate before guest send.
-  // NOT gated by BOT_PAUSE_CONTROLS_ENABLED (reads only). Does NOT send WhatsApp.
+  // Independent read-only automation gate. Does NOT send WhatsApp.
   if (pathname === '/staff/bot/check-guest-automation-gate') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -58238,8 +58247,8 @@ async function startStaffQueryApiCli() {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-request-preview  <- 8.8.25 Luna bot guest add-on preview (dry-run, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-requests/create   <- 8.8.27 Luna bot guest add-on create (${BOT_ADDON_REQUESTS_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_ADDON_REQUESTS_ENABLED+STRIPE_LINKS_ENABLED'})`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/bot/pause-state            <- 9.4b Luna guest pause lookup (read-only; table may be missing)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/pause                  <- 9.4b Luna guest pause write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (${BOT_PAUSE_CONTROLS_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_PAUSE_CONTROLS_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/pause                  <- 9.4b Luna guest pause write (portal-authorized)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/resume                 <- 9.4b Luna guest resume write (portal-authorized)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/check-guest-automation-gate <- 9.6 Luna guest automation dry-run pause gate (read-only; no send)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/ask-luna/ai-status         <- 24d Ask Luna AI provider status (session viewer+, read-only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/ask-luna                  <- 8.6.1 Staff Ask Luna (session or allowlisted phone, read-only)`);
