@@ -691,7 +691,7 @@ const {
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
 } = require('./lib/sunset-schedule-browser-source');
 const { injectInboxBrowserModules } = require('./lib/inbox-browser-source');
-const { injectStaffRoomFillModule } = require('./lib/staff-room-fill-browser-source');
+const { parseStoredPolicy } = require('./lib/staff-room-fill-policy');
 const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {
   SUNSET_LOCATIONS,
@@ -52806,7 +52806,8 @@ function buildRoomHierarchy(roomRows) {
       if (!policy && row && row.room_fill_policy && typeof row.room_fill_policy === 'object') policy = row.room_fill_policy;
       if (!catalogue && row && Array.isArray(row.room_fill_catalogue)) catalogue = row.room_fill_catalogue;
     }
-    if (!policy || !Array.isArray(policy.roomPriority)) return { ready: false, ranks: new Map() };
+    const parsed = parseStoredPolicy(policy);
+    if (!parsed.ok || !parsed.policy) return { ready: false, ranks: new Map() };
     const catalogueIds = new Set();
     if (catalogue) {
       for (const item of catalogue) {
@@ -52815,12 +52816,10 @@ function buildRoomHierarchy(roomRows) {
       }
     }
     const ranks = new Map();
-    for (let i = 0; i < policy.roomPriority.length; i += 1) {
-      const id = policy.roomPriority[i];
-      if (typeof id !== 'string' || !id) return { ready: false, ranks: new Map() };
-      if (catalogue && !catalogueIds.has(id)) continue;
-      if (!ranks.has(id)) ranks.set(id, i);
-    }
+    parsed.policy.roomPriority.forEach((id, index) => {
+      if (catalogue && !catalogueIds.has(id)) return;
+      ranks.set(id, index);
+    });
     return { ready: true, ranks };
   }
   const projection = calendarPriorityProjection(roomRows);

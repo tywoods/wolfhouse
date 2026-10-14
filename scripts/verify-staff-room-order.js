@@ -38,32 +38,37 @@ function extractFunction(name) {
   throw new Error('unclosed ' + name);
 }
 
-const hierarchy = new Function('resolveRoomCategory', extractFunction('buildRoomHierarchy') + '\nreturn buildRoomHierarchy;')(() => 'private');
+const { parseStoredPolicy } = require('./lib/staff-room-fill-policy');
+const hierarchy = new Function('resolveRoomCategory', 'parseStoredPolicy', extractFunction('buildRoomHierarchy') + '\nreturn buildRoomHierarchy;')(() => 'private', parseStoredPolicy);
+assert.match(extractFunction('buildRoomHierarchy'), /parseStoredPolicy\(policy\)/);
+const IDS = {
+  R1: '11111111-1111-4111-8111-111111111111',
+  R2: '22222222-2222-4222-8222-222222222222',
+  R3: '33333333-3333-4333-8333-333333333333',
+  R10: '10101010-1010-4101-8101-101010101010',
+};
 const policy = {
   contractVersion: 1,
   fillMode: 'house',
-  roomPriority: ['R10', 'R2', 'R1'],
+  roomPriority: [IDS.R10, IDS.R2, IDS.R1],
   roomPrioritySource: 'custom',
 };
-const catalogue = [
-  { room_id: 'R1', room_code: 'R1' },
-  { room_id: 'R2', room_code: 'R2' },
-  { room_id: 'R10', room_code: 'R10' },
-  { room_id: 'R3', room_code: 'R3' },
-];
-const rows = ['R1', 'R10', 'R2', 'R3'].map((code, index) => ({
-  room_id: code,
-  room_code: code,
-  room_name: code,
-  room_fill_policy: policy,
-  room_fill_catalogue: catalogue,
-  fill_priority: 100 - index,
-  room_sort_order: 100 - index,
-  bed_code: code + '-B1',
-  bed_id: code + '-bed',
-  bed_number: 1,
-}));
-const rooms = hierarchy(rows);
+const catalogue = Object.entries(IDS).map(([code, room_id]) => ({ room_id, room_code: code }));
+function rowsFor(saved) {
+  return ['R1', 'R10', 'R2', 'R3'].map((code, index) => ({
+    room_id: IDS[code],
+    room_code: code,
+    room_name: code,
+    room_fill_policy: saved,
+    room_fill_catalogue: catalogue,
+    fill_priority: 100 - index,
+    room_sort_order: 100 - index,
+    bed_code: code + '-B1',
+    bed_id: code + '-bed',
+    bed_number: 1,
+  }));
+}
+const rooms = hierarchy(rowsFor(policy));
 assert.deepEqual(rooms.map((room) => room.room_code), ['R1', 'R10', 'R2', 'R3']);
 assert.equal(rooms.find((room) => room.room_code === 'R10').room_priority_rank, 0);
 assert.equal(rooms.find((room) => room.room_code === 'R2').room_priority_rank, 1);
@@ -73,7 +78,7 @@ assert.equal(Object.hasOwn(rooms[0], 'room_fill_policy'), false);
 assert.equal(Object.hasOwn(rooms[0], 'room_fill_catalogue'), false);
 assert.deepEqual(rooms[0].beds.map((bed) => bed.bed_code), ['R1-B1']);
 
-const broken = hierarchy(rows.map((row) => ({ ...row, room_fill_policy: { roomPriority: 'nope' } })));
+const broken = hierarchy(rowsFor({ roomPriority: 'nope' }));
 assert.ok(broken.every((room) => room.room_priority_status === 'unavailable'));
 assert.equal(broken.length, 4);
 
@@ -107,6 +112,20 @@ assert.equal(store['wh_staff_room_order_v1:wolfhouse-somo'], 'priority');
 assert.equal(Object.keys(store).some((key) => key === 'wh_staff_room_order_v1'), false);
 const priority = sandbox.api.bcSortRoomsForDisplay(rooms);
 assert.equal(priority.map((room) => room.room_code).join(','), 'R10,R2,R1,R3');
+const savedPreference = store['wh_staff_room_order_v1:wolfhouse-somo'];
+function rejectedStaysNumerical(label, saved) {
+  const before = store['wh_staff_room_order_v1:wolfhouse-somo'];
+  const projected = hierarchy(rowsFor(saved));
+  assert.ok(projected.every((room) => room.room_priority_status === 'unavailable'), label);
+  assert.equal(sandbox.api.bcSortRoomsForDisplay(projected).map((room) => room.room_code).join(','), 'R1,R2,R3,R10', label);
+  assert.equal(store['wh_staff_room_order_v1:wolfhouse-somo'], before, label + ' preference untouched');
+  assert.equal(sandbox.api.bcRoomOrderRead(), 'priority', label + ' saved choice remains Priority');
+  assert.equal(JSON.stringify(saved), JSON.stringify(rowsFor(saved)[0].room_fill_policy));
+}
+rejectedStaysNumerical('bad version', { ...policy, contractVersion: 99 });
+rejectedStaysNumerical('duplicate ids', { ...policy, roomPriority: [IDS.R10, IDS.R10, IDS.R2] });
+rejectedStaysNumerical('invalid priority source', { ...policy, roomPrioritySource: 'manual' });
+assert.equal(savedPreference, 'priority');
 const withHistory = sandbox.api.bcSortRoomsForDisplay(rooms.concat([{ room_code: 'R0', history_only: true, room_priority_status: 'ranked', room_priority_rank: 0 }]));
 assert.equal(withHistory.at(-1).room_code, 'R0');
 store['wh_staff_room_order_v1:wolfhouse-somo'] = 'not-a-mode';
