@@ -80,22 +80,30 @@ async function loadBookingQuoteConfigWithOverlay(pg) {
     err.code = 'PRICING_SEASONS_UNAVAILABLE';
     throw err;
   }
+  let authoritative;
   try {
     // Tables belong to migrations/Admin writes, never a quote or preflight read.
     const seasons = await wolfhousePricingStore.loadSeasons(pg, WOLFHOUSE_CLIENT_SLUG);
-    const rules = await wolfhousePricingStore.loadRules(pg, WOLFHOUSE_CLIENT_SLUG);
-    const items = await wolfhousePricingStore.loadItems(pg, WOLFHOUSE_CLIENT_SLUG);
-    const authoritative = applyAuthoritativeSeasonsToConfig(base, seasons);
-    return applyOverlayPackageItemsToConfig(
-      applyOverlayRentalPricesToConfig(authoritative, rules),
-      items,
-    );
+    authoritative = applyAuthoritativeSeasonsToConfig(base, seasons);
   } catch (cause) {
     if (cause && cause.code === 'PRICING_SEASONS_UNAVAILABLE') throw cause;
     const err = new Error('authoritative Pricing seasons are unavailable');
     err.code = 'PRICING_SEASONS_UNAVAILABLE';
     err.cause = cause;
     throw err;
+  }
+  try {
+    const rules = await wolfhousePricingStore.loadRules(pg, WOLFHOUSE_CLIENT_SLUG);
+    const items = await wolfhousePricingStore.loadItems(pg, WOLFHOUSE_CLIENT_SLUG);
+    return applyOverlayPackageItemsToConfig(
+      applyOverlayRentalPricesToConfig(authoritative, rules),
+      items,
+    );
+  } catch (_) {
+    // Seasons remain mandatory. Other Pricing overlays retain the historical
+    // direct-loader fallback so a rules/items outage is not misreported as a
+    // calendar outage.
+    return authoritative;
   }
 }
 

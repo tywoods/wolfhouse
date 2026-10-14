@@ -1033,10 +1033,24 @@ async function loadAuthoritativeQuote(pg, command) {
   const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
   const pricingStore = require('./wolfhouse-pricing-store');
   const {
+    applyAuthoritativeSeasonsToConfig,
     applyOverlayPackageItemsToConfig,
     applyOverlayRentalPricesToConfig,
   } = require('./wolfhouse-pricing-resolve');
   if (pg && src.clientSlug) {
+    let seasons;
+    try {
+      await pg.query(
+        '/* offer_season_lock */ SELECT id FROM wh_pricing_seasons WHERE client_slug = $1 FOR UPDATE',
+        [src.clientSlug],
+      );
+      seasons = await pricingStore.loadSeasons(pg, src.clientSlug);
+    } catch (cause) {
+      const err = new Error('authoritative Pricing seasons are unavailable');
+      err.code = 'PRICING_SEASONS_UNAVAILABLE';
+      err.cause = cause;
+      throw err;
+    }
     await pg.query(
       '/* offer_price_lock */ SELECT id FROM wh_pricing_rules WHERE client_slug = $1 FOR UPDATE',
       [src.clientSlug],
@@ -1047,8 +1061,9 @@ async function loadAuthoritativeQuote(pg, command) {
     );
     const rules = await pricingStore.loadRules(pg, src.clientSlug);
     const items = await pricingStore.loadItems(pg, src.clientSlug);
+    const authoritative = applyAuthoritativeSeasonsToConfig(loadConfig(), seasons);
     const config = applyOverlayPackageItemsToConfig(
-      applyOverlayRentalPricesToConfig(loadConfig(), rules),
+      applyOverlayRentalPricesToConfig(authoritative, rules),
       items,
     );
     return calculateWolfhouseQuote({
@@ -1098,7 +1113,13 @@ async function rereadWolfhouseOfferForCommit(pg, command) {
   let freshQuote = null;
   try {
     freshQuote = await loadAuthoritativeQuote(pg, src);
-  } catch (_) {
+  } catch (err) {
+    if (err && err.code === 'PRICING_SEASONS_UNAVAILABLE') {
+      return {
+        ...offerReject('offer_terms_changed', 'pricing_seasons_unavailable'),
+        write_performed: false,
+      };
+    }
     freshQuote = null;
   }
   const quoteForOffer = freshQuote && freshQuote.success

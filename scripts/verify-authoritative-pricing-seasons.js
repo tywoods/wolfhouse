@@ -64,6 +64,7 @@ for (const unavailable of [null, undefined, []]) {
 }
 
 const service = require('./lib/luna-front-desk-accommodation-booking-create-service');
+const { rereadWolfhouseOfferForCommit } = require('./lib/luna-front-desk-accommodation-availability-service');
 const { CLOSED_SEASON_COPY } = require('./lib/bot-guest-safe-copy');
 const fs = require('fs');
 const path = require('path');
@@ -105,10 +106,48 @@ async function verifyDirectLoader() {
     () => service.loadBookingQuoteConfigWithOverlay({ query: async () => { throw new Error('missing season table'); } }),
     err => err && err.code === 'PRICING_SEASONS_UNAVAILABLE',
   );
-  console.log('authoritative Pricing seasons: core replacement, boundaries, open/closed and unavailable gates PASS');
+  let queryCount = 0;
+  const readableSeasonsBrokenRules = await service.loadBookingQuoteConfigWithOverlay({
+    async query() {
+      queryCount += 1;
+      if (queryCount === 1) return { rows: dbSeasons };
+      throw new Error('rules unavailable');
+    },
+  });
+  assert.equal(resolve.resolveSeasonForDate(readableSeasonsBrokenRules.seasons, '2027-11-30').code, 'spring_autumn');
 }
 
-verifyDirectLoader().catch((err) => {
-  console.error(err);
-  process.exitCode = 1;
-});
+async function verifyCommitRereadFailsClosed() {
+  const result = await rereadWolfhouseOfferForCommit({
+    async query(sql) {
+      const text = String(sql);
+      if (text.includes('offer_commit_reread') || text.includes('FROM rooms r')) {
+        return { rows: [{ bed_code: 'R1-B1', room_code: 'R1', room_type: 'shared', gender_strategy: 'mixed' }] };
+      }
+      if (text.includes('wh_pricing_seasons')) throw new Error('season read unavailable');
+      return { rows: [] };
+    },
+  }, {
+    clientSlug: 'wolfhouse-somo',
+    checkIn: '2027-11-10',
+    checkOut: '2027-11-17',
+    quoteGuestCount: 1,
+    assignedBedCodes: ['R1-B1'],
+    roomType: 'shared',
+    effectivePackageCode: 'malibu',
+    paymentChoice: 'deposit',
+    transportBody: { accepted_offer: { revision: 'test' } },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.detail, 'pricing_seasons_unavailable');
+  assert.equal(result.write_performed, false);
+}
+
+Promise.resolve()
+  .then(verifyDirectLoader)
+  .then(verifyCommitRereadFailsClosed)
+  .then(() => console.log('authoritative Pricing seasons: core replacement, boundaries, open/closed and unavailable gates PASS'))
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });
