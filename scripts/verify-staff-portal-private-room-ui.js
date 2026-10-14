@@ -7,7 +7,7 @@ process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
 process.env.WHATSAPP_DRY_RUN = 'true';
 
 const vm = require('vm');
-const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 const { readStaffPortalUiSource } = require('./lib/staff-portal-ui-source');
 
@@ -32,6 +32,11 @@ function t(key, vars) {
 
 // Quote math: 2 guests, 7 nights, double room → €70 flat supplement (€10/night × 7)
 {
+  const authoritativeConfig = loadConfig();
+  authoritativeConfig.seasons = [{
+    code: 'summer', active: true, bookable: true, priority: 0,
+    ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+  }];
   const shared = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2026-06-01',
@@ -41,7 +46,7 @@ function t(key, vars) {
     room_type: 'shared',
     payment_choice: 'deposit',
     add_ons: [],
-  });
+  }, authoritativeConfig);
   const priv = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2026-06-01',
@@ -51,7 +56,7 @@ function t(key, vars) {
     room_type: 'double',
     payment_choice: 'deposit',
     add_ons: [],
-  });
+  }, authoritativeConfig);
   check('Q1', shared.success && priv.success, 'malibu 7n quotes succeed');
   const supp = (priv.line_items || []).find((i) => i.code === 'room_supplement');
   check('Q2', !!supp, 'double quote has room_supplement line');

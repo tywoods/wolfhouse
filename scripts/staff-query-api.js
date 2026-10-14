@@ -7598,6 +7598,24 @@ async function handleBookingEditWritePrivateRoom(
     });
   }
 
+  try {
+    await editWriteAttachAuthoritativeQuoteConfig(bookingRow);
+  } catch (err) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: elapsed });
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'authoritative_pricing_unavailable',
+      edit_type: 'private_room',
+      updated: false,
+      would_mutate: false,
+      before,
+      proposed: { private_room_enabled: enabled },
+      message: 'Private room pricing is temporarily unavailable. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
   const resolved = editWriteResolvePrivateRoomTotals(bookingRow, svcRows, enabled, clientSlug);
   if (resolved.error) {
     const elapsed = Date.now() - started;
