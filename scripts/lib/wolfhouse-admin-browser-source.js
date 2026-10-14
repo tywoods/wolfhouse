@@ -13,10 +13,14 @@ const PRICING_BROWSER_SRC = path.join(
 const LUNA_STAFF_CARDS_REGROUP = path.join(
   __dirname, '..', 'browser', 'sunset-admin-luna-cards-combine.js',
 );
+const LOCATION_BOOKING_SETTINGS_UI = path.join(
+  __dirname, '..', 'browser', 'wolfhouse-location-booking-settings-ui.js',
+);
 
 function getWolfhouseAdminUiSource() {
   return [
     fs.readFileSync(LUNA_STAFF_CARDS_REGROUP, 'utf8'),
+    fs.readFileSync(LOCATION_BOOKING_SETTINGS_UI, 'utf8'),
     fs.readFileSync(BROWSER_SRC, 'utf8'),
   ].join('\n');
 }
@@ -30,4 +34,5 @@ module.exports = {
   getWolfhousePricingUiSource,
   BROWSER_SRC,
   PRICING_BROWSER_SRC,
+  LOCATION_BOOKING_SETTINGS_UI,
 };
