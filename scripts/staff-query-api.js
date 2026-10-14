@@ -691,6 +691,7 @@ const {
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
 } = require('./lib/sunset-schedule-browser-source');
 const { injectInboxBrowserModules } = require('./lib/inbox-browser-source');
+const { injectStaffRoomFillModule } = require('./lib/staff-room-fill-browser-source');
 const { parseStoredPolicy } = require('./lib/staff-room-fill-policy');
 const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {

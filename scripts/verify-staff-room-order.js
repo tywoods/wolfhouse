@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { spawnSync } = require('node:child_process');
 const es = require('./lib/staff-portal-i18n-es');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 
@@ -126,6 +127,27 @@ rejectedStaysNumerical('bad version', { ...policy, contractVersion: 99 });
 rejectedStaysNumerical('duplicate ids', { ...policy, roomPriority: [IDS.R10, IDS.R10, IDS.R2] });
 rejectedStaysNumerical('invalid priority source', { ...policy, roomPrioritySource: 'manual' });
 assert.equal(savedPreference, 'priority');
+
+function buildProductionPage(tenant) {
+  const code = "process.env.NODE_ENV='test';process.env.STAFF_UI_BUILDER_TEST_SEAM='1';process.env.STAFF_AUTH_REQUIRED='false';process.env.STAFF_AUTH_ALLOW_OPEN='true';process.env.DEFAULT_CLIENT_SLUG=process.argv[1];process.stdout.write(require('./scripts/staff-query-api.js').buildUiHtmlForOfflineTest(0, process.argv[1]));";
+  const result = spawnSync(process.execPath, ['-e', code, tenant], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0, tenant + ' production builder failed\\n' + result.stderr);
+  assert.match(result.stdout, /<!DOCTYPE html/i, tenant);
+  assert.equal(result.stdout.includes('/* INJECT:staff-room-fill */'), false, tenant + ' room-fill injector did not run');
+  assert.ok(result.stdout.includes('Placement settings saved.'), tenant + ' room-fill module missing');
+  assert.ok(result.stdout.includes('id="staff-room-order"'), tenant + ' room order missing');
+  return result.stdout;
+}
+const wolfPage = buildProductionPage('wolfhouse-somo');
+const sunsetPage = buildProductionPage('sunset');
+assert.match(sunsetPage, /<html lang="en" data-portal-client="sunset">/);
+assert.match(wolfPage, /<html lang="en">/);
+assert.doesNotMatch(wolfPage.slice(0, 80), /data-portal-client="sunset"/);
+assert.match(sunsetPage, /html\[data-portal-client="sunset"\] #staff-room-order\{display:none!important\}/);
 const withHistory = sandbox.api.bcSortRoomsForDisplay(rooms.concat([{ room_code: 'R0', history_only: true, room_priority_status: 'ranked', room_priority_rank: 0 }]));
 assert.equal(withHistory.at(-1).room_code, 'R0');
 store['wh_staff_room_order_v1:wolfhouse-somo'] = 'not-a-mode';
