@@ -20950,6 +20950,122 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .bc-bed-cell.bc-bed-col{padding:5px 4px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
 }
+/* SCHEDULE-VIEWPORT-LOCK-001 — desktop Schedule stays on the screen.
+   Only the grid and the booking rail scroll. Phones keep the tab-panel scroller.
+   769–900px body is display:block (customers query). Restore the column so the
+   grid, not the page, scrolls. Narrow desktops must shrink the chip lane so
+   Refresh and Select dates stay inside the viewport. */
+@media (min-width:769px){
+  html:has(#tab-bed-calendar.active),
+  body:has(#tab-bed-calendar.active){
+    height:100vh;
+    height:100dvh;
+    max-height:100dvh;
+    overflow:hidden;
+  }
+  body:has(#tab-bed-calendar.active){
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  body:has(#tab-bed-calendar.active) > .tab-panel.active{
+    flex:1 1 auto;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    overflow:hidden;
+  }
+  #tab-bed-calendar.active{
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+    overflow:hidden;
+  }
+  #tab-bed-calendar.active #wrap-bc{
+    flex:1 1 auto;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  #tab-bed-calendar.active #wrap-bc > .card:first-child{
+    flex:1 1 auto;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    margin-bottom:0;
+  }
+  #tab-bed-calendar.active #wrap-bc > .card:first-child > .toolbar,
+  #tab-bed-calendar.active #bc-warnings,
+  #tab-bed-calendar.active #bc-state{
+    flex:0 0 auto;
+    min-width:0;
+    max-width:100%;
+  }
+  #tab-bed-calendar.active .toolbar{
+    width:100%;
+    min-width:0;
+    max-width:100%;
+  }
+  #tab-bed-calendar.active .bc-chips{
+    flex:1 1 0;
+    min-width:0;
+    max-width:100%;
+    overflow-x:auto;
+  }
+  #tab-bed-calendar.active .bc-range-wrap,
+  #tab-bed-calendar.active .bc-legend-row{
+    flex:0 0 auto;
+    flex-shrink:0;
+  }
+  #tab-bed-calendar.active #bc-grid-shell{
+    flex:1 1 auto;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  #tab-bed-calendar.active #bc-grid-shell[style*="display: block"],
+  #tab-bed-calendar.active #bc-grid-shell[style*="display:block"]{
+    display:flex!important;
+  }
+  #tab-bed-calendar.active #bc-grid-wrap{
+    flex:1 1 auto;
+    min-height:0;
+    min-width:0;
+    max-width:100%;
+    width:100%;
+    max-height:100%;
+    overflow-x:hidden;
+    overflow-y:auto;
+  }
+  #tab-bed-calendar.active #bc-grid-resize-handle{
+    flex:0 0 auto;
+  }
+  #tab-bed-calendar #bc-side-drawer.is-open{
+    bottom:12px;
+    overflow:hidden;
+  }
+  #tab-bed-calendar #bc-side-drawer .bc-side-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-x:hidden;
+    overflow-y:auto;
+    padding-bottom:24px;
+  }
+}
 @media (max-width:768px){
   #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
   #tab-bed-calendar .toolbar{position:relative;padding-top:2px}
