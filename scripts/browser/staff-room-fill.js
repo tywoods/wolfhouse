@@ -1395,6 +1395,7 @@
         paint();
         var status = el('staff-room-fill-status');
         if (status) status.textContent = 'Placement settings saved.';
+        if (typeof loadBedCalendar === 'function') loadBedCalendar();
       })
       .catch(function () {
         if (!currentState(s)) return;

@@ -22150,6 +22150,8 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 /* ── Style card: Light (Salt/Sand) + Dark (Sand only, no switcher) ── */
 .staff-style-mode{margin:10px 0 4px}
 .staff-style-mode-title{font-weight:700;font-size:13px;color:var(--text);margin:0 0 6px}
+html[data-portal-client="sunset"] #staff-room-order{display:none!important}
+.staff-style-room-order-note{margin:6px 0 0;font-size:12px;color:var(--text-2)}
 .staff-style-row{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px;margin:0 0 8px}
 .staff-style-row--static{pointer-events:none}
 .staff-style-row--static .luna-header-mode-btn{cursor:default}
@@ -25277,6 +25279,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <span class="luna-header-mode-btn is-active" data-i18n="lunaStaff.style.palette.sand">Sand</span>
       </div>
     </div>
+    <div class="staff-style-mode" id="staff-room-order" hidden>
+      <div class="staff-style-mode-title" data-i18n="lunaStaff.style.roomOrder">Room order</div>
+      <div class="staff-style-row" role="group" data-i18n-aria="lunaStaff.style.roomOrder" aria-label="Room order">
+        <button type="button" class="luna-header-mode-btn" id="staff-room-order-numerical" data-room-order="numerical" aria-pressed="true" data-i18n="lunaStaff.style.roomOrder.numerical">Numerical</button>
+        <button type="button" class="luna-header-mode-btn" id="staff-room-order-priority" data-room-order="priority" aria-pressed="false" data-i18n="lunaStaff.style.roomOrder.priority">Priority</button>
+      </div>
+      <p class="staff-style-room-order-note" id="staff-room-order-unsaved" hidden data-i18n="lunaStaff.style.roomOrder.unsaved">Not saved on this browser</p>
+    </div>
   </section>
 
 
@@ -26652,12 +26662,115 @@ function bcInitCalendarZoom(){
 function bcNaturalCodeSort(a, b){
   return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
 }
-
-function bcSortRoomsForDisplay(rooms){
-  return (rooms || []).slice().sort(function(a, b){
-    return bcNaturalCodeSort(a.room_code || a.room_name, b.room_code || b.room_name);
-  });
+var BC_ROOM_ORDER_PREFIX = 'wh_staff_room_order_v1:';
+var bcRoomOrderMemory = null;
+var bcRoomOrderRenderPending = false;
+function bcRoomOrderTenant(){
+  var sunset = document.documentElement && document.documentElement.getAttribute('data-portal-client') === 'sunset';
+  if (sunset) return '';
+  if (typeof getClient !== 'function') return '';
+  var slug = String(getClient() || '').trim();
+  if (slug !== 'wolfhouse-somo') return '';
+  return slug;
 }
+function bcRoomOrderNormalize(raw){
+  return raw === 'priority' ? 'priority' : 'numerical';
+}
+function bcRoomOrderRead(){
+  var tenant = bcRoomOrderTenant();
+  if (!tenant) return 'numerical';
+  if (bcRoomOrderMemory && bcRoomOrderMemory.tenant === tenant) return bcRoomOrderMemory.mode;
+  try {
+    var raw = localStorage.getItem(BC_ROOM_ORDER_PREFIX + tenant);
+    if (raw === 'priority' || raw === 'numerical') return raw;
+  } catch (_) { /* unreadable storage stays Numerical */ }
+  return 'numerical';
+}
+function bcRoomOrderWrite(mode){
+  mode = bcRoomOrderNormalize(mode);
+  var tenant = bcRoomOrderTenant();
+  if (!tenant) return { ok: false, mode: mode, unsaved: true };
+  try {
+    localStorage.setItem(BC_ROOM_ORDER_PREFIX + tenant, mode);
+    bcRoomOrderMemory = null;
+    return { ok: true, mode: mode, unsaved: false };
+  } catch (_) {
+    bcRoomOrderMemory = { tenant: tenant, mode: mode };
+    return { ok: false, mode: mode, unsaved: true };
+  }
+}
+function bcRoomOrderEditOpen(){
+  var bar = el('bc-inline-edit-bar');
+  return !!(bar && !bar.hidden);
+}
+function bcSyncRoomOrderControl(){
+  var wrap = el('staff-room-order');
+  if (!wrap) return;
+  var tenant = bcRoomOrderTenant();
+  wrap.hidden = !tenant;
+  if (!tenant) return;
+  var mode = bcRoomOrderRead();
+  var unsaved = !!(bcRoomOrderMemory && bcRoomOrderMemory.tenant === tenant);
+  ['numerical', 'priority'].forEach(function(name){
+    var btn = el('staff-room-order-' + name);
+    if (!btn) return;
+    var on = mode === name;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var note = el('staff-room-order-unsaved');
+  if (note) note.hidden = !unsaved;
+}
+function bcApplyRoomOrder(mode){
+  var result = bcRoomOrderWrite(mode);
+  bcSyncRoomOrderControl();
+  if (bcRoomOrderEditOpen()) {
+    bcRoomOrderRenderPending = true;
+    return result;
+  }
+  if (typeof bcData !== 'undefined' && bcData && typeof renderBedCalendar === 'function') renderBedCalendar(bcData);
+  return result;
+}
+function bcFlushRoomOrderRender(){
+  if (!bcRoomOrderRenderPending || bcRoomOrderEditOpen()) return;
+  bcRoomOrderRenderPending = false;
+  if (typeof bcData !== 'undefined' && bcData && typeof renderBedCalendar === 'function') renderBedCalendar(bcData);
+}
+function bcSortRoomsForDisplay(rooms){
+  var list = (rooms || []).slice();
+  var history = [];
+  var live = [];
+  list.forEach(function(room){
+    if (room && room.history_only) history.push(room);
+    else live.push(room);
+  });
+  function numerical(a, b){
+    var byCode = bcNaturalCodeSort(a && (a.room_code || a.room_name), b && (b.room_code || b.room_name));
+    if (byCode) return byCode;
+    return bcNaturalCodeSort(a && a.room_id, b && b.room_id);
+  }
+  var mode = bcRoomOrderRead();
+  var unavailable = live.some(function(room){ return room && room.room_priority_status === 'unavailable'; });
+  function priority(a, b){
+    var ar = a && a.room_priority_status === 'ranked' ? Number(a.room_priority_rank) : null;
+    var br = b && b.room_priority_status === 'ranked' ? Number(b.room_priority_rank) : null;
+    if (ar == null || !isFinite(ar)) ar = null;
+    if (br == null || !isFinite(br)) br = null;
+    if (ar != null && br != null && ar !== br) return ar - br;
+    if (ar != null && br == null) return -1;
+    if (ar == null && br != null) return 1;
+    return numerical(a, b);
+  }
+  live.sort(mode === 'priority' && !unavailable ? priority : numerical);
+  history.sort(numerical);
+  return live.concat(history);
+}
+document.addEventListener('click', function(ev){
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-room-order]') : null;
+  if (!btn || !el('staff-room-order') || el('staff-room-order').hidden) return;
+  bcApplyRoomOrder(btn.getAttribute('data-room-order'));
+});
+document.addEventListener('DOMContentLoaded', function(){ bcSyncRoomOrderControl(); });
 
 function bcSortBedsForDisplay(beds){
   return (beds || []).slice().sort(function(a, b){
@@ -38344,6 +38457,7 @@ function bcFormatRoomMetaLabel(room) {
 
 function renderBedCalendar(data){
   bcData = data;
+  bcSyncRoomOrderControl();
   var days   = data.days   || [];
   var rooms  = data.rooms  || [];
   var blocks = data.blocks || [];
@@ -43201,6 +43315,7 @@ function bcFieldEditRestoreInline(){
   var swWrap = sw && sw.closest('.bc-private-room-switch-wrap');
   if (sw) sw.disabled = true;
   if (swWrap) swWrap.classList.add('is-readonly');
+  if (typeof bcFlushRoomOrderRender === 'function') bcFlushRoomOrderRender();
 }
 
 function bcFieldEditPostGuestPackages(guestPackages){
@@ -52684,13 +52799,43 @@ function computeBlockSpan(row, startDate, endDate) {
 }
 
 function buildRoomHierarchy(roomRows) {
+  function calendarPriorityProjection(rows) {
+    let policy = null;
+    let catalogue = null;
+    for (const row of rows || []) {
+      if (!policy && row && row.room_fill_policy && typeof row.room_fill_policy === 'object') policy = row.room_fill_policy;
+      if (!catalogue && row && Array.isArray(row.room_fill_catalogue)) catalogue = row.room_fill_catalogue;
+    }
+    if (!policy || !Array.isArray(policy.roomPriority)) return { ready: false, ranks: new Map() };
+    const catalogueIds = new Set();
+    if (catalogue) {
+      for (const item of catalogue) {
+        if (!item || typeof item.room_id !== 'string' || !item.room_id) return { ready: false, ranks: new Map() };
+        catalogueIds.add(item.room_id);
+      }
+    }
+    const ranks = new Map();
+    for (let i = 0; i < policy.roomPriority.length; i += 1) {
+      const id = policy.roomPriority[i];
+      if (typeof id !== 'string' || !id) return { ready: false, ranks: new Map() };
+      if (catalogue && !catalogueIds.has(id)) continue;
+      if (!ranks.has(id)) ranks.set(id, i);
+    }
+    return { ready: true, ranks };
+  }
+  const projection = calendarPriorityProjection(roomRows);
   const rooms   = [];
   const roomMap = {};
   for (const row of roomRows) {
     if (!roomMap[row.room_code]) {
+      const roomId = row.room_id || null;
+      const ranked = projection.ready && roomId && projection.ranks.has(roomId);
       roomMap[row.room_code] = {
         room_code:   row.room_code,
         room_name:   row.room_name  || row.room_code,
+        room_id:     roomId,
+        room_priority_rank: ranked ? projection.ranks.get(roomId) : null,
+        room_priority_status: !projection.ready ? 'unavailable' : (ranked ? 'ranked' : 'unranked'),
         house:       row.house      || null,
         room_type:   row.room_type  || null,
         capacity:    row.capacity   || 0,
