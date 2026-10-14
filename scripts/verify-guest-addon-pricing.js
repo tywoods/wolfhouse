@@ -13,7 +13,19 @@ const {
   validateAndNormalizeQuoteAddOns,
   normalizeBotServiceType,
 } = require('./lib/guest-addon-pricing');
-const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote: calculateQuoteRaw, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+const { applyAuthoritativeSeasonsToConfig } = require('./lib/wolfhouse-pricing-resolve');
+const pricingFixture = applyAuthoritativeSeasonsToConfig(loadConfig(), [
+  { code: 'spring_autumn', bookable: true, active: true, priority: 0, sort_order: 0,
+    ranges: [{ start_month: 4, start_day: 1, end_month: 6, end_day: 30 }, { start_month: 10, start_day: 1, end_month: 11, end_day: 30 }] },
+  { code: 'summer', bookable: true, active: true, priority: 0, sort_order: 1,
+    ranges: [{ start_month: 7, start_day: 1, end_month: 9, end_day: 30 }] },
+  { code: 'august', bookable: true, active: true, priority: 10, sort_order: 2,
+    ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] },
+  { code: 'closed', bookable: false, active: true, priority: 0, sort_order: 3,
+    ranges: [{ start_month: 12, start_day: 1, end_month: 2, end_day: 29 }] },
+]);
+function calculateWolfhouseQuote(input) { return calculateQuoteRaw(input, pricingFixture); }
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
 const fs = require('fs');
 const path = require('path');
@@ -415,7 +427,8 @@ section('O. Closed season — guest-safe decline (no staff handoff)');
     room_type: 'shared',
     payment_choice: 'deposit',
   });
-  check('O3b', novQuote.closed_season === true, 'November quote flagged closed_season');
+  check('O3b', novQuote.success === true && novQuote.season_code === 'spring_autumn',
+    'November quote follows explicit authoritative Pricing fixture');
   for (const lang of ['en', 'it', 'es', 'de']) {
     const copy = buildBotClosedSeasonReply({ language: lang });
     check(`O4-${lang}`, copy.reply_draft === CLOSED_SEASON_COPY[lang], `${lang} closed-season copy`);

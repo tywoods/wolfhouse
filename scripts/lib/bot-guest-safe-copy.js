@@ -5,10 +5,10 @@
  */
 
 const CLOSED_SEASON_COPY = {
-  en: 'Hi! Wolf-House is closed in November, December, January, and February — we can\'t take bookings for those dates. I\'d love to help you find dates during our open season (March through October) 😊',
-  it: 'Ciao! A Wolf-House siamo chiusi a novembre, dicembre, gennaio e febbraio — quelle date non sono prenotabili online. Se vuoi, possiamo trovare date in stagione (da marzo a ottobre) 😊',
-  es: '¡Hola! En Wolf-House estamos cerrados en noviembre, diciembre, enero y febrero — esas fechas no se pueden reservar online. Si quieres, podemos buscar fechas en temporada (de marzo a octubre) 😊',
-  de: 'Hallo! Im Wolf-House haben wir im November, Dezember, Januar und Februar geschlossen — für diese Daten können wir leider keine Online-Buchung annehmen. Wenn du magst, finden wir gerne Termine in der Saison (März bis Oktober) 😊',
+  en: 'Hi! Wolf-House is closed for those dates, so we can\'t take a booking then. Would you like help finding different dates? 😊',
+  it: 'Ciao! Wolf-House è chiusa per quelle date, quindi non possiamo accettare una prenotazione. Vuoi che cerchiamo altre date? 😊',
+  es: '¡Hola! Wolf-House está cerrado para esas fechas, así que no podemos aceptar una reserva. ¿Quieres que busquemos otras fechas? 😊',
+  de: 'Hallo! Wolf-House ist an diesen Daten geschlossen, daher können wir keine Buchung annehmen. Soll ich nach anderen Daten suchen? 😊',
 };
 
 function normalizeGuestLang(language) {

@@ -17,7 +17,7 @@ const {
   validateLunaGuestMessageIntake,
   buildDryRunInputFromIntake,
 } = require('./lib/luna-guest-message-intake');
-const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
 const { mapRouterToQuoteFields } = require('./lib/luna-guest-quote-proposal-dry-run');
 
 let passes = 0;
@@ -41,6 +41,9 @@ function roomTypeFromMessage(msg) {
 }
 
 // Weekly Malibu for a couple → a clean quote where the per-room supplement applies.
+const quoteConfig = loadConfig();
+quoteConfig.seasons = [{ code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
+  ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }] }];
 function weeklyQuote(roomType) {
   return calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
@@ -50,7 +53,7 @@ function weeklyQuote(roomType) {
     package_code: 'malibu',
     room_type: roomType,
     payment_choice: 'deposit',
-  });
+  }, quoteConfig);
 }
 
 function supplementCents(quote) {

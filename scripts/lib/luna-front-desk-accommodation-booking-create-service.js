@@ -14,7 +14,11 @@ const crypto = require('crypto');
 const { WOLFHOUSE_CLIENT_SLUG, rejectSurfSchoolTransportFields } = require('./wolfhouse-accommodation-application');
 const { calculateWolfhouseQuote, loadConfig } = require('./wolfhouse-quote-calculator');
 const wolfhousePricingStore = require('./wolfhouse-pricing-store');
-const { applyOverlayRentalPricesToConfig, applyOverlayPackageItemsToConfig } = require('./wolfhouse-pricing-resolve');
+const {
+  applyOverlayRentalPricesToConfig,
+  applyOverlayPackageItemsToConfig,
+  applyAuthoritativeSeasonsToConfig,
+} = require('./wolfhouse-pricing-resolve');
 const { validateStaffPackageNightRule } = require('./wolfhouse-package-night-rules');
 const { validateAndNormalizeQuoteAddOns } = require('./guest-addon-pricing');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
@@ -68,17 +72,38 @@ const BOOKING_CREATE_CHANNELS = Object.freeze({
 });
 
 // Shared by direct service/vertical callers that already own a PG connection.
-// Read failures retain price fallback but never revive stale package eligibility.
+// Pricing seasons are mandatory and authoritative; no bundled-calendar fallback.
 async function loadBookingQuoteConfigWithOverlay(pg) {
   const base = loadConfig();
+  if (!pg) {
+    const err = new Error('authoritative Pricing seasons are unavailable');
+    err.code = 'PRICING_SEASONS_UNAVAILABLE';
+    throw err;
+  }
+  let authoritative;
   try {
-    if (!pg) return { ...base, package_min_nights: null };
     // Tables belong to migrations/Admin writes, never a quote or preflight read.
+    const seasons = await wolfhousePricingStore.loadSeasons(pg, WOLFHOUSE_CLIENT_SLUG);
+    authoritative = applyAuthoritativeSeasonsToConfig(base, seasons);
+  } catch (cause) {
+    if (cause && cause.code === 'PRICING_SEASONS_UNAVAILABLE') throw cause;
+    const err = new Error('authoritative Pricing seasons are unavailable');
+    err.code = 'PRICING_SEASONS_UNAVAILABLE';
+    err.cause = cause;
+    throw err;
+  }
+  try {
     const rules = await wolfhousePricingStore.loadRules(pg, WOLFHOUSE_CLIENT_SLUG);
     const items = await wolfhousePricingStore.loadItems(pg, WOLFHOUSE_CLIENT_SLUG);
-    return applyOverlayPackageItemsToConfig(applyOverlayRentalPricesToConfig(base, rules), items);
-  } catch (_err) {
-    return { ...base, package_min_nights: null };
+    return applyOverlayPackageItemsToConfig(
+      applyOverlayRentalPricesToConfig(authoritative, rules),
+      items,
+    );
+  } catch (cause) {
+    const err = new Error('authoritative Pricing overlay is unavailable');
+    err.code = 'PRICING_OVERLAY_UNAVAILABLE';
+    err.cause = cause;
+    throw err;
   }
 }
 

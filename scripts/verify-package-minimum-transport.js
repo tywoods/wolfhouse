@@ -33,7 +33,12 @@ function syntheticPricingPg({ items = [], error = false } = {}) {
     queries,
     async query(sql, params) {
       queries.push({ sql: String(sql), params });
-      assert(/^\s*SELECT\b/i.test(sql), 'transport proof forbids all writes including DDL');
+      assert(/^\s*(?:\/\*[\s\S]*?\*\/\s*)?SELECT\b/i.test(sql), 'transport proof forbids all writes including DDL');
+      if (/offer_idempotency_lookup/.test(sql)) return { rows: [] };
+      if (/FROM wh_pricing_seasons s/.test(sql)) return { rows: [{
+        code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
+        ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+      }] };
       if (error) throw new Error('synthetic overlay lookup unavailable');
       if (/FROM wh_pricing_rules/.test(sql)) {
         assert.deepEqual(params, ['wolfhouse-somo']);
@@ -54,6 +59,7 @@ function loader(pg) {
     wolfhousePricingStore: pricingStore,
     applyOverlayRentalPricesToConfig: pricingResolve.applyOverlayRentalPricesToConfig,
     applyOverlayPackageItemsToConfig: pricingResolve.applyOverlayPackageItemsToConfig,
+    applyAuthoritativeSeasonsToConfig: pricingResolve.applyAuthoritativeSeasonsToConfig,
   });
 }
 
@@ -175,13 +181,14 @@ test('vertical quote and catalog load DB policy rather than seeded eligibility',
 
 test('create without any effective config or DB cannot silently reuse seed minimum', async () => {
   const { buildWolfhouseBookingCreateCommand } = require('./lib/luna-front-desk-accommodation-booking-create-service');
-  const result = await buildWolfhouseBookingCreateCommand({
-    channel: 'manual_staff', trustedClientSlug: 'wolfhouse-somo',
-    transportBody: bookingBody({ payment_choice: 'no_payment_yet' }),
-    actorHints: { staff_role: 'operator' },
-  });
-  assert.equal(result.ok, false);
-  assert.equal(result.body.reason_code, 'package_min_nights_configuration_invalid');
+  await assert.rejects(
+    () => buildWolfhouseBookingCreateCommand({
+      channel: 'manual_staff', trustedClientSlug: 'wolfhouse-somo',
+      transportBody: bookingBody({ payment_choice: 'no_payment_yet' }),
+      actorHints: { staff_role: 'operator' },
+    }),
+    (err) => err && err.code === 'PRICING_SEASONS_UNAVAILABLE',
+  );
 });
 
 test('vertical date evaluation respects supplied effective policy', async () => {
@@ -203,6 +210,7 @@ async function createFromPlan(pg, body = bookingBody(), overrides = {}) {
     ...httpDeps(body), sendJSON,
     send400: (res, error) => sendJSON(res, 400, { success: false, error }),
     ...require('./lib/staff-bot-request-tenant-bind'),
+    mapBotBookingCreateBlockedHttp: require('./lib/booking-guests').mapBotBookingCreateBlockedHttp,
     ...require('./lib/luna-front-desk-accommodation-booking-create-service'),
     withPgClient: (fn) => fn(pg),
     loadWolfhouseQuoteConfigWithOverlay: loader(pg),
@@ -268,7 +276,9 @@ async function createAtCommitChange({ manual = false, minimumAfter = 10 } = {}) 
     ...(manual ? { payment_choice: 'no_payment_yet' } : {}) });
   const response = manual
     ? await actualApiFunction('handleManualBookingCreate', {
-      ...httpDeps(body), ...service, withPgClient: fn => fn(pg),
+      ...httpDeps(body), ...service,
+      mapBotBookingCreateBlockedHttp: require('./lib/booking-guests').mapBotBookingCreateBlockedHttp,
+      withPgClient: fn => fn(pg),
       loadWolfhouseQuoteConfigWithOverlay: loader(pg), executeWolfhouseBookingCreate: execute,
       MANUAL_BOOKING_ENABLED: true, STAFF_AUTH_REQUIRED: false, appendAuditLog: () => {},
       STRIPE_LINKS_ENABLED: false, STRIPE_SECRET_KEY: '',
@@ -285,7 +295,7 @@ test('commit policy changes retain structured rejection through bot bridge and m
     for (const minimumAfter of [10, null]) {
       const out = await createAtCommitChange({ manual, minimumAfter });
       const reason = minimumAfter == null ? 'package_min_nights_configuration_invalid' : 'package_min_nights_violation';
-      assert(out.queries.every(q => /^\s*SELECT\b/i.test(q.sql)), 'commit rejection must never attempt writes');
+      assert(out.queries.every(q => /^\s*(?:\/\*[\s\S]*?\*\/\s*)?SELECT\b/i.test(q.sql)), 'commit rejection must never attempt writes');
       assert.equal(out.body.reason_code, reason, JSON.stringify(out.body));
       assert.equal(out.body.package_night_violation.package_min_nights, minimumAfter);
       assert.equal(out.body.next_action, 'offer_accommodation_or_change_dates');

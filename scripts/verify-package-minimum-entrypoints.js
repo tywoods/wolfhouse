@@ -9,12 +9,23 @@ const { resolveBusinessVertical, invokeVerticalOperation } = require('./lib/luna
 const body = bookingBody({ check_out: '2026-07-05', room_preference: 'mixed', selected_bed_codes: ['R1-B1'] });
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+function authoritativeConfig(minimum) {
+  const config = { ...loadConfig(), package_min_nights: minimum };
+  config.seasons = [{ code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
+    ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }] }];
+  return config;
+}
 function pgPolicy(minimum, outage = false) {
   const queries = [];
   const pg = { queries, minimum, async query(sql, params) {
     queries.push(String(sql));
-    assert(/^\s*SELECT/i.test(sql), 'entrypoint proof forbids all writes');
+    assert(/^\s*(?:\/\*[\s\S]*?\*\/\s*)?SELECT/i.test(sql), 'entrypoint proof forbids all writes');
     assert.equal(params[0], 'wolfhouse-somo');
+    if (/offer_idempotency_lookup/.test(sql)) return { rows: [] };
+    if (/FROM wh_pricing_seasons s/.test(sql)) return { rows: [{
+      code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
+      ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+    }] };
     if (/FROM wh_pricing_rules/.test(sql)) return { rows: [] };
     if (/FROM wh_pricing_items/.test(sql)) {
       if (outage) throw Error('synthetic policy outage');
@@ -83,7 +94,7 @@ test('eligible four-night create commands and precommit rechecks agree for both 
     const pg = pgPolicy(4);
     const built = await create.buildWolfhouseBookingCreateCommand({
       channel, trustedClientSlug: 'wolfhouse-somo', transportBody: body,
-      quoteConfig: { ...loadConfig(), package_min_nights: 4 }, pgClient: pg,
+      quoteConfig: authoritativeConfig(4), pgClient: pg,
     });
     assert.equal(built.ok, true, JSON.stringify(built));
     assert.equal(built.command.quote.success, true);
@@ -99,7 +110,7 @@ test('manual create without provenance blocks a newly raised minimum before any 
   const pg = pgPolicy(10);
   const built = await create.buildWolfhouseBookingCreateCommand({
     channel: 'manual_staff', trustedClientSlug: 'wolfhouse-somo', transportBody: body,
-    quoteConfig: { ...loadConfig(), package_min_nights: 4 },
+    quoteConfig: authoritativeConfig(4),
   });
   assert.equal(built.ok, true);
   assert.equal(built.command.availabilityProvenance, null);
@@ -113,7 +124,7 @@ test('manual create without provenance blocks a newly raised minimum before any 
 test('vertical create dry-run keeps supplied policy and never accepts transport config', async () => {
   const result = await invokeVerticalOperation(resolveBusinessVertical({ clientSlug: 'wolfhouse-somo' }), 'createBooking', null, {
     channel: 'manual_staff', transportBody: { ...body, dry_run: true, quote_config: { package_min_nights: 1 } },
-    config: { ...loadConfig(), package_min_nights: 10 },
+    config: authoritativeConfig(10),
   });
   assert.equal(result.body.booking_preview.quote.success, false);
   assert.equal(result.body.booking_preview.quote.package_min_nights, 10);

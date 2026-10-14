@@ -26,6 +26,7 @@ const {
   wolfhouseStayDepositCents,
   wolfhouseDepositRatesFromConfig,
 } = require('./wolfhouse-stay-deposit');
+const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
 
@@ -58,21 +59,9 @@ function nightsBetween(checkIn, checkOut) {
   return Math.round((checkOut - checkIn) / (1000 * 60 * 60 * 24));
 }
 
-/**
- * Find the season that applies to a given 1-based month number.
- * Returns the season with the highest priority value containing the month,
- * or null if no season covers the month.
- */
-function findSeason(config, month) {
-  let best = null;
-  for (const s of config.seasons) {
-    if (Array.isArray(s.month_numbers) && s.month_numbers.includes(month)) {
-      if (!best || (s.priority || 0) > (best.priority || 0)) {
-        best = s;
-      }
-    }
-  }
-  return best;
+/** Find the authoritative Pricing season that applies to an ISO date. */
+function findSeason(config, isoDate) {
+  return resolveSeasonForDate(config && config.seasons, isoDate);
 }
 
 /** Load and parse the pricing config from disk. */
@@ -254,17 +243,16 @@ function calculateWolfhouseQuote(input, config) {
   let closed_season = false;
 
   if (checkInDate && nights > 0) {
-    const month  = checkInDate.getUTCMonth() + 1; // 1–12
-    const season = findSeason(config, month);
+    const season = findSeason(config, check_in);
 
     if (!season) {
-      // Edge months (Mar=3, Nov=11) have no configured season
       missing_config        = true;
       staff_review_required = true;
-      blockers.push(`month ${month} has no configured season — edge month, staff review required`);
+      blockers.push(`no authoritative Pricing season covers ${check_in}`);
     } else if (season.bookable === false) {
       closed_season = true;
-      blockers.push(`month ${month} is in the "${season.code}" season which is closed (not bookable)`);
+      season_code = season.code;
+      blockers.push(`${check_in} is in the "${season.code}" season which is closed (not bookable)`);
     } else {
       season_code = season.code;
     }

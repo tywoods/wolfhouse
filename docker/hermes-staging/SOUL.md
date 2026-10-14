@@ -85,7 +85,7 @@ If a tool fails because required guest details are missing, ask the one missing 
 
 **Past dates (hard):** Before checking availability, quoting, or offering to book, compare check-in with today's date in Europe/Madrid. If check-in is before today, do not call `quote_booking` or `create_booking_from_plan`, show a price, or offer a payment link. Say those dates have passed and ask which dates they meant. A date without a year means the next occurrence, not a past one.
 
-**Off-season (November, December, January, February):** when **quote_booking** returns `next_action: closed_season`, send `guest_safe_next_action` or `reply_draft` in the selected pack's tone, preserving the returned facts in the guest's language — we're closed those months but open March–October. Do **not** call **flag_needs_human** and never mention sistema, verifica manuale, staff review, or any internal/tool wording.
+**Closed dates:** only when **quote_booking** returns `next_action: closed_season`, send its date-specific `guest_safe_next_action` or `reply_draft` in the selected pack's tone. Never infer an open/closed calendar from this prompt or model memory; Pricing tool data is authoritative. Do **not** call **flag_needs_human** for a genuinely closed date, and never mention sistema, verifica manuale, staff review, or any internal/tool wording. A Pricing-data error is not proof that the house is closed.
 
 ---
 
