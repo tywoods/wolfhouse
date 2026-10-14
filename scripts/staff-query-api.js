@@ -5798,7 +5798,8 @@ function editPreviewInvoiceSide(accCents, svcRows, paidCents, quoteLineItems) {
   return { line_items, total_amount_cents, paid_amount_cents, balance_due_cents, needs_refund };
 }
 
-function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageCode, roomType) {
+function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageCode, roomType, quoteConfig) {
+  if (!quoteConfig) return { success: false, error: 'authoritative_pricing_unavailable' };
   try {
     return calculateWolfhouseQuote({
       client_slug:    clientSlug,
@@ -5809,10 +5810,14 @@ function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageC
       room_type:      roomType || 'shared',
       payment_choice: 'deposit',
       add_ons:        [],
-    });
+    }, quoteConfig);
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+async function editWriteAttachAuthoritativeQuoteConfig(bookingRow) {
+  bookingRow._quote_config = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
 }
 
 function bookingPrivateRoomEnabled(row) {
@@ -5888,7 +5893,8 @@ function editWriteResolvePrivateRoomTotals(bookingRow, svcRows, enabled, clientS
     bookingRow.check_out,
     guestCount,
     quotePkg,
-    roomType
+    roomType,
+    bookingRow._quote_config,
   );
   if (!quote || !quote.success) {
     const blockers = (quote && Array.isArray(quote.blockers)) ? quote.blockers.map(String) : [];
@@ -6022,7 +6028,7 @@ function projectBookingGuestStays(booking, guests, assignments) {
   });
 }
 
-function buildGuestAccommodationLines(clientSlug, booking, metadata, guests) {
+function buildGuestAccommodationLines(clientSlug, booking, metadata, guests, quoteConfig) {
   const snapshot = (metadata || {}).quote_snapshot || {};
   if (snapshot.per_guest_dates === true) {
     return (snapshot.per_person || []).map(person => {
@@ -6039,7 +6045,9 @@ function buildGuestAccommodationLines(clientSlug, booking, metadata, guests) {
     const pkgRaw = gp.package_code;
     const quoteCode = editPreviewQuotePackageCode(pkgRaw);
     let accommodation_cents = 0;
-    const quote = editPreviewTryQuote(clientSlug, booking.check_in, booking.check_out, 1, quoteCode);
+    const quote = editPreviewTryQuote(
+      clientSlug, booking.check_in, booking.check_out, 1, quoteCode, 'shared', quoteConfig,
+    );
     const cents = guestQuoteAccommodationCents(quote);
     if (cents != null) accommodation_cents = cents;
     return {
@@ -6135,6 +6143,7 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
       guestCount,
       'no_package',
       roomType,
+      bookingRow._quote_config,
     );
     if (q && q.success) {
       const proposedAcc = editPreviewAccFromQuote(q);
@@ -6164,6 +6173,7 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
       guestCount,
       packageCode,
       roomType,
+      bookingRow._quote_config,
     );
     if (q && q.success) {
       const proposedAcc = editPreviewAccFromQuote(q);
@@ -6475,6 +6485,7 @@ async function handleBookingEditPreview(req, res, user) {
   }
 
   bookingRow._client_slug = clientSlug;
+  await editWriteAttachAuthoritativeQuoteConfig(bookingRow);
   const currentGuests = Math.max(1, Number(bookingRow.guest_count) || 1);
   const baseResp = {
     preview_only: true,
@@ -6796,6 +6807,7 @@ async function handleBookingEditWritePackage(
   }
 
   bookingRow._client_slug = clientSlug;
+  await editWriteAttachAuthoritativeQuoteConfig(bookingRow);
   const currentPkg = editPreviewPackageStorageCode(bookingRow.package_code);
   const before = editWritePackageSnapshot(bookingRow);
 
@@ -6861,6 +6873,7 @@ async function handleBookingEditWritePackage(
     Number(bookingRow.guest_count) || 1,
     storedPackage,
     editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
+    bookingRow._quote_config,
   );
   const metadataPatch = (quote && quote.success)
     ? JSON.stringify({ quote_snapshot: quote })
@@ -6984,6 +6997,7 @@ async function handleBookingEditWriteDates(
   }
 
   bookingRow._client_slug = clientSlug;
+  await editWriteAttachAuthoritativeQuoteConfig(bookingRow);
   const before = editWriteDatesSnapshot(bookingRow);
   const currentNights = before.nights;
   const proposedNights = movePreviewNights(checkIn, checkOut);
@@ -7114,6 +7128,7 @@ async function handleBookingEditWriteDates(
       Number(bookingRow.guest_count) || 1,
       pkgForQuote,
       editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
+      bookingRow._quote_config,
     )
     : null;
   const metadataPatch = (quote && quote.success)
@@ -7138,7 +7153,7 @@ async function handleBookingEditWriteDates(
         const freshServices = await loadBookingServiceRecords(pg,clientSlug,bookingRow.booking_code);
         // Do not overwrite a concurrent guest-date/package/payment change with
         // totals or quote metadata calculated from the old pre-transaction row.
-        const { _client_slug, ...observedBooking } = bookingRow;
+        const { _client_slug, _quote_config, ...observedBooking } = bookingRow;
         const orderedBeds = rows => rows.slice().sort((a,b)=>a.booking_bed_id.localeCompare(b.booking_bed_id));
         if (JSON.stringify(fresh) !== JSON.stringify(observedBooking)
           || JSON.stringify(orderedBeds(freshBeds)) !== JSON.stringify(orderedBeds(sourceBeds))
@@ -7301,6 +7316,7 @@ async function handleBookingEditWriteGuests(
   }
 
   bookingRow._client_slug = clientSlug;
+  await editWriteAttachAuthoritativeQuoteConfig(bookingRow);
   const release = editPreviewGuestBedRelease(sourceBeds, currentGuests, guestCount);
   if (release.blocked) {
     return send400(res, release.reason || 'invalid guest_count');
@@ -7417,6 +7433,7 @@ async function handleBookingEditWriteGuests(
       guestCount,
       pkgForQuote,
       editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
+      bookingRow._quote_config,
     )
     : null;
   const metadataPatch = (quote && quote.success)
@@ -10032,8 +10049,8 @@ async function loadWolfhouseQuoteConfigWithOverlay({ strict = false } = {}) {
     });
   } catch (cause) {
     if (strict) throw cause;
-    console.warn('[wolfhouse.quote] price/item overlay unavailable; using bundled prices with authoritative DB seasons:', cause.message);
-    return authoritative;
+    console.warn('[wolfhouse.quote] price/item overlay unavailable; package eligibility disabled:', cause.message);
+    return { ...authoritative, package_min_nights: null };
   }
 }
 
@@ -10119,7 +10136,7 @@ async function handleQuotePreview(req, res, user) {
   const actorRole = user ? user.role          : 'viewer';
 
   let quote;
-  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay();
+  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
   const quoteResult = executeWolfhouseAccommodationQuote({
     client_slug: clientSlug,
     check_in: checkIn,
@@ -12170,7 +12187,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     return send400(res, guestPackagesNormalized.error);
   }
   const guestPackages = Array.isArray(guestPackagesNormalized) ? guestPackagesNormalized : [];
-  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay();
+  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
   const pkgCtx = resolveBotBookingPackageContext({
     packageCode,
     guestPackages,
@@ -15945,7 +15962,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, source },
       pgClient: pg,
-      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay({ strict: true }),
     }));
   } catch (err) {
     appendAuditLog({
@@ -16204,7 +16221,7 @@ async function handleManualBookingCreate(req, res, user) {
       trustedClientSlug: clientSlug,
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, email: user && user.email },
-      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay({ strict: true }),
     });
   } catch (err) {
     appendAuditLog({
@@ -54580,7 +54597,15 @@ async function handleBookingContext(bookingCode, query, res, user) {
   }
 
   bookingGuestRows = projectBookingGuestStays(bk, bookingGuestRows, roomingRows);
-  const guestAccommodationLines = buildGuestAccommodationLines(clientSlug, bk, bkMetadata, bookingGuestRows);
+  let guestAccommodationQuoteConfig = null;
+  try {
+    guestAccommodationQuoteConfig = await loadWolfhouseQuoteConfigWithOverlay({ strict: true });
+  } catch (_) {
+    guestAccommodationQuoteConfig = null;
+  }
+  const guestAccommodationLines = buildGuestAccommodationLines(
+    clientSlug, bk, bkMetadata, bookingGuestRows, guestAccommodationQuoteConfig,
+  );
   const perPersonBreakdown = bkMetadata.quote_snapshot && bkMetadata.quote_snapshot.per_person
     ? bkMetadata.quote_snapshot.per_person
     : (bkMetadata.per_person || null);

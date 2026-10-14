@@ -64,7 +64,10 @@ for (const unavailable of [null, undefined, []]) {
 }
 
 const service = require('./lib/luna-front-desk-accommodation-booking-create-service');
-const { rereadWolfhouseOfferForCommit } = require('./lib/luna-front-desk-accommodation-availability-service');
+const {
+  buildCheckedWolfhousePreviewOffer,
+  rereadWolfhouseOfferForCommit,
+} = require('./lib/luna-front-desk-accommodation-availability-service');
 const { CLOSED_SEASON_COPY } = require('./lib/bot-guest-safe-copy');
 const fs = require('fs');
 const path = require('path');
@@ -106,15 +109,27 @@ async function verifyDirectLoader() {
     () => service.loadBookingQuoteConfigWithOverlay({ query: async () => { throw new Error('missing season table'); } }),
     err => err && err.code === 'PRICING_SEASONS_UNAVAILABLE',
   );
-  let queryCount = 0;
-  const readableSeasonsBrokenRules = await service.loadBookingQuoteConfigWithOverlay({
-    async query() {
-      queryCount += 1;
-      if (queryCount === 1) return { rows: dbSeasons };
-      throw new Error('rules unavailable');
-    },
-  });
-  assert.equal(resolve.resolveSeasonForDate(readableSeasonsBrokenRules.seasons, '2027-11-30').code, 'spring_autumn');
+  for (const failedRead of ['rules', 'items']) {
+    await assert.rejects(
+      () => service.loadBookingQuoteConfigWithOverlay({
+        async query(sql) {
+          const text = String(sql);
+          if (/FROM wh_pricing_seasons s/.test(text)) return { rows: dbSeasons };
+          if (/FROM wh_pricing_rules/.test(text)) {
+            if (failedRead === 'rules') throw new Error('rules unavailable');
+            return { rows: [] };
+          }
+          if (/FROM wh_pricing_items/.test(text)) {
+            if (failedRead === 'items') throw new Error('items unavailable');
+            return { rows: [] };
+          }
+          throw new Error('unexpected query');
+        },
+      }),
+      err => err && err.code === 'PRICING_OVERLAY_UNAVAILABLE',
+      `${failedRead} read failure must fail closed`,
+    );
+  }
 }
 
 async function verifyCommitRereadFailsClosed() {
@@ -143,9 +158,57 @@ async function verifyCommitRereadFailsClosed() {
   assert.equal(result.write_performed, false);
 }
 
+async function verifyUnchangedNovemberOfferSurvivesCommitReread() {
+  let seasonReads = 0;
+  const pg = {
+    async query(sql) {
+      const text = String(sql);
+      if (/FROM wh_pricing_seasons s/.test(text)) {
+        seasonReads += 1;
+        return { rows: dbSeasons };
+      }
+      if (/FROM wh_pricing_rules/.test(text)) return { rows: [{
+        item_type: 'package', item_code: 'malibu', season_code: 'spring_autumn',
+        unit: 'per_person_per_week', amount_cents: 99900, currency: 'EUR', active: true,
+      }] };
+      if (/FROM wh_pricing_items/.test(text)) return { rows: [] };
+      if (text.includes('offer_commit_reread') || text.includes('FROM rooms r')) {
+        return { rows: [{ bed_code: 'R1-B1', room_code: 'R1', room_type: 'shared', gender_strategy: 'mixed' }] };
+      }
+      return { rows: [] };
+    },
+  };
+  const config = await service.loadBookingQuoteConfigWithOverlay(pg);
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo', check_in: '2027-11-22', check_out: '2027-11-29',
+    guest_count: 1, package_code: 'malibu', room_type: 'shared', payment_choice: 'deposit',
+  }, config);
+  assert.equal(quote.success, true);
+  const accepted = buildCheckedWolfhousePreviewOffer({
+    client_slug: 'wolfhouse-somo', quote,
+    availability: {
+      availability_checked: true, status: 'checked', check_in: '2027-11-22', check_out: '2027-11-29',
+      guest_count: 1, selected_bed_codes: ['R1-B1'], room_type: 'shared', allocation_reason: 'explicit_selection',
+    },
+    guests: [{ guest_name: 'Synthetic Guest' }],
+    room_rows: [{ bed_code: 'R1-B1', room_code: 'R1', room_type: 'shared', gender_strategy: 'mixed' }],
+    package_code: 'malibu', payment_choice: 'deposit',
+  }).offer_revision;
+  const reread = await rereadWolfhouseOfferForCommit(pg, {
+    clientSlug: 'wolfhouse-somo', checkIn: '2027-11-22', checkOut: '2027-11-29',
+    quoteGuestCount: 1, assignedBedCodes: ['R1-B1'], roomType: 'shared',
+    effectivePackageCode: 'malibu', paymentChoice: 'deposit', allocationReason: 'explicit_selection',
+    guestsNorm: { guests: [{ guest_name: 'Synthetic Guest' }] },
+    transportBody: { accepted_offer: accepted },
+  });
+  assert.equal(reread.ok, true, JSON.stringify(reread));
+  assert.ok(seasonReads >= 2, 'initial quote and commit reread both read authoritative seasons');
+}
+
 Promise.resolve()
   .then(verifyDirectLoader)
   .then(verifyCommitRereadFailsClosed)
+  .then(verifyUnchangedNovemberOfferSurvivesCommitReread)
   .then(() => console.log('authoritative Pricing seasons: core replacement, boundaries, open/closed and unavailable gates PASS'))
   .catch((err) => {
     console.error(err);

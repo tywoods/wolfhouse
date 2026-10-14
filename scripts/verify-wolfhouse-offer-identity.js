@@ -428,6 +428,10 @@ assert('whole-booking payment is not the same as per-guest distribution',
 
   const changedRooms = await rereadWolfhouseOfferForCommit({
     query: async (sql) => {
+      if (String(sql).includes('FROM wh_pricing_seasons s')) return { rows: [{
+        code: 'spring_autumn', active: true, bookable: true, priority: 0, sort_order: 1,
+        ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+      }] };
       if (String(sql).includes('offer_commit_reread')) {
         return { rows: [{ bed_code: 'R5-1', room_code: 'R5', gender_strategy: 'mixed', occupied: false }] };
       }
@@ -463,6 +467,11 @@ assert('whole-booking payment is not the same as per-guest distribution',
     && changedRooms.write_performed === false);
 
   const { calculateWolfhouseQuote, loadConfig } = require('./lib/wolfhouse-quote-calculator');
+  const authoritativeConfig = loadConfig();
+  authoritativeConfig.seasons = [{
+    code: 'spring_autumn', active: true, bookable: true, priority: 0, sort_order: 1,
+    ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }],
+  }];
   const liveQuote = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
     check_in: '2026-10-10',
@@ -471,7 +480,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
     package_code: 'malibu',
     room_type: 'shared',
     payment_choice: 'deposit',
-  }, loadConfig());
+  }, authoritativeConfig);
   const issued = buildCheckedWolfhousePreviewOffer({
     client_slug: 'wolfhouse-somo',
     quote: liveQuote,
@@ -499,6 +508,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
       const text = String(sql);
       if (/^BEGIN/i.test(text) || /^COMMIT/i.test(text) || /^ROLLBACK/i.test(text)) return { rows: [] };
       if (text.includes('offer_idempotency_lookup')) return { rows: [] };
+      if (text.includes('FROM wh_pricing_seasons s')) return { rows: authoritativeConfig.seasons };
       if (text.includes('FROM rooms r') || text.includes('offer_commit_reread') || text.includes('offer_room_lock')) {
         return { rows: [
           { bed_code: 'R8-B1', room_code: 'R8', gender_strategy: 'mixed', bed_active: true, bed_sellable: true, room_type: 'shared' },
@@ -606,6 +616,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const priced = await rereadWolfhouseOfferForCommit({
     query: async (sql) => {
       const text = String(sql);
+      if (text.includes('FROM wh_pricing_seasons s')) return { rows: authoritativeConfig.seasons };
       if (text.includes('offer_commit_reread') || text.includes('FROM rooms r')) {
         return { rows: [
           { bed_code: 'R8-B1', room_code: 'R8', gender_strategy: 'mixed', room_type: 'shared' },
@@ -666,7 +677,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const retryBuild = await buildWolfhouseBookingCreateCommand({
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
     trustedClientSlug: 'wolfhouse-somo',
-    quoteConfig: loadConfig(),
+    quoteConfig: authoritativeConfig,
     transportBody: retryBody,
     pgClient: {
       query: async (sql) => {
@@ -838,7 +849,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
   const realBuilt = await buildWolfhouseBookingCreateCommand({
     channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
     trustedClientSlug: 'wolfhouse-somo',
-    quoteConfig: loadConfig(),
+    quoteConfig: authoritativeConfig,
     transportBody: {
       confirm: true,
       require_offer_identity: true,
@@ -857,6 +868,7 @@ assert('whole-booking payment is not the same as per-guest distribution',
     pgClient: {
       query: async (sql) => {
         const text = String(sql);
+        if (text.includes('FROM wh_pricing_seasons s')) return { rows: authoritativeConfig.seasons };
         if (text.includes('FROM rooms r')) {
           return { rows: [
             { bed_code: 'R8-B1', room_code: 'R8', room_type: 'shared', gender_strategy: 'Flexible', bed_active: true, bed_sellable: true },

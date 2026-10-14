@@ -99,11 +99,11 @@ async function loadBookingQuoteConfigWithOverlay(pg) {
       applyOverlayRentalPricesToConfig(authoritative, rules),
       items,
     );
-  } catch (_) {
-    // Seasons remain mandatory. Other Pricing overlays retain the historical
-    // direct-loader fallback so a rules/items outage is not misreported as a
-    // calendar outage.
-    return authoritative;
+  } catch (cause) {
+    const err = new Error('authoritative Pricing overlay is unavailable');
+    err.code = 'PRICING_OVERLAY_UNAVAILABLE';
+    err.cause = cause;
+    throw err;
   }
 }
 

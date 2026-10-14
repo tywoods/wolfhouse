@@ -32,6 +32,41 @@ async function verifyWolfhouseOfferRetryHandler() {
   };
   try {
     await seedOfflineBookingDb(db, payload);
+    // Authoritative Pricing seasons are a required financial input. The compact
+    // occupants fixture intentionally omits Admin Pricing, so install only the
+    // read-side tables and one explicit all-year test season used by this proof.
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS wh_pricing_seasons (
+        id text PRIMARY KEY, client_slug text NOT NULL, code text NOT NULL,
+        label text NOT NULL, priority integer NOT NULL DEFAULT 0,
+        bookable boolean NOT NULL DEFAULT true, active boolean NOT NULL DEFAULT true,
+        sort_order integer NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS wh_pricing_season_ranges (
+        id text PRIMARY KEY, season_id text NOT NULL, client_slug text NOT NULL,
+        start_month integer NOT NULL, start_day integer NOT NULL,
+        end_month integer NOT NULL, end_day integer NOT NULL,
+        sort_order integer NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS wh_pricing_rules (
+        id text PRIMARY KEY, client_slug text NOT NULL, item_type text NOT NULL,
+        item_code text NOT NULL, season_code text, unit text NOT NULL,
+        amount_cents integer NOT NULL, currency char(3) NOT NULL DEFAULT 'EUR',
+        active boolean NOT NULL DEFAULT true
+      );
+      CREATE TABLE IF NOT EXISTS wh_pricing_items (
+        id text PRIMARY KEY, client_slug text NOT NULL, item_type text NOT NULL,
+        item_code text NOT NULL, label text NOT NULL, description text,
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        active boolean NOT NULL DEFAULT true, sort_order integer NOT NULL DEFAULT 0
+      );
+      INSERT INTO wh_pricing_seasons
+        (id, client_slug, code, label, priority, bookable, active, sort_order)
+      VALUES ('season-all-year', 'wolfhouse-somo', 'spring_autumn', 'Test season', 0, true, true, 1);
+      INSERT INTO wh_pricing_season_ranges
+        (id, season_id, client_slug, start_month, start_day, end_month, end_day, sort_order)
+      VALUES ('range-all-year', 'season-all-year', 'wolfhouse-somo', 1, 1, 12, 31, 1);
+    `);
     // The minimal occupants fixture omits this real payments column; recovery
     // orders saved payments by it. This is test schema, not a product migration.
     await db.exec('ALTER TABLE payments ADD COLUMN created_at timestamptz DEFAULT now()');

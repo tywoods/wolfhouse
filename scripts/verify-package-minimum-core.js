@@ -11,6 +11,8 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 function config(minimum) {
   const cfg = loadConfig();
+  cfg.seasons = [{ code: 'summer', active: true, bookable: true, priority: 0, sort_order: 1,
+    ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }] }];
   cfg.package_min_nights = minimum;
   cfg.packages.push({ ...structuredClone(cfg.packages.find(p => p.code === 'uluwatu')), code: 'rincon', name: 'Rincon' });
   return cfg;
@@ -253,7 +255,7 @@ test('preview passes real inclusions and one plain line, never invented items', 
 });
 
 test('preview includes line follows the quoted room type and leaves prices unchanged', () => {
-  const cfg = loadConfig();
+  const cfg = config(7);
   const input = roomType => ({
     client_slug: 'wolfhouse-somo', check_in: '2027-07-01', check_out: '2027-07-08',
     guest_count: 2, package_code: 'malibu', room_type: roomType,
