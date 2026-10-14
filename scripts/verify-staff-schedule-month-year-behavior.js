@@ -128,7 +128,20 @@ const handler = {
 };
 const sandbox = new Proxy(context, handler);
 vm.createContext(sandbox);
-const code = names.map(extractFunction).filter(Boolean).join('\n');
+function generatedFunction(name) {
+  return eval('`' + extractFunction(name) + '`');
+}
+const generatedYear = generatedFunction('bcParseNavYear') + '\n' + generatedFunction('bcSelectedNavYear');
+assert.equal(generatedYear.includes('/^d{4}'), false, 'generated page must not eat the year digit class');
+assert.match(generatedYear, /\\d\{4\}/, 'generated year check still matches digits');
+const yearApi = new Function(generatedYear + '\nreturn { bcParseNavYear, bcSelectedNavYear };')();
+assert.equal(yearApi.bcParseNavYear('2027'), 2027);
+assert.equal(yearApi.bcParseNavYear('2028'), 2028);
+assert.equal(yearApi.bcParseNavYear('20ab'), null);
+assert.equal(yearApi.bcParseNavYear('202'), null);
+let code = names.map(extractFunction).filter(Boolean).join('\n');
+code = code.replace(extractFunction('bcParseNavYear'), generatedFunction('bcParseNavYear'));
+code = code.replace(extractFunction('bcSelectedNavYear'), generatedFunction('bcSelectedNavYear'));
 vm.runInContext(code + '\nthis.__api = { bcCommitNavYear, bcApplyMonthWindow, bcNavStep, bcInitMonthNav, renderBookingBlock, bcOpenBookingDrawerOverview, bcMonthWindow, bcSelectedNavYear };', sandbox);
 
 makeEl('bc-start').value = '2026-10-01';

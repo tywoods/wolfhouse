@@ -57,5 +57,9 @@ assert.equal(api.bcShiftMonth('2027-12-01', 1), '2028-01-01');
 assert.equal(api.bcShiftMonth('2028-01-01', -1), '2027-12-01');
 
 require('./verify-staff-schedule-month-year-behavior');
+require('node:child_process').spawnSync(process.execPath, ['scripts/verify-staff-schedule-month-year-toolbar.js'], {
+  cwd: require('node:path').resolve(__dirname, '..'),
+  stdio: 'inherit',
+}).status === 0 || process.exit(1);
 
 console.log('PASS schedule month/year navigation');

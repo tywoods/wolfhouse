@@ -21098,6 +21098,14 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #tab-bed-calendar #bc-nav-year{width:4.6em;text-align:center;padding:0 4px}
 #tab-bed-calendar .bc-nav-arrow,#tab-bed-calendar #bc-nav-today{padding:0 8px;cursor:pointer}
 #tab-bed-calendar .bc-month-nav.is-invalid #bc-nav-year{border-color:#9C5742}
+/* SCHEDULE-MONTH-YEAR-NAV-001 — wrap the new controls under the shortcut row
+   on narrower desktops so chips keep a clickable width and Refresh stays on screen. */
+@media (min-width:769px) and (max-width:1024px){
+  #tab-bed-calendar .toolbar{flex-wrap:wrap}
+  #tab-bed-calendar .bc-month-nav{flex:1 1 100%;order:5;max-width:100%;min-width:0}
+  #tab-bed-calendar .bc-chips{flex:1 1 160px;min-width:140px;overflow-x:auto;overflow-y:hidden}
+  #tab-bed-calendar .bc-legend-row,#tab-bed-calendar #bc-load{order:4;flex:0 0 auto}
+}
 .bc-range-pick{
   position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
 }
@@ -24633,10 +24641,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="toolbar">
       <h2 id="bc-calendar-title">August '26</h2>
     <div class="bc-month-nav" id="bc-month-nav">
-      <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
+      <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" data-i18n-aria="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
       <select id="bc-nav-month" data-i18n-aria="calendar.nav.month" aria-label="Month"></select>
       <input id="bc-nav-year" type="text" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" data-i18n-aria="calendar.nav.year" aria-label="Year">
-      <button type="button" class="bc-nav-arrow" id="bc-nav-next" data-i18n-title="calendar.nav.next" title="Next month" aria-label="Next month">›</button>
+      <button type="button" class="bc-nav-arrow" id="bc-nav-next" data-i18n-title="calendar.nav.next" data-i18n-aria="calendar.nav.next" title="Next month" aria-label="Next month">›</button>
       <button type="button" class="bc-nav-today" id="bc-nav-today" data-i18n="calendar.nav.today">Today</button>
     </div>
     <span id="bc-demo-preset" data-chip="demo" hidden data-demo-start="2026-07-16" data-demo-end="2026-07-22"></span>
@@ -46600,14 +46608,14 @@ var BC_SEASON_CHIP_MONTHS = {
 var bcNavYearEditing = false;
 function bcParseNavYear(raw){
   var s = String(raw == null ? '' : raw).trim();
-  if (!/^\d{4}$/.test(s)) return null;
+  if (!/^\\d{4}$/.test(s)) return null;
   var y = Number(s);
   if (y < 1000 || y > 9999) return null;
   return y;
 }
 function bcSelectedNavYear(){
   var start = bcReadDateField(el('bc-start'));
-  if (start && /^\d{4}/.test(start)) return Number(start.slice(0, 4));
+  if (start && /^\\d{4}/.test(start)) return Number(start.slice(0, 4));
   return new Date().getFullYear();
 }
 function bcLocalTodayIso(){
