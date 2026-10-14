@@ -856,6 +856,7 @@ const {
 } = require('./lib/staff-manual-booking-availability');
 const {
   buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
@@ -16035,6 +16036,22 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   try {
     execResult = await withPgClient(async (pg) => executeWolfhouseBookingCreate(pg, cmd));
   } catch (err) {
+    if (isGeneratedBookingCodeCollision(err)) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: 'booking_code_collision',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 409, {
+        success: false,
+        blocked: true,
+        reason_code: 'booking_code_collision',
+        block_reason: 'booking_code_collision',
+        error: 'Generated booking code collision. Nothing was created.',
+        no_write_performed: true,
+      });
+    }
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
   }
@@ -16307,6 +16324,22 @@ async function handleManualBookingCreate(req, res, user) {
       actorLabel: user ? (user.email || user.staff_user_id) : actorId,
     }));
   } catch (err) {
+    if (isGeneratedBookingCodeCollision(err)) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: 'booking_code_collision',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 409, {
+        success: false,
+        blocked: true,
+        reason_code: 'booking_code_collision',
+        block_reason: 'booking_code_collision',
+        error: 'Generated booking code collision. Nothing was created.',
+        no_write_performed: true,
+      });
+    }
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'manual booking create failed', detail: err.message });
   }

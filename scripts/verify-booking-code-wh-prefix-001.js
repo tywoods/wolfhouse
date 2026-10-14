@@ -13,7 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const { PGlite } = require('@electric-sql/pglite');
-const { buildManualBookingCreateSql } = require('./lib/staff-manual-booking-create-sql');
+const {
+  buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
+} = require('./lib/staff-manual-booking-create-sql');
 const {
   displayWolfhouseBookingCode,
   wolfhouseBookingCodeAliases,
@@ -52,6 +55,33 @@ assert.ok(sql.includes("'MB-' || upper(left(replace($1::text, '-', ''), 6))"), '
 assert.ok(sql.includes("|| '-' || substring(md5($4::text), 1, 6)"), 'other clients retain six-hex suffixes');
 assert.ok(!/^\s*'MB-' \|\| upper\(left/.test(sql), 'ungated MB- mint is gone');
 assert.ok(!sql.includes('Guaranteed unique within session via idempotency_key suffix.'), 'digest comments do not claim guaranteed uniqueness');
+
+assert.strictEqual(
+  isGeneratedBookingCodeCollision({ code: '23505', constraint: 'bookings_hostel_id_booking_code_key' }),
+  true,
+  'the exact generated booking-code unique violation is classified',
+);
+for (const error of [
+  { code: '23505', constraint: 'bookings_pkey' },
+  { code: '23505', constraint: 'bookings_client_id_idempotency_key_key' },
+  { code: '23503', constraint: 'bookings_hostel_id_booking_code_key' },
+  { code: '23505' },
+  null,
+]) {
+  assert.strictEqual(isGeneratedBookingCodeCollision(error), false, 'unrelated database errors remain generic');
+}
+
+assert.ok(api.includes('isGeneratedBookingCodeCollision(err)'), 'Staff and Luna catches use exact constraint classification');
+assert.strictEqual(
+  (api.match(/reason_code: 'booking_code_collision'/g) || []).length,
+  2,
+  'Staff and Luna handlers each return a clear collision result',
+);
+assert.strictEqual(
+  (api.match(/no_write_performed: true/g) || []).length >= 2,
+  true,
+  'collision responses explicitly report no write',
+);
 
 assert.ok(api.includes('function staffDisplayBookingCode'), 'portal display helper');
 assert.ok(api.includes('staffDisplayBookingCode(blk.booking_code)'), 'booking-card header uses display form');

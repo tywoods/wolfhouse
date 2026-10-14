@@ -592,12 +592,21 @@ SELECT
 `;
 }
 
+const GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT = 'bookings_hostel_id_booking_code_key';
+
+function isGeneratedBookingCodeCollision(error) {
+  return !!error
+    && String(error.code || '') === '23505'
+    && String(error.constraint || '') === GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT;
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
 module.exports = {
   buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
   MANUAL_BOOKING_BLOCK_CODES,
   MANUAL_BOOKING_ALLOWED_ROLES,
 };
