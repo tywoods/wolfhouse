@@ -183,8 +183,9 @@ def evaluate_wolfhouse_staging_booking_capability(
     elif pay != _APPROVED_WOLFHOUSE_STAGING_PAY_ORIGIN:
         reasons.append("public_pay_origin_not_approved_staging")
 
-    if str(source.get("BOT_BOOKING_ENABLED") or "").strip() != "true":
-        reasons.append("bot_booking_disabled")
+    # Portal policy is authoritative at Staff final write admission. Hermes keeps
+    # only simulator provenance, destination, TEST-payment and ownership fences.
+    # No environment business switch may grant or deny booking here.
 
     stripe_key = str(source.get("STRIPE_SECRET_KEY") or "")
     stripe_modes = {str(source.get(name) or "").strip().lower()

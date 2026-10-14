@@ -879,6 +879,9 @@ const {
   executeWolfhouseBookingCreate,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
+  resolveWolfhouseAutomaticBookingAdmission,
+} = require('./lib/staff-booking-portal-policy');
+const {
   AVAILABILITY_CHANNELS,
   buildWolfhouseAvailabilityCommand,
   executeWolfhouseAvailabilityCheck,
@@ -1197,10 +1200,11 @@ const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images'
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
 // Customers CRM bulk WhatsApp outreach — separate from WHATSAPP_DRY_RUN; default OFF.
 const CUSTOMER_OUTREACH_WHATSAPP_ENABLED = process.env.CUSTOMER_OUTREACH_WHATSAPP_ENABLED === 'true';
-const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
+// Manual booking permission is owned by authenticated Staff RBAC + tenant ACL.
+// No hidden environment business switch.
 // Stage 8.5.4 — Luna bot booking create via shared engine.
 // BOT_BOOKING_ENABLED=false by default — must be explicitly set to true.
-// Separate from MANUAL_BOOKING_ENABLED and WHATSAPP_DRY_RUN.
+// Separate from legacy manual-booking environment switch and WHATSAPP_DRY_RUN.
 const BOT_BOOKING_ENABLED = process.env.BOT_BOOKING_ENABLED === 'true';
 // Stage 8.8.27 — Luna bot guest add-on create (service row + optional payment + Stripe link).
 const BOT_ADDON_REQUESTS_ENABLED = process.env.BOT_ADDON_REQUESTS_ENABLED === 'true';
@@ -3304,7 +3308,7 @@ async function handleResolveHandoff(handoffId, req, res) {
 // Route: POST /staff/manual-bookings/preview  (Stage 8.3h — read-only preview)
 //
 // Preview-only: no booking creation, no DB writes, no Stripe, no WhatsApp.
-// Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+// Does NOT require STAFF_ACTIONS_ENABLED or legacy manual-booking environment switch.
 // Requires auth (operator/admin/owner when STAFF_AUTH_REQUIRED=true).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3488,7 +3492,8 @@ async function handleManualBookingPreview(req, res, user) {
     creates_booking:         false,
     no_write_performed:      true,
     staff_actions_enabled:   STAFF_ACTIONS_ENABLED,
-    manual_booking_enabled:  MANUAL_BOOKING_ENABLED,
+    manual_booking_enabled:  true,
+    manual_booking_authority: 'staff_rbac_and_tenant_access',
     client_slug:             clientSlug,
     input_summary: {
       check_in:             checkIn,
@@ -3502,9 +3507,7 @@ async function handleManualBookingPreview(req, res, user) {
       total_amount_cents:   totalAmountCents  || null,
     },
     availability,
-    next_step: MANUAL_BOOKING_ENABLED
-      ? 'Manual booking creation is enabled. POST /staff/manual-bookings/create to create.'
-      : 'Manual booking creation is disabled. Set MANUAL_BOOKING_ENABLED to true to enable.',
+    next_step: 'Authorized operators can POST /staff/manual-bookings/create to create.',
     elapsed_ms: elapsed,
   });
 }
@@ -10039,7 +10042,7 @@ async function handleBookingRemoveService(req, res, user) {
 // Calls calculateWolfhouseQuote() with the request body. Overlay rental prices
 // from Admin Pricing are applied when readable; otherwise JSON config.
 // No Stripe. No WhatsApp. No n8n. No booking writes.
-// Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+// Does NOT require STAFF_ACTIONS_ENABLED or legacy manual-booking environment switch.
 // Requires auth (viewer+ when STAFF_AUTH_REQUIRED=true).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -15927,7 +15930,7 @@ async function handleStaffGenerateGuestPaymentLink(req, res, user) {
 //
 // Creates a booking via the shared engine (same SQL/quote path as Stage 8.4).
 // Uses requireBotAuth — accepts X-Luna-Bot-Token or Authorization: Bearer.
-// Gated by BOT_BOOKING_ENABLED=true (default false → 403).
+// Final admission is owned by Staff portal channel, pause and conversation state.
 //
 // Writes: booking + booking_beds + quote_snapshot in metadata + draft payments row.
 // Does NOT create a Stripe link. Does NOT send WhatsApp. Does NOT call n8n.
@@ -15939,27 +15942,25 @@ async function handleStaffGenerateGuestPaymentLink(req, res, user) {
 async function handleBotBookingCreate(req, res, user, authMode) {
   const started = Date.now();
 
-  // ── 1. Feature flag gate ──────────────────────────────────────────────────
-  if (!BOT_BOOKING_ENABLED) {
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'api:bot_booking_create',
-      category: 'bot_booking_create', success: false,
-      error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Bot booking creation is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
-
-  // ── 2. Parse body ────────────────────────────────────────────────────────
+  // Parse body after principal/tenant dispatch has pinned the trusted tenant.
   let body = {};
   try {
     const raw = await readBody(req);
     body = JSON.parse(raw || '{}');
   } catch (_) {
     return send400(res, 'invalid or missing JSON body');
+  }
+
+  const trustedGuestPhone = authMode === 'bot_token'
+    ? String((req.headers && req.headers['x-luna-guest-phone']) || '').trim()
+    : '';
+  if (!/^\+[0-9]{8,15}$/.test(trustedGuestPhone)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Automatic booking context is not bound to the authenticated Luna turn.',
+      reason_code: 'booking_context_unbound',
+      write_performed: false,
+    });
   }
 
   // ── 3. Actor ──────────────────────────────────────────────────────────────
@@ -16033,7 +16034,12 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 
   let execResult;
   try {
-    execResult = await withPgClient(async (pg) => executeWolfhouseBookingCreate(pg, cmd));
+    execResult = await withPgClient(async (pg) => executeWolfhouseBookingCreate(pg, cmd, {
+      authorizeAutomaticBooking: (tx, command) => resolveWolfhouseAutomaticBookingAdmission(tx, {
+        client_slug: command.clientSlug,
+        guest_phone: trustedGuestPhone,
+      }),
+    }));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
@@ -16179,13 +16185,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 // Stage 8.8.16 / 26j.2: When add_ons present, inserts booking_service_records in the
 // same transaction (source=staff_manual, amounts from quote line_items). Table-missing → warning.
 //
-// Required flags (both env vars must be true to use from UI):
-//   MANUAL_BOOKING_ENABLED=true  — gates this route (returns 403 if false)
-//   STAFF_ACTIONS_ENABLED=true   — UI enablement signal (not checked server-side here)
-//
-// When enabled, gates (all must pass):
-//   1. MANUAL_BOOKING_ENABLED is true         (dedicated feature flag)
-//   2. Authenticated session, role operator+  (when STAFF_AUTH_REQUIRED=true)
+// Admission gates:
+//   1. Authenticated Staff session with operator+ role (route middleware)
+//   2. Authenticated actor has access to the requested tenant
 //   3. confirm: true in request body
 //   4. Required fields present and valid
 //
@@ -16203,21 +16205,6 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 async function handleManualBookingCreate(req, res, user) {
   const started = Date.now();
 
-  // ── 1. Feature flag gate ────────────────────────────────────────────────────
-  if (!MANUAL_BOOKING_ENABLED) {
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'api:manual_booking_create',
-      category: 'manual_booking_create', success: false,
-      error: 'feature_flag_disabled', elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Manual booking creation is disabled. Set MANUAL_BOOKING_ENABLED to true to enable.',
-      manual_booking_enabled: false,
-    });
-  }
-
-  // ── 2. Parse body ────────────────────────────────────────────────────────────
   let body = {};
   try {
     const raw = await readBody(req);
@@ -16230,8 +16217,10 @@ async function handleManualBookingCreate(req, res, user) {
   const actorId   = user ? user.staff_user_id : 'manual-booking-local';
   const actorRole = user ? user.role          : 'operator';
   const clientSlug = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!user || !assertStaffClientAccess(user, clientSlug, res)) return;
 
-  // ── 4. Build command + execute via shared service ─────────────────────────────
+  // Build command + execute via shared service.
   let built;
   try {
     built = await buildWolfhouseBookingCreateCommand({
@@ -36210,9 +36199,8 @@ var bcData = null;
 /* Selection model state (Stage 8.3c) — read-only, no writes */
 var bcSel = null;        /* { anchor_date, cursor_date } — shared date range */
 var bcSelectedBeds = []; /* [{ room_code, bed_code }] — beds in current selection (Stage 8.4.5) */
-/* Stage 8.4.8 — server-reported feature flags (interpolated at render time) */
+/* Stage 8.4.8 — server-reported operational flags (interpolated at render time) */
 var BC_STAFF_ACTIONS  = ${STAFF_ACTIONS_ENABLED};
-var BC_MANUAL_BOOKING = ${MANUAL_BOOKING_ENABLED};
 /* Stage 8.4.9/10 — Stripe link flag */
 var BC_STRIPE_LINKS   = ${STRIPE_LINKS_ENABLED};
 /* Phase 10.3e / 10.6a.3 — booking move write enabled in Staff Portal drawer */
@@ -37086,13 +37074,6 @@ function bcUpdateCreateButton(){
   var btn = el('bc-sel-create');
   if (!btn) return;
   var note = el('bc-create-note');
-  /* Server gates manual create on MANUAL_BOOKING_ENABLED only (not STAFF_ACTIONS_ENABLED). */
-  if (!BC_MANUAL_BOOKING){
-    btn.disabled = true;
-    btn.title    = t('calendar.create.manualDisabled');
-    if (note){ note.textContent = ''; note.style.display = 'none'; }
-    return;
-  }
   var hasSelection = bcSelectedBeds.length > 0;
   var cin          = bcReadDateField(el('bc-sel-cin'));
   var cout         = bcReadDateField(el('bc-sel-cout'));
@@ -55242,7 +55223,7 @@ async function router(req, res) {
 
   // ── Stage 8.3h — Manual booking preview (read-only, no writes) ───────────
   // POST accepted to carry the JSON payload; this route NEVER writes.
-  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  // Does NOT require STAFF_ACTIONS_ENABLED or legacy manual-booking environment switch.
   if (pathname === '/staff/test/reset-luna-phone') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -55766,7 +55747,7 @@ async function router(req, res) {
     return handleTourOperatorRelease(req, res, auth.user);
   }
 
-  // ── Stage 8.4 — Manual booking creation (write; gated by MANUAL_BOOKING_ENABLED) ──
+  // ── Stage 8.4 — Manual booking creation (operator+ and tenant ACL) ──
   if (pathname === '/staff/manual-bookings/create') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -55872,7 +55853,7 @@ async function router(req, res) {
 
   // ── Stage 8.5.2 — Luna bot booking preview (pure read-only, no DB writes) ──
   // POST to carry JSON payload. No DB writes, no Stripe, no WhatsApp, no n8n.
-  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  // Does NOT require STAFF_ACTIONS_ENABLED or legacy manual-booking environment switch.
   // Stage 8.5.3: requireBotAuth — accepts bot token OR normal staff session.
   //   Token: X-Luna-Bot-Token header or Authorization: Bearer header.
   //   Token auth ONLY applies to /staff/bot/* routes.
@@ -56526,10 +56507,10 @@ async function router(req, res) {
       handleBotEffectivePauseState(req, res, user, authMode));
   }
 
-  // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──
+  // ── Stage 8.5.4 — Luna bot booking create (portal-policy admission) ──
   // POST — creates booking + booking_beds + draft payment via shared SQL/quote path.
   // No Stripe. No WhatsApp. No n8n. Bot token auth (requireBotAuth).
-  // BOT_BOOKING_ENABLED=false by default → 403.
+  // Staff channel, pause, Needs Human and bound conversation are checked transactionally.
   if (pathname === '/staff/bot/bookings/create') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -56619,7 +56600,7 @@ async function router(req, res) {
 
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
-  // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  // Does NOT require STAFF_ACTIONS_ENABLED or legacy manual-booking environment switch.
   if (pathname === '/staff/packages') {
     if (method !== 'GET') {
       res.writeHead(405, { Allow: 'GET' });
@@ -58251,7 +58232,7 @@ async function startStaffQueryApiCli() {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record cash payment (no Stripe/link)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe link (no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking move write (${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED' : 'DISABLED'})`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL stub (${MANUAL_BOOKING_ENABLED ? 'ENABLED — pricing engine prerequisite NOT met' : 'DISABLED — not wired to UI; do not enable until pricing engine exists'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- authorized Staff operator create`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/quote-preview             <- 8.4.4 pure quote preview (no DB, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/availability-check      <- 8.5.8 Luna bot availability check (read-only, no writes)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/addon-request-preview  <- 8.8.25 Luna bot guest add-on preview (dry-run, no writes)`);
@@ -58282,8 +58263,8 @@ async function startStaffQueryApiCli() {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-automation-review-dry-run <- 27v Luna guest automation review (staff-only, no send)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-hold-draft <- 27w Luna guest simulator hold/draft (staging/local only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-stripe-test-link <- 27w Luna guest simulator Stripe TEST link`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna portal-policy write bridge`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna portal-policy booking create`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: cancel agent-luna test booking (bot token, unpaid only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot balance link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);

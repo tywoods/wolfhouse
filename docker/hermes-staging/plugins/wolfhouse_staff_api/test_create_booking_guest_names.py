@@ -19,6 +19,8 @@ import wolfhouse_staff_api as plugin
 
 REPLY = "Tom, Tyler, Koa Kathy"
 NAMES = ["Tom", "Tyler", "Koa", "Kathy"]
+SESSION_PHONE = "+349600000001"
+FORGED_PHONE = "+349600000000"
 
 
 class Registry:
@@ -60,7 +62,7 @@ class CreateGuestNamesTests(unittest.TestCase):
             return {"success": False, "write_performed": False, "error": "offline_capture"}
 
         with patch.object(plugin, "_post_bot", side_effect=api), \
-                patch.object(plugin, "_session_guest_phone", return_value="+34900000001"):
+                patch.object(plugin, "_session_guest_phone", return_value=SESSION_PHONE):
             result = json.loads(self.tool["handler"](payload))
         return result, calls
 
@@ -159,6 +161,18 @@ class CreateGuestNamesTests(unittest.TestCase):
         result, calls = self.invoke(payload)
         self.assertEqual(calls, [], "normalization must not drop a person before inferring guest_count")
         self.assertEqual(result["next_action"], "complete_guest_names")
+
+    def test_create_uses_gateway_owned_session_phone_not_model_phone(self):
+        payload = {
+            **self.payload,
+            "guests": NAMES,
+            "guest_phone": FORGED_PHONE,
+            "phone": FORGED_PHONE,
+        }
+        _, calls = self.invoke(payload)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]["guest_phone"], SESSION_PHONE)
+        self.assertEqual(calls[0][1]["phone"], SESSION_PHONE)
 
     def test_all_names_preserved_for_every_payment_choice(self):
         for choice in ("full", "full amount", "deposit", "per_guest"):

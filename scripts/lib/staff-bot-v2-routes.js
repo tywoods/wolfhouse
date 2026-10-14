@@ -51,11 +51,11 @@ const {
 // that normally read from an HTTP req stream.
 // Supports both .on('data') style and for-await-of (Symbol.asyncIterator).
 // ─────────────────────────────────────────────────────────────────────────────
-function makeInMemoryBotReq(bodyObj) {
+function makeInMemoryBotReq(bodyObj, headers) {
   const payload = JSON.stringify(bodyObj || {});
   return {
     method:  'POST',
-    headers: {},
+    headers: { ...(headers || {}) },
     on(event, cb) {
       if (event === 'data') cb(Buffer.from(payload, 'utf8'));
       if (event === 'end') cb();
@@ -604,16 +604,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   const {
     sendJSON, send400, readBody, appendAuditLog,
     makeInMemoryBotReq: _makeReq,
-    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
+    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
   } = ctx;
-
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success:             false,
-      error:               'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
 
   let body = {};
   try {
@@ -684,7 +676,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   // Delegate to the existing handleBotBookingCreate in staff-query-api.js via ctx
   if (ctx.handleBotBookingCreate) {
     await ctx.handleBotBookingCreate(
-      makeInMemoryBotReq(body),
+      makeInMemoryBotReq(body, req.headers),
       captureRes,
       user,
       authMode

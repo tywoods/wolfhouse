@@ -244,6 +244,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         headers={
             "Content-Type": "application/json",
             "X-Luna-Bot-Token": token,
+            "X-Luna-Guest-Phone": _session_guest_phone(),
         },
     )
     try:
@@ -273,6 +274,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         headers={
             "Content-Type": "application/json",
             "X-Luna-Bot-Token": token,
+            "X-Luna-Guest-Phone": _session_guest_phone(),
         },
     )
     _lr32_handle = None
@@ -992,7 +994,9 @@ def create_booking_from_plan(params, **kwargs):
     split_payment_requested = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
     payload["payment_choice"] = "per_guest" if split_payment_requested else _normalize_payment_choice(payload.get("payment_choice"))
 
-    phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
+    # Guest identity comes from the gateway-owned turn context. Model/body phone
+    # fields may not select a more permissive Inbox conversation.
+    phone = _normalize_phone(_session_guest_phone())
     if phone:
         payload["phone"] = phone
         payload["guest_phone"] = phone
