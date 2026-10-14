@@ -364,14 +364,8 @@ function validateTransferRuleBody(body) {
   }
 
   const requiresPackage = body.requires_package === true;
-  // The guest sees this text when the transfer is refused, so an unexplained
-  // refusal is a support ticket. Require the copy when the rule can fire.
-  if (requiresPackage && !String(body.unavailable_no_package_message || '').trim()) {
-    return { ok: false, error: 'unavailable_no_package_message required when requires_package is set' };
-  }
-  if (minGuestCount && !String(body.unavailable_below_min_group_message || '').trim()) {
-    return { ok: false, error: 'unavailable_below_min_group_message required when min_guest_count is set' };
-  }
+  // Guest refusal text is ignored. Luna writes it from these settings.
+  // Do not require or keep unavailable_* fields, even if an old client sends them.
 
   let aliases = [];
   if (body.aliases != null) {
@@ -389,10 +383,6 @@ function validateTransferRuleBody(body) {
       included_when_package: body.included_when_package === true,
       min_guest_count: minGuestCount,
       ...(hasMaxGuestCount ? { max_guest_count: maxGuestCount } : {}),
-      unavailable_no_package_message:
-        String(body.unavailable_no_package_message || '').trim() || null,
-      unavailable_below_min_group_message:
-        String(body.unavailable_below_min_group_message || '').trim() || null,
       active: body.active !== false,
     },
   };

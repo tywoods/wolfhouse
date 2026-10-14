@@ -32,7 +32,10 @@ function ok(name, cond, detail) {
 console.log('[1] Static markers — CSS, legend, helpers, i18n');
 ok('job marker in CSS', /SCHEDULE-GROUP-BOOKING-UI-001/.test(api));
 ok('parent bar CSS', /\.bc-group-parent-bar\{/.test(api));
-ok('soft lilac pebble chip CSS', /\.bc-group-chip\{[^}]*#E3D7F0/.test(api));
+ok('navy group pebble chip CSS', /\.bc-group-chip\{[^}]*background:#E7EEFB;color:#1E3A8A/.test(api));
+ok('dark group pebble stays navy and readable', /\[data-theme="dark"\] \.bc-group-chip\{background:#1E3A8A;color:#F8FAFC/.test(api));
+ok('group pebble is not the paid, price, or transfer pebble',
+  !/#DDE8E2|#F5E0D0|#EDE7F6|#E3D7F0/.test((api.match(/\.bc-group-chip\{[^}]+\}/) || [''])[0]));
 ok('group block accent CSS', /\.bc-block-group\{/.test(api));
 ok('cross-room hover CSS', /\.bc-block-group-hover/.test(api));
 ok('legend swatch', /bc-legend-sw-group/.test(api));
@@ -43,7 +46,7 @@ ok('renderBedCalendar marks groups without a parent banner', /bcBuildMultiRoomGr
 ok('above-room group banner hidden', /\.bc-group-parent-row\{display:none!important\}/.test(api));
 ok('renderBookingBlock adds bc-block-group', /bc-block-group/.test(api) && /_bc_is_group/.test(api));
 ok('EN i18n group keys', /'calendar\.legend\.group': 'Group'/.test(i18n) && /'calendar\.group\.chip': 'Group'/.test(i18n));
-ok('ES i18n group keys', /"calendar\.legend\.group": "Grupo"/.test(es));
+ok('ES i18n group keys', /"calendar\.legend\.group": "Group"/.test(es));
 ok('IT i18n group keys', /'calendar\.legend\.group': 'Gruppo'/.test(i18n));
 ok('empty-cell clean near-white (Gina multi-bed paint)', /\.bc-day-cell:not\(:has\(\.bc-block\)\)\{background:#F7F8F8\}/.test(api));
 ok('empty-cell clean charcoal dark', /\[data-theme="dark"\] \.bc-day-cell:not\(:has\(\.bc-block\)\)\{background:#2A2A2C\}/.test(api));

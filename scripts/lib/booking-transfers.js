@@ -14,6 +14,10 @@ const {
   normalizeAirportCode,
   getTransferRuleForAirport,
 } = require('./client-transfer-config');
+const {
+  composeTransferGuestRefusal,
+  composeTransferStaffMinGroupBlock,
+} = require('./luna-transfer-refusal');
 
 const VALID_DIRECTIONS = new Set(['arrival', 'departure']);
 const VALID_STATUSES = new Set(['requested', 'confirmed', 'cancelled', 'not_needed']);
@@ -187,16 +191,14 @@ function priceBookingTransfer({ client_slug, booking, transfer, resolvedConfig }
   if (rule.requires_package && !packageBooking) {
     return unavailable(
       'bilbao_package_required',
-      rule.unavailable_no_package_message
-        || 'Transfer requires a package booking.',
+      composeTransferGuestRefusal(rule, 'no_package', 'en', airport.label),
     );
   }
 
   if (rule.min_guest_count != null && guestCount < rule.min_guest_count) {
     return unavailable(
       'bilbao_min_group',
-      rule.unavailable_below_min_group_message
-        || `Minimum group size is ${rule.min_guest_count} guests.`,
+      composeTransferGuestRefusal(rule, 'below_min', 'en', airport.label),
     );
   }
 
@@ -271,8 +273,8 @@ function assertTransferGroupOverrideAllowed(opts = {}) {
 
   if (manualOverride && manualOverride.price_cents != null) return;
 
-  const baseMsg = rule.unavailable_below_min_group_message
-    || 'Bilbao transfer is normally available for groups of 4 or more. Use Exception Override to save a manual exception.';
+  const airport = getClientAirportOption(clientSlug, airportCode, opts.resolvedConfig);
+  const baseMsg = composeTransferStaffMinGroupBlock(rule, airport && airport.label);
   const err = new Error(
     input.manual_override_enabled === true
       ? 'Transfer Charge amount is required for Exception Override.'
