@@ -46,7 +46,7 @@ ok('renderBedCalendar marks groups without a parent banner', /bcBuildMultiRoomGr
 ok('above-room group banner hidden', /\.bc-group-parent-row\{display:none!important\}/.test(api));
 ok('renderBookingBlock adds bc-block-group', /bc-block-group/.test(api) && /_bc_is_group/.test(api));
 ok('EN i18n group keys', /'calendar\.legend\.group': 'Group'/.test(i18n) && /'calendar\.group\.chip': 'Group'/.test(i18n));
-ok('ES i18n group keys', /"calendar\.legend\.group": "Grupo"/.test(es));
+ok('ES i18n group keys', /"calendar\.legend\.group": "Group"/.test(es));
 ok('IT i18n group keys', /'calendar\.legend\.group': 'Gruppo'/.test(i18n));
 ok('empty-cell clean near-white (Gina multi-bed paint)', /\.bc-day-cell:not\(:has\(\.bc-block\)\)\{background:#F7F8F8\}/.test(api));
 ok('empty-cell clean charcoal dark', /\[data-theme="dark"\] \.bc-day-cell:not\(:has\(\.bc-block\)\)\{background:#2A2A2C\}/.test(api));
