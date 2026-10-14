@@ -6,11 +6,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('/opt/data/home/.npm/_npx/e41f203b7505f1fb/node_modules/playwright-core');
+const { chromium } = require('playwright');
 const es = require('./lib/staff-portal-i18n-es');
 
 const ROOT = path.resolve(__dirname, '..');
-const CHROME = '/opt/data/home/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome';
 const src = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
 
 function slice(start, end) {
@@ -64,7 +63,7 @@ document.getElementById('bc-load').addEventListener('click', function(){ window.
 </script></body></html>`;
 
 async function main() {
-  const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 769, height: 800 } });
   await page.setContent(pageHtml);
   await page.evaluate((dict) => {
