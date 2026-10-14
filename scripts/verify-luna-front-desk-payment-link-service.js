@@ -68,17 +68,28 @@ function makePg(state = {}) {
   let draftDeleted = false;
   let paymentUpdates = 0;
   let bookingMetaUpdates = 0;
+  const transactionCommands = [];
 
   return {
     draftDeleted: () => draftDeleted,
     paymentUpdates: () => paymentUpdates,
     bookingMetaUpdates: () => bookingMetaUpdates,
+    transactionCommands: () => transactionCommands.slice(),
     query: async (sql, params) => {
       const s = String(sql);
       const norm = s.replace(/\s+/g, ' ').trim();
-      if (/^BEGIN/i.test(s)) return { rows: [] };
-      if (/^COMMIT/i.test(s)) return { rows: [] };
-      if (/^ROLLBACK/i.test(s)) return { rows: [] };
+      if (/^(BEGIN|COMMIT|ROLLBACK)/i.test(s)) {
+        const command = s.trim().toUpperCase();
+        transactionCommands.push(command);
+        if (command === 'ROLLBACK' && state.failRollback) throw new Error('rollback failed');
+        return { rows: [] };
+      }
+      if (state.failPaymentLookup && /FROM payments p/i.test(s) && /WHERE p\.id = \$1::uuid/i.test(norm)) {
+        throw new Error('payment lookup failed');
+      }
+      if (state.failAdmissionReceipt && /SET metadata = COALESCE\(metadata/i.test(s)) {
+        throw new Error('admission receipt failed');
+      }
 
       if (/DELETE FROM payments/i.test(s)) {
         draftDeleted = true;
@@ -483,9 +494,49 @@ async function main() {
     const guestSpecific = { ...payment, booking_guest_id: 'guest-1', guest_metadata: { phone: phoneB } };
     const guestPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
       client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [guestSpecific] });
-    const guestDenied = await createPaymentLink(guestPg, command, baseExecOpts());
-    assert('booking phone cannot authorize a different guest-specific target', !guestDenied.ok
-      && guestDenied.body.reason_code === 'payment_target_guest_mismatch');
+    const guestAllowed = await createPaymentLink(guestPg, command, baseExecOpts());
+    assert('approved booking phone authorizes a real-writer guest target', guestAllowed.ok === true);
+  }
+
+  console.log('[11] Prepare SQL cleanup + truthful provider-failure receipt');
+  {
+    const phone = '+349****1111';
+    const payment = {
+      payment_id: PAYMENT_ID, client_id: CLIENT_WH, client_slug: WOLFHOUSE_CLIENT_SLUG,
+      booking_id: BOOKING_ID, booking_code: BOOKING_CODE, payment_status: 'draft',
+      payment_kind: 'deposit', currency: 'EUR', amount_due_cents: 5000, checkout_url: null,
+    };
+    const booking = { booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone };
+    const command = buildPaymentLinkCommand({ operation: PAYMENT_LINK_OPERATIONS.CREATE,
+      channel: PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP, trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+      trustedGuestPhone: phone, paymentId: PAYMENT_ID, target: 'draft_payment' }).command;
+    for (const fault of ['failPaymentLookup', 'failAdmissionReceipt']) {
+      const pg = makePg({ bookings: [booking], payments: [{ ...payment }], [fault]: true });
+      let thrown;
+      try {
+        await createPaymentLink(pg, command, baseExecOpts({ authorizeAutomaticWrite: async () => ({ allowed: true }) }));
+      } catch (err) { thrown = err; }
+      assert(`${fault} propagates the SQL error`, !!thrown);
+      assert(`${fault} rolls back before release`, pg.transactionCommands().includes('ROLLBACK'));
+    }
+    const discardPg = makePg({ bookings: [booking], payments: [{ ...payment }],
+      failPaymentLookup: true, failRollback: true });
+    try {
+      await createPaymentLink(discardPg, command, baseExecOpts({ authorizeAutomaticWrite: async () => ({ allowed: true }) }));
+    } catch (_) { /* expected */ }
+    assert('rollback failure marks pooled client for discard',
+      discardPg[Symbol.for('wolfhouse.pgClient.discardRequired')] === true);
+
+    const retained = { ...payment };
+    const providerPg = makePg({ bookings: [booking], payments: [retained] });
+    const providerFailed = await createPaymentLink(providerPg, command, baseExecOpts({
+      authorizeAutomaticWrite: async () => ({ allowed: true }),
+      createStripeCheckoutSession: async () => { throw new Error('offline provider stop'); },
+    }));
+    assert('provider failure reports durable admission receipt write', !providerFailed.ok
+      && providerFailed.body.no_db_write === false && providerFailed.body.write_performed === true
+      && !!(retained.metadata && retained.metadata.automatic_admission_receipt));
   }
 
   console.log(`\n── verify:luna-front-desk-payment-link-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

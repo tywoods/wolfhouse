@@ -119,9 +119,10 @@ function assertTrustedGuestOwnsTarget(guest, trustedGuestPhone) {
   const digits = (value) => String(value || '').replace(/\D/g, '');
   const trusted = digits(trustedGuestPhone);
   const md = metadata(guest && guest.guest_metadata);
-  // This owner is always a booking_guest target. The booking-level contact may
-  // control the booking balance, but cannot claim another guest's checkout.
-  const owners = [md.phone, md.guest_phone, md.contact_phone]
+  // The production booking_guest writer does not persist per-guest phones.
+  // The approved booking contact therefore remains authoritative, while any
+  // explicit guest contact also remains a valid owner when present.
+  const owners = [guest && guest.booking_phone, md.phone, md.guest_phone, md.contact_phone]
     .map(digits).filter(Boolean);
   if (!trusted || !owners.includes(trusted)) {
     const err = new Error('payment_target_guest_mismatch');

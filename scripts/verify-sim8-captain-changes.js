@@ -70,9 +70,9 @@ function section(source, start, end) {
   failQuery = true;
   await assert.rejects(() => store.putChannelMode('tenant', 'email', 'off'), /channel_mode_unproven/);
 
-  assert.throws(() => assertTrustedGuestOwnsTarget({ booking_phone: '+34 611 22 33 44', guest_metadata: {} }, '34611223344'), /payment_target_guest_mismatch/);
+  assert.doesNotThrow(() => assertTrustedGuestOwnsTarget({ booking_phone: '+34 611 22 33 44', guest_metadata: {} }, '34611223344'));
   assert.doesNotThrow(() => assertTrustedGuestOwnsTarget({ booking_phone: '+34 600 00 00 00', guest_metadata: { phone: '+34 611 22 33 44' } }, '34611223344'));
-  assert.throws(() => assertTrustedGuestOwnsTarget({ booking_phone: '+34 611 22 33 44', guest_metadata: { phone: '+34 600 00 00 00' } }, '34611223344'), /payment_target_guest_mismatch/);
+  assert.throws(() => assertTrustedGuestOwnsTarget({ booking_phone: '+34 600 00 00 00', guest_metadata: { phone: '+34 600 00 00 01' } }, '34611223344'), /payment_target_guest_mismatch/);
   const gate = (trustedGuestPhone) => gateBotPaymentUuidCallbackTenantAcl({
     paymentId: '00000000-0000-4000-8000-000000000001', boundClientSlug: 'wolfhouse-somo', trustedGuestPhone,
     withPgClient: async (fn) => fn({ query: async () => ({ rows: [{ client_slug: 'wolfhouse-somo', booking_phone: '+34 611 22 33 44' }] }) }),

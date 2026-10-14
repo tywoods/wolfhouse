@@ -3,6 +3,7 @@
   "private": true,
   "description": "Wolfhouse local tooling (Phase 1 CSV sync, seeds)",
   "scripts": {
+    "verify:sim8-captain-payment-followup": "node scripts/verify-sim8-captain-payment-followup.js",
     "verify:luna-explicit-bed-selection": "node scripts/verify-luna-explicit-bed-selection.js",
     "verify:wolfhouse-offer-identity": "node scripts/verify-wolfhouse-offer-identity.js",
     "seed:generate": "node scripts/generate-seed.js",

@@ -634,9 +634,13 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
   const automaticAuthorize = typeof execOpts.authorizeAutomaticWrite === 'function'
     ? execOpts.authorizeAutomaticWrite : null;
   let prepareTx = false;
+  let durableAdmissionReceiptWritten = false;
+  const markPrepareClientForDiscard = () => {
+    if (pg && typeof pg === 'object') pg[Symbol.for('wolfhouse.pgClient.discardRequired')] = true;
+  };
   const abortPrepare = async (result) => {
     if (prepareTx) {
-      try { await pg.query('ROLLBACK'); } catch (_) { /* original result wins */ }
+      try { await pg.query('ROLLBACK'); } catch (_) { markPrepareClientForDiscard(); }
       prepareTx = false;
     }
     return result;
@@ -665,15 +669,22 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     }
   }
 
-  const pm = await loadPaymentById(pg, paymentId, command.clientSlug);
+  let pm;
+  let amountDue;
+  let createSession;
+  try {
+    pm = await loadPaymentById(pg, paymentId, command.clientSlug);
   if (!pm) return abortPrepare(fail(404, 'payment_not_found', 'Payment record not found.'));
   if (command.channel === PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP) {
     const digits = (value) => String(value || '').replace(/\D/g, '');
     const trustedGuestPhone = digits(command.trustedGuestPhone);
     const guestMetadata = parsePaymentMetadata(pm.guest_metadata);
-    const ownerPhones = pm.booking_guest_id
-      ? [guestMetadata.phone, guestMetadata.guest_phone, guestMetadata.contact_phone].map(digits).filter(Boolean)
-      : [pm.booking_phone].map(digits).filter(Boolean);
+    const ownerPhones = [
+      pm.booking_phone,
+      ...(pm.booking_guest_id
+        ? [guestMetadata.phone, guestMetadata.guest_phone, guestMetadata.contact_phone]
+        : []),
+    ].map(digits).filter(Boolean);
     if (!trustedGuestPhone || !ownerPhones.includes(trustedGuestPhone)) {
       return abortPrepare(fail(403, 'payment_target_guest_mismatch', 'Payment target does not belong to the trusted Luna guest.'));
     }
@@ -712,13 +723,13 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     return abortPrepare(fail(409, 'payment_not_draft', `Payment is in status '${pm.payment_status}'; only draft payments can create a Stripe link.`));
   }
 
-  const amountDue = Number(pm.amount_due_cents || 0);
+  amountDue = Number(pm.amount_due_cents || 0);
   if (amountDue <= 0) return abortPrepare(fail(422, 'invalid_amount', 'amount_due_cents must be > 0.'));
   if (String(pm.currency || '').toUpperCase() !== 'EUR') {
     return abortPrepare(fail(422, 'unsupported_currency', `Currency '${pm.currency}' not supported (EUR only).`));
   }
 
-  const createSession = execOpts.createStripeCheckoutSession;
+  createSession = execOpts.createStripeCheckoutSession;
   if (typeof createSession !== 'function') {
     return abortPrepare(fail(500, 'stripe_adapter_missing', 'createStripeCheckoutSession adapter required'));
   }
@@ -740,6 +751,14 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     }
     await pg.query('COMMIT');
     prepareTx = false;
+    durableAdmissionReceiptWritten = true;
+  }
+  } catch (err) {
+    if (prepareTx) {
+      try { await pg.query('ROLLBACK'); } catch (_) { markPrepareClientForDiscard(); }
+      prepareTx = false;
+    }
+    throw err;
   }
 
   const sourceTag = command.channel === PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP ? 'bot_stage855' : 'staff_portal_stage849';
@@ -763,7 +782,11 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
       },
     });
   } catch (stripeErr) {
-    return fail(500, 'stripe_session_failed', stripeErr.message || 'Stripe session creation failed', { no_db_write: true });
+    const writePerformed = durableAdmissionReceiptWritten;
+    return fail(500, 'stripe_session_failed', stripeErr.message || 'Stripe session creation failed', {
+      no_db_write: !writePerformed,
+      write_performed: writePerformed,
+    });
   }
 
   const expiresAt = session.expires_at
