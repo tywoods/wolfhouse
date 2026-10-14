@@ -21069,8 +21069,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 @media (max-width:768px){
   #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
-  #tab-bed-calendar .toolbar{position:relative;padding-top:2px}
-  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar .toolbar{position:relative;padding-top:2px;flex-wrap:wrap;align-items:flex-start}
+  #tab-bed-calendar .bc-toolbar-main{display:flex;flex:1 1 100%;flex-wrap:wrap;min-width:0;align-items:center}
+  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{order:1;flex:1 1 100%;box-sizing:border-box;padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar .bc-chips{order:2;flex:1 1 100%;width:100%}
   #tab-bed-calendar #bc-load{position:absolute;top:0;right:0;width:44px;height:44px;min-height:44px;padding:0;z-index:2}
   #tab-bed-calendar #bc-load svg{width:26px;height:26px;stroke-width:2.4}
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -21259,7 +21261,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 .bc-range-btn:hover{background:var(--surface-soft)}
 #tab-bed-calendar #bc-month-nav{display:none!important}
-#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto;order:1}
+#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto}
+#tab-bed-calendar .bc-toolbar-main{display:flex;flex:1 1 auto;align-items:center;min-width:0;gap:8px 10px}
 #tab-bed-calendar #bc-calendar-title{font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
 #tab-bed-calendar #bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
 #tab-bed-calendar .bc-year-pop{position:absolute;z-index:8;top:calc(100% + 6px);left:0;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
@@ -21280,7 +21283,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   #tab-bed-calendar .bc-legend-row,#tab-bed-calendar #bc-load{order:4;flex:0 0 auto}
 }
 @media (min-width:769px){
-  #tab-bed-calendar #bc-load{order:99;margin-left:auto;position:static}
+  #tab-bed-calendar .toolbar,#tab-bed-calendar.active .toolbar{flex-wrap:nowrap}
+  #tab-bed-calendar .bc-toolbar-main,#tab-bed-calendar.active .bc-toolbar-main{flex:1 1 auto;min-width:0}
+  #tab-bed-calendar .bc-chips,#tab-bed-calendar.active .bc-chips{flex:0 1 auto;min-width:0;max-width:none}
+  #tab-bed-calendar #bc-load,#tab-bed-calendar.active #bc-load{order:99;margin-left:auto;position:static}
 }
 .bc-range-pick{
   position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
@@ -24817,6 +24823,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
+      <div class="bc-toolbar-main">
       <div class="bc-year-anchor">
         <span id="bc-calendar-title" class="bc-calendar-title"><span class="bc-calendar-month">August</span> <button type="button" id="bc-year-open" class="bc-year-open" aria-haspopup="listbox" aria-expanded="false" aria-controls="bc-year-pop">'26</button></span>
         <div id="bc-year-pop" class="bc-year-pop" hidden role="listbox" data-i18n-aria="calendar.yearPopup.label" aria-label="Years with bookings"></div>
@@ -24867,10 +24874,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
+    </div>
+      </div>
       <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
-    </div>
     </div>
 
     <!-- Warnings -->
@@ -46235,7 +46243,7 @@ function bcYearEmptyText(){
 }
 function bcCloseYearPop(){
   var pop = el('bc-year-pop');
-  var btn = el('bc-calendar-title');
+  var btn = el('bc-year-open');
   if (pop) pop.hidden = true;
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
@@ -46264,7 +46272,7 @@ function bcRenderYearPop(){
 }
 function bcOpenYearPop(){
   var pop = el('bc-year-pop');
-  var btn = el('bc-calendar-title');
+  var btn = el('bc-year-open');
   if (!pop || !btn) return;
   bcRenderYearPop();
   pop.hidden = false;
