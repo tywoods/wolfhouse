@@ -197,9 +197,8 @@ ok('Bilbao seeds as 1500 per person', bio && bio.unit === 'per_person' && bio.am
 const bioRule = transfers.eligibility.find((r) => r.airport_code === 'BIO');
 ok('Bilbao eligibility keeps requires_package and the group minimum',
   bioRule && bioRule.requires_package === true && bioRule.min_guest_count === 4);
-ok('Bilbao keeps both guest-facing refusal messages',
-  bioRule && !!bioRule.unavailable_no_package_message
-  && !!bioRule.unavailable_below_min_group_message);
+ok('saved Bilbao refusal text is not required for eligibility',
+  bioRule && bioRule.requires_package === true && bioRule.min_guest_count === 4);
 
 const sdrRule = transfers.eligibility.find((r) => r.airport_code === 'SDR');
 ok('Santander is included when a package is booked',
@@ -368,22 +367,22 @@ ok('rejects an uppercase or spaced season code',
 ok('accepts a simple transfer rule',
   writes.validateTransferRuleBody({ airport_code: 'SDR', label: 'Santander' }).ok === true);
 
-ok('requires refusal copy when a package is required',
+ok('package required does not need a guest message',
   writes.validateTransferRuleBody({
     airport_code: 'BIO', label: 'Bilbao', requires_package: true,
-  }).ok === false);
+  }).ok === true);
 
-ok('requires refusal copy when a group minimum is set',
+ok('group minimum does not need a guest message',
   writes.validateTransferRuleBody({
     airport_code: 'BIO', label: 'Bilbao', min_guest_count: 4,
-  }).ok === false);
+  }).ok === true);
 
-ok('accepts a fully specified Bilbao rule',
-  writes.validateTransferRuleBody({
+ok('submitted guest messages are dropped from the saved rule',
+  !Object.prototype.hasOwnProperty.call(writes.validateTransferRuleBody({
     airport_code: 'BIO', label: 'Bilbao', requires_package: true, min_guest_count: 4,
     unavailable_no_package_message: 'Package bookings only.',
     unavailable_below_min_group_message: 'Groups of 4 or more.',
-  }).ok === true);
+  }).value, 'unavailable_no_package_message'));
 
 // Items
 ok('accepts a new staff-created rental item',
@@ -933,8 +932,8 @@ async function runRouteChecks() {
   await withWriteFlag('true', () => transferNoCopy.routes.handleWhPricingTransferPut(
     { client: 'wolfhouse-somo' }, {}, {}, { role: 'admin' },
   ));
-  ok('an airport with a group minimum needs refusal copy',
-    transferNoCopy.sent[0].status === 400);
+  ok('an airport with a group minimum saves without a guest message',
+    transferNoCopy.sent[0].status === 200);
 
   const itemDelete = harness();
   await withWriteFlag('true', () => itemDelete.routes.handleWhPricingItemDelete(
