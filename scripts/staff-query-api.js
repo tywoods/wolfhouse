@@ -20941,7 +20941,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #wrap-bc{padding:4px 16px 12px!important}
   #tab-bed-calendar .card{margin:0 auto 8px;padding:6px 12px 12px}
   #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center;gap:8px 10px;margin-bottom:8px}
-  #tab-bed-calendar .toolbar h2{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
+  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
   #tab-bed-calendar .bc-chips{flex:1 1 auto;order:2;min-width:0;flex-wrap:nowrap;overflow:hidden}
   #tab-bed-calendar .bc-range-wrap{flex:0 0 auto;order:3}
   #tab-bed-calendar #bc-load{flex:0 0 auto;order:3}
@@ -21070,7 +21070,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 @media (max-width:768px){
   #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
   #tab-bed-calendar .toolbar{position:relative;padding-top:2px}
-  #tab-bed-calendar .toolbar h2{padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{padding-right:52px;min-height:44px;display:flex;align-items:center}
   #tab-bed-calendar #bc-load{position:absolute;top:0;right:0;width:44px;height:44px;min-height:44px;padding:0;z-index:2}
   #tab-bed-calendar #bc-load svg{width:26px;height:26px;stroke-width:2.4}
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -21259,9 +21259,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 .bc-range-btn:hover{background:var(--surface-soft)}
 #tab-bed-calendar #bc-month-nav{display:none!important}
-#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto}
-#tab-bed-calendar #bc-calendar-title.bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
-#tab-bed-calendar .toolbar > #bc-load{margin-left:auto}
+#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto;order:1}
+#tab-bed-calendar #bc-calendar-title{font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
+#tab-bed-calendar #bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
 #tab-bed-calendar .bc-year-pop{position:absolute;z-index:8;top:calc(100% + 6px);left:0;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
 #tab-bed-calendar .bc-year-option,#tab-bed-calendar .bc-year-empty{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 10px;font:600 13px/1.2 'Instrument Sans',var(--font-sans),sans-serif;color:var(--text)}
 #tab-bed-calendar .bc-year-option{cursor:pointer}
@@ -21278,6 +21278,9 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   #tab-bed-calendar .bc-month-nav{flex:1 1 100%;order:5;max-width:100%;min-width:0}
   #tab-bed-calendar .bc-chips{flex:1 1 160px;min-width:140px;overflow-x:auto;overflow-y:hidden}
   #tab-bed-calendar .bc-legend-row,#tab-bed-calendar #bc-load{order:4;flex:0 0 auto}
+}
+@media (min-width:769px){
+  #tab-bed-calendar #bc-load{order:99;margin-left:auto;position:static}
 }
 .bc-range-pick{
   position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
@@ -24815,12 +24818,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="card">
     <div class="toolbar">
       <div class="bc-year-anchor">
-        <button type="button" id="bc-calendar-title" class="bc-year-open" aria-haspopup="listbox" aria-expanded="false" aria-controls="bc-year-pop">August '26</button>
+        <span id="bc-calendar-title" class="bc-calendar-title"><span class="bc-calendar-month">August</span> <button type="button" id="bc-year-open" class="bc-year-open" aria-haspopup="listbox" aria-expanded="false" aria-controls="bc-year-pop">'26</button></span>
         <div id="bc-year-pop" class="bc-year-pop" hidden role="listbox" data-i18n-aria="calendar.yearPopup.label" aria-label="Years with bookings"></div>
       </div>
-      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-      </button>
     <div class="bc-month-nav" id="bc-month-nav" hidden>
       <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" data-i18n-aria="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
       <select id="bc-nav-month" data-i18n-aria="calendar.nav.month" aria-label="Month"></select>
@@ -24867,6 +24867,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
+      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
     </div>
     </div>
 
@@ -46183,7 +46186,15 @@ function bcUpdateCalendarTitle(){
   var month = d.toLocaleString(lang, { month: 'long' });
   if (month) month = month.charAt(0).toUpperCase() + month.slice(1);
   var yy = String(d.getFullYear()).slice(-2);
-  titleEl.textContent = month + " '" + yy;
+  var full = month + " '" + yy;
+  var monthEl = titleEl.querySelector ? titleEl.querySelector('.bc-calendar-month') : null;
+  var yearBtn = titleEl.querySelector ? titleEl.querySelector('.bc-year-open') : null;
+  if (monthEl && yearBtn) {
+    monthEl.textContent = month;
+    yearBtn.textContent = "'" + yy;
+  } else {
+    titleEl.textContent = full;
+  }
 }
 
 function bcFourDigitYear(value){
@@ -46198,24 +46209,29 @@ function bcFourDigitYear(value){
   if (n < 1900 || n > 2100) return '';
   return s;
 }
-function bcBookingYearsFromData(data){
+function bcBookingYearsFromData(data, now){
   var seen = {};
-  var list = data && data.booking_years;
-  if (list && list.length) {
-    list.forEach(function(year){
-      var ok = bcFourDigitYear(year);
-      if (ok) seen[ok] = true;
-    });
+  function add(value){
+    var ok = bcFourDigitYear(value);
+    if (ok) seen[ok] = true;
   }
+  var clock = now || new Date();
+  add(clock.getFullYear());
+  add(clock.getFullYear() + 1);
+  var list = data && data.booking_years;
+  if (list && list.length) list.forEach(add);
   var blocks = data && data.blocks;
   if (blocks && blocks.length) {
     blocks.forEach(function(block){
       var raw = block && (block.check_in || block.start_date || '');
-      var ok = bcFourDigitYear(String(raw).slice(0, 4));
-      if (ok) seen[ok] = true;
+      add(String(raw).slice(0, 4));
     });
   }
   return Object.keys(seen).sort();
+}
+function bcYearEmptyText(){
+  if (window.t) return window.t('calendar.yearPopup.empty');
+  return 'No booking years yet';
 }
 function bcCloseYearPop(){
   var pop = el('bc-year-pop');
@@ -46231,7 +46247,8 @@ function bcRenderYearPop(){
   if (!years.length) {
     var empty = document.createElement('div');
     empty.className = 'bc-year-empty';
-    empty.textContent = 'No booking years yet';
+    empty.setAttribute('data-i18n', 'calendar.yearPopup.empty');
+    empty.textContent = bcYearEmptyText();
     pop.appendChild(empty);
     return;
   }
@@ -46257,18 +46274,20 @@ function bcJumpToBookingYear(year){
   var ok = bcFourDigitYear(year);
   if (!ok || typeof bcMonthWindow !== 'function' || typeof bcSetRange !== 'function') return;
   var start = bcReadDateField(el('bc-start'));
-  var month = new Date().getMonth();
-  if (start && start.length >= 7) month = Number(start.slice(5, 7)) - 1;
-  if (!(month >= 0 && month <= 11)) month = new Date().getMonth();
+  var month = new Date().getMonth() + 1;
+  if (start && start.length >= 7) month = Number(start.slice(5, 7));
+  if (!(month >= 1 && month <= 12)) month = new Date().getMonth() + 1;
   var window = bcMonthWindow(Number(ok), month);
   if (!window || !window.start || !window.end) return;
   bcCloseYearPop();
   bcSetRange(window.start, window.end);
 }
+
+var bcLastBedCalendarData = null;
 document.addEventListener('click', function(ev){
   var target = ev.target;
   if (!target || !target.closest) return;
-  if (target.closest('#bc-calendar-title')) {
+  if (target.closest('#bc-year-open')) {
     var pop = el('bc-year-pop');
     if (pop && pop.hidden) bcOpenYearPop();
     else bcCloseYearPop();
@@ -46281,8 +46300,6 @@ document.addEventListener('click', function(ev){
   }
   if (!target.closest('#bc-year-pop')) bcCloseYearPop();
 });
-
-var bcLastBedCalendarData = null;
 
 function bcRefreshOpenDrawerI18n(){
   if (!bcLastBookingContext) return;
