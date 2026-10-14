@@ -21092,6 +21092,12 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   white-space:nowrap;
 }
 .bc-range-btn:hover{background:var(--surface-soft)}
+#tab-bed-calendar .bc-month-nav{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;order:3}
+#tab-bed-calendar #bc-nav-month,#tab-bed-calendar #bc-nav-year,#tab-bed-calendar #bc-nav-today,#tab-bed-calendar .bc-nav-arrow{height:30px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:600 12px/1 'Instrument Sans',var(--font-sans),system-ui,sans-serif}
+#tab-bed-calendar #bc-nav-month{max-width:8em}
+#tab-bed-calendar #bc-nav-year{width:4.6em;text-align:center;padding:0 4px}
+#tab-bed-calendar .bc-nav-arrow,#tab-bed-calendar #bc-nav-today{padding:0 8px;cursor:pointer}
+#tab-bed-calendar .bc-month-nav.is-invalid #bc-nav-year{border-color:#9C5742}
 .bc-range-pick{
   position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
 }
@@ -24626,6 +24632,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="card">
     <div class="toolbar">
       <h2 id="bc-calendar-title">August '26</h2>
+    <div class="bc-month-nav" id="bc-month-nav">
+      <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
+      <select id="bc-nav-month" data-i18n-aria="calendar.nav.month" aria-label="Month"></select>
+      <input id="bc-nav-year" type="text" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" data-i18n-aria="calendar.nav.year" aria-label="Year">
+      <button type="button" class="bc-nav-arrow" id="bc-nav-next" data-i18n-title="calendar.nav.next" title="Next month" aria-label="Next month">›</button>
+      <button type="button" class="bc-nav-today" id="bc-nav-today" data-i18n="calendar.nav.today">Today</button>
+    </div>
+    <span id="bc-demo-preset" data-chip="demo" hidden data-demo-start="2026-07-16" data-demo-end="2026-07-22"></span>
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
@@ -38592,7 +38606,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
   }
   return '<td colspan="' + spanDays + '" class="bc-day-cell' + turnoverCls + '" style="position:relative;padding:2px 3px">' +
     markerHtml +
-    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + stripeCls + '" data-bidx="' + idx + '"' + groupBits.attr + ' title="' + tip + '">' +
+    '<div class="bc-block ' + colorCls + groupBits.cls + thinCls + stripeCls + '" data-bidx="' + idx + '" data-booking-code="' + escHtml(staffDisplayBookingCode(blk.booking_code) || '') + '"' + groupBits.attr + ' title="' + tip + '">' +
     bcCalendarBlockInnerHtml(blk, label) + '</div></td>';
 }
 
@@ -45903,6 +45917,7 @@ function bcRefreshOpenDrawerI18n(){
 
 window.staffPortalOnLocaleChange = function(){
   bcUpdateCalendarTitle();
+  if (typeof bcSyncMonthNav === 'function') bcSyncMonthNav(true);
   if (bcLastBedCalendarData) renderBedCalendar(bcLastBedCalendarData);
   bcRefreshOpenDrawerI18n();
   if (typeof bcRefreshQuotePreviewDisplay === 'function') bcRefreshQuotePreviewDisplay();
@@ -46407,6 +46422,7 @@ function bcSetRange(start, end, chipKey){
   bcSetDateField(el('bc-start'), start);
   bcSetDateField(el('bc-end'), end);
   bcUpdateCalendarTitle();
+  if (typeof bcSyncMonthNav === 'function') bcSyncMonthNav();
   if (typeof bcSyncRangeBtn === 'function') bcSyncRangeBtn();
   /* Update active chip */
   document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
@@ -46436,6 +46452,7 @@ function bcSetRange(start, end, chipKey){
     });
   });
   if (typeof bcInitRangePicker === 'function') bcInitRangePicker();
+  if (typeof bcInitMonthNav === 'function') bcInitMonthNav();
 })();
 
 function bcFormatRangeLabel(iso){
@@ -46482,9 +46499,7 @@ function bcInitRangePicker(){
 
 function bcRangePopShift(delta){
   var iso = (window.bcRangePopState && window.bcRangePopState.view) || bcIso(new Date());
-  var d = new Date(iso.slice(0, 10) + 'T12:00:00');
-  d.setMonth(d.getMonth() + delta);
-  window.bcRangePopState.view = bcIso(d);
+  window.bcRangePopState.view = bcShiftMonth(iso, delta);
   bcRenderRangePop();
 }
 
@@ -46556,6 +46571,181 @@ function bcRangePopPick(iso){
   loadBedCalendar();
 }
 
+/* SCHEDULE-MONTH-YEAR-NAV-001 — one calendar month, exclusive end. */
+function bcMonthWindow(year, month){
+  var y = Number(year);
+  var m = Number(month);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return null;
+  var start = y + '-' + String(m).padStart(2, '0') + '-01';
+  var endDate = new Date(Date.UTC(y, m, 1));
+  var end = endDate.getUTCFullYear() + '-' + String(endDate.getUTCMonth() + 1).padStart(2, '0') + '-01';
+  return { start: start, end: end };
+}
+function bcShiftMonth(iso, delta){
+  var s = String(iso || '').slice(0, 10);
+  var d = new Date(s + 'T12:00:00');
+  if (isNaN(d.getTime())) return '';
+  var next = new Date(d.getFullYear(), d.getMonth() + Number(delta), 1);
+  return next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-01';
+}
+var BC_SEASON_CHIP_MONTHS = {
+  'apr-may': [4, 5],
+  'may-jun': [5, 6],
+  'jun-jul': [6, 7],
+  'jul-aug': [7, 8],
+  'aug-sept': [8, 9],
+  'sep-oct': [9, 10],
+  'oct-nov': [10, 11]
+};
+var bcNavYearEditing = false;
+function bcParseNavYear(raw){
+  var s = String(raw == null ? '' : raw).trim();
+  if (!/^\d{4}$/.test(s)) return null;
+  var y = Number(s);
+  if (y < 1000 || y > 9999) return null;
+  return y;
+}
+function bcSelectedNavYear(){
+  var start = bcReadDateField(el('bc-start'));
+  if (start && /^\d{4}/.test(start)) return Number(start.slice(0, 4));
+  return new Date().getFullYear();
+}
+function bcLocalTodayIso(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function bcShowNavYearError(){
+  var nav = el('bc-month-nav');
+  if (nav) nav.classList.add('is-invalid');
+  var state = el('bc-state');
+  if (!state) return;
+  state.className = 'state-msg error';
+  state.style.display = 'block';
+  state.textContent = (typeof t === 'function' && t('calendar.nav.invalidYear')) || 'Enter a 4-digit year.';
+}
+function bcClearNavYearError(){
+  var nav = el('bc-month-nav');
+  if (nav) nav.classList.remove('is-invalid');
+}
+function bcFillMonthNavOptions(){
+  var monthEl = el('bc-nav-month');
+  if (!monthEl) return;
+  var lang = (document.documentElement && document.documentElement.lang) || 'en';
+  if (monthEl.dataset.lang === lang && monthEl.options.length === 12) return;
+  var prev = monthEl.value;
+  monthEl.innerHTML = '';
+  var m;
+  for (m = 1; m <= 12; m++){
+    var opt = document.createElement('option');
+    opt.value = String(m);
+    var label = new Date(2026, m - 1, 1).toLocaleString(lang, { month: 'long' });
+    if (label) label = label.charAt(0).toUpperCase() + label.slice(1);
+    opt.textContent = label;
+    monthEl.appendChild(opt);
+  }
+  monthEl.dataset.lang = lang;
+  if (prev) monthEl.value = prev;
+}
+function bcSyncMonthNav(forceLabels){
+  var start = bcReadDateField(el('bc-start'));
+  var monthEl = el('bc-nav-month');
+  var yearEl = el('bc-nav-year');
+  if (forceLabels && monthEl) delete monthEl.dataset.lang;
+  bcFillMonthNavOptions();
+  if (!start) return;
+  var d = new Date(start.slice(0, 10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return;
+  if (monthEl) monthEl.value = String(d.getMonth() + 1);
+  if (yearEl && !bcNavYearEditing) yearEl.value = String(d.getFullYear());
+}
+function bcApplyMonthWindow(year, month){
+  var win = bcMonthWindow(year, month);
+  if (!win){
+    bcShowNavYearError();
+    return false;
+  }
+  bcClearNavYearError();
+  bcNavYearEditing = false;
+  bcSetRange(win.start, win.end, null);
+  return true;
+}
+function bcCommittedNavYear(){
+  var yearEl = el('bc-nav-year');
+  if (!yearEl) return bcSelectedNavYear();
+  var raw = String(yearEl.value || '').trim();
+  if (!raw) return bcSelectedNavYear();
+  var parsed = bcParseNavYear(raw);
+  if (parsed == null){
+    bcShowNavYearError();
+    return null;
+  }
+  return parsed;
+}
+function bcCommitNavYear(){
+  var year = bcCommittedNavYear();
+  if (year == null) return false;
+  var monthEl = el('bc-nav-month');
+  var month = monthEl && Number(monthEl.value);
+  if (!month){
+    var start = bcReadDateField(el('bc-start'));
+    month = start ? Number(start.slice(5, 7)) : (new Date().getMonth() + 1);
+  }
+  return bcApplyMonthWindow(year, month);
+}
+function bcNavStep(delta){
+  var year = bcCommittedNavYear();
+  if (year == null) return;
+  var start = bcReadDateField(el('bc-start')) || (year + '-01-01');
+  var next = bcShiftMonth(start, delta);
+  var d = new Date(next + 'T12:00:00');
+  bcApplyMonthWindow(d.getFullYear(), d.getMonth() + 1);
+}
+function bcNavToday(){
+  var iso = bcLocalTodayIso();
+  var d = new Date(iso + 'T12:00:00');
+  var monthEl = el('bc-nav-month');
+  if (monthEl) monthEl.value = String(d.getMonth() + 1);
+  var yearEl = el('bc-nav-year');
+  if (yearEl) yearEl.value = String(d.getFullYear());
+  bcApplyMonthWindow(d.getFullYear(), d.getMonth() + 1);
+}
+function bcInitMonthNav(){
+  var monthEl = el('bc-nav-month');
+  if (!monthEl || monthEl.dataset.wired === '1') return;
+  monthEl.dataset.wired = '1';
+  bcSyncMonthNav();
+  var prev = el('bc-nav-prev');
+  var next = el('bc-nav-next');
+  var todayBtn = el('bc-nav-today');
+  var yearEl = el('bc-nav-year');
+  if (prev) prev.addEventListener('click', function(){ bcNavStep(-1); });
+  if (next) next.addEventListener('click', function(){ bcNavStep(1); });
+  if (todayBtn) todayBtn.addEventListener('click', bcNavToday);
+  monthEl.addEventListener('change', function(){
+    var year = bcCommittedNavYear();
+    if (year == null) return;
+    bcApplyMonthWindow(year, Number(monthEl.value));
+  });
+  if (!yearEl) return;
+  yearEl.addEventListener('focus', function(){ bcNavYearEditing = true; });
+  yearEl.addEventListener('input', function(){ bcNavYearEditing = true; });
+  yearEl.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    bcCommitNavYear();
+  });
+  yearEl.addEventListener('blur', function(){
+    bcNavYearEditing = false;
+    var raw = String(yearEl.value || '').trim();
+    if (!raw){ bcSyncMonthNav(); return; }
+    if (bcParseNavYear(raw) == null){
+      bcShowNavYearError();
+      return;
+    }
+    bcCommitNavYear();
+  });
+}
+
 document.querySelectorAll('.bc-chip').forEach(function(chip){
   chip.addEventListener('click', function(){
     var key = this.dataset.chip;
@@ -46567,22 +46757,18 @@ document.querySelectorAll('.bc-chip').forEach(function(chip){
     } else if (key === '30days'){
       var end30 = new Date(today.getTime() + 30 * 86400000);
       bcSetRange(t, bcIso(end30), '30days');
-    } else if (key === 'apr-may'){
-      bcSetRange('2026-04-01', '2026-05-31', 'apr-may');
-    } else if (key === 'may-jun'){
-      bcSetRange('2026-05-01', '2026-06-30', 'may-jun');
-    } else if (key === 'jun-jul'){
-      bcSetRange('2026-06-01', '2026-07-31', 'jun-jul');
-    } else if (key === 'jul-aug'){
-      bcSetRange('2026-07-01', '2026-08-31', 'jul-aug');
-    } else if (key === 'aug-sept'){
-      bcSetRange('2026-08-01', '2026-09-30', 'aug-sept');
-    } else if (key === 'sep-oct'){
-      bcSetRange('2026-09-01', '2026-10-31', 'sep-oct');
-    } else if (key === 'oct-nov'){
-      bcSetRange('2026-10-01', '2026-11-30', 'oct-nov');
     } else if (key === 'demo'){
-      bcSetRange('2026-07-16', '2026-07-22', 'demo');
+      var demoStart = this.getAttribute('data-demo-start');
+      var demoEnd = this.getAttribute('data-demo-end');
+      if (demoStart && demoEnd) bcSetRange(demoStart, demoEnd, 'demo');
+    } else {
+      var pair = BC_SEASON_CHIP_MONTHS[key];
+      if (!pair) return;
+      var year = bcSelectedNavYear();
+      var startWin = bcMonthWindow(year, pair[0]);
+      var endWin = bcMonthWindow(year, pair[1]);
+      if (!startWin || !endWin) return;
+      bcSetRange(startWin.start, endWin.end, key);
     }
   });
 });

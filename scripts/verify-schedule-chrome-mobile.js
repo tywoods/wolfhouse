@@ -126,7 +126,7 @@ async function interactions(page,width,label){
  await page.locator('[data-chip="oct-nov"]').scrollIntoViewIfNeeded();
  const request=page.waitForRequest(r=>new URL(r.url()).pathname==='/staff/bed-calendar');
  await page.locator('[data-chip="oct-nov"]').click();const req=await request;await settle(page);
- const url=new URL(req.url());assert.equal(url.searchParams.get('start'),'2026-10-01');assert.equal(url.searchParams.get('end'),'2026-11-30');
+ const url=new URL(req.url());assert.equal(url.searchParams.get('start'),'2026-10-01');assert.equal(url.searchParams.get('end'),'2026-12-01');
  assert.equal(await page.locator('.bc-chip-active').getAttribute('data-chip'),'oct-nov');
  await grid.evaluate(e=>{e.scrollTop=0;e.scrollLeft=440;});await settle(page);
  const hide=page.locator('.bc-room-hide-btn[data-room="R1"]');await hide.click();
