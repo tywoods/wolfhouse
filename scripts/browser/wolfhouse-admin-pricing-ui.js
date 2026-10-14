@@ -844,7 +844,7 @@
     return sectionShell('transfers',
       whT('admin.wh.pricing.transfers', 'Transfers'),
       whT('admin.wh.pricing.transfersNote',
-        'Airport pickups. Refusal messages are shown to guests, so keep them friendly.'),
+        'Airport pickups. Guest replies are derived from these transfer settings.'),
       html,
       headerExtra,
     );

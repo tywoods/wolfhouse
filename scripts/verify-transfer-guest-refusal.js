@@ -184,6 +184,46 @@ check('staff amount €0 wins over a leftover €50', () => {
   assert.equal(reply.includes('€25'), false);
 });
 
+check('included package quote and copy agree for both reference fare units', () => {
+  const languages = ['en', 'it', 'es', 'de', 'fr'];
+  for (const unit of ['per_person', 'flat']) {
+    const rule = {
+      airport_code: 'BIO', label: 'Bilbao', requires_package: true,
+      included_when_package: true, min_guest_count: 1, max_guest_count: 8,
+      price: { amount_cents: 5000, unit, currency: 'EUR' },
+    };
+    const resolvedConfig = {
+      currency: 'EUR',
+      airports: [{ code: 'BIO', label: 'Bilbao', iata: 'BIO', aliases: ['bilbao'] }],
+      rules: [rule],
+    };
+    const packageQuote = priceBookingTransfer({
+      client_slug: 'wolfhouse-somo',
+      booking: { guest_count: 2, package_code: 'malibu' },
+      transfer: { airport_code: 'BIO' }, resolvedConfig,
+    });
+    assert.equal(packageQuote.available, true);
+    assert.equal(packageQuote.included_in_package, true);
+    assert.equal(packageQuote.price_cents, 0);
+    for (const lang of languages) {
+      const packageReply = buildTransferSideQuestionReply(lang, 'Bilbao airport pickup', {
+        packageInterest: 'malibu', guestCount: 2, transferRules: [rule],
+      });
+      assert.match(packageReply, /1.*8/);
+      assert.equal(packageReply.includes('€50'), false, `${lang}/${unit}: ${packageReply}`);
+      const noPackageReply = buildTransferSideQuestionReply(lang, 'Bilbao airport pickup', {
+        packageInterest: 'no_package', guestCount: 2, transferRules: [rule],
+      });
+      assert.equal(noPackageReply.includes('€50'), false, `${lang}/${unit}: ${noPackageReply}`);
+    }
+  }
+});
+
+check('admin transfer hint describes rule-derived guest replies', () => {
+  assert.equal(ui.includes('Refusal messages are shown to guests, so keep them friendly.'), false);
+  assert.match(ui, /guest replies.*transfer settings/i);
+});
+
 check('Sunset transfer reply stays empty', () => {
   assert.equal(buildTransferSideQuestionReply('en', 'Do you have airport transfer from Santander?', {
     client_slug: 'sunset',

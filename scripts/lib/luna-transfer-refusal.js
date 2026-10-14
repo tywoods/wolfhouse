@@ -123,12 +123,19 @@ function composeTransferGuestFacts(rule, lang, airportLabel) {
   }[L] : ''].filter(Boolean).join(', ');
 
   if (facts.included && facts.requiresPackage) {
+    const bounds = size ? {
+      en: `, for ${size}`,
+      it: `, per ${size}`,
+      es: `, para ${size}`,
+      de: `, für ${size}`,
+      fr: `, pour les ${size}`,
+    }[L] : '';
     return {
-      en: `${facts.label} airport transfer is included with a package${detail ? `, ${detail}` : ''}.`,
-      it: `Il transfer dall'aeroporto di ${facts.label} è incluso con un pacchetto${detail ? `, ${detail}` : ''}.`,
-      es: `El transfer del aeropuerto de ${facts.label} está incluido con un paquete${detail ? `, ${detail}` : ''}.`,
-      de: `Der Flughafentransfer ${facts.label} ist mit einem Paket inklusive${detail ? `, ${detail}` : ''}.`,
-      fr: `Le transfert aéroport ${facts.label} est inclus avec un forfait${detail ? `, ${detail}` : ''}.`,
+      en: `${facts.label} airport transfer is included with a package${bounds}.`,
+      it: `Il transfer dall'aeroporto di ${facts.label} è incluso con un pacchetto${bounds}.`,
+      es: `El transfer del aeropuerto de ${facts.label} está incluido con un paquete${bounds}.`,
+      de: `Der Flughafentransfer ${facts.label} ist mit einem Paket inklusive${bounds}.`,
+      fr: `Le transfert aéroport ${facts.label} est inclus avec un forfait${bounds}.`,
     }[L];
   }
   if (facts.included) {
