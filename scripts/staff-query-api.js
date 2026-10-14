@@ -21258,7 +21258,14 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   white-space:nowrap;
 }
 .bc-range-btn:hover{background:var(--surface-soft)}
-#tab-bed-calendar .bc-month-nav{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;order:3}
+#tab-bed-calendar #bc-month-nav{display:none!important}
+#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto}
+#tab-bed-calendar #bc-calendar-title.bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
+#tab-bed-calendar .toolbar > #bc-load{margin-left:auto}
+#tab-bed-calendar .bc-year-pop{position:absolute;z-index:8;top:calc(100% + 6px);left:0;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
+#tab-bed-calendar .bc-year-option,#tab-bed-calendar .bc-year-empty{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 10px;font:600 13px/1.2 'Instrument Sans',var(--font-sans),sans-serif;color:var(--text)}
+#tab-bed-calendar .bc-year-option{cursor:pointer}
+#tab-bed-calendar .bc-year-option:hover{background:var(--surface-soft)}
 #tab-bed-calendar #bc-nav-month,#tab-bed-calendar #bc-nav-year,#tab-bed-calendar #bc-nav-today,#tab-bed-calendar .bc-nav-arrow{height:30px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:600 12px/1 'Instrument Sans',var(--font-sans),system-ui,sans-serif}
 #tab-bed-calendar #bc-nav-month{max-width:8em}
 #tab-bed-calendar #bc-nav-year{width:4.6em;text-align:center;padding:0 4px}
@@ -24807,8 +24814,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2 id="bc-calendar-title">August '26</h2>
-    <div class="bc-month-nav" id="bc-month-nav">
+      <div class="bc-year-anchor">
+        <button type="button" id="bc-calendar-title" class="bc-year-open" aria-haspopup="listbox" aria-expanded="false" aria-controls="bc-year-pop">August '26</button>
+        <div id="bc-year-pop" class="bc-year-pop" hidden role="listbox" data-i18n-aria="calendar.yearPopup.label" aria-label="Years with bookings"></div>
+      </div>
+      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
+    <div class="bc-month-nav" id="bc-month-nav" hidden>
       <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" data-i18n-aria="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
       <select id="bc-nav-month" data-i18n-aria="calendar.nav.month" aria-label="Month"></select>
       <input id="bc-nav-year" type="text" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" data-i18n-aria="calendar.nav.year" aria-label="Year">
@@ -24854,9 +24867,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
-      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-      </button>
     </div>
     </div>
 
@@ -46176,6 +46186,102 @@ function bcUpdateCalendarTitle(){
   titleEl.textContent = month + " '" + yy;
 }
 
+function bcFourDigitYear(value){
+  var s = String(value == null ? '' : value);
+  if (s.length !== 4) return '';
+  var i = 0;
+  for (; i < 4; i += 1) {
+    var c = s.charCodeAt(i);
+    if (c < 48 || c > 57) return '';
+  }
+  var n = Number(s);
+  if (n < 1900 || n > 2100) return '';
+  return s;
+}
+function bcBookingYearsFromData(data){
+  var seen = {};
+  var list = data && data.booking_years;
+  if (list && list.length) {
+    list.forEach(function(year){
+      var ok = bcFourDigitYear(year);
+      if (ok) seen[ok] = true;
+    });
+  }
+  var blocks = data && data.blocks;
+  if (blocks && blocks.length) {
+    blocks.forEach(function(block){
+      var raw = block && (block.check_in || block.start_date || '');
+      var ok = bcFourDigitYear(String(raw).slice(0, 4));
+      if (ok) seen[ok] = true;
+    });
+  }
+  return Object.keys(seen).sort();
+}
+function bcCloseYearPop(){
+  var pop = el('bc-year-pop');
+  var btn = el('bc-calendar-title');
+  if (pop) pop.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+function bcRenderYearPop(){
+  var pop = el('bc-year-pop');
+  if (!pop) return;
+  var years = bcBookingYearsFromData(typeof bcData === 'undefined' ? null : bcData);
+  pop.innerHTML = '';
+  if (!years.length) {
+    var empty = document.createElement('div');
+    empty.className = 'bc-year-empty';
+    empty.textContent = 'No booking years yet';
+    pop.appendChild(empty);
+    return;
+  }
+  years.forEach(function(year){
+    var item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'bc-year-option';
+    item.setAttribute('role', 'option');
+    item.setAttribute('data-year', year);
+    item.textContent = year;
+    pop.appendChild(item);
+  });
+}
+function bcOpenYearPop(){
+  var pop = el('bc-year-pop');
+  var btn = el('bc-calendar-title');
+  if (!pop || !btn) return;
+  bcRenderYearPop();
+  pop.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+function bcJumpToBookingYear(year){
+  var ok = bcFourDigitYear(year);
+  if (!ok || typeof bcMonthWindow !== 'function' || typeof bcSetRange !== 'function') return;
+  var start = bcReadDateField(el('bc-start'));
+  var month = new Date().getMonth();
+  if (start && start.length >= 7) month = Number(start.slice(5, 7)) - 1;
+  if (!(month >= 0 && month <= 11)) month = new Date().getMonth();
+  var window = bcMonthWindow(Number(ok), month);
+  if (!window || !window.start || !window.end) return;
+  bcCloseYearPop();
+  bcSetRange(window.start, window.end);
+}
+document.addEventListener('click', function(ev){
+  var target = ev.target;
+  if (!target || !target.closest) return;
+  if (target.closest('#bc-calendar-title')) {
+    var pop = el('bc-year-pop');
+    if (pop && pop.hidden) bcOpenYearPop();
+    else bcCloseYearPop();
+    return;
+  }
+  var option = target.closest('[data-year]');
+  if (option) {
+    bcJumpToBookingYear(option.getAttribute('data-year'));
+    return;
+  }
+  if (!target.closest('#bc-year-pop')) bcCloseYearPop();
+});
+
 var bcLastBedCalendarData = null;
 
 function bcRefreshOpenDrawerI18n(){
@@ -53134,9 +53240,9 @@ async function handleBedCalendar(query, res, user) {
     staff_user_id: user ? user.staff_user_id : null,
   };
 
-  let roomRows = [], blockRows = [], summaryRows = [], transferRows = [];
+  let roomRows = [], blockRows = [], summaryRows = [], transferRows = [], bookingYears = [];
   try {
-    [roomRows, blockRows, summaryRows, transferRows] = await withPgClient(async (pg) => {
+    [roomRows, blockRows, summaryRows, transferRows, bookingYears] = await withPgClient(async (pg) => {
       const [rr, br, sr, tr] = await Promise.all([
         pg.query(getBedCalendarRoomsQuery(),   [clientSlug]),
         pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
@@ -53181,7 +53287,25 @@ async function handleBedCalendar(query, res, user) {
           }
         }
       }
-      return [rr.rows, rows, sr.rows, tr];
+      let bookingYears = [];
+      try {
+        const yearRes = await pg.query(
+          `SELECT DISTINCT EXTRACT(YEAR FROM b.check_in)::int AS year
+             FROM bookings b
+             INNER JOIN clients c ON c.id = b.client_id
+            WHERE c.slug = $1
+              AND b.check_in IS NOT NULL
+              /* bed-calendar-booking-years */
+            ORDER BY 1`,
+          [clientSlug]
+        );
+        bookingYears = (yearRes.rows || [])
+          .map((row) => Number(row.year))
+          .filter((year) => year >= 1900 && year <= 2100);
+      } catch (_) {
+        bookingYears = [];
+      }
+      return [rr.rows, rows, sr.rows, tr, bookingYears];
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -53287,6 +53411,7 @@ async function handleBedCalendar(query, res, user) {
     rooms,
     archivedHistoryRooms,
     blocks,
+    booking_years: bookingYears,
     summary:      summaryRows,
     warnings:     [],
     elapsed_ms:   elapsed,

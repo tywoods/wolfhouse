@@ -337,6 +337,8 @@ module.exports = {
   "calendar.nav.month": "Mes",
   "calendar.nav.year": "Año",
   "calendar.nav.today": "Hoy",
+  "calendar.yearPopup.label": "Años con reservas",
+  "calendar.yearPopup.empty": "Aún no hay años de reserva",
   "calendar.nav.invalidYear": "Escribe un año de 4 cifras.",
   "calendar.chip.week": "Esta semana",
   "calendar.chip.30days": "Próximos 30 días",

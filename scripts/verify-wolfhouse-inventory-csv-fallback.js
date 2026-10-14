@@ -129,7 +129,7 @@ async function fixture() {
     const emptyQueries = new Set([queries.getBedCalendarBlocksQuery(), queries.getBedCalendarSummaryQuery(), 'fixture-empty-accent']);
     const calendarPg = { query(sql, args) {
       if (emptyQueries.has(sql)) return Promise.resolve({ rows: [] });
-      if (String(sql).includes('room-archive-codes') || String(sql).includes('room-archive-history')) {
+      if (String(sql).includes('bed-calendar-booking-years') || String(sql).includes('room-archive-codes') || String(sql).includes('room-archive-history')) {
         return Promise.resolve({ rows: [] });
       }
       assert.equal(sql, queries.getBedCalendarRoomsQuery(), 'unexpected calendar SQL');

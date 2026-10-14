@@ -49,6 +49,8 @@ const ES_OVERRIDES = {
   'calendar.nav.next': 'Mes siguiente',
   'calendar.nav.month': 'Mes',
   'calendar.nav.year': 'Año',
+  'calendar.yearPopup.label': 'Años con reservas',
+  'calendar.yearPopup.empty': 'Aún no hay años de reserva',
   'lunaStaff.style.roomOrder': 'Orden de habitaciones',
   'lunaStaff.style.roomOrder.numerical': 'Numérico',
   'lunaStaff.style.roomOrder.priority': 'Prioridad',
