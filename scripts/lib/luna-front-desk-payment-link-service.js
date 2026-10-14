@@ -298,6 +298,7 @@ function buildPaymentLinkCommand(opts = {}) {
       reason: transportBody.reason != null ? String(transportBody.reason).trim().slice(0, 500) : null,
       target: opts.target || transportBody.target || null,
       actor: opts.actor || {},
+      trustedGuestPhone: String(opts.trustedGuestPhone || '').replace(/\D/g, '') || null,
       transportBody,
       authoritativeBalanceDueCents: opts.authoritativeBalanceDueCents != null
         ? Number(opts.authoritativeBalanceDueCents)
@@ -343,14 +344,16 @@ async function loadPaymentRowsForBooking(pg, clientSlug, bookingCode) {
 async function loadPaymentById(pg, paymentId, clientSlug) {
   const res = await pg.query(
     `SELECT p.id::text AS payment_id, p.client_id, p.booking_id::text AS booking_id,
+            p.booking_guest_id::text AS booking_guest_id,
             p.status::text AS payment_status, p.payment_kind::text AS payment_kind,
             p.currency, p.amount_due_cents, p.amount_paid_cents,
             p.stripe_checkout_session_id, p.checkout_url, p.metadata,
             b.booking_code, b.guest_name, b.check_in::text AS check_in, b.check_out::text AS check_out,
-            b.status::text AS booking_status, b.metadata AS booking_metadata,
-            cl.slug AS client_slug
+            b.status::text AS booking_status, b.metadata AS booking_metadata, b.phone AS booking_phone,
+            bg.metadata AS guest_metadata, cl.slug AS client_slug
        FROM payments p
        JOIN bookings b ON b.id = p.booking_id
+       LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id AND bg.client_id = p.client_id
        JOIN clients cl ON cl.id = p.client_id
       WHERE p.id = $1::uuid AND cl.slug = $2
       LIMIT 1`,
@@ -628,17 +631,62 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
   const paymentId = command.paymentId;
   if (!paymentId) return fail(400, 'payment_id_required', 'payment_id is required');
 
+  const automaticAuthorize = typeof execOpts.authorizeAutomaticWrite === 'function'
+    ? execOpts.authorizeAutomaticWrite : null;
+  let prepareTx = false;
+  const abortPrepare = async (result) => {
+    if (prepareTx) {
+      try { await pg.query('ROLLBACK'); } catch (_) { /* original result wins */ }
+      prepareTx = false;
+    }
+    return result;
+  };
+  if (automaticAuthorize) {
+    await pg.query('BEGIN');
+    prepareTx = true;
+    let decision;
+    try {
+      decision = await automaticAuthorize(pg);
+    } catch (err) {
+      return abortPrepare(fail(503, 'booking_policy_unavailable', err.message || 'Booking policy lookup failed.', {
+        policy_source: 'portal_policy_lookup', write_performed: false,
+        creates_stripe_link: false, sends_whatsapp: false,
+        staff_review_needed: false, do_not_escalate: true,
+      }));
+    }
+    if (!decision || decision.allowed !== true) {
+      return abortPrepare(fail(decision && decision.unavailable ? 503 : 403,
+        decision && decision.reason ? decision.reason : 'booking_policy_unavailable',
+        'Automatic payment operation is not admitted.', {
+          policy_source: decision && decision.source ? decision.source : 'portal_policy_lookup',
+          write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+          staff_review_needed: false, do_not_escalate: true,
+        }));
+    }
+  }
+
   const pm = await loadPaymentById(pg, paymentId, command.clientSlug);
-  if (!pm) return fail(404, 'payment_not_found', 'Payment record not found.');
+  if (!pm) return abortPrepare(fail(404, 'payment_not_found', 'Payment record not found.'));
+  if (command.channel === PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP) {
+    const digits = (value) => String(value || '').replace(/\D/g, '');
+    const trustedGuestPhone = digits(command.trustedGuestPhone);
+    const guestMetadata = parsePaymentMetadata(pm.guest_metadata);
+    const ownerPhones = pm.booking_guest_id
+      ? [guestMetadata.phone, guestMetadata.guest_phone, guestMetadata.contact_phone].map(digits).filter(Boolean)
+      : [pm.booking_phone].map(digits).filter(Boolean);
+    if (!trustedGuestPhone || !ownerPhones.includes(trustedGuestPhone)) {
+      return abortPrepare(fail(403, 'payment_target_guest_mismatch', 'Payment target does not belong to the trusted Luna guest.'));
+    }
+  }
 
   if (bookingStatusIsCancelled(pm.booking_status)) {
-    return fail(400, 'booking_not_active', 'Cannot create a payment link on a cancelled booking.');
+    return abortPrepare(fail(400, 'booking_not_active', 'Cannot create a payment link on a cancelled booking.'));
   }
 
   const st = String(pm.payment_status || '').toLowerCase();
   if (st !== 'draft') {
     if (st === 'checkout_created' && pm.checkout_url) {
-      return {
+      const existing = {
         ok: true,
         status: 200,
         body: {
@@ -655,19 +703,43 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
           lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
         },
       };
+      if (prepareTx) {
+        await pg.query('COMMIT');
+        prepareTx = false;
+      }
+      return existing;
     }
-    return fail(409, 'payment_not_draft', `Payment is in status '${pm.payment_status}'; only draft payments can create a Stripe link.`);
+    return abortPrepare(fail(409, 'payment_not_draft', `Payment is in status '${pm.payment_status}'; only draft payments can create a Stripe link.`));
   }
 
   const amountDue = Number(pm.amount_due_cents || 0);
-  if (amountDue <= 0) return fail(422, 'invalid_amount', 'amount_due_cents must be > 0.');
+  if (amountDue <= 0) return abortPrepare(fail(422, 'invalid_amount', 'amount_due_cents must be > 0.'));
   if (String(pm.currency || '').toUpperCase() !== 'EUR') {
-    return fail(422, 'unsupported_currency', `Currency '${pm.currency}' not supported (EUR only).`);
+    return abortPrepare(fail(422, 'unsupported_currency', `Currency '${pm.currency}' not supported (EUR only).`));
   }
 
   const createSession = execOpts.createStripeCheckoutSession;
   if (typeof createSession !== 'function') {
-    return fail(500, 'stripe_adapter_missing', 'createStripeCheckoutSession adapter required');
+    return abortPrepare(fail(500, 'stripe_adapter_missing', 'createStripeCheckoutSession adapter required'));
+  }
+
+  if (prepareTx) {
+    const receipt = await pg.query(
+      `UPDATE payments
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+        WHERE id = $2::uuid AND client_id = $3 AND status = 'draft'::payment_record_status
+        RETURNING id`,
+      [JSON.stringify({ automatic_admission_receipt: {
+        source: 'staff_booking_portal_policy',
+        guest_phone_verified: true,
+        authorized_at: new Date().toISOString(),
+      } }), paymentId, pm.client_id],
+    );
+    if (!receipt.rows[0]) {
+      return abortPrepare(fail(409, 'payment_update_failed', 'Payment row no longer draft — concurrent update.'));
+    }
+    await pg.query('COMMIT');
+    prepareTx = false;
   }
 
   const sourceTag = command.channel === PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP ? 'bot_stage855' : 'staff_portal_stage849';

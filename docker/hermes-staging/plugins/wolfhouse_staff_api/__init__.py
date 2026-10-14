@@ -178,6 +178,11 @@ def _portal_policy_denial(data, status):
         (403, "booking_global_paused", "bot_pause_states"),
         (403, "booking_conversation_paused", "bot_pause_states"),
         (403, "booking_needs_human", "conversations"),
+        (503, "booking_policy_unavailable", "portal_policy_lookup"),
+        (503, "booking_tenant_unconfigured", "portal_policy_lookup"),
+        (503, "booking_channel_unconfigured", "inbox_channel_modes"),
+        (503, "booking_channel_invalid", "inbox_channel_modes"),
+        # The route adapter's own exception boundary (distinct from resolver SQL failures).
         (503, "booking_policy_unavailable", "staff_portal"),
     }
     key = (status, data.get("reason_code"), data.get("policy_source"))
@@ -1424,12 +1429,16 @@ def create_booking_from_plan(params, **kwargs):
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
-        "do_not_escalate": portal_denial or expected_missing or package_rejected or _intentional_capability_block(link_data),
+        "do_not_escalate": portal_denial or expected_missing or package_rejected or _intentional_capability_block(link_data) or bool(link_result.get("do_not_escalate")),
         **({
             "reason_code": data.get("reason_code"),
-            "policy_source": "staff_portal",
+            "policy_source": data.get("policy_source"),
             "write_performed": False,
         } if portal_denial else {}),
+        **({
+            "reason_code": link_result.get("reason_code"),
+            "policy_source": link_result.get("policy_source"),
+        } if link_result.get("reason_code") and link_result.get("policy_source") else {}),
         **({"package_min_nights": package_policy.get("package_min_nights"),
             "package_eligible": False, "reason_code": data.get("reason_code")} if package_rejected else {}),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
@@ -4105,6 +4114,14 @@ def _payment_link_result(tool, data, result, *, attempt_handoff=True):
                 "This payment action is not available here."
             ),
         )
+        if portal_denied:
+            result.update(
+                reason_code=data.get("reason_code"),
+                policy_source=data.get("policy_source"),
+                write_performed=data.get("write_performed"),
+                creates_stripe_link=data.get("creates_stripe_link"),
+                sends_whatsapp=data.get("sends_whatsapp"),
+            )
     else:
         result.update(error=_safe_text(data.get("error") or "payment_link_create_failed"),
                       payment_operation_failed=True)

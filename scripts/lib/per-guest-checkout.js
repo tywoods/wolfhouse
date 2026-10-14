@@ -119,7 +119,9 @@ function assertTrustedGuestOwnsTarget(guest, trustedGuestPhone) {
   const digits = (value) => String(value || '').replace(/\D/g, '');
   const trusted = digits(trustedGuestPhone);
   const md = metadata(guest && guest.guest_metadata);
-  const owners = [guest && guest.booking_phone, md.phone, md.guest_phone, md.contact_phone]
+  // This owner is always a booking_guest target. The booking-level contact may
+  // control the booking balance, but cannot claim another guest's checkout.
+  const owners = [md.phone, md.guest_phone, md.contact_phone]
     .map(digits).filter(Boolean);
   if (!trusted || !owners.includes(trusted)) {
     const err = new Error('payment_target_guest_mismatch');
@@ -128,10 +130,18 @@ function assertTrustedGuestOwnsTarget(guest, trustedGuestPhone) {
   }
 }
 
-function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuestPhone) {
+function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuestPhone, authorizeAutomaticWrite) {
   return {
     async prepare(target) {
       return withPgClient((pg) => tx(pg, async () => {
+        if (typeof authorizeAutomaticWrite === 'function') {
+          const admitted = await authorizeAutomaticWrite(pg);
+          if (!admitted || !admitted.allowed) {
+            const err = new Error((admitted && admitted.reason) || 'booking_policy_unavailable');
+            err.portalPolicyDecision = admitted || { unavailable: true, reason: 'booking_policy_unavailable', source: 'portal_policy_lookup' };
+            throw err;
+          }
+        }
         const guest = await lockAndLoad(pg, guestId, clientSlug);
         if (!guest) return { missing: true };
         assertTrustedGuestOwnsTarget(guest, trustedGuestPhone);
@@ -243,7 +253,7 @@ async function expireIfOpen(stripe, session) {
 
 async function run(opts) {
   const { stripe, guestId, clientSlug, paymentTarget } = opts;
-  const store = opts.store || createSqlStore(opts.withPgClient, guestId, clientSlug, opts.actorId, opts.trustedGuestPhone);
+  const store = opts.store || createSqlStore(opts.withPgClient, guestId, clientSlug, opts.actorId, opts.trustedGuestPhone, opts.authorizeAutomaticWrite);
   let lastError;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const prepared = await store.prepare(paymentTarget);

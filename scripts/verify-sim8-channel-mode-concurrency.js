@@ -21,5 +21,13 @@ const {createEmailInboxChannelModeStore}=req('./scripts/lib/email-inbox-channel-
   const settings=(await db.query('SELECT settings FROM clients WHERE id=$1::uuid',[id])).rows[0].settings;
   assert.deepEqual(settings.inbox_channel_modes,{whatsapp:'off',email:'off'});assert.equal(settings.other,'keep');
  }
- await db.close();console.log('verify-sim8-channel-mode-concurrency PASS: four writer pairings preserve concurrent WhatsApp Off + Email Off');
+ for(const malformed of [null,'legacy',[]]){
+  await db.query('UPDATE clients SET settings=$1::jsonb WHERE id=$2::uuid',[JSON.stringify({other:'keep',inbox_channel_modes:malformed}),id]);
+  const saved=await scope.saveClientInboxChannelModes(id,{email:'auto'});
+  const settings=(await db.query('SELECT settings FROM clients WHERE id=$1::uuid',[id])).rows[0].settings;
+  assert.equal(saved.email,'auto');
+  assert.equal(settings.inbox_channel_modes.email,'auto');
+  assert.equal(settings.other,'keep');
+ }
+ await db.close();console.log('verify-sim8-channel-mode-concurrency PASS: writer pairings and malformed-container recovery preserve durable modes');
 })().catch(e=>{console.error(e);process.exit(1);});

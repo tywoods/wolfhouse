@@ -35,7 +35,10 @@ UPDATE clients
      jsonb_set(
        COALESCE(settings, '{}'::jsonb),
        '{inbox_channel_modes}',
-       COALESCE(settings->'inbox_channel_modes', '{}'::jsonb),
+       CASE WHEN jsonb_typeof(settings->'inbox_channel_modes') = 'object'
+         THEN settings->'inbox_channel_modes'
+         ELSE '{}'::jsonb
+       END,
        true
      ),
      ARRAY['inbox_channel_modes', $3::text],

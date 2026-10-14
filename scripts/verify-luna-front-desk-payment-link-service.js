@@ -97,6 +97,13 @@ function makePg(state = {}) {
 
       if (/UPDATE payments/i.test(s)) {
         paymentUpdates += 1;
+        if (/SET metadata = COALESCE\(metadata/i.test(s)) {
+          const pay = payments.find((p) => p.payment_id === params[1] && p.client_id === params[2]
+            && p.payment_status === 'draft');
+          if (!pay) return { rows: [], rowCount: 0 };
+          pay.metadata = { ...(pay.metadata || {}), ...JSON.parse(params[0]) };
+          return { rows: [{ id: pay.payment_id }], rowCount: 1 };
+        }
         const pid = params.length >= 5 ? params[4] : params[0];
         const pay = payments.find((p) => p.payment_id === pid);
         if (pay) {
@@ -131,7 +138,7 @@ function makePg(state = {}) {
         const pay = payments.find((p) => p.payment_id === params[0] && p.client_slug === params[1]);
         if (!pay) return { rows: [] };
         const bk = bookings.find((b) => b.booking_id === pay.booking_id) || {};
-        return { rows: [{ ...pay, ...bk, booking_status: bk.status }] };
+        return { rows: [{ ...pay, ...bk, booking_status: bk.status, booking_phone: bk.phone }] };
       }
 
       if (/INSERT INTO payments/i.test(s)) {
@@ -229,8 +236,9 @@ async function main() {
       amount_due_cents: 5000,
       checkout_url: null,
     };
-    const pgStaff = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE, client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed' }], payments: [sharedPayment] });
-    const pgLuna = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE, client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed' }], payments: [{ ...sharedPayment }] });
+    const trustedPhone = '+349****1111';
+    const pgStaff = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE, client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: trustedPhone }], payments: [sharedPayment] });
+    const pgLuna = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE, client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: trustedPhone }], payments: [{ ...sharedPayment }] });
 
     const staffBuilt = buildPaymentLinkCommand({
       operation: PAYMENT_LINK_OPERATIONS.CREATE,
@@ -243,6 +251,7 @@ async function main() {
       operation: PAYMENT_LINK_OPERATIONS.CREATE,
       channel: PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
       trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+      trustedGuestPhone: trustedPhone,
       paymentId: PAYMENT_ID,
       target: 'draft_payment',
     });
@@ -432,6 +441,51 @@ async function main() {
     });
     assert('paid not actionable', resolved.actionable === false);
     assert('paid no url returned', resolved.payment_link_url === null);
+  }
+
+  console.log('[10] Automatic owner admission + guest-specific ownership');
+  {
+    const phoneA = '+349****1111';
+    const phoneB = '+349****2222';
+    const payment = {
+      payment_id: PAYMENT_ID, client_id: CLIENT_WH, client_slug: WOLFHOUSE_CLIENT_SLUG,
+      booking_id: BOOKING_ID, booking_code: BOOKING_CODE, payment_status: 'draft',
+      payment_kind: 'deposit', currency: 'EUR', amount_due_cents: 5000, checkout_url: null,
+    };
+    const command = buildPaymentLinkCommand({
+      operation: PAYMENT_LINK_OPERATIONS.CREATE,
+      channel: PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
+      trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+      trustedGuestPhone: phoneA,
+      paymentId: PAYMENT_ID,
+      target: 'draft_payment',
+    }).command;
+    let providerCalls = 0;
+    const deniedPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [{ ...payment }] });
+    const denied = await createPaymentLink(deniedPg, command, baseExecOpts({
+      authorizeAutomaticWrite: async () => ({ allowed: false, reason: 'booking_channel_off', source: 'inbox_channel_modes' }),
+      createStripeCheckoutSession: async () => { providerCalls += 1; throw new Error('must_not_run'); },
+    }));
+    assert('owner denial remains typed', !denied.ok && denied.status === 403
+      && denied.body.reason_code === 'booking_channel_off' && denied.body.policy_source === 'inbox_channel_modes');
+    assert('owner denial makes zero provider calls', providerCalls === 0);
+
+    const allowedPayment = { ...payment };
+    const allowedPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [allowedPayment] });
+    const allowed = await createPaymentLink(allowedPg, command, baseExecOpts({
+      authorizeAutomaticWrite: async () => ({ allowed: true }),
+    }));
+    assert('allowed owner persists admission receipt before provider', allowed.ok
+      && !!(allowedPayment.metadata && allowedPayment.metadata.automatic_admission_receipt));
+
+    const guestSpecific = { ...payment, booking_guest_id: 'guest-1', guest_metadata: { phone: phoneB } };
+    const guestPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [guestSpecific] });
+    const guestDenied = await createPaymentLink(guestPg, command, baseExecOpts());
+    assert('booking phone cannot authorize a different guest-specific target', !guestDenied.ok
+      && guestDenied.body.reason_code === 'payment_target_guest_mismatch');
   }
 
   console.log(`\n── verify:luna-front-desk-payment-link-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

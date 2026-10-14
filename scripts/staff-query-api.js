@@ -51577,7 +51577,10 @@ async function saveClientInboxChannelModes(clientId, modes, pgClient = null) {
               jsonb_set(
                 COALESCE(settings, '{}'::jsonb),
                 '{inbox_channel_modes}',
-                COALESCE(settings->'inbox_channel_modes', '{}'::jsonb),
+                CASE WHEN jsonb_typeof(settings->'inbox_channel_modes') = 'object'
+                  THEN settings->'inbox_channel_modes'
+                  ELSE '{}'::jsonb
+                END,
                 true
               ),
               ARRAY['inbox_channel_modes', $3::text],
@@ -51602,7 +51605,16 @@ async function saveClientInboxChannelModes(clientId, modes, pgClient = null) {
   };
   const row = pgClient ? await run(pgClient) : await withPgClient(run);
   if (!row) return null;
-  return inboxChannelModesFromUnknown(row.inbox_channel_modes);
+  const rawSaved = row.inbox_channel_modes && typeof row.inbox_channel_modes === 'object'
+    && !Array.isArray(row.inbox_channel_modes) ? row.inbox_channel_modes : {};
+  for (const [channel, value] of entries) {
+    if (!Object.prototype.hasOwnProperty.call(rawSaved, channel)
+        || inboxChannelModeStoreFromValue(rawSaved[channel]) !== value) {
+      throw new Error('channel_mode_unproven');
+    }
+  }
+  const saved = inboxChannelModesFromUnknown(rawSaved);
+  return saved;
 }
 
 async function handleAuthPrefs(req, res) {

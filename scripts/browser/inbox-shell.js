@@ -1272,16 +1272,15 @@ function inboxShellSyncAutonomyButtons(){
     var row = wrap.querySelector('[data-inbox-autonomy-row="' + channel + '"]');
     if (!row) return;
     var btns = row.querySelectorAll('[data-inbox-autonomy]');
+    var busy = wrap.classList.contains('is-busy');
     for (var i = 0; i < btns.length; i++){
       var mode = btns[i].getAttribute('data-inbox-autonomy');
       var on = mode === visual;
       btns[i].classList.toggle('isSelected', on);
       btns[i].classList.toggle('isAuto', on && mode === 'auto');
       btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
-      if (mode === 'auto') {
-        btns[i].disabled = paused;
-        btns[i].setAttribute('aria-disabled', paused ? 'true' : 'false');
-      }
+      btns[i].disabled = busy || (mode === 'auto' && paused);
+      btns[i].setAttribute('aria-disabled', btns[i].disabled ? 'true' : 'false');
     }
   });
   if (typeof inboxWhatsAppComposerSyncDraftActions === 'function') inboxWhatsAppComposerSyncDraftActions();

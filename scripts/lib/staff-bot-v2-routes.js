@@ -945,6 +945,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     paymentId,
     target: 'draft_payment',
     actor: { staff_user_id: actorId },
+    trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
   });
   if (!built.ok) {
     return sendJSON(res, built.status || 400, built.body);
@@ -957,6 +958,10 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     successUrl: stripeCheckoutSessionSuccessUrl(),
     cancelUrl: stripeCheckoutSessionCancelUrl(),
     blockLiveKeys: true,
+    authorizeAutomaticWrite: async (pg) => ctx.resolveAutomaticBookingAdmission(pg, {
+      client_slug: ctx.boundClientSlug,
+      guest_phone: req.headers && req.headers['x-luna-guest-phone'],
+    }),
     createStripeCheckoutSession: async (sessionOpts) => stripe.checkout.sessions.create({
       mode: 'payment',
       currency: sessionOpts.currency || 'eur',
@@ -976,6 +981,10 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
 
   let result;
   try {
+    // Final revocation check immediately before the authoritative payment owner.
+    // Existing-link reuse and draft mutation then re-bind the guest identity in
+    // the same payment read below; provider I/O never holds this DB lock.
+    if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
     result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
@@ -1265,6 +1274,10 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       && activeBalanceLink === pr;
   });
   if (existingByKey) {
+    // Existing-link disclosure is also an automatic payment operation. Recheck
+    // after the balance/payment snapshot so a committed Off/pause that followed
+    // the route's cheap preflight wins before the link is returned.
+    if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
     return finishWithLink({
       idempotent: true,
       created: false,
@@ -1276,6 +1289,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
 
   const activeLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
   if (activeLink && activeLink.checkout_url) {
+    if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
     return finishWithLink({
       idempotent: true,
       created: false,
@@ -1306,22 +1320,47 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   let balanceLinkClientId;
   try {
     const insResult = await withPgClient(async (pg) => {
-      const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-      if (!clientId) throw new Error('client not found');
-      const ins = await pg.query(
-        `INSERT INTO payments (
-           client_id, booking_id, status, payment_kind, currency,
-           amount_due_cents, amount_paid_cents, metadata
-         ) VALUES (
-           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-           $3, 0, $4::jsonb
-         )
-         RETURNING id::text AS payment_id`,
-        [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
-      );
-      return { payment_id: ins.rows[0].payment_id, client_id: clientId };
+      await pg.query('BEGIN');
+      try {
+        if (authMode === 'bot_token') {
+          const admitted = await ctx.resolveAutomaticBookingAdmission(pg, {
+            client_slug: ctx.boundClientSlug,
+            guest_phone: String((req.headers && req.headers['x-luna-guest-phone']) || '').trim(),
+          });
+          if (!admitted.allowed) {
+            await pg.query('ROLLBACK');
+            return { admission_denied: admitted };
+          }
+        }
+        const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+        const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+        if (!clientId) throw new Error('client not found');
+        const ins = await pg.query(
+          `INSERT INTO payments (
+             client_id, booking_id, status, payment_kind, currency,
+             amount_due_cents, amount_paid_cents, metadata
+           ) VALUES (
+             $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+             $3, 0, $4::jsonb
+           )
+           RETURNING id::text AS payment_id`,
+          [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+        );
+        await pg.query('COMMIT');
+        return { payment_id: ins.rows[0].payment_id, client_id: clientId };
+      } catch (err) {
+        try { await pg.query('ROLLBACK'); } catch (_) { /* original error wins */ }
+        throw err;
+      }
     });
+    if (insResult.admission_denied) {
+      const denied = insResult.admission_denied;
+      return sendJSON(res, denied.unavailable ? 503 : 403, {
+        success: false, reason_code: denied.reason, policy_source: denied.source,
+        write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+        staff_review_needed: false, do_not_escalate: true,
+      });
+    }
     newPaymentId = insResult.payment_id;
     balanceLinkClientId = insResult.client_id;
   } catch (err) {
@@ -1606,6 +1645,10 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     const checkout = await require('./per-guest-checkout').run({
       withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId,
       trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
+      authorizeAutomaticWrite: authMode === 'bot_token' && ctx.boundClientSlug === 'wolfhouse-somo' ? (pg) => ctx.resolveAutomaticBookingAdmission(pg, {
+        client_slug: ctx.boundClientSlug,
+        guest_phone: String((req.headers && req.headers['x-luna-guest-phone']) || '').trim(),
+      }) : null,
       successUrl: stripeCheckoutSessionSuccessUrl(),
       cancelUrl: stripeCheckoutSessionCancelUrl(),
     });
@@ -1627,6 +1670,14 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
       uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });
   } catch (err) {
+    if (err.portalPolicyDecision) {
+      const denied = err.portalPolicyDecision;
+      return sendJSON(res, denied.unavailable ? 503 : 403, {
+        success: false, reason_code: denied.reason, policy_source: denied.source,
+        write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+        staff_review_needed: false, do_not_escalate: true,
+      });
+    }
     if (err.providerBlocked) return sendJSON(res, err.httpStatus || 409, {
       success: false,
       error: 'payment_processing_refresh_required',
