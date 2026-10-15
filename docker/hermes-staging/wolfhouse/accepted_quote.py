@@ -463,6 +463,21 @@ def _scalar_is_evidenced(value, evidence):
                           evidence, re.IGNORECASE))
 
 
+def _eligibility_is_evidenced(value, evidence):
+    """Verify explicit ordinary-language eligibility without name/room inference."""
+    if not isinstance(evidence, str):
+        return False
+    words = set(_evidence_tokens(evidence))
+    # A gendered bed/room request is preference, not a fact about a person.
+    if words & {'room', 'dorm', 'bed'}:
+        return False
+    aliases = {
+        'female': {'female', 'woman', 'women', 'girl', 'lady'},
+        'male': {'male', 'man', 'men', 'boy', 'guy'},
+    }
+    return value in aliases and bool(words & aliases[value])
+
+
 def _item_value_is_evidenced(value, evidence):
     if type(value) is int:
         present = set(_evidence_tokens(evidence))
@@ -1062,6 +1077,19 @@ def validated_guest_eligibility(prepared):
         if not isinstance(guests, list):
             return {}
         allowed = {}
+        raw = (state.get('current_turn') or {}).get('raw')
+        if isinstance(raw, str):
+            for index, guest in enumerate(guests):
+                if not isinstance(guest, dict):
+                    continue
+                value, evidence = guest.get('explicit_gender'), guest.get('gender_evidence')
+                name = str(guest.get('name') or '').strip()
+                first_person = index == 0 and isinstance(evidence, str) and bool(
+                    re.search(r'\b(i|me|my|woman|man|female|male)\b', evidence, re.I))
+                if (value in ('male', 'female') and _evidence_in_current_turn(raw, evidence)
+                        and _eligibility_is_evidenced(value, evidence)
+                        and (first_person or (name and _scalar_is_evidenced(name, evidence)))):
+                    allowed[index] = value
         checked = state.get('checked_offer') or {}
         name_binding = state.get('pending_name_completion')
         bound_index = None

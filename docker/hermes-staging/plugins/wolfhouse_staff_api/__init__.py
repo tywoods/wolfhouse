@@ -673,6 +673,7 @@ def _catalog_selection_refusal(tool, payload):
 
 
 def quote_booking(params, **kwargs):
+    owner_eligibility_context = '_owner_validated_guest_eligibility' in kwargs
     owner_validated_guest_eligibility = kwargs.pop(
         '_owner_validated_guest_eligibility', {})
     if not isinstance(owner_validated_guest_eligibility, dict):
@@ -692,6 +693,12 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
+    if owner_eligibility_context:
+        # Bound runtime policy accepts owner-proven person facts only. Aggregate
+        # convenience fields and room choices cannot establish eligibility.
+        payload.pop('group_gender', None)
+        payload.pop('gender_preference', None)
+        payload.pop('explicit_gender', None)
     # Staff hints must be regenerated from owner-proven per-person guest fields.
     payload.pop("room_name_hints", None)
     payload.setdefault("source", "agent_luna_whatsapp")
@@ -706,6 +713,11 @@ def quote_booking(params, **kwargs):
     _normalize_guests_payload(
         identity, validated_explicit_genders=owner_validated_guest_eligibility)
     payload.update({key: identity[key] for key in ("guest_name", "guests") if key in identity})
+    hints = [{"name": guest.get("name"), "explicit_gender": guest.get("explicit_gender")}
+             for guest in payload.get("guests", []) if isinstance(guest, dict)
+             and guest.get("explicit_gender") in ("male", "female")]
+    if hints:
+        payload["room_name_hints"] = hints
     data = _post_bot("/booking-preview", payload)
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
@@ -768,7 +780,7 @@ def quote_booking(params, **kwargs):
         ),
         "guest_safe_next_action": data.get("guest_safe_next_action") or (data.get("reply_draft") if closed_season else None),
         "room_decision": _room_decision_for_tool(
-            params, data,
+            payload, data,
             # The normalizer's default deposit is not evidence of guest pay intent.
             payment_intent=isinstance(params.get("payment_choice"), str)
             and bool(params["payment_choice"].strip())
@@ -4710,7 +4722,7 @@ def register(ctx):
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
     }
     common_booking = {
-        "guests": {"type": "array", "description": "All occupant names in guest order, including full payment, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count. Keep the chosen payment option.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}}, "required": ["name"]}},
+        "guests": {"type": "array", "description": "Occupants in guest order. explicit_gender requires exact gender_evidence from this current guest turn; never infer it from a name or room choice.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string", "minLength": 1}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
