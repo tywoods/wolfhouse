@@ -11,6 +11,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const inventory = require('./lib/wolfhouse-inventory-source');
 const queries = require('./lib/staff-bed-calendar-queries');
 const { createRoomFillRoutes } = require('./lib/staff-room-fill-routes');
+const { parseStoredPolicy } = require('./lib/staff-room-fill-policy');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const { resolveBedCalendarRoomRows: resolve } = inventory;
 const SLUG = 'wolfhouse-somo';
@@ -128,7 +129,7 @@ async function fixture() {
     const emptyQueries = new Set([queries.getBedCalendarBlocksQuery(), queries.getBedCalendarSummaryQuery(), 'fixture-empty-accent']);
     const calendarPg = { query(sql, args) {
       if (emptyQueries.has(sql)) return Promise.resolve({ rows: [] });
-      if (String(sql).includes('room-archive-codes') || String(sql).includes('room-archive-history')) {
+      if (String(sql).includes('bed-calendar-booking-years') || String(sql).includes('room-archive-codes') || String(sql).includes('room-archive-history')) {
         return Promise.resolve({ rows: [] });
       }
       assert.equal(sql, queries.getBedCalendarRoomsQuery(), 'unexpected calendar SQL');
@@ -139,7 +140,7 @@ async function fixture() {
       SQL_INJECT_RE: /[;'"\\]/, DATE_RE: /^\d{4}-\d{2}-\d{2}$/, MAX_CALENDAR_DAYS: 90,
       assertStaffClientAccess: (principal, slug) => principal.client_slug === slug,
       send400: (res, error) => sendJSON(res, 400, { error }), sendJSON,
-      withPgClient: fn => fn(calendarPg), ...queries, ...inventory, resolveRoomCategory,
+      withPgClient: fn => fn(calendarPg), ...queries, ...inventory, resolveRoomCategory, parseStoredPolicy,
       listBookingTransfersForCalendarRange: async () => [], appendAuditLog() {},
       buildTransferSummariesByBookingId: () => ({}), emptyTransferSummary: () => ({}),
       BOOKING_ACCENT_STAY_SQL: 'fixture-empty-accent', annotateCalendarBlocks: rows => rows,
