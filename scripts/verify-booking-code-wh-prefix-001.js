@@ -12,7 +12,11 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
-const { buildManualBookingCreateSql } = require('./lib/staff-manual-booking-create-sql');
+const { PGlite } = require('@electric-sql/pglite');
+const {
+  buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
+} = require('./lib/staff-manual-booking-create-sql');
 const {
   displayWolfhouseBookingCode,
   wolfhouseBookingCodeAliases,
@@ -40,9 +44,44 @@ assert.deepStrictEqual(wolfhouseBookingCodeAliases(legacy).sort(), [legacy, mode
 assert.ok(wolfhouseBookingCodeAliases(modern).includes(legacy));
 
 assert.ok(sql.includes("THEN 'WH-' || to_char($10::date, 'YYYYMMDD')"), 'wolfhouse mint is WH-date-suffix');
+assert.match(sql, /SELECT COALESCE\(\s*\$5::text,/, 'supplied booking references remain authoritative');
+assert.match(
+  sql,
+  /THEN 'WH-'[\s\S]*?lpad\(\(\(\('x' \|\| substring\(md5\(\$4::text\), 1, 6\)\)::bit\(24\)\)::bigint\)::text, 8, '0'\)/,
+  'wolfhouse mint decimalizes the full 24-bit digest into an eight-digit suffix',
+);
 assert.ok(sql.includes("lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')"), 'mint is wolfhouse-gated');
 assert.ok(sql.includes("'MB-' || upper(left(replace($1::text, '-', ''), 6))"), 'other clients keep MB- prefix');
+assert.ok(sql.includes("|| '-' || substring(md5($4::text), 1, 6)"), 'other clients retain six-hex suffixes');
 assert.ok(!/^\s*'MB-' \|\| upper\(left/.test(sql), 'ungated MB- mint is gone');
+assert.ok(!sql.includes('Guaranteed unique within session via idempotency_key suffix.'), 'digest comments do not claim guaranteed uniqueness');
+
+assert.strictEqual(
+  isGeneratedBookingCodeCollision({ code: '23505', constraint: 'bookings_hostel_id_booking_code_key' }),
+  true,
+  'the exact generated booking-code unique violation is classified',
+);
+for (const error of [
+  { code: '23505', constraint: 'bookings_pkey' },
+  { code: '23505', constraint: 'bookings_client_id_idempotency_key_key' },
+  { code: '23503', constraint: 'bookings_hostel_id_booking_code_key' },
+  { code: '23505' },
+  null,
+]) {
+  assert.strictEqual(isGeneratedBookingCodeCollision(error), false, 'unrelated database errors remain generic');
+}
+
+assert.ok(api.includes('isGeneratedBookingCodeCollision(err)'), 'Staff and Luna catches use exact constraint classification');
+assert.strictEqual(
+  (api.match(/reason_code: 'booking_code_collision'/g) || []).length,
+  2,
+  'Staff and Luna handlers each return a clear collision result',
+);
+assert.strictEqual(
+  (api.match(/no_write_performed: true/g) || []).length >= 2,
+  true,
+  'collision responses explicitly report no write',
+);
 
 assert.ok(api.includes('function staffDisplayBookingCode'), 'portal display helper');
 assert.ok(api.includes('staffDisplayBookingCode(blk.booking_code)'), 'booking-card header uses display form');
@@ -91,4 +130,50 @@ for (let i = 0; i < 80 && !collided; i += 1) {
 }
 assert.strictEqual(collided, false, 'no two stays within 2 months share a color in the probe set');
 
-console.log('verify-booking-code-wh-prefix-001: ok');
+(async () => {
+  const db = new PGlite();
+  try {
+    const converted = await db.query(`
+      SELECT digest,
+             lpad(((('x' || digest)::bit(24))::bigint)::text, 8, '0') AS suffix
+      FROM unnest(ARRAY['000000', '000001', 'ffffff']) AS digest
+      ORDER BY digest
+    `);
+    assert.deepStrictEqual(
+      converted.rows,
+      [
+        { digest: '000000', suffix: '00000000' },
+        { digest: '000001', suffix: '00000001' },
+        { digest: 'ffffff', suffix: '16777215' },
+      ],
+      'PostgreSQL executes the full 24-bit conversion with leading zeros and no truncation',
+    );
+
+    const generated = await db.query(`
+      SELECT CASE
+        WHEN lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')
+          OR lower(btrim($1::text)) LIKE 'wolfhouse-%'
+        THEN 'WH-' || to_char($2::date, 'YYYYMMDD')
+                   || '-' || lpad(((('x' || substring(md5($3::text), 1, 6))::bit(24))::bigint)::text, 8, '0')
+        ELSE 'MB-' || upper(left(replace($1::text, '-', ''), 6))
+                   || '-' || to_char($2::date, 'YYYYMMDD')
+                   || '-' || substring(md5($3::text), 1, 6)
+      END AS booking_code
+    `, ['wolfhouse-somo', '2026-10-14', 'booking-code-proof']);
+    assert.match(generated.rows[0].booking_code, /^WH-20261014-\d{8}$/);
+
+    const otherClient = await db.query(`
+      SELECT 'MB-' || upper(left(replace($1::text, '-', ''), 6))
+                   || '-' || to_char($2::date, 'YYYYMMDD')
+                   || '-' || substring(md5($3::text), 1, 6) AS booking_code
+    `, ['sunset-beach', '2026-10-14', 'booking-code-proof']);
+    assert.match(otherClient.rows[0].booking_code, /^MB-SUNSET-20261014-[0-9a-f]{6}$/);
+
+    console.log('verify-booking-code-wh-prefix-001: ok');
+  } finally {
+    await db.close();
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
