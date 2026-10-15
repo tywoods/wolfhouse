@@ -68,7 +68,7 @@ const RECONCILE_TARGET = Object.freeze({
   environment: 'staging',
   subscriptionId: '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9',
   resourceGroup: 'luna-sunset-staging-rg',
-  postgresServer: 'luna-sunset-staging-pg-app',
+  postgresServer: 'luna-pg-shared',
   postgresHost: SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.host,
   database: SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.database,
   port: SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET.port,
@@ -923,7 +923,7 @@ function renderUsage() {
   return [
     'sunset-staging-ledger-reconcile — Email 2F-C3-b1',
     '',
-    'Locked target: sunset_staging @ luna-sunset-staging-pg-app.postgres.database.azure.com',
+    'Locked target: sunset_staging @ luna-pg-shared.postgres.database.azure.com',
     'Locked migrations: 056..060 only',
     '',
     'Credentials: SUNSET_STAGING_PG_ADMIN_USER/PASSWORD (optional KV load via SUNSET_STAGING_LEDGER_RECONCILE_LOAD_KV_ADMIN=1)',

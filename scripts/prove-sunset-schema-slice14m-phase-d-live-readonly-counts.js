@@ -597,7 +597,7 @@ async function main() {
     || MI_LOADER_LOCKS.secretName !== 'sunset-database-url'
     || MI_LOADER_LOCKS.sslmode !== 'verify-full'
     || TARGETS.applicationName !== 'wh-sunset-phase-d-preflight'
-    || TARGETS.postgresHost !== 'luna-sunset-staging-pg-app.postgres.database.azure.com') {
+    || TARGETS.postgresHost !== 'luna-pg-shared.postgres.database.azure.com') {
     throw new Error('locks drifted');
   }
   green.push({
@@ -1349,7 +1349,7 @@ Outcome code: \`${outcome}\`.
 
 Correction: when driver/SQLSTATE code classification is \`unknown\`, a second-stage secret-free classifier inspects capped \`message\`+\`error.name\` against anchored/fixed predicates and emits only a fixed category + fixed synthetic \`MSG_*\` code + fixed message \`connect failed\` (never raw text or matched fragments). Offline adversarial RED proves secret-bearing messages sanitize; GREEN proves each message class and code-first precedence. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 3) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
 
-Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, \`application_name=wh-sunset-phase-d-preflight\`.
+Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-pg-shared.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, \`application_name=wh-sunset-phase-d-preflight\`.
 
 ## Operator command (count-only; default-disabled)
 

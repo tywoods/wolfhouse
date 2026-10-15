@@ -19,19 +19,26 @@ const {
 } = require('./lib/sunset-admin-price-sync');
 const { loadSurfPacksFromDb } = require('./lib/sunset-admin-pack-rules');
 
-const APPROVED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const APPROVED_DB = 'sunset_staging';
 const CLIENT = 'sunset';
 const LOCATION = 'sunset-somo';
 
 function assertStagingUrl(url) {
-  const u = String(url || '');
-  if (!u.includes(APPROVED_HOST) || !u.includes(APPROVED_DB)) {
+  let parsed;
+  try {
+    parsed = new URL(String(url || ''));
+  } catch {
+    throw new Error('Refusing non-staging URL (invalid database URL)');
+  }
+  const database = parsed.pathname.replace(/^\//, '').split('?')[0];
+  if (parsed.hostname !== APPROVED_HOST || database !== APPROVED_DB) {
     throw new Error(`Refusing non-staging URL (need ${APPROVED_HOST} / ${APPROVED_DB})`);
   }
-  if (/wolfhouse|production|prod|wh-staging/i.test(u) && !u.includes('sunset')) {
+  if (/wolfhouse|production|prod|wh-staging/i.test(String(url)) && database !== APPROVED_DB) {
     throw new Error('Refusing URL that looks like Wolfhouse/production');
   }
+  return { host: parsed.hostname, database };
 }
 
 async function main() {
@@ -112,7 +119,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { APPROVED_HOST, APPROVED_DB, assertStagingUrl };

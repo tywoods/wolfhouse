@@ -580,7 +580,7 @@ async function main() {
       && /verified_structural_baseline/.test(doc)
       && /wolfhouse_staging/.test(doc)
       && /wh-staging-rg/.test(doc)
-      && /wh-staging-pg-app/.test(doc)
+      && /luna-pg-shared/.test(doc)
       && !/sunset_staging/.test(doc)
       && !/luna-sunset-staging/.test(doc)
       && !/SUNSET_STAGING_LEDGER/.test(doc);
@@ -766,8 +766,8 @@ async function main() {
     'green-wolfhouse-staging-target-locked',
     RECOVERY_TARGET.database === 'wolfhouse_staging'
       && RECOVERY_TARGET.resourceGroup === 'wh-staging-rg'
-      && RECOVERY_TARGET.postgresServer === 'wh-staging-pg-app'
-      && RECOVERY_TARGET.postgresHost === 'wh-staging-pg-app.postgres.database.azure.com'
+      && RECOVERY_TARGET.postgresServer === 'luna-pg-shared'
+      && RECOVERY_TARGET.postgresHost === 'luna-pg-shared.postgres.database.azure.com'
       && APPLY_LOCKS.database === 'wolfhouse_staging'
       && APPLY_LOCKS.postgresHost === RECOVERY_TARGET.postgresHost
       && ENV_RECOVERY === 'WOLFHOUSE_STAGING_LEDGER_RECOVERY'

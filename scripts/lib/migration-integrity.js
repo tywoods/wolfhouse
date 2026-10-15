@@ -720,7 +720,7 @@ function validateManifestIntegrity(manifest, opts) {
  * path requires an explicit opt-in on runCanonicalMigrations and exact match.
  */
 const SUNSET_STAGING_CANONICAL_RUNNER_NOOP_TARGET = Object.freeze({
-  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+  host: 'luna-pg-shared.postgres.database.azure.com',
   database: 'sunset_staging',
   port: 5432,
 });

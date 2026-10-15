@@ -13,7 +13,7 @@ const { normalizeSunsetLocationId } = require('./lib/sunset-school-locations');
 const { adminConfigTableHasLocationColumn } = require('./lib/tenant-business-config');
 
 const ALLOW_ENV = 'ALLOW_SUNSET_ADMIN_LOCATION_BACKFILL';
-const APPROVED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const APPROVED_DB = 'sunset_staging';
 const CLIENT_SLUG = 'sunset';
 const SOURCE_LOC = 'sunset-somo';

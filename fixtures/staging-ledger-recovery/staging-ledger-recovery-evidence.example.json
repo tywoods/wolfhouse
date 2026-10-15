@@ -7,8 +7,8 @@
     "environment": "staging",
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "wh-staging-rg",
-    "postgresServer": "wh-staging-pg-app",
-    "postgresHost": "wh-staging-pg-app.postgres.database.azure.com",
+    "postgresServer": "luna-pg-shared",
+    "postgresHost": "luna-pg-shared.postgres.database.azure.com",
     "database": "wolfhouse_staging",
     "port": 5432,
     "sslmode": "verify-full",
@@ -750,5 +750,5 @@
     "Apply records verified_structural_baseline only; never executed_by_canonical_runner",
     "Offline fixture placeholders — operator must collect real wolfhouse_staging structural evidence before apply"
   ],
-  "evidenceDigest": "9169ea2ee388d25d92878959cb30dfa586c53ca286668b72b9c7ede29842624f"
+  "evidenceDigest": "f2069c68cc537cd9963609bb8685932b8cbecb358adf35b7ed9f6b0a6738f647"
 }

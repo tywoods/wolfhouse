@@ -12,7 +12,7 @@
 |------|-------------|
 | No invented historical provenance | Recovery inserts use `verified_structural_baseline` only after per-migration structural assertions |
 | Never label recovery rows `executed_by_canonical_runner` | Certifier + apply refuse that apply_kind on recovery inserts |
-| Wolfhouse Staff staging only | Exact host/database/subscription/RG lock (`wh-staging-pg-app` / `wolfhouse_staging` / `wh-staging-rg`); production and other environments refused |
+| Wolfhouse Staff staging only | Exact host/database/subscription/RG lock (`luna-pg-shared` / `wolfhouse_staging` / `wh-staging-rg`); production and other environments refused |
 | Dry-run default | `--plan-only` for certification; apply requires `--apply-ledger-recovery` |
 | No secrets / DSN printing | Forbidden argv + secret scan on public output; no Key Vault/IMDS retrieval in this module |
 | No generic arbitrary SQL | Assertions must not embed `sql` / `query` / `arbitrarySql`; apply SQL is allowlisted |
@@ -36,8 +36,8 @@
 | environment | `staging` |
 | subscriptionId | `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9` |
 | resourceGroup | `wh-staging-rg` |
-| postgresServer | `wh-staging-pg-app` |
-| postgresHost | `wh-staging-pg-app.postgres.database.azure.com` |
+| postgresServer | `luna-pg-shared` |
+| postgresHost | `luna-pg-shared.postgres.database.azure.com` |
 | database | `wolfhouse_staging` |
 | port / sslmode | `5432` / `verify-full` |
 | applicationName | `wh-staging-ledger-recovery` |
@@ -87,7 +87,7 @@ npm run staging-ledger-recovery:plan -- \
   --evidence fixtures/staging-ledger-recovery/staging-ledger-recovery-evidence.example.json \
   --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
   --resource-group wh-staging-rg \
-  --postgres-server wh-staging-pg-app \
+  --postgres-server luna-pg-shared \
   --database wolfhouse_staging
 ```
 
@@ -121,7 +121,7 @@ npm run staging-ledger-recovery:apply -- \
   --evidence /path/to/real-sealed-staging-evidence.json \
   --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
   --resource-group wh-staging-rg \
-  --postgres-server wh-staging-pg-app \
+  --postgres-server luna-pg-shared \
   --database wolfhouse_staging
 ```
 

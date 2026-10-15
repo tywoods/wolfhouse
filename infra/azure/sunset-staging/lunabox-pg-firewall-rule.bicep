@@ -2,14 +2,14 @@
 // PostgreSQL Flexible Server (FOUNDATION Slice 14N).
 //
 // Declares exactly one rule AllowLunaboxEgress for IPv4 20.238.124.76.
-// References existing luna-sunset-staging-pg-app — do NOT wire into main.bicep,
+// References existing luna-pg-shared — do NOT wire into main.bicep,
 // do NOT deploy full main.bicep, do NOT alter existing CAE/App egress rules.
 //
 // Locked apply is via the gated ARM REST adapter (one PUT of this rule resource).
 
 targetScope = 'resourceGroup'
 
-@description('Existing PostgreSQL Flexible Server name — locked luna-sunset-staging-pg-app')
+@description('Existing PostgreSQL Flexible Server name — locked luna-pg-shared')
 param postgresServerName string
 
 @description('Firewall rule name — locked AllowLunaboxEgress')

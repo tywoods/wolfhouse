@@ -36,7 +36,7 @@ const src = fs.readFileSync(SCRIPT, 'utf8');
 console.log('\nverify:sunset-staging-staff-user — offline staff user helper checks\n');
 
 console.log('[1] Approved Sunset staging DB guards');
-check('approved host constant present', src.includes('luna-sunset-staging-pg-app.postgres.database.azure.com'));
+check('approved host constant present', src.includes('luna-pg-shared.postgres.database.azure.com'));
 check('approved database constant present', src.includes('sunset_staging'));
 check('rejects wolfhouse in URL', /wolfhouse/i.test(src) && src.includes('BLOCKED_URL_PATTERNS'));
 check('rejects wh-staging in URL', src.includes('wh-staging'));

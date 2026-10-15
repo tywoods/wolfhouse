@@ -7,7 +7,7 @@
  *   WOLFHOUSE_DATABASE_URL=postgres://... \
  *   node scripts/backfill-sunset-admin-config.js
  *
- * Fail-closed: only luna-sunset-staging-pg-app / sunset_staging.
+ * Fail-closed: only luna-pg-shared / sunset_staging.
  * Never logs password or connection string.
  */
 
@@ -20,7 +20,7 @@ const {
 } = require('./lib/tenant-business-config');
 
 const ALLOW_ENV = 'ALLOW_SUNSET_ADMIN_CONFIG_BACKFILL';
-const APPROVED_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const APPROVED_DB = 'sunset_staging';
 const TENANT_ID = 'sunset';
 const CLIENT_SLUG = 'sunset';

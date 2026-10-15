@@ -139,7 +139,7 @@ const stockPgProofMeta = require(path.join(ROOT, STOCK_PG_SCRIPT_REL));
 // B1 must not self-fulfill by importing both builder and expected array only from candidate.
 const stockPgTranscriptPassed = stockPgProofMeta.stockPgTranscriptPassed;
 const buildPassTranscript = stockPgProofMeta.buildPassTranscript;
-const STOCK_PG_AZURE_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const STOCK_PG_AZURE_HOST = 'luna-pg-shared.postgres.database.azure.com';
 const STOCK_PG_STAGING_URL = `postgresql://${STOCK_PG_AZURE_HOST}:5432/sunset_staging?sslmode=verify-full`;
 
 /**
