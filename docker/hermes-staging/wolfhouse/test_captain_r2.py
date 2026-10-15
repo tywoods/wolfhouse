@@ -72,8 +72,8 @@ class CaptainR2Tests(OwnerHostileTests):
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     "quote_owner_acceptance_required"):
             self.ledger.prepare_create({})
-        raw = "oui parfait, book it for Nora Lefevre"
-        accepted = self._accept("10320", raw, ["Nora Lefevre"])
+        raw = "oui parfait, book it for Nora Lefevre, full payment"
+        accepted = self._accept("10320", raw, ["Nora Lefevre"], "full")
         self.assertTrue(accepted["accepted"])
         self.assertFalse(accepted["create_ready"])
         prepared = self.ledger.prepare_quote({})

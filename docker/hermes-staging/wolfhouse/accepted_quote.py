@@ -610,10 +610,13 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             return False
         expected_amount = (after.get('deposit_required_cents')
                            if payment_choice == 'deposit' else after.get('total_cents'))
+        prior_choice = before.get('payment_choice')
+        prior_amount = (before.get('deposit_required_cents')
+                        if prior_choice == 'deposit' else before.get('total_cents'))
         if (type(expected_amount) is not int
                 or after.get('payment_link_amount_cents') != expected_amount
-                or before.get('payment_choice') != 'deposit'
-                or before.get('payment_link_amount_cents') != before.get('deposit_required_cents')):
+                or prior_choice not in ('deposit', 'full')
+                or before.get('payment_link_amount_cents') != prior_amount):
             return False
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
@@ -1686,7 +1689,10 @@ def finalize_offer_response(result):
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
         choices = []
-        if quote.get('payment_choice_needed') is True:
+        if (quote.get('full_payment_only') is True
+                and quote.get('payment_choice_needed') is False):
+            choices.append('full')
+        elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
                 choices.append('deposit')
             if type(quote.get('total_cents')) is int:
