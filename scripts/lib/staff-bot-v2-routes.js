@@ -1440,7 +1440,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
           }
           const status = String(row.payment_status || row.status || '').toLowerCase();
           const expiresAtMs = row.expires_at ? Date.parse(String(row.expires_at)) : NaN;
-          const terminalOrObsolete = ['failed', 'expired', 'cancelled'].includes(status)
+          const terminalOrObsolete = ['paid', 'failed', 'expired', 'cancelled'].includes(status)
             || (status === 'checkout_created' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now());
           return { metadata, status, terminalOrObsolete };
         };
@@ -1450,7 +1450,6 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
         });
         if (unresolvedBalancePayment) {
           await pg.query('ROLLBACK');
-          began = false;
           return { concurrent_payment: unresolvedBalancePayment };
         }
         const sameKeyPayment = freshPaymentRes.rows.find((row) => {
