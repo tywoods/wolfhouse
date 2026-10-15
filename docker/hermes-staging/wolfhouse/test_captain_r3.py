@@ -9,6 +9,15 @@ import wolfhouse_staff_api as plugin
 
 
 class CaptainR3Tests(unittest.TestCase):
+    def validated_state(self, state, guests):
+        capability = object()
+        prepared = accepted_quote.PreparedPlan({'guests': guests}, capability, state['epoch'])
+        with patch.object(accepted_quote, '_current') as current, \
+                patch.object(accepted_quote, '_transaction') as transaction:
+            current.get.return_value = capability
+            transaction.side_effect = lambda operation: operation(state, {})
+            return accepted_quote.validated_guest_eligibility(prepared)
+
     def validated(self, raw, guests):
         capability = object()
         prepared = accepted_quote.PreparedPlan({'guests': guests}, capability, 0)
@@ -86,6 +95,42 @@ class CaptainR3Tests(unittest.TestCase):
         self.assertTrue(result['room_decision']['clarification_needed'])
         self.assertEqual(result['next_action'], 'ask_room_eligibility')
         self.assertFalse(result['staff_review_needed'])
+
+    def test_other_person_and_negated_facts_never_authorize_slot_zero(self):
+        for raw in ('Bea is a woman', 'Bea is not a woman'):
+            with self.subTest(raw=raw):
+                guests = [{'name': 'Alex', 'explicit_gender': 'female',
+                           'gender_evidence': raw}]
+                self.assertEqual(self.validated(raw, guests), {})
+                _result, calls = self.quote({
+                    'check_in': '2027-01-01', 'check_out': '2027-01-02',
+                    'guest_count': 1, 'package_code': 'package_none',
+                    'room_preference': 'female_only', 'guests': guests}, {},
+                    self.receipt('female_only'))
+                self.assertNotIn('room_name_hints', calls[0][1])
+
+    def test_provisional_quote_remains_authority_after_payment_selection(self):
+        revision = {'room_name_hints': [
+            {'name': 'Alex', 'explicit_gender': 'female'}]}
+        state = {'epoch': 4, 'current_turn': {'raw': 'deposit'},
+                 'checked_offer': None, 'quote': {'offer_revision': revision},
+                 'completion_plan': {'payment_choice': 'deposit'},
+                 'pending_payment_completion': 'deposit'}
+        self.assertEqual(self.validated_state(state, [{'name': 'Alex'}]), {0: 'female'})
+
+    def test_two_name_completion_keeps_both_person_bound_hints(self):
+        state = {'epoch': 7, 'current_turn': {'raw': 'Alex Grey and Bea Green'},
+                 'checked_offer': {'room_name_hints': [
+                     {'name': 'Alex', 'explicit_gender': 'female'},
+                     {'name': 'Bea', 'explicit_gender': 'female'}],
+                     'guest_bed_assignments': [
+                         {'guest_index': 0, 'guest_name': 'Alex'},
+                         {'guest_index': 1, 'guest_name': 'Bea'}]},
+                 'pending_name_completions': [
+                     {'guest_index': 0, 'previous_name': 'Alex', 'completed_name': 'Alex Grey'},
+                     {'guest_index': 1, 'previous_name': 'Bea', 'completed_name': 'Bea Green'}]}
+        guests = [{'name': 'Alex Grey'}, {'name': 'Bea Green'}]
+        self.assertEqual(self.validated_state(state, guests), {0: 'female', 1: 'female'})
 
     def test_first_to_full_name_preserves_slot_hint(self):
         allowed = self.validated('I am a woman, name Alex', [{

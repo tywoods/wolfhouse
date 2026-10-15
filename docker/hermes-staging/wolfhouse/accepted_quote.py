@@ -475,7 +475,11 @@ def _eligibility_is_evidenced(value, evidence):
         'female': {'female', 'woman', 'women', 'girl', 'lady'},
         'male': {'male', 'man', 'men', 'boy', 'guy'},
     }
-    return value in aliases and bool(words & aliases[value])
+    if value not in aliases or not words & aliases[value]:
+        return False
+    terms = '|'.join(re.escape(term) for term in aliases[value])
+    return not bool(re.search(r'\b(?:not|no)\s+(?:a\s+)?(?:' + terms + r')\b',
+                              evidence, re.IGNORECASE))
 
 
 def _item_value_is_evidenced(value, evidence):
@@ -1102,46 +1106,54 @@ def validated_guest_eligibility(prepared):
                 value, evidence = guest.get('explicit_gender'), guest.get('gender_evidence')
                 name = str(guest.get('name') or '').strip()
                 first_person = index == 0 and isinstance(evidence, str) and bool(
-                    re.search(r'\b(i|me|my|woman|man|female|male)\b', evidence, re.I))
+                    re.search(r'\b(i|me|my)\b', evidence, re.I))
                 if (value in ('male', 'female') and _evidence_in_current_turn(raw, evidence)
                         and _eligibility_is_evidenced(value, evidence)
                         and (first_person or (name and _scalar_is_evidenced(name, evidence)))):
                     allowed[index] = value
-        checked = state.get('checked_offer') or {}
-        name_binding = state.get('pending_name_completion')
-        bound_index = None
-        bound_previous = None
-        if isinstance(name_binding, dict):
-            normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
-            index = name_binding.get('guest_index')
-            previous = str(name_binding.get('previous_name') or '').strip()
-            completed = str(name_binding.get('completed_name') or '').strip()
-            assignments = checked.get('guest_bed_assignments') if isinstance(checked, dict) else None
-            if (type(index) is int and 0 <= index < len(guests)
-                    and previous and completed
-                    and isinstance(guests[index], dict)
-                    and normalize_name(guests[index].get('name')) == normalize_name(completed)
-                    and isinstance(assignments, list) and len(assignments) == len(guests)
-                    and all(isinstance(row, dict) and row.get('guest_index') == row_index
-                            for row_index, row in enumerate(assignments))
-                    and normalize_name(assignments[index].get('guest_name'))
-                    == normalize_name(previous)
-                    and all(row_index == index or (
-                        isinstance(guests[row_index], dict)
-                        and normalize_name(guests[row_index].get('name'))
-                        == normalize_name(assignments[row_index].get('guest_name')))
-                            for row_index in range(len(guests)))):
-                bound_index = index
-                bound_previous = previous.casefold()
+        checked = state.get('checked_offer') or (
+            (state.get('quote') or {}).get('offer_revision')) or {}
+        normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
+        bindings = state.get('pending_name_completions') or (
+            [state['pending_name_completion']] if isinstance(
+                state.get('pending_name_completion'), dict) else [])
+        bound_names = {}
+        assignments = checked.get('guest_bed_assignments') if isinstance(checked, dict) else None
+        if bindings and isinstance(assignments, list) and len(assignments) == len(guests):
+            candidate = {}
+            for binding in bindings:
+                index = binding.get('guest_index') if isinstance(binding, dict) else None
+                previous = normalize_name(binding.get('previous_name')) if isinstance(binding, dict) else ''
+                completed = normalize_name(binding.get('completed_name')) if isinstance(binding, dict) else ''
+                if (type(index) is not int or not 0 <= index < len(guests)
+                        or index in candidate or not previous or not completed
+                        or not isinstance(guests[index], dict)
+                        or normalize_name(guests[index].get('name')) != completed
+                        or not isinstance(assignments[index], dict)
+                        or assignments[index].get('guest_index') != index
+                        or normalize_name(assignments[index].get('guest_name')) != previous):
+                    candidate = {}
+                    break
+                candidate[index] = previous
+            changed = set(candidate)
+            if candidate and all(
+                    isinstance(row, dict) and row.get('guest_index') == index
+                    and (index in changed or (isinstance(guests[index], dict)
+                         and normalize_name(guests[index].get('name'))
+                         == normalize_name(row.get('guest_name'))))
+                    for index, row in enumerate(assignments)):
+                bound_names = candidate
         hints = checked.get('room_name_hints') if isinstance(checked, dict) else None
         if isinstance(hints, list):
             for hint in hints:
                 if (not isinstance(hint, dict)
                         or hint.get('explicit_gender') not in ('male', 'female')):
                     continue
-                name = str(hint.get('name', '')).strip().casefold()
-                if bound_index is not None and name == bound_previous:
-                    allowed[bound_index] = hint['explicit_gender']
+                name = normalize_name(hint.get('name'))
+                bound_matches = [index for index, previous in bound_names.items()
+                                 if name == previous]
+                if len(bound_matches) == 1:
+                    allowed[bound_matches[0]] = hint['explicit_gender']
                     continue
                 matches = [index for index, guest in enumerate(guests)
                            if isinstance(guest, dict)
