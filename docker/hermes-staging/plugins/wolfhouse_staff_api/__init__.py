@@ -168,6 +168,38 @@ def _normalize_bot_path(path):
     return "/staff/bot/" + p
 
 
+def _portal_policy_denial(data, status):
+    """Return the exact recognized portal-policy tuple, otherwise None."""
+    if not isinstance(data, dict):
+        return None
+    tuples = {
+        (403, "booking_channel_off", "inbox_channel_modes"),
+        (403, "booking_channel_draft", "inbox_channel_modes"),
+        (403, "booking_global_paused", "bot_pause_states"),
+        (403, "booking_conversation_paused", "bot_pause_states"),
+        (403, "booking_needs_human", "conversations"),
+        (503, "booking_policy_unavailable", "portal_policy_lookup"),
+        (503, "booking_tenant_unconfigured", "portal_policy_lookup"),
+        (503, "booking_channel_unconfigured", "inbox_channel_modes"),
+        (503, "booking_channel_invalid", "inbox_channel_modes"),
+        # The route adapter's own exception boundary (distinct from resolver SQL failures).
+        (503, "booking_policy_unavailable", "staff_portal"),
+    }
+    key = (status, data.get("reason_code"), data.get("policy_source"))
+    if key not in tuples:
+        return None
+    if not (
+        data.get("success") is False
+        and data.get("write_performed") is False
+        and data.get("creates_stripe_link") is False
+        and data.get("sends_whatsapp") is False
+        and data.get("staff_review_needed") is False
+        and data.get("do_not_escalate") is True
+    ):
+        return None
+    return key
+
+
 def _post_bot(path, payload, *, require_explicit_success=False):
     # Inside the function, not merely a replaceable module attribute: retained
     # aliases and separately loaded candidate plugin modules cannot bypass it.
@@ -244,6 +276,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         headers={
             "Content-Type": "application/json",
             "X-Luna-Bot-Token": token,
+            "X-Luna-Guest-Phone": _session_guest_phone(),
         },
     )
     try:
@@ -273,6 +306,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         headers={
             "Content-Type": "application/json",
             "X-Luna-Bot-Token": token,
+            "X-Luna-Guest-Phone": _session_guest_phone(),
         },
     )
     _lr32_handle = None
@@ -329,11 +363,21 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         # Preserve the HTTP failure, not scalar/array content as a policy code.
         if not isinstance(data, dict):
             data = {}
+        _is_portal_denial = _portal_policy_denial(data, exc.code) is not None
         return {
             # Only these boolean payment-policy receipts cross the error boundary;
             # never copy arbitrary error-body identity, success or checkout fields.
             **{key: data[key] for key in ("stripe_links_enabled", "bot_booking_enabled")
                if payment_receipt and isinstance(data.get(key), bool)},
+            # Preserve the restrictive Staff-portal refusal contract only.
+            **({
+                "reason_code": data["reason_code"],
+                "policy_source": data["policy_source"],
+                "write_performed": False,
+                "creates_stripe_link": False,
+                "sends_whatsapp": False,
+                "do_not_escalate": True,
+            } if _is_portal_denial else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
@@ -345,8 +389,12 @@ def _post_bot(path, payload, *, require_explicit_success=False):
             "success": False,
             "staff_api_status": "http_error",
             "status": exc.code,
-            "staff_review_needed": True,
-            "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+            "staff_review_needed": False if _is_portal_denial else True,
+            "guest_safe_next_action": (
+                "This action is paused by the current front-desk policy."
+                if _is_portal_denial else
+                "Thanks — I’m going to have the team double-check this and get back to you shortly 😊"
+            ),
             "error": _safe_text(data.get("error") or data.get("message") or str(exc)),
         }
     except Exception as exc:  # network/config safety; never crash the guest agent
@@ -992,7 +1040,9 @@ def create_booking_from_plan(params, **kwargs):
     split_payment_requested = raw_payment_choice in {"per guest", "each guest", "split", "split deposit", "link each"}
     payload["payment_choice"] = "per_guest" if split_payment_requested else _normalize_payment_choice(payload.get("payment_choice"))
 
-    phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
+    # Guest identity comes from the gateway-owned turn context. Model/body phone
+    # fields may not select a more permissive Inbox conversation.
+    phone = _normalize_phone(_session_guest_phone())
     if phone:
         payload["phone"] = phone
         payload["guest_phone"] = phone
@@ -1344,6 +1394,8 @@ def create_booking_from_plan(params, **kwargs):
     elif uses_per_guest_model and bool(data.get("write_performed")) and not secure_url and not guest_payment_links:
         next_action = "ask_per_guest_or_whole_payment_link"
 
+    portal_denial = _portal_policy_denial(data, data.get("status")) is not None
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "create_booking_from_plan",
@@ -1369,14 +1421,24 @@ def create_booking_from_plan(params, **kwargs):
         "post_booking_email": post_booking_email or (prior_receipt or {}).get("post_booking_email"),
         "next_action": "send_secure_payment_link" if secure_url else next_action,
         "staff_review_needed": (
-            not _intentional_capability_block(link_data)
+            not portal_denial
+            and not _intentional_capability_block(link_data)
             and (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links and not link_result.get("do_not_escalate")))
             and not expected_missing and not package_rejected
         ),
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
-        "do_not_escalate": expected_missing or package_rejected or _intentional_capability_block(link_data),
+        "do_not_escalate": portal_denial or expected_missing or package_rejected or _intentional_capability_block(link_data) or bool(link_result.get("do_not_escalate")),
+        **({
+            "reason_code": data.get("reason_code"),
+            "policy_source": data.get("policy_source"),
+            "write_performed": False,
+        } if portal_denial else {}),
+        **({
+            "reason_code": link_result.get("reason_code"),
+            "policy_source": link_result.get("policy_source"),
+        } if link_result.get("reason_code") and link_result.get("policy_source") else {}),
         **({"package_min_nights": package_policy.get("package_min_nights"),
             "package_eligible": False, "reason_code": data.get("reason_code")} if package_rejected else {}),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
@@ -4021,11 +4083,12 @@ def _payment_link_result(tool, data, result, *, attempt_handoff=True):
     no_due = bool(codes & {"no_balance_due", "no_payment_due", "already_paid", "payment_already_paid"}) or data.get("already_paid") is True
     # Staff policy denials are not attempted checkouts. Unknown 403s (including
     # provider/auth outages) still enter genuine failure handling.
-    policy_denied = data.get("status") == 403 and (
+    portal_denied = _portal_policy_denial(data, data.get("status")) is not None
+    policy_denied = portal_denied or (data.get("status") == 403 and (
         data.get("stripe_links_enabled") is False
         or data.get("bot_booking_enabled") is False
         or data.get("error") in {"staff_actions_disabled", "stripe_links_disabled", "payment_provider_not_allowed"}
-    )
+    ))
     denied = policy_denied or _intentional_capability_block(data) or bool(data.get("disabled")) or data.get("staff_api_status") == "tenant_scope_denied"
     recoverable = data.get("safe_next_step") in {"ask_missing_details", "ask_deposit_or_full_payment"} or bool(codes & {
         "guest_name_missing", "guest_phone_missing", "payment_choice_missing",
@@ -4051,6 +4114,14 @@ def _payment_link_result(tool, data, result, *, attempt_handoff=True):
                 "This payment action is not available here."
             ),
         )
+        if portal_denied:
+            result.update(
+                reason_code=data.get("reason_code"),
+                policy_source=data.get("policy_source"),
+                write_performed=data.get("write_performed"),
+                creates_stripe_link=data.get("creates_stripe_link"),
+                sends_whatsapp=data.get("sends_whatsapp"),
+            )
     else:
         result.update(error=_safe_text(data.get("error") or "payment_link_create_failed"),
                       payment_operation_failed=True)

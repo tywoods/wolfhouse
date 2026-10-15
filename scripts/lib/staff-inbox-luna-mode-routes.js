@@ -26,6 +26,9 @@ function createStaffInboxLunaModeRoutes(deps) {
     if (scope !== 'channel' || (channel !== 'email' && channel !== 'whatsapp')) {
       return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
     }
+    if (!['auto', 'draft', 'off'].includes(value)) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_mode' });
+    }
     const next = await store.putChannelMode(user.client_id, channel, value);
     return deps.sendJSON(res, 200, {
       success: true,

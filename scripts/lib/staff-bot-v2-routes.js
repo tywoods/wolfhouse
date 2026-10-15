@@ -12,8 +12,7 @@
  * Each handler is self-contained except for shared utilities passed in via ctx.
  * ctx shape: { sendJSON, send400, readBody, appendAuditLog, withPgClient,
  *              guestPaymentLinkObservability, handlePostBookingTransfer,
- *              DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
- *              STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+ *              DEFAULT_CLIENT, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
  *              stripeCheckoutRedirectUrlsConfigured,
  *              stripeCheckoutSessionSuccessUrl, stripeCheckoutSessionCancelUrl }
  */
@@ -51,11 +50,12 @@ const {
 // that normally read from an HTTP req stream.
 // Supports both .on('data') style and for-await-of (Symbol.asyncIterator).
 // ─────────────────────────────────────────────────────────────────────────────
-function makeInMemoryBotReq(bodyObj) {
+function makeInMemoryBotReq(bodyObj, headers, boundClientSlug) {
   const payload = JSON.stringify(bodyObj || {});
   return {
     method:  'POST',
-    headers: {},
+    headers: { ...(headers || {}) },
+    _botBoundClientSlug: boundClientSlug || null,
     on(event, cb) {
       if (event === 'data') cb(Buffer.from(payload, 'utf8'));
       if (event === 'end') cb();
@@ -528,6 +528,55 @@ async function handleBotPaymentStatus(req, res, user, authMode, ctx) {
   }
 }
 
+async function requirePortalAutomaticWriteAdmission(req, res, ctx) {
+  if (!String(ctx.boundClientSlug || '').trim()) {
+    ctx.sendJSON(res, 403, {
+      success: false, reason_code: 'booking_context_unbound', policy_source: 'staff_portal',
+      write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+      staff_review_needed: false, do_not_escalate: true,
+    });
+    return false;
+  }
+  if (ctx.boundClientSlug !== 'wolfhouse-somo') return true;
+  const phone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
+  if (!/^\+[0-9]{8,15}$/.test(phone) || typeof ctx.resolveAutomaticBookingAdmission !== 'function') {
+    ctx.sendJSON(res, 403, { success: false, reason_code: 'booking_context_unbound', write_performed: false });
+    return false;
+  }
+  let decision;
+  try {
+    decision = await ctx.withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const admitted = await ctx.resolveAutomaticBookingAdmission(pg, {
+          client_slug: ctx.boundClientSlug,
+          guest_phone: phone,
+        });
+        await pg.query('COMMIT');
+        return admitted;
+      } catch (err) {
+        try { await pg.query('ROLLBACK'); } catch (_) { /* original error wins */ }
+        throw err;
+      }
+    });
+  } catch (_err) {
+    ctx.sendJSON(res, 503, {
+      success: false, reason_code: 'booking_policy_unavailable',
+      policy_source: 'staff_portal', write_performed: false,
+      creates_stripe_link: false, sends_whatsapp: false,
+      staff_review_needed: false, do_not_escalate: true,
+    });
+    return false;
+  }
+  if (decision.allowed) return true;
+  ctx.sendJSON(res, decision.unavailable ? 503 : 403, {
+    success: false, reason_code: decision.reason, policy_source: decision.source,
+    write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+    staff_review_needed: false, do_not_escalate: true,
+  });
+  return false;
+}
+
 function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   const claimed = !!(body
     && body.simulator_synthetic === true
@@ -543,7 +592,6 @@ function evaluateWolfhouseSimulatorEffectBudget(body, ctx = {}) {
   else if (!key.startsWith('sk_test_') && mode !== 'test') reasons.push('test_payment_config_missing');
   const pay = String(ctx.PUBLIC_PAYMENT_BASE_URL || '').trim().replace(/\/+$/, '').toLowerCase();
   if (pay && pay !== 'https://staff-staging.lunafrontdesk.com') reasons.push('public_pay_origin_not_approved_staging');
-  if (!ctx.BOT_BOOKING_ENABLED) reasons.push('bot_booking_disabled');
   return {
     claimed: true,
     ok: reasons.length === 0,
@@ -559,6 +607,7 @@ function shouldRequireWolfhouseOfferIdentity(budget) {
 
 function mapCreateFromPlanOfferBridge(result) {
   const src = result && typeof result === 'object' ? result : {};
+  const portalPolicyReason = String(src.reason_code || '').startsWith('booking_');
   const nextAction = {
     offer_identity_required: 'clarify_offer',
     offer_unchecked: 're_quote',
@@ -566,7 +615,10 @@ function mapCreateFromPlanOfferBridge(result) {
     availability_changed: 're_quote',
     write_recovery_required: 'recover_write',
     idempotency_payload_mismatch: 'clarify_offer',
-  }[src.reason_code];
+  }[src.reason_code] || (portalPolicyReason
+    ? (src.reason_code.includes('unavailable') || src.reason_code.includes('unconfigured') || src.reason_code.includes('invalid')
+      ? 'retry_policy_lookup' : 'respect_portal_policy')
+    : null);
   if (!nextAction) return src;
   return {
     ...src,
@@ -604,16 +656,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   const {
     sendJSON, send400, readBody, appendAuditLog,
     makeInMemoryBotReq: _makeReq,
-    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
+    DEFAULT_CLIENT, STAFF_AUTH_REQUIRED,
   } = ctx;
-
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success:             false,
-      error:               'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
 
   let body = {};
   try {
@@ -684,7 +728,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   // Delegate to the existing handleBotBookingCreate in staff-query-api.js via ctx
   if (ctx.handleBotBookingCreate) {
     await ctx.handleBotBookingCreate(
-      makeInMemoryBotReq(body),
+      makeInMemoryBotReq(body, req.headers),
       captureRes,
       user,
       authMode
@@ -775,7 +819,7 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
           makeInMemoryBotReq({
             client_slug: clientSlug,
             payment_target: paymentTarget,
-          }),
+          }, req.headers, ctx.boundClientSlug),
           linkCapture,
           user,
           authMode,
@@ -826,7 +870,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   const {
     sendJSON, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -848,13 +892,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     return wolfhouseSimulatorBlock(sendJSON, res, simulatorBudget);
   }
 
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error:   'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
+  if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, {
       success: false,
@@ -878,6 +916,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
   const tenantGate = await gateBotPaymentUuidCallbackTenantAcl({
     paymentId,
     boundClientSlug: ctx.boundClientSlug,
+    trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
     withPgClient,
   });
   if (tenantGate.error) {
@@ -906,6 +945,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     paymentId,
     target: 'draft_payment',
     actor: { staff_user_id: actorId },
+    trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
   });
   if (!built.ok) {
     return sendJSON(res, built.status || 400, built.body);
@@ -918,6 +958,10 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     successUrl: stripeCheckoutSessionSuccessUrl(),
     cancelUrl: stripeCheckoutSessionCancelUrl(),
     blockLiveKeys: true,
+    authorizeAutomaticWrite: async (pg) => ctx.resolveAutomaticBookingAdmission(pg, {
+      client_slug: ctx.boundClientSlug,
+      guest_phone: req.headers && req.headers['x-luna-guest-phone'],
+    }),
     createStripeCheckoutSession: async (sessionOpts) => stripe.checkout.sessions.create({
       mode: 'payment',
       currency: sessionOpts.currency || 'eur',
@@ -937,6 +981,10 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
 
   let result;
   try {
+    // Final revocation check immediately before the authoritative payment owner.
+    // Existing-link reuse and draft mutation then re-bind the guest identity in
+    // the same payment read below; provider I/O never holds this DB lock.
+    if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
     result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
@@ -1040,7 +1088,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   const {
     sendJSON, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     STAFF_AUTH_REQUIRED, DEFAULT_CLIENT,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -1059,13 +1107,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
 
   const started = Date.now();
 
-  if (!BOT_BOOKING_ENABLED) {
-    return sendJSON(res, 403, {
-      success: false,
-      error: 'Bot booking is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
-      bot_booking_enabled: false,
-    });
-  }
+  if (!(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, {
       success: false,
@@ -1136,6 +1178,13 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   if (!bookingRow) {
     return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
   }
+  if (authMode === 'bot_token') {
+    const digits = (value) => String(value || '').replace(/\D/g, '');
+    const trustedGuestPhone = req.headers && req.headers['x-luna-guest-phone'];
+    if (!digits(trustedGuestPhone) || digits(bookingRow.phone) !== digits(trustedGuestPhone)) {
+      return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+    }
+  }
 
   if (bookingStatusIsCancelled(bookingRow.status)) {
     return sendJSON(res, 400, {
@@ -1146,7 +1195,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   }
 
   const ledger = bookingLedgerBalanceFromRows(bookingRow, svcRows, paymentRows, transferRows);
-  const amountDueCents = ledger.balance_due_cents;
+  let amountDueCents = ledger.balance_due_cents;
 
   if (ledger.needs_refund) {
     return sendJSON(res, 409, {
@@ -1174,8 +1223,85 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   // Ledger balance_due already reflects unpaid accommodation + post-booking add-ons.
   // Do not require deposit_paid here — staff generate-payment-link does not either.
 
-  const idempotencyKey = `luna-bot-balance:${bookingRow.booking_id}:${amountDueCents}`;
+  let idempotencyKey = `luna-bot-balance:${bookingRow.booking_id}:${amountDueCents}`;
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
+  const trustedBalancePhone = String((req.headers && req.headers['x-luna-guest-phone']) || '').replace(/\D/g, '');
+  const validateCurrentBalanceTarget = async (pg, paymentId = null) => {
+    if (authMode === 'bot_token') {
+      const admitted = await ctx.resolveAutomaticBookingAdmission(pg, {
+        client_slug: ctx.boundClientSlug,
+        guest_phone: String((req.headers && req.headers['x-luna-guest-phone']) || '').trim(),
+      });
+      if (!admitted.allowed) return { admission_denied: admitted };
+    }
+    const ownerRes = await pg.query(
+      `SELECT b.id::text AS booking_id, b.client_id, b.phone
+         FROM bookings b
+         JOIN clients c ON c.id = b.client_id
+        WHERE b.id = $1::uuid AND c.slug = $2
+        FOR UPDATE OF b`,
+      [bookingRow.booking_id, clientSlug],
+    );
+    const current = ownerRes.rows[0] || null;
+    if (!current) return { owner_denied: true };
+    if (authMode === 'bot_token') {
+      const currentDigits = String(current.phone || '').replace(/\D/g, '');
+      if (!trustedBalancePhone || currentDigits !== trustedBalancePhone) return { owner_denied: true };
+    }
+    if (!paymentId) return { current };
+    const paymentRes = await pg.query(
+      `SELECT id::text AS payment_id, amount_due_cents, checkout_url, stripe_checkout_session_id
+         FROM payments
+        WHERE id = $1::uuid AND client_id = $2 AND booking_id = $3::uuid
+          AND checkout_url IS NOT NULL
+        FOR UPDATE`,
+      [paymentId, current.client_id, bookingRow.booking_id],
+    );
+    const payment = paymentRes.rows[0] || null;
+    if (!payment) return { current, payment: null };
+    const freshBookingRes = await pg.query(EDIT_PREVIEW_BOOKING_BY_ID_SQL, [clientSlug, bookingRow.booking_id]);
+    const freshBooking = freshBookingRes.rows[0] || null;
+    if (!freshBooking || bookingStatusIsCancelled(freshBooking.status)) return { current, payment: null };
+    const freshSvc = await loadBookingServiceRecords(pg, clientSlug, freshBooking.booking_code);
+    const freshPaymentRows = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, freshBooking.booking_code]);
+    const freshTransfers = await listBookingTransfersForBooking(pg, {
+      client_slug: clientSlug,
+      booking_id: freshBooking.booking_id,
+    });
+    const freshLedger = bookingLedgerBalanceFromRows(
+      freshBooking, freshSvc.rows, freshPaymentRows.rows, freshTransfers || [],
+    );
+    const freshActive = ledgerActivePaymentLinkRow(freshPaymentRows.rows, freshLedger);
+    if (freshLedger.needs_refund || freshLedger.balance_due_cents == null
+      || freshLedger.balance_due_cents <= 0 || !freshActive
+      || String(freshActive.payment_id || freshActive.id || '') !== String(paymentId)
+      || Number(payment.amount_due_cents) !== Number(freshLedger.balance_due_cents)) {
+      return { current, payment: null };
+    }
+    return { current, payment };
+  };
+  const sendBalanceAdmissionDenied = (denied) => sendJSON(res, denied.unavailable ? 503 : 403, {
+    success: false, reason_code: denied.reason, policy_source: denied.source,
+    write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+    staff_review_needed: false, do_not_escalate: true,
+  });
+  const revalidateExistingBalanceLink = (paymentId) => withPgClient(async (pg) => {
+    await pg.query('BEGIN');
+    try {
+      const validated = await validateCurrentBalanceTarget(pg, paymentId);
+      if (validated.admission_denied || validated.owner_denied || !validated.payment) {
+        await pg.query('ROLLBACK');
+        return validated;
+      }
+      await pg.query('COMMIT');
+      return validated;
+    } catch (err) {
+      try { await pg.query('ROLLBACK'); } catch (_) {
+        if (pg && typeof pg === 'object') pg[Symbol.for('wolfhouse.pgClient.discardRequired')] = true;
+      }
+      throw err;
+    }
+  });
 
   const finishWithLink = (payload) => {
     const checkoutUrl = payload.checkout_url;
@@ -1225,22 +1351,39 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       && activeBalanceLink === pr;
   });
   if (existingByKey) {
+    // Existing-link disclosure is also an automatic payment operation. Recheck
+    // after the balance/payment snapshot so a committed Off/pause that followed
+    // the route's cheap preflight wins before the link is returned.
+    const validated = await revalidateExistingBalanceLink(existingByKey.payment_id);
+    if (validated.admission_denied) return sendBalanceAdmissionDenied(validated.admission_denied);
+    if (validated.owner_denied || !validated.payment) {
+      return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+    }
+    amountDueCents = Number(validated.payment.amount_due_cents);
     return finishWithLink({
       idempotent: true,
       created: false,
       payment_id: existingByKey.payment_id,
-      checkout_url: existingByKey.checkout_url,
+      checkout_url: validated.payment.checkout_url,
+      stripe_checkout_session_id: validated.payment.stripe_checkout_session_id,
       message: 'Payment link already created (idempotent).',
     });
   }
 
   const activeLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
   if (activeLink && activeLink.checkout_url) {
+    const validated = await revalidateExistingBalanceLink(activeLink.payment_id);
+    if (validated.admission_denied) return sendBalanceAdmissionDenied(validated.admission_denied);
+    if (validated.owner_denied || !validated.payment) {
+      return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+    }
+    amountDueCents = Number(validated.payment.amount_due_cents);
     return finishWithLink({
       idempotent: true,
       created: false,
       payment_id: activeLink.payment_id,
-      checkout_url: activeLink.checkout_url,
+      checkout_url: validated.payment.checkout_url,
+      stripe_checkout_session_id: validated.payment.stripe_checkout_session_id,
       message: 'Payment link already exists for this balance.',
     });
   }
@@ -1252,38 +1395,127 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
   }
 
-  const pmMeta = {
-    source: 'luna_bot_balance_payment_link',
-    method: 'payment_link',
-    idempotency_key: idempotencyKey,
-    booking_code: bookingRow.booking_code,
-    amount_due_cents: amountDueCents,
-    payment_origin: 'luna_bot_balance_payment_link',
-    created_by: actorId,
-  };
-
   let newPaymentId;
   let balanceLinkClientId;
   try {
     const insResult = await withPgClient(async (pg) => {
-      const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-      if (!clientId) throw new Error('client not found');
-      const ins = await pg.query(
-        `INSERT INTO payments (
-           client_id, booking_id, status, payment_kind, currency,
-           amount_due_cents, amount_paid_cents, metadata
-         ) VALUES (
-           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-           $3, 0, $4::jsonb
-         )
-         RETURNING id::text AS payment_id`,
-        [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
-      );
-      return { payment_id: ins.rows[0].payment_id, client_id: clientId };
+      await pg.query('BEGIN');
+      try {
+        await pg.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+        const validated = await validateCurrentBalanceTarget(pg);
+        if (validated.admission_denied || validated.owner_denied) {
+          await pg.query('ROLLBACK');
+          return validated;
+        }
+        const clientId = validated.current.client_id;
+        const freshBookingRes = await pg.query(EDIT_PREVIEW_BOOKING_BY_ID_SQL, [clientSlug, bookingRow.booking_id]);
+        const freshBooking = freshBookingRes.rows[0] || null;
+        if (!freshBooking || bookingStatusIsCancelled(freshBooking.status)) {
+          await pg.query('ROLLBACK');
+          return { balance_denied: 'booking_not_active' };
+        }
+        const freshSvc = await loadBookingServiceRecords(pg, clientSlug, freshBooking.booking_code);
+        const freshPaymentRes = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, [clientSlug, freshBooking.booking_code]);
+        const freshTransfers = await listBookingTransfersForBooking(pg, {
+          client_slug: clientSlug,
+          booking_id: freshBooking.booking_id,
+        });
+        const freshLedger = bookingLedgerBalanceFromRows(
+          freshBooking, freshSvc.rows, freshPaymentRes.rows, freshTransfers || [],
+        );
+        if (freshLedger.needs_refund) {
+          await pg.query('ROLLBACK');
+          return { balance_denied: 'refund_review_needed' };
+        }
+        const freshAmountDueCents = freshLedger.balance_due_cents;
+        if (freshAmountDueCents == null || freshAmountDueCents <= 0) {
+          await pg.query('ROLLBACK');
+          return { balance_denied: 'no_balance_due' };
+        }
+        const freshIdempotencyKey = `luna-bot-balance:${freshBooking.booking_id}:${freshAmountDueCents}`;
+        const classifyPayment = (row) => {
+          let metadata = row.metadata || {};
+          if (typeof metadata === 'string') {
+            try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
+          }
+          const status = String(row.payment_status || row.status || '').toLowerCase();
+          const expiresAtMs = row.expires_at ? Date.parse(String(row.expires_at)) : NaN;
+          const terminalOrObsolete = ['paid', 'failed', 'expired', 'cancelled'].includes(status)
+            || (status === 'checkout_created' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now());
+          return { metadata, status, terminalOrObsolete };
+        };
+        const unresolvedBalancePayment = freshPaymentRes.rows.find((row) => {
+          const { metadata, terminalOrObsolete } = classifyPayment(row);
+          return metadata && metadata.source === 'luna_bot_balance_payment_link' && !terminalOrObsolete;
+        });
+        if (unresolvedBalancePayment) {
+          await pg.query('ROLLBACK');
+          return { concurrent_payment: unresolvedBalancePayment };
+        }
+        const sameKeyPayment = freshPaymentRes.rows.find((row) => {
+          const { metadata, terminalOrObsolete } = classifyPayment(row);
+          if (!metadata || metadata.idempotency_key !== freshIdempotencyKey) return false;
+          return !terminalOrObsolete;
+        });
+        if (sameKeyPayment) {
+          await pg.query('ROLLBACK');
+          return { concurrent_payment: sameKeyPayment };
+        }
+        const freshActiveLink = ledgerActivePaymentLinkRow(freshPaymentRes.rows, freshLedger);
+        if (freshActiveLink) {
+          await pg.query('ROLLBACK');
+          return { concurrent_payment: freshActiveLink };
+        }
+        const freshMeta = {
+          source: 'luna_bot_balance_payment_link', method: 'payment_link',
+          idempotency_key: freshIdempotencyKey, booking_code: freshBooking.booking_code,
+          amount_due_cents: freshAmountDueCents,
+          payment_origin: 'luna_bot_balance_payment_link', created_by: actorId,
+        };
+        const ins = await pg.query(
+          `INSERT INTO payments (
+             client_id, booking_id, status, payment_kind, currency,
+             amount_due_cents, amount_paid_cents, metadata
+           ) VALUES (
+             $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+             $3, 0, $4::jsonb
+           )
+           RETURNING id::text AS payment_id`,
+          [clientId, bookingRow.booking_id, freshAmountDueCents, JSON.stringify(freshMeta)],
+        );
+        await pg.query('COMMIT');
+        return {
+          payment_id: ins.rows[0].payment_id, client_id: clientId,
+          amount_due_cents: freshAmountDueCents, idempotency_key: freshIdempotencyKey,
+        };
+      } catch (err) {
+        try { await pg.query('ROLLBACK'); } catch (_) {
+          if (pg && typeof pg === 'object') pg[Symbol.for('wolfhouse.pgClient.discardRequired')] = true;
+        }
+        throw err;
+      }
     });
+    if (insResult.admission_denied) {
+      return sendBalanceAdmissionDenied(insResult.admission_denied);
+    }
+    if (insResult.owner_denied) {
+      return sendJSON(res, 404, { success: false, error: 'booking_not_found' });
+    }
+    if (insResult.balance_denied) {
+      const status = insResult.balance_denied === 'no_balance_due' ? 200 : 409;
+      return sendJSON(res, status, { success: false, error: insResult.balance_denied,
+        reason: insResult.balance_denied, write_performed: false });
+    }
+    if (insResult.concurrent_payment) {
+      return sendJSON(res, 409, { success: false, error: 'payment_link_pending',
+        reason: 'payment_link_pending', payment_id: insResult.concurrent_payment.payment_id || insResult.concurrent_payment.id || null,
+        write_performed: false, retryable: true });
+    }
     newPaymentId = insResult.payment_id;
     balanceLinkClientId = insResult.client_id;
+    amountDueCents = insResult.amount_due_cents;
+    idempotencyKey = insResult.idempotency_key;
+
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'payment draft insert failed', detail: err.message });
   }
@@ -1315,24 +1547,32 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       },
       success_url: stripeCheckoutSessionSuccessUrl(),
       cancel_url: stripeCheckoutSessionCancelUrl(),
-    });
+    }, { idempotencyKey: `${idempotencyKey}:${newPaymentId}` });
   } catch (stripeErr) {
-    // Do not leave a reusable draft after the provider rejected session creation.
+    // Definite provider rejection is replaceable. Unknown transport/provider
+    // outcomes retain the draft so the same logical attempt cannot fan out.
+    const providerStatus = Number(stripeErr && (stripeErr.statusCode || stripeErr.httpStatus));
+    const definiteProviderFailure = !!(stripeErr && stripeErr.providerBlocked)
+      || (providerStatus >= 400 && providerStatus < 500 && ![408, 409, 429].includes(providerStatus));
     try {
       await withPgClient((pg) => pg.query(
         `UPDATE payments
-            SET status = 'failed'::payment_record_status,
+            SET status = CASE WHEN $4::boolean THEN 'failed'::payment_record_status ELSE status END,
                 metadata = metadata || $1::jsonb
           WHERE id = $2::uuid
             AND client_id = $3
             AND status = 'draft'::payment_record_status`,
-        [JSON.stringify({ provider_create_failed: true }), newPaymentId, balanceLinkClientId],
+        [JSON.stringify(definiteProviderFailure
+          ? { provider_create_failed: true }
+          : { provider_outcome_uncertain: true }), newPaymentId, balanceLinkClientId, definiteProviderFailure],
       ));
     } catch (_) { /* safe failure response below; repair remains observable */ }
     return sendJSON(res, 500, {
       success: false,
       error: 'Stripe session creation failed: ' + stripeErr.message,
-      no_checkout_created: true,
+      no_checkout_created: definiteProviderFailure,
+      provider_outcome_uncertain: !definiteProviderFailure,
+      reconciliation_required: !definiteProviderFailure,
     });
   }
 
@@ -1519,7 +1759,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   const {
     sendJSON, send400, readBody, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
-    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
     DEFAULT_CLIENT,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
@@ -1527,9 +1767,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     STAFF_ACTIONS_ENABLED,
   } = ctx;
 
-  if (!BOT_BOOKING_ENABLED && !STAFF_ACTIONS_ENABLED) {
-    return sendJSON(res, 403, { success: false, error: 'Bot booking is disabled.', bot_booking_enabled: false });
-  }
+  if (authMode === 'bot_token' && !(await requirePortalAutomaticWriteAdmission(req, res, ctx))) return;
   if (!STRIPE_LINKS_ENABLED) {
     return sendJSON(res, 403, { success: false, error: 'Stripe links disabled.', stripe_links_enabled: false });
   }
@@ -1567,6 +1805,11 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
   try {
     const checkout = await require('./per-guest-checkout').run({
       withPgClient, stripe, guestId, clientSlug, paymentTarget, actorId,
+      trustedGuestPhone: req.headers && req.headers['x-luna-guest-phone'],
+      authorizeAutomaticWrite: authMode === 'bot_token' && ctx.boundClientSlug === 'wolfhouse-somo' ? (pg) => ctx.resolveAutomaticBookingAdmission(pg, {
+        client_slug: ctx.boundClientSlug,
+        guest_phone: String((req.headers && req.headers['x-luna-guest-phone']) || '').trim(),
+      }) : null,
       successUrl: stripeCheckoutSessionSuccessUrl(),
       cancelUrl: stripeCheckoutSessionCancelUrl(),
     });
@@ -1588,6 +1831,14 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
       payment_short_url: shortUrl, payment_short_path: `${guest.booking_code}/g${guest.guest_number}`,
       uses_short_payment_link: !!shortUrl, payment_status: 'checkout_created', no_payment_truth_recorded: true });
   } catch (err) {
+    if (err.portalPolicyDecision) {
+      const denied = err.portalPolicyDecision;
+      return sendJSON(res, denied.unavailable ? 503 : 403, {
+        success: false, reason_code: denied.reason, policy_source: denied.source,
+        write_performed: false, creates_stripe_link: false, sends_whatsapp: false,
+        staff_review_needed: false, do_not_escalate: true,
+      });
+    }
     if (err.providerBlocked) return sendJSON(res, err.httpStatus || 409, {
       success: false,
       error: 'payment_processing_refresh_required',
@@ -1596,7 +1847,7 @@ async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode
     if (err.message === 'guest_payment_unallocated_booking_receipt') return sendJSON(res, 409, {
       success: false, error: err.message, message: err.publicMessage,
     });
-    const status = /not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500;
+    const status = err.httpStatus || (/not_active|snapshot_changed|identity_changed/.test(err.message) ? 409 : 500);
     return sendJSON(res, status, { success: false, error: err.message });
   }
 

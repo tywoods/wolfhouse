@@ -1080,6 +1080,29 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
   await pg.query('BEGIN');
   try {
+    if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
+        && typeof execOpts.authorizeAutomaticBooking === 'function') {
+      const admission = await execOpts.authorizeAutomaticBooking(pg, command);
+      if (!admission || admission.allowed !== true) {
+        await pg.query('ROLLBACK');
+        const unavailable = !!(admission && admission.unavailable);
+        return fail(
+          unavailable ? 503 : 403,
+          admission && admission.reason ? admission.reason : 'booking_policy_unavailable',
+          unavailable
+            ? 'Automatic booking permission is unavailable.'
+            : 'Automatic booking is not permitted by the current portal state.',
+          {
+            write_performed: false,
+            creates_booking: false,
+            created: false,
+            booking_allowed: false,
+            policy_source: admission && admission.source ? admission.source : null,
+            _blocked: true,
+          },
+        );
+      }
+    }
     const offerRequired = command.channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
       && (command.requireOfferIdentity === true
         || (command.transportBody && command.transportBody.require_offer_identity === true));

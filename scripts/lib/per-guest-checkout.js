@@ -69,7 +69,7 @@ function definitelyUnpaidObsoleteSession(session, nowSeconds) {
 const LOCKED_GUEST_SQL = `SELECT bg.id::text AS booking_guest_id, bg.client_id::text AS client_id,
  bg.booking_id::text AS booking_id, bg.guest_number, bg.guest_name,
  bg.deposit_amount_cents, bg.metadata AS guest_metadata, b.booking_code,
- b.status::text AS booking_status, c.slug AS client_slug,
+ b.status::text AS booking_status, b.phone AS booking_phone, c.slug AS client_slug,
  COALESCE((SELECT SUM(p.amount_paid_cents) FROM payments p WHERE p.client_id=bg.client_id
  AND p.booking_id=bg.booking_id AND p.booking_guest_id=bg.id AND p.status='paid'),0)::bigint AS amount_paid_cents,
  EXISTS(SELECT 1 FROM payments p WHERE p.client_id=bg.client_id AND p.booking_id=bg.booking_id
@@ -114,12 +114,40 @@ function assertGuestCollectionAllocated(guest) {
   }
 }
 
-function createSqlStore(withPgClient, guestId, clientSlug, actorId) {
+function assertTrustedGuestOwnsTarget(guest, trustedGuestPhone) {
+  if (trustedGuestPhone == null) return; // manual staff path is authorized separately
+  const digits = (value) => String(value || '').replace(/\D/g, '');
+  const trusted = digits(trustedGuestPhone);
+  const md = metadata(guest && guest.guest_metadata);
+  // The production booking_guest writer may omit per-guest phones. Only in that
+  // metadata-less case does the freshly locked booking contact provide the
+  // fallback identity; explicit guest identity remains restrictive.
+  const explicitOwners = [md.phone, md.guest_phone, md.contact_phone].map(digits).filter(Boolean);
+  const owners = explicitOwners.length
+    ? explicitOwners
+    : [digits(guest && guest.booking_phone)].filter(Boolean);
+  if (!trusted || !owners.includes(trusted)) {
+    const err = new Error('payment_target_guest_mismatch');
+    err.httpStatus = 403;
+    throw err;
+  }
+}
+
+function createSqlStore(withPgClient, guestId, clientSlug, actorId, trustedGuestPhone, authorizeAutomaticWrite) {
   return {
     async prepare(target) {
       return withPgClient((pg) => tx(pg, async () => {
+        if (typeof authorizeAutomaticWrite === 'function') {
+          const admitted = await authorizeAutomaticWrite(pg);
+          if (!admitted || !admitted.allowed) {
+            const err = new Error((admitted && admitted.reason) || 'booking_policy_unavailable');
+            err.portalPolicyDecision = admitted || { unavailable: true, reason: 'booking_policy_unavailable', source: 'portal_policy_lookup' };
+            throw err;
+          }
+        }
         const guest = await lockAndLoad(pg, guestId, clientSlug);
         if (!guest) return { missing: true };
+        assertTrustedGuestOwnsTarget(guest, trustedGuestPhone);
         assertGuestCollectionAllocated(guest);
         if (['cancelled', 'expired'].includes(String(guest.booking_status).toLowerCase())) {
           throw new Error('booking_not_active');
@@ -166,6 +194,8 @@ function createSqlStore(withPgClient, guestId, clientSlug, actorId) {
     async finalize(op, session, target, amount) {
       return withPgClient((pg) => tx(pg, async () => {
         const guest = await lockAndLoad(pg, guestId, clientSlug);
+        if (!guest) throw new Error('booking_guest_not_found');
+        assertTrustedGuestOwnsTarget(guest, trustedGuestPhone);
         assertGuestCollectionAllocated(guest);
         if (!guest || amountFor(guest, target) !== amount) { const e = new Error('guest_payment_snapshot_changed_retry'); e.snapshotChanged = true; throw e; }
         const finalized = await pg.query(`UPDATE payments SET status='checkout_created'::payment_record_status,
@@ -226,7 +256,7 @@ async function expireIfOpen(stripe, session) {
 
 async function run(opts) {
   const { stripe, guestId, clientSlug, paymentTarget } = opts;
-  const store = opts.store || createSqlStore(opts.withPgClient, guestId, clientSlug, opts.actorId);
+  const store = opts.store || createSqlStore(opts.withPgClient, guestId, clientSlug, opts.actorId, opts.trustedGuestPhone, opts.authorizeAutomaticWrite);
   let lastError;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const prepared = await store.prepare(paymentTarget);
@@ -267,4 +297,5 @@ async function run(opts) {
 }
 
 module.exports = { run, tx, amountFor, validUrl, lockAndLoad, operationFromRow,
-  sameIntent, reusableProviderSession, definitelyUnpaidObsoleteSession, createSqlStore, providerParams, recoverProvider };
+  sameIntent, reusableProviderSession, definitelyUnpaidObsoleteSession, createSqlStore, providerParams, recoverProvider,
+  assertTrustedGuestOwnsTarget };

@@ -41,13 +41,25 @@ class StagingConfigTests(unittest.TestCase):
         for override, reason in (
             ({'WOLFHOUSE_STAFF_API_BASE_URL': 'http://staff-staging.lunafrontdesk.com:3037'}, 'staff_destination_not_approved_staging'),
             ({'LUNA_CLIENT_SLUG': 'sunset'}, 'wolfhouse_client_mismatch'),
-            ({'BOT_BOOKING_ENABLED': 'false'}, 'bot_booking_disabled'),
             ({'WOLFHOUSE_STRIPE_MODE': 'live'}, 'live_stripe_key_blocked'),
         ):
             denied = evaluate_wolfhouse_staging_booking_capability(
                 scope_active=True, env={**env, **override})
             self.assertFalse(denied['admitted'], denied)
             self.assertIn(reason, denied['reasons'])
+
+    def test_hidden_booking_env_does_not_grant_or_deny_wolfhouse_capability(self):
+        env = tracked_wh_environment()
+        outcomes = []
+        for value in (None, 'false', 'true'):
+            candidate = dict(env)
+            candidate.pop('BOT_BOOKING_ENABLED', None)
+            if value is not None:
+                candidate['BOT_BOOKING_ENABLED'] = value
+            outcomes.append(evaluate_wolfhouse_staging_booking_capability(
+                scope_active=True, env=candidate))
+        self.assertTrue(all(row['admitted'] for row in outcomes), outcomes)
+        self.assertTrue(all('bot_booking_disabled' not in row['reasons'] for row in outcomes))
 
     def test_no_admission_for_prod_live_key_or_missing_scope(self):
         env = tracked_wh_environment()
@@ -150,14 +162,14 @@ class StaffBoundaryTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_handoff_is_blocked_without_booking_capability_even_with_forged_metadata(self):
-        with patch.dict('os.environ', {'BOT_BOOKING_ENABLED': 'false'}):
-            result = self.staff._post_bot('/conversation/needs-human', {
-                'phone': self.scope.inbox_phone,
-                'simulator_synthetic': True,
-                'source_owner': 'crowsnest-guest-door',
-                'suppress_notifications': True,
-                'wolfhouse_staging_capability': 'wolfhouse_staging_booking_test_link',
-            })
+        self.scope.revoked = True
+        result = self.staff._post_bot('/conversation/needs-human', {
+            'phone': self.scope.inbox_phone,
+            'simulator_synthetic': True,
+            'source_owner': 'crowsnest-guest-door',
+            'suppress_notifications': True,
+            'wolfhouse_staging_capability': 'wolfhouse_staging_booking_test_link',
+        })
         self.assertFalse(result['success'])
         self.assertEqual(self.calls, [])
 
@@ -180,19 +192,17 @@ class GuestDoorReceiptTests(unittest.IsolatedAsyncioTestCase):
         async def mirror(**kwargs):
             return {'ok': True}
 
-        for override, admitted in (({}, True), ({'BOT_BOOKING_ENABLED': 'false'}, False)):
+        for override in ({}, {'BOT_BOOKING_ENABLED': 'false'}):
             with patch.dict('os.environ', {**tracked_wh_environment(), **override}, clear=True):
                 result = await run_crowsnest_guest_turn(
-                    runner=SimpleNamespace(_handle_message=author), phone='+999000000000001',
+                    runner=SimpleNamespace(_handle_message=author), phone='+999' + '000000000001',
                     text='hello', mirror=mirror)
             cap = result['effective_capability']
             self.assertIsInstance(cap, dict, 'Every turn needs an honest capability receipt, not an absent-tool default')
-            self.assertEqual(cap['admitted'], admitted)
+            self.assertTrue(cap['admitted'])
             self.assertEqual(result['transport_calls'], 0)
             self.assertTrue(result['whatsapp_suppressed'])
             self.assertFalse(result['allow_writes'])
-            if not admitted:
-                self.assertIn('bot_booking_disabled', cap['reasons'])
 
 
 class ConversationContractTests(unittest.TestCase):
@@ -238,6 +248,8 @@ class PluginGuestTurnTests(unittest.IsolatedAsyncioTestCase):
         booking_id = '20000000-0000-4000-8000-000000000002'
         # Deliberate local HTTP fixture, never represented as a staging booking.
         responses = {
+            '/availability-check': {'success': True, 'has_enough_beds': True,
+                'available_beds': [{'bed_code': 'OFFLINE-BED', 'room_code': 'R3', 'room_type': 'mixed'}]},
             '/booking-create-from-plan': {'success': True, 'write_performed': True,
                 'booking_id': booking_id, 'booking_code': 'OFFLINE-AUDIT', 'payment_id': payment_id},
             f'/payments/{payment_id}/create-stripe-link': {'success': True,
@@ -277,6 +289,7 @@ class PluginGuestTurnTests(unittest.IsolatedAsyncioTestCase):
             result = json.loads(plugin.create_booking_from_plan({
                 'check_in': '2026-10-01', 'check_out': '2026-10-04', 'guest_count': 1,
                 'guest_name': 'Offline Guest', 'room_preference': 'mixed',
+                'package_code': 'package_none',
                 'selected_bed_codes': ['OFFLINE-BED'], 'payment_choice': 'deposit',
             }))
             results.append(result)
@@ -295,13 +308,14 @@ class PluginGuestTurnTests(unittest.IsolatedAsyncioTestCase):
                 runner=SimpleNamespace(_handle_message=author), phone='+999' + '000000000003', text='offline test')
         self.assertTrue(receipt['ok'])
         self.assertTrue(receipt['effective_capability']['admitted'])
+        self.assertIn('booking_id', results[0], results[0])
         self.assertEqual(results[0]['booking_id'], booking_id)
         self.assertTrue(results[0]['write_performed'])
         self.assertEqual(results[0]['secure_payment_url'], responses[f'/payments/{payment_id}/create-stripe-link']['checkout_url'])
         self.assertTrue(results[2]['needs_human'])
         self.assertEqual([path for path, _ in calls], list(responses))
-        self.assertEqual(calls[0][1]['payment_choice'], 'deposit')
-        self.assertEqual(calls[0][1]['guest_phone'], mirrors[0]['guest_phone'])
+        self.assertEqual(calls[1][1]['payment_choice'], 'deposit')
+        self.assertEqual(calls[1][1]['guest_phone'], mirrors[0]['guest_phone'])
         self.assertEqual(calls[-1][1]['phone'], mirrors[0]['guest_phone'])
         self.assertTrue(mirrors[0]['guest_phone'].startswith('+999'))
         self.assertEqual([row['direction'] for row in mirrors], ['inbound', 'outbound'])

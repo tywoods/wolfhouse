@@ -313,7 +313,7 @@ const ES_OVERRIDES = {
   'drawer.services.spanBooking': 'Durante toda la estancia',
   'drawer.services.scheduleLater': 'Programar después',
   'drawer.services.noteOptional': 'Nota (opcional)',
-  'calendar.create.manualDisabled': 'Creación manual desactivada. Configura MANUAL_BOOKING_ENABLED=true.',
+  'calendar.create.manualDisabled': 'La creación manual requiere acceso de operador a esta propiedad.',
   'calendar.create.stillNeeded': 'Aún falta: {items}',
   'calendar.create.createReadyTitle': 'Crear reserva manual (disponibilidad verificada al pulsar)',
   'calendar.create.missing.bedSelection': 'selección de camas',

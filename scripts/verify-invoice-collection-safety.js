@@ -40,7 +40,7 @@ async function schema() {
     CREATE TABLE clients (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL);
     CREATE TABLE bookings (id uuid PRIMARY KEY, client_id uuid NOT NULL REFERENCES clients(id),
       booking_code text, status text NOT NULL DEFAULT 'confirmed',
-      guest_name text DEFAULT 'Offline booking', guest_count integer DEFAULT 2,
+      guest_name text DEFAULT 'Offline booking', phone text DEFAULT '+34999123456789', guest_count integer DEFAULT 2,
       check_in date DEFAULT '2026-10-01', check_out date DEFAULT '2026-10-04',
       deposit_required_cents integer DEFAULT 0, total_amount_cents integer DEFAULT 10000, balance_due_cents integer DEFAULT 10000,
       metadata jsonb NOT NULL DEFAULT '{"quote_snapshot":{"line_items":[{"code":"package","total_cents":10000}]}}');

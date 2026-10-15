@@ -40,8 +40,9 @@ function makeSilentAclRes() {
 
 /** Read-only payment tenant lookup (global by payment UUID). */
 const PAYMENT_TENANT_LOOKUP_SQL = `
-SELECT cl.slug AS client_slug
+SELECT cl.slug AS client_slug, b.phone AS booking_phone
   FROM payments p
+  JOIN bookings b ON b.id = p.booking_id AND b.client_id = p.client_id
   JOIN clients cl ON cl.id = p.client_id
  WHERE p.id = $1::uuid
  LIMIT 1`;
@@ -51,8 +52,9 @@ SELECT cl.slug AS client_slug
  * Cross-tenant UUID → empty row (uniform miss; no foreign disclosure).
  */
 const PAYMENT_TENANT_LOOKUP_BOUND_SQL = `
-SELECT cl.slug AS client_slug
+SELECT cl.slug AS client_slug, b.phone AS booking_phone
   FROM payments p
+  JOIN bookings b ON b.id = p.booking_id AND b.client_id = p.client_id
   JOIN clients cl ON cl.id = p.client_id
  WHERE p.id = $1::uuid
    AND cl.slug = $2
@@ -107,6 +109,7 @@ async function gateBotPaymentUuidCallbackTenantAcl({
   paymentId,
   boundClientSlug,
   withPgClient,
+  trustedGuestPhone,
 }) {
   const bound = trimSlug(boundClientSlug);
   if (!bound) {
@@ -123,6 +126,10 @@ async function gateBotPaymentUuidCallbackTenantAcl({
   }
   if (!row) {
     return { ok: false, reason: 'payment_not_found_or_tenant_mismatch', boundClientSlug: bound };
+  }
+  const digits = (value) => String(value || '').replace(/\D/g, '');
+  if (!digits(trustedGuestPhone) || digits(row.booking_phone) !== digits(trustedGuestPhone)) {
+    return { ok: false, reason: 'payment_target_guest_mismatch', boundClientSlug: bound };
   }
   return { ok: true, clientSlug: bound };
 }

@@ -46,7 +46,6 @@ services:
       # Stripe remains on Staff API; no Stripe secret or send-switch change here.
       LUNA_TENANT_ID: wolfhouse-somo
       PUBLIC_PAYMENT_BASE_URL: https://staff-staging.lunafrontdesk.com
-      BOT_BOOKING_ENABLED: "true"
       WOLFHOUSE_STRIPE_MODE: test
     env_file:
       - /etc/hermes-luna.env

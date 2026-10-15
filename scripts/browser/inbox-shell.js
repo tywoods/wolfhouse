@@ -1272,16 +1272,15 @@ function inboxShellSyncAutonomyButtons(){
     var row = wrap.querySelector('[data-inbox-autonomy-row="' + channel + '"]');
     if (!row) return;
     var btns = row.querySelectorAll('[data-inbox-autonomy]');
+    var busy = wrap.classList.contains('is-busy');
     for (var i = 0; i < btns.length; i++){
       var mode = btns[i].getAttribute('data-inbox-autonomy');
       var on = mode === visual;
       btns[i].classList.toggle('isSelected', on);
       btns[i].classList.toggle('isAuto', on && mode === 'auto');
       btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
-      if (mode === 'auto') {
-        btns[i].disabled = paused;
-        btns[i].setAttribute('aria-disabled', paused ? 'true' : 'false');
-      }
+      btns[i].disabled = busy || (mode === 'auto' && paused);
+      btns[i].setAttribute('aria-disabled', btns[i].disabled ? 'true' : 'false');
     }
   });
   if (typeof inboxWhatsAppComposerSyncDraftActions === 'function') inboxWhatsAppComposerSyncDraftActions();
@@ -1347,7 +1346,8 @@ function inboxShellLoadGlobalPause(){
 function persistInboxShellChannelMode(channel, value){
   var gen = ++inboxShellPersistGen;
   inboxShellSetBusy(true);
-  var stored = inboxShellLoadStoredModes();
+  var previous = inboxShellLoadStoredModes();
+  var stored = { whatsapp: previous.whatsapp, email: previous.email };
   if (channel === 'email') stored.email = inboxShellNormalizeEmail(value);
   else stored.whatsapp = inboxShellNormalizeWhatsApp(value);
   inboxShellStoreModes(stored);
@@ -1355,14 +1355,20 @@ function persistInboxShellChannelMode(channel, value){
   function done(ok){
     if (gen !== inboxShellPersistGen) return;
     inboxShellSetBusy(false);
-    if (!ok) inboxShellApplyUiModes(inboxShellLoadStoredModes());
-    else inboxShellApplyUiModes(stored);
+    if (!ok) {
+      inboxShellStoreModes(previous);
+      inboxShellApplyUiModes(previous);
+    } else inboxShellApplyUiModes(stored);
   }
 
   return fetch('/staff/auth/prefs', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ inbox_channel_modes: stored }),
+    body: JSON.stringify({ inbox_channel_modes: (function(){
+      var changed = {};
+      changed[channel] = channel === 'email' ? stored.email : stored.whatsapp;
+      return changed;
+    })() }),
   }).then(function(r){
     return r.text().then(function(raw){
       var data = null;
