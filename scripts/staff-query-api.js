@@ -692,6 +692,7 @@ const {
 } = require('./lib/sunset-schedule-browser-source');
 const { injectInboxBrowserModules } = require('./lib/inbox-browser-source');
 const { injectStaffRoomFillModule } = require('./lib/staff-room-fill-browser-source');
+const { parseStoredPolicy } = require('./lib/staff-room-fill-policy');
 const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {
   SUNSET_LOCATIONS,
@@ -856,6 +857,7 @@ const {
 } = require('./lib/staff-manual-booking-availability');
 const {
   buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
@@ -16034,6 +16036,22 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       }),
     }));
   } catch (err) {
+    if (isGeneratedBookingCodeCollision(err)) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: 'booking_code_collision',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 409, {
+        success: false,
+        blocked: true,
+        reason_code: 'booking_code_collision',
+        block_reason: 'booking_code_collision',
+        error: 'Generated booking code collision. Nothing was created.',
+        no_write_performed: true,
+      });
+    }
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
   }
@@ -16289,6 +16307,22 @@ async function handleManualBookingCreate(req, res, user) {
       actorLabel: user ? (user.email || user.staff_user_id) : actorId,
     }));
   } catch (err) {
+    if (isGeneratedBookingCodeCollision(err)) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: 'booking_code_collision',
+        elapsed_ms: Date.now() - started,
+      });
+      return sendJSON(res, 409, {
+        success: false,
+        blocked: true,
+        reason_code: 'booking_code_collision',
+        block_reason: 'booking_code_collision',
+        error: 'Generated booking code collision. Nothing was created.',
+        no_write_performed: true,
+      });
+    }
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'manual booking create failed', detail: err.message });
   }
@@ -20922,7 +20956,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar #wrap-bc{padding:4px 16px 12px!important}
   #tab-bed-calendar .card{margin:0 auto 8px;padding:6px 12px 12px}
   #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center;gap:8px 10px;margin-bottom:8px}
-  #tab-bed-calendar .toolbar h2{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
+  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
   #tab-bed-calendar .bc-chips{flex:1 1 auto;order:2;min-width:0;flex-wrap:nowrap;overflow:hidden}
   #tab-bed-calendar .bc-range-wrap{flex:0 0 auto;order:3}
   #tab-bed-calendar #bc-load{flex:0 0 auto;order:3}
@@ -21050,8 +21084,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 @media (max-width:768px){
   #tab-bed-calendar #bc-zoom-bar,#tab-bed-calendar #bc-legend,#tab-bed-calendar #bc-range-wrap{display:none}
-  #tab-bed-calendar .toolbar{position:relative;padding-top:2px}
-  #tab-bed-calendar .toolbar h2{padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar .toolbar{position:relative;padding-top:2px;flex-wrap:wrap;align-items:flex-start}
+  #tab-bed-calendar .bc-toolbar-main{display:flex;flex:1 1 100%;flex-wrap:wrap;min-width:0;align-items:center}
+  #tab-bed-calendar .toolbar h2,#tab-bed-calendar .bc-year-anchor{order:1;flex:1 1 100%;box-sizing:border-box;padding-right:52px;min-height:44px;display:flex;align-items:center}
+  #tab-bed-calendar .bc-chips{order:2;flex:1 1 100%;width:100%}
   #tab-bed-calendar #bc-load{position:absolute;top:0;right:0;width:44px;height:44px;min-height:44px;padding:0;z-index:2}
   #tab-bed-calendar #bc-load svg{width:26px;height:26px;stroke-width:2.4}
   #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -21239,7 +21275,15 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   white-space:nowrap;
 }
 .bc-range-btn:hover{background:var(--surface-soft)}
-#tab-bed-calendar .bc-month-nav{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;order:3}
+#tab-bed-calendar #bc-month-nav{display:none!important}
+#tab-bed-calendar .bc-year-anchor{position:relative;flex:0 1 auto}
+#tab-bed-calendar .bc-toolbar-main{display:flex;flex:1 1 auto;align-items:center;min-width:0;gap:8px 10px}
+#tab-bed-calendar #bc-calendar-title{font:600 22px/1.2 'Newsreader',var(--font-display),serif;color:var(--text)}
+#tab-bed-calendar #bc-year-open{border:0;background:transparent;padding:0;margin:0;cursor:pointer;font:inherit;color:inherit}
+#tab-bed-calendar .bc-year-pop{position:absolute;z-index:8;top:calc(100% + 6px);left:0;min-width:96px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:10px;box-shadow:var(--shadow);padding:4px}
+#tab-bed-calendar .bc-year-option,#tab-bed-calendar .bc-year-empty{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 10px;font:600 13px/1.2 'Instrument Sans',var(--font-sans),sans-serif;color:var(--text)}
+#tab-bed-calendar .bc-year-option{cursor:pointer}
+#tab-bed-calendar .bc-year-option:hover{background:var(--surface-soft)}
 #tab-bed-calendar #bc-nav-month,#tab-bed-calendar #bc-nav-year,#tab-bed-calendar #bc-nav-today,#tab-bed-calendar .bc-nav-arrow{height:30px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text);font:600 12px/1 'Instrument Sans',var(--font-sans),system-ui,sans-serif}
 #tab-bed-calendar #bc-nav-month{max-width:8em}
 #tab-bed-calendar #bc-nav-year{width:4.6em;text-align:center;padding:0 4px}
@@ -21252,6 +21296,12 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   #tab-bed-calendar .bc-month-nav{flex:1 1 100%;order:5;max-width:100%;min-width:0}
   #tab-bed-calendar .bc-chips{flex:1 1 160px;min-width:140px;overflow-x:auto;overflow-y:hidden}
   #tab-bed-calendar .bc-legend-row,#tab-bed-calendar #bc-load{order:4;flex:0 0 auto}
+}
+@media (min-width:769px){
+  #tab-bed-calendar .toolbar,#tab-bed-calendar.active .toolbar{flex-wrap:nowrap}
+  #tab-bed-calendar .bc-toolbar-main,#tab-bed-calendar.active .bc-toolbar-main{flex:1 1 auto;min-width:0}
+  #tab-bed-calendar .bc-chips,#tab-bed-calendar.active .bc-chips{flex:0 1 auto;min-width:0;max-width:none}
+  #tab-bed-calendar #bc-load,#tab-bed-calendar.active #bc-load{order:99;margin-left:auto;position:static}
 }
 .bc-range-pick{
   position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
@@ -22132,6 +22182,8 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 /* ── Style card: Light (Salt/Sand) + Dark (Sand only, no switcher) ── */
 .staff-style-mode{margin:10px 0 4px}
 .staff-style-mode-title{font-weight:700;font-size:13px;color:var(--text);margin:0 0 6px}
+html[data-portal-client="sunset"] #staff-room-order{display:none!important}
+.staff-style-room-order-note{margin:6px 0 0;font-size:12px;color:var(--text-2)}
 .staff-style-row{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px;margin:0 0 8px}
 .staff-style-row--static{pointer-events:none}
 .staff-style-row--static .luna-header-mode-btn{cursor:default}
@@ -24786,8 +24838,12 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2 id="bc-calendar-title">August '26</h2>
-    <div class="bc-month-nav" id="bc-month-nav">
+      <div class="bc-toolbar-main">
+      <div class="bc-year-anchor">
+        <span id="bc-calendar-title" class="bc-calendar-title"><span class="bc-calendar-month">August</span> <button type="button" id="bc-year-open" class="bc-year-open" aria-haspopup="listbox" aria-expanded="false" aria-controls="bc-year-pop">'26</button></span>
+        <div id="bc-year-pop" class="bc-year-pop" hidden role="listbox" data-i18n-aria="calendar.yearPopup.label" aria-label="Years with bookings"></div>
+      </div>
+    <div class="bc-month-nav" id="bc-month-nav" hidden>
       <button type="button" class="bc-nav-arrow" id="bc-nav-prev" data-i18n-title="calendar.nav.prev" data-i18n-aria="calendar.nav.prev" title="Previous month" aria-label="Previous month">‹</button>
       <select id="bc-nav-month" data-i18n-aria="calendar.nav.month" aria-label="Month"></select>
       <input id="bc-nav-year" type="text" inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false" data-i18n-aria="calendar.nav.year" aria-label="Year">
@@ -24833,10 +24889,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-group"></span><span data-i18n="calendar.legend.group">Group</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
+    </div>
+      </div>
       <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
-    </div>
     </div>
 
     <!-- Warnings -->
@@ -25258,6 +25315,14 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="staff-style-row staff-style-row--static" aria-label="Dark palette">
         <span class="luna-header-mode-btn is-active" data-i18n="lunaStaff.style.palette.sand">Sand</span>
       </div>
+    </div>
+    <div class="staff-style-mode" id="staff-room-order" hidden>
+      <div class="staff-style-mode-title" data-i18n="lunaStaff.style.roomOrder">Room order</div>
+      <div class="staff-style-row" role="group" data-i18n-aria="lunaStaff.style.roomOrder" aria-label="Room order">
+        <button type="button" class="luna-header-mode-btn" id="staff-room-order-numerical" data-room-order="numerical" aria-pressed="true" data-i18n="lunaStaff.style.roomOrder.numerical">Numerical</button>
+        <button type="button" class="luna-header-mode-btn" id="staff-room-order-priority" data-room-order="priority" aria-pressed="false" data-i18n="lunaStaff.style.roomOrder.priority">Priority</button>
+      </div>
+      <p class="staff-style-room-order-note" id="staff-room-order-unsaved" hidden data-i18n="lunaStaff.style.roomOrder.unsaved">Not saved on this browser</p>
     </div>
   </section>
 
@@ -26634,12 +26699,115 @@ function bcInitCalendarZoom(){
 function bcNaturalCodeSort(a, b){
   return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
 }
-
-function bcSortRoomsForDisplay(rooms){
-  return (rooms || []).slice().sort(function(a, b){
-    return bcNaturalCodeSort(a.room_code || a.room_name, b.room_code || b.room_name);
-  });
+var BC_ROOM_ORDER_PREFIX = 'wh_staff_room_order_v1:';
+var bcRoomOrderMemory = null;
+var bcRoomOrderRenderPending = false;
+function bcRoomOrderTenant(){
+  var sunset = document.documentElement && document.documentElement.getAttribute('data-portal-client') === 'sunset';
+  if (sunset) return '';
+  if (typeof getClient !== 'function') return '';
+  var slug = String(getClient() || '').trim();
+  if (slug !== 'wolfhouse-somo') return '';
+  return slug;
 }
+function bcRoomOrderNormalize(raw){
+  return raw === 'priority' ? 'priority' : 'numerical';
+}
+function bcRoomOrderRead(){
+  var tenant = bcRoomOrderTenant();
+  if (!tenant) return 'numerical';
+  if (bcRoomOrderMemory && bcRoomOrderMemory.tenant === tenant) return bcRoomOrderMemory.mode;
+  try {
+    var raw = localStorage.getItem(BC_ROOM_ORDER_PREFIX + tenant);
+    if (raw === 'priority' || raw === 'numerical') return raw;
+  } catch (_) { /* unreadable storage stays Numerical */ }
+  return 'numerical';
+}
+function bcRoomOrderWrite(mode){
+  mode = bcRoomOrderNormalize(mode);
+  var tenant = bcRoomOrderTenant();
+  if (!tenant) return { ok: false, mode: mode, unsaved: true };
+  try {
+    localStorage.setItem(BC_ROOM_ORDER_PREFIX + tenant, mode);
+    bcRoomOrderMemory = null;
+    return { ok: true, mode: mode, unsaved: false };
+  } catch (_) {
+    bcRoomOrderMemory = { tenant: tenant, mode: mode };
+    return { ok: false, mode: mode, unsaved: true };
+  }
+}
+function bcRoomOrderEditOpen(){
+  var bar = el('bc-inline-edit-bar');
+  return !!(bar && !bar.hidden);
+}
+function bcSyncRoomOrderControl(){
+  var wrap = el('staff-room-order');
+  if (!wrap) return;
+  var tenant = bcRoomOrderTenant();
+  wrap.hidden = !tenant;
+  if (!tenant) return;
+  var mode = bcRoomOrderRead();
+  var unsaved = !!(bcRoomOrderMemory && bcRoomOrderMemory.tenant === tenant);
+  ['numerical', 'priority'].forEach(function(name){
+    var btn = el('staff-room-order-' + name);
+    if (!btn) return;
+    var on = mode === name;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var note = el('staff-room-order-unsaved');
+  if (note) note.hidden = !unsaved;
+}
+function bcApplyRoomOrder(mode){
+  var result = bcRoomOrderWrite(mode);
+  bcSyncRoomOrderControl();
+  if (bcRoomOrderEditOpen()) {
+    bcRoomOrderRenderPending = true;
+    return result;
+  }
+  if (typeof bcData !== 'undefined' && bcData && typeof renderBedCalendar === 'function') renderBedCalendar(bcData);
+  return result;
+}
+function bcFlushRoomOrderRender(){
+  if (!bcRoomOrderRenderPending || bcRoomOrderEditOpen()) return;
+  bcRoomOrderRenderPending = false;
+  if (typeof bcData !== 'undefined' && bcData && typeof renderBedCalendar === 'function') renderBedCalendar(bcData);
+}
+function bcSortRoomsForDisplay(rooms){
+  var list = (rooms || []).slice();
+  var history = [];
+  var live = [];
+  list.forEach(function(room){
+    if (room && room.history_only) history.push(room);
+    else live.push(room);
+  });
+  function numerical(a, b){
+    var byCode = bcNaturalCodeSort(a && (a.room_code || a.room_name), b && (b.room_code || b.room_name));
+    if (byCode) return byCode;
+    return bcNaturalCodeSort(a && a.room_id, b && b.room_id);
+  }
+  var mode = bcRoomOrderRead();
+  var unavailable = live.some(function(room){ return room && room.room_priority_status === 'unavailable'; });
+  function priority(a, b){
+    var ar = a && a.room_priority_status === 'ranked' ? Number(a.room_priority_rank) : null;
+    var br = b && b.room_priority_status === 'ranked' ? Number(b.room_priority_rank) : null;
+    if (ar == null || !isFinite(ar)) ar = null;
+    if (br == null || !isFinite(br)) br = null;
+    if (ar != null && br != null && ar !== br) return ar - br;
+    if (ar != null && br == null) return -1;
+    if (ar == null && br != null) return 1;
+    return numerical(a, b);
+  }
+  live.sort(mode === 'priority' && !unavailable ? priority : numerical);
+  history.sort(numerical);
+  return live.concat(history);
+}
+document.addEventListener('click', function(ev){
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-room-order]') : null;
+  if (!btn || !el('staff-room-order') || el('staff-room-order').hidden) return;
+  bcApplyRoomOrder(btn.getAttribute('data-room-order'));
+});
+document.addEventListener('DOMContentLoaded', function(){ bcSyncRoomOrderControl(); });
 
 function bcSortBedsForDisplay(beds){
   return (beds || []).slice().sort(function(a, b){
@@ -38315,6 +38483,7 @@ function bcFormatRoomMetaLabel(room) {
 
 function renderBedCalendar(data){
   bcData = data;
+  bcSyncRoomOrderControl();
   var days   = data.days   || [];
   var rooms  = data.rooms  || [];
   var blocks = data.blocks || [];
@@ -43172,6 +43341,7 @@ function bcFieldEditRestoreInline(){
   var swWrap = sw && sw.closest('.bc-private-room-switch-wrap');
   if (sw) sw.disabled = true;
   if (swWrap) swWrap.classList.add('is-readonly');
+  if (typeof bcFlushRoomOrderRender === 'function') bcFlushRoomOrderRender();
 }
 
 function bcFieldEditPostGuestPackages(guestPackages){
@@ -46028,10 +46198,120 @@ function bcUpdateCalendarTitle(){
   var month = d.toLocaleString(lang, { month: 'long' });
   if (month) month = month.charAt(0).toUpperCase() + month.slice(1);
   var yy = String(d.getFullYear()).slice(-2);
-  titleEl.textContent = month + " '" + yy;
+  var full = month + " '" + yy;
+  var monthEl = titleEl.querySelector ? titleEl.querySelector('.bc-calendar-month') : null;
+  var yearBtn = titleEl.querySelector ? titleEl.querySelector('.bc-year-open') : null;
+  if (monthEl && yearBtn) {
+    monthEl.textContent = month;
+    yearBtn.textContent = "'" + yy;
+  } else {
+    titleEl.textContent = full;
+  }
+}
+
+function bcFourDigitYear(value){
+  var s = String(value == null ? '' : value);
+  if (s.length !== 4) return '';
+  var i = 0;
+  for (; i < 4; i += 1) {
+    var c = s.charCodeAt(i);
+    if (c < 48 || c > 57) return '';
+  }
+  var n = Number(s);
+  if (n < 1900 || n > 2100) return '';
+  return s;
+}
+function bcBookingYearsFromData(data, now){
+  var seen = {};
+  function add(value){
+    var ok = bcFourDigitYear(value);
+    if (ok) seen[ok] = true;
+  }
+  var clock = now || new Date();
+  add(clock.getFullYear());
+  add(clock.getFullYear() + 1);
+  var list = data && data.booking_years;
+  if (list && list.length) list.forEach(add);
+  var blocks = data && data.blocks;
+  if (blocks && blocks.length) {
+    blocks.forEach(function(block){
+      var raw = block && (block.check_in || block.start_date || '');
+      add(String(raw).slice(0, 4));
+    });
+  }
+  return Object.keys(seen).sort();
+}
+function bcYearEmptyText(){
+  if (window.t) return window.t('calendar.yearPopup.empty');
+  return 'No booking years yet';
+}
+function bcCloseYearPop(){
+  var pop = el('bc-year-pop');
+  var btn = el('bc-year-open');
+  if (pop) pop.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+function bcRenderYearPop(){
+  var pop = el('bc-year-pop');
+  if (!pop) return;
+  var years = bcBookingYearsFromData(typeof bcData === 'undefined' ? null : bcData);
+  pop.innerHTML = '';
+  if (!years.length) {
+    var empty = document.createElement('div');
+    empty.className = 'bc-year-empty';
+    empty.setAttribute('data-i18n', 'calendar.yearPopup.empty');
+    empty.textContent = bcYearEmptyText();
+    pop.appendChild(empty);
+    return;
+  }
+  years.forEach(function(year){
+    var item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'bc-year-option';
+    item.setAttribute('role', 'option');
+    item.setAttribute('data-year', year);
+    item.textContent = year;
+    pop.appendChild(item);
+  });
+}
+function bcOpenYearPop(){
+  var pop = el('bc-year-pop');
+  var btn = el('bc-year-open');
+  if (!pop || !btn) return;
+  bcRenderYearPop();
+  pop.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+function bcJumpToBookingYear(year){
+  var ok = bcFourDigitYear(year);
+  if (!ok || typeof bcMonthWindow !== 'function' || typeof bcSetRange !== 'function') return;
+  var start = bcReadDateField(el('bc-start'));
+  var month = new Date().getMonth() + 1;
+  if (start && start.length >= 7) month = Number(start.slice(5, 7));
+  if (!(month >= 1 && month <= 12)) month = new Date().getMonth() + 1;
+  var window = bcMonthWindow(Number(ok), month);
+  if (!window || !window.start || !window.end) return;
+  bcCloseYearPop();
+  bcSetRange(window.start, window.end);
 }
 
 var bcLastBedCalendarData = null;
+document.addEventListener('click', function(ev){
+  var target = ev.target;
+  if (!target || !target.closest) return;
+  if (target.closest('#bc-year-open')) {
+    var pop = el('bc-year-pop');
+    if (pop && pop.hidden) bcOpenYearPop();
+    else bcCloseYearPop();
+    return;
+  }
+  var option = target.closest('[data-year]');
+  if (option) {
+    bcJumpToBookingYear(option.getAttribute('data-year'));
+    return;
+  }
+  if (!target.closest('#bc-year-pop')) bcCloseYearPop();
+});
 
 function bcRefreshOpenDrawerI18n(){
   if (!bcLastBookingContext) return;
@@ -52714,13 +52994,42 @@ function computeBlockSpan(row, startDate, endDate) {
 }
 
 function buildRoomHierarchy(roomRows) {
+  function calendarPriorityProjection(rows) {
+    let policy = null;
+    let catalogue = null;
+    for (const row of rows || []) {
+      if (!policy && row && row.room_fill_policy && typeof row.room_fill_policy === 'object') policy = row.room_fill_policy;
+      if (!catalogue && row && Array.isArray(row.room_fill_catalogue)) catalogue = row.room_fill_catalogue;
+    }
+    const parsed = parseStoredPolicy(policy);
+    if (!parsed.ok || !parsed.policy) return { ready: false, ranks: new Map() };
+    const catalogueIds = new Set();
+    if (catalogue) {
+      for (const item of catalogue) {
+        if (!item || typeof item.room_id !== 'string' || !item.room_id) return { ready: false, ranks: new Map() };
+        catalogueIds.add(item.room_id);
+      }
+    }
+    const ranks = new Map();
+    parsed.policy.roomPriority.forEach((id, index) => {
+      if (catalogue && !catalogueIds.has(id)) return;
+      ranks.set(id, index);
+    });
+    return { ready: true, ranks };
+  }
+  const projection = calendarPriorityProjection(roomRows);
   const rooms   = [];
   const roomMap = {};
   for (const row of roomRows) {
     if (!roomMap[row.room_code]) {
+      const roomId = row.room_id || null;
+      const ranked = projection.ready && roomId && projection.ranks.has(roomId);
       roomMap[row.room_code] = {
         room_code:   row.room_code,
         room_name:   row.room_name  || row.room_code,
+        room_id:     roomId,
+        room_priority_rank: ranked ? projection.ranks.get(roomId) : null,
+        room_priority_status: !projection.ready ? 'unavailable' : (ranked ? 'ranked' : 'unranked'),
         house:       row.house      || null,
         room_type:   row.room_type  || null,
         capacity:    row.capacity   || 0,
@@ -53019,9 +53328,9 @@ async function handleBedCalendar(query, res, user) {
     staff_user_id: user ? user.staff_user_id : null,
   };
 
-  let roomRows = [], blockRows = [], summaryRows = [], transferRows = [];
+  let roomRows = [], blockRows = [], summaryRows = [], transferRows = [], bookingYears = [];
   try {
-    [roomRows, blockRows, summaryRows, transferRows] = await withPgClient(async (pg) => {
+    [roomRows, blockRows, summaryRows, transferRows, bookingYears] = await withPgClient(async (pg) => {
       const [rr, br, sr, tr] = await Promise.all([
         pg.query(getBedCalendarRoomsQuery(),   [clientSlug]),
         pg.query(getBedCalendarBlocksQuery(),  [clientSlug, startISO, endISO]),
@@ -53066,7 +53375,25 @@ async function handleBedCalendar(query, res, user) {
           }
         }
       }
-      return [rr.rows, rows, sr.rows, tr];
+      let bookingYears = [];
+      try {
+        const yearRes = await pg.query(
+          `SELECT DISTINCT EXTRACT(YEAR FROM b.check_in)::int AS year
+             FROM bookings b
+             INNER JOIN clients c ON c.id = b.client_id
+            WHERE c.slug = $1
+              AND b.check_in IS NOT NULL
+              /* bed-calendar-booking-years */
+            ORDER BY 1`,
+          [clientSlug]
+        );
+        bookingYears = (yearRes.rows || [])
+          .map((row) => Number(row.year))
+          .filter((year) => year >= 1900 && year <= 2100);
+      } catch (_) {
+        bookingYears = [];
+      }
+      return [rr.rows, rows, sr.rows, tr, bookingYears];
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -53172,6 +53499,7 @@ async function handleBedCalendar(query, res, user) {
     rooms,
     archivedHistoryRooms,
     blocks,
+    booking_years: bookingYears,
     summary:      summaryRows,
     warnings:     [],
     elapsed_ms:   elapsed,

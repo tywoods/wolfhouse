@@ -339,10 +339,11 @@ blocked_summary AS (
 ),
 
 -- ── 9. Booking code: accept provided or auto-generate ────────────────────────
--- Wolfhouse (BOOKING-CODE-WH-PREFIX-001): WH-{YYYYMMDD}-{IDEMPOTENCY_HEX6}
--- Other clients keep MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}. Sunset mints
--- SUNSET-/ELSARDI- outside this branch and must not be renamed here.
--- Guaranteed unique within session via idempotency_key suffix.
+-- Wolfhouse (BOOKING-CODE-WH-PREFIX-001): WH-{YYYYMMDD}-{IDEMPOTENCY_DECIMAL8}
+-- Decimalizing the full 24-bit digest preserves the existing candidate space;
+-- it does not guarantee uniqueness. Other clients keep
+-- MB-{CLIENT6}-{YYYYMMDD}-{IDEMPOTENCY_HEX6}. Sunset mints SUNSET-/ELSARDI-
+-- outside this branch and must not be renamed here.
 booking_code_gen AS (
   SELECT COALESCE(
     $5::text,
@@ -350,7 +351,7 @@ booking_code_gen AS (
       WHEN lower(btrim($1::text)) IN ('wolfhouse-somo', 'wolfhouse')
         OR lower(btrim($1::text)) LIKE 'wolfhouse-%'
       THEN 'WH-' || to_char($10::date, 'YYYYMMDD')
-                 || '-' || substring(md5($4::text), 1, 6)
+                 || '-' || lpad(((('x' || substring(md5($4::text), 1, 6))::bit(24))::bigint)::text, 8, '0')
       ELSE 'MB-' || upper(left(replace($1::text, '-', ''), 6))
                  || '-' || to_char($10::date, 'YYYYMMDD')
                  || '-' || substring(md5($4::text), 1, 6)
@@ -591,12 +592,21 @@ SELECT
 `;
 }
 
+const GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT = 'bookings_hostel_id_booking_code_key';
+
+function isGeneratedBookingCodeCollision(error) {
+  return !!error
+    && String(error.code || '') === '23505'
+    && String(error.constraint || '') === GENERATED_BOOKING_CODE_UNIQUE_CONSTRAINT;
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
 module.exports = {
   buildManualBookingCreateSql,
+  isGeneratedBookingCodeCollision,
   MANUAL_BOOKING_BLOCK_CODES,
   MANUAL_BOOKING_ALLOWED_ROLES,
 };
