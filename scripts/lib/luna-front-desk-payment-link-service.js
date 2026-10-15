@@ -679,12 +679,12 @@ async function createDraftPaymentStripeLink(pg, command, execOpts) {
     const digits = (value) => String(value || '').replace(/\D/g, '');
     const trustedGuestPhone = digits(command.trustedGuestPhone);
     const guestMetadata = parsePaymentMetadata(pm.guest_metadata);
-    const ownerPhones = [
-      pm.booking_phone,
-      ...(pm.booking_guest_id
-        ? [guestMetadata.phone, guestMetadata.guest_phone, guestMetadata.contact_phone]
-        : []),
-    ].map(digits).filter(Boolean);
+    const explicitGuestPhones = pm.booking_guest_id
+      ? [guestMetadata.phone, guestMetadata.guest_phone, guestMetadata.contact_phone].map(digits).filter(Boolean)
+      : [];
+    const ownerPhones = explicitGuestPhones.length
+      ? explicitGuestPhones
+      : [digits(pm.booking_phone)].filter(Boolean);
     if (!trustedGuestPhone || !ownerPhones.includes(trustedGuestPhone)) {
       return abortPrepare(fail(403, 'payment_target_guest_mismatch', 'Payment target does not belong to the trusted Luna guest.'));
     }

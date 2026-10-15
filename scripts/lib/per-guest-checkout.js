@@ -119,11 +119,13 @@ function assertTrustedGuestOwnsTarget(guest, trustedGuestPhone) {
   const digits = (value) => String(value || '').replace(/\D/g, '');
   const trusted = digits(trustedGuestPhone);
   const md = metadata(guest && guest.guest_metadata);
-  // The production booking_guest writer does not persist per-guest phones.
-  // The approved booking contact therefore remains authoritative, while any
-  // explicit guest contact also remains a valid owner when present.
-  const owners = [guest && guest.booking_phone, md.phone, md.guest_phone, md.contact_phone]
-    .map(digits).filter(Boolean);
+  // The production booking_guest writer may omit per-guest phones. Only in that
+  // metadata-less case does the freshly locked booking contact provide the
+  // fallback identity; explicit guest identity remains restrictive.
+  const explicitOwners = [md.phone, md.guest_phone, md.contact_phone].map(digits).filter(Boolean);
+  const owners = explicitOwners.length
+    ? explicitOwners
+    : [digits(guest && guest.booking_phone)].filter(Boolean);
   if (!trusted || !owners.includes(trusted)) {
     const err = new Error('payment_target_guest_mismatch');
     err.httpStatus = 403;

@@ -1438,7 +1438,12 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
           if (typeof metadata === 'string') {
             try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
           }
-          return metadata && metadata.idempotency_key === freshIdempotencyKey;
+          if (!metadata || metadata.idempotency_key !== freshIdempotencyKey) return false;
+          const status = String(row.payment_status || row.status || '').toLowerCase();
+          if (['failed', 'expired', 'cancelled'].includes(status)) return false;
+          const expiresAtMs = row.expires_at ? Date.parse(String(row.expires_at)) : NaN;
+          if (status === 'checkout_created' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) return false;
+          return true;
         });
         if (sameKeyPayment) {
           await pg.query('ROLLBACK');
@@ -1530,24 +1535,32 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
       },
       success_url: stripeCheckoutSessionSuccessUrl(),
       cancel_url: stripeCheckoutSessionCancelUrl(),
-    });
+    }, { idempotencyKey: `${idempotencyKey}:${newPaymentId}` });
   } catch (stripeErr) {
-    // Do not leave a reusable draft after the provider rejected session creation.
+    // Definite provider rejection is replaceable. Unknown transport/provider
+    // outcomes retain the draft so the same logical attempt cannot fan out.
+    const providerStatus = Number(stripeErr && (stripeErr.statusCode || stripeErr.httpStatus));
+    const definiteProviderFailure = !!(stripeErr && stripeErr.providerBlocked)
+      || (providerStatus >= 400 && providerStatus < 500 && ![408, 409, 429].includes(providerStatus));
     try {
       await withPgClient((pg) => pg.query(
         `UPDATE payments
-            SET status = 'failed'::payment_record_status,
+            SET status = CASE WHEN $4::boolean THEN 'failed'::payment_record_status ELSE status END,
                 metadata = metadata || $1::jsonb
           WHERE id = $2::uuid
             AND client_id = $3
             AND status = 'draft'::payment_record_status`,
-        [JSON.stringify({ provider_create_failed: true }), newPaymentId, balanceLinkClientId],
+        [JSON.stringify(definiteProviderFailure
+          ? { provider_create_failed: true }
+          : { provider_outcome_uncertain: true }), newPaymentId, balanceLinkClientId, definiteProviderFailure],
       ));
     } catch (_) { /* safe failure response below; repair remains observable */ }
     return sendJSON(res, 500, {
       success: false,
       error: 'Stripe session creation failed: ' + stripeErr.message,
-      no_checkout_created: true,
+      no_checkout_created: definiteProviderFailure,
+      provider_outcome_uncertain: !definiteProviderFailure,
+      reconciliation_required: !definiteProviderFailure,
     });
   }
 

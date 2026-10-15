@@ -491,11 +491,19 @@ async function main() {
     assert('allowed owner persists admission receipt before provider', allowed.ok
       && !!(allowedPayment.metadata && allowedPayment.metadata.automatic_admission_receipt));
 
-    const guestSpecific = { ...payment, booking_guest_id: 'guest-1', guest_metadata: { phone: phoneB } };
-    const guestPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
-      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [guestSpecific] });
-    const guestAllowed = await createPaymentLink(guestPg, command, baseExecOpts());
-    assert('approved booking phone authorizes a real-writer guest target', guestAllowed.ok === true);
+    const explicitGuest = { ...payment, booking_guest_id: 'guest-1', guest_metadata: { phone: phoneB } };
+    const explicitGuestPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [explicitGuest] });
+    const explicitGuestDenied = await createPaymentLink(explicitGuestPg, command, baseExecOpts());
+    assert('explicit guest phone remains restrictive against booking contact', explicitGuestDenied.ok === false
+      && explicitGuestDenied.status === 403
+      && explicitGuestDenied.body.reason_code === 'payment_target_guest_mismatch');
+
+    const metadataLessGuest = { ...payment, booking_guest_id: 'guest-1', guest_metadata: {} };
+    const metadataLessPg = makePg({ bookings: [{ booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, status: 'confirmed', phone: phoneA }], payments: [metadataLessGuest] });
+    const metadataLessAllowed = await createPaymentLink(metadataLessPg, command, baseExecOpts());
+    assert('approved booking phone authorizes metadata-less real-writer guest target', metadataLessAllowed.ok === true);
   }
 
   console.log('[11] Prepare SQL cleanup + truthful provider-failure receipt');
