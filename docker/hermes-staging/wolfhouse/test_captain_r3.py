@@ -162,6 +162,7 @@ class CaptainR3Tests(unittest.TestCase):
         cases = (
             ('Alex says Bea is a woman', 'Alex'),
             ('Alex is a man. Bea is a woman.', 'Alex'),
+            ('I am not a woman', 'Alex'),
             ('Alex is not actually a woman', 'Alex'),
             ('Alex is no longer a woman', 'Alex'),
         )
@@ -174,6 +175,25 @@ class CaptainR3Tests(unittest.TestCase):
                 self.assertEqual(calls[0][1]['guests'], [{'name': name}])
                 self.assertNotIn('room_name_hints', calls[0][1])
                 self.assertTrue(result['room_decision']['clarification_needed'])
+
+    def test_registered_adapter_keeps_only_the_person_bound_fact(self):
+        raw = 'Alex is a man. Bea is a woman.'
+        guests = [
+            {'name': 'Alex', 'explicit_gender': 'female',
+             'gender_evidence': 'Bea is a woman'},
+            {'name': 'Bea', 'explicit_gender': 'female',
+             'gender_evidence': 'Bea is a woman'},
+        ]
+        result, calls = self.registered_quote(raw, guests)
+        self.assertEqual(calls[0][0], '/booking-preview')
+        self.assertEqual(calls[0][1]['guests'], [
+            {'name': 'Alex'},
+            {'name': 'Bea', 'explicit_gender': 'female'},
+        ])
+        self.assertEqual(calls[0][1]['room_name_hints'], [
+            {'name': 'Bea', 'explicit_gender': 'female'},
+        ])
+        self.assertTrue(result['room_decision']['clarification_needed'])
 
     def test_registered_adapter_keeps_affirmative_and_room_controls(self):
         cases = (
