@@ -538,10 +538,44 @@ def _apply_offered_completion(raw, state):
     index, claimed = completion
     guests = state['plan']['guests']
     if ' '.join(str(guests[index]['name']).split()).casefold() != ' '.join(claimed.split()).casefold():
+        previous = guests[index]['name']
         updated = deepcopy(guests)
         updated[index] = {**updated[index], 'name': claimed}
         state['plan']['guests'] = updated
+        state['pending_name_completion'] = {
+            'guest_index': index,
+            'previous_name': previous,
+            'completed_name': claimed,
+        }
     return True
+
+
+def _authoritative_name_completion_revalidation(state, checked, plan):
+    """Accept only Staff's exact name-only revision for the frozen guest/bed row."""
+    pending = state.get('pending_name_completion')
+    previous = state.get('checked_offer')
+    if not isinstance(pending, dict) or not isinstance(previous, dict) or not isinstance(checked, dict):
+        return False
+    if plan != state.get('plan'):
+        return False
+    index = pending.get('guest_index')
+    if type(index) is not int:
+        return False
+    expected = deepcopy(previous)
+    assignments = expected.get('guest_bed_assignments')
+    if not isinstance(assignments, list):
+        return False
+    rows = [row for row in assignments
+            if isinstance(row, dict) and row.get('guest_index') == index]
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    if (len(rows) != 1
+            or normalize(rows[0].get('guest_name')) != normalize(pending.get('previous_name'))):
+        return False
+    rows[0]['guest_name'] = normalize(pending.get('completed_name'))
+    actual = deepcopy(checked)
+    expected.pop('offer_fingerprint', None)
+    actual.pop('offer_fingerprint', None)
+    return actual == expected
 
 
 def _accepted_completion_continuity(raw, state):
@@ -784,6 +818,18 @@ def record_quote(params, response):
         valid = response.get('success') is True and type(total) is int and total > 0
         if previous_checked or response.get('offer_revision'):
             valid = valid and checked is not None
+        if (valid and state['status'] == 'accepted'
+                and _authoritative_name_completion_revalidation(state, response['offer_revision'], plan)):
+            # Staff, not the model/client, supplies the revised assignment and
+            # fingerprint. Preserve consent only for this exact name-only change.
+            state['checked_offer'] = deepcopy(response['offer_revision'])
+            state['accepted_offer_snapshot'] = deepcopy(response['offer_revision'])
+            state['quote'] = deepcopy(response)
+            state['plan'] = plan
+            state.pop('pending_name_completion', None)
+            state['epoch'] += 1
+            prepared.capability.epoch = state['epoch']
+            return
         if (valid and checked is not None and state['status'] == 'accepted'
                 and previous_checked == response['offer_revision'] and state['plan'] == plan):
             # Cosmetic revalidation metadata must not mint a new operation or
@@ -798,6 +844,7 @@ def record_quote(params, response):
         state.update(plan=plan, quote=deepcopy(response) if valid else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
+        state.pop('pending_name_completion', None)
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
@@ -808,6 +855,8 @@ def prepare_create(params):
     def prepare(state, ingress):
         if state['status'] != 'accepted' or not state.get('quote'):
             raise QuoteBoundaryError('quote_owner_acceptance_required')
+        if state.get('pending_name_completion'):
+            raise QuoteBoundaryError('quote_name_completion_revalidation_required')
         result = deepcopy(params)
         plan = state['plan']
         for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):

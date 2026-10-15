@@ -164,10 +164,32 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         self.turn('accepted-name-payment-completion',
                   "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_name_completion_revalidation_required$'):
+            self.ledger.prepare_create({})
+        revalidation = self.ledger.prepare_quote({})
+        revalidated_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), revalidation, beds)
+        self.ledger.record_quote(revalidation, revalidated_response)
         prepared = self.ledger.prepare_create({})
         self.assertEqual(prepared['payment_choice'], 'deposit')
         self.assertEqual(prepared['guests'], [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}])
         self.assertEqual(prepared['selected_bed_codes'], ['M1', 'M2'])
+        self.assertEqual(prepared['accepted_offer'], revalidated_response['offer_revision'])
+        second_revalidation = self.ledger.prepare_quote({})
+        unchanged_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), second_revalidation, beds)
+        self.ledger.record_quote(second_revalidation, unchanged_response)
+        self.assertEqual(self.ledger.prepare_create({})['accepted_offer'],
+                         unchanged_response['offer_revision'])
+        changed_bed_revalidation = self.ledger.prepare_quote({})
+        changed_beds = [dict(bed_code='M9', room_code='M', gender_strategy='mixed'), beds[1]]
+        changed_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), changed_bed_revalidation, changed_beds)
+        self.ledger.record_quote(changed_bed_revalidation, changed_response)
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
 
     def test_original_combined_turn_accepts_already_complete_matching_name(self):
         self.agent.session_id = 'accepted-known-full-name-owner'
