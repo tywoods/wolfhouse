@@ -4543,8 +4543,12 @@ def _booking_name_handler(name, handler):
     return scoped
 
 
-def interpret_booking_turn(params):
+def interpret_booking_turn(params, **kwargs):
     """Submit the current model interpretation to the owner ledger; no Staff I/O."""
+    # Hermes dispatch supplies runtime metadata (task_id, session_id, user_task).
+    # It is intentionally ignored here: trusted owner/session binding comes only
+    # from the installed ledger context, never caller-supplied tool metadata.
+    del kwargs
     from wolfhouse import accepted_quote as ledger
     try:
         return _json_result({'tool': 'interpret_booking_turn', 'success': True,
