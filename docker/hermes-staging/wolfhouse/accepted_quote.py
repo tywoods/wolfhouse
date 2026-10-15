@@ -491,19 +491,22 @@ def _eligibility_subject_is_affirmed(value, evidence, name, guest_index):
         'male': r'(?:male|man|men|boy|guy)',
     }
     noun = aliases[value]
+    # A demographic noun is authority only as the predicate itself, never as
+    # the prefix of a possessive noun phrase (for example, "a woman's husband").
+    predicate = noun + r"\b(?!\s*['’])"
     # Anchoring prevents a speaker, object, or later sentence from lending
     # another person's fact to this guest slot.
     if guest_index == 0 and re.match(
-            r"^\s*i\s*(?:am|'m)\s+(?:actually\s+)?(?:a\s+)?" + noun + r'\b',
+            r"^\s*i\s*(?:am|'m)\s+(?:actually\s+)?(?:a\s+)?" + predicate,
             evidence, re.IGNORECASE):
         return True
     if not isinstance(name, str) or not name.strip():
         return False
     escaped_name = re.escape(name.strip())
     if re.match(r'^\s*' + escaped_name + r'\s+(?:is|are)\s+'
-                r'(?:actually\s+)?(?:a\s+)?' + noun + r'\b', evidence, re.IGNORECASE):
+                r'(?:actually\s+)?(?:a\s+)?' + predicate, evidence, re.IGNORECASE):
         return True
-    group = re.match(r'^\s*(.+?)\s+are\s+both\s+' + noun + r'\b',
+    group = re.match(r'^\s*(.+?)\s+are\s+both\s+' + predicate,
                      evidence, re.IGNORECASE)
     if not group:
         return False

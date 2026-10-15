@@ -177,6 +177,22 @@ class CaptainR3Tests(unittest.TestCase):
                 self.assertNotIn('room_name_hints', calls[0][1])
                 self.assertTrue(result['room_decision']['clarification_needed'])
 
+    def test_registered_adapter_rejects_possessive_demographic_predicate_prefixes(self):
+        cases = (
+            ("Alex is a woman's husband", ['Alex']),
+            ("I am a woman's husband", ['Alex']),
+            ("Alex and Bea are both women's sons", ['Alex', 'Bea']),
+        )
+        for raw, names in cases:
+            with self.subTest(raw=raw):
+                guests = [{'name': name, 'explicit_gender': 'female',
+                           'gender_evidence': raw} for name in names]
+                result, calls = self.registered_quote(raw, guests)
+                sent = calls[0][1]
+                self.assertEqual(sent['guests'], [{'name': name} for name in names])
+                self.assertNotIn('room_name_hints', sent)
+                self.assertTrue(result['room_decision']['clarification_needed'])
+
     def test_registered_adapter_keeps_only_the_person_bound_fact(self):
         raw = 'Alex is a man. Bea is a woman.'
         guests = [
