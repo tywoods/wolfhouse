@@ -496,7 +496,17 @@ def _accepted_completion_continuity(raw, state):
         text, re.I)
     if not match or payment_choice != 'deposit':
         return False
-    return _contact_continuity('My name is ' + match[1].strip())
+    claimed = match[1].strip()
+    if not _contact_continuity('My name is ' + claimed):
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    accepted_names = {normalize(plan.get('guest_name'))}
+    guests = plan.get('guests')
+    if isinstance(guests, list):
+        accepted_names.update(normalize(row.get('name')) for row in guests
+                              if isinstance(row, dict) and row.get('name'))
+    accepted_names.discard('')
+    return normalize(claimed) in accepted_names
 
 
 def _accepts_price_booking(raw, offer):

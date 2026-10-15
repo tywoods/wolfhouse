@@ -181,6 +181,25 @@ class OwnerHostileTests(unittest.TestCase):
                                     '^quote_owner_acceptance_required$'):
             self.ledger.prepare_create({})
 
+    def test_accepted_quote_does_not_survive_conflicting_name_completion(self):
+        self.agent.session_id = 'accepted-conflicting-name-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre Kaya'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-conflicting-name-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-conflicting-name-consent', 'I accept the quote')
+        self.turn('accepted-conflicting-name',
+                  "My full name is Alice Smith and I'll pay the deposit")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
+
     def test_named_removal_cannot_change_dates_or_other_selections(self):
         self.turn('remove-yoga', 'Remove the yoga')
         with self.assertRaises(self.ledger.QuoteBoundaryError):
