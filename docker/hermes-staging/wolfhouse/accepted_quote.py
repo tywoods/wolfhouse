@@ -770,7 +770,20 @@ def interpret_owner_turn(interpretation):
             if old.casefold() != new.casefold():
                 # Only an unambiguous same-person expansion can retain consent;
                 # Staff must revalidate the exact person/bed row before create.
-                if not old or (' ' in old) or not new.casefold().startswith(old.casefold() + ' '):
+                normalized_old = ' '.join(old.split()).casefold()
+                normalized_new = ' '.join(new.split()).casefold()
+                if (not old or (' ' in old)
+                        or not normalized_new.startswith(normalized_old + ' ')
+                        or sum(1 for guest in (plan_guests or [])
+                               if isinstance(guest, dict)
+                               and ' '.join(str(guest.get('name') or '').split()).casefold()
+                               == normalized_old) != 1):
+                    raise QuoteBoundaryError('quote_completion_identity_changed')
+                if any(index != item['guest_index']
+                       and ' '.join(str(guest.get('name') or '').split()).casefold()
+                       == normalized_new
+                       for index, guest in enumerate(plan_guests or [])
+                       if isinstance(guest, dict)):
                     raise QuoteBoundaryError('quote_completion_identity_changed')
                 updated = deepcopy(plan_guests)
                 updated[item['guest_index']] = {**updated[item['guest_index']], 'name': new}
@@ -989,6 +1002,26 @@ def prepare_quote(params):
                 if key in result and result[key] != expected:
                     raise QuoteBoundaryError('quote_revision_requires_owner')
                 result.setdefault(key, deepcopy(expected))
+            if 'add_ons' in authorized:
+                catalog = deepcopy(result.get(
+                    'catalog_selections', preserved.get('catalog_selections', [])))
+                if not isinstance(catalog, list):
+                    raise QuoteBoundaryError('quote_revision_requires_owner')
+                for change in authorized['add_ons']:
+                    if change.get('operation') != 'remove':
+                        continue
+                    item = change.get('item')
+                    code = item.get('code') if isinstance(item, dict) else None
+                    if not isinstance(code, str) or not code.strip():
+                        raise QuoteBoundaryError('quote_revision_requires_owner')
+                    matches = [index for index, selected in enumerate(catalog)
+                               if isinstance(selected, dict)
+                               and selected.get('service_code') == code.strip()]
+                    if len(matches) > 1:
+                        raise QuoteBoundaryError('quote_revision_requires_owner')
+                    if matches:
+                        catalog.pop(matches[0])
+                result['catalog_selections'] = catalog
             if 'catalog_selections' in authorized:
                 projected = _sync_catalog_projection(
                     result.get('add_ons', preserved.get('add_ons', [])),
@@ -1018,6 +1051,31 @@ def validated_guest_eligibility(prepared):
             return {}
         allowed = {}
         checked = state.get('checked_offer') or {}
+        name_binding = state.get('pending_name_completion')
+        bound_index = None
+        bound_previous = None
+        if isinstance(name_binding, dict):
+            normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
+            index = name_binding.get('guest_index')
+            previous = str(name_binding.get('previous_name') or '').strip()
+            completed = str(name_binding.get('completed_name') or '').strip()
+            assignments = checked.get('guest_bed_assignments') if isinstance(checked, dict) else None
+            if (type(index) is int and 0 <= index < len(guests)
+                    and previous and completed
+                    and isinstance(guests[index], dict)
+                    and normalize_name(guests[index].get('name')) == normalize_name(completed)
+                    and isinstance(assignments, list) and len(assignments) == len(guests)
+                    and all(isinstance(row, dict) and row.get('guest_index') == row_index
+                            for row_index, row in enumerate(assignments))
+                    and normalize_name(assignments[index].get('guest_name'))
+                    == normalize_name(previous)
+                    and all(row_index == index or (
+                        isinstance(guests[row_index], dict)
+                        and normalize_name(guests[row_index].get('name'))
+                        == normalize_name(assignments[row_index].get('guest_name')))
+                            for row_index in range(len(guests)))):
+                bound_index = index
+                bound_previous = previous.casefold()
         hints = checked.get('room_name_hints') if isinstance(checked, dict) else None
         if isinstance(hints, list):
             for hint in hints:
@@ -1025,6 +1083,9 @@ def validated_guest_eligibility(prepared):
                         or hint.get('explicit_gender') not in ('male', 'female')):
                     continue
                 name = str(hint.get('name', '')).strip().casefold()
+                if bound_index is not None and name == bound_previous:
+                    allowed[bound_index] = hint['explicit_gender']
+                    continue
                 matches = [index for index, guest in enumerate(guests)
                            if isinstance(guest, dict)
                            and str(guest.get('name', '')).strip().casefold() == name]

@@ -1070,6 +1070,87 @@ class OwnerHostileTests(unittest.TestCase):
             [{'service_id': 'catalog-yoga', 'service_code': 'yoga_class'}]),
             [{'code': 'wetsuit_rental', 'quantity': 3}])
 
+    def test_name_completion_cannot_transfer_or_reorder_eligibility(self):
+        self.turn('wrong-person-name', 'Book it for Sam Smith')
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    'quote_completion_identity_changed'):
+            self.ledger.interpret_owner_turn({
+                'action': 'accept', 'action_evidence': 'Book it for Sam Smith',
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [],
+                'completions': {'guests': [{
+                    'guest_index': 0, 'name': 'Sam Smith', 'evidence': 'Sam Smith'}]},
+            })
+        self.turn('same-person-name', 'Book it for Alex Grey')
+        accepted = self.ledger.interpret_owner_turn({
+            'action': 'accept', 'action_evidence': 'Book it for Alex Grey',
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [],
+            'completions': {'guests': [{
+                'guest_index': 0, 'name': 'Alex Grey', 'evidence': 'Alex Grey'}]},
+        })
+        self.assertTrue(accepted['accepted'])
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    'quote_revision_requires_owner'):
+            self.ledger.prepare_quote({'guests': [
+                {'name': 'Sam'}, {'name': 'Alex Grey'}]})
+
+    def test_name_completion_rejects_collision_with_other_guest(self):
+        if self.tokens:
+            clear_session_vars(self.tokens)
+            self.tokens = None
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'collision.db')
+        self.db.create_session('s1', source='whatsapp')
+        self.agent._session_db = self.db
+        self.ledger._current.set(None)
+        plan = deepcopy(self.plan)
+        plan['guests'] = [{'name': 'Alex'}, {'name': 'Alex Smith'}]
+        self.response = self.checked(plan)
+        self.turn('collision-initial', 'Quote this please')
+        self.ledger.record_quote(plan, self.response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        raw = 'Book it for Alex Smith'
+        self.turn('collision-completion', raw)
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    'quote_completion_identity_changed'):
+            self.ledger.interpret_owner_turn({
+                'action': 'accept', 'action_evidence': raw,
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [],
+                'completions': {'guests': [{
+                    'guest_index': 0, 'name': 'Alex Smith',
+                    'evidence': 'Alex Smith'}]},
+            })
+
+    def test_name_completion_rejects_duplicate_previous_name(self):
+        if self.tokens:
+            clear_session_vars(self.tokens)
+            self.tokens = None
+        self.db.close()
+        self.db = SessionDB(Path(self.temp.name) / 'duplicate-previous.db')
+        self.db.create_session('s1', source='whatsapp')
+        self.agent._session_db = self.db
+        self.ledger._current.set(None)
+        plan = deepcopy(self.plan)
+        plan['guests'] = [{'name': 'Alex'}, {'name': 'Alex'}]
+        self.response = self.checked(plan)
+        self.turn('duplicate-initial', 'Quote this please')
+        self.ledger.record_quote(plan, self.response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        raw = 'Book it for Alex Grey'
+        self.turn('duplicate-completion', raw)
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    'quote_completion_identity_changed'):
+            self.ledger.interpret_owner_turn({
+                'action': 'accept', 'action_evidence': raw,
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [],
+                'completions': {'guests': [{
+                    'guest_index': 0, 'name': 'Alex Grey',
+                    'evidence': 'Alex Grey'}]},
+            })
+
     def test_registered_adapter_carries_validated_eligibility_to_recheck(self):
         import json
         import wolfhouse_staff_api as plugin
