@@ -90,7 +90,8 @@ class FirstYesOwnerTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[3]
         source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
         quote = dict(success=True, total_cents=20000, deposit_required_cents=10000,
-                     payment_link_amount_cents=20000, currency='EUR', package_code=plan['package_code'])
+                     payment_link_amount_cents=(10000 if plan['payment_choice'] in ('deposit', 'per_guest') else 20000),
+                     currency='EUR', package_code=plan['package_code'])
         checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
             client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
             payment_choice=plan['payment_choice'], availability={**plan, 'status': 'checked',
@@ -117,7 +118,7 @@ class FirstYesOwnerTests(unittest.TestCase):
                          response['offer_revision']['offer_fingerprint'])
         first_key = first['idempotency_key']
 
-        self.turn('france-confirm-2', 'Yes, create it.')
+        # Retry in the unchanged authenticated original ingress context.
         retry = ledger.prepare_create({})
         self.assertEqual(retry['idempotency_key'], first_key)
         self.assertEqual(retry['accepted_offer'], first['accepted_offer'])
@@ -501,10 +502,17 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
         receipt = {'success': True, 'write_performed': True, 'booking_id': 'offline-unit-booking'}
         calls = []
         self.assertEqual(ledger.dispatch_create(prepared, lambda: calls.append(1) or receipt), receipt)
+        state = ledger._transaction(lambda stored, ingress: deepcopy(stored))
+        frozen = ledger._frozen_recovery(
+            state, session_key='k1', session_id=self.agent.session_id,
+            identity=('whatsapp', 'c1', 'accept'), message_id='accept',
+            raw='I accept the quote')
+        self.assertIsNotNone(frozen)
         self.db.close()
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
         self.agent._session_db = self.db
-        self.turn('retry', 'Please proceed')
+        self.assertTrue(ledger._arm_exact_gateway_retry_for_owner(frozen))
+        self.turn('accept', 'I accept the quote')
         retried = ledger.prepare_create({})
         self.assertEqual(retried['idempotency_key'], prepared['idempotency_key'])
         self.assertEqual(ledger.dispatch_create(retried, lambda: calls.append(2) or {}), receipt)
@@ -522,7 +530,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             raise ConnectionError('unit: committed but response lost')
         with self.assertRaises(ConnectionError):
             ledger.dispatch_create(before, lost_response)
-        self.turn('retry', 'Please proceed')
+        # Crash recovery remains in the unchanged exact original ingress context.
         after = ledger.prepare_create({})
         self.assertEqual(after, committed[after['idempotency_key']])
 
@@ -734,6 +742,10 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                     'material_changes': [], 'completions': {},
                 }))
                 self.assertTrue(result['create_ready'])
+            else:
+                blocked = json.loads(plugin._quote_owner_handler(
+                    'create_booking_from_plan', inert)({}))
+                self.assertEqual(blocked.get('error'), 'quote_current_turn_not_adjudicated')
             return {'completed': True, 'final_response': 'offline model reply', 'messages': []}
         def inert(params):
             creates.append(deepcopy(dict(params)))

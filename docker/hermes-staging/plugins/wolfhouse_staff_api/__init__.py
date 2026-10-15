@@ -4713,8 +4713,18 @@ def register(ctx):
         "ambiguous": {"type": "boolean"},
         "negated": {"type": "boolean"},
         "conditional": {"type": "boolean"},
-        "material_changes": {"type": "array", "items": {"type": "string"},
-                             "description": "Commercial fields the guest asks to change; empty only when none."},
+        "material_changes": {"type": "array", "items": {
+            "type": "object",
+            "description": "One exact evidenced target. Scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
+            "properties": {
+                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email"]},
+                "value": {},
+                "operation": {"type": "string", "enum": ["add", "remove"]},
+                "item": {"type": "object"},
+                "evidence": {"type": "string", "minLength": 1},
+            },
+            "required": ["field", "evidence"],
+        }, "description": "Exact commercial values or narrow list-item operations requested by the guest; empty only when none."},
         "completions": {"type": "object", "additionalProperties": False, "properties": {
             "guests": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                 "properties": {"guest_index": {"type": "integer", "minimum": 0},
