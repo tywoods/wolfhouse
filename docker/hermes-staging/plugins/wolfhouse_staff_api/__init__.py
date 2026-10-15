@@ -4708,8 +4708,14 @@ def register(ctx):
             original = next((kwargs.get(key) for key in
                              ('user_message', 'message_text', 'current_message')
                              if isinstance(kwargs.get(key), str)), None)
-            return {**packaged, **({'trusted_original_user_message': original}
-                                   if original is not None else {})}
+            if original is None:
+                return packaged
+            return {**packaged,
+                    'context': ('Trusted original current user message (copy this exact text '
+                                'for action_evidence; never append contextual data):\n'
+                                + json.dumps(original, ensure_ascii=False) + '\n\n'
+                                + packaged['context']),
+                    'trusted_original_user_message': original}
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):
