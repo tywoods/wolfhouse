@@ -673,6 +673,10 @@ def _catalog_selection_refusal(tool, payload):
 
 
 def quote_booking(params, **kwargs):
+    owner_validated_guest_eligibility = kwargs.pop(
+        '_owner_validated_guest_eligibility', {})
+    if not isinstance(owner_validated_guest_eligibility, dict):
+        owner_validated_guest_eligibility = {}
     del kwargs
     refusal = _catalog_selection_refusal("quote_booking", params or {})
     if refusal is not None:
@@ -688,6 +692,8 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
+    # Staff hints must be regenerated from owner-proven per-person guest fields.
+    payload.pop("room_name_hints", None)
     payload.setdefault("source", "agent_luna_whatsapp")
     if not _has_package_selection(payload):
         options = json.loads(preview_package_prices(payload))
@@ -697,7 +703,8 @@ def quote_booking(params, **kwargs):
     # Quote identity normalization must not infer/replace the guest count or
     # other business inputs. Preserve the existing quote validator and wire.
     identity = dict(payload)
-    _normalize_guests_payload(identity)
+    _normalize_guests_payload(
+        identity, validated_explicit_genders=owner_validated_guest_eligibility)
     payload.update({key: identity[key] for key in ("guest_name", "guests") if key in identity})
     data = _post_bot("/booking-preview", payload)
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
@@ -779,21 +786,28 @@ def _normalize_contact(payload):
             return
 
 
-def _normalize_guests_payload(payload):
-    """Normalize occupant names without dropping unnamed guest slots."""
+def _normalize_guests_payload(payload, validated_explicit_genders=None):
+    """Normalize occupant names; retain only owner-validated eligibility hints."""
+    validated_explicit_genders = (validated_explicit_genders
+                                  if isinstance(validated_explicit_genders, dict) else {})
     _normalize_contact(payload)
     raw = payload.get("guests")
     if not isinstance(raw, list):
         return
     normalized = []
-    for item in raw:
+    for index, item in enumerate(raw):
+        explicit_gender = None
         if isinstance(item, str):
             name = _clean(item)
         elif isinstance(item, dict):
             name = _clean(item.get("name") or item.get("guest_name"))
+            if (validated_explicit_genders.get(index) in ("male", "female")
+                    and item.get("explicit_gender") == validated_explicit_genders[index]):
+                explicit_gender = item["explicit_gender"]
         else:
             name = ""
-        normalized.append({"name": name})
+        normalized.append({"name": name, **(
+            {"explicit_gender": explicit_gender} if explicit_gender else {})})
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -4529,6 +4543,28 @@ def _booking_name_handler(name, handler):
     return scoped
 
 
+def interpret_booking_turn(params):
+    """Submit the current model interpretation to the owner ledger; no Staff I/O."""
+    from wolfhouse import accepted_quote as ledger
+    try:
+        return _json_result({'tool': 'interpret_booking_turn', 'success': True,
+                             **ledger.interpret_owner_turn(dict(params or {}))})
+    except ledger.QuoteBoundaryError as error:
+        code = str(error)
+        questions = {
+            'quote_intent_evidence_invalid': 'Please answer again using one clear booking instruction.',
+            'quote_completion_evidence_invalid': 'Please provide the missing name or payment choice explicitly.',
+            'quote_payment_terms_not_presented': 'Would you like one of the payment options shown in the offer?',
+            'quote_eligibility_revalidation_required': 'Please confirm the relevant room eligibility so I can recheck it.',
+            'quote_owner_presented_offer_required': 'Would you like me to show the booking offer again?',
+            'quote_intent_already_adjudicated': 'Should I ask a fresh booking question before we continue?',
+        }
+        return _json_result({'tool': 'interpret_booking_turn', 'success': False,
+                             'accepted': False, 'write_performed': False,
+                             'error': code, 'next_action': 'ask_one_targeted_question',
+                             'question': questions.get(code, 'Should I clarify the booking details before continuing?')})
+
+
 def _quote_owner_handler(name, original):
     """Registered and direct entrypoints share the same owner boundary."""
     from functools import wraps
@@ -4582,7 +4618,14 @@ def _quote_owner_handler(name, original):
                     wire['add_ons'] = additions
                     wire.pop('catalog_selections', None)
             dispatched = True
-            result = original(wire, **kwargs)
+            if active and name == 'quote_booking':
+                result = original(
+                    wire,
+                    _owner_validated_guest_eligibility=(
+                        ledger.validated_guest_eligibility(canonical)),
+                    **kwargs)
+            else:
+                result = original(wire, **kwargs)
             if active and name == 'quote_booking':
                 # Persist the exact add-on wire we just asked Staff to price,
                 # including supported catalog durations, not a lossy echo.
@@ -4683,7 +4726,47 @@ def register(ctx):
             "items": {"type": "object"},
         },
     }
+    intent_interpretation = {
+        "action": {"type": "string", "enum": ["accept", "reject", "revise", "clarify"],
+                   "description": "Semantic intent for the current original guest message in the context of the latest owner-presented offer."},
+        "action_evidence": {"type": "string", "minLength": 1,
+                            "description": "Exact verbatim COMPLETE current original guest message; never excerpt or paraphrase it."},
+        "ambiguous": {"type": "boolean"},
+        "negated": {"type": "boolean"},
+        "conditional": {"type": "boolean"},
+        "material_changes": {"type": "array", "items": {
+            "type": "object",
+            "description": "One exact evidenced target. Scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
+            "properties": {
+                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email"]},
+                "value": {},
+                "operation": {"type": "string", "enum": ["add", "remove"]},
+                "item": {"type": "object"},
+                "evidence": {"type": "string", "minLength": 1},
+            },
+            "required": ["field", "evidence"],
+        }, "description": "Exact commercial values or narrow list-item operations requested by the guest; empty only when none."},
+        "completions": {"type": "object", "additionalProperties": False, "properties": {
+            "guests": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                "properties": {"guest_index": {"type": "integer", "minimum": 0},
+                               "name": {"type": "string", "minLength": 1},
+                               "evidence": {"type": "string", "minLength": 1}},
+                "required": ["guest_index", "name", "evidence"]}},
+            "payment_choice": {"type": "object", "additionalProperties": False,
+                "properties": {"value": {"type": "string", "enum": ["deposit", "full", "pay_on_arrival", "per_guest"]},
+                               "evidence": {"type": "string", "minLength": 1}},
+                "required": ["value", "evidence"]},
+            "eligibility": {"type": "object", "additionalProperties": False,
+                "description": "Explicit eligibility completion. Owner requires Staff revalidation; never infer from a name.",
+                "properties": {"guest_index": {"type": "integer", "minimum": 0},
+                               "value": {"type": "string", "enum": ["male", "female"]},
+                               "evidence": {"type": "string", "minLength": 1}},
+                "required": ["guest_index", "value", "evidence"]},
+        }},
+    }
     tools = [
+        ("interpret_booking_turn", "Interpret the CURRENT ORIGINAL guest message against the latest owner-presented booking offer before create_booking_from_plan. Use semantic meaning, not a phrase list. Call whenever the guest responds to a presented offer. Copy the complete current message verbatim as action_evidence; use exact spans for each completion. Mark ambiguity, negation, conditional intent and every requested commercial change. This tool cannot mint an offer or change prices; owner validates provenance, presentation identity/revision and readiness. If it refuses, ask its one targeted question and do not create.", interpret_booking_turn, intent_interpretation,
+         ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
@@ -4786,10 +4869,13 @@ def register(ctx):
         if name == 'create_booking_from_plan' and hasattr(ctx, 'register_hook'):
             from wolfhouse import accepted_quote
             accepted_quote.install_owner_hook(handler, seed_booking_names if booking_names is not None else None)
+        schema = _schema(name, description, properties, required)
+        if name == 'interpret_booking_turn':
+            schema['parameters']['additionalProperties'] = False
         ctx.register_tool(
             name=name,
             toolset=TOOLSET,
-            schema=_schema(name, description, properties, required),
+            schema=schema,
             handler=handler,
             description=description,
         )
