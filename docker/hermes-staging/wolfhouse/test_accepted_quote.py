@@ -150,6 +150,144 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_quote({'catalog_selections': []})
 
+    def test_accepted_plain_quote_revalidation_has_no_revision_dependency(self):
+        self.turn('accepted-plain-quote', 'I accept the quote')
+        self.assertTrue(self.ledger.prepare_create({})['confirm'])
+        self.ledger.record_quote({}, {'success': True, 'total_cents': 77000})
+
+    def test_installed_entrypoint_revalidates_completed_name_before_create(self):
+        import json
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        self.agent.session_id = 'accepted-name-entrypoint-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        checked = lambda value: FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), value, beds)
+        create_calls = []
+        def model(agent, text, *args, **kwargs):
+            if text == 'Please quote this':
+                self.ledger.record_quote(plan, checked(plan))
+            return {'completed': True, 'final_response': 'offline model edge', 'messages': []}
+        def quote(params):
+            prepared = self.ledger.prepare_quote(params)
+            response = checked(prepared)
+            self.ledger.record_quote(prepared, response)
+            return json.dumps(response)
+        def create(params):
+            create_calls.append(dict(params))
+            return json.dumps({'success': False, 'write_performed': False})
+        with patch.object(conversation_loop, 'run_conversation', model), \
+                patch.object(self.ledger, '_registered_quote', None), \
+                patch.object(self.ledger, '_registered_create', None), \
+                patch.object(self.ledger, '_before_create', None):
+            self.ledger.install_owner_hook(create_handler=create, quote_handler=quote)
+            gateway_ingress(self.agent, 'Please quote this', 'entrypoint-q',
+                            lambda text: conversation_loop.run_conversation(self.agent, text))
+            gateway_ingress(self.agent,
+                            "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link",
+                            'entrypoint-a',
+                            lambda text: conversation_loop.run_conversation(self.agent, text))
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(create_calls[0]['guests'][0]['name'], 'Emre Yilmaz')
+        self.assertEqual(create_calls[0]['accepted_offer']['guest_bed_assignments'][0]['guest_name'],
+                         'emre yilmaz')
+        self.assertTrue(create_calls[0]['require_offer_identity'])
+
+    def test_original_combined_turn_completes_first_name_and_accepts_offer(self):
+        self.agent.session_id = 'accepted-name-payment-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-name-payment-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-name-payment-completion',
+                  "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_name_completion_revalidation_required$'):
+            self.ledger.prepare_create({})
+        revalidation = self.ledger.prepare_quote({})
+        revalidated_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), revalidation, beds)
+        self.ledger.record_quote(revalidation, revalidated_response)
+        prepared = self.ledger.prepare_create({})
+        self.assertEqual(prepared['payment_choice'], 'deposit')
+        self.assertEqual(prepared['guests'], [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}])
+        self.assertEqual(prepared['selected_bed_codes'], ['M1', 'M2'])
+        self.assertEqual(prepared['accepted_offer'], revalidated_response['offer_revision'])
+        second_revalidation = self.ledger.prepare_quote({})
+        unchanged_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), second_revalidation, beds)
+        self.ledger.record_quote(second_revalidation, unchanged_response)
+        self.assertEqual(self.ledger.prepare_create({})['accepted_offer'],
+                         unchanged_response['offer_revision'])
+        changed_bed_revalidation = self.ledger.prepare_quote({})
+        changed_beds = [dict(bed_code='M9', room_code='M', gender_strategy='mixed'), beds[1]]
+        changed_response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), changed_bed_revalidation, changed_beds)
+        self.ledger.record_quote(changed_bed_revalidation, changed_response)
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
+
+    def test_original_combined_turn_accepts_already_complete_matching_name(self):
+        self.agent.session_id = 'accepted-known-full-name-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-known-full-name-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-known-full-name-completion',
+                  "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link")
+        prepared = self.ledger.prepare_create({})
+        self.assertEqual(prepared['guests'], plan['guests'])
+
+    def test_accepted_quote_does_not_survive_name_payment_message_with_changed_terms(self):
+        self.agent.session_id = 'accepted-name-payment-changed-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'payment_choice': 'deposit'}
+        self.turn('accepted-name-payment-change-offer', 'Quote this please')
+        self.ledger.record_quote(plan, {'success': True, 'total_cents': 77000})
+        self.turn('accepted-name-payment-change-consent', 'I accept the quote')
+        self.turn('accepted-name-payment-change',
+                  "My full name is Emre Kaya and I'll pay the deposit for 8 nights instead")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
+
+    def test_accepted_quote_does_not_survive_conflicting_name_completion(self):
+        self.agent.session_id = 'accepted-conflicting-name-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre Kaya'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-conflicting-name-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-conflicting-name',
+                  "Lock it in — my full name is Alice Smith and I'll pay the deposit")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
+
     def test_named_removal_cannot_change_dates_or_other_selections(self):
         self.turn('remove-yoga', 'Remove the yoga')
         with self.assertRaises(self.ledger.QuoteBoundaryError):

@@ -49,6 +49,7 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_registered_quote = None
 _registered_create = None
 _before_create = None
 _OWNER_HOOK_TOKEN = object()
@@ -481,6 +482,123 @@ def _contact_continuity(raw):
             for char in part) for part in parts))
 
 
+def _plan_name_matches(claimed, plan):
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    accepted_names = {normalize(plan.get('guest_name'))}
+    guests = plan.get('guests')
+    if isinstance(guests, list):
+        accepted_names.update(normalize(row.get('name')) for row in guests
+                              if isinstance(row, dict) and row.get('name'))
+    accepted_names.discard('')
+    return normalize(claimed) in accepted_names
+
+
+def _offered_completion_claim(raw, state):
+    """Return a bounded same-person name completion for an offered deposit quote."""
+    plan = state.get('plan') or {}
+    if plan.get('payment_choice') != 'deposit':
+        return None
+    text = unicodedata.normalize('NFC', raw).strip()
+    patterns = (
+        (r"lock it in\s*(?:[—,:;-]|\.\s*)?\s*"
+         r"(?:my (?:full )?name is\s+)?(.+?)\s+and\s+"
+         r"i(?:['’]ll| will) pay (?:the )?deposit\.?"),
+        (r"€\s+that works\.\s+lock it in please\s*[—-]\s*"
+         r"(.+?),\s*i(?:['’]ll| will) pay (?:the )?deposit "
+         r"when you send (?:me )?the link\.?")
+    )
+    match = next((found for pattern in patterns
+                  if (found := re.fullmatch(pattern, text, re.I))), None)
+    if not match:
+        return None
+    claimed = match[1].strip()
+    if not _contact_continuity('My name is ' + claimed):
+        return None
+    guests = plan.get('guests')
+    beds = plan.get('selected_bed_codes')
+    if not isinstance(guests, list) or not isinstance(beds, list) or len(guests) != len(beds):
+        return None
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    claimed_key = normalize(claimed)
+    matches = []
+    for index, guest in enumerate(guests):
+        if not isinstance(guest, dict) or not guest.get('name'):
+            continue
+        old_key = normalize(guest['name'])
+        if claimed_key == old_key or (' ' not in old_key and claimed_key.startswith(old_key + ' ')):
+            matches.append(index)
+    if len(matches) != 1:
+        return None
+    return matches[0], claimed
+
+
+def _apply_offered_completion(raw, state):
+    completion = _offered_completion_claim(raw, state)
+    if completion is None:
+        return False
+    index, claimed = completion
+    guests = state['plan']['guests']
+    if ' '.join(str(guests[index]['name']).split()).casefold() != ' '.join(claimed.split()).casefold():
+        previous = guests[index]['name']
+        updated = deepcopy(guests)
+        updated[index] = {**updated[index], 'name': claimed}
+        state['plan']['guests'] = updated
+        state['pending_name_completion'] = {
+            'guest_index': index,
+            'previous_name': previous,
+            'completed_name': claimed,
+        }
+    return True
+
+
+def _authoritative_name_completion_revalidation(state, checked, plan):
+    """Accept only Staff's exact name-only revision for the frozen guest/bed row."""
+    pending = state.get('pending_name_completion')
+    previous = state.get('checked_offer')
+    if not isinstance(pending, dict) or not isinstance(previous, dict) or not isinstance(checked, dict):
+        return False
+    if plan != state.get('plan'):
+        return False
+    index = pending.get('guest_index')
+    if type(index) is not int:
+        return False
+    expected = deepcopy(previous)
+    assignments = expected.get('guest_bed_assignments')
+    if not isinstance(assignments, list):
+        return False
+    rows = [row for row in assignments
+            if isinstance(row, dict) and row.get('guest_index') == index]
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    if (len(rows) != 1
+            or normalize(rows[0].get('guest_name')) != normalize(pending.get('previous_name'))):
+        return False
+    rows[0]['guest_name'] = normalize(pending.get('completed_name'))
+    actual = deepcopy(checked)
+    expected.pop('offer_fingerprint', None)
+    actual.pop('offer_fingerprint', None)
+    return actual == expected
+
+
+def _accepted_completion_continuity(raw, state):
+    """Retain prior consent only for bounded missing name/payment completion."""
+    plan = state.get('plan') or {}
+    text = unicodedata.normalize('NFC', raw).strip()
+    payment_choice = plan.get('payment_choice')
+    if payment_choice == 'deposit' and re.fullmatch(
+            r"(?:i(?:['’]ll| will) pay (?:the )?deposit|(?:the )?deposit(?: please)?)\.?",
+            text, re.I):
+        return True
+    match = re.fullmatch(
+        r"my (?:full )?name is (.+?)(?:\s*,\s*|\s+and\s+|\.\s+)"
+        r"(i(?:['’]ll| will) pay (?:the )?deposit|(?:the )?deposit(?: please)?)\.?",
+        text, re.I)
+    if not match or payment_choice != 'deposit':
+        return False
+    claimed = match[1].strip()
+    return (_contact_continuity('My name is ' + claimed)
+            and _plan_name_matches(claimed, plan))
+
+
 def _accepts_price_booking(raw, offer):
     """Bounded explicit consent that refers to the immediately presented price."""
     match = re.fullmatch(
@@ -556,7 +674,8 @@ def observe_owner_turn(agent, raw):
                         state['delta'][field] = [deepcopy(item) for item in old
                             if item.get(code_field) not in (code, code + '_class')]
         elif state['status'] == 'offered' and state['quote'] and (
-                _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
+                _accepts(raw, state['plan']) or _apply_offered_completion(raw, state)
+                or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
                     and (price_consent
                          or re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
@@ -580,9 +699,10 @@ def observe_owner_turn(agent, raw):
                 re.fullmatch(r'\s*(?:thanks|thank you|ok|okay|please proceed)[.!]?\s*', raw, re.I)
                 or (state.get('auto_acceptance') is True and state.get('checked_offer')
                     and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))
-                or _contact_continuity(raw)):
+                or _contact_continuity(raw)
+                or _accepted_completion_continuity(raw, state)):
             # Unknown new intent is not fresh create authority. Only deliberately
-            # narrow neutral/contact continuity survives; clarify everything else.
+            # narrow neutral/contact/payment completion survives; clarify everything else.
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
     try:
@@ -700,6 +820,20 @@ def record_quote(params, response):
         if previous_checked or response.get('offer_revision'):
             valid = valid and checked is not None
         if (valid and checked is not None and state['status'] == 'accepted'
+                and state.get('pending_name_completion')
+                and _authoritative_name_completion_revalidation(
+                    state, response.get('offer_revision'), plan)):
+            # Staff, not the model/client, supplies the revised assignment and
+            # fingerprint. Preserve consent only for this exact name-only change.
+            state['checked_offer'] = deepcopy(response['offer_revision'])
+            state['accepted_offer_snapshot'] = deepcopy(response['offer_revision'])
+            state['quote'] = deepcopy(response)
+            state['plan'] = plan
+            state.pop('pending_name_completion', None)
+            state['epoch'] += 1
+            prepared.capability.epoch = state['epoch']
+            return
+        if (valid and checked is not None and state['status'] == 'accepted'
                 and previous_checked == response['offer_revision'] and state['plan'] == plan):
             # Cosmetic revalidation metadata must not mint a new operation or
             # erase consent. Keep the original snapshot, receipt and key inputs.
@@ -713,6 +847,7 @@ def record_quote(params, response):
         state.update(plan=plan, quote=deepcopy(response) if valid else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
+        state.pop('pending_name_completion', None)
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
@@ -723,6 +858,8 @@ def prepare_create(params):
     def prepare(state, ingress):
         if state['status'] != 'accepted' or not state.get('quote'):
             raise QuoteBoundaryError('quote_owner_acceptance_required')
+        if state.get('pending_name_completion'):
+            raise QuoteBoundaryError('quote_name_completion_revalidation_required')
         result = deepcopy(params)
         plan = state['plan']
         for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):
@@ -1011,8 +1148,10 @@ def _exact_retry_refusal(user_message, args, kwargs):
                          {'role': 'assistant', 'content': text}]}
 
 
-def install_owner_hook(create_handler=None, before_create=None):
-    global _registered_create, _before_create
+def install_owner_hook(create_handler=None, before_create=None, quote_handler=None):
+    global _registered_quote, _registered_create, _before_create
+    if quote_handler is not None:
+        _registered_quote = quote_handler
     if create_handler is not None:
         _registered_create, _before_create = create_handler, before_create
     try:
@@ -1075,6 +1214,25 @@ def install_owner_hook(create_handler=None, before_create=None):
                     ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
                     and bool(state.get('checked_offer')) and state.get('auto_acceptance') is True))
                 if automatic:
+                    pending_completion = _transaction(
+                        lambda state, ingress: bool(state.get('pending_name_completion')))
+                    if pending_completion:
+                        quote_result = ({'success': False, 'error': 'quote_owner_revalidation_unavailable'}
+                                        if _registered_quote is None
+                                        else json.loads(_registered_quote({})))
+                        revalidated = _transaction(lambda state, ingress: (
+                            state['status'] == 'accepted'
+                            and bool(state.get('checked_offer'))
+                            and not state.get('pending_name_completion')))
+                        if quote_result.get('success') is not True or not revalidated:
+                            text = ('I could not verify the updated guest name against the accepted '
+                                    'offer. I have not created the booking.')
+                            history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+                            return {'completed': True, 'final_response': text, 'api_calls': 0,
+                                    'messages': [*deepcopy(history),
+                                                 {'role': 'user', 'content': user_message},
+                                                 {'role': 'assistant', 'content': text}],
+                                    'booking_result': quote_result}
                     if _before_create is not None:
                         _before_create(session_id=agent.session_id)
                     receipt = json.loads(_registered_create(dict(prepare_create({}))))

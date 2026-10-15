@@ -215,6 +215,23 @@ class ConversationContractTests(unittest.TestCase):
         self.assertIn('payment_choice: "deposit"', soul)
         self.assertIn('Do not restart payment choice after a shuttle or information question', soul)
 
+    def test_post_live_recovery_keeps_room_and_asks_one_missing_fact_only(self):
+        soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()
+        self.assertIn('Preserve the requested room while eligibility is unresolved', soul)
+        self.assertIn('ask only the missing eligibility question', soul)
+        self.assertIn('do not propose a mixed dorm', soul)
+        self.assertIn('Do not reset an already selected payment choice', soul)
+        self.assertIn('narrow recovery exception', soul)
+        self.assertIn('even after pay intent', soul)
+
+    def test_quote_and_prequote_replies_never_stack_payment_or_rental_questions(self):
+        soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()
+        self.assertIn('collect one missing quote input per reply', soul)
+        self.assertIn("Complete the guest's selected rental details before constructing the quote", soul)
+        self.assertIn('do not combine quote acceptance with a payment-choice question', soul)
+        self.assertIn('The current full-payment-versus-individual-links question is valid', soul)
+        self.assertNotIn('The deposit-versus-full question is valid', soul)
+
     def test_guest_bed_options_and_cancellation_have_explicit_paths(self):
         soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()
         self.assertIn('room_options', soul)
