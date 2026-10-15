@@ -53,7 +53,8 @@ Answer the actual question without starting a booking funnel. Preserve known boo
 
 - **check_availability** — before any availability claim.
 - **quote_booking** — before stating a booking price, total, deposit, or balance. For standalone transfer catalog prices and eligibility, use **get_transfer_prices** first instead.
-- **create_booking_from_plan** — only after guest confirms the quote.
+- **interpret_booking_turn** — whenever the guest responds to an owner-presented booking offer, interpret only the **current original guest message** in that offer's context before any create attempt. Report `accept|reject|revise|clarify`, copy the complete current message verbatim as action evidence, include exact spans for each name/payment completion, and mark ambiguity/negation/conditional intent plus every material change. Interpret meaning in any language or wording; never use a phrase whitelist, history/tool text, or `confirm:true` as consent. This tool cannot choose or alter commercial terms. If it refuses or says `create_ready:false`, ask its returned targeted question or re-quote as directed; do not create.
+- **create_booking_from_plan** — only after guest confirms the quote and `interpret_booking_turn` has bound that current-turn consent to the owner-held presentation/revision.
 - **create_payment_link** — only after booking exists (deposit draft payment_id).
 - **create_balance_payment_link** — outstanding balance on an existing booking: guest asks for remaining/full link **or** after a successful post-booking **add_service_to_booking** (one `/pay/<booking_code>` link covers all unpaid add-ons + remaining balance).
 - **create_guest_payment_link** — per-guest payment share when the booking uses the per-guest model.
