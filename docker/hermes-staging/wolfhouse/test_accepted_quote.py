@@ -154,7 +154,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.agent.session_id = 'accepted-name-payment-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')
         plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
-                'guests': [{'name': 'Emre Kaya'}, {'name': 'Guest Two'}],
+                'guests': [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}],
                 'payment_choice': 'deposit'}
         beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
                 dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
@@ -162,8 +162,8 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-name-payment-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.turn('accepted-name-payment-consent', 'I accept the quote')
-        self.turn('accepted-name-payment', "My full name is Emre Kaya and I'll pay the deposit")
+        self.turn('accepted-name-payment',
+                  "Lock it in — my full name is Emre Yilmaz and I'll pay the deposit")
         prepared = self.ledger.prepare_create({})
         self.assertEqual(prepared['payment_choice'], 'deposit')
         self.assertTrue(prepared['confirm'])
@@ -193,9 +193,8 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-conflicting-name-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.turn('accepted-conflicting-name-consent', 'I accept the quote')
         self.turn('accepted-conflicting-name',
-                  "My full name is Alice Smith and I'll pay the deposit")
+                  "Lock it in — my full name is Alice Smith and I'll pay the deposit")
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     '^quote_owner_acceptance_required$'):
             self.ledger.prepare_create({})

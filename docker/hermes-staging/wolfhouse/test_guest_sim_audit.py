@@ -221,6 +221,8 @@ class ConversationContractTests(unittest.TestCase):
         self.assertIn('ask only the missing eligibility question', soul)
         self.assertIn('do not propose a mixed dorm', soul)
         self.assertIn('Do not reset an already selected payment choice', soul)
+        self.assertIn('narrow recovery exception', soul)
+        self.assertIn('even after pay intent', soul)
 
     def test_quote_and_prequote_replies_never_stack_payment_or_rental_questions(self):
         soul = (ROOT / 'docker/hermes-staging/SOUL.md').read_text()

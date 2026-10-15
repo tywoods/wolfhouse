@@ -481,6 +481,35 @@ def _contact_continuity(raw):
             for char in part) for part in parts))
 
 
+def _plan_name_matches(claimed, plan):
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    accepted_names = {normalize(plan.get('guest_name'))}
+    guests = plan.get('guests')
+    if isinstance(guests, list):
+        accepted_names.update(normalize(row.get('name')) for row in guests
+                              if isinstance(row, dict) and row.get('name'))
+    accepted_names.discard('')
+    return normalize(claimed) in accepted_names
+
+
+def _offered_completion_acceptance(raw, state):
+    """Bounded combined consent/name/deposit grammar for the offered quote."""
+    plan = state.get('plan') or {}
+    if plan.get('payment_choice') != 'deposit':
+        return False
+    text = unicodedata.normalize('NFC', raw).strip()
+    match = re.fullmatch(
+        r"lock it in\s*(?:[—,:;-]|\.\s*)?\s*"
+        r"(?:my (?:full )?name is\s+)?(.+?)\s+and\s+"
+        r"i(?:['’]ll| will) pay (?:the )?deposit\.?",
+        text, re.I)
+    if not match:
+        return False
+    claimed = match[1].strip()
+    return (_contact_continuity('My name is ' + claimed)
+            and _plan_name_matches(claimed, plan))
+
+
 def _accepted_completion_continuity(raw, state):
     """Retain prior consent only for bounded missing name/payment completion."""
     plan = state.get('plan') or {}
@@ -497,16 +526,8 @@ def _accepted_completion_continuity(raw, state):
     if not match or payment_choice != 'deposit':
         return False
     claimed = match[1].strip()
-    if not _contact_continuity('My name is ' + claimed):
-        return False
-    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
-    accepted_names = {normalize(plan.get('guest_name'))}
-    guests = plan.get('guests')
-    if isinstance(guests, list):
-        accepted_names.update(normalize(row.get('name')) for row in guests
-                              if isinstance(row, dict) and row.get('name'))
-    accepted_names.discard('')
-    return normalize(claimed) in accepted_names
+    return (_contact_continuity('My name is ' + claimed)
+            and _plan_name_matches(claimed, plan))
 
 
 def _accepts_price_booking(raw, offer):
@@ -584,7 +605,8 @@ def observe_owner_turn(agent, raw):
                         state['delta'][field] = [deepcopy(item) for item in old
                             if item.get(code_field) not in (code, code + '_class')]
         elif state['status'] == 'offered' and state['quote'] and (
-                _accepts(raw, state['plan']) or (presented and state.get('checked_offer')
+                _accepts(raw, state['plan']) or _offered_completion_acceptance(raw, state)
+                or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
                     and (price_consent
                          or re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I)
