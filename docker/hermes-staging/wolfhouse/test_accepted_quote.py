@@ -1151,6 +1151,21 @@ class OwnerHostileTests(unittest.TestCase):
                     'evidence': 'Alex Grey'}]},
             })
 
+    def test_sparse_second_guest_hint_matches_name_completion(self):
+        prior = {
+            'guest_bed_assignments': [
+                {'guest_index': 0, 'guest_name': 'Alex Grey', 'bed_code': 'M1'},
+                {'guest_index': 1, 'guest_name': 'Sam', 'bed_code': 'M2'},
+            ],
+            'room_name_hints': [{'name': 'Sam', 'explicit_gender': 'male'}],
+            'total_cents': 20000,
+        }
+        current = deepcopy(prior)
+        current['guest_bed_assignments'][1]['guest_name'] = 'Sam Lee'
+        current['room_name_hints'][0]['name'] = 'Sam Lee'
+        self.assertTrue(self.ledger._completion_revision_matches(
+            prior, current, guest_index=1, guest_name='Sam Lee'))
+
     def test_registered_adapter_carries_validated_eligibility_to_recheck(self):
         import json
         import wolfhouse_staff_api as plugin

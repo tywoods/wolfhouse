@@ -609,14 +609,21 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             return False
         for revision in (before, after):
             assignments = revision.get('guest_bed_assignments')
+            target_assignment_name = None
             if isinstance(assignments, list):
                 for item in assignments:
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
+                        target_assignment_name = normalize(item.get('guest_name'))
                         item['guest_name'] = '<completed-name>'
             hints = revision.get('room_name_hints')
-            if (isinstance(hints, list) and guest_index < len(hints)
-                    and isinstance(hints[guest_index], dict)):
-                hints[guest_index]['name'] = '<completed-name>'
+            if isinstance(hints, list) and target_assignment_name:
+                matching_hints = [hint for hint in hints
+                                  if isinstance(hint, dict)
+                                  and normalize(hint.get('name')) == target_assignment_name]
+                if len(matching_hints) > 1:
+                    return False
+                if matching_hints:
+                    matching_hints[0]['name'] = '<completed-name>'
     if type(eligibility_index) is int:
         hints = after.get('room_name_hints')
         assignments = after.get('guest_bed_assignments')
