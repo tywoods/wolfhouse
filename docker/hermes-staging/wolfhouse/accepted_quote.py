@@ -307,7 +307,9 @@ def _transaction(fn):
             raise QuoteBoundaryError('quote_ledger_invalid')
         if (not isinstance(state.get('delta', {}), dict)
                 or set(state.get('delta', {})) - {'catalog_selections', 'add_ons'}
-                or type(state.get('unresolved_change', False)) is not bool):
+                or type(state.get('unresolved_change', False)) is not bool
+                or not isinstance(state.get('authorized_revision_fields', []), list)
+                or any(field not in _FIELDS for field in state.get('authorized_revision_fields', []))):
             raise QuoteBoundaryError('quote_ledger_invalid')
         if bound.epoch is not None and bound.epoch != epoch:
             raise QuoteBoundaryError('quote_owner_superseded')
@@ -404,34 +406,6 @@ def _guest_room_lines(plan, offer):
                 lines.append(f"{who}: {_count_word(beds)} beds in {where}.")
             first = False
     return lines
-def _authoritative_name_completion_revalidation(state, checked, plan):
-    """Accept only Staff's exact name-only revision for the frozen guest/bed row."""
-    pending = state.get('pending_name_completion')
-    previous = state.get('checked_offer')
-    if not isinstance(pending, dict) or not isinstance(previous, dict) or not isinstance(checked, dict):
-        return False
-    if plan != _presentation_plan(state):
-        return False
-    index = pending.get('guest_index')
-    if type(index) is not int:
-        return False
-    expected = deepcopy(previous)
-    assignments = expected.get('guest_bed_assignments')
-    if not isinstance(assignments, list):
-        return False
-    rows = [row for row in assignments
-            if isinstance(row, dict) and row.get('guest_index') == index]
-    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
-    if (len(rows) != 1
-            or normalize(rows[0].get('guest_name')) != normalize(pending.get('previous_name'))):
-        return False
-    rows[0]['guest_name'] = normalize(pending.get('completed_name'))
-    actual = deepcopy(checked)
-    expected.pop('offer_fingerprint', None)
-    actual.pop('offer_fingerprint', None)
-    return actual == expected
-
-
 def _evidence_in_current_turn(raw, evidence):
     """Require interpreter evidence to be literal current-ingress text."""
     if not isinstance(raw, str) or not isinstance(evidence, str):
@@ -454,17 +428,24 @@ def _presentation_plan(state):
     return plan
 
 
-def _completion_revision_matches(prior, current, kind, guest_index=None):
-    """Compare the complete Staff revision, ignoring only the explicit completion."""
+def _completion_revision_matches(prior, current, *, payment=False,
+                                 guest_index=None, guest_name=None):
+    """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
     after.pop('offer_fingerprint', None)
-    if kind == 'payment':
+    if payment:
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
-    elif kind == 'name' and type(guest_index) is int:
+    if type(guest_index) is int:
+        actual_rows = [item for item in after.get('guest_bed_assignments', [])
+                       if isinstance(item, dict) and item.get('guest_index') == guest_index]
+        normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+        if (len(actual_rows) != 1
+                or normalize(actual_rows[0].get('guest_name')) != normalize(guest_name)):
+            return False
         for revision in (before, after):
             assignments = revision.get('guest_bed_assignments')
             if isinstance(assignments, list):
@@ -475,8 +456,6 @@ def _completion_revision_matches(prior, current, kind, guest_index=None):
             if (isinstance(hints, list) and guest_index < len(hints)
                     and isinstance(hints[guest_index], dict)):
                 hints[guest_index]['name'] = '<completed-name>'
-    else:
-        return False
     return before == after
 
 
@@ -567,8 +546,17 @@ def interpret_owner_turn(interpretation):
                 next_action = 'do_not_create'
                 question = 'What would you like to change about this booking?'
             elif changes or action == 'revise':
-                next_action = 'requote_material_changes'
-                question = 'What exact booking detail would you like changed?'
+                bounded = list(dict.fromkeys(changes))
+                if bounded and all(field in _FIELDS for field in bounded):
+                    state['authorized_revision_fields'] = bounded
+                    state['unresolved_change'] = False
+                    next_action = 'requote_material_changes'
+                    question = 'I will recheck those requested booking changes.'
+                else:
+                    state.pop('authorized_revision_fields', None)
+                    state['unresolved_change'] = True
+                    next_action = 'clarify_material_changes'
+                    question = 'What exact booking detail would you like changed?'
             elif interpretation['conditional']:
                 next_action = 'clarify_condition'
                 question = 'Should I create the presented booking now, without that condition?'
@@ -693,6 +681,10 @@ def observe_owner_turn(agent, raw):
             return
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
+        # A bounded re-quote authorization belongs only to the interpreted ingress
+        # that produced it. Any fresh turn must be interpreted independently.
+        state.pop('authorized_revision_fields', None)
+        state['unresolved_change'] = False
         state['current_turn'] = {
             'message_id': message,
             'raw': raw,
@@ -717,6 +709,7 @@ def prepare_quote(params):
             raise QuoteBoundaryError('quote_revision_needs_clarification')
         result = deepcopy(params)
         old = state.get('plan')
+        authorized = set(state.get('authorized_revision_fields') or [])
         if old:
             preserved = dict(old)
             include_completion = bool(state.get('checked_offer') or state.get('presentation')
@@ -725,6 +718,10 @@ def prepare_quote(params):
                 preserved.update(state.get('completion_plan') or {})
             fields = _FIELDS + (_CHECKED_FIELDS if include_completion else ())
             for key in fields:
+                if key in authorized:
+                    if key not in result and key in preserved:
+                        result[key] = deepcopy(preserved[key])
+                    continue
                 if key not in preserved:
                     if key in result:
                         raise QuoteBoundaryError('quote_revision_requires_owner')
@@ -815,16 +812,19 @@ def _checked_plan(prepared, response, tenant):
     return plan
 
 
-def _incomplete_payment_revision(response, tenant):
-    """Validate Staff's priced/available revision before payment selection."""
+def _incomplete_payment_revision(response, tenant, plan=None):
+    """Validate Staff's priced provisional revision before guest payment selection."""
     offer = response.get('offer_revision')
     availability = response.get('availability')
+    requested_payment = (plan or {}).get('payment_choice')
     if (not isinstance(offer, dict) or not isinstance(availability, dict)
             or response.get('payment_choice_needed') is not True
+            or requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
             or offer.get('client_slug') != tenant
             or offer.get('availability_checked') is not True
             or availability.get('status') != 'checked'
-            or offer.get('payment_choice') is not None
+            or offer.get('payment_choice') not in (None, 'deposit', 'full')
+            or not offer.get('offer_fingerprint')
             or any(not isinstance(offer.get(key), str) or not offer[key].strip()
                    for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
             or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
@@ -860,28 +860,39 @@ def record_quote(params, response):
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
         if response.get('offer_revision') and response.get('payment_choice_needed') is True:
-            valid = valid and _incomplete_payment_revision(response, ingress['tenant'])
+            valid = valid and _incomplete_payment_revision(
+                response, ingress['tenant'], prepared)
         elif previous_checked or response.get('offer_revision'):
             valid = valid and checked is not None
+        pending_payment = state.get('pending_payment_completion')
+        pending_name = state.get('pending_name_completion')
         if (valid and checked is not None and state['status'] == 'accepted'
-                and state.get('pending_payment_completion')
+                and (pending_payment or pending_name)
                 and isinstance(state.get('accepted_presentation'), dict)):
             prior = state['accepted_presentation']
             prior_plan = prior.get('plan') or {}
-            comparable = {key: prior_plan.get(key) for key in _FIELDS if key in prior_plan}
-            current = {key: plan.get(key) for key in _FIELDS if key in prior_plan}
+            expected_plan = deepcopy(prior_plan)
+            expected_plan.update(deepcopy(state.get('completion_plan') or {}))
+            comparable = {key: expected_plan.get(key) for key in _FIELDS if key in expected_plan}
+            current = {key: plan.get(key) for key in _FIELDS if key in expected_plan}
             prior_quote = prior.get('authoritative_quote') or {}
             prior_revision = prior.get('quote_revision') or prior_quote.get('offer_revision')
             new_revision = response.get('offer_revision')
+            guest_index = (pending_name or {}).get('guest_index') if pending_name else None
+            guest_name = (pending_name or {}).get('completed_name') if pending_name else None
             terms_unchanged = (
                 comparable == current
-                and _completion_revision_matches(prior_revision, new_revision, 'payment')
+                and _completion_revision_matches(
+                    prior_revision, new_revision,
+                    payment=bool(pending_payment), guest_index=guest_index,
+                    guest_name=guest_name)
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
-                and response.get('offer_revision', {}).get('payment_choice')
-                    == state.get('pending_payment_completion')
-                and state.get('pending_payment_completion') in prior.get('payment_choices', []))
+                and (not pending_payment or (
+                    response.get('offer_revision', {}).get('payment_choice') == pending_payment
+                    and pending_payment in prior.get('payment_choices', [])))
+            )
             if terms_unchanged:
                 state['checked_offer'] = deepcopy(response['offer_revision'])
                 state['accepted_offer_snapshot'] = deepcopy(response['offer_revision'])
@@ -898,32 +909,10 @@ def record_quote(params, response):
                 state['presented_offer'] = deepcopy(response['offer_revision'])
                 state['auto_acceptance'] = True
                 state.pop('pending_payment_completion', None)
+                state.pop('pending_name_completion', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
                 return
-        if (valid and checked is not None and state['status'] == 'accepted'
-                and state.get('pending_name_completion')
-                and _authoritative_name_completion_revalidation(
-                    state, response.get('offer_revision'), plan)):
-            # Staff, not the model/client, supplies the revised assignment and
-            # fingerprint. Preserve consent only for this exact name-only change.
-            state['checked_offer'] = deepcopy(response['offer_revision'])
-            state['accepted_offer_snapshot'] = deepcopy(response['offer_revision'])
-            state['quote'] = deepcopy(response)
-            state['plan'] = plan
-            state['completion_plan'] = {}
-            derived = deepcopy(state['accepted_presentation'])
-            derived.update(authoritative_quote=deepcopy(response),
-                           plan=deepcopy(plan),
-                           quote_revision=deepcopy(response['offer_revision']),
-                           create_ready=True)
-            state['presentation'] = deepcopy(derived)
-            state['accepted_presentation'] = derived
-            state['presented_offer'] = deepcopy(response['offer_revision'])
-            state.pop('pending_name_completion', None)
-            state['epoch'] += 1
-            prepared.capability.epoch = state['epoch']
-            return
         if (valid and checked is not None and state['status'] == 'accepted'
                 and previous_checked == response['offer_revision'] and state['plan'] == plan):
             # Cosmetic revalidation metadata must not mint a new operation or
@@ -943,6 +932,8 @@ def record_quote(params, response):
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
         state.pop('pending_payment_completion', None)
+        state.pop('authorized_revision_fields', None)
+        state['unresolved_change'] = False
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
@@ -1190,7 +1181,8 @@ def finalize_offer_response(result):
                     output_messages[-1]['content'] = text
                 return output
         offer = state.get('checked_offer')
-        incomplete = _incomplete_payment_revision(state.get('quote') or {}, ingress['tenant'])
+        incomplete = _incomplete_payment_revision(
+            state.get('quote') or {}, ingress['tenant'], _presentation_plan(state))
         presentable = (state['status'] == 'offered' and state.get('quote')
                        and (isinstance(offer, dict) or incomplete)
                        and state.get('offer_message') == ingress['MESSAGE_ID'])
@@ -1390,9 +1382,16 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                     close_turn()
                     return _exact_retry_refusal(user_message, args, kwargs)
             if _current.get() is not None and _registered_create is not None:
+                # Automatic dispatch is only authenticated recovery of the exact
+                # original consent ingress. A fresh turn must reach the model and
+                # interpreter first so cancellation/revision/status text cannot
+                # trigger the previously accepted operation.
                 automatic = _transaction(lambda state, ingress: (
                     ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
-                    and bool(state.get('checked_offer')) and state.get('auto_acceptance') is True))
+                    and bool(state.get('checked_offer')) and state.get('auto_acceptance') is True
+                    and ingress['MESSAGE_ID'] == state.get('acceptance_message')
+                    and hashlib.sha256(user_message.encode()).hexdigest()
+                        == state.get('acceptance_raw_digest')))
                 if automatic:
                     pending_completion = _transaction(
                         lambda state, ingress: bool(state.get('pending_name_completion')))

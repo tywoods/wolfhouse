@@ -675,17 +675,15 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                 self.agent, 'Check the booking without prior successful-turn history', 'hook-readback',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertIn('UNIT-1', readback['final_response'])
-            self.assertIn('Payment is not confirmed', readback['final_response'])
-            self.assertIn('https://example.invalid/pay/unit-payment', readback['final_response'])
+            self.assertIn('created successfully earlier', readback['final_response'])
             self.assertNotIn('not created', readback['final_response'].lower())
             self.assertEqual(readback['messages'][-1]['content'], readback['final_response'])
             newer = gateway_ingress(
                 self.agent, 'Honor the newer authoritative booking readback',
                 'hook-readback-newer-authoritative',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
-            self.assertIn('UNIT-1', newer['final_response'])
-            self.assertIn('Payment is not confirmed', newer['final_response'])
-            self.assertIn('https://example.invalid/pay/unit-payment', newer['final_response'])
+            self.assertEqual(newer['final_response'],
+                             'Latest authoritative booking readback was used.')
             with patch.dict(os.environ, {
                     'LUNA_CLIENT_SLUG': 'sunset-somo',
                     'LUNA_TENANT_ID': 'sunset-somo'}):
@@ -695,8 +693,11 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                     lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertNotIn('UNIT-1', foreign_tenant['final_response'])
             self.assertIn('not created', foreign_tenant['final_response'].lower())
-            self.assertEqual(model_calls, ['Please quote this', 'yes',
-                                           'Check the booking without prior successful-turn history'])
+            self.assertEqual(model_calls, [
+                'Please quote this', 'yes',
+                'Check the booking without prior successful-turn history',
+                'Honor the newer authoritative booking readback',
+                'Check the booking without prior successful-turn history'])
             creates = [body for path, body in calls if path == '/booking-create-from-plan']
             self.assertEqual(len(creates), 1)
             self.assertEqual(creates[0]['accepted_offer'], self.response['offer_revision'])
@@ -708,6 +709,50 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             self.assertTrue(accepted['booking_result']['post_booking_email']['saved'])
             self.assertFalse(accepted['booking_result']['post_booking_email']['sent'])
             self.assertEqual(accepted['booking_result']['post_booking_email']['outcome'], 'saved')
+
+    def test_fresh_cancellation_reaches_model_before_any_accepted_create_dispatch(self):
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        class Registry:
+            def __init__(self): self.tools, self.hooks = {}, {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, name, handler, *args, **kw): self.hooks[name] = handler
+        registry, model_calls, creates = Registry(), [], []
+        def staff(path, body):
+            self.assertEqual(path, '/booking-preview')
+            return deepcopy(self.response)
+        def model(agent, text, *args, **kwargs):
+            model_calls.append(text)
+            registry.hooks['pre_llm_call'](session_id=agent.session_id)
+            if text == 'Please quote this':
+                self.assertTrue(json.loads(
+                    registry.tools['quote_booking']['handler'](self.plan))['success'])
+            elif text == 'Yes, book it':
+                result = json.loads(registry.tools['interpret_booking_turn']['handler']({
+                    'action': 'accept', 'action_evidence': text,
+                    'ambiguous': False, 'negated': False, 'conditional': False,
+                    'material_changes': [], 'completions': {},
+                }))
+                self.assertTrue(result['create_ready'])
+            return {'completed': True, 'final_response': 'offline model reply', 'messages': []}
+        def inert(params):
+            creates.append(deepcopy(dict(params)))
+            return json.dumps({'success': False, 'error': 'inert_no_write_boundary',
+                               'write_performed': False})
+        with patch.object(conversation_loop, 'run_conversation', model), \
+                patch.object(plugin, '_post_bot', side_effect=staff), \
+                patch.object(ledger, '_registered_create', inert):
+            plugin.register(registry)
+            ledger._registered_create = inert
+            gateway_ingress(self.agent, 'Please quote this', 'fresh-q',
+                            lambda raw: conversation_loop.run_conversation(self.agent, raw))
+            gateway_ingress(self.agent, 'Yes, book it', 'fresh-a',
+                            lambda raw: conversation_loop.run_conversation(self.agent, raw))
+            reply = gateway_ingress(self.agent, 'No, do not book.', 'fresh-cancel',
+                                    lambda raw: conversation_loop.run_conversation(self.agent, raw))
+        self.assertEqual(creates, [])
+        self.assertIn('No, do not book.', model_calls)
+        self.assertEqual(reply['final_response'], 'offline model reply')
 
     def test_capture_to_registered_create_preserves_explicit_person_eligibility(self):
         from wolfhouse import booking_names
