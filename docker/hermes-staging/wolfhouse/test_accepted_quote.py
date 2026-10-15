@@ -1016,6 +1016,132 @@ class OwnerHostileTests(unittest.TestCase):
                     'guest_index': 0, 'value': 'male', 'evidence': raw}},
             })
 
+    def test_registered_catalog_removal_syncs_staff_wire_projection(self):
+        import json
+        import subprocess
+        import wolfhouse_staff_api as plugin
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kwargs): self.tools[kwargs['name']] = kwargs
+            def register_hook(self, *args, **kwargs): pass
+        calls = []
+        self.agent.session_id = 'registered-catalog-wire-sync'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        def staff(path, body):
+            self.assertEqual(path, '/booking-preview')
+            calls.append(deepcopy(body))
+            source = "const p=JSON.parse(process.argv[1]);const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service');const quote={success:true,total_cents:20000,deposit_required_cents:10000,payment_link_amount_cents:10000,currency:'EUR',package_code:p.package_code};console.log(JSON.stringify({...quote,payment_choice_needed:false,...b({...p,client_slug:'wolfhouse-somo',quote,availability:{...p,status:'checked',selected_bed_codes:['M1','M2']},room_rows:['M1','M2'].map(bed_code=>({bed_code,room_code:'M',gender_strategy:'mixed'}))})}));"
+            return json.loads(subprocess.check_output(
+                ['node', '-e', source, json.dumps(body)]))
+        plan = deepcopy(self.plan)
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            registry = Registry(); plugin.register(registry)
+            self.turn('wire-initial', 'Please quote this')
+            first = json.loads(registry.tools['quote_booking']['handler'](plan))
+            self.assertTrue(first['success'], first)
+            self.ledger.finalize_offer_response(
+                {'completed': True, 'final_response': 'draft', 'messages': []})
+            raw = 'Remove the yoga and add 3 wetsuit rental'
+            self.turn('wire-remove-yoga', raw)
+            revised = json.loads(registry.tools['interpret_booking_turn']['handler']({
+                'action': 'revise', 'action_evidence': raw,
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [{
+                    'field': 'catalog_selections', 'operation': 'remove',
+                    'item': {'service_code': 'yoga_class'},
+                    'evidence': 'yoga'},
+                {
+                    'field': 'add_ons', 'operation': 'add',
+                    'item': {'code': 'wetsuit_rental', 'quantity': 3},
+                    'evidence': '3 wetsuit rental'},
+                ],
+                'completions': {},
+            }))
+            self.assertEqual(revised['next_action'], 'requote_material_changes', revised)
+            result = json.loads(registry.tools['quote_booking']['handler']({}))
+            self.assertTrue(result['success'])
+        self.assertEqual(calls[-1]['add_ons'],
+                         [{'code': 'wetsuit_rental', 'quantity': 3}])
+        self.assertEqual(calls[-1]['catalog_selections'], [])
+        self.assertEqual(self.ledger._sync_catalog_projection(
+            [{'code': 'yoga_class', 'quantity': 2},
+             {'code': 'wetsuit_rental', 'quantity': 3}],
+            [{'operation': 'remove', 'item': {'service_id': 'catalog-yoga'}}],
+            [{'service_id': 'catalog-yoga', 'service_code': 'yoga_class'}]),
+            [{'code': 'wetsuit_rental', 'quantity': 3}])
+
+    def test_registered_adapter_carries_validated_eligibility_to_recheck(self):
+        import json
+        import wolfhouse_staff_api as plugin
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kwargs): self.tools[kwargs['name']] = kwargs
+            def register_hook(self, *args, **kwargs): pass
+        calls = []
+        self.agent.session_id = 'registered-eligibility-recheck'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        def staff(path, body):
+            self.assertEqual(path, '/booking-preview')
+            calls.append(deepcopy(body))
+            return FirstYesOwnerTests._checked_offer(
+                object.__new__(FirstYesOwnerTests), body, beds)
+        plan = deepcopy(self.plan)
+        plan.pop('catalog_selections', None)
+        plan['guests'] = [{'name': 'Alex Grey'},
+                          {'name': 'Sam Lee', 'explicit_gender': 'male'}]
+        plan['room_name_hints'] = [
+            {'name': 'Alex Grey', 'explicit_gender': 'male'}]
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            registry = Registry(); plugin.register(registry)
+            self.turn('eligibility-initial', 'Please quote this')
+            first = json.loads(registry.tools['quote_booking']['handler'](plan))
+            self.assertTrue(first['success'], first)
+            self.assertNotIn('room_name_hints', calls[0])
+            self.assertEqual(first['offer_revision']['room_name_hints'], [])
+            self.ledger.finalize_offer_response(
+                {'completed': True, 'final_response': 'draft', 'messages': []})
+            raw = 'Yes, I am male'
+            self.turn('eligibility-answer', raw)
+            accepted = json.loads(registry.tools['interpret_booking_turn']['handler']({
+                'action': 'accept', 'action_evidence': raw,
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [],
+                'completions': {'eligibility': {
+                    'guest_index': 0, 'value': 'male', 'evidence': 'I am male'}},
+            }))
+            self.assertTrue(accepted['accepted'])
+            checked = json.loads(registry.tools['quote_booking']['handler']({}))
+            self.assertTrue(checked['success'])
+            self.ledger.prepare_create({})
+            raw = 'Sam Lee is male'
+            self.turn('eligibility-partner-answer', raw)
+            accepted = json.loads(registry.tools['interpret_booking_turn']['handler']({
+                'action': 'accept', 'action_evidence': raw,
+                'ambiguous': False, 'negated': False, 'conditional': False,
+                'material_changes': [],
+                'completions': {'eligibility': {
+                    'guest_index': 1, 'value': 'male', 'evidence': raw}},
+            }))
+            self.assertTrue(accepted['accepted'])
+            checked = json.loads(registry.tools['quote_booking']['handler']({}))
+            self.assertTrue(checked['success'])
+        self.assertEqual(calls[-2]['guests'], [
+            {'name': 'Alex Grey', 'explicit_gender': 'male'},
+            {'name': 'Sam Lee'},
+        ])
+        self.assertEqual(calls[-1]['guests'], [
+            {'name': 'Alex Grey', 'explicit_gender': 'male'},
+            {'name': 'Sam Lee', 'explicit_gender': 'male'},
+        ])
+        self.assertEqual(checked['offer_revision']['room_name_hints'], [
+            {'name': 'Alex Grey', 'explicit_gender': 'male'},
+            {'name': 'Sam Lee', 'explicit_gender': 'male'},
+        ])
+        self.ledger.prepare_create({})
+
     def test_registered_staged_name_and_payment_both_orders_revalidate_once(self):
         import json
         import wolfhouse_staff_api as plugin

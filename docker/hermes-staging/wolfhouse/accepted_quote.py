@@ -621,12 +621,18 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         hints = after.get('room_name_hints')
         assignments = after.get('guest_bed_assignments')
         if (not isinstance(hints, list) or not isinstance(assignments, list)
-                or eligibility_index >= len(assignments) or len(hints) != 1
-                or not isinstance(hints[0], dict)
-                or set(hints[0]) != {'name', 'explicit_gender'}
-                or str(hints[0].get('name', '')).strip().casefold()
-                   != str(assignments[eligibility_index].get('guest_name', '')).strip().casefold()
-                or hints[0].get('explicit_gender') != eligibility_value):
+                or eligibility_index >= len(assignments)):
+            return False
+        target_name = str(assignments[eligibility_index].get('guest_name', '')).strip().casefold()
+        matches = [index for index, hint in enumerate(hints)
+                   if isinstance(hint, dict)
+                   and set(hint) == {'name', 'explicit_gender'}
+                   and str(hint.get('name', '')).strip().casefold() == target_name
+                   and hint.get('explicit_gender') == eligibility_value]
+        prior_hints = before.get('room_name_hints') or []
+        remaining = [hint for index, hint in enumerate(hints) if index not in matches]
+        if (len(matches) != 1 or not isinstance(prior_hints, list)
+                or remaining != prior_hints):
             return False
         before.pop('room_name_hints', None)
         after.pop('room_name_hints', None)
@@ -902,6 +908,48 @@ def observe_owner_turn(agent, raw):
         raise
 
 
+def _sync_catalog_projection(add_ons, changes, catalog_before=None):
+    """Apply authorized catalog-code changes to their accommodation add-on wire alias."""
+    if not isinstance(add_ons, list):
+        return None
+    catalog_before = catalog_before if isinstance(catalog_before, list) else []
+    projected = deepcopy(add_ons)
+    for change in changes:
+        item = change.get('item') if isinstance(change, dict) else None
+        if not isinstance(item, dict):
+            return None
+        code = item.get('service_code')
+        if not isinstance(code, str) or not code.strip():
+            if change.get('operation') != 'remove':
+                continue
+            service_id = item.get('service_id')
+            candidates = [str(entry['service_code']).strip() for entry in catalog_before
+                          if isinstance(entry, dict)
+                          and entry.get('service_id') == service_id
+                          and isinstance(entry.get('service_code'), str)
+                          and entry.get('service_code').strip()]
+            if len(candidates) != 1:
+                return None
+            code = candidates[0]
+        code = code.strip()
+        matches = [index for index, existing in enumerate(projected)
+                   if isinstance(existing, dict) and existing.get('code') == code]
+        if change.get('operation') == 'remove':
+            if len(matches) > 1:
+                return None
+            if matches:
+                projected.pop(matches[0])
+            continue
+        wire_item = {'code': code, **{key: deepcopy(item[key])
+                                     for key in ('quantity', 'days') if key in item}}
+        if matches:
+            if len(matches) != 1 or projected[matches[0]] != wire_item:
+                return None
+        else:
+            projected.append(wire_item)
+    return projected
+
+
 def prepare_quote(params):
     def prepare(state, ingress):
         if state.get('unresolved_change'):
@@ -941,6 +989,14 @@ def prepare_quote(params):
                 if key in result and result[key] != expected:
                     raise QuoteBoundaryError('quote_revision_requires_owner')
                 result.setdefault(key, deepcopy(expected))
+            if 'catalog_selections' in authorized:
+                projected = _sync_catalog_projection(
+                    result.get('add_ons', preserved.get('add_ons', [])),
+                    authorized['catalog_selections'],
+                    preserved.get('catalog_selections', []))
+                if projected is None:
+                    raise QuoteBoundaryError('quote_revision_requires_owner')
+                result['add_ons'] = projected
         if state.get('pending_payment_completion'):
             expected_payment = state['pending_payment_completion']
             if 'payment_choice' in result and result['payment_choice'] != expected_payment:
@@ -948,6 +1004,44 @@ def prepare_quote(params):
             result['payment_choice'] = expected_payment
         return PreparedPlan(result, _current.get(), state['epoch'])
     return _transaction(prepare)
+
+
+def validated_guest_eligibility(prepared):
+    """Return only person-bound hints already proved by owner state."""
+    def read(state, _ingress):
+        if (not isinstance(prepared, PreparedPlan)
+                or prepared.capability is not _current.get()
+                or prepared.epoch != state['epoch']):
+            raise QuoteBoundaryError('quote_response_superseded')
+        guests = prepared.get('guests')
+        if not isinstance(guests, list):
+            return {}
+        allowed = {}
+        checked = state.get('checked_offer') or {}
+        hints = checked.get('room_name_hints') if isinstance(checked, dict) else None
+        if isinstance(hints, list):
+            for hint in hints:
+                if (not isinstance(hint, dict)
+                        or hint.get('explicit_gender') not in ('male', 'female')):
+                    continue
+                name = str(hint.get('name', '')).strip().casefold()
+                matches = [index for index, guest in enumerate(guests)
+                           if isinstance(guest, dict)
+                           and str(guest.get('name', '')).strip().casefold() == name]
+                if len(matches) == 1:
+                    allowed[matches[0]] = hint['explicit_gender']
+        pending = state.get('pending_eligibility_completion')
+        completion = state.get('completion_plan') or {}
+        completed_guests = completion.get('guests') if isinstance(completion, dict) else None
+        if isinstance(pending, dict) and isinstance(completed_guests, list):
+            index = pending.get('guest_index')
+            value = pending.get('value')
+            if (type(index) is int and 0 <= index < len(guests)
+                    and index < len(completed_guests) and value in ('male', 'female')
+                    and completed_guests[index] == guests[index]):
+                allowed[index] = value
+        return allowed
+    return _transaction(read)
 
 
 def _checked_plan(prepared, response, tenant):

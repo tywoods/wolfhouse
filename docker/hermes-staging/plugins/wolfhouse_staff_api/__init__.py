@@ -673,6 +673,10 @@ def _catalog_selection_refusal(tool, payload):
 
 
 def quote_booking(params, **kwargs):
+    owner_validated_guest_eligibility = kwargs.pop(
+        '_owner_validated_guest_eligibility', {})
+    if not isinstance(owner_validated_guest_eligibility, dict):
+        owner_validated_guest_eligibility = {}
     del kwargs
     refusal = _catalog_selection_refusal("quote_booking", params or {})
     if refusal is not None:
@@ -688,6 +692,8 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
+    # Staff hints must be regenerated from owner-proven per-person guest fields.
+    payload.pop("room_name_hints", None)
     payload.setdefault("source", "agent_luna_whatsapp")
     if not _has_package_selection(payload):
         options = json.loads(preview_package_prices(payload))
@@ -697,7 +703,8 @@ def quote_booking(params, **kwargs):
     # Quote identity normalization must not infer/replace the guest count or
     # other business inputs. Preserve the existing quote validator and wire.
     identity = dict(payload)
-    _normalize_guests_payload(identity)
+    _normalize_guests_payload(
+        identity, validated_explicit_genders=owner_validated_guest_eligibility)
     payload.update({key: identity[key] for key in ("guest_name", "guests") if key in identity})
     data = _post_bot("/booking-preview", payload)
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
@@ -779,21 +786,28 @@ def _normalize_contact(payload):
             return
 
 
-def _normalize_guests_payload(payload):
-    """Normalize occupant names without dropping unnamed guest slots."""
+def _normalize_guests_payload(payload, validated_explicit_genders=None):
+    """Normalize occupant names; retain only owner-validated eligibility hints."""
+    validated_explicit_genders = (validated_explicit_genders
+                                  if isinstance(validated_explicit_genders, dict) else {})
     _normalize_contact(payload)
     raw = payload.get("guests")
     if not isinstance(raw, list):
         return
     normalized = []
-    for item in raw:
+    for index, item in enumerate(raw):
+        explicit_gender = None
         if isinstance(item, str):
             name = _clean(item)
         elif isinstance(item, dict):
             name = _clean(item.get("name") or item.get("guest_name"))
+            if (validated_explicit_genders.get(index) in ("male", "female")
+                    and item.get("explicit_gender") == validated_explicit_genders[index]):
+                explicit_gender = item["explicit_gender"]
         else:
             name = ""
-        normalized.append({"name": name})
+        normalized.append({"name": name, **(
+            {"explicit_gender": explicit_gender} if explicit_gender else {})})
     if normalized:
         payload["guests"] = normalized
         if not payload.get("guest_count"):
@@ -4604,7 +4618,14 @@ def _quote_owner_handler(name, original):
                     wire['add_ons'] = additions
                     wire.pop('catalog_selections', None)
             dispatched = True
-            result = original(wire, **kwargs)
+            if active and name == 'quote_booking':
+                result = original(
+                    wire,
+                    _owner_validated_guest_eligibility=(
+                        ledger.validated_guest_eligibility(canonical)),
+                    **kwargs)
+            else:
+                result = original(wire, **kwargs)
             if active and name == 'quote_booking':
                 # Persist the exact add-on wire we just asked Staff to price,
                 # including supported catalog durations, not a lossy echo.
