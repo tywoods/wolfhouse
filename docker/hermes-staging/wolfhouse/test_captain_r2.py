@@ -87,6 +87,28 @@ class CaptainR2Tests(OwnerHostileTests):
         self.assertEqual(created["payment_choice"], "full")
         self.assertEqual(created["accepted_offer"]["payment_link_amount_cents"], 8000)
 
+    def test_r2a_10309_omitted_redundant_choice_does_not_ask_for_payment_option(self):
+        self._fresh("captain-r2a-10309-omitted")
+        plan = {"check_in": "2026-10-16", "check_out": "2026-10-18", "guest_count": 1,
+                "guest_name": "Nora", "guests": [{"name": "Nora"}],
+                "package_code": "package_none", "room_type": "shared",
+                "room_preference": "female_only", "gender_preference": "female"}
+        receipt = self._receipt(["nora"], ["R5-B3"], total=8000, deposit=8000,
+                                full_only=True)
+        self.turn("10309-omitted", "What's the price?")
+        self.ledger.record_quote(plan, receipt)
+        self.ledger.finalize_offer_response({"completed": True,
+                                            "final_response": "model draft"})
+        accepted = self._accept(
+            "10320-omitted", "oui parfait, book it for Nora Lefevre",
+            ["Nora Lefevre"])
+        self.assertTrue(accepted["accepted"])
+        self.assertFalse(accepted["create_ready"])
+        self.assertNotIn("payment option", accepted["question"].lower())
+        self.assertEqual(
+            accepted["question"],
+            "I will recheck those completed details with the presented booking.")
+
     def test_r2b_10345_slots_complete_atomically_and_beds_cannot_change(self):
         self._fresh("captain-r2b-10345")
         plan = {"check_in": "2026-11-03", "check_out": "2026-11-06", "guest_count": 3,

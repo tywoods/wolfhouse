@@ -939,7 +939,8 @@ def interpret_owner_turn(interpretation):
                   'question': (None if checked_ready else
                                ('I will recheck those completed details with the presented booking.'
                                 if (state.get('pending_eligibility_completion')
-                                    or state.get('pending_payment_completion')) else
+                                    or state.get('pending_payment_completion')
+                                    or 'payment_choice' not in missing) else
                                 'Which presented payment option should I check before creating the booking?'))}
         pending['interpretation_digest'] = interpretation_digest
         pending['interpretation_result'] = deepcopy(result)
