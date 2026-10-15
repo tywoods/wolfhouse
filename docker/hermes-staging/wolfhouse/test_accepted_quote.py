@@ -150,6 +150,55 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_quote({'catalog_selections': []})
 
+    def test_accepted_plain_quote_revalidation_has_no_revision_dependency(self):
+        self.turn('accepted-plain-quote', 'I accept the quote')
+        self.assertTrue(self.ledger.prepare_create({})['confirm'])
+        self.ledger.record_quote({}, {'success': True, 'total_cents': 77000})
+
+    def test_installed_entrypoint_revalidates_completed_name_before_create(self):
+        import json
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        self.agent.session_id = 'accepted-name-entrypoint-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        checked = lambda value: FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), value, beds)
+        create_calls = []
+        def model(agent, text, *args, **kwargs):
+            if text == 'Please quote this':
+                self.ledger.record_quote(plan, checked(plan))
+            return {'completed': True, 'final_response': 'offline model edge', 'messages': []}
+        def quote(params):
+            prepared = self.ledger.prepare_quote(params)
+            response = checked(prepared)
+            self.ledger.record_quote(prepared, response)
+            return json.dumps(response)
+        def create(params):
+            create_calls.append(dict(params))
+            return json.dumps({'success': False, 'write_performed': False})
+        with patch.object(conversation_loop, 'run_conversation', model), \
+                patch.object(self.ledger, '_registered_quote', None), \
+                patch.object(self.ledger, '_registered_create', None), \
+                patch.object(self.ledger, '_before_create', None):
+            self.ledger.install_owner_hook(create_handler=create, quote_handler=quote)
+            gateway_ingress(self.agent, 'Please quote this', 'entrypoint-q',
+                            lambda text: conversation_loop.run_conversation(self.agent, text))
+            gateway_ingress(self.agent,
+                            "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link",
+                            'entrypoint-a',
+                            lambda text: conversation_loop.run_conversation(self.agent, text))
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(create_calls[0]['guests'][0]['name'], 'Emre Yilmaz')
+        self.assertEqual(create_calls[0]['accepted_offer']['guest_bed_assignments'][0]['guest_name'],
+                         'emre yilmaz')
+        self.assertTrue(create_calls[0]['require_offer_identity'])
+
     def test_original_combined_turn_completes_first_name_and_accepts_offer(self):
         self.agent.session_id = 'accepted-name-payment-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')

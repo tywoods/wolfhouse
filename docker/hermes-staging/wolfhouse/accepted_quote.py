@@ -49,6 +49,7 @@ _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packag
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_registered_quote = None
 _registered_create = None
 _before_create = None
 _OWNER_HOOK_TOKEN = object()
@@ -818,8 +819,10 @@ def record_quote(params, response):
         valid = response.get('success') is True and type(total) is int and total > 0
         if previous_checked or response.get('offer_revision'):
             valid = valid and checked is not None
-        if (valid and state['status'] == 'accepted'
-                and _authoritative_name_completion_revalidation(state, response['offer_revision'], plan)):
+        if (valid and checked is not None and state['status'] == 'accepted'
+                and state.get('pending_name_completion')
+                and _authoritative_name_completion_revalidation(
+                    state, response.get('offer_revision'), plan)):
             # Staff, not the model/client, supplies the revised assignment and
             # fingerprint. Preserve consent only for this exact name-only change.
             state['checked_offer'] = deepcopy(response['offer_revision'])
@@ -1145,8 +1148,10 @@ def _exact_retry_refusal(user_message, args, kwargs):
                          {'role': 'assistant', 'content': text}]}
 
 
-def install_owner_hook(create_handler=None, before_create=None):
-    global _registered_create, _before_create
+def install_owner_hook(create_handler=None, before_create=None, quote_handler=None):
+    global _registered_quote, _registered_create, _before_create
+    if quote_handler is not None:
+        _registered_quote = quote_handler
     if create_handler is not None:
         _registered_create, _before_create = create_handler, before_create
     try:
@@ -1209,6 +1214,25 @@ def install_owner_hook(create_handler=None, before_create=None):
                     ingress['tenant'] == 'wolfhouse-somo' and state['status'] == 'accepted'
                     and bool(state.get('checked_offer')) and state.get('auto_acceptance') is True))
                 if automatic:
+                    pending_completion = _transaction(
+                        lambda state, ingress: bool(state.get('pending_name_completion')))
+                    if pending_completion:
+                        quote_result = ({'success': False, 'error': 'quote_owner_revalidation_unavailable'}
+                                        if _registered_quote is None
+                                        else json.loads(_registered_quote({})))
+                        revalidated = _transaction(lambda state, ingress: (
+                            state['status'] == 'accepted'
+                            and bool(state.get('checked_offer'))
+                            and not state.get('pending_name_completion')))
+                        if quote_result.get('success') is not True or not revalidated:
+                            text = ('I could not verify the updated guest name against the accepted '
+                                    'offer. I have not created the booking.')
+                            history = kwargs.get('conversation_history', args[1] if len(args) > 1 else None) or []
+                            return {'completed': True, 'final_response': text, 'api_calls': 0,
+                                    'messages': [*deepcopy(history),
+                                                 {'role': 'user', 'content': user_message},
+                                                 {'role': 'assistant', 'content': text}],
+                                    'booking_result': quote_result}
                     if _before_create is not None:
                         _before_create(session_id=agent.session_id)
                     receipt = json.loads(_registered_create(dict(prepare_create({}))))

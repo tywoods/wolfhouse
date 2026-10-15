@@ -4780,6 +4780,9 @@ def register(ctx):
             description += " Retain an already supplied contact with guest_name, or capture_booking_names before quoting; never ask for a name just to quote."
         if name in {"quote_booking", "create_booking_from_plan", "get_sunset_offering_quote", "create_sunset_booking"}:
             handler = _booking_name_handler(name, handler)
+        if name == 'quote_booking' and hasattr(ctx, 'register_hook'):
+            from wolfhouse import accepted_quote
+            accepted_quote.install_owner_hook(quote_handler=handler)
         if name == 'create_booking_from_plan' and hasattr(ctx, 'register_hook'):
             from wolfhouse import accepted_quote
             accepted_quote.install_owner_hook(handler, seed_booking_names if booking_names is not None else None)
