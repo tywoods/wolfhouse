@@ -1433,17 +1433,30 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
           return { balance_denied: 'no_balance_due' };
         }
         const freshIdempotencyKey = `luna-bot-balance:${freshBooking.booking_id}:${freshAmountDueCents}`;
-        const sameKeyPayment = freshPaymentRes.rows.find((row) => {
-          let metadata = row.metadata;
+        const classifyPayment = (row) => {
+          let metadata = row.metadata || {};
           if (typeof metadata === 'string') {
             try { metadata = JSON.parse(metadata); } catch (_) { metadata = {}; }
           }
-          if (!metadata || metadata.idempotency_key !== freshIdempotencyKey) return false;
           const status = String(row.payment_status || row.status || '').toLowerCase();
-          if (['failed', 'expired', 'cancelled'].includes(status)) return false;
           const expiresAtMs = row.expires_at ? Date.parse(String(row.expires_at)) : NaN;
-          if (status === 'checkout_created' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) return false;
-          return true;
+          const terminalOrObsolete = ['failed', 'expired', 'cancelled'].includes(status)
+            || (status === 'checkout_created' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now());
+          return { metadata, status, terminalOrObsolete };
+        };
+        const unresolvedBalancePayment = freshPaymentRes.rows.find((row) => {
+          const { metadata, terminalOrObsolete } = classifyPayment(row);
+          return metadata && metadata.source === 'luna_bot_balance_payment_link' && !terminalOrObsolete;
+        });
+        if (unresolvedBalancePayment) {
+          await pg.query('ROLLBACK');
+          began = false;
+          return { concurrent_payment: unresolvedBalancePayment };
+        }
+        const sameKeyPayment = freshPaymentRes.rows.find((row) => {
+          const { metadata, terminalOrObsolete } = classifyPayment(row);
+          if (!metadata || metadata.idempotency_key !== freshIdempotencyKey) return false;
+          return !terminalOrObsolete;
         });
         if (sameKeyPayment) {
           await pg.query('ROLLBACK');
