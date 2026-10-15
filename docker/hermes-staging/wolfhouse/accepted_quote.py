@@ -481,6 +481,24 @@ def _contact_continuity(raw):
             for char in part) for part in parts))
 
 
+def _accepted_completion_continuity(raw, state):
+    """Retain prior consent only for bounded missing name/payment completion."""
+    plan = state.get('plan') or {}
+    text = unicodedata.normalize('NFC', raw).strip()
+    payment_choice = plan.get('payment_choice')
+    if payment_choice == 'deposit' and re.fullmatch(
+            r"(?:i(?:['’]ll| will) pay (?:the )?deposit|(?:the )?deposit(?: please)?)\.?",
+            text, re.I):
+        return True
+    match = re.fullmatch(
+        r"my (?:full )?name is (.+?)(?:\s*,\s*|\s+and\s+|\.\s+)"
+        r"(i(?:['’]ll| will) pay (?:the )?deposit|(?:the )?deposit(?: please)?)\.?",
+        text, re.I)
+    if not match or payment_choice != 'deposit':
+        return False
+    return _contact_continuity('My name is ' + match[1].strip())
+
+
 def _accepts_price_booking(raw, offer):
     """Bounded explicit consent that refers to the immediately presented price."""
     match = re.fullmatch(
@@ -580,9 +598,10 @@ def observe_owner_turn(agent, raw):
                 re.fullmatch(r'\s*(?:thanks|thank you|ok|okay|please proceed)[.!]?\s*', raw, re.I)
                 or (state.get('auto_acceptance') is True and state.get('checked_offer')
                     and re.fullmatch(r'\s*yes[.!]?\s*', raw, re.I))
-                or _contact_continuity(raw)):
+                or _contact_continuity(raw)
+                or _accepted_completion_continuity(raw, state)):
             # Unknown new intent is not fresh create authority. Only deliberately
-            # narrow neutral/contact continuity survives; clarify everything else.
+            # narrow neutral/contact/payment completion survives; clarify everything else.
             state.update(status='clarify', quote=None)
             state.pop('acceptance_message', None)
     try:

@@ -150,6 +150,37 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_quote({'catalog_selections': []})
 
+    def test_accepted_quote_survives_full_name_and_matching_deposit_completion(self):
+        self.agent.session_id = 'accepted-name-payment-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre Kaya'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-name-payment-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-name-payment-consent', 'I accept the quote')
+        self.turn('accepted-name-payment', "My full name is Emre Kaya and I'll pay the deposit")
+        prepared = self.ledger.prepare_create({})
+        self.assertEqual(prepared['payment_choice'], 'deposit')
+        self.assertTrue(prepared['confirm'])
+
+    def test_accepted_quote_does_not_survive_name_payment_message_with_changed_terms(self):
+        self.agent.session_id = 'accepted-name-payment-changed-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'payment_choice': 'deposit'}
+        self.turn('accepted-name-payment-change-offer', 'Quote this please')
+        self.ledger.record_quote(plan, {'success': True, 'total_cents': 77000})
+        self.turn('accepted-name-payment-change-consent', 'I accept the quote')
+        self.turn('accepted-name-payment-change',
+                  "My full name is Emre Kaya and I'll pay the deposit for 8 nights instead")
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_acceptance_required$'):
+            self.ledger.prepare_create({})
+
     def test_named_removal_cannot_change_dates_or_other_selections(self):
         self.turn('remove-yoga', 'Remove the yoga')
         with self.assertRaises(self.ledger.QuoteBoundaryError):
