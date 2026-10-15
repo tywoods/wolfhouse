@@ -813,9 +813,11 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = _clean(item)
         elif isinstance(item, dict):
             name = _clean(item.get("name") or item.get("guest_name"))
-            if (validated_explicit_genders.get(index) in ("male", "female")
-                    and item.get("explicit_gender") == validated_explicit_genders[index]):
-                explicit_gender = item["explicit_gender"]
+            if validated_explicit_genders.get(index) in ("male", "female"):
+                # The owner reader is the authority here. A revalidation plan is
+                # canonicalized from Staff's roster and intentionally no longer
+                # contains the model-proposed field that established the fact.
+                explicit_gender = validated_explicit_genders[index]
         else:
             name = ""
         normalized.append({"name": name, **(
