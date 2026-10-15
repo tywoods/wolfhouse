@@ -54,6 +54,28 @@ OUTPUT_GUARD = '''
                 pass
 '''
 OUTPUT_GUARD_TAG = "guard_turn_response as _wh_guard_turn"
+
+
+def migrate_output_guard_call(source: str) -> str:
+    """Upgrade installed output-guard calls to current-message-aware shape.
+
+    Images built by the previous patch generation already contain the output
+    guard marker, so the fresh-insertion branch is intentionally skipped on a
+    later boot.  Migrate both historical call shapes explicitly instead.
+    """
+    three_arg = "response = _wh_guard_turn(response, agent_result, history)"
+    four_arg = (
+        "response = _wh_guard_turn(response, agent_result, history, "
+        "getattr(source, \"platform\", None))"
+    )
+    five_arg = four_arg[:-1] + ", message_text)"
+    present = [call for call in (three_arg, four_arg, five_arg) if call in source]
+    if len(present) > 1:
+        raise RuntimeError("gateway.run has mixed output-guard call generations")
+    if present and present[0] != five_arg:
+        source = source.replace(present[0], five_arg, 1)
+    return source
+
 WHATSAPP_TEXT_NORMALIZE = '''
             try:
                 import importlib.util as _wwm_iu
@@ -1537,13 +1559,9 @@ def apply_patches(run_path: Path) -> dict:
         if _norm_marker in s:
             s = s.replace(_norm_marker, _norm_marker + OUTPUT_GUARD, 1)
 
-    _old_guard_call = "response = _wh_guard_turn(response, agent_result, history)"
-    _new_guard_call = (
-        "response = _wh_guard_turn(response, agent_result, history, "
-        "getattr(source, \"platform\", None))"
-    )
-    if _old_guard_call in s and _new_guard_call not in s:
-        s = s.replace(_old_guard_call, _new_guard_call, 1)
+    # Upgrade copied images too: they already carry OUTPUT_GUARD_TAG and thus do
+    # not take the fresh insertion path above.
+    s = migrate_output_guard_call(s)
 
     s, lp_meta = apply_luna_personality_gateway_patches(s)
     s = apply_luna_intelligence_cleanup(s)
