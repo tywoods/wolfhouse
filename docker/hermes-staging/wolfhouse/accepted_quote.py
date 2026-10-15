@@ -492,22 +492,56 @@ def _plan_name_matches(claimed, plan):
     return normalize(claimed) in accepted_names
 
 
-def _offered_completion_acceptance(raw, state):
-    """Bounded combined consent/name/deposit grammar for the offered quote."""
+def _offered_completion_claim(raw, state):
+    """Return a bounded same-person name completion for an offered deposit quote."""
     plan = state.get('plan') or {}
     if plan.get('payment_choice') != 'deposit':
-        return False
+        return None
     text = unicodedata.normalize('NFC', raw).strip()
-    match = re.fullmatch(
-        r"lock it in\s*(?:[—,:;-]|\.\s*)?\s*"
-        r"(?:my (?:full )?name is\s+)?(.+?)\s+and\s+"
-        r"i(?:['’]ll| will) pay (?:the )?deposit\.?",
-        text, re.I)
+    patterns = (
+        (r"lock it in\s*(?:[—,:;-]|\.\s*)?\s*"
+         r"(?:my (?:full )?name is\s+)?(.+?)\s+and\s+"
+         r"i(?:['’]ll| will) pay (?:the )?deposit\.?"),
+        (r"€\s+that works\.\s+lock it in please\s*[—-]\s*"
+         r"(.+?),\s*i(?:['’]ll| will) pay (?:the )?deposit "
+         r"when you send (?:me )?the link\.?")
+    )
+    match = next((found for pattern in patterns
+                  if (found := re.fullmatch(pattern, text, re.I))), None)
     if not match:
-        return False
+        return None
     claimed = match[1].strip()
-    return (_contact_continuity('My name is ' + claimed)
-            and _plan_name_matches(claimed, plan))
+    if not _contact_continuity('My name is ' + claimed):
+        return None
+    guests = plan.get('guests')
+    beds = plan.get('selected_bed_codes')
+    if not isinstance(guests, list) or not isinstance(beds, list) or len(guests) != len(beds):
+        return None
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    claimed_key = normalize(claimed)
+    matches = []
+    for index, guest in enumerate(guests):
+        if not isinstance(guest, dict) or not guest.get('name'):
+            continue
+        old_key = normalize(guest['name'])
+        if claimed_key == old_key or (' ' not in old_key and claimed_key.startswith(old_key + ' ')):
+            matches.append(index)
+    if len(matches) != 1:
+        return None
+    return matches[0], claimed
+
+
+def _apply_offered_completion(raw, state):
+    completion = _offered_completion_claim(raw, state)
+    if completion is None:
+        return False
+    index, claimed = completion
+    guests = state['plan']['guests']
+    if ' '.join(str(guests[index]['name']).split()).casefold() != ' '.join(claimed.split()).casefold():
+        updated = deepcopy(guests)
+        updated[index] = {**updated[index], 'name': claimed}
+        state['plan']['guests'] = updated
+    return True
 
 
 def _accepted_completion_continuity(raw, state):
@@ -605,7 +639,7 @@ def observe_owner_turn(agent, raw):
                         state['delta'][field] = [deepcopy(item) for item in old
                             if item.get(code_field) not in (code, code + '_class')]
         elif state['status'] == 'offered' and state['quote'] and (
-                _accepts(raw, state['plan']) or _offered_completion_acceptance(raw, state)
+                _accepts(raw, state['plan']) or _apply_offered_completion(raw, state)
                 or (presented and state.get('checked_offer')
                     and presented == state['checked_offer']
                     and (price_consent

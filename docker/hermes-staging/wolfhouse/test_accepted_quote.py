@@ -150,8 +150,27 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_quote({'catalog_selections': []})
 
-    def test_accepted_quote_survives_full_name_and_matching_deposit_completion(self):
+    def test_original_combined_turn_completes_first_name_and_accepts_offer(self):
         self.agent.session_id = 'accepted-name-payment-owner'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
+                'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('accepted-name-payment-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.turn('accepted-name-payment-completion',
+                  "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link")
+        prepared = self.ledger.prepare_create({})
+        self.assertEqual(prepared['payment_choice'], 'deposit')
+        self.assertEqual(prepared['guests'], [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}])
+        self.assertEqual(prepared['selected_bed_codes'], ['M1', 'M2'])
+
+    def test_original_combined_turn_accepts_already_complete_matching_name(self):
+        self.agent.session_id = 'accepted-known-full-name-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')
         plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'mixed',
                 'guests': [{'name': 'Emre Yilmaz'}, {'name': 'Guest Two'}],
@@ -160,13 +179,12 @@ class OwnerHostileTests(unittest.TestCase):
                 dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
-        self.turn('accepted-name-payment-offer', 'Quote this please')
+        self.turn('accepted-known-full-name-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
-        self.turn('accepted-name-payment',
-                  "Lock it in — my full name is Emre Yilmaz and I'll pay the deposit")
+        self.turn('accepted-known-full-name-completion',
+                  "€ that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link")
         prepared = self.ledger.prepare_create({})
-        self.assertEqual(prepared['payment_choice'], 'deposit')
-        self.assertTrue(prepared['confirm'])
+        self.assertEqual(prepared['guests'], plan['guests'])
 
     def test_accepted_quote_does_not_survive_name_payment_message_with_changed_terms(self):
         self.agent.session_id = 'accepted-name-payment-changed-owner'
