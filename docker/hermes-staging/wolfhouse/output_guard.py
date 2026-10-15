@@ -145,11 +145,10 @@ def guess_language(text: str, hint: Optional[str] = None) -> str:
     """Single best-guess language for localization; defaults to 'en'."""
     if hint:
         return hint.lower()[:2]
-    found = detect_languages(text)
-    for lang in ("it", "es", "de", "en"):   # prefer a non-default signal
-        if lang in found:
-            return lang
-    return "en"
+    scores = _language_scores(text)
+    top = max(scores.values(), default=0)
+    winners = [lang for lang, score in scores.items() if score == top and score > 0]
+    return winners[0] if len(winners) == 1 else "en"
 
 
 def safe_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
@@ -670,6 +669,7 @@ def guard_turn_response(
     agent_result: Any = None,
     history: Any = None,
     platform: Any = None,
+    current_user: Any = None,
 ) -> str:
     """gateway.run adapter: guard the final reply with turn context available.
 
@@ -701,7 +701,9 @@ def guard_turn_response(
             )
             return response
 
-        guest_lang = _guest_lang_from_history(history)
+        guest_lang = _guest_lang_from_history(
+            [*(history or []), {'role': 'user', 'content': current_user}]
+            if isinstance(current_user, str) else history)
         tool_calls = _tool_calls_from_agent_result(agent_result)
         safe, findings = guard_reply(text, guest_lang=guest_lang, tool_calls=tool_calls)
         if findings:

@@ -4690,7 +4690,14 @@ def register(ctx):
         except ImportError:
             pass  # Standalone/plugin-only environments have no ordinary runtime.
         def seed_booking_names(**kwargs):
-            return booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
+            packaged = booking_names.begin_turn(scope=_booking_name_scope(), **kwargs)
+            if not isinstance(packaged, dict):
+                return packaged
+            original = next((kwargs.get(key) for key in
+                             ('user_message', 'message_text', 'current_message')
+                             if isinstance(kwargs.get(key), str)), None)
+            return {**packaged, **({'trusted_original_user_message': original}
+                                   if original is not None else {})}
         ctx.register_hook("pre_llm_call", seed_booking_names)
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):

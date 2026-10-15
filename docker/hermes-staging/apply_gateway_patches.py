@@ -49,7 +49,7 @@ SANITIZE = "response = _sanitize_gateway_final_response(source.platform, respons
 OUTPUT_GUARD = '''
             try:
                 from wolfhouse.output_guard import guard_turn_response as _wh_guard_turn
-                response = _wh_guard_turn(response, agent_result, history, getattr(source, "platform", None))
+                response = _wh_guard_turn(response, agent_result, history, getattr(source, "platform", None), message_text)
             except Exception:
                 pass
 '''

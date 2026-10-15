@@ -792,13 +792,18 @@ def interpret_owner_turn(interpretation):
                        for index, guest in enumerate(plan_guests or [])
                        if isinstance(guest, dict)):
                     raise QuoteBoundaryError('quote_completion_identity_changed')
-                updated = deepcopy(plan_guests)
+                updated = deepcopy((state.get('completion_plan') or {}).get('guests')
+                                   or plan_guests)
                 updated[item['guest_index']] = {**updated[item['guest_index']], 'name': new}
                 state.setdefault('completion_plan', {})['guests'] = updated
-                state['pending_name_completion'] = {
+                pending_names = state.setdefault('pending_name_completions', [])
+                if any(row.get('guest_index') == item['guest_index'] for row in pending_names):
+                    raise QuoteBoundaryError('quote_completion_identity_changed')
+                pending_names.append({
                     'guest_index': item['guest_index'], 'previous_name': old,
                     'completed_name': new,
-                }
+                })
+                state['pending_name_completion'] = pending_names[-1]
 
         payment = completions.get('payment_choice')
         if payment is not None:
@@ -1294,6 +1299,7 @@ def record_quote(params, response):
                 state['auto_acceptance'] = True
                 state.pop('pending_payment_completion', None)
                 state.pop('pending_name_completion', None)
+                state.pop('pending_name_completions', None)
                 state.pop('pending_eligibility_completion', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
@@ -1316,6 +1322,7 @@ def record_quote(params, response):
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
+        state.pop('pending_name_completions', None)
         state.pop('pending_payment_completion', None)
         state.pop('pending_eligibility_completion', None)
         state.pop('authorized_revision_changes', None)
