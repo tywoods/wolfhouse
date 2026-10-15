@@ -1,14 +1,63 @@
 """Captain R3 person-bound initial eligibility regressions (offline)."""
 import inspect
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from gateway.session_context import clear_session_vars, set_session_vars
+from hermes_state import SessionDB
 from wolfhouse import accepted_quote
 import wolfhouse_staff_api as plugin
 
 
+class Registry:
+    def __init__(self):
+        self.tools, self.hooks = {}, {}
+
+    def register_tool(self, **tool):
+        self.tools[tool['name']] = tool
+
+    def register_hook(self, name, fn):
+        self.hooks[name] = fn
+
+
 class CaptainR3Tests(unittest.TestCase):
+    def registered_quote(self, raw, guests):
+        """Exercise plugin.register's handler and capture its Staff-bound body."""
+        registry = Registry()
+        with patch.object(accepted_quote, 'install_owner_hook'):
+            plugin.register(registry)
+        with tempfile.TemporaryDirectory() as home:
+            db = SessionDB(Path(home) / 'state.db')
+            db.create_session('captain-r3', source='whatsapp')
+            owner = SimpleNamespace(_session_db=db, session_id='captain-r3',
+                                    model='offline', platform='whatsapp',
+                                    _user_id='captain-r3-user')
+            tokens = set_session_vars(
+                platform='whatsapp', source='whatsapp', chat_id='captain-r3-chat',
+                user_id='captain-r3-user', session_key='captain-r3-key',
+                session_id=owner.session_id, message_id='captain-r3-message')
+            calls = []
+            try:
+                with patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+                    accepted_quote.observe_owner_turn(owner, raw)
+                    params = {
+                        'check_in': '2027-01-01', 'check_out': '2027-01-02',
+                        'guest_count': len(guests), 'room_type': 'shared',
+                        'room_preference': 'female_only',
+                        'package_code': 'package_none', 'guests': guests}
+                    with patch.object(plugin, '_post_bot', side_effect=lambda path, body: (
+                            calls.append((path, body)) or self.receipt('female_only'))):
+                        result = json.loads(registry.tools['quote_booking']['handler'](params))
+                    return result, calls
+            finally:
+                accepted_quote.close_turn()
+                clear_session_vars(tokens)
+                db.close()
+
     def validated_state(self, state, guests):
         capability = object()
         prepared = accepted_quote.PreparedPlan({'guests': guests}, capability, state['epoch'])
@@ -108,6 +157,41 @@ class CaptainR3Tests(unittest.TestCase):
                     'room_preference': 'female_only', 'guests': guests}, {},
                     self.receipt('female_only'))
                 self.assertNotIn('room_name_hints', calls[0][1])
+
+    def test_registered_adapter_binds_affirmative_fact_to_subject(self):
+        cases = (
+            ('Alex says Bea is a woman', 'Alex'),
+            ('Alex is a man. Bea is a woman.', 'Alex'),
+            ('Alex is not actually a woman', 'Alex'),
+            ('Alex is no longer a woman', 'Alex'),
+        )
+        for raw, name in cases:
+            with self.subTest(raw=raw):
+                guests = [{'name': name, 'explicit_gender': 'female',
+                           'gender_evidence': raw}]
+                result, calls = self.registered_quote(raw, guests)
+                self.assertEqual(calls[0][0], '/booking-preview')
+                self.assertEqual(calls[0][1]['guests'], [{'name': name}])
+                self.assertNotIn('room_name_hints', calls[0][1])
+                self.assertTrue(result['room_decision']['clarification_needed'])
+
+    def test_registered_adapter_keeps_affirmative_and_room_controls(self):
+        cases = (
+            ('I am a woman', ['Alex'], True),
+            ('Ana and Bea are both women', ['Ana', 'Bea'], True),
+            ('Alex wants a female room', ['Alex'], False),
+        )
+        for raw, names, affirmative in cases:
+            with self.subTest(raw=raw):
+                guests = [{'name': name, 'explicit_gender': 'female',
+                           'gender_evidence': raw} for name in names]
+                _result, calls = self.registered_quote(raw, guests)
+                sent = calls[0][1]
+                expected = ([{'name': name, 'explicit_gender': 'female'}
+                             for name in names] if affirmative else
+                            [{'name': name} for name in names])
+                self.assertEqual(sent['guests'], expected)
+                self.assertEqual('room_name_hints' in sent, affirmative)
 
     def test_provisional_quote_remains_authority_after_payment_selection(self):
         revision = {'room_name_hints': [

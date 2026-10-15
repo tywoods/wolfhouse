@@ -482,6 +482,37 @@ def _eligibility_is_evidenced(value, evidence):
                               evidence, re.IGNORECASE))
 
 
+def _eligibility_subject_is_affirmed(value, evidence, name, guest_index):
+    """Recognize a small set of affirmative facts bound to this guest's subject."""
+    if not isinstance(evidence, str) or value not in ('male', 'female'):
+        return False
+    aliases = {
+        'female': r'(?:female|woman|women|girl|lady)',
+        'male': r'(?:male|man|men|boy|guy)',
+    }
+    noun = aliases[value]
+    # Anchoring prevents a speaker, object, or later sentence from lending
+    # another person's fact to this guest slot.
+    if guest_index == 0 and re.match(
+            r"^\s*i\s*(?:am|'m)\s+(?:actually\s+)?(?:a\s+)?" + noun + r'\b',
+            evidence, re.IGNORECASE):
+        return True
+    if not isinstance(name, str) or not name.strip():
+        return False
+    escaped_name = re.escape(name.strip())
+    if re.match(r'^\s*' + escaped_name + r'\s+(?:is|are)\s+'
+                r'(?:actually\s+)?(?:a\s+)?' + noun + r'\b', evidence, re.IGNORECASE):
+        return True
+    group = re.match(r'^\s*(.+?)\s+are\s+both\s+' + noun + r'\b',
+                     evidence, re.IGNORECASE)
+    if not group:
+        return False
+    subjects = [part.strip().casefold() for part in
+                re.split(r'\s*(?:,|\band\b)\s*', group.group(1), flags=re.IGNORECASE)
+                if part.strip()]
+    return name.strip().casefold() in subjects
+
+
 def _item_value_is_evidenced(value, evidence):
     if type(value) is int:
         present = set(_evidence_tokens(evidence))
@@ -1108,11 +1139,10 @@ def validated_guest_eligibility(prepared):
                     continue
                 value, evidence = guest.get('explicit_gender'), guest.get('gender_evidence')
                 name = str(guest.get('name') or '').strip()
-                first_person = index == 0 and isinstance(evidence, str) and bool(
-                    re.search(r'\b(i|me|my)\b', evidence, re.I))
                 if (value in ('male', 'female') and _evidence_in_current_turn(raw, evidence)
                         and _eligibility_is_evidenced(value, evidence)
-                        and (first_person or (name and _scalar_is_evidenced(name, evidence)))):
+                        and _eligibility_subject_is_affirmed(
+                            value, evidence, name, index)):
                     allowed[index] = value
         checked = state.get('checked_offer') or (
             (state.get('quote') or {}).get('offer_revision')) or {}
