@@ -548,6 +548,34 @@ class FirstYesOwnerTests(unittest.TestCase):
                     deposit_required_cents=quote['deposit_required_cents'],
                     payment_choice_needed=False, currency=quote['currency'], **checked)
 
+    def test_shown_three_person_quote_survives_missing_name_completion(self):
+        plan = dict(check_in='2026-11-03', check_out='2026-11-06', guest_count=3,
+                    room_type='shared', room_preference='female_only', package_code='package_none',
+                    group_gender='female', guests=[{'name': 'Aisha', 'explicit_gender': 'female'}])
+        beds = [dict(bed_code=f'R5-B{index}', room_code='R5', gender_strategy='female only')
+                for index in range(1, 4)]
+        amounts = dict(total_cents=36000, deposit_required_cents=30000,
+                       payment_link_amount_cents=30000)
+        response = self._checked_offer({**plan, 'payment_choice': 'deposit'}, beds,
+                                       quote_overrides=amounts)
+        response['payment_choice_needed'] = True
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+
+        self.turn('sim10-complete',
+                  'Yes take it — Aisha Rahman, Priya Shah, Leila Hassan. Deposit for all three.')
+        complete = {**plan, 'guests': [
+            {'name': name, 'explicit_gender': 'female'}
+            for name in ('Aisha Rahman', 'Priya Shah', 'Leila Hassan')],
+            'payment_choice': 'deposit'}
+        refreshed = self._checked_offer(complete, beds, quote_overrides=amounts)
+        ledger.record_quote(complete, refreshed)
+
+        state = ledger._transaction(lambda owner, ingress: deepcopy(owner))
+        self.assertTrue(state.get('presentation'), state)
+        prepared = ledger.prepare_create(complete)
+        self.assertEqual(prepared['guests'], complete['guests'])
+
     def test_exact_france_confirmation_preserves_same_checked_offer_consent(self):
         plan = dict(check_in='2027-05-20', check_out='2027-05-23', guest_count=1,
                     package_code='package_none', room_type='shared', room_preference='mixed',
