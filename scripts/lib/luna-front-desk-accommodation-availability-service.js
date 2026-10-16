@@ -612,6 +612,7 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     private_room_available: canonical.private_room_available,
     room_options: canonical.room_options,
     selected_bed_codes: canonical.selected_bed_codes,
+    exact_bed_eligibility: canonical.exact_bed_eligibility,
     selected_room_code: canonical.selected_room_code,
     needs_clarification: canonical.needs_clarification === true,
     needs_human: false,

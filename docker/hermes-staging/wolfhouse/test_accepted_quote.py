@@ -535,6 +535,12 @@ class OwnerHostileTests(unittest.TestCase):
             calls.append((path, deepcopy(body)))
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Mateo Ríos', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Guest Two', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_type': 'male_only'},
                             {'bed_code': 'M2', 'room_type': 'male_only'},
@@ -1812,6 +1818,12 @@ class OwnerHostileTests(unittest.TestCase):
                 return self.checked(plan)
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Riley', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Morgan', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_code': 'M', 'room_type': 'mixed'},
                             {'bed_code': 'M2', 'room_code': 'M', 'room_type': 'mixed'},
@@ -1872,6 +1884,12 @@ class OwnerHostileTests(unittest.TestCase):
             calls.append(path)
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Alex', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Sam', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_code': 'M', 'room_type': 'mixed'},
                             {'bed_code': 'M2', 'room_code': 'M', 'room_type': 'mixed'},

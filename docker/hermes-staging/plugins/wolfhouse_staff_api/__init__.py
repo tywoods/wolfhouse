@@ -234,12 +234,9 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         return _tenant_denied("LUNA_CLIENT_SLUG is required for tenant-scoped Luna tool calls.")
     if configured_slug not in {"wolfhouse-somo", "sunset"}:
         return _tenant_denied(f"Unknown Luna tenant slug: {configured_slug}")
-    # Staff's authenticated bot principal owns generic-route tenant scope. A
-    # handoff must not send a second request tenant which can conflict before
-    # the conversation handler runs.
-    principal_bound_tenant = _normalize_bot_path(path) == "/staff/bot/conversation/needs-human"
-    if not principal_bound_tenant:
-        payload["client_slug"] = configured_slug
+    # Keep the trusted runtime tenant explicit so Staff can compare it with the
+    # authenticated principal before any tenant handler runs.
+    payload["client_slug"] = configured_slug
 
     allowed_locations = {item.strip() for item in os.getenv("LUNA_ALLOWED_LOCATION_IDS", "").split(",") if item.strip()}
     bound_location = ""
@@ -293,7 +290,7 @@ def _post_bot(path, payload, *, require_explicit_success=False):
     # gateway binds and clears this authoritative ingress value for the turn.
     if not bound_location:
         bound_location = _clean(os.getenv("SUNSET_INGRESS_LOCATION_ID"))
-    if configured_slug and not principal_bound_tenant:
+    if configured_slug:
         payload["client_slug"] = configured_slug
     if allowed_locations:
         requested_location = _clean(payload.get("location_id"))
@@ -773,6 +770,19 @@ def quote_booking(params, **kwargs):
                 "deposit_required_cents": None, "write_performed": False,
             })
     data = _post_bot("/booking-preview", payload)
+    # Price fields without Staff's checked revision are not an offer. The
+    # preview may lose the beds after preflight, so use the existing owner
+    # clarification path and strip anything that could invite payment.
+    if not isinstance(data, dict) or data.get("offer_revision") is None:
+        preview = data if isinstance(data, dict) else {}
+        return _json_result({
+            **preview, "success": False, "tool": "quote_booking",
+            "quote_status": "needs_guest_clarification",
+            "offer_revision": None, "total_cents": None,
+            "quote_total_cents": None, "deposit_required_cents": None,
+            "balance_due_cents": None, "payment_choice_needed": False,
+            "write_performed": False,
+        })
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
     deposit = data.get("deposit_required_cents") or quote.get("deposit_required_cents")
@@ -1270,7 +1280,8 @@ def create_booking_from_plan(params, **kwargs):
                     "check_in": payload.get("check_in"),
                     "check_out": payload.get("check_out"),
                     "guest_count": payload.get("guest_count", 1),
-                    "room_type": "any",
+                    "room_type": payload.get("room_type") or "any",
+                    "room_preference": payload.get("room_preference"),
                     "selected_bed_codes": codes,
                     "guests": guests,
                     **({"room_name_hints": hints} if hints is not None else {}),
@@ -1290,25 +1301,6 @@ def create_booking_from_plan(params, **kwargs):
             # Staff alone owns room classification and person eligibility. Python
             # verifies only that the receipt is bound to this exact ordered request.
             exact_receipt = facts.get("exact_bed_eligibility") if isinstance(facts, dict) else None
-            # Older Staff receipts represented an exact positive answer by
-            # returning only the requested rows, in order. Keep that narrow
-            # compatibility shape; a larger inventory list, missing row, or
-            # reordered/substituted bed cannot authorize the accepted offer.
-            if exact_receipt is None and isinstance(facts, dict):
-                legacy_rows = facts.get("available_beds")
-                if (facts.get("success") is True and facts.get("has_enough_beds") is True
-                        and isinstance(legacy_rows, list)
-                        and [row.get("bed_code") for row in legacy_rows
-                             if isinstance(row, dict)] == codes):
-                    exact_receipt = {
-                        "eligible": True,
-                        "selected_bed_codes": list(codes),
-                        "guest_bed_assignments": [
-                            {"guest_index": index, "guest_name": guest_names[index],
-                             "bed_code": code}
-                            for index, code in enumerate(codes)
-                        ],
-                    }
             compatible = False
             if isinstance(exact_receipt, dict):
                 receipt_rows = exact_receipt.get("guest_bed_assignments")

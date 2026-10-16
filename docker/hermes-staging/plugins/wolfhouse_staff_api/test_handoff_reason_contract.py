@@ -86,7 +86,7 @@ class HandoffReasonContractTests(unittest.TestCase):
         self.assertNotIn('conversation_not_found', result['blocked_reasons'])
         self.assertFalse(result['handoff_persisted'])
 
-    def test_tenant_auth_denial_surfaces_subreason_and_uses_principal_binding(self):
+    def test_tenant_auth_denial_surfaces_subreason_with_explicit_runtime_binding(self):
         from urllib.error import HTTPError
         self.receipt = HTTPError('https://staff.invalid', 403, 'Forbidden', {}, io.BytesIO(
             b'{"success":false,"error":"client_access_denied",'
@@ -95,7 +95,7 @@ class HandoffReasonContractTests(unittest.TestCase):
         result = json.loads(plugin.flag_needs_human({'reason': 'complaint'}))
         self.assertEqual(result['tenant_auth_subreason'], 'request_tenant_conflict')
         self.assertEqual(result['error'], 'client_access_denied')
-        self.assertNotIn('client_slug', self.calls[0], 'bot principal, not request body, binds tenant')
+        self.assertEqual(self.calls[0]['client_slug'], 'wolfhouse-somo')
 
     def test_blank_or_nontext_reason_rejected_before_ack_or_persistence(self):
         for tenant in ("wolfhouse-somo", "sunset"):
@@ -131,7 +131,7 @@ class HandoffReasonContractTests(unittest.TestCase):
                     self.assertEqual(result["handoff_reason"], returned.strip() if returned and returned.strip() else reason)
                     self.assertEqual(len(self.calls), 1)
                     self.assertEqual(self.calls[0]["reason"], reason)
-                    self.assertNotIn("client_slug", self.calls[0])
+                    self.assertEqual(self.calls[0]["client_slug"], tenant)
                     self.assertEqual(self.calls[0]["phone"], os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"])
                     self.assertNotIn("conversation_id", self.calls[0])
 

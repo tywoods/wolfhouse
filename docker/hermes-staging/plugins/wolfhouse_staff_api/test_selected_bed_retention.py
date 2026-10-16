@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -57,6 +58,29 @@ class SelectedBedRetention(unittest.TestCase):
                 self.calls = []
                 self.availability = facts
                 self.assert_recovery(self.run_handler())
+
+    def test_free_requested_beds_without_authoritative_receipt_fail_closed(self):
+        self.availability = dict(success=True, has_enough_beds=True,
+                                 available_beds=copy.deepcopy(self.beds))
+        self.assert_recovery(self.run_handler())
+
+    def test_real_http_mapper_receipt_with_extra_free_bed_reaches_registered_create(self):
+        root = Path(__file__).resolve().parents[4]
+        raw = subprocess.check_output([
+            'node', str(root / 'scripts/verify-sim11-exact-bed-eligibility.js'),
+            '--emit-valid-http-json',
+        ], text=True, cwd=root)
+        self.availability = json.loads(raw)
+        self.payload.update(
+            guest_name='Holly', guests=[{'name': 'Holly'}], guest_count=1,
+            check_in='2026-10-25', check_out='2026-10-28',
+            room_preference='shared', selected_bed_codes=['R7-B3'],
+        )
+        self.payload.pop('room_name_hints', None)
+        self.payload.pop('group_gender', None)
+        self.run_handler()
+        self.assertEqual(self.create_payload()['selected_bed_codes'], ['R7-B3'])
+        self.assertEqual(len(self.availability['available_beds']), 2)
 
     def run_handler(self):
         def api(route, payload):
@@ -128,6 +152,22 @@ class SelectedBedRetention(unittest.TestCase):
         self.run_handler()
         self.assertEqual(self.create_payload()['selected_bed_codes'], ['R8-B3', 'R4-B1'])
         self.assertNotIn('group_gender', self.create_payload())
+        recheck = next(body for route, body in self.calls if route == '/availability-check')
+        self.assertEqual(recheck['room_preference'], 'private')
+
+    def test_changed_private_intent_is_rejected_by_staff_without_create(self):
+        self.payload.pop('room_name_hints')
+        self.payload.pop('group_gender')
+        self.payload['room_preference'] = 'private'
+        self.availability = dict(success=True, has_enough_beds=True,
+            exact_bed_eligibility={
+                'eligible': False, 'reason': 'incompatible_preselected_beds',
+                'selected_bed_codes': self.payload['selected_bed_codes'],
+                'guest_bed_assignments': [],
+            })
+        self.assert_recovery(self.run_handler())
+        recheck = next(body for route, body in self.calls if route == '/availability-check')
+        self.assertEqual(recheck['room_preference'], 'private')
 
     def test_lookup_exception_returns_typed_recovery_without_create(self):
         with patch.object(plugin, '_post_bot', side_effect=RuntimeError('offline lookup failure')) as transport:
