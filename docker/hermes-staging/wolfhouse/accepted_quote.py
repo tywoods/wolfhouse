@@ -1129,6 +1129,13 @@ def validated_guest_eligibility(prepared):
         for index, guest in enumerate(guests):
             if isinstance(guest, dict) and guest.get('explicit_gender') in ('male', 'female'):
                 allowed[index] = guest['explicit_gender']
+        group = prepared.get('group_gender')
+        if group in ('male', 'female') and len(guests) == prepared.get('guest_count'):
+            # An explicit whole-party fact binds every existing roster slot;
+            # a more specific contradictory individual fact is never overwritten.
+            for index in range(len(guests)):
+                if isinstance(guests[index], dict):
+                    allowed.setdefault(index, group)
         checked = state.get('checked_offer') or (
             (state.get('quote') or {}).get('offer_revision')) or {}
         normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
@@ -1409,7 +1416,52 @@ def record_quote(params, response):
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
                 return
-        if (valid and checked is not None and state['status'] == 'accepted'
+        presentation = state.get('presentation')
+        if valid and isinstance(presentation, dict) and previous_checked is None:
+            prior_revision = presentation.get('quote_revision') or {}
+            revision = response.get('offer_revision') or {}
+            prior_rows = prior_revision.get('guest_bed_assignments') or []
+            rows = revision.get('guest_bed_assignments') or []
+            names = []
+            same_people = len(prior_rows) == len(rows)
+            normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+            for index, (before, after) in enumerate(zip(prior_rows, rows)):
+                old, new = normalize(before.get('guest_name')), normalize(after.get('guest_name'))
+                if old != new:
+                    if (not old or ' ' in old or not new.startswith(old + ' ')
+                            or sum(normalize(row.get('guest_name')) == old for row in prior_rows) != 1
+                            or sum(normalize(row.get('guest_name')) == new for row in rows) != 1):
+                        same_people = False
+                    names.append({'guest_index': index, 'completed_name': after.get('guest_name')})
+            payment = prepared.get('payment_choice')
+            prior_quote = presentation.get('authoritative_quote') or {}
+            prior_plan = presentation.get('plan') or {}
+            material_matches = True
+            for key in _FIELDS:
+                before, after = prior_plan.get(key), plan.get(key)
+                if key in ('add_ons', 'catalog_selections', 'guest_packages'):
+                    before, after = before or [], after or []
+                if key == 'selected_bed_codes' and before is None:
+                    before = [row.get('bed_code') for row in prior_rows]
+                    after = after if after is not None else before
+                if before != after:
+                    material_matches = False
+            if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
+                    and _completion_revision_matches(prior_revision, revision,
+                        payment_choice=payment, guest_completions=names)
+                    and all(response.get(key) == prior_quote.get(key)
+                            for key in ('total_cents', 'deposit_required_cents', 'currency'))):
+                # Preserve the owner-rendered text while advancing only the
+                # authoritative, materially identical completion snapshot.
+                state['plan'] = deepcopy(plan)
+                state['completion_plan'] = deepcopy(completion_plan)
+                state['quote'] = deepcopy(response)
+                presentation['plan'] = _presentation_plan(state)
+                presentation['quote_revision'] = deepcopy(revision)
+                presentation['authoritative_quote'] = deepcopy(response)
+                return
+        if (valid and checked is not None and state['status'] in ('offered', 'accepted')
+                and isinstance(state.get('presentation'), dict)
                 and previous_checked == response['offer_revision'] and state['plan'] == plan):
             # Cosmetic revalidation metadata must not mint a new operation or
             # erase consent. Keep the original snapshot, receipt and key inputs.
@@ -1441,10 +1493,59 @@ def record_quote(params, response):
 
 
 def prepare_create(params):
+    params = deepcopy(params)
     def prepare(state, ingress):
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
+        presentation = state.get('presentation') or {}
+        shown = presentation.get('quote_revision') or {}
+        shown_assignments = shown.get('guest_bed_assignments') or []
+        if (baseline.get('selected_bed_codes') is None and shown_assignments
+                and all(isinstance(row, dict) and row.get('guest_index') == index
+                        and isinstance(row.get('bed_code'), str)
+                        for index, row in enumerate(shown_assignments))
+                and params.get('selected_bed_codes') == [row['bed_code'] for row in shown_assignments]):
+            # Provisional plan may omit codes already frozen in the shown offer.
+            params.pop('selected_bed_codes')
+        if (params.get('add_ons') == [] and baseline.get('add_ons') is None
+                and shown.get('add_ons') == []):
+            # Only an explicitly empty authoritative offer proves this alias.
+            params.pop('add_ons')
+        if (params.get('catalog_selections') == []
+                and baseline.get('catalog_selections') is None
+                and shown.get('availability_checked') is True):
+            # Registered quote rejects every nonempty catalog selection before
+            # issuing a checked offer: successful shown authority proves none.
+            params.pop('catalog_selections')
+        gender = params.get('gender_preference')
+        # Provisional payment/name completion can project names-only rows into
+        # completion_plan; retain explicit facts from the original shown plan.
+        roster = baseline.get('guests') or []
+        hints = baseline.get('room_name_hints') or []
+        if (len(hints) == len(roster) and all(isinstance(row, dict) for row in hints)
+                and all(isinstance(row, dict) for row in roster)):
+            normalized_name = lambda value: ' '.join(str(value or '').split()).casefold()
+            hint_names = [normalized_name(row.get('name')) for row in hints]
+            if (len(set(hint_names)) == len(hint_names) and all(hint_names)
+                    and hint_names == [normalized_name(row.get('name')) for row in roster]):
+                roster = [{**hint, **guest,
+                           'explicit_gender': guest.get('explicit_gender') or hint.get('explicit_gender')}
+                          for guest, hint in zip(roster, hints)]
+        if (params.get('payment_choice') == 'deposit'
+                and shown.get('payment_choice') == 'full'
+                and shown.get('total_cents') == shown.get('deposit_required_cents')
+                and type(shown.get('total_cents')) is int
+                and shown['total_cents'] > 0
+                and presentation.get('payment_choices') == ['full']):
+            params['payment_choice'] = 'full'
+        if (gender in ('male', 'female') and baseline.get('gender_preference') is None
+                and len(roster) == baseline.get('guest_count')
+                and all(isinstance(guest, dict) and guest.get('explicit_gender') == gender
+                        for guest in roster)):
+            # Person-bound facts already establish this redundant representation;
+            # room/bed and roster changes still face the ordinary comparisons.
+            params.pop('gender_preference')
         if isinstance(state.get('presentation'), dict):
             updates = {}
             guests = params.get('guests')
@@ -1506,7 +1607,9 @@ def prepare_create(params):
             # come from that offer rather than model-created readiness state.
             for key in _FIELDS + _CHECKED_FIELDS:
                 if key in params and params[key] != baseline.get(key):
-                    raise QuoteBoundaryError('accepted_quote_changed')
+                    refusal = QuoteBoundaryError('accepted_quote_changed')
+                    refusal.add_note('comparison_key=' + key)
+                    raise refusal
             result = deepcopy(baseline)
             state['status'] = 'accepted'
             state['accepted_presentation'] = deepcopy(presentation)

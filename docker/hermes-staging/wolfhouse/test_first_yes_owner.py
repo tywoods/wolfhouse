@@ -16,6 +16,200 @@ import wolfhouse_staff_api as plugin
 
 
 class FirstYesOwnerTests(unittest.TestCase):
+    def _provisional_refresh_case(self, complete=False, price_change=False):
+        plan = dict(check_in='2026-10-21', check_out='2026-10-24', guest_count=1,
+                    room_type='shared', room_preference='male_only', package_code='package_none',
+                    guest_name='Mateo', guests=[{'name': 'Mateo', 'explicit_gender': 'male'}],
+                    room_name_hints=[{'name': 'Mateo', 'explicit_gender': 'male'}])
+        beds = [dict(bed_code='R4-B3', room_code='R4', gender_strategy='male preferred')]
+        money = dict(total_cents=12000, deposit_required_cents=10000, payment_link_amount_cents=10000)
+        response = self._checked_offer({**plan, 'payment_choice': 'deposit'}, beds, quote_overrides=money)
+        response['payment_choice_needed'] = True
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+        self.turn('refresh-accept', 'Book it, Mateo Ríos, deposit please')
+        args = {'payment_choice': 'deposit'}
+        if complete:
+            plan.update(guest_name='Mateo Ríos', guests=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        room_name_hints=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        payment_choice='deposit', add_ons=[], catalog_selections=[])
+            response = self._checked_offer(plan, beds, quote_overrides=money)
+            args = {**plan, 'confirm': True, 'gender_preference': 'male'}
+        if price_change:
+            response['total_cents'] += 100
+            response['offer_revision']['total_cents'] += 100
+        ledger.record_quote(plan, response)
+        if price_change:
+            with self.assertRaises(ledger.QuoteBoundaryError):
+                ledger.prepare_create(args)
+        else:
+            self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+            ledger.prepare_create(args)
+
+    def test_provisional_identical_quote_before_create(self):
+        self._provisional_refresh_case()
+
+    def test_provisional_completed_quote_before_create(self):
+        self._provisional_refresh_case(complete=True)
+
+    def test_provisional_changed_price_requires_presentation(self):
+        self._provisional_refresh_case(price_change=True)
+
+    def test_sim9_complete_create_restatements(self):
+        # Supplied trace argument shapes; synthetic shown plans/Staff refreshes,
+        # not reconstructed historical intermediate owner snapshots.
+        cases = [
+            ('G1', '2026-10-19', '2026-10-23', 'shared', 'male_only',
+             ['Emre'], ['Emre Yilmaz'], 'male', ['R4-B3'], 16000, 10000),
+            ('G2', '2026-10-23', '2026-10-25', 'shared', 'female_only',
+             ['Nora'], ['Nora Lefevre'], 'female', ['R5-B4'], 8000, 8000),
+            ('G4', '2026-10-21', '2026-10-24', 'shared', 'male_only',
+             ['Mateo'], ['Mateo Ríos'], 'male', ['R4-B3'], 12000, 10000),
+            ('G5', '2026-10-25', '2026-10-28', 'private', 'couple_private',
+             ['Holly', 'Jake'], ['Holly Bennett', 'Jake Bennett'], None,
+             ['R6-B1', 'R6-B2'], 27000, 20000),
+        ]
+        for label, start, end, room_type, preference, names, completed, gender, codes, total, deposit in cases:
+            with self.subTest(scenario=label):
+                self.agent.session_id = 'sim9-full-' + label
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn('shown-' + label, 'Quote this stay')
+                guests = [{'name': name, **({'explicit_gender': gender} if gender else {})}
+                          for name in names]
+                plan = dict(check_in=start, check_out=end, guest_count=len(names),
+                            room_type=room_type, room_preference=preference,
+                            guests=guests, package_code='package_none')
+                if gender:
+                    plan['room_name_hints'] = deepcopy(guests)
+                priced = {**plan, 'payment_choice': 'deposit'}
+                beds = [dict(bed_code=code, room_code=code.split('-')[0],
+                             gender_strategy='private' if not gender else gender + ' preferred')
+                        for code in codes]
+                response = self._checked_offer(priced, beds, quote_overrides={
+                    'total_cents': total, 'deposit_required_cents': deposit,
+                    'payment_link_amount_cents': deposit})
+                response.update(full_payment_only=total == deposit,
+                                payment_choice_needed=total != deposit)
+                ledger.record_quote(plan, response)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn('create-' + label, 'Book that offer; deposit please')
+                args = dict(confirm=True, check_in=start, check_out=end,
+                            guest_count=len(names), room_type=room_type,
+                            room_preference=preference, package_code='package_none',
+                            guest_name=completed[0], payment_choice='deposit', language='en',
+                            guests=[{'name': name, **({'explicit_gender': gender} if gender else {})}
+                                    for name in completed])
+                if label != 'G2':
+                    args['add_ons'] = []
+                if gender:
+                    args['gender_preference'] = gender
+                if label == 'G1':
+                    args.update(client_slug='wolfhouse-somo', selected_bed_codes=codes)
+                if label == 'G4':
+                    first_args = {key: value for key, value in args.items()
+                                  if key not in ('confirm', 'guest_name', 'language')}
+                    first_args['catalog_selections'] = []
+                    prepared = ledger.prepare_create(first_args)
+                    self.assertTrue(prepared.revalidation)
+                    self.turn('create-' + label + '-second', 'Same accepted offer')
+                prepared = ledger.prepare_create(args)
+                self.assertTrue(prepared.revalidation)
+                self.assertEqual(prepared['guests'], args['guests'])
+                self.assertEqual(prepared['payment_choice'], 'full' if label == 'G2' else 'deposit')
+
+    def test_sim9_restatement_material_negatives(self):
+        self.plan['guests'] = [{'name': 'Alex', 'explicit_gender': 'male'},
+                               {'name': 'Sam', 'explicit_gender': 'male'}]
+        self.plan['add_ons'] = [{'code': 'yoga_class', 'quantity': 1}]
+        self.response = self._checked_offer(self.plan, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('sim9-material-negatives', 'Book that')
+        for changed in ({'gender_preference': 'female'}, {'add_ons': []},
+                        {'guest_count': 3}, {'room_preference': 'private'},
+                        {'selected_bed_codes': ['M2', 'M1']}):
+            with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
+                ledger.prepare_create(changed)
+
+    def test_sim9_registered_quote_whole_party_fact_reaches_staff(self):
+        from wolfhouse import booking_names
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        plan = {**self.plan, 'guest_count': 3, 'group_gender': 'female',
+                'room_preference': 'female_only', 'guests': [
+                    {'name': 'Aisha', 'explicit_gender': 'female'},
+                    {'name': 'Priya'}, {'name': 'Leila'}]}
+        complete = {**plan, 'guests': [{**guest, 'explicit_gender': 'female'}
+                                      for guest in plan['guests']]}
+        response = self._checked_offer(complete, [
+            dict(bed_code='R5-B' + str(i + 1), room_code='R5', gender_strategy='female preferred')
+            for i in range(3)])
+        calls = []
+        def staff(path, body):
+            self.assertEqual(path, '/booking-preview')
+            calls.append(deepcopy(body))
+            return deepcopy(response)
+        token = booking_names._agent.set(self.agent)
+        try:
+            with patch.object(plugin, '_post_bot', side_effect=staff):
+                booking_names.begin_turn(session_id=self.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                result = json.loads(registry.tools['quote_booking']['handler'](plan))
+            self.assertTrue(result['success'], result)
+            self.assertFalse(result['room_decision']['clarification_needed'], result)
+            self.assertEqual([guest.get('explicit_gender') for guest in calls[0]['guests']],
+                             ['female'] * 3)
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(token)
+
+    def test_sim9_plugin_group_gender_survives_sparse_roster(self):
+        params = {'guest_count': 3, 'group_gender': 'female',
+                  'room_preference': 'female_only', 'room_name_hints': [
+                      {'name': 'Aisha', 'explicit_gender': 'female'},
+                      {'name': 'Priya'}, {'name': 'Leila'}]}
+        decision = plugin._room_decision_for_tool(
+            params, {'girls_room_available': True})
+        self.assertEqual(decision['resolved_composition'], 'female')
+        self.assertFalse(decision['clarification_needed'])
+        params['room_name_hints'][1]['explicit_gender'] = 'male'
+        contradictory = plugin._room_decision_for_tool(
+            params, {'girls_room_available': True})
+        self.assertNotIn('female_only', contradictory['allowed_room_preferences'])
+
+    def test_sim9_ordinary_equivalent_requote_retains_shown_authority(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        before = ledger._transaction(lambda state, ingress: deepcopy(state['presentation']))
+        self.turn('sim9-read-refresh', 'Please book that offer')
+        ledger.record_quote(self.plan, self.response)
+        after = ledger._transaction(lambda state, ingress: deepcopy(state.get('presentation')))
+        self.assertEqual(after, before)
+        self.assertTrue(ledger.prepare_create({}).revalidation)
+
+    def test_sim9_explicit_empty_extras_match_shown_empty_extras(self):
+        self._registered_create_with_completion({'add_ons': [], 'payment_choice': 'deposit'})
+
+    def test_sim9_redundant_gender_matches_person_bound_shown_facts(self):
+        self.plan['guests'] = [{'name': 'Alex', 'explicit_gender': 'male'},
+                               {'name': 'Sam', 'explicit_gender': 'male'}]
+        self.response = self._checked_offer(self.plan, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('sim9-gender-restatement', 'Book that please')
+        prepared = ledger.prepare_create({**self.plan, 'gender_preference': 'male'})
+        self.assertTrue(prepared.revalidation)
+        self.assertIsNone(prepared.get('gender_preference'))
+
     def test_registered_create_refreshes_quote_in_same_invocation(self):
         """Exercise the registered boundary, not its source spelling."""
         self._registered_create_with_completion({})
@@ -330,7 +524,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.interpret_accept('Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
 
-    def _checked_offer(self, plan, beds):
+    def _checked_offer(self, plan, beds, quote_overrides=None):
         # Mirror the registered quote's canonical wire aliases before Staff's
         # real JS offer builder fingerprints the deterministic offline response.
         plan = deepcopy(dict(plan))
@@ -344,13 +538,15 @@ class FirstYesOwnerTests(unittest.TestCase):
         quote = dict(success=True, total_cents=20000, deposit_required_cents=10000,
                      payment_link_amount_cents=(10000 if plan['payment_choice'] in ('deposit', 'per_guest') else 20000),
                      currency='EUR', package_code=plan['package_code'])
+        quote.update(quote_overrides or {})
         checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
             **{key: value for key, value in plan.items() if key not in ('guests', 'payment_choice')},
             client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
             payment_choice=plan['payment_choice'], availability={**plan, 'status': 'checked',
             'selected_bed_codes': [bed['bed_code'] for bed in beds]}, room_rows=beds))], cwd=root))
-        return dict(success=True, total_cents=20000, deposit_required_cents=10000,
-                    payment_choice_needed=False, currency='EUR', **checked)
+        return dict(success=True, total_cents=quote['total_cents'],
+                    deposit_required_cents=quote['deposit_required_cents'],
+                    payment_choice_needed=False, currency=quote['currency'], **checked)
 
     def test_exact_france_confirmation_preserves_same_checked_offer_consent(self):
         plan = dict(check_in='2027-05-20', check_out='2027-05-23', guest_count=1,

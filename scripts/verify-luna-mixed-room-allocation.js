@@ -24,6 +24,36 @@ const command = { guestCount: 2, roomType: 'shared', roomPreference: 'mixed', as
 const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 
+for (const extra of [
+  { room_preference: 'female', group_gender: 'female' },
+  { gender_preference: 'female' },
+  { room_preference: 'female_only', group_gender: 'mixed' },
+  { room_preference: 'male_only', group_gender: 'mixed' },
+  { room_preference: 'female_only', group_gender: 'female', absent: true },
+  { room_type: 'private', room_preference: 'private', absent: true },
+]) {
+  test(`SIM9 registered transport room case ${JSON.stringify(extra)}`, async () => {
+    const { absent, ...facts } = extra;
+    const built = buildWolfhouseAvailabilityCommand({ channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo',
+      assignmentMode: false, demoCalendarEnrichment: false,
+      transportBody: { check_in: '2026-10-19', check_out: '2026-10-23', guest_count: 2, room_type: 'shared', ...facts } });
+    assert.equal(built.ok, true);
+    const beds = absent ? rows('R2', 'male_only', 2) : [...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 4)];
+    const pg = { query: async sql => {
+      if (sql === getBedCalendarRoomsQuery()) return { rows: beds };
+      if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return { rows: [] };
+      throw Error('Unexpected SQL ' + sql);
+    } };
+    const result = mapBotHttpAvailabilityResponse((await executeWolfhouseAvailabilityCheck(pg, built.command)).body);
+    if (absent || facts.group_gender === 'mixed') {
+      assert.deepEqual(result.selected_bed_codes, []);
+      assert.notEqual(result.next_action, 'ready_for_bot_create');
+      if (absent) assert.equal(result.has_enough_beds, false);
+      else assert.equal(result.group_gender, 'mixed');
+    } else assert.deepEqual(result.selected_bed_codes, ['R5-B1', 'R5-B2']);
+  });
+}
+
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
 });
@@ -138,7 +168,7 @@ test('inactive and unsellable mixed beds do not satisfy safe capacity', () => {
 
 test('capacity-only early availability stays gender-neutral', () => {
   const bedRows = rows('R5', 'female_only', 2);
-  const result = inventory(bedRows, [], { ...command, assignmentMode: false });
+  const result = inventory(bedRows, [], { ...command, roomPreference: 'shared', assignmentMode: false });
   assert.equal(result.hasEnoughBeds, true);
   assert.equal(result.groupGenderResolved, 'unknown');
   assert.equal(result.needsClarification, false);
@@ -191,6 +221,17 @@ function readOnlyInventory(bedRows, blocks = []) {
     throw new Error('Unexpected query at read-only fixture seam');
   } };
 }
+// Synthetic Pricing coverage for this fixture; never changes operational seasons.
+function fixtureQuoteConfig() {
+  const config = require('./lib/wolfhouse-quote-calculator').loadConfig();
+  config.seasons = config.seasons.map(season => ({ ...season,
+    ranges: (season.month_numbers || []).map(month => ({
+      start_month: month, start_day: 1, end_month: month,
+      end_day: new Date(Date.UTC(2026, month, 0)).getUTCDate(),
+    })),
+  }));
+  return config;
+}
 const transport = {
   confirm: true, check_in: '2026-07-06', check_out: '2026-07-13',
   guest_count: 2, package_code: 'malibu', room_type: 'shared', room_preference: 'mixed',
@@ -210,7 +251,7 @@ function bookingRows(mixedAvailable) {
 for (const roomPreference of ['mixed', 'shared']) {
   test(`cached gendered beds require a real preflight for ${roomPreference}`, async () => {
     const result = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
       channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
       transportBody: { ...transport, room_preference: roomPreference },
     });
@@ -221,7 +262,7 @@ for (const roomPreference of ['mixed', 'shared']) {
     test(`booking preflight ${roomPreference}: unsafe cached beds blocked, mixed availability=${mixedAvailable}`, async () => {
       const pg = readOnlyInventory(bookingRows(mixedAvailable));
       const result = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
         channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo', pgClient: pg,
         transportBody: { ...transport, room_preference: roomPreference },
       });
@@ -253,11 +294,11 @@ test('canonical availability exposes neutral room clarification, not handoff', a
 test('pre-commit recheck rejects a mixed room that becomes gendered', async () => {
   const initial = bookingRows(true);
   const built = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
     channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
     pgClient: readOnlyInventory(initial), transportBody: { ...transport, selected_bed_codes: ['R1-B1', 'R1-B2'] },
   });
-  assert.equal(built.ok, true);
+  assert.equal(built.ok, true, JSON.stringify(built.body));
   const changed = initial.map((row) => row.room_code === 'R1' ? { ...row, room_type: 'female_only' } : row);
   const pg = readOnlyInventory(changed);
   const result = await executeWolfhouseBookingCreate(pg, built.command);
@@ -265,6 +306,27 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
   assert.equal(pg.calls.length, 3); // idempotency lookup + current room/block SELECTs, no writes
 });
+
+for (const [preference, gender, room] of [
+  ['female_only', 'female', 'R5'], ['male_only', 'male', 'R2'], ['mixed', null, 'R1'],
+]) {
+  test(`SIM9 BOT_HTTP explicit ${preference} uses the requested pool`, async () => {
+    const built = buildWolfhouseAvailabilityCommand({
+      channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode: false,
+      demoCalendarEnrichment: false,
+      transportBody: { check_in: '2026-10-19', check_out: '2026-10-23', guest_count: 2,
+        room_type: 'shared', room_preference: preference, group_gender: gender },
+    });
+    assert.equal(built.ok, true);
+    const result = await executeWolfhouseAvailabilityCheck(readOnlyInventory([
+      ...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 2), ...rows('R1', 'mixed', 2),
+    ]), built.command);
+    assert.equal(result.ok, true);
+    const body = mapBotHttpAvailabilityResponse(result.body);
+    assert.equal(body.selected_bed_codes.length, 2);
+    assert.ok(body.selected_bed_codes.every(code => code.startsWith(`${room}-`)), JSON.stringify(body));
+  });
+}
 
 async function main() {
   let passed = 0;
