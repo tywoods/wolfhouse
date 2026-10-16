@@ -674,6 +674,10 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         if (type(guest_index) is not int or len(actual_rows) != 1
                 or normalize(actual_rows[0].get('guest_name')) != normalize(guest_name)):
             return False
+        prior_rows = [item for item in before.get('guest_bed_assignments', [])
+                      if isinstance(item, dict) and item.get('guest_index') == guest_index]
+        prior_target_name = (normalize(prior_rows[0].get('guest_name'))
+                             if len(prior_rows) == 1 else '')
         for revision in (before, after):
             assignments = revision.get('guest_bed_assignments')
             target_assignment_name = None
@@ -683,14 +687,24 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                         target_assignment_name = normalize(item.get('guest_name'))
                         item['guest_name'] = '<completed-name-%s>' % guest_index
             hints = revision.get('room_name_hints')
-            if isinstance(hints, list) and target_assignment_name:
-                matching_hints = [hint for hint in hints
-                                  if isinstance(hint, dict)
-                                  and normalize(hint.get('name')) == target_assignment_name]
+            if isinstance(hints, list):
+                matching_hints = ([hint for hint in hints
+                                   if isinstance(hint, dict)
+                                   and normalize(hint.get('name')) == target_assignment_name]
+                                  if target_assignment_name else [])
                 if len(matching_hints) > 1:
                     return False
                 if matching_hints:
-                    matching_hints[0]['name'] = '<completed-name-%s>' % guest_index
+                    if revision is before or prior_target_name:
+                        matching_hints[0]['name'] = '<completed-name-%s>' % guest_index
+                    elif any(key not in ('name', 'explicit_gender')
+                             for key in matching_hints[0]):
+                        return False
+                    else:
+                        # A previously unnamed indexed occupant has no prior hint
+                        # row. The completed row is identity data, while Staff's
+                        # checked assignment/room/price facts remain compared.
+                        hints.remove(matching_hints[0])
     eligibility = eligibility_completions or (
         [{'guest_index': eligibility_index, 'value': eligibility_value}]
         if type(eligibility_index) is int else [])
@@ -1428,8 +1442,10 @@ def record_quote(params, response):
             for index, (before, after) in enumerate(zip(prior_rows, rows)):
                 old, new = normalize(before.get('guest_name')), normalize(after.get('guest_name'))
                 if old != new:
-                    if (not old or ' ' in old or not new.startswith(old + ' ')
-                            or sum(normalize(row.get('guest_name')) == old for row in prior_rows) != 1
+                    if (not new
+                            or (old and (' ' in old or not new.startswith(old + ' ')
+                                         or sum(normalize(row.get('guest_name')) == old
+                                                for row in prior_rows) != 1))
                             or sum(normalize(row.get('guest_name')) == new for row in rows) != 1):
                         same_people = False
                     names.append({'guest_index': index, 'completed_name': after.get('guest_name')})

@@ -9,7 +9,11 @@ const {
   mapBotHttpAvailabilityResponse,
   validateAvailabilityProvenanceForCreate,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
-const { needsGenderAwareBedAssignment, runAvailabilityBedSelection } = require('./lib/luna-bed-allocator');
+const {
+  needsGenderAwareBedAssignment,
+  normalizePref,
+  runAvailabilityBedSelection,
+} = require('./lib/luna-bed-allocator');
 const { buildWolfhouseBookingCreateCommand, executeWolfhouseBookingCreate } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./lib/staff-bed-calendar-queries');
 
@@ -53,6 +57,40 @@ for (const extra of [
     } else assert.deepEqual(result.selected_bed_codes, ['R5-B1', 'R5-B2']);
   });
 }
+
+test('male dorm aliases the canonical male-only restriction', () => {
+  assert.equal(normalizePref('male dorm'), 'male_only');
+  const bedRows = rows('R1', 'mixed', 1);
+  const canonical = inventory(bedRows, [], { ...command, guestCount: 1,
+    roomPreference: 'male_only', genderPreference: 'male' });
+  const alias = inventory(bedRows, [], { ...command, guestCount: 1,
+    roomPreference: 'male dorm', genderPreference: 'male' });
+  assert.deepEqual(alias.selectedBedCodes, canonical.selectedBedCodes);
+  assert.equal(alias.hasEnoughBeds, canonical.hasEnoughBeds);
+  assert.equal(alias.allocationReason, canonical.allocationReason);
+});
+
+test('unknown specific room restriction cannot broaden to capacity-only', () => {
+  const result = inventory(rows('R1', 'mixed', 1), [], { ...command, guestCount: 1,
+    roomPreference: 'unrecognized_specific_dorm', genderPreference: 'male' });
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.equal(result.hasEnoughBeds, false);
+  assert.equal(result.allocationReason, 'no_eligible_room');
+});
+
+test('missing, any, and shared preferences remain distinct from unknown restrictions', () => {
+  assert.equal(normalizePref(null), null);
+  assert.equal(normalizePref('any'), 'any');
+  assert.equal(normalizePref('shared'), 'mixed');
+  assert.equal(normalizePref('unrecognized_specific_dorm'), 'unrecognized_specific_dorm');
+  const bedRows = rows('R1', 'mixed', 1);
+  for (const roomPreference of [null, 'any', 'shared']) {
+    const result = inventory(bedRows, [], { ...command, guestCount: 1,
+      roomPreference, genderPreference: null });
+    assert.deepEqual(result.selectedBedCodes, ['R1-B1']);
+    assert.equal(result.hasEnoughBeds, true);
+  }
+});
 
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
