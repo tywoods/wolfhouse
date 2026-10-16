@@ -631,16 +631,43 @@ def _presentation_matches_completion_state(state, presentation):
     return expected == presented
 
 
+def _plan_has_explicit_male_people(plan):
+    """Require an unambiguous male fact bound by name to every occupant."""
+    if not isinstance(plan, dict):
+        return False
+    guests = plan.get('guests')
+    hints = plan.get('room_name_hints')
+    if (not isinstance(guests, list) or not guests or not isinstance(hints, list)
+            or len(guests) != len(hints)
+            or any(not isinstance(row, dict) for row in guests + hints)):
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    names = [normalize(guest.get('name')) for guest in guests]
+    facts = {normalize(hint.get('name')): hint.get('explicit_gender') for hint in hints}
+    return (all(names) and len(set(names)) == len(names) and len(facts) == len(hints)
+            and all(facts.get(name) == 'male' for name in names))
+
+
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
                                  eligibility_index=None, eligibility_value=None,
-                                 eligibility_completions=None):
+                                 eligibility_completions=None, person_plan=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
     after.pop('offer_fingerprint', None)
+    # Staff's completed canonical offer can drop the legacy aggregate male
+    # preference. It is only an alias when every unchanged indexed occupant
+    # still carries the explicit person-bound male fact; the remaining full
+    # revision comparison protects assignments, beds, room, price and tenant.
+    if (before.get('gender_preference') == 'male'
+            and after.get('gender_preference') is None
+            and _plan_has_explicit_male_people(person_plan)):
+        before['gender_preference'] = None
+        if after.get('room_name_hints') == []:
+            before['room_name_hints'] = []
     if payment_choice:
         if payment_choice not in ('deposit', 'full'):
             return False
@@ -1387,6 +1414,10 @@ def record_quote(params, response):
             expected_plan.update(deepcopy(state.get('completion_plan') or {}))
             comparable = {key: expected_plan.get(key) for key in _FIELDS if key in expected_plan}
             current = {key: plan.get(key) for key in _FIELDS if key in expected_plan}
+            if (comparable.get('gender_preference') == 'male'
+                    and current.get('gender_preference') is None
+                    and _plan_has_explicit_male_people(expected_plan)):
+                comparable['gender_preference'] = None
             prior_quote = prior.get('authoritative_quote') or {}
             prior_revision = prior.get('quote_revision') or prior_quote.get('offer_revision')
             new_revision = response.get('offer_revision')
@@ -1403,7 +1434,8 @@ def record_quote(params, response):
                     payment_choice=pending_payment, guest_completions=pending_names,
                     eligibility_index=eligibility_index,
                     eligibility_value=eligibility_value,
-                    eligibility_completions=state.get('pending_eligibility_completions'))
+                    eligibility_completions=state.get('pending_eligibility_completions'),
+                    person_plan=expected_plan)
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
@@ -1473,11 +1505,15 @@ def record_quote(params, response):
                     # contradiction remains material and clears the offer.
                     if len(facts) == 1 and after in facts and before in (None, after):
                         before = after
+                if (key == 'gender_preference' and before == 'male' and after is None
+                        and _plan_has_explicit_male_people(plan)):
+                    before = after
                 if before != after:
                     material_matches = False
             if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
                     and _completion_revision_matches(prior_revision, revision,
-                        payment_choice=payment, guest_completions=names)
+                        payment_choice=payment, guest_completions=names,
+                        person_plan=plan)
                     and all(response.get(key) == prior_quote.get(key)
                             for key in ('total_cents', 'deposit_required_cents', 'currency'))):
                 # Preserve the owner-rendered text while advancing only the

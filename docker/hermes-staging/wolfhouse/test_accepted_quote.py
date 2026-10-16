@@ -231,7 +231,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
         revised = self.ledger.prepare_quote({'catalog_selections': []})
         self.assertEqual(revised['catalog_selections'], self.plan['catalog_selections'])
-        self.assertEqual(revised['add_ons'], self.plan['add_ons'])
+        self.assertEqual(revised['add_ons'], [])
 
     def test_accepted_plain_quote_revalidation_has_no_revision_dependency(self):
         raw = 'I accept the quote'
@@ -673,6 +673,72 @@ class OwnerHostileTests(unittest.TestCase):
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     'quote_owner_presented_offer_required'):
             self.ledger.prepare_create({})
+
+    def test_export_g1_g4_provisional_male_alias_survives_checked_revalidation(self):
+        """Replay export 3001/3004: create -> quote -> create internal refresh."""
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='male_only'),
+                dict(bed_code='M2', room_code='M', gender_strategy='male_only')]
+        for export_id, names in ((3001, ('Emre Yilmaz', 'Guest Two')),
+                                 (3004, ('Mateo Ríos', 'Guest Two'))):
+            with self.subTest(export_id=export_id):
+                self.agent.session_id = f'export-{export_id}-owner'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'room_type': 'shared',
+                        'room_preference': 'male_only', 'group_gender': 'male',
+                        'gender_preference': 'male',
+                        'guests': [{'name': name, 'explicit_gender': 'male'}
+                                   for name in names],
+                        'room_name_hints': [
+                            {'name': name, 'explicit_gender': 'male'} for name in names]}
+                plan.pop('payment_choice', None)
+                plan.pop('catalog_selections', None)
+                plan.pop('add_ons', None)
+                quoted = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests),
+                    {**plan, 'payment_choice': 'deposit'}, beds)
+                quoted['payment_choice_needed'] = True
+                self.turn(f'export-{export_id}-quote', 'Quote this booking')
+                self.ledger.record_quote(plan, quoted)
+                self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft'})
+
+                raw = 'Book it with the deposit'
+                self.turn(f'export-{export_id}-create-1', raw)
+                accepted = self.interpret(raw, completions={'payment_choice': {
+                    'value': 'deposit', 'evidence': 'deposit'}})
+                self.assertFalse(accepted['create_ready'])
+                revalidation = self.ledger.prepare_quote({})
+                checked = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), revalidation, beds)
+                # Exported Staff completion canonicalizes the redundant request
+                # preference to null while retaining male facts per occupant.
+                checked['offer_revision']['gender_preference'] = None
+                checked['offer_revision']['offer_fingerprint'] = f'export-{export_id}-checked'
+                before_refresh = self.ledger._transaction(
+                    lambda owner, _ingress: deepcopy(owner))
+                expected_plan = deepcopy(before_refresh['accepted_presentation']['plan'])
+                expected_plan.update(deepcopy(before_refresh.get('completion_plan') or {}))
+                self.assertTrue(self.ledger._completion_revision_matches(
+                    before_refresh['accepted_presentation']['quote_revision'],
+                    checked['offer_revision'], payment_choice='deposit',
+                    person_plan=expected_plan),
+                    (before_refresh['accepted_presentation']['quote_revision'],
+                     checked['offer_revision'], expected_plan))
+                self.ledger.record_quote(revalidation, checked)
+                state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertIsNotNone(state.get('presentation'), state)
+                prepared = self.ledger.prepare_create({})
+                self.assertEqual(prepared['accepted_offer'], checked['offer_revision'])
+                self.assertEqual(prepared['selected_bed_codes'], ['M1', 'M2'])
+
+        # The alias exception must not cover a contradictory person-bound fact.
+        contradictory_plan = deepcopy(expected_plan)
+        contradictory_plan['room_name_hints'][1]['explicit_gender'] = 'female'
+        self.assertFalse(self.ledger._completion_revision_matches(
+            before_refresh['accepted_presentation']['quote_revision'],
+            checked['offer_revision'], payment_choice='deposit',
+            person_plan=contradictory_plan))
 
     def test_registered_adapter_preserves_provisional_payment_then_revalidates_explicit_choices(self):
         import json
