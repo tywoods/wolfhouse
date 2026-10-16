@@ -230,8 +230,8 @@ class OwnerHostileTests(unittest.TestCase):
         prepared = self.ledger.prepare_quote({'guest_phone': 'offline'})
         self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
         revised = self.ledger.prepare_quote({'catalog_selections': []})
-        self.assertEqual(revised['catalog_selections'], [])
-        self.assertEqual(revised['add_ons'], [])
+        self.assertEqual(revised['catalog_selections'], self.plan['catalog_selections'])
+        self.assertEqual(revised['add_ons'], self.plan['add_ons'])
 
     def test_accepted_plain_quote_revalidation_has_no_revision_dependency(self):
         raw = 'I accept the quote'

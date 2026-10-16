@@ -1096,7 +1096,12 @@ def prepare_quote(params):
     are sent to Staff for pricing, while omitted values retain the previous draft.
     """
     def prepare(state, ingress):
-        result = deepcopy(params)
+        normalized_params = dict(params)
+        # Optional-list schema defaults are absence, not guest authorization to
+        # remove a priced service. Explicit removals use evidenced revisions.
+        if normalized_params.get('catalog_selections') == []:
+            normalized_params.pop('catalog_selections')
+        result = deepcopy(normalized_params)
         preserved = deepcopy(state.get('plan') or {})
         preserved.update(deepcopy(state.get('completion_plan') or {}))
         for key in _FIELDS + _CHECKED_FIELDS:
@@ -1461,6 +1466,13 @@ def record_quote(params, response):
                 if key == 'selected_bed_codes' and before is None:
                     before = [row.get('bed_code') for row in prior_rows]
                     after = after if after is not None else before
+                if key == 'group_gender' and before != after:
+                    facts = {guest.get('explicit_gender') for guest in plan.get('guests', [])
+                             if isinstance(guest, dict) and guest.get('explicit_gender')}
+                    # A matching aggregate restatement adds no fact. A
+                    # contradiction remains material and clears the offer.
+                    if len(facts) == 1 and after in facts and before in (None, after):
+                        before = after
                 if before != after:
                     material_matches = False
             if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))

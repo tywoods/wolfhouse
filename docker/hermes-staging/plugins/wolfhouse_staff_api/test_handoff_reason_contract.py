@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+import urllib.error
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urlsplit
@@ -20,6 +21,17 @@ from wolfhouse import explicit_human_handoff as handoff
 
 
 class HandoffReasonContractTests(unittest.TestCase):
+    def test_typed_403_handoff_denial_keeps_blocked_reasons(self):
+        body = {"success": False, "error": "client_access_denied",
+                "reason": "bot_principal_tenant_denied",
+                "blocked_reasons": ["tenant_handoff_denied"]}
+        error = urllib.error.HTTPError('http://staff/staff/bot/conversation/needs-human',
+                                      403, 'Forbidden', {}, io.BytesIO(json.dumps(body).encode()))
+        with patch('urllib.request.urlopen', side_effect=error):
+            result = plugin._post_bot('/conversation/needs-human', {})
+        self.assertEqual(result['status'], 403)
+        self.assertEqual(result['blocked_reasons'], ['tenant_handoff_denied'])
+
     def test_registered_availability_preserves_choice_and_rejects_excluded_selection(self):
         class Registry:
             def __init__(self): self.tools = {}

@@ -753,7 +753,7 @@ function normalizeOfferGuestPackages(raw) {
 
 function wolfhouseOfferPayload(offer) {
   const src = offer && typeof offer === 'object' ? offer : {};
-  return {
+  const bound = {
     v: OFFER_REVISION_VERSION,
     client_slug: src.client_slug || null,
     check_in: src.check_in || null,
@@ -784,6 +784,15 @@ function wolfhouseOfferPayload(offer) {
     payment_distribution: normalizePaymentDistribution(src.payment_distribution),
     availability_checked: src.availability_checked === true,
   };
+  // Equal deposit and total is one commercial charge. Canonicalize before
+  // fingerprinting so displayed deposit vs allowed full does not force another
+  // confirmation step.
+  if (bound.total_cents != null && bound.deposit_required_cents === bound.total_cents
+      && ['deposit', 'full'].includes(bound.payment_choice)) {
+    bound.payment_choice = 'full';
+    bound.payment_link_amount_cents = bound.total_cents;
+  }
+  return bound;
 }
 
 function computeWolfhouseOfferFingerprint(offer) {
