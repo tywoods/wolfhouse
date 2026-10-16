@@ -267,7 +267,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       roomPreference: roomPreference || genderPreference || null,
       groupGender: groupGender || genderPreference || null,
       capacityOnly: (roomPreference || roomType) === 'shared' && !genderPreference
-        || !['female_only', 'male_only', 'mixed', 'private', 'couple_private'].includes(requestedPool),
+        || requestedPool === 'any' || requestedPool == null,
     });
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;

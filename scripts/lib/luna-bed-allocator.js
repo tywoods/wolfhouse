@@ -31,7 +31,7 @@ function normalizePref(s) {
   const p = normalizeToken(s);
   if (!p) return null;
   if (p === 'female' || p === 'female_only' || p === 'girls' || p === 'girls_room') return 'female_only';
-  if (p === 'male' || p === 'male_only' || p === 'guys' || p === 'guys_room'
+  if (p === 'male' || p === 'male_only' || p === 'male_dorm' || p === 'guys' || p === 'guys_room'
     || p === 'mens' || p === 'mens_room' || p === 'men' || p === 'men_s_room' || p === 'mensroom') {
     return 'male_only';
   }
@@ -148,6 +148,7 @@ function allowedCategoriesForGroup(groupGender, roomPreference) {
   if (rp === 'mixed') return mixedPool;
   if (rp === 'female_only') return new Set(gender === 'female' ? ['female_only'] : []);
   if (rp === 'male_only') return new Set(gender === 'male' ? ['male_only'] : []);
+  if (rp && !['any', 'private'].includes(rp)) return new Set();
 
   if (gender === 'female') {
     if (rp === 'mixed') return new Set(['female_only', 'mixed', 'matrimonial_or_mixed']);
