@@ -264,7 +264,8 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       genderPreference: genderPreference || groupGender || null,
       roomPreference: roomPreference || genderPreference || null,
       groupGender: groupGender || genderPreference || null,
-      capacityOnly: true,
+      capacityOnly: !['female_only', 'male_only', 'mixed', 'private', 'couple_private']
+        .includes(roomPreference || roomType),
     });
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;

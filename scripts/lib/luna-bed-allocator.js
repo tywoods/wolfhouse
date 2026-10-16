@@ -145,6 +145,9 @@ function allowedCategoriesForGroup(groupGender, roomPreference) {
   const gender = groupGender || 'unknown';
   const rp = normalizePref(roomPreference);
   const mixedPool = new Set(['mixed', 'matrimonial_or_mixed']);
+  if (rp === 'mixed') return mixedPool;
+  if (rp === 'female_only') return new Set(gender === 'female' ? ['female_only'] : []);
+  if (rp === 'male_only') return new Set(gender === 'male' ? ['male_only'] : []);
 
   if (gender === 'female') {
     if (rp === 'mixed') return new Set(['female_only', 'mixed', 'matrimonial_or_mixed']);

@@ -51,6 +51,16 @@ class HandoffReasonContractTests(unittest.TestCase):
         return io.BytesIO(self.receipt if isinstance(self.receipt, bytes)
                           else json.dumps(self.receipt).encode())
 
+    def test_sim9_http_403_preserves_status_without_inventing_missing_conversation(self):
+        from urllib.error import HTTPError
+        self.receipt = HTTPError('https://staff.invalid', 403, 'Forbidden', {},
+                                 io.BytesIO(b'{"error":"tenant_access_denied"}'))
+        result = json.loads(plugin.flag_needs_human({'reason': 'complaint: unresolved issue'}))
+        self.assertEqual(result.get('status'), 403)
+        self.assertEqual(result.get('error'), 'tenant_access_denied')
+        self.assertNotIn('conversation_not_found', result['blocked_reasons'])
+        self.assertFalse(result['handoff_persisted'])
+
     def test_blank_or_nontext_reason_rejected_before_ack_or_persistence(self):
         for tenant in ("wolfhouse-somo", "sunset"):
             os.environ["LUNA_CLIENT_SLUG"] = tenant

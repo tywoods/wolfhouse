@@ -467,7 +467,8 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         hint=None,
         confidence=None,
         ambiguous=False,
-        explicit_gender=params.get("explicit_gender") or params.get("group_gender"),
+        explicit_gender=params.get("explicit_gender"),
+        group_gender=params.get("group_gender"),
         room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
         available=available or None,
@@ -2146,7 +2147,8 @@ def flag_needs_human(params, **kwargs):
     return _json_result({
         **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
                                      "needs_operator_reconciliation", "guest_safe_next_action",
-                                     "failure_notice_sent", "error") if key in data},
+                                     "failure_notice_sent", "error", "status",
+                                     "staff_api_status") if key in data},
         "success": ok,
         "tool": "flag_needs_human",
         "needs_human": ok,
@@ -2156,7 +2158,7 @@ def flag_needs_human(params, **kwargs):
         "conversation_paused": ok and data.get("conversation_paused") is True,
         # Only a successful Staff receipt can confirm the submitted reason.
         "handoff_reason": (_clean(data.get("handoff_reason")) or payload["reason"]) if ok else None,
-        "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["conversation_not_found"]),
+        "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["handoff_not_persisted"]),
         # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
         "staff_review_needed": not ok,
         "do_not_escalate": ok,
@@ -4680,6 +4682,12 @@ def _quote_owner_handler(name, original):
                     ledger.record_create_completion(canonical, response)
             return result
         except ledger.QuoteBoundaryError as error:
+            import logging
+            # Internal bounded diagnostics only: never log payloads or identity.
+            comparison = next((note for note in getattr(error, '__notes__', ())
+                               if note.startswith('comparison_key=')), 'comparison_key=unknown')
+            logging.getLogger(__name__).warning(
+                'booking_owner_refusal category=%s %s', str(error), comparison)
             failure = {'success': False, 'tool': name, 'error': str(error),
                        'write_performed': False, 'booking_not_created_yet': True,
                        'next_action': 'clarify_or_requote', 'staff_review_needed': False}

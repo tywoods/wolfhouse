@@ -8,6 +8,23 @@ from wolfhouse.room_eligibility_policy import decide_room_eligibility
 
 
 class RoomEligibilityPolicyTests(unittest.TestCase):
+    def test_sim9_sparse_roster_keeps_explicit_whole_party_fact(self):
+        result = decide_room_eligibility(
+            guest_count=3, group_gender='female', room_preference='female_only',
+            travelers=[{'name': 'Aisha', 'explicit_gender': 'female'},
+                       {'name': 'Priya'}, {'name': 'Leila'}],
+            available={'female_only': True})
+        self.assertEqual(result['resolved_composition'], 'female')
+        self.assertFalse(result['clarification_needed'])
+
+    def test_sim9_individual_contradiction_is_not_erased_by_group_fact(self):
+        result = decide_room_eligibility(
+            guest_count=3, group_gender='female', room_preference='female_only',
+            travelers=[{'name': 'Aisha', 'explicit_gender': 'female'},
+                       {'name': 'Other', 'explicit_gender': 'male'}, {'name': 'Leila'}],
+            available={'female_only': True})
+        self.assertNotIn('female_only', result['allowed_room_preferences'])
+
     def test_fred_solo_excludes_all_female_even_when_available(self):
         decision = decide_room_eligibility(
             guest_count=1,
