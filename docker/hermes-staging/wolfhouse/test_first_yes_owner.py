@@ -25,6 +25,89 @@ class FirstYesOwnerTests(unittest.TestCase):
             'guests': [{'name': 'Alex Rivera'}, {'name': 'Sam Lee'}],
             'payment_choice': 'deposit'})
 
+    def test_structured_eligibility_completion_on_unchanged_mixed_beds(self):
+        self._registered_create_with_completion({'guests': [
+            {'name': 'Alex', 'explicit_gender': 'male'},
+            {'name': 'Sam', 'explicit_gender': 'female'}]})
+
+    def test_indexed_eligibility_refresh_rejects_transfers_and_factual_changes(self):
+        before = {
+            'guest_bed_assignments': [
+                {'guest_index': 0, 'guest_name': 'Alex', 'bed_code': 'M1'},
+                {'guest_index': 1, 'guest_name': 'Sam', 'bed_code': 'M2'}],
+            'total_cents': 10000, 'currency': 'EUR',
+            'payment_choice': 'per_guest', 'payment_link_amount_cents': 5000}
+        after = deepcopy(before)
+        after['room_name_hints'] = [
+            {'name': 'Alex', 'explicit_gender': 'male'},
+            {'name': 'Sam', 'explicit_gender': 'female'}]
+        completions = [{'guest_index': 0, 'value': 'male'},
+                       {'guest_index': 1, 'value': 'female'}]
+        self.assertTrue(ledger._completion_revision_matches(
+            before, after, eligibility_completions=completions))
+        mutations = []
+        swapped = deepcopy(after)
+        swapped['room_name_hints'][0]['explicit_gender'] = 'female'
+        swapped['room_name_hints'][1]['explicit_gender'] = 'male'
+        mutations.append(swapped)
+        moved = deepcopy(after)
+        moved['guest_bed_assignments'][0]['bed_code'] = 'M2'
+        mutations.append(moved)
+        for field, value in (('total_cents', 10001), ('currency', 'USD'),
+                             ('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+            mutations.append({**deepcopy(after), field: value})
+        for changed in mutations:
+            with self.subTest(changed=changed):
+                self.assertFalse(ledger._completion_revision_matches(
+                    before, changed, eligibility_completions=completions))
+
+    def test_unchanged_full_payment_refresh(self):
+        self.plan['payment_choice'] = 'full'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_deposit_payment_refresh(self):
+        self.plan['payment_choice'] = 'deposit'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_per_guest_payment_refresh(self):
+        self.plan['payment_choice'] = 'per_guest'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_pay_on_arrival_payment_refresh(self):
+        self.plan['payment_choice'] = 'pay_on_arrival'
+        self._registered_create_with_completion({})
+
+    def test_pending_dispatch_identity_survives_missing_cache_next_turn(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('first-create', 'yes')
+        refresh = ledger.prepare_create({})
+        self.assertTrue(refresh.revalidation)
+        ledger.record_quote(refresh, self.response)
+        first = ledger.prepare_create({})
+        attempts = []
+        def timeout_transport():
+            attempts.append(first['idempotency_key'])
+            raise TimeoutError('offline unresolved transport')
+        with self.assertRaises(TimeoutError):
+            ledger.dispatch_create(first, timeout_transport)
+        before = ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertTrue(before['dispatch_pending'])
+        self.assertFalse(before.get('receipt'))
+        self.turn('retry-create', 'Please finish that booking')
+        ledger._transaction(lambda state, ingress: state.pop('checked_offer', None))
+        refresh = ledger.prepare_create({})
+        self.assertTrue(refresh.revalidation)
+        ledger.record_quote(refresh, self.response)
+        second = ledger.prepare_create({})
+        after = ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertEqual(before['acceptance_message'], after['acceptance_message'])
+        self.assertEqual(before.get('acceptance_raw_digest'), after.get('acceptance_raw_digest'))
+        self.assertEqual(dict(first), dict(second))
+        self.assertTrue(after['dispatch_pending'])
+        self.assertFalse(after.get('receipt'))
+        self.assertEqual(attempts, [first['idempotency_key']])
+
     def _registered_create_with_completion(self, completions):
         class Registry:
             def __init__(self): self.tools = {}

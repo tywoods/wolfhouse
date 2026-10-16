@@ -633,7 +633,8 @@ def _presentation_matches_completion_state(state, presentation):
 
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
-                                 eligibility_index=None, eligibility_value=None):
+                                 eligibility_index=None, eligibility_value=None,
+                                 eligibility_completions=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
@@ -690,25 +691,37 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     return False
                 if matching_hints:
                     matching_hints[0]['name'] = '<completed-name-%s>' % guest_index
-    if type(eligibility_index) is int:
-        hints = after.get('room_name_hints')
-        assignments = after.get('guest_bed_assignments')
-        if (not isinstance(hints, list) or not isinstance(assignments, list)
-                or eligibility_index >= len(assignments)):
+    eligibility = eligibility_completions or (
+        [{'guest_index': eligibility_index, 'value': eligibility_value}]
+        if type(eligibility_index) is int else [])
+    if len({item.get('guest_index') for item in eligibility}) != len(eligibility):
+        return False
+    for completion in eligibility:
+        index = completion.get('guest_index')
+        value = completion.get('value')
+        rows = [row for row in after.get('guest_bed_assignments', [])
+                if isinstance(row, dict) and row.get('guest_index') == index]
+        prior_rows = [row for row in before.get('guest_bed_assignments', [])
+                      if isinstance(row, dict) and row.get('guest_index') == index]
+        if (type(index) is not int or len(rows) != 1 or len(prior_rows) != 1
+                or rows != prior_rows or value not in ('male', 'female')):
             return False
-        target_name = str(assignments[eligibility_index].get('guest_name', '')).strip().casefold()
-        matches = [index for index, hint in enumerate(hints)
-                   if isinstance(hint, dict)
-                   and set(hint) == {'name', 'explicit_gender'}
-                   and str(hint.get('name', '')).strip().casefold() == target_name
-                   and hint.get('explicit_gender') == eligibility_value]
-        prior_hints = before.get('room_name_hints') or []
-        remaining = [hint for index, hint in enumerate(hints) if index not in matches]
-        if (len(matches) != 1 or not isinstance(prior_hints, list)
-                or remaining != prior_hints):
-            return False
-        before.pop('room_name_hints', None)
-        after.pop('room_name_hints', None)
+        target_name = normalize(rows[0].get('guest_name'))
+        for revision, required in ((before, False), (after, True)):
+            hints = revision.get('room_name_hints') or []
+            if not isinstance(hints, list):
+                return False
+            matches = [hint for hint in hints if isinstance(hint, dict)
+                       and normalize(hint.get('name')) == target_name]
+            if (len(matches) > 1 or (required and len(matches) != 1)
+                    or any(set(hint) != {'name', 'explicit_gender'} for hint in matches)
+                    or (required and matches[0].get('explicit_gender') != value)):
+                return False
+            revision['room_name_hints'] = [hint for hint in hints if hint not in matches]
+    if eligibility:
+        for revision in (before, after):
+            if not revision.get('room_name_hints'):
+                revision.pop('room_name_hints', None)
     return before == after
 
 
@@ -1339,7 +1352,8 @@ def record_quote(params, response):
         pending_name = state.get('pending_name_completion')
         pending_eligibility = state.get('pending_eligibility_completion')
         if (valid and checked is not None and state['status'] == 'accepted'
-                and (pending_payment or pending_name or pending_eligibility)
+                and (pending_payment or pending_name or pending_eligibility
+                     or state.get('pending_fact_refresh'))
                 and isinstance(state.get('accepted_presentation'), dict)):
             prior = state['accepted_presentation']
             prior_plan = prior.get('plan') or {}
@@ -1362,7 +1376,8 @@ def record_quote(params, response):
                     prior_revision, new_revision,
                     payment_choice=pending_payment, guest_completions=pending_names,
                     eligibility_index=eligibility_index,
-                    eligibility_value=eligibility_value)
+                    eligibility_value=eligibility_value,
+                    eligibility_completions=state.get('pending_eligibility_completions'))
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
@@ -1389,6 +1404,8 @@ def record_quote(params, response):
                 state.pop('pending_name_completion', None)
                 state.pop('pending_name_completions', None)
                 state.pop('pending_eligibility_completion', None)
+                state.pop('pending_eligibility_completions', None)
+                state.pop('pending_fact_refresh', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
                 return
@@ -1413,6 +1430,8 @@ def record_quote(params, response):
         state.pop('pending_name_completions', None)
         state.pop('pending_payment_completion', None)
         state.pop('pending_eligibility_completion', None)
+        state.pop('pending_eligibility_completions', None)
+        state.pop('pending_fact_refresh', None)
         state.pop('authorized_revision_changes', None)
         state['unresolved_change'] = False
         state['delta'] = {}
@@ -1448,6 +1467,11 @@ def prepare_create(params):
                      'previous_name': old_guests[index].get('name')}
                     for index, guest in enumerate(guests)]
                 state['pending_name_completion'] = state['pending_name_completions'][0]
+                state['pending_eligibility_completions'] = [
+                    {'guest_index': index, 'value': guest['explicit_gender']}
+                    for index, guest in enumerate(guests)
+                    if 'explicit_gender' in guest
+                    and guest.get('explicit_gender') != old_guests[index].get('explicit_gender')]
             payment = params.get('payment_choice')
             if payment and payment != baseline.get('payment_choice'):
                 if payment not in state['presentation'].get('payment_choices', []):
@@ -1490,10 +1514,10 @@ def prepare_create(params):
                                         if key in result}
             # Force the existing quote recorder through its unchanged-terms path.
             # This is a fact refresh, not a cached readiness permission bit.
-            state['pending_payment_completion'] = result.get('payment_choice') or (
-                presentation.get('quote_revision') or {}).get('payment_choice')
-            state['acceptance_message'] = ingress['MESSAGE_ID']
-            state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
+            state['pending_fact_refresh'] = True
+            if not state.get('acceptance_message'):
+                state['acceptance_message'] = ingress['MESSAGE_ID']
+                state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
             prepared = PreparedPlan(result, _current.get(), state['epoch'])
             prepared.revalidation = True
             return prepared
