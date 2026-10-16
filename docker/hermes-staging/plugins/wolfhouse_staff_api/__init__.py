@@ -514,8 +514,12 @@ def _suppress_gender_handoff(result, decision):
         excluded = set(decision.get("excluded_room_preferences") or [])
         if "female_only" in excluded:
             result["girls_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "female_only": False}
         if "male_only" in excluded and "guys_room_available" in result:
             result["guys_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "male_only": False}
         result["needs_human"] = False
         return result
     result["needs_human"] = False
@@ -526,8 +530,12 @@ def _suppress_gender_handoff(result, decision):
     excluded = set(decision.get("excluded_room_preferences") or [])
     if "female_only" in excluded:
         result["girls_room_available"] = False
+        if isinstance(result.get("room_options"), dict):
+            result["room_options"] = {**result["room_options"], "female_only": False}
     if "male_only" in excluded and "guys_room_available" in result:
         result["guys_room_available"] = False
+        if isinstance(result.get("room_options"), dict):
+            result["room_options"] = {**result["room_options"], "male_only": False}
     return result
 
 
@@ -576,9 +584,18 @@ def check_availability(params, **kwargs):
     for key in ("room_preference", "gender_preference", "group_gender", "guests", "room_name_hints"):
         if key in params:
             payload[key] = params[key]
+    # Availability and quote interpret the same canonical person-bound facts.
+    # Legacy hints are an output projection, never an independent authority.
+    _normalize_guests_payload(payload)
+    payload.pop("room_name_hints", None)
+    hints = [{"name": guest.get("name"), "explicit_gender": guest.get("explicit_gender")}
+             for guest in payload.get("guests", []) if isinstance(guest, dict)
+             and guest.get("explicit_gender") in ("male", "female")]
+    if hints:
+        payload["room_name_hints"] = hints
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
-    decision = _room_decision_for_tool(params, data)
+    decision = _room_decision_for_tool(payload, data)
     excluded = set((decision or {}).get("excluded_room_preferences") or [])
     available_beds = []
     excluded_room_codes = set()
@@ -4950,6 +4967,7 @@ def register(ctx):
         roster = deepcopy(common_booking["guests"])
         roster["items"]["additionalProperties"] = False
         roster["items"]["properties"]["name"].pop("minLength", None)
+        roster["items"]["properties"].pop("gender_evidence", None)
         roster["items"]["properties"]["explicit_gender"] = {
             "type": "string", "enum": ["male", "female"],
             "description": "Only the named traveler's explicit self-stated eligibility; never infer.",
