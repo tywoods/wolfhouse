@@ -86,39 +86,69 @@ async function collectClientConnectionStatuses(options = {}) {
   const clients = Array.isArray(options.clients) ? options.clients : [];
   const origins = options.staffOrigins || {};
   const requestJson = typeof options.requestJson === 'function' ? options.requestJson : null;
-  const whatsapp = typeof options.readWhatsApp === 'function' ? await safeRead(options.readWhatsApp) : null;
+  const whatsappPromise = typeof options.readWhatsApp === 'function'
+    ? safeRead(options.readWhatsApp)
+    : Promise.resolve(null);
   const readLunaEvidence = typeof options.readLunaEvidence === 'function' ? options.readLunaEvidence : null;
   const result = {};
-  for (const client of clients) {
+  await Promise.all(clients.map(async (client) => {
     const environments = client.id === 'wolfhouse-somo' ? ['live', 'staging'] : ['staging'];
-    result[client.id] = {};
-    for (const environment of environments) {
+    const rows = {};
+    await Promise.all(environments.map(async (environment) => {
       const row = emptyEnvironment();
       const expectedRouteOwner = client.client_slug === 'wolfhouse-somo' ? 'wolfhouse' : client.client_slug;
+      const origin = origins[client.client_slug] && (typeof origins[client.client_slug] === 'string'
+        ? origins[client.client_slug] : origins[client.client_slug][environment]);
+      const base = origin ? String(origin).replace(/\/$/, '') : '';
+      const canRead = Boolean(requestJson && origin);
+      const emailPromise = canRead
+        ? safeRead(() => requestJson(`${base}/staff/admin/email-settings?client=${encodeURIComponent(client.client_slug)}`))
+        : Promise.resolve(null);
+      const paymentPromise = canRead
+        ? safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(client.client_slug)}`))
+        : Promise.resolve(null);
+      const lunaPromise = canRead
+        ? safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(client.client_slug)}`))
+        : Promise.resolve(null);
+      const lunaEvidencePromise = readLunaEvidence
+        ? whatsappPromise.then((whatsapp) => safeRead(() => readLunaEvidence(client, environment, whatsapp)))
+        : Promise.resolve(undefined);
+      const [whatsapp, email, payment, luna, lunaEvidence] = await Promise.all([
+        whatsappPromise, emailPromise, paymentPromise, lunaPromise, lunaEvidencePromise,
+      ]);
       row.WhatsApp = environment === 'staging'
         ? deriveWhatsAppStatus(whatsapp, expectedRouteOwner)
         : STATUS.UNKNOWN;
       if (row.WhatsApp === STATUS.CONNECTED) row.WhatsAppDetail = String(whatsapp && (whatsapp.number_display || whatsapp.number_e164) || '').trim();
-      const origin = origins[client.client_slug] && (typeof origins[client.client_slug] === 'string'
-        ? origins[client.client_slug] : origins[client.client_slug][environment]);
-      if (requestJson && origin) {
-        const base = String(origin).replace(/\/$/, '');
-        const email = await safeRead(() => requestJson(`${base}/staff/admin/email-settings?client=${encodeURIComponent(client.client_slug)}`));
-        const payment = await safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(client.client_slug)}`));
-        const luna = await safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(client.client_slug)}`));
+      if (canRead) {
         row.Email = deriveEmailStatus(email);
         if (row.Email === STATUS.CONNECTED) row.EmailDetail = emailDetail(email);
         row.Stripe = deriveStripeStatus(payment);
         row.Luna = deriveLunaStatus(normalizeLunaEvidenceResponse(luna));
       }
-      if (readLunaEvidence) {
-        const lunaEvidence = await safeRead(() => readLunaEvidence(client, environment, whatsapp));
-        row.Luna = deriveLunaStatus(lunaEvidence);
-      }
-      result[client.id][environment] = row;
-    }
-  }
+      if (readLunaEvidence) row.Luna = deriveLunaStatus(lunaEvidence);
+      rows[environment] = row;
+    }));
+    result[client.id] = rows;
+  }));
   return result;
 }
 
-module.exports = { STATUS, deriveWhatsAppStatus, deriveEmailStatus, deriveStripeStatus, deriveLunaStatus, normalizeLunaEvidenceResponse, collectClientConnectionStatuses };
+async function loadCrowsnestClientsView(readers = {}) {
+  const collectStatuses = typeof readers.collectStatuses === 'function' ? readers.collectStatuses : async () => ({});
+  const collectEvidence = typeof readers.collectEvidence === 'function' ? readers.collectEvidence : async () => ({});
+  const collectDeploy = typeof readers.collectDeploy === 'function' ? readers.collectDeploy : null;
+  const [clientStatuses, portalEvidence, deployResult] = await Promise.all([
+    collectStatuses(),
+    collectEvidence(),
+    collectDeploy
+      ? Promise.resolve().then(collectDeploy).then(
+          (value) => ({ ok: true, value }),
+          () => ({ ok: false }),
+        )
+      : Promise.resolve({ ok: false }),
+  ]);
+  return { clientStatuses, portalEvidence, deployResult };
+}
+
+module.exports = { STATUS, deriveWhatsAppStatus, deriveEmailStatus, deriveStripeStatus, deriveLunaStatus, normalizeLunaEvidenceResponse, collectClientConnectionStatuses, loadCrowsnestClientsView };
