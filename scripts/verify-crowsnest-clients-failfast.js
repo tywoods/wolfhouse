@@ -59,12 +59,12 @@ async function test(name, fn) {
 }
 
 (async () => {
-  await test('plain http staff origins are ignored, including internal :3036 names', () => {
+  await test('plain http staff origins are ignored unless they are the two France docker names', () => {
     const token = 't'.repeat(32);
     const config = resolveCrowsnestStaffStatusConfig({
-      CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN: 'http://ovh-wolfhouse-staff:3036',
+      CROWSNEST_WOLFHOUSE_STAGING_STAFF_ORIGIN: 'http://evil.example:3036',
       CROWSNEST_WOLFHOUSE_STAGING_STATUS_TOKEN: token,
-      CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN: 'http://ovh-sunset-staff:3036',
+      CROWSNEST_SUNSET_STAGING_STAFF_ORIGIN: 'http://sunset-luna:8095',
       CROWSNEST_SUNSET_STAGING_STATUS_TOKEN: token,
     });
     assert.deepEqual(config.origins, {});
