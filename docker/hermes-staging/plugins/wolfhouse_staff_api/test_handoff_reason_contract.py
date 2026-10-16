@@ -20,6 +20,31 @@ from wolfhouse import explicit_human_handoff as handoff
 
 
 class HandoffReasonContractTests(unittest.TestCase):
+    def test_registered_availability_preserves_choice_and_rejects_excluded_selection(self):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *a, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        tool = registry.tools['check_availability']
+        args = dict(check_in='2026-11-03', check_out='2026-11-06', guest_count=3,
+                    room_type='shared', room_preference='female_only', group_gender='female')
+        for key in ('room_preference', 'group_gender', 'guests', 'room_name_hints', 'gender_preference'):
+            self.assertIn(key, tool['schema']['parameters']['properties'])
+        receipt = dict(success=True, has_enough_beds=True, selected_room_code='M',
+                       selected_bed_codes=['M1', 'M2', 'M3'], next_action='ready_for_bot_create',
+                       available_beds=[dict(bed_code=f'{prefix}{i}', room_code=prefix, room_type=kind)
+                           for prefix, kind in [('M', 'male_only'), ('F', 'female_only')] for i in range(1, 4)])
+        with patch.object(plugin, '_post_bot', return_value=receipt) as post:
+            result = json.loads(tool['handler'](args))
+        self.assertEqual(post.call_args.args[1]['room_preference'], 'female_only')
+        self.assertEqual(post.call_args.args[1]['group_gender'], 'female')
+        self.assertEqual(result['selected_bed_codes'], [])
+        self.assertFalse(result['available'])
+        self.assertNotEqual(result['next_action'], 'ready_for_bot_create')
+        self.assertFalse(result['staff_review_needed'])
+
     def setUp(self):
         for guard in (
             patch.dict(os.environ, {

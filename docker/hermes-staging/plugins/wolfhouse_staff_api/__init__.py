@@ -561,6 +561,9 @@ def check_availability(params, **kwargs):
         "guest_count": params.get("guest_count"),
         "room_type": params.get("room_type") or params.get("stay_preference") or "shared",
     }
+    for key in ("room_preference", "gender_preference", "group_gender", "guests", "room_name_hints"):
+        if key in params:
+            payload[key] = params[key]
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     decision = _room_decision_for_tool(params, data)
@@ -616,6 +619,13 @@ def check_availability(params, **kwargs):
             "selected_room_description": "female_only",
             "guest_safe_room_label": "These beds are female-only, not a mixed dorm.",
         })
+    if selected_codes and not whole_selection_eligible:
+        selected_codes = []
+        selected_room = None
+        room_contract = {"selected_room_types": []}
+        status = "unavailable"
+        data = {**data, "next_action": "offer_accommodation_or_change_dates",
+                "blockers": [*(data.get("blockers") or []), "requested_room_unavailable"]}
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",
@@ -624,7 +634,7 @@ def check_availability(params, **kwargs):
         "unavailable": status == "unavailable",
         "unclear": status == "unclear",
         "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
-        "selected_bed_codes": data.get("selected_bed_codes") or [],
+        "selected_bed_codes": selected_codes,
         "selected_room_types": room_contract["selected_room_types"],
         "selected_room_description": room_contract.get("selected_room_description"),
         "guest_safe_room_label": room_contract.get("guest_safe_room_label"),
@@ -4752,13 +4762,17 @@ def register(ctx):
         ctx.register_hook("on_session_end", booking_names.end_turn)
         if hasattr(booking_names, "reset_session"):
             ctx.register_hook("on_session_reset", booking_names.reset_session)
-    common_availability = {
+    common_availability: Dict[str, Any] = {
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
     }
+    for key in ("room_preference", "gender_preference", "group_gender"):
+        common_availability[key] = {"type": "string", "description": "Established guest room choice or explicit party facts only; never infer gender from names."}
+    for key in ("guests", "room_name_hints"):
+        common_availability[key] = {"type": "array", "items": {"type": "object"}, "description": "Previously established person-bound facts only."}
     common_booking = {
         "guests": {"type": "array", "description": "Occupants in stable guest order, including model-understood person facts and current corrections. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},

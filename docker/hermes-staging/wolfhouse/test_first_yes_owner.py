@@ -16,6 +16,46 @@ import wolfhouse_staff_api as plugin
 
 
 class FirstYesOwnerTests(unittest.TestCase):
+    def _provisional_refresh_case(self, complete=False, price_change=False):
+        plan = dict(check_in='2026-10-21', check_out='2026-10-24', guest_count=1,
+                    room_type='shared', room_preference='male_only', package_code='package_none',
+                    guest_name='Mateo', guests=[{'name': 'Mateo', 'explicit_gender': 'male'}],
+                    room_name_hints=[{'name': 'Mateo', 'explicit_gender': 'male'}])
+        beds = [dict(bed_code='R4-B3', room_code='R4', gender_strategy='male preferred')]
+        money = dict(total_cents=12000, deposit_required_cents=10000, payment_link_amount_cents=10000)
+        response = self._checked_offer({**plan, 'payment_choice': 'deposit'}, beds, quote_overrides=money)
+        response['payment_choice_needed'] = True
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+        self.turn('refresh-accept', 'Book it, Mateo Ríos, deposit please')
+        args = {'payment_choice': 'deposit'}
+        if complete:
+            plan.update(guest_name='Mateo Ríos', guests=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        room_name_hints=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        payment_choice='deposit', add_ons=[], catalog_selections=[])
+            response = self._checked_offer(plan, beds, quote_overrides=money)
+            args = {**plan, 'confirm': True, 'gender_preference': 'male'}
+        if price_change:
+            response['total_cents'] += 100
+            response['offer_revision']['total_cents'] += 100
+        ledger.record_quote(plan, response)
+        if price_change:
+            with self.assertRaises(ledger.QuoteBoundaryError):
+                ledger.prepare_create(args)
+        else:
+            self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+            ledger.prepare_create(args)
+
+    def test_provisional_identical_quote_before_create(self):
+        self._provisional_refresh_case()
+
+    def test_provisional_completed_quote_before_create(self):
+        self._provisional_refresh_case(complete=True)
+
+    def test_provisional_changed_price_requires_presentation(self):
+        self._provisional_refresh_case(price_change=True)
+
     def test_sim9_complete_create_restatements(self):
         # Supplied trace argument shapes; synthetic shown plans/Staff refreshes,
         # not reconstructed historical intermediate owner snapshots.

@@ -206,7 +206,9 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
   const occupiedBedCodes = new Set((blockRows || []).map((r) => r.bed_code).filter(Boolean));
   const availableBeds = bedsForPool.filter((b) => !occupiedBedCodes.has(b.bed_code));
   const availableCount = availableBeds.length;
-  const hasEnoughBeds = availableCount >= guestCount;
+  let hasEnoughBeds = availableCount >= guestCount;
+  const { normalizePref } = require('./luna-bed-allocator');
+  const requestedPool = normalizePref(roomPreference || genderPreference || roomType);
 
   let selectedBedCodes = [];
   let selectedRoomCode = null;
@@ -264,8 +266,8 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       genderPreference: genderPreference || groupGender || null,
       roomPreference: roomPreference || genderPreference || null,
       groupGender: groupGender || genderPreference || null,
-      capacityOnly: !['female_only', 'male_only', 'mixed', 'private', 'couple_private']
-        .includes(roomPreference || roomType),
+      capacityOnly: (roomPreference || roomType) === 'shared' && !genderPreference
+        || !['female_only', 'male_only', 'mixed', 'private', 'couple_private'].includes(requestedPool),
     });
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;
@@ -275,6 +277,10 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     } else {
     selectedBedCodes = capacityPick.selected_bed_codes || [];
     selectedRoomCode = capacityPick.selected_room_code || null;
+    if (selectedBedCodes.length < guestCount) {
+      hasEnoughBeds = false;
+      blockers.push('requested_room_unavailable');
+    }
     if (capacityPick.split) warnings.push('group_split_across_rooms_required');
 
     if (assignmentMode) {

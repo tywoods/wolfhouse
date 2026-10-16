@@ -24,6 +24,36 @@ const command = { guestCount: 2, roomType: 'shared', roomPreference: 'mixed', as
 const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 
+for (const extra of [
+  { room_preference: 'female', group_gender: 'female' },
+  { gender_preference: 'female' },
+  { room_preference: 'female_only', group_gender: 'mixed' },
+  { room_preference: 'male_only', group_gender: 'mixed' },
+  { room_preference: 'female_only', group_gender: 'female', absent: true },
+  { room_type: 'private', room_preference: 'private', absent: true },
+]) {
+  test(`SIM9 registered transport room case ${JSON.stringify(extra)}`, async () => {
+    const { absent, ...facts } = extra;
+    const built = buildWolfhouseAvailabilityCommand({ channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo',
+      assignmentMode: false, demoCalendarEnrichment: false,
+      transportBody: { check_in: '2026-10-19', check_out: '2026-10-23', guest_count: 2, room_type: 'shared', ...facts } });
+    assert.equal(built.ok, true);
+    const beds = absent ? rows('R2', 'male_only', 2) : [...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 4)];
+    const pg = { query: async sql => {
+      if (sql === getBedCalendarRoomsQuery()) return { rows: beds };
+      if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return { rows: [] };
+      throw Error('Unexpected SQL ' + sql);
+    } };
+    const result = mapBotHttpAvailabilityResponse((await executeWolfhouseAvailabilityCheck(pg, built.command)).body);
+    if (absent || facts.group_gender === 'mixed') {
+      assert.deepEqual(result.selected_bed_codes, []);
+      assert.notEqual(result.next_action, 'ready_for_bot_create');
+      if (absent) assert.equal(result.has_enough_beds, false);
+      else assert.equal(result.group_gender, 'mixed');
+    } else assert.deepEqual(result.selected_bed_codes, ['R5-B1', 'R5-B2']);
+  });
+}
+
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
 });

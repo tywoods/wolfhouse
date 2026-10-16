@@ -1416,6 +1416,50 @@ def record_quote(params, response):
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
                 return
+        presentation = state.get('presentation')
+        if valid and isinstance(presentation, dict) and previous_checked is None:
+            prior_revision = presentation.get('quote_revision') or {}
+            revision = response.get('offer_revision') or {}
+            prior_rows = prior_revision.get('guest_bed_assignments') or []
+            rows = revision.get('guest_bed_assignments') or []
+            names = []
+            same_people = len(prior_rows) == len(rows)
+            normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+            for index, (before, after) in enumerate(zip(prior_rows, rows)):
+                old, new = normalize(before.get('guest_name')), normalize(after.get('guest_name'))
+                if old != new:
+                    if (not old or ' ' in old or not new.startswith(old + ' ')
+                            or sum(normalize(row.get('guest_name')) == old for row in prior_rows) != 1
+                            or sum(normalize(row.get('guest_name')) == new for row in rows) != 1):
+                        same_people = False
+                    names.append({'guest_index': index, 'completed_name': after.get('guest_name')})
+            payment = prepared.get('payment_choice')
+            prior_quote = presentation.get('authoritative_quote') or {}
+            prior_plan = presentation.get('plan') or {}
+            material_matches = True
+            for key in _FIELDS:
+                before, after = prior_plan.get(key), plan.get(key)
+                if key in ('add_ons', 'catalog_selections', 'guest_packages'):
+                    before, after = before or [], after or []
+                if key == 'selected_bed_codes' and before is None:
+                    before = [row.get('bed_code') for row in prior_rows]
+                    after = after if after is not None else before
+                if before != after:
+                    material_matches = False
+            if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
+                    and _completion_revision_matches(prior_revision, revision,
+                        payment_choice=payment, guest_completions=names)
+                    and all(response.get(key) == prior_quote.get(key)
+                            for key in ('total_cents', 'deposit_required_cents', 'currency'))):
+                # Preserve the owner-rendered text while advancing only the
+                # authoritative, materially identical completion snapshot.
+                state['plan'] = deepcopy(plan)
+                state['completion_plan'] = deepcopy(completion_plan)
+                state['quote'] = deepcopy(response)
+                presentation['plan'] = _presentation_plan(state)
+                presentation['quote_revision'] = deepcopy(revision)
+                presentation['authoritative_quote'] = deepcopy(response)
+                return
         if (valid and checked is not None and state['status'] in ('offered', 'accepted')
                 and isinstance(state.get('presentation'), dict)
                 and previous_checked == response['offer_revision'] and state['plan'] == plan):
