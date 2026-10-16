@@ -86,6 +86,17 @@ class HandoffReasonContractTests(unittest.TestCase):
         self.assertNotIn('conversation_not_found', result['blocked_reasons'])
         self.assertFalse(result['handoff_persisted'])
 
+    def test_tenant_auth_denial_surfaces_subreason_with_explicit_runtime_binding(self):
+        from urllib.error import HTTPError
+        self.receipt = HTTPError('https://staff.invalid', 403, 'Forbidden', {}, io.BytesIO(
+            b'{"success":false,"error":"client_access_denied",'
+            b'"reason":"request_tenant_conflict","client_slug":"wolfhouse-somo",'
+            b'"requested_client_slug":"stale-alias"}'))
+        result = json.loads(plugin.flag_needs_human({'reason': 'complaint'}))
+        self.assertEqual(result['tenant_auth_subreason'], 'request_tenant_conflict')
+        self.assertEqual(result['error'], 'client_access_denied')
+        self.assertEqual(self.calls[0]['client_slug'], 'wolfhouse-somo')
+
     def test_blank_or_nontext_reason_rejected_before_ack_or_persistence(self):
         for tenant in ("wolfhouse-somo", "sunset"):
             os.environ["LUNA_CLIENT_SLUG"] = tenant

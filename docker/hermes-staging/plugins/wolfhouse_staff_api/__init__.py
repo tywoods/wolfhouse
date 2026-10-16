@@ -234,6 +234,8 @@ def _post_bot(path, payload, *, require_explicit_success=False):
         return _tenant_denied("LUNA_CLIENT_SLUG is required for tenant-scoped Luna tool calls.")
     if configured_slug not in {"wolfhouse-somo", "sunset"}:
         return _tenant_denied(f"Unknown Luna tenant slug: {configured_slug}")
+    # Keep the trusted runtime tenant explicit so Staff can compare it with the
+    # authenticated principal before any tenant handler runs.
     payload["client_slug"] = configured_slug
 
     allowed_locations = {item.strip() for item in os.getenv("LUNA_ALLOWED_LOCATION_IDS", "").split(",") if item.strip()}
@@ -378,6 +380,10 @@ def _post_bot(path, payload, *, require_explicit_success=False):
                 "sends_whatsapp": False,
                 "do_not_escalate": True,
             } if _is_portal_denial else {}),
+            **({"tenant_auth_subreason": data.get("reason")} if (
+                exc.code == 403 and data.get("error") == "client_access_denied"
+                and data.get("reason") in {"request_tenant_conflict", "bot_principal_tenant_denied"}
+            ) else {}),
             # Preserve only a restrictive, typed booking-refusal bit. Never
             # promote arbitrary error-body identity/success/checkout fields.
             **({"booking_create_refused": True} if (
@@ -729,7 +735,54 @@ def quote_booking(params, **kwargs):
              and guest.get("explicit_gender") in ("male", "female")]
     if hints:
         payload["room_name_hints"] = hints
+    # The quote shown to the guest must itself carry Staff's ordered bed pick.
+    # Preflight once, then price those exact beds; do not leave a separately
+    # bookable availability result beside an owner-unrecorded prose quote.
+    if not payload.get("selected_bed_codes"):
+        availability = _post_bot("/availability-check", {
+            key: payload[key] for key in (
+                "client_slug", "check_in", "check_out", "guest_count", "room_type",
+                "room_preference", "gender_preference", "group_gender", "guests",
+                "room_name_hints") if key in payload
+        })
+        picked = availability.get("selected_bed_codes") if isinstance(availability, dict) else None
+        # Compatibility with Staff receipts that return only the exact selected
+        # rows: accept them only when they form one complete, unambiguous party
+        # assignment. A larger free-bed list is not itself a selection.
+        if not picked and isinstance(availability.get("available_beds"), list):
+            rows = availability["available_beds"]
+            if len(rows) == payload.get("guest_count") and all(
+                    isinstance(row, dict) and _clean(row.get("bed_code")) for row in rows):
+                picked = [row["bed_code"] for row in rows]
+        if (availability.get("success") is True
+                and availability.get("needs_clarification") is not True
+                and availability.get("has_enough_beds") is not False
+                and isinstance(picked, list) and len(picked) == payload.get("guest_count")):
+            payload["selected_bed_codes"] = picked
+        else:
+            # Eligibility is not consent and prices alone are not an offer. Let
+            # Staff's room-resolution response drive the next guest question;
+            # do not call pricing or give the owner a non-bed-backed quote.
+            return _json_result({
+                **availability, "success": False, "tool": "quote_booking",
+                "quote_status": "needs_guest_clarification",
+                "offer_revision": None, "total_cents": None,
+                "deposit_required_cents": None, "write_performed": False,
+            })
     data = _post_bot("/booking-preview", payload)
+    # Price fields without Staff's checked revision are not an offer. The
+    # preview may lose the beds after preflight, so use the existing owner
+    # clarification path and strip anything that could invite payment.
+    if not isinstance(data, dict) or data.get("offer_revision") is None:
+        preview = data if isinstance(data, dict) else {}
+        return _json_result({
+            **preview, "success": False, "tool": "quote_booking",
+            "quote_status": "needs_guest_clarification",
+            "offer_revision": None, "total_cents": None,
+            "quote_total_cents": None, "deposit_required_cents": None,
+            "balance_due_cents": None, "payment_choice_needed": False,
+            "write_performed": False,
+        })
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
     deposit = data.get("deposit_required_cents") or quote.get("deposit_required_cents")
@@ -1227,18 +1280,14 @@ def create_booking_from_plan(params, **kwargs):
                     "check_in": payload.get("check_in"),
                     "check_out": payload.get("check_out"),
                     "guest_count": payload.get("guest_count", 1),
-                    "room_type": "any",
+                    "room_type": payload.get("room_type") or "any",
+                    "room_preference": payload.get("room_preference"),
+                    "selected_bed_codes": codes,
+                    "guests": guests,
+                    **({"room_name_hints": hints} if hints is not None else {}),
                 })
             except Exception:
                 facts = {}
-            rows = facts.get("available_beds") if isinstance(facts, dict) and facts.get("success") is True else None
-            bed_lookup = {}
-            if isinstance(rows, list):
-                for row in rows:
-                    if isinstance(row, dict) and isinstance(row.get("bed_code"), str):
-                        code = row["bed_code"]
-                        # Duplicate facts are ambiguous, even if apparently equal.
-                        bed_lookup[code] = None if code in bed_lookup else row.get("room_type")
             aligned = (
                 isinstance(codes, list) and len(codes) == guest_count
                 and all(isinstance(code, str) and code for code in codes)
@@ -1249,36 +1298,19 @@ def create_booking_from_plan(params, **kwargs):
                 _clean(guest.get("name")) for guest in guest_list
             ] if len(guest_list) == len(codes) and all(
                 isinstance(guest, dict) for guest in guest_list) else []
-            eligibility_by_name = {}
-            sparse_hints_bound = aligned and len(guest_names) == len(codes) and isinstance(hints, list)
-            if sparse_hints_bound:
-                for hint in hints:
-                    name = _clean(hint.get("name")) if isinstance(hint, dict) else ""
-                    gender = _clean(hint.get("explicit_gender")).lower() if isinstance(hint, dict) else ""
-                    if (not name or gender not in {"female", "male"}
-                            or guest_names.count(name) != 1 or name in eligibility_by_name):
-                        sparse_hints_bound = False
-                        break
-                    eligibility_by_name[name] = gender
-            # Neutral private acceptance does not assert demographics. Mixed beds
-            # accept unknown travelers while retaining any sparse, person-bound
-            # explicit facts. A gendered bed still requires the matching fact for
-            # the traveler at that frozen guest/bed index.
-            private_neutral = aligned and room_decision.get("private_room") and all(
-                isinstance(bed_lookup.get(code), str)
-                and bed_lookup[code] in {"private", "couple_private", "private_room"}
-                for code in codes
-            )
-            sparse_compatible = sparse_hints_bound and all(
-                bed_lookup.get(code) == "mixed"
-                or eligibility_by_name.get(guest_names[index]) in {"female", "male"}
-                and bed_lookup.get(code) == eligibility_by_name[guest_names[index]] + "_only"
-                for index, code in enumerate(codes)
-            )
-            mixed_neutral = aligned and hints is None and all(
-                bed_lookup.get(code) == "mixed" for code in codes
-            )
-            compatible = private_neutral or mixed_neutral or sparse_compatible
+            # Staff alone owns room classification and person eligibility. Python
+            # verifies only that the receipt is bound to this exact ordered request.
+            exact_receipt = facts.get("exact_bed_eligibility") if isinstance(facts, dict) else None
+            compatible = False
+            if isinstance(exact_receipt, dict):
+                receipt_rows = exact_receipt.get("guest_bed_assignments")
+                compatible = (aligned and exact_receipt.get("eligible") is True
+                              and exact_receipt.get("selected_bed_codes") == codes
+                              and isinstance(receipt_rows, list)
+                              and [(row.get("guest_index"), row.get("guest_name"), row.get("bed_code"))
+                                   for row in receipt_rows if isinstance(row, dict)]
+                              == [(index, guest_names[index], code)
+                                  for index, code in enumerate(codes)])
             if (not compatible or not isinstance(facts, dict)
                     or facts.get("success") is not True
                     or facts.get("has_enough_beds") is False):
@@ -1291,6 +1323,8 @@ def create_booking_from_plan(params, **kwargs):
                     "error": "accepted_bed_selection_revalidation_required",
                     "recovery_required": True,
                     "requires_guest_confirmation": True,
+                    "do_not_retry_create": True,
+                    "next_action": "requote_and_confirm",
                     "accepted_setup": {
                         "selected_bed_codes": codes,
                         "guests": guests,
@@ -2158,7 +2192,7 @@ def flag_needs_human(params, **kwargs):
         **{key: data[key] for key in ("ack_sent", "ack_send_failed", "local_fail_closed",
                                      "needs_operator_reconciliation", "guest_safe_next_action",
                                      "failure_notice_sent", "error", "status",
-                                     "staff_api_status") if key in data},
+                                     "staff_api_status", "tenant_auth_subreason") if key in data},
         "success": ok,
         "tool": "flag_needs_human",
         "needs_human": ok,

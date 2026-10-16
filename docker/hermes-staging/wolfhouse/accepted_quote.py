@@ -1372,7 +1372,7 @@ def record_quote(params, response):
         pending_payment = state.get('pending_payment_completion')
         pending_name = state.get('pending_name_completion')
         pending_eligibility = state.get('pending_eligibility_completion')
-        if (valid and checked is not None and state['status'] == 'accepted'
+        if (valid and checked is not None and state['status'] in ('accepted', 'clarify')
                 and (pending_payment or pending_name or pending_eligibility
                      or state.get('pending_fact_refresh'))
                 and isinstance(state.get('accepted_presentation'), dict)):
@@ -1407,6 +1407,7 @@ def record_quote(params, response):
                     and pending_payment in prior.get('payment_choices', [])))
             )
             if terms_unchanged:
+                state['status'] = 'accepted'
                 state['checked_offer'] = deepcopy(response['offer_revision'])
                 state['accepted_offer_snapshot'] = deepcopy(response['offer_revision'])
                 state['quote'] = deepcopy(response)
@@ -1490,8 +1491,13 @@ def record_quote(params, response):
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
         state.pop('post_booking_contact', None)
+        unresolved_eligibility = (
+            response.get('success') is False
+            and response.get('quote_status') == 'needs_guest_clarification'
+            and response.get('offer_revision') is None
+        )
         state.update(plan=plan, completion_plan=completion_plan,
-                     quote=deepcopy(response) if valid else None,
+                     quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
@@ -1790,8 +1796,10 @@ def record_create_completion(prepared, response):
 
 def _revoke_checked_offer(state):
     state.update(status='clarify', quote=None, checked_offer=None)
-    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending',
-                'acceptance_message', 'acceptance_raw_digest'):
+    # Retain immutable accepted authority for exact fresh revalidation. The
+    # clarify status and cleared checked offer still deny every create retry.
+    state['pending_fact_refresh'] = True
+    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending'):
         state.pop(key, None)
 
 
@@ -1843,6 +1851,26 @@ def finalize_offer_response(result):
         return result
     def present(state, ingress):
         messages = result.get('messages')
+        unresolved = state.get('quote') or {}
+        unresolved_presentable = (
+            state.get('status') == 'blocked'
+            and unresolved.get('quote_status') == 'needs_guest_clarification'
+            and unresolved.get('offer_revision') is None
+            and state.get('offer_message') == ingress['MESSAGE_ID']
+        )
+        if unresolved_presentable:
+            text = unresolved.get('guest_safe_next_action')
+            if not isinstance(text, str) or not text.strip():
+                text = ('I could not verify an eligible bed for this stay yet. '
+                        'Would you like me to check another room option?')
+            output = deepcopy(result)
+            output['final_response'] = text
+            output_messages = output.get('messages')
+            if (isinstance(output_messages, list) and output_messages
+                    and isinstance(output_messages[-1], dict)
+                    and output_messages[-1].get('role') == 'assistant'):
+                output_messages[-1]['content'] = text
+            return output
         receipt = state.get('completion') or state.get('receipt')
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
