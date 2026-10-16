@@ -35,7 +35,10 @@ function computeWolfhouseRoomOptionFlags(availableBeds, guestCount, allBeds, blo
   // Share Staff's canonical room rules with allocation; room codes are inventory.
   const girlsBeds = sharedBeds.filter(b => resolveRoomCategory(b) === 'female_only');
   const girlsRoomCodes = [...new Set(girlsBeds.map(b => b.room_code))];
-  const girlsRoomAvailable = roomHasCapacity(girlsBeds, girlsRoomCodes, count);
+  // Female shared inventory is ordinary per-bed capacity. The legacy R6
+  // one-bed-for-two exception belongs only to its private-couple semantics.
+  const girlsRoomAvailable = [...bedsByRoom(girlsBeds).values()]
+    .some(beds => beds.length >= count);
   // Preserve the legacy couple offer alongside explicit ordinary private modes.
   const freeCodes = new Set((availableBeds || []).map(b => b.bed_code));
   const newPrivateAvailable = [...bedsByRoom(allBeds).values()].some(beds =>

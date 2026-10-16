@@ -640,7 +640,7 @@ class OwnerHostileTests(unittest.TestCase):
                           'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
         })
         self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('Payment options: deposit or full payment.', shown['final_response'])
+        self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -714,6 +714,8 @@ class OwnerHostileTests(unittest.TestCase):
                 # Exported Staff completion canonicalizes the redundant request
                 # preference to null while retaining male facts per occupant.
                 checked['offer_revision']['gender_preference'] = None
+                checked['offer_revision']['room_name_hints'] = deepcopy(
+                    revalidation['room_name_hints'])
                 checked['offer_revision']['offer_fingerprint'] = f'export-{export_id}-checked'
                 before_refresh = self.ledger._transaction(
                     lambda owner, _ingress: deepcopy(owner))
@@ -739,6 +741,11 @@ class OwnerHostileTests(unittest.TestCase):
             before_refresh['accepted_presentation']['quote_revision'],
             checked['offer_revision'], payment_choice='deposit',
             person_plan=contradictory_plan))
+        authority_erased = deepcopy(checked['offer_revision'])
+        authority_erased['room_name_hints'] = []
+        self.assertFalse(self.ledger._completion_revision_matches(
+            before_refresh['accepted_presentation']['quote_revision'],
+            authority_erased, payment_choice='deposit', person_plan=expected_plan))
 
     def test_registered_adapter_preserves_provisional_payment_then_revalidates_explicit_choices(self):
         import json
@@ -779,7 +786,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('Payment options: deposit or full payment.', shown['final_response'])
+                    self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({

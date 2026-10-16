@@ -218,7 +218,8 @@ class CaptainR3Tests(unittest.TestCase):
         staff_receipt = {
             'success': True, 'has_enough_beds': True,
             'girls_room_available': True,
-            'room_options': {'female_only': True},
+            'room_options': {'girls_room_available': True,
+                             'private_room_available': False},
             'selected_room_code': 'R5', 'selected_bed_codes': ['R5-B3'],
             'available_beds': [{'bed_code': 'R5-B3', 'room_code': 'R5',
                                 'room_type': 'female_only',
@@ -235,7 +236,7 @@ class CaptainR3Tests(unittest.TestCase):
         self.assertTrue(result['available'], result)
         self.assertEqual(result['selected_bed_codes'], ['R5-B3'])
         self.assertTrue(result['girls_room_available'])
-        self.assertTrue(result['room_options']['female_only'])
+        self.assertTrue(result['room_options']['girls_room_available'])
         self.assertEqual(result['room_decision']['resolved_composition'], 'female')
 
     def test_capture_schema_matches_validator_for_registered_payload(self):

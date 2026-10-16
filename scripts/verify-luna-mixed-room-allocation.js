@@ -204,18 +204,29 @@ test('inactive and unsellable mixed beds do not satisfy safe capacity', () => {
   assert.equal(result.needsClarification, true);
 });
 
-test('capacity-only early availability stays gender-neutral', () => {
+test('capacity-only early availability keeps missing eligibility distinct from sold-out', () => {
   const bedRows = rows('R5', 'female_only', 2);
   const result = inventory(bedRows, [], { ...command, roomPreference: 'shared', assignmentMode: false });
-  assert.equal(result.hasEnoughBeds, true);
+  assert.equal(result.hasEnoughBeds, true, 'physical capacity is still present');
   assert.equal(result.groupGenderResolved, 'unknown');
-  assert.equal(result.needsClarification, false);
-  assert.deepEqual(result.blockers, []);
-  for (const useRules of [true, false]) {
-    const pick = runAvailabilityBedSelection({ bedRows, ...command, useRules, capacityOnly: true });
-    assert.deepEqual(pick.selected_bed_codes, ['R5-B1', 'R5-B2']);
-    assert.equal(pick.group_gender, 'unknown');
-  }
+  assert.equal(result.needsClarification, true);
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.ok(result.blockers.includes('room_eligibility_unknown'));
+});
+
+test('complete canonical female roster steers ordinary shared selection', () => {
+  const bedRows = [...rows('R4', 'male_only', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command,
+    roomPreference: 'shared',
+    assignmentMode: false,
+    guests: [
+      { name: 'Ana', explicit_gender: 'female' },
+      { name: 'Bea', explicit_gender: 'female' },
+    ],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R5-B1', 'R5-B2']);
+  assert.equal(result.hasEnoughBeds, true);
 });
 
 test('explicit composition and opposite-room conflicts are preserved', () => {

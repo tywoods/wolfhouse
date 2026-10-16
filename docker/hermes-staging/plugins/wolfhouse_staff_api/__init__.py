@@ -515,7 +515,7 @@ def _suppress_gender_handoff(result, decision):
         if "female_only" in excluded:
             result["girls_room_available"] = False
             if isinstance(result.get("room_options"), dict):
-                result["room_options"] = {**result["room_options"], "female_only": False}
+                result["room_options"] = {**result["room_options"], "girls_room_available": False}
         if "male_only" in excluded and "guys_room_available" in result:
             result["guys_room_available"] = False
             if isinstance(result.get("room_options"), dict):
@@ -531,7 +531,7 @@ def _suppress_gender_handoff(result, decision):
     if "female_only" in excluded:
         result["girls_room_available"] = False
         if isinstance(result.get("room_options"), dict):
-            result["room_options"] = {**result["room_options"], "female_only": False}
+            result["room_options"] = {**result["room_options"], "girls_room_available": False}
     if "male_only" in excluded and "guys_room_available" in result:
         result["guys_room_available"] = False
         if isinstance(result.get("room_options"), dict):
@@ -595,6 +595,9 @@ def check_availability(params, **kwargs):
         payload["room_name_hints"] = hints
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
+    eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
+    if eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}:
+        status = "eligibility_required"
     decision = _room_decision_for_tool(payload, data)
     excluded = set((decision or {}).get("excluded_room_preferences") or [])
     available_beds = []
@@ -605,11 +608,11 @@ def check_availability(params, **kwargs):
             if not isinstance(bed, dict) or not isinstance(bed.get("bed_code"), str) or not bed["bed_code"].strip():
                 continue
             room_type = _clean(bed.get("room_type")).lower().replace("-", "_").replace(" ", "_")
-            if room_type in excluded:
+            if room_type in excluded and bed.get("selected_selling_mode") != "private":
                 excluded_room_codes.add(_clean(bed.get("room_code")))
                 continue
             available_beds.append({key: bed[key] for key in (
-                "bed_code", "room_code", "room_type", "bed_label"
+                "bed_code", "room_code", "room_type", "bed_label", "selected_selling_mode"
             ) if isinstance(bed.get(key), str)})
     selected_room = data.get("selected_room_code")
     if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
@@ -633,7 +636,7 @@ def check_availability(params, **kwargs):
             complete_selection = False
             whole_selection_eligible = False
             continue
-        if room_type in excluded:
+        if room_type in excluded and (bed or {}).get("selected_selling_mode") != "private":
             whole_selection_eligible = False
         if room_type not in selected_types:
             selected_types.append(room_type)
