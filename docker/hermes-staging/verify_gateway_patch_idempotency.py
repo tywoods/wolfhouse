@@ -8,8 +8,7 @@ bootstrap exits 1, and link_shared_auth/finalize_permissions never run.
 
 This verifier re-runs the patch script twice (simulating two boots) and then
 asserts the critical WhatsApp/Luna routing patches are still present in
-gateway.run — including that an existing _wh_guard_turn call was preserved
-verbatim rather than downgraded.
+gateway.run — including the current-message-aware _wh_guard_turn call.
 
 Must run inside the Hermes image (needs the gateway package importable).
 """
@@ -81,8 +80,6 @@ def verify_live_turn_owner_lifecycle() -> bool:
 
 
 def main() -> int:
-    guard_before = GUARD_CALL_RE.search(read_gateway_run())
-
     for attempt in (1, 2):
         proc = subprocess.run(
             [sys.executable, str(SCRIPT)], capture_output=True, text=True,
@@ -103,8 +100,10 @@ def main() -> int:
         "inbound_mirror": _agp.MIRROR_INBOUND_TAG in final,
         "outbound_mirror": _agp.POST_SEND_MIRROR_TAG in apg_src,
         "output_guard": guard_after is not None,
-        "guard_call_preserved": (
-            guard_before is None or guard_after.group(0) == guard_before.group(0)
+        "guard_call_current_message": (
+            guard_after is not None and guard_after.group(0).endswith(
+                'getattr(source, "platform", None), message_text)'
+            )
         ),
         "sanitize": "_sanitize_gateway_final_response(source.platform, response)" in final,
         "live_turn_owner_lifecycle": verify_live_turn_owner_lifecycle(),

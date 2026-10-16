@@ -463,6 +463,59 @@ def _scalar_is_evidenced(value, evidence):
                           evidence, re.IGNORECASE))
 
 
+def _eligibility_is_evidenced(value, evidence):
+    """Verify explicit ordinary-language eligibility without name/room inference."""
+    if not isinstance(evidence, str):
+        return False
+    words = set(_evidence_tokens(evidence))
+    # A gendered bed/room request is preference, not a fact about a person.
+    if words & {'room', 'dorm', 'bed'}:
+        return False
+    aliases = {
+        'female': {'female', 'woman', 'women', 'girl', 'lady'},
+        'male': {'male', 'man', 'men', 'boy', 'guy'},
+    }
+    if value not in aliases or not words & aliases[value]:
+        return False
+    terms = '|'.join(re.escape(term) for term in aliases[value])
+    return not bool(re.search(r'\b(?:not|no)\s+(?:a\s+)?(?:' + terms + r')\b',
+                              evidence, re.IGNORECASE))
+
+
+def _eligibility_subject_is_affirmed(value, evidence, name, guest_index):
+    """Recognize a small set of affirmative facts bound to this guest's subject."""
+    if not isinstance(evidence, str) or value not in ('male', 'female'):
+        return False
+    aliases = {
+        'female': r'(?:female|woman|women|girl|lady)',
+        'male': r'(?:male|man|men|boy|guy)',
+    }
+    noun = aliases[value]
+    # A demographic noun is authority only as the predicate itself, never as
+    # the prefix of a possessive noun phrase (for example, "a woman's husband").
+    predicate = noun + r"\b(?!\s*['’])"
+    # Anchoring prevents a speaker, object, or later sentence from lending
+    # another person's fact to this guest slot.
+    if guest_index == 0 and re.match(
+            r"^\s*i\s*(?:am|'m)\s+(?:actually\s+)?(?:a\s+)?" + predicate,
+            evidence, re.IGNORECASE):
+        return True
+    if not isinstance(name, str) or not name.strip():
+        return False
+    escaped_name = re.escape(name.strip())
+    if re.match(r'^\s*' + escaped_name + r'\s+(?:is|are)\s+'
+                r'(?:actually\s+)?(?:a\s+)?' + predicate, evidence, re.IGNORECASE):
+        return True
+    group = re.match(r'^\s*(.+?)\s+are\s+both\s+' + predicate,
+                     evidence, re.IGNORECASE)
+    if not group:
+        return False
+    subjects = [part.strip().casefold() for part in
+                re.split(r'\s*(?:,|\band\b)\s*', group.group(1), flags=re.IGNORECASE)
+                if part.strip()]
+    return name.strip().casefold() in subjects
+
+
 def _item_value_is_evidenced(value, evidence):
     if type(value) is int:
         present = set(_evidence_tokens(evidence))
@@ -578,7 +631,7 @@ def _presentation_matches_completion_state(state, presentation):
 
 
 def _completion_revision_matches(prior, current, *, payment_choice=None,
-                                 guest_index=None, guest_name=None,
+                                 guest_index=None, guest_name=None, guest_completions=None,
                                  eligibility_index=None, eligibility_value=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
@@ -591,20 +644,32 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
             return False
         expected_amount = (after.get('deposit_required_cents')
                            if payment_choice == 'deposit' else after.get('total_cents'))
+        prior_choice = before.get('payment_choice')
+        prior_amount = (before.get('deposit_required_cents')
+                        if prior_choice == 'deposit' else before.get('total_cents'))
         if (type(expected_amount) is not int
                 or after.get('payment_link_amount_cents') != expected_amount
-                or before.get('payment_choice') != 'deposit'
-                or before.get('payment_link_amount_cents') != before.get('deposit_required_cents')):
+                or prior_choice not in ('deposit', 'full')
+                or before.get('payment_link_amount_cents') != prior_amount):
             return False
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
         before.pop('payment_link_amount_cents', None)
         after.pop('payment_link_amount_cents', None)
-    if type(guest_index) is int:
+    completions = guest_completions or ([{'guest_index': guest_index,
+                                          'completed_name': guest_name}]
+                                        if type(guest_index) is int else [])
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    if len({item.get('guest_index') for item in completions if isinstance(item, dict)}) != len(completions):
+        return False
+    for completion in completions:
+        if not isinstance(completion, dict):
+            return False
+        guest_index = completion.get('guest_index')
+        guest_name = completion.get('completed_name')
         actual_rows = [item for item in after.get('guest_bed_assignments', [])
                        if isinstance(item, dict) and item.get('guest_index') == guest_index]
-        normalize = lambda value: ' '.join(str(value or '').split()).casefold()
-        if (len(actual_rows) != 1
+        if (type(guest_index) is not int or len(actual_rows) != 1
                 or normalize(actual_rows[0].get('guest_name')) != normalize(guest_name)):
             return False
         for revision in (before, after):
@@ -614,7 +679,7 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                 for item in assignments:
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
                         target_assignment_name = normalize(item.get('guest_name'))
-                        item['guest_name'] = '<completed-name>'
+                        item['guest_name'] = '<completed-name-%s>' % guest_index
             hints = revision.get('room_name_hints')
             if isinstance(hints, list) and target_assignment_name:
                 matching_hints = [hint for hint in hints
@@ -623,7 +688,7 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                 if len(matching_hints) > 1:
                     return False
                 if matching_hints:
-                    matching_hints[0]['name'] = '<completed-name>'
+                    matching_hints[0]['name'] = '<completed-name-%s>' % guest_index
     if type(eligibility_index) is int:
         hints = after.get('room_name_hints')
         assignments = after.get('guest_bed_assignments')
@@ -764,6 +829,14 @@ def interpret_owner_turn(interpretation):
         plan_guests = _presentation_plan(state).get('guests')
         if guests and not isinstance(plan_guests, list):
             raise QuoteBoundaryError('quote_completion_not_supported')
+        unnamed = {index for index, guest in enumerate(plan_guests or [])
+                   if isinstance(guest, dict) and not str(guest.get('name') or '').strip()}
+        supplied = [item.get('guest_index') for item in guests if isinstance(item, dict)]
+        # Every anonymous indexed slot must be named in the same adjudication;
+        # duplicate/partial mappings cannot silently replace people.
+        if (unnamed and (not unnamed.issubset(set(supplied))
+                        or len(supplied) != len(set(supplied)))):
+            raise QuoteBoundaryError('quote_completion_identity_changed')
         for item in guests:
             if (not isinstance(item, dict) or set(item) != {'guest_index', 'name', 'evidence'}
                     or type(item.get('guest_index')) is not int
@@ -779,12 +852,12 @@ def interpret_owner_turn(interpretation):
                 # Staff must revalidate the exact person/bed row before create.
                 normalized_old = ' '.join(old.split()).casefold()
                 normalized_new = ' '.join(new.split()).casefold()
-                if (not old or (' ' in old)
-                        or not normalized_new.startswith(normalized_old + ' ')
-                        or sum(1 for guest in (plan_guests or [])
+                if ((old and (' ' in old
+                              or not normalized_new.startswith(normalized_old + ' ')))
+                        or (old and sum(1 for guest in (plan_guests or [])
                                if isinstance(guest, dict)
                                and ' '.join(str(guest.get('name') or '').split()).casefold()
-                               == normalized_old) != 1):
+                               == normalized_old) != 1)):
                     raise QuoteBoundaryError('quote_completion_identity_changed')
                 if any(index != item['guest_index']
                        and ' '.join(str(guest.get('name') or '').split()).casefold()
@@ -792,13 +865,18 @@ def interpret_owner_turn(interpretation):
                        for index, guest in enumerate(plan_guests or [])
                        if isinstance(guest, dict)):
                     raise QuoteBoundaryError('quote_completion_identity_changed')
-                updated = deepcopy(plan_guests)
+                updated = deepcopy((state.get('completion_plan') or {}).get('guests')
+                                   or plan_guests)
                 updated[item['guest_index']] = {**updated[item['guest_index']], 'name': new}
                 state.setdefault('completion_plan', {})['guests'] = updated
-                state['pending_name_completion'] = {
+                pending_names = state.setdefault('pending_name_completions', [])
+                if any(row.get('guest_index') == item['guest_index'] for row in pending_names):
+                    raise QuoteBoundaryError('quote_completion_identity_changed')
+                pending_names.append({
                     'guest_index': item['guest_index'], 'previous_name': old,
                     'completed_name': new,
-                }
+                })
+                state['pending_name_completion'] = pending_names[-1]
 
         payment = completions.get('payment_choice')
         if payment is not None:
@@ -864,7 +942,8 @@ def interpret_owner_turn(interpretation):
                   'question': (None if checked_ready else
                                ('I will recheck those completed details with the presented booking.'
                                 if (state.get('pending_eligibility_completion')
-                                    or state.get('pending_payment_completion')) else
+                                    or state.get('pending_payment_completion')
+                                    or 'payment_choice' not in missing) else
                                 'Which presented payment option should I check before creating the booking?'))}
         pending['interpretation_digest'] = interpretation_digest
         pending['interpretation_result'] = deepcopy(result)
@@ -1057,41 +1136,61 @@ def validated_guest_eligibility(prepared):
         if not isinstance(guests, list):
             return {}
         allowed = {}
-        checked = state.get('checked_offer') or {}
-        name_binding = state.get('pending_name_completion')
-        bound_index = None
-        bound_previous = None
-        if isinstance(name_binding, dict):
-            normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
-            index = name_binding.get('guest_index')
-            previous = str(name_binding.get('previous_name') or '').strip()
-            completed = str(name_binding.get('completed_name') or '').strip()
-            assignments = checked.get('guest_bed_assignments') if isinstance(checked, dict) else None
-            if (type(index) is int and 0 <= index < len(guests)
-                    and previous and completed
-                    and isinstance(guests[index], dict)
-                    and normalize_name(guests[index].get('name')) == normalize_name(completed)
-                    and isinstance(assignments, list) and len(assignments) == len(guests)
-                    and all(isinstance(row, dict) and row.get('guest_index') == row_index
-                            for row_index, row in enumerate(assignments))
-                    and normalize_name(assignments[index].get('guest_name'))
-                    == normalize_name(previous)
-                    and all(row_index == index or (
-                        isinstance(guests[row_index], dict)
-                        and normalize_name(guests[row_index].get('name'))
-                        == normalize_name(assignments[row_index].get('guest_name')))
-                            for row_index in range(len(guests)))):
-                bound_index = index
-                bound_previous = previous.casefold()
+        raw = (state.get('current_turn') or {}).get('raw')
+        if isinstance(raw, str):
+            for index, guest in enumerate(guests):
+                if not isinstance(guest, dict):
+                    continue
+                value, evidence = guest.get('explicit_gender'), guest.get('gender_evidence')
+                name = str(guest.get('name') or '').strip()
+                if (value in ('male', 'female') and _evidence_in_current_turn(raw, evidence)
+                        and _eligibility_is_evidenced(value, evidence)
+                        and _eligibility_subject_is_affirmed(
+                            value, evidence, name, index)):
+                    allowed[index] = value
+        checked = state.get('checked_offer') or (
+            (state.get('quote') or {}).get('offer_revision')) or {}
+        normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
+        bindings = state.get('pending_name_completions') or (
+            [state['pending_name_completion']] if isinstance(
+                state.get('pending_name_completion'), dict) else [])
+        bound_names = {}
+        assignments = checked.get('guest_bed_assignments') if isinstance(checked, dict) else None
+        if bindings and isinstance(assignments, list) and len(assignments) == len(guests):
+            candidate = {}
+            for binding in bindings:
+                index = binding.get('guest_index') if isinstance(binding, dict) else None
+                previous = normalize_name(binding.get('previous_name')) if isinstance(binding, dict) else ''
+                completed = normalize_name(binding.get('completed_name')) if isinstance(binding, dict) else ''
+                if (type(index) is not int or not 0 <= index < len(guests)
+                        or index in candidate or not previous or not completed
+                        or not isinstance(guests[index], dict)
+                        or normalize_name(guests[index].get('name')) != completed
+                        or not isinstance(assignments[index], dict)
+                        or assignments[index].get('guest_index') != index
+                        or normalize_name(assignments[index].get('guest_name')) != previous):
+                    candidate = {}
+                    break
+                candidate[index] = previous
+            changed = set(candidate)
+            if candidate and all(
+                    isinstance(row, dict) and row.get('guest_index') == index
+                    and (index in changed or (isinstance(guests[index], dict)
+                         and normalize_name(guests[index].get('name'))
+                         == normalize_name(row.get('guest_name'))))
+                    for index, row in enumerate(assignments)):
+                bound_names = candidate
         hints = checked.get('room_name_hints') if isinstance(checked, dict) else None
         if isinstance(hints, list):
             for hint in hints:
                 if (not isinstance(hint, dict)
                         or hint.get('explicit_gender') not in ('male', 'female')):
                     continue
-                name = str(hint.get('name', '')).strip().casefold()
-                if bound_index is not None and name == bound_previous:
-                    allowed[bound_index] = hint['explicit_gender']
+                name = normalize_name(hint.get('name'))
+                bound_matches = [index for index, previous in bound_names.items()
+                                 if name == previous]
+                if len(bound_matches) == 1:
+                    allowed[bound_matches[0]] = hint['explicit_gender']
                     continue
                 matches = [index for index, guest in enumerate(guests)
                            if isinstance(guest, dict)
@@ -1190,24 +1289,29 @@ def _checked_plan(prepared, response, tenant):
 
 
 def _incomplete_payment_revision(response, tenant, plan=None):
-    """Validate Staff's priced provisional revision before guest payment selection."""
+    """Validate priced provisional terms without granting create authority."""
     offer = response.get('offer_revision')
     availability = response.get('availability')
     requested_payment = (plan or {}).get('payment_choice')
+    full_only = (response.get('full_payment_only') is True
+                 and response.get('payment_choice_needed') is False)
     if (not isinstance(offer, dict) or not isinstance(availability, dict)
-            or response.get('payment_choice_needed') is not True
-            or requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
+            or (response.get('payment_choice_needed') is not True and not full_only)
+            or (requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
+                and not full_only)
             or offer.get('client_slug') != tenant
             or offer.get('availability_checked') is not True
             or availability.get('status') != 'checked'
-            or offer.get('payment_choice') != 'deposit'
+            or offer.get('payment_choice') != ('full' if full_only else 'deposit')
             or not offer.get('offer_fingerprint')
             or any(not isinstance(offer.get(key), str) or not offer[key].strip()
                    for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
             or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
                    ('guest_count', 'total_cents', 'deposit_required_cents', 'payment_link_amount_cents'))
             or offer.get('total_cents') != response.get('total_cents')
-            or offer.get('payment_link_amount_cents') != offer.get('deposit_required_cents')):
+            or offer.get('payment_link_amount_cents') != (
+                offer.get('total_cents') if full_only else offer.get('deposit_required_cents'))
+            or (full_only and offer.get('deposit_required_cents') != offer.get('total_cents'))):
         return False
     assignments = offer.get('guest_bed_assignments')
     rooms = offer.get('room_arrangement')
@@ -1216,14 +1320,28 @@ def _incomplete_payment_revision(response, tenant, plan=None):
             and isinstance(rooms, list) and len(rooms) == count
             and availability.get('selected_bed_codes') == [row.get('bed_code') for row in assignments]
             and all(isinstance(row, dict) and row.get('guest_index') == index
-                    and row.get('guest_name') and row.get('bed_code')
-                    for index, row in enumerate(assignments))
+                    and (row.get('guest_name') is None or isinstance(row.get('guest_name'), str))
+                    and row.get('bed_code') for index, row in enumerate(assignments))
             and all(isinstance(row, dict) and row.get('bed_code') and row.get('room_code')
                     and row.get('gender_strategy') for row in rooms))
 
 
 def record_quote(params, response):
     prepared = params if isinstance(params, PreparedPlan) else prepare_quote(params)
+    response = deepcopy(response)
+    # A full-only tariff has one policy-defined charge, not a guest choice. Some
+    # legacy Staff receipts still label that charge "deposit" and list payment
+    # choice as missing; normalize all linked semantics without claiming consent.
+    if (response.get('success') is True and response.get('full_payment_only') is True
+            and response.get('payment_choice_needed') is False
+            and not prepared.get('payment_choice')
+            and type(response.get('total_cents')) is int
+            and response.get('deposit_required_cents') == response.get('total_cents')
+            and isinstance(response.get('offer_revision'), dict)):
+        response['missing_fields'] = [field for field in response.get('missing_fields', [])
+                                      if field != 'payment_choice']
+        response['offer_revision']['payment_choice'] = 'full'
+        response['offer_revision']['payment_link_amount_cents'] = response['total_cents']
     def record(state, ingress):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
@@ -1234,12 +1352,19 @@ def record_quote(params, response):
         if checked is not None:
             plan = checked
             completion_plan = {}
+        elif _incomplete_payment_revision(response, ingress['tenant'], prepared):
+            assignments = response['offer_revision'].get('guest_bed_assignments') or []
+            if len(assignments) == response['offer_revision'].get('guest_count'):
+                completion_plan['guests'] = [
+                    {'name': row.get('guest_name') or ''} for row in assignments]
+            if response.get('full_payment_only') is True:
+                completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
-        if response.get('offer_revision') and response.get('payment_choice_needed') is True:
-            valid = valid and _incomplete_payment_revision(
-                response, ingress['tenant'], prepared)
+        provisional = _incomplete_payment_revision(response, ingress['tenant'], prepared)
+        if response.get('offer_revision') and provisional:
+            valid = valid and provisional
         elif previous_checked or response.get('offer_revision'):
             valid = valid and checked is not None
         pending_payment = state.get('pending_payment_completion')
@@ -1257,8 +1382,8 @@ def record_quote(params, response):
             prior_quote = prior.get('authoritative_quote') or {}
             prior_revision = prior.get('quote_revision') or prior_quote.get('offer_revision')
             new_revision = response.get('offer_revision')
-            guest_index = (pending_name or {}).get('guest_index') if pending_name else None
-            guest_name = (pending_name or {}).get('completed_name') if pending_name else None
+            pending_names = state.get('pending_name_completions') or (
+                [pending_name] if pending_name else [])
             eligibility_index = ((pending_eligibility or {}).get('guest_index')
                                  if pending_eligibility else None)
             eligibility_value = ((pending_eligibility or {}).get('value')
@@ -1267,8 +1392,8 @@ def record_quote(params, response):
                 comparable == current
                 and _completion_revision_matches(
                     prior_revision, new_revision,
-                    payment_choice=pending_payment, guest_index=guest_index,
-                    guest_name=guest_name, eligibility_index=eligibility_index,
+                    payment_choice=pending_payment, guest_completions=pending_names,
+                    eligibility_index=eligibility_index,
                     eligibility_value=eligibility_value)
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
@@ -1294,6 +1419,7 @@ def record_quote(params, response):
                 state['auto_acceptance'] = True
                 state.pop('pending_payment_completion', None)
                 state.pop('pending_name_completion', None)
+                state.pop('pending_name_completions', None)
                 state.pop('pending_eligibility_completion', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
@@ -1316,6 +1442,7 @@ def record_quote(params, response):
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
+        state.pop('pending_name_completions', None)
         state.pop('pending_payment_completion', None)
         state.pop('pending_eligibility_completion', None)
         state.pop('authorized_revision_changes', None)
@@ -1596,7 +1723,10 @@ def finalize_offer_response(result):
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
         choices = []
-        if quote.get('payment_choice_needed') is True:
+        if (quote.get('full_payment_only') is True
+                and quote.get('payment_choice_needed') is False):
+            choices.append('full')
+        elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
                 choices.append('deposit')
             if type(quote.get('total_cents')) is int:
@@ -1632,10 +1762,14 @@ def finalize_offer_response(result):
             if plan.get('check_in') and plan.get('check_out') and type(plan.get('guest_count')) is int:
                 lines.append(f"{_plain_stay_date(plan['check_in'])} to {_plain_stay_date(plan['check_out'])} — {_guest_count_label(plan['guest_count'])}.")
             lines.append(f"Total: {quoted_money(total)}.")
-            if choices:
+            if quote.get('full_payment_only') is True:
+                lines.append(f"Full payment required: {quoted_money(total)}.")
+            elif choices:
                 labels = {'deposit': 'deposit', 'full': 'full payment'}
                 lines.append('Payment options: ' + ' or '.join(labels[item] for item in choices) + '.')
-            lines.append('Which payment option would you like me to check for this booking?')
+            lines.append('Shall I check this exact offer for booking?'
+                         if quote.get('full_payment_only') is True else
+                         'Which payment option would you like me to check for this booking?')
             text = '\n'.join(lines)
             output = deepcopy(result)
             output['final_response'] = text
