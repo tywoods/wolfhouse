@@ -218,6 +218,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
   let needsClarification = false;
   let clarificationConflict = null;
   let groupGenderResolved = null;
+  let exactBedValidation = null;
 
   function absorbClarification(pick) {
     if (!pick || pick.needs_clarification !== true) return false;
@@ -231,7 +232,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     return true;
   }
 
-  if (hasEnoughBeds && Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
+  if (Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
     && command.transportBody.selected_bed_codes.length
     && command.assignmentMode !== true) {
     const { validateExplicitBedSelection } = require('./luna-bed-allocator');
@@ -243,6 +244,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       bedRows,
       blockRows,
     });
+    exactBedValidation = validation;
     if (!validation.ok) {
       blockers.push(validation.reason || 'availability_changed');
       allocationReason = validation.reason || 'availability_changed';
@@ -351,6 +353,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     blockers,
     roomOptionFlags,
     rulesRooming,
+    exactBedValidation,
   };
 }
 
@@ -408,6 +411,25 @@ function buildAvailabilityProvenance(canonical) {
 
 function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
   const domainNextAction = resolveDomainNextAction(command.channel, inventory, dateEval);
+  const explicitCodes = command.transportBody && command.transportBody.selected_bed_codes;
+  const explicitGuests = command.transportBody && command.transportBody.guests;
+  const exactValidation = inventory.exactBedValidation;
+  const exactBedEligibility = Array.isArray(explicitCodes) && explicitCodes.length
+    ? {
+      // Staff's inventory/occupancy/person-policy validator is the authority.
+      // Never self-attest by merely comparing allocator output to the request.
+      eligible: exactValidation && exactValidation.ok === true,
+      reason: exactValidation && exactValidation.ok !== true ? exactValidation.reason : null,
+      selected_bed_codes: explicitCodes.map(String),
+      guest_bed_assignments: exactValidation && exactValidation.ok === true && Array.isArray(explicitGuests)
+        ? explicitCodes.map((bedCode, guestIndex) => ({
+          guest_index: guestIndex,
+          guest_name: String((explicitGuests[guestIndex] && explicitGuests[guestIndex].name) || '').trim(),
+          bed_code: bedCode,
+        }))
+        : [],
+    }
+    : null;
   const canonical = {
     ...DRY_RUN_SAFETY_FLAGS,
     client_slug: command.clientSlug,
@@ -429,6 +451,7 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
       private_room_available: inventory.roomOptionFlags.private_room_available,
     },
     selected_bed_codes: inventory.selectedBedCodes,
+    exact_bed_eligibility: exactBedEligibility,
     selected_room_code: inventory.selectedRoomCode,
     needs_clarification: inventory.needsClarification === true,
     clarification_conflict: inventory.clarificationConflict || null,

@@ -549,6 +549,64 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[-1][0], '/booking-create-from-plan')
 
+    def test_g5_exact_mismatch_clears_retry_but_valid_revalidation_restores_snapshot(self):
+        """Reproduce SIM11 G5: exact-bed mismatch, not argument comparison."""
+        import json
+        import wolfhouse_staff_api as plugin
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        plan = {**self.plan, 'guests': [{'name': 'Holly'}, {'name': 'Jake'}],
+                'guest_count': 2, 'selected_bed_codes': ['R6-B1', 'R6-B2'],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='R6-B1', room_code='R6', gender_strategy='mixed'),
+                dict(bed_code='R6-B2', room_code='R6', gender_strategy='mixed')]
+        preview = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), plan, beds)
+        self.agent.session_id = 'sim11-g5-exact-mismatch'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('g5-offer', 'Quote this')
+        self.ledger.record_quote(plan, preview)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('g5-accept', 'I accept the deposit offer')
+        calls = []
+        mismatch = True
+        def staff(path, payload):
+            calls.append(path)
+            if path == '/booking-preview':
+                return deepcopy(preview)
+            if path == '/availability-check':
+                eligible = not mismatch
+                return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {'eligible': eligible,
+                            'reason': None if eligible else 'availability_changed',
+                            'selected_bed_codes': list(payload['selected_bed_codes']),
+                            'guest_bed_assignments': ([
+                                {'guest_index': i, 'guest_name': payload['guests'][i]['name'],
+                                 'bed_code': code}
+                                for i, code in enumerate(payload['selected_bed_codes'])
+                            ] if eligible else [])}}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True, 'booking_code': 'G5-RECOVERED'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            first = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+            self.assertEqual(first['error'], 'accepted_bed_selection_revalidation_required')
+            before_retry = len(calls)
+            retry = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+            self.assertFalse(retry['success'])
+            self.assertEqual(len(calls), before_retry, 'cleared readiness must not retry Staff create')
+            mismatch = False
+            revalidated = json.loads(registry.tools['quote_booking']['handler']({}))
+            self.assertTrue(revalidated['success'])
+            recovered = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+        self.assertTrue(recovered['success'], recovered)
+        self.assertEqual(recovered['booking_code'], 'G5-RECOVERED')
+        self.assertEqual(calls.count('/booking-create-from-plan'), 1)
+
     def test_acceptance_of_presented_priced_terms_survives_payment_completion_and_revalidation(self):
         self.agent.session_id = 'presented-incomplete-payment-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')
