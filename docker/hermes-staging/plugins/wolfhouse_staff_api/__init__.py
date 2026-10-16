@@ -799,7 +799,7 @@ def _normalize_contact(payload):
 
 
 def _normalize_guests_payload(payload, validated_explicit_genders=None):
-    """Normalize occupant names; retain only owner-validated eligibility hints."""
+    """Normalize indexed model facts, retaining current person corrections."""
     validated_explicit_genders = (validated_explicit_genders
                                   if isinstance(validated_explicit_genders, dict) else {})
     _normalize_contact(payload)
@@ -813,10 +813,9 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = _clean(item)
         elif isinstance(item, dict):
             name = _clean(item.get("name") or item.get("guest_name"))
-            if validated_explicit_genders.get(index) in ("male", "female"):
-                # The owner reader is the authority here. A revalidation plan is
-                # canonicalized from Staff's roster and intentionally no longer
-                # contains the model-proposed field that established the fact.
+            if item.get('explicit_gender') in ('male', 'female'):
+                explicit_gender = item['explicit_gender']
+            elif validated_explicit_genders.get(index) in ("male", "female"):
                 explicit_gender = validated_explicit_genders[index]
         else:
             name = ""
@@ -1112,7 +1111,16 @@ def create_booking_from_plan(params, **kwargs):
 
     # Create itself is the consent/payment boundary, even without payment_choice.
     # Resolve missing room facts before any allocation request; never ask composition here.
-    room_decision = _room_decision_for_tool(payload, payment_intent=True)
+    from wolfhouse import accepted_quote as ledger
+    ticket = ledger._dispatch_ticket.get()
+    # A capability-bound Staff revision already owns placement. Local name/gender
+    # heuristics cannot veto it or replace its room; Staff's transactional reread
+    # still validates price, identity, eligibility and current inventory.
+    staff_owned_placement = bool(
+        ticket is not None and payload.get('require_offer_identity') is True
+        and payload.get('accepted_offer') == ticket.get('accepted_offer'))
+    room_decision = (None if staff_owned_placement else
+                     _room_decision_for_tool(payload, payment_intent=True))
     preference = _clean(payload.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
     excluded = set((room_decision or {}).get("excluded_room_preferences") or [])
     if room_decision and (
@@ -1188,7 +1196,13 @@ def create_booking_from_plan(params, **kwargs):
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
     owner_retry = bool(ticket is not None and ledger.dispatch_recovery(ticket)['pending'])
-    if room_decision:
+    if staff_owned_placement:
+        # Bypass semantic composition heuristics, not factual person/bed checks.
+        # The exact Staff-selected beds must still fit each indexed occupant.
+        excluded = {'female_only', 'male_only'}
+        room_decision = {'private_room': payload.get('room_type') in
+                         {'private', 'double', 'couple_private'}}
+    if room_decision is not None:
         if excluded and caller_selected_beds and not owner_retry:
             # Group exclusions are not per-occupant exclusions: an accepted split
             # dorm can place each traveler in their own eligible gendered room.
@@ -1278,7 +1292,7 @@ def create_booking_from_plan(params, **kwargs):
         composition = room_decision.get("resolved_composition")
         if composition in {"male", "female", "mixed"} and not payload.get("group_gender"):
             payload["group_gender"] = composition
-        if preference in excluded:
+        if preference in excluded and not staff_owned_placement:
             payload.pop("room_preference", None)
 
     from wolfhouse import accepted_quote as ledger
@@ -4577,10 +4591,9 @@ def interpret_booking_turn(params, **kwargs):
             'quote_owner_presented_offer_required': 'Would you like me to show the booking offer again?',
             'quote_intent_already_adjudicated': 'Should I ask a fresh booking question before we continue?',
         }
-        return _json_result({'tool': 'interpret_booking_turn', 'success': False,
-                             'accepted': False, 'write_performed': False,
-                             'error': code, 'next_action': 'ask_one_targeted_question',
-                             'question': questions.get(code, 'Should I clarify the booking details before continuing?')})
+        return _json_result({'tool': 'interpret_booking_turn', 'success': True,
+                             'diagnostic_only': True, 'accepted': False,
+                             'write_performed': False, 'warning': code})
 
 
 def _quote_owner_handler(name, original):
@@ -4598,6 +4611,15 @@ def _quote_owner_handler(name, original):
             if active:
                 canonical = (ledger.prepare_quote(canonical) if name == 'quote_booking'
                              else ledger.prepare_create(canonical))
+                if name != 'quote_booking' and canonical.revalidation:
+                    # Refresh Staff facts in the same create invocation.  The
+                    # registered quote boundary records only an unchanged checked
+                    # offer; changed terms remain offered and the create then fails
+                    # closed without dispatching a write.
+                    quote_result = json.loads(quote_booking(dict(canonical), **kwargs))
+                    if quote_result.get('success') is not True:
+                        return _json_result(quote_result)
+                    canonical = ledger.prepare_create(params)
                 if name != 'quote_booking':
                     recovery = ledger.dispatch_recovery(canonical)
                     if recovery['receipt'] and recovery.get('adapter_completed') is True:
@@ -4730,7 +4752,7 @@ def register(ctx):
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
     }
     common_booking = {
-        "guests": {"type": "array", "description": "Occupants in guest order. explicit_gender requires exact gender_evidence from this current guest turn; never infer it from a name or room choice.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string", "minLength": 1}}, "required": ["name"]}},
+        "guests": {"type": "array", "description": "Occupants in stable guest order, including model-understood person facts and current corrections. Never infer gender from a name or transfer one person's eligibility to another. Literal evidence is optional diagnostic data.", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "enum": ["male", "female"]}, "gender_evidence": {"type": "string"}}, "required": ["name"]}},
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
@@ -4796,7 +4818,7 @@ def register(ctx):
         }},
     }
     tools = [
-        ("interpret_booking_turn", "Interpret the CURRENT ORIGINAL guest message against the latest owner-presented booking offer before create_booking_from_plan. Use semantic meaning, not a phrase list. Call whenever the guest responds to a presented offer. Copy the complete current message verbatim as action_evidence; use exact spans for each completion. Mark ambiguity, negation, conditional intent and every requested commercial change. This tool cannot mint an offer or change prices; owner validates provenance, presentation identity/revision and readiness. If it refuses, ask its one targeted question and do not create.", interpret_booking_turn, intent_interpretation,
+        ("interpret_booking_turn", "Optional compatibility diagnostic only. It may log the model's semantic interpretation but never authorizes or vetoes create_booking_from_plan.", interpret_booking_turn, intent_interpretation,
          ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),

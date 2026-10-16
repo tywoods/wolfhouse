@@ -30,6 +30,7 @@ class PreparedPlan(dict):
         super().__init__(params)
         self.capability = capability
         self.epoch = epoch
+        self.revalidation = False
 
 
 def close_turn():
@@ -632,7 +633,8 @@ def _presentation_matches_completion_state(state, presentation):
 
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
-                                 eligibility_index=None, eligibility_value=None):
+                                 eligibility_index=None, eligibility_value=None,
+                                 eligibility_completions=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
@@ -689,25 +691,37 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     return False
                 if matching_hints:
                     matching_hints[0]['name'] = '<completed-name-%s>' % guest_index
-    if type(eligibility_index) is int:
-        hints = after.get('room_name_hints')
-        assignments = after.get('guest_bed_assignments')
-        if (not isinstance(hints, list) or not isinstance(assignments, list)
-                or eligibility_index >= len(assignments)):
+    eligibility = eligibility_completions or (
+        [{'guest_index': eligibility_index, 'value': eligibility_value}]
+        if type(eligibility_index) is int else [])
+    if len({item.get('guest_index') for item in eligibility}) != len(eligibility):
+        return False
+    for completion in eligibility:
+        index = completion.get('guest_index')
+        value = completion.get('value')
+        rows = [row for row in after.get('guest_bed_assignments', [])
+                if isinstance(row, dict) and row.get('guest_index') == index]
+        prior_rows = [row for row in before.get('guest_bed_assignments', [])
+                      if isinstance(row, dict) and row.get('guest_index') == index]
+        if (type(index) is not int or len(rows) != 1 or len(prior_rows) != 1
+                or rows != prior_rows or value not in ('male', 'female')):
             return False
-        target_name = str(assignments[eligibility_index].get('guest_name', '')).strip().casefold()
-        matches = [index for index, hint in enumerate(hints)
-                   if isinstance(hint, dict)
-                   and set(hint) == {'name', 'explicit_gender'}
-                   and str(hint.get('name', '')).strip().casefold() == target_name
-                   and hint.get('explicit_gender') == eligibility_value]
-        prior_hints = before.get('room_name_hints') or []
-        remaining = [hint for index, hint in enumerate(hints) if index not in matches]
-        if (len(matches) != 1 or not isinstance(prior_hints, list)
-                or remaining != prior_hints):
-            return False
-        before.pop('room_name_hints', None)
-        after.pop('room_name_hints', None)
+        target_name = normalize(rows[0].get('guest_name'))
+        for revision, required in ((before, False), (after, True)):
+            hints = revision.get('room_name_hints') or []
+            if not isinstance(hints, list):
+                return False
+            matches = [hint for hint in hints if isinstance(hint, dict)
+                       and normalize(hint.get('name')) == target_name]
+            if (len(matches) > 1 or (required and len(matches) != 1)
+                    or any(set(hint) != {'name', 'explicit_gender'} for hint in matches)
+                    or (required and matches[0].get('explicit_gender') != value)):
+                return False
+            revision['room_name_hints'] = [hint for hint in hints if hint not in matches]
+    if eligibility:
+        for revision in (before, after):
+            if not revision.get('room_name_hints'):
+                revision.pop('room_name_hints', None)
     return before == after
 
 
@@ -785,7 +799,19 @@ def interpret_owner_turn(interpretation):
         if prior_digest != interpretation_digest:
             raise QuoteBoundaryError('quote_intent_already_adjudicated')
         if 'interpretation_result' in pending:
-            return deepcopy(pending.get('interpretation_result'))
+            result = deepcopy(pending['interpretation_result'])
+            # Compatibility diagnostics describe current facts, never an old
+            # readiness verdict captured before the Staff refresh.
+            if result.get('accepted') is True:
+                ready = (state.get('checked_offer') is not None
+                         and presentation.get('quote_revision') == state['checked_offer']
+                         and not any(state.get(key) for key in (
+                             'pending_name_completion', 'pending_payment_completion',
+                             'pending_eligibility_completion')))
+                result.update(create_ready=ready,
+                              missing=[] if ready else ['staff_checked_offer'],
+                              next_action='create_booking' if ready else 'revalidate_selected_terms')
+            return result
         checked_ready = (isinstance(presented, dict)
                          and isinstance(state.get('checked_offer'), dict)
                          and presented == state['checked_offer']
@@ -1050,77 +1076,41 @@ def _sync_catalog_projection(add_ons, changes, catalog_before=None):
 
 
 def prepare_quote(params):
+    """Prepare a read-only Staff quote, preserving omitted draft selections.
+
+    Quote admission is intentionally not a consent boundary: explicit model values
+    are sent to Staff for pricing, while omitted values retain the previous draft.
+    """
     def prepare(state, ingress):
-        if state.get('unresolved_change'):
-            raise QuoteBoundaryError('quote_revision_needs_clarification')
         result = deepcopy(params)
-        old = state.get('plan')
-        authorized = {}
-        for change in state.get('authorized_revision_changes', []):
-            authorized.setdefault(change['field'], []).append(change)
-        if old:
-            preserved = dict(old)
-            include_completion = bool(state.get('checked_offer') or state.get('presentation')
-                                      or state.get('accepted_presentation'))
-            if include_completion:
-                preserved.update(state.get('completion_plan') or {})
-            fields = _FIELDS + (_CHECKED_FIELDS if include_completion else ())
-            for key in fields:
-                if key in authorized:
-                    changes = authorized[key]
-                    if 'value' in changes[0]:
-                        target = deepcopy(changes[0]['value'])
-                    else:
-                        target = deepcopy(preserved.get(key))
-                        for change in changes:
-                            target = _apply_list_revision(target, change)
-                            if target is None:
-                                break
-                    if target is None or (key in result and result[key] != target):
-                        raise QuoteBoundaryError('quote_revision_requires_owner')
-                    result[key] = target
-                    continue
-                if key not in preserved:
-                    if key in result:
-                        raise QuoteBoundaryError('quote_revision_requires_owner')
-                    continue
-                expected = state.get('delta', {}).get(key, preserved[key])
-                if key in result and result[key] != expected:
-                    raise QuoteBoundaryError('quote_revision_requires_owner')
-                result.setdefault(key, deepcopy(expected))
-            if 'add_ons' in authorized:
-                catalog = deepcopy(result.get(
-                    'catalog_selections', preserved.get('catalog_selections', [])))
-                if not isinstance(catalog, list):
-                    raise QuoteBoundaryError('quote_revision_requires_owner')
-                for change in authorized['add_ons']:
-                    if change.get('operation') != 'remove':
-                        continue
-                    item = change.get('item')
-                    code = item.get('code') if isinstance(item, dict) else None
-                    if not isinstance(code, str) or not code.strip():
-                        raise QuoteBoundaryError('quote_revision_requires_owner')
-                    matches = [index for index, selected in enumerate(catalog)
-                               if isinstance(selected, dict)
-                               and selected.get('service_code') == code.strip()]
-                    if len(matches) > 1:
-                        raise QuoteBoundaryError('quote_revision_requires_owner')
-                    if matches:
-                        catalog.pop(matches[0])
-                result['catalog_selections'] = catalog
-            if 'catalog_selections' in authorized:
-                projected = _sync_catalog_projection(
-                    result.get('add_ons', preserved.get('add_ons', [])),
-                    authorized['catalog_selections'],
-                    preserved.get('catalog_selections', []))
-                if projected is None:
-                    raise QuoteBoundaryError('quote_revision_requires_owner')
-                result['add_ons'] = projected
-        if state.get('pending_payment_completion'):
-            expected_payment = state['pending_payment_completion']
-            if 'payment_choice' in result and result['payment_choice'] != expected_payment:
-                raise QuoteBoundaryError('quote_revision_requires_owner')
-            result['payment_choice'] = expected_payment
+        preserved = deepcopy(state.get('plan') or {})
+        preserved.update(deepcopy(state.get('completion_plan') or {}))
+        for key in _FIELDS + _CHECKED_FIELDS:
+            if key not in result and key in preserved:
+                result[key] = preserved[key]
+        # Catalog and atomic add-ons are aliases of the same priced selection.
+        # An explicit replacement owns that alias; an omitted field is retained,
+        # except for stale duplicates of the explicitly replaced representation.
+        old_catalog = preserved.get('catalog_selections') or []
+        if 'catalog_selections' in params and 'add_ons' not in params:
+            replacements = [
+                {'operation': 'remove', 'item': item} for item in old_catalog
+                if isinstance(item, dict)]
+            replacements.extend({'operation': 'add', 'item': item}
+                                for item in (params.get('catalog_selections') or [])
+                                if isinstance(item, dict))
+            projected = _sync_catalog_projection(
+                result.get('add_ons') or [], replacements, old_catalog)
+            if projected is None:
+                raise QuoteBoundaryError('catalog_addon_conflict')
+            result['add_ons'] = projected
+        elif 'add_ons' in params and 'catalog_selections' not in params:
+            prior_codes = {item.get('code') for item in (preserved.get('add_ons') or [])
+                           if isinstance(item, dict)}
+            prior_codes.update(item.get('code') for item in (params.get('add_ons') or [])
+                               if isinstance(item, dict))
+            result['catalog_selections'] = [item for item in old_catalog
+                if not isinstance(item, dict) or item.get('service_code') not in prior_codes]
         return PreparedPlan(result, _current.get(), state['epoch'])
     return _transaction(prepare)
 
@@ -1136,18 +1126,9 @@ def validated_guest_eligibility(prepared):
         if not isinstance(guests, list):
             return {}
         allowed = {}
-        raw = (state.get('current_turn') or {}).get('raw')
-        if isinstance(raw, str):
-            for index, guest in enumerate(guests):
-                if not isinstance(guest, dict):
-                    continue
-                value, evidence = guest.get('explicit_gender'), guest.get('gender_evidence')
-                name = str(guest.get('name') or '').strip()
-                if (value in ('male', 'female') and _evidence_in_current_turn(raw, evidence)
-                        and _eligibility_is_evidenced(value, evidence)
-                        and _eligibility_subject_is_affirmed(
-                            value, evidence, name, index)):
-                    allowed[index] = value
+        for index, guest in enumerate(guests):
+            if isinstance(guest, dict) and guest.get('explicit_gender') in ('male', 'female'):
+                allowed[index] = guest['explicit_gender']
         checked = state.get('checked_offer') or (
             (state.get('quote') or {}).get('offer_revision')) or {}
         normalize_name = lambda value: ' '.join(str(value or '').split()).casefold()
@@ -1190,13 +1171,13 @@ def validated_guest_eligibility(prepared):
                 bound_matches = [index for index, previous in bound_names.items()
                                  if name == previous]
                 if len(bound_matches) == 1:
-                    allowed[bound_matches[0]] = hint['explicit_gender']
+                    allowed.setdefault(bound_matches[0], hint['explicit_gender'])
                     continue
                 matches = [index for index, guest in enumerate(guests)
                            if isinstance(guest, dict)
                            and str(guest.get('name', '')).strip().casefold() == name]
                 if len(matches) == 1:
-                    allowed[matches[0]] = hint['explicit_gender']
+                    allowed.setdefault(matches[0], hint['explicit_gender'])
         pending = state.get('pending_eligibility_completion')
         completion = state.get('completion_plan') or {}
         completed_guests = completion.get('guests') if isinstance(completion, dict) else None
@@ -1206,7 +1187,7 @@ def validated_guest_eligibility(prepared):
             if (type(index) is int and 0 <= index < len(guests)
                     and index < len(completed_guests) and value in ('male', 'female')
                     and completed_guests[index] == guests[index]):
-                allowed[index] = value
+                allowed.setdefault(index, value)
         return allowed
     return _transaction(read)
 
@@ -1371,7 +1352,8 @@ def record_quote(params, response):
         pending_name = state.get('pending_name_completion')
         pending_eligibility = state.get('pending_eligibility_completion')
         if (valid and checked is not None and state['status'] == 'accepted'
-                and (pending_payment or pending_name or pending_eligibility)
+                and (pending_payment or pending_name or pending_eligibility
+                     or state.get('pending_fact_refresh'))
                 and isinstance(state.get('accepted_presentation'), dict)):
             prior = state['accepted_presentation']
             prior_plan = prior.get('plan') or {}
@@ -1394,7 +1376,8 @@ def record_quote(params, response):
                     prior_revision, new_revision,
                     payment_choice=pending_payment, guest_completions=pending_names,
                     eligibility_index=eligibility_index,
-                    eligibility_value=eligibility_value)
+                    eligibility_value=eligibility_value,
+                    eligibility_completions=state.get('pending_eligibility_completions'))
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
@@ -1421,6 +1404,8 @@ def record_quote(params, response):
                 state.pop('pending_name_completion', None)
                 state.pop('pending_name_completions', None)
                 state.pop('pending_eligibility_completion', None)
+                state.pop('pending_eligibility_completions', None)
+                state.pop('pending_fact_refresh', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
                 return
@@ -1445,6 +1430,8 @@ def record_quote(params, response):
         state.pop('pending_name_completions', None)
         state.pop('pending_payment_completion', None)
         state.pop('pending_eligibility_completion', None)
+        state.pop('pending_eligibility_completions', None)
+        state.pop('pending_fact_refresh', None)
         state.pop('authorized_revision_changes', None)
         state['unresolved_change'] = False
         state['delta'] = {}
@@ -1455,23 +1442,87 @@ def record_quote(params, response):
 
 def prepare_create(params):
     def prepare(state, ingress):
-        if state['status'] != 'accepted' or not state.get('quote'):
-            raise QuoteBoundaryError('quote_owner_acceptance_required')
-        current = state.get('current_turn')
-        acceptance_message = state.get('acceptance_message')
-        acceptance_digest = state.get('acceptance_raw_digest')
-        adjudicated = (isinstance(current, dict)
-                       and current.get('message_id') == acceptance_message
-                       and current.get('raw_digest') == acceptance_digest
-                       and isinstance(current.get('interpretation_result'), dict)
-                       and current['interpretation_result'].get('accepted') is True
-                       and ingress['MESSAGE_ID'] == acceptance_message)
-        recovering = (ingress['MESSAGE_ID'] == acceptance_message
-                      and isinstance(current, dict)
-                      and current.get('message_id') == acceptance_message
-                      and current.get('raw_digest') == acceptance_digest)
-        if not adjudicated and not recovering:
-            raise QuoteBoundaryError('quote_current_turn_not_adjudicated')
+        # The model supplies structured completions; Staff revalidates them in
+        # this invocation. Names are indexed data, not literal-word evidence.
+        baseline = _presentation_plan(state)
+        if isinstance(state.get('presentation'), dict):
+            updates = {}
+            guests = params.get('guests')
+            old_guests = baseline.get('guests') or []
+            if guests is not None and guests != old_guests:
+                if (not isinstance(guests, list) or len(guests) != len(old_guests)
+                        or any(not isinstance(g, dict) or not str(g.get('name') or '').strip()
+                               for g in guests)):
+                    raise QuoteBoundaryError('quote_completion_identity_changed')
+                normalize = lambda name: ' '.join(str(name or '').split()).casefold()
+                old_names = [normalize(g.get('name')) for g in old_guests]
+                names = [normalize(g.get('name')) for g in guests]
+                if (len(set(names)) != len(names) or any(
+                        name in old_names and old_names.index(name) != index
+                        for index, name in enumerate(names))):
+                    raise QuoteBoundaryError('quote_completion_identity_changed')
+                updates['guests'] = deepcopy(guests)
+                state['pending_name_completions'] = [
+                    {'guest_index': index, 'completed_name': guest['name'],
+                     'previous_name': old_guests[index].get('name')}
+                    for index, guest in enumerate(guests)]
+                state['pending_name_completion'] = state['pending_name_completions'][0]
+                state['pending_eligibility_completions'] = [
+                    {'guest_index': index, 'value': guest['explicit_gender']}
+                    for index, guest in enumerate(guests)
+                    if 'explicit_gender' in guest
+                    and guest.get('explicit_gender') != old_guests[index].get('explicit_gender')]
+            payment = params.get('payment_choice')
+            if payment and payment != baseline.get('payment_choice'):
+                if payment not in state['presentation'].get('payment_choices', []):
+                    raise QuoteBoundaryError('accepted_quote_changed')
+                updates['payment_choice'] = payment
+                state['pending_payment_completion'] = payment
+            if updates:
+                state.setdefault('completion_plan', {}).update(updates)
+        if (state['status'] != 'accepted' or not state.get('checked_offer')
+                or any(state.get(key) for key in (
+                    'pending_name_completion', 'pending_payment_completion',
+                    'pending_eligibility_completion'))):
+            presentation = state.get('presentation')
+            shown = presentation.get('quote_revision') if isinstance(presentation, dict) else None
+            baseline = _presentation_plan(state) if isinstance(presentation, dict) else None
+            if (state.get('status') not in ('offered', 'accepted')
+                    or not isinstance(presentation, dict)
+                    or presentation.get('tenant') != ingress['tenant']
+                    or presentation.get('scope') != state.get('scope')
+                    or presentation.get('incarnation') != state.get('incarnation')
+                    or presentation.get('original_turn') not in state.get('seen', [])
+                    or not isinstance(presentation.get('displayed_text'), str)
+                    or presentation.get('displayed_text_digest') != hashlib.sha256(
+                        presentation['displayed_text'].encode()).hexdigest()
+                    or not isinstance(shown, dict)
+                    or (state.get('checked_offer') is not None
+                        and shown != state['checked_offer'])
+                    or not isinstance(baseline, dict)):
+                raise QuoteBoundaryError('quote_owner_presented_offer_required')
+            # The model owns the semantic decision to invoke create. Code owns the
+            # facts: repeated arguments must match the shown offer; omitted values
+            # come from that offer rather than model-created readiness state.
+            for key in _FIELDS + _CHECKED_FIELDS:
+                if key in params and params[key] != baseline.get(key):
+                    raise QuoteBoundaryError('accepted_quote_changed')
+            result = deepcopy(baseline)
+            state['status'] = 'accepted'
+            state['accepted_presentation'] = deepcopy(presentation)
+            state['completion_plan'] = {key: deepcopy(result[key]) for key in _CHECKED_FIELDS
+                                        if key in result}
+            # Force the existing quote recorder through its unchanged-terms path.
+            # This is a fact refresh, not a cached readiness permission bit.
+            state['pending_fact_refresh'] = True
+            if not state.get('acceptance_message'):
+                state['acceptance_message'] = ingress['MESSAGE_ID']
+                state['acceptance_raw_digest'] = (state.get('current_turn') or {}).get('raw_digest')
+            prepared = PreparedPlan(result, _current.get(), state['epoch'])
+            prepared.revalidation = True
+            return prepared
+        # The model's create call is the contextual acceptance decision.
+        # Interpreter schema/evidence/digest state remains diagnostic only.
         if (not isinstance(state.get('presentation'), dict)
                 or not isinstance(state.get('accepted_presentation'), dict)
                 or not isinstance(state.get('checked_offer'), dict)
@@ -1481,8 +1532,6 @@ def prepare_create(params):
             # No phrase/confirm compatibility path may bypass owner presentation,
             # structural interpretation, and the exact Staff-checked revision.
             raise QuoteBoundaryError('quote_owner_acceptance_required')
-        if state.get('pending_name_completion'):
-            raise QuoteBoundaryError('quote_name_completion_revalidation_required')
         result = deepcopy(params)
         plan = state['plan']
         for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):
@@ -1949,7 +1998,7 @@ def install_owner_hook(create_handler=None, before_create=None, quote_handler=No
                                     'booking_result': quote_result}
                     if _before_create is not None:
                         _before_create(session_id=agent.session_id)
-                    receipt = json.loads(_registered_create(dict(prepare_create({}))))
+                    receipt = json.loads(_registered_create({}))
                     if receipt.get('success') is True and (receipt.get('booking_code') or receipt.get('booking_id')):
                         reference = receipt.get('booking_code') or receipt['booking_id']
                         text = f"Booking {reference} saved. Payment is not confirmed."
