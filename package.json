@@ -99,6 +99,7 @@
     "verify:crowsnest": "node scripts/verify-crowsnest.js",
     "verify:crowsnest-client-status-chips": "node scripts/verify-crowsnest-client-status-chips.js",
     "verify:crowsnest-clients-failfast": "node scripts/verify-crowsnest-clients-failfast.js",
+    "verify:crowsnest-clients-http-origins": "node scripts/verify-crowsnest-clients-http-origins.js",
     "verify:crowsnest-client-portal-deploy": "node scripts/verify-crowsnest-client-portal-deploy.js",
     "verify:crowsnest-auth": "node scripts/verify-crowsnest-auth.js",
     "verify:crowsnest-session-store": "node scripts/verify-crowsnest-session-store.js",
