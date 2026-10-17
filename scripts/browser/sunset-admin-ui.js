@@ -2559,7 +2559,9 @@ function adminRefreshOnLocaleChange(){
   if (adminRoot && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(adminRoot);
   var fin = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
   if (!fin && typeof el === 'function') fin = el('admin-finance-body');
-  if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
+  if (fin && typeof financeLastCreator !== 'undefined' && typeof financePaintStored === 'function' && financePaintStored()) {
+    /* Wolfhouse v1 projection owns this host. */
+  } else if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
     fin.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(fin);
   }
@@ -3286,6 +3288,10 @@ function financeRedesignNavClick(ev){
       loadAdminFinanceSummary();
       return;
     }
+    if (getClient() === 'wolfhouse-somo' && typeof financeLastCreator !== 'undefined' && typeof wolfhouseCreatorFinanceIsV1 === 'function' && wolfhouseCreatorFinanceIsV1(financeLastCreator) && typeof financePaintStored === 'function') {
+      financePaintStored();
+      return;
+    }
     if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     else loadAdminFinanceSummary();
     return;
@@ -3390,10 +3396,145 @@ function financeSummaryHost(){
   return el('admin-finance-body');
 }
 
+var financeLastCreator = null;
+var financeDetailSeq = 0;
+var financeDetailKind = null;
+
+function wolfhouseCreatorFinanceIsV1(proj) {
+  return !!(proj && proj.schema_version === 'wolfhouse.creator-finance.v1');
+}
+
+function financePaintStored() {
+  var body = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
+  if (!body || getClient() !== 'wolfhouse-somo' || !wolfhouseCreatorFinanceIsV1(financeLastCreator)) return false;
+  if (typeof renderWolfhouseCreatorFinanceHtml !== 'function') return false;
+  body.innerHTML = renderWolfhouseCreatorFinanceHtml({
+    summary: financeLastSummary,
+    wolfhouse_creator_finance: financeLastCreator,
+  });
+  if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
+  wireWolfhouseCreatorFinanceDetails(body);
+  return true;
+}
+
+function wireWolfhouseCreatorFinanceDetails(body) {
+  if (!body || body.dataset.whFinDetailWired === '1') return;
+  body.dataset.whFinDetailWired = '1';
+  body.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-open], [data-wh-fin-cursor]') : null;
+    if (!btn || !body.contains(btn)) return;
+    if (ev.preventDefault) ev.preventDefault();
+    loadWolfhouseCreatorFinanceDetail({
+      kind: btn.getAttribute('data-wh-fin-open') || financeDetailKind,
+      creator: btn.getAttribute('data-wh-fin-creator'),
+      cursor: btn.getAttribute('data-wh-fin-cursor'),
+    });
+  });
+}
+
+function loadWolfhouseCreatorFinanceDetail(opts) {
+  opts = opts || {};
+  if (!wolfhouseCreatorFinanceIsV1(financeLastCreator)) return;
+  var seq = ++financeDetailSeq;
+  var cohort = financeLastCreator.cohort_id;
+  var currency = financeLastCreator.scope && financeLastCreator.scope.currency;
+  var originClient = getClient();
+  financeDetailKind = opts.kind || financeDetailKind;
+  var q = adminClientQuery() + financeViewQuery() +
+    '&creator_detail=' + encodeURIComponent(financeDetailKind || '') +
+    '&currency=' + encodeURIComponent(currency || '') +
+    '&cohort_id=' + encodeURIComponent(cohort || '') +
+    '&limit=100';
+  if (opts.creator) q += '&creator=' + encodeURIComponent(opts.creator);
+  if (opts.cursor) q += '&cursor=' + encodeURIComponent(opts.cursor);
+  fetch('/staff/admin/finance/summary' + q + '&_ts=' + Date.now(), {
+    credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
+  }).then(function (r) {
+    return r.json().then(function (data) { return { status: r.status, data: data }; });
+  }).then(function (res) {
+    if (seq !== financeDetailSeq || getClient() !== originClient) return;
+    if (!financeLastCreator || financeLastCreator.cohort_id !== cohort) return;
+    if (res.status === 409 && res.data && res.data.code === 'FINANCE_COHORT_STALE') {
+      financeLastCreator = null;
+      loadAdminFinanceSummary();
+      return;
+    }
+    var host = financeSummaryHost();
+    var slot = host && host.querySelector('[data-wh-fin-detail]');
+    if (!slot || typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return;
+    var projection = res.data && (res.data.wolfhouse_creator_finance || res.data);
+    if (projection && projection.cohort_id && projection.cohort_id !== cohort) return;
+    slot.innerHTML = renderWolfhouseCreatorFinanceDetailHtml(projection);
+  }).catch(function () {
+    if (seq !== financeDetailSeq || getClient() !== originClient) return;
+  });
+}
+
+function loadWolfhouseFinanceSummary(body) {
+  var seq = ++financeLoadSeq;
+  var originClient = getClient();
+  financeDetailSeq += 1;
+  body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
+    escHtml(portalT('admin.finance.loading')) + '</div>';
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery() + '&_ts=' + Date.now();
+  fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+    .then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; })
+        .catch(function () { return { ok: false, status: r.status, data: null }; });
+    })
+    .then(function (res) {
+      if (seq !== financeLoadSeq || getClient() !== originClient) return;
+      var data = res.data || {};
+      if (res.status === 503 || data.code === 'FINANCE_DATA_QUALITY') {
+        body.innerHTML = '<div class="portal-admin-finance-error" data-wh-fin-state="request-failed" role="alert"><p>' +
+          escHtml(portalT('admin.finance.wh.requestFailed')) + '</p><button type="button" id="admin-finance-retry" class="portal-admin-finance-retry">' +
+          escHtml(portalT('admin.finance.retry')) + '</button></div>';
+        wireFinanceRetry();
+        return;
+      }
+      if (!res.ok || data.success !== true || !data.summary) {
+        body.innerHTML = renderFinanceErrorHtml();
+        wireFinanceRetry();
+        return;
+      }
+      financeLastSummary = data.summary;
+      financeLastCreator = data.wolfhouse_creator_finance || null;
+      if (wolfhouseCreatorFinanceIsV1(financeLastCreator)) {
+        var range = financeLastCreator.scope && financeLastCreator.scope.range;
+        if (range) {
+          financeViewState.granularity = range.granularity || financeViewState.granularity || 'month';
+          financeViewState.anchor = range.start || financeViewState.anchor;
+          if (financeViewState.granularity === 'custom' || financeViewState.granularity === 'year') {
+            financeViewState.start = range.start || null;
+            financeViewState.end = range.end || null;
+          } else {
+            financeViewState.start = null;
+            financeViewState.end = null;
+          }
+        }
+        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data);
+        wireFinanceRedesignNav(body);
+        wireWolfhouseCreatorFinanceDetails(body);
+        return;
+      }
+      var state = financeLastCreator && financeLastCreator.schema_version ? 'unsupported' : 'missing';
+      body.innerHTML = '<div class="wh-fin-missing" data-wh-fin-state="' + state + '" role="status">' +
+        escHtml(portalT(state === 'unsupported' ? 'admin.finance.wh.unsupported' : 'admin.finance.wh.missingProjection')) +
+        '</div>' + renderFinanceSummaryHtml(data.summary);
+      wireFinanceRedesignNav(body);
+    })
+    .catch(function () {
+      if (seq !== financeLoadSeq || getClient() !== originClient) return;
+      body.innerHTML = renderFinanceErrorHtml();
+      wireFinanceRetry();
+    });
+}
+
 function loadAdminFinanceSummary(opts){
   opts = opts || {};
   var body = financeSummaryHost();
   if (!body) return;
+  if (getClient() === 'wolfhouse-somo') return loadWolfhouseFinanceSummary(body);
   var seq = ++financeLoadSeq;
   var originClient = getClient();
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
@@ -3451,6 +3592,8 @@ function loadAdminFinanceForCurrentScope(){
   // Scope changes invalidate any in-flight response even when the destination
   // tenant has no Finance endpoint. This request is separate from config loads.
   ++financeLoadSeq;
+  financeLastCreator = null;
+  financeDetailSeq += 1;
   if (getClient() === 'sunset' || getClient() === 'wolfhouse-somo') loadAdminFinanceSummary();
 }
 

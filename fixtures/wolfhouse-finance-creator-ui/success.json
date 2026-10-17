@@ -1,0 +1,36 @@
+{
+  "schema_version": "wolfhouse.creator-finance.v1",
+  "scope": {
+    "client": "wolfhouse-somo",
+    "location_id": "",
+    "timezone": "Europe/Madrid",
+    "currency": "EUR",
+    "range": { "start": "2026-10-01", "end": "2026-10-31", "granularity": "month", "anchor": "2026-10-17" }
+  },
+  "generated_at": "2026-10-17T21:30:00.000Z",
+  "as_of": "2026-10-17T21:30:00.000Z",
+  "cohort_id": "whcf1_presentation",
+  "metrics": {
+    "gross_receipts": { "state": "complete", "amount_cents": 25000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": { "assessed_count": 3, "included_count": 3, "excluded_count": 0, "unknown_count": 0 } },
+    "recorded_refunds": { "state": "complete", "amount_cents": 1000, "date_basis": "refund_effective_date_madrid", "reason_codes": [], "coverage": {} },
+    "net_receipts": { "state": "complete", "amount_cents": 24000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} },
+    "deposits_received": { "state": "complete", "amount_cents": 8000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} },
+    "new_booking_count": { "state": "complete", "count": 2, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} },
+    "new_booking_value": { "state": "complete", "amount_cents": 60000, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} },
+    "outstanding_today": { "state": "complete", "amount_cents": 40000, "date_basis": "current_active_snapshot", "as_of": "2026-10-17T21:30:00.000Z", "reason_codes": [], "coverage": {} }
+  },
+  "creators": [
+    { "creator": "luna", "gross_receipts": { "state": "complete", "amount_cents": 15000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "deposits_received": { "state": "complete", "amount_cents": 5000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_count": { "state": "complete", "count": 1, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_value": { "state": "complete", "amount_cents": 40000, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} }, "receipt_share_bps": 6000 },
+    { "creator": "staff", "gross_receipts": { "state": "complete", "amount_cents": 10000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "deposits_received": { "state": "complete", "amount_cents": 3000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_count": { "state": "complete", "count": 1, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_value": { "state": "complete", "amount_cents": 20000, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} }, "receipt_share_bps": 4000 },
+    { "creator": "other_imported", "gross_receipts": { "state": "complete", "amount_cents": 0, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "deposits_received": { "state": "complete", "amount_cents": 0, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_count": { "state": "complete", "count": 0, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_value": { "state": "complete", "amount_cents": 0, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} }, "receipt_share_bps": 0 },
+    { "creator": "unattributed", "gross_receipts": { "state": "complete", "amount_cents": 0, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "deposits_received": { "state": "complete", "amount_cents": 0, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_count": { "state": "complete", "count": 0, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_value": { "state": "complete", "amount_cents": 0, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} }, "receipt_share_bps": 0 },
+    { "creator": "total", "gross_receipts": { "state": "complete", "amount_cents": 25000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "deposits_received": { "state": "complete", "amount_cents": 8000, "date_basis": "receipt_paid_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_count": { "state": "complete", "count": 2, "date_basis": "booking_created_at_madrid", "reason_codes": [], "coverage": {} }, "new_booking_value": { "state": "complete", "amount_cents": 60000, "date_basis": "booking_created_at_madrid_current_saved_total", "reason_codes": [], "coverage": {} }, "receipt_share_bps": 10000 }
+  ],
+  "trend": [
+    { "date": "2026-10-03", "gross_receipts_cents": 15000, "recorded_refunds_cents": 0, "net_receipts_cents": 15000, "state": "complete", "reason_codes": [] },
+    { "date": "2026-10-09", "gross_receipts_cents": 10000, "recorded_refunds_cents": 1000, "net_receipts_cents": 9000, "state": "complete", "reason_codes": [] }
+  ],
+  "detail_queries": {},
+  "warnings": [],
+  "arrival_date_report": {}
+}
