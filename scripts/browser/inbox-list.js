@@ -285,18 +285,36 @@ function inboxThreadDayLabel(ts){
   }
 }
 
-function inboxConfirmationEventsFromBookings(bookings){
+function inboxBookingPaymentConfirmed(b){
+  var key = String((b && (b.booking_payment_status || b.payment_status)) || '')
+    .trim().toLowerCase().replace(/\s+/g, '_');
+  return key === 'paid' || key === 'deposit_paid';
+}
+
+function inboxConversationIsWolfhouseLab(conv){
+  if (typeof getClient === 'function' && getClient() !== 'wolfhouse-somo') return false;
+  if (typeof inboxRowIsOwnerLab === 'function') return inboxRowIsOwnerLab(conv);
+  return false;
+}
+
+function inboxConfirmationEventsFromBookings(bookings, opts){
+  opts = opts || {};
+  var wolfhouseLab = opts.wolfhouseLab === true;
   var events = [];
   (bookings || []).forEach(function(b){
-    if (!b || !b.confirmation_sent_at) return;
+    if (!b) return;
+    var sentAt = b.confirmation_sent_at;
+    var labPaid = wolfhouseLab && !sentAt && inboxBookingPaymentConfirmed(b);
+    if (!sentAt && !labPaid) return;
     var code = b.booking_code ? String(b.booking_code) : '';
     var shown = (typeof staffDisplayBookingCode === 'function') ? staffDisplayBookingCode(code) : code;
+    var when = sentAt || b.payment_paid_at || b.paid_at || b.check_in || null;
     events.push({
       direction: 'outbound',
       source: 'booking_confirmation',
       confirmation_event: true,
       message_text: shown ? ('Booking confirmed · ' + shown) : 'Booking confirmed',
-      created_at: b.confirmation_sent_at,
+      created_at: when,
     });
   });
   return events;
@@ -304,8 +322,8 @@ function inboxConfirmationEventsFromBookings(bookings){
 
 var inboxThreadConfirmationEvents = [];
 
-function inboxRememberConfirmationEvents(bookings){
-  inboxThreadConfirmationEvents = inboxConfirmationEventsFromBookings(bookings);
+function inboxRememberConfirmationEvents(bookings, opts){
+  inboxThreadConfirmationEvents = inboxConfirmationEventsFromBookings(bookings, opts);
 }
 
 function inboxMergeConfirmationEvents(msgs){
