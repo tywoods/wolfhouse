@@ -12,8 +12,6 @@ const {
 } = require('./luna-guest-personality-config');
 const {
   loadLessonScheduleConfig,
-  bookingDraftIncludesSurfLessons,
-  buildLessonScheduleGuestSection,
   formatPlaybookEuro,
 } = require('./luna-guest-lesson-schedule-config');
 
@@ -56,7 +54,6 @@ function buildCamiConfirmationPreview(clientSlug, language, fields) {
   const personality = resolved.personality;
   const tpl = pickLangTemplates(personality, language);
   const lessonCfg = loadLessonScheduleConfig(clientSlug);
-  const draft = fields && fields.draft ? fields.draft : fields;
 
   const bookingCode = trimStr(fields && fields.booking_code);
   const paid = formatPlaybookEuro(fields && fields.amount_paid_cents);
@@ -88,8 +85,6 @@ function buildCamiConfirmationPreview(clientSlug, language, fields) {
   if (roomLabel) arrivalLines.push(`${L.room}: ${roomLabel}`);
   if (arrivalLines.length) chunks.push(arrivalLines.join('\n'));
 
-  const lessonSection = buildLessonScheduleGuestSection(clientSlug, language, draft);
-  if (lessonSection) chunks.push(lessonSection);
 
   const balanceSection = buildBalancePaymentSection(fields, language);
   if (balanceSection) chunks.push(balanceSection);
@@ -106,7 +101,6 @@ function buildCamiConfirmationPreview(clientSlug, language, fields) {
     message,
     source: 'personality_confirmation',
     template_source: 'personalities.cami.confirmation_templates',
-    includes_lessons: bookingDraftIncludesSurfLessons(draft),
     maps_link: mapsLink,
     personality_id: resolved.active_personality_id,
   };

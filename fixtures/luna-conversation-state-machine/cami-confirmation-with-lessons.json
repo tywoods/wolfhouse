@@ -19,11 +19,7 @@
   "expect": {
     "confirmation_preview_ready": true,
     "confirmation_message_contains": [
-      "Wolfhouse family",
-      "Surf lesson rhythm",
-      "08:30",
-      "11:00-13:00",
-      "low season"
+      "Wolfhouse family"
     ],
     "confirmation_message_not_contains": [
       "your group is",
@@ -31,7 +27,7 @@
       "Group 1 is yours",
       "bed number"
     ],
-    "lesson_schedule_present": true,
+    "lesson_schedule_present": false,
     "no_bed_number": true,
     "no_internal_language": true
   }
