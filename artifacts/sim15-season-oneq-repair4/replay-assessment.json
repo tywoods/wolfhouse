@@ -1,0 +1,92 @@
+{
+  "schema": "sim15-g3-separate-criteria-v4",
+  "source": "repair3 observed emissions, retained only for corrected assessment",
+  "not_a_repaired_context_generation": true,
+  "runs": [
+    {
+      "variant": "baseline",
+      "case": "g3_failed_preview",
+      "repair3_run_id": "sim15-repair3-baseline-g3_failed_preview",
+      "observed_reply": "Hi Aisha — I’m Luna, welcome to Wolf-House! For the three of you, we have space Nov 3–6 in a mixed shared room; a women-only room isn’t available. Your 16-year-old sister may stay without a parent, but she’ll need her own booked bed—I can’t confirm the surf-package versus bed-only comparison just now, so would you like me to include her as a fourth guest, and for which night?",
+      "criteria": {
+        "season_no_stale_caveat": {
+          "pass": true,
+          "scope": "season wording only"
+        },
+        "one_question": {
+          "pass": false,
+          "scope": "one requested decision; semantic, not punctuation count"
+        },
+        "room_choice_first_with_sister_night_deferred": {
+          "pass": false,
+          "scope": "retained G3 example prioritization; independent of one-question"
+        }
+      },
+      "overall_full_g3_pass": false
+    },
+    {
+      "variant": "baseline",
+      "case": "g3_explicit_current_date_approval",
+      "repair3_run_id": "sim15-repair3-baseline-g3_explicit_current_date_approval",
+      "observed_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! We have space for three from 3–6 November, with a women-only or mixed dorm; the surf packages require at least 7 nights, so for this stay it would be accommodation with any surf rentals or lessons added separately.\n\nYour 16-year-old sister may stay without a parent, but she’ll need her own booked bed. Which night might she join, so I can check a fourth bed?",
+      "criteria": {
+        "season_no_stale_caveat": {
+          "pass": true,
+          "scope": "season wording only"
+        },
+        "one_question": {
+          "pass": true,
+          "scope": "one requested decision; semantic, not punctuation count"
+        },
+        "room_choice_first_with_sister_night_deferred": {
+          "pass": false,
+          "scope": "retained G3 example prioritization; independent of one-question"
+        }
+      },
+      "overall_full_g3_pass": false
+    },
+    {
+      "variant": "candidate",
+      "case": "g3_failed_preview",
+      "repair3_run_id": "sim15-repair3-candidate-g3_failed_preview",
+      "observed_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! We have space for the three of you in a mixed shared room; I can’t confirm the surf-package versus bed-only price comparison just yet. Your 16-year-old sister may stay without a parent, but she’ll need her own booked, available bed—which night would she join you?",
+      "criteria": {
+        "season_no_stale_caveat": {
+          "pass": true,
+          "scope": "season wording only"
+        },
+        "one_question": {
+          "pass": true,
+          "scope": "one requested decision; semantic, not punctuation count"
+        },
+        "room_choice_first_with_sister_night_deferred": {
+          "pass": false,
+          "scope": "retained G3 example prioritization; independent of one-question"
+        }
+      },
+      "overall_full_g3_pass": false
+    },
+    {
+      "variant": "candidate",
+      "case": "g3_explicit_current_date_approval",
+      "repair3_run_id": "sim15-repair3-candidate-g3_explicit_current_date_approval",
+      "observed_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! 🌊 We have space for the three of you from 3–6 November, including a women-only dorm option; the surf+stay packages require at least 7 nights, but you can book accommodation only and add surfboard, wetsuit or lessons separately.\n\nYour 16-year-old sister may stay without a parent, but she’ll need her own booked bed—what night might she join you?",
+      "criteria": {
+        "season_no_stale_caveat": {
+          "pass": true,
+          "scope": "season wording only"
+        },
+        "one_question": {
+          "pass": true,
+          "scope": "one requested decision; semantic, not punctuation count"
+        },
+        "room_choice_first_with_sister_night_deferred": {
+          "pass": false,
+          "scope": "retained G3 example prioritization; independent of one-question"
+        }
+      },
+      "overall_full_g3_pass": false
+    }
+  ],
+  "interpretation": "Baseline g3_failed_preview fails one-question. Candidate G3 emissions pass the narrow one-question check. No retained generated G3 emission demonstrates room-choice-first with sister-night deferral. Season causality remains uncertain."
+}

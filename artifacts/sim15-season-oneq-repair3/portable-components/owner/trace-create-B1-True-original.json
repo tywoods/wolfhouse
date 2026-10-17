@@ -1,0 +1,1344 @@
+{
+  "case": "B1",
+  "mutation": null,
+  "normalized_request_alias": true,
+  "internal_receipt_provenance": "later exported quote, NOT captured internal reply",
+  "outcome": {
+    "offline_dispatch_reached": true,
+    "business_create_executed": false
+  },
+  "diagnostics": [
+    {
+      "terms_unchanged": true,
+      "comparison_diff": {},
+      "expected_plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "payment_choice": "deposit"
+      },
+      "actual_plan": {
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "add_ons": [],
+        "catalog_selections": [],
+        "guest_packages": [],
+        "gender_preference": null,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "prior_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "7d476830c3db65465b3b11c0b1bc8d8b5f05661a19d10475a058215a88d8c861",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      }
+    }
+  ],
+  "before": {
+    "checked_offer": null,
+    "completion_plan": {
+      "guests": [
+        {
+          "name": "emre"
+        }
+      ]
+    },
+    "current_turn": {
+      "message_id": "export-quote",
+      "raw": "Quote accommodation only for those dates",
+      "raw_digest": "e143237160f9018e79b5cae75773cd5567b73e906ff25a7124dfd9d59801bf40"
+    },
+    "delta": {},
+    "epoch": 4,
+    "incarnation": 1792240269.8467176,
+    "offer_message": "export-quote",
+    "plan": {
+      "add_ons": [],
+      "catalog_selections": [],
+      "check_in": "2026-10-19",
+      "check_out": "2026-10-23",
+      "guest_count": 1,
+      "package_code": "package_none",
+      "room_preference": "male_only",
+      "room_type": "shared"
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 16000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Emre",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Emre",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [
+          "payment_choice"
+        ],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "7d476830c3db65465b3b11c0b1bc8d8b5f05661a19d10475a058215a88d8c861",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "payment_choice_needed": true,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "show_quote",
+        "remaining_after_deposit_cents": 6000,
+        "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 16000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": false,
+      "displayed_text": "Mon 19 Oct to Fri 23 Oct — 1 guest.\nTotal: 160.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "incarnation": 1792240269.8467176,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "guests": [
+          {
+            "name": "emre"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "7d476830c3db65465b3b11c0b1bc8d8b5f05661a19d10475a058215a88d8c861",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      },
+      "reply_reference": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "quote": {
+      "add_on_errors": [],
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "status": "checked"
+      },
+      "balance_due_cents": 16000,
+      "booking_names": {
+        "names": {
+          "guest_name": "Emre",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ]
+        }
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "full_payment_only": false,
+      "girls_room_available": false,
+      "guest_name": "Emre",
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "guest_safe_next_action": null,
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre"
+        }
+      ],
+      "included_items": [],
+      "missing_fields": [
+        "payment_choice"
+      ],
+      "needs_human": false,
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "7d476830c3db65465b3b11c0b1bc8d8b5f05661a19d10475a058215a88d8c861",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      },
+      "payment_choice_needed": true,
+      "per_guest_deposits": [
+        {
+          "deposit_cents": 10000,
+          "guest_number": 1,
+          "package_code": "package_none"
+        }
+      ],
+      "per_person": [],
+      "quote_status": "show_quote",
+      "remaining_after_deposit_cents": 6000,
+      "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+      "room_decision": {
+        "allowed_room_preferences": [
+          "male_only",
+          "mixed",
+          "shared"
+        ],
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "do_not_escalate": true,
+        "excluded_room_preferences": [
+          "female_only"
+        ],
+        "needs_human": false,
+        "not_a_verified_demographic": true,
+        "provisional": false,
+        "resolved_composition": "male",
+        "threshold": 0.7
+      },
+      "staff_review_needed": false,
+      "success": true,
+      "tool": "quote_booking",
+      "total_cents": 16000,
+      "unknown_add_on_codes": []
+    },
+    "scope": {
+      "CHAT_ID": "c1",
+      "ID": "first-yes",
+      "KEY": "k1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "g1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "q1",
+      "export-quote"
+    ],
+    "status": "offered",
+    "unresolved_change": false,
+    "version": 1
+  },
+  "after": {
+    "acceptance_message": "export-accept",
+    "acceptance_raw_digest": "34b447b38f35922bb6e3733ecc2f8b7bbee8244802f8365320f5c679c8ac2e93",
+    "accepted_offer_snapshot": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-19",
+      "check_out": "2026-10-23",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "emre yilmaz"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 16000,
+      "v": 1
+    },
+    "accepted_presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 16000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Emre Yilmaz",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre Yilmaz"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Emre Yilmaz",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "payment_choice": "deposit",
+        "payment_choice_needed": false,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "ready_for_create_dry_run",
+        "remaining_after_deposit_cents": 6000,
+        "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 16000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 19 Oct to Fri 23 Oct — 1 guest.\nTotal: 160.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "incarnation": 1792240269.8467176,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre yilmaz"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      },
+      "reply_reference": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "auto_acceptance": true,
+    "checked_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-19",
+      "check_out": "2026-10-23",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "emre yilmaz"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 16000,
+      "v": 1
+    },
+    "completion_plan": {},
+    "current_turn": {
+      "message_id": "export-accept",
+      "raw": "Book it, my full name is supplied and I choose deposit",
+      "raw_digest": "34b447b38f35922bb6e3733ecc2f8b7bbee8244802f8365320f5c679c8ac2e93"
+    },
+    "delta": {},
+    "epoch": 6,
+    "incarnation": 1792240269.8467176,
+    "offer_message": "export-quote",
+    "plan": {
+      "add_ons": [],
+      "catalog_selections": [],
+      "check_in": "2026-10-19",
+      "check_out": "2026-10-23",
+      "gender_preference": null,
+      "guest_count": 1,
+      "guest_packages": [],
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "selected_bed_codes": [
+        "R4-B5"
+      ]
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 16000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Emre Yilmaz",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre Yilmaz"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Emre Yilmaz",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "payment_choice": "deposit",
+        "payment_choice_needed": false,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "ready_for_create_dry_run",
+        "remaining_after_deposit_cents": 6000,
+        "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 16000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 19 Oct to Fri 23 Oct — 1 guest.\nTotal: 160.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "incarnation": 1792240269.8467176,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre yilmaz"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      },
+      "reply_reference": "232573b9a87bc20d0544cab415297b5eb12320eba032ad18cb7524a64333d74d",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "presented_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-19",
+      "check_out": "2026-10-23",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "emre yilmaz"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 16000,
+      "v": 1
+    },
+    "quote": {
+      "add_on_errors": [],
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre yilmaz"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "status": "checked"
+      },
+      "balance_due_cents": 16000,
+      "booking_names": {
+        "names": {
+          "guest_name": "Emre Yilmaz",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ]
+        }
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "full_payment_only": false,
+      "girls_room_available": false,
+      "guest_name": "Emre Yilmaz",
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "guest_safe_next_action": null,
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Emre Yilmaz"
+        }
+      ],
+      "included_items": [],
+      "missing_fields": [],
+      "needs_human": false,
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "emre yilmaz"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 16000,
+        "v": 1
+      },
+      "payment_choice": "deposit",
+      "payment_choice_needed": false,
+      "per_guest_deposits": [
+        {
+          "deposit_cents": 10000,
+          "guest_number": 1,
+          "package_code": "package_none"
+        }
+      ],
+      "per_person": [],
+      "quote_status": "ready_for_create_dry_run",
+      "remaining_after_deposit_cents": 6000,
+      "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+      "room_decision": {
+        "allowed_room_preferences": [
+          "male_only",
+          "mixed",
+          "shared"
+        ],
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "do_not_escalate": true,
+        "excluded_room_preferences": [
+          "female_only"
+        ],
+        "needs_human": false,
+        "not_a_verified_demographic": true,
+        "provisional": false,
+        "resolved_composition": "male",
+        "threshold": 0.7
+      },
+      "staff_review_needed": false,
+      "success": true,
+      "tool": "quote_booking",
+      "total_cents": 16000,
+      "unknown_add_on_codes": []
+    },
+    "scope": {
+      "CHAT_ID": "c1",
+      "ID": "first-yes",
+      "KEY": "k1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "g1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "q1",
+      "export-quote",
+      "export-accept"
+    ],
+    "status": "accepted",
+    "unresolved_change": false,
+    "version": 1
+  },
+  "initial_quote": {
+    "add_ons": [],
+    "check_in": "2026-10-19",
+    "check_out": "2026-10-23",
+    "client_slug": "wolfhouse-somo",
+    "guest_count": 1,
+    "guest_name": "Emre",
+    "guests": [
+      {
+        "explicit_gender": "male",
+        "name": "Emre"
+      }
+    ],
+    "package_code": "package_none",
+    "room_preference": "male_only",
+    "room_type": "shared"
+  },
+  "create_args": {
+    "add_ons": [],
+    "check_in": "2026-10-19",
+    "check_out": "2026-10-23",
+    "client_slug": "wolfhouse-somo",
+    "confirm": true,
+    "guest_count": 1,
+    "guest_name": "Emre Yilmaz",
+    "guests": [
+      {
+        "explicit_gender": "male",
+        "name": "Emre Yilmaz"
+      }
+    ],
+    "language": "en",
+    "package_code": "package_none",
+    "payment_choice": "deposit",
+    "room_preference": "male_only",
+    "room_type": "shared"
+  }
+}
