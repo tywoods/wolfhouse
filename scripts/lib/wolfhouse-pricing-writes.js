@@ -287,6 +287,30 @@ function validatePackageMinimumBody(body) {
   };
 }
 
+const MAX_ITEM_DESCRIPTION = 500;
+const MAX_PACKAGE_DESCRIPTION = 2000;
+const MAX_PACKAGE_INCLUDES = 24;
+const MAX_PACKAGE_INCLUDE_LINE = 160;
+
+function normalizePackageIncludes(value) {
+  if (!Array.isArray(value)) return { ok: false, error: 'includes must be a list of lines' };
+  const lines = [];
+  for (const raw of value) {
+    if (raw == null) continue;
+    if (typeof raw !== 'string') return { ok: false, error: 'includes lines must be text' };
+    const line = raw.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    if (line.length > MAX_PACKAGE_INCLUDE_LINE) {
+      return { ok: false, error: 'includes line is too long' };
+    }
+    lines.push(line);
+  }
+  if (lines.length > MAX_PACKAGE_INCLUDES) {
+    return { ok: false, error: 'too many includes lines' };
+  }
+  return { ok: true, value: lines };
+}
+
 function validateItemBody(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { ok: false, error: 'invalid body' };
@@ -303,7 +327,28 @@ function validateItemBody(body) {
     if (typeof body.metadata !== 'object' || Array.isArray(body.metadata)) {
       return { ok: false, error: 'metadata must be an object' };
     }
-    metadata = body.metadata;
+    metadata = Object.assign({}, body.metadata);
+  }
+
+  let description = body.description == null
+    ? null
+    : String(body.description).trim().slice(0, MAX_ITEM_DESCRIPTION);
+  if (itemType === 'package') {
+    if (body.description != null && typeof body.description !== 'string') {
+      return { ok: false, error: 'description must be text' };
+    }
+    if (body.description != null) {
+      const text = body.description.trim();
+      if (text.length > MAX_PACKAGE_DESCRIPTION) {
+        return { ok: false, error: 'description is too long' };
+      }
+      description = text || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(metadata, 'includes')) {
+      const includes = normalizePackageIncludes(metadata.includes);
+      if (!includes.ok) return includes;
+      metadata.includes = includes.value;
+    }
   }
 
   return {
@@ -312,7 +357,7 @@ function validateItemBody(body) {
       item_type: itemType,
       item_code: itemCode.value,
       label: label.value,
-      description: body.description == null ? null : String(body.description).trim().slice(0, 500),
+      description,
       metadata,
       active: body.active !== false,
     },
