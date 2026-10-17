@@ -1456,29 +1456,39 @@ def _incomplete_payment_revision(response, tenant, plan=None):
     offer = response.get('offer_revision')
     availability = response.get('availability')
     requested_payment = (plan or {}).get('payment_choice')
+    assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
+    count = offer.get('guest_count') if isinstance(offer, dict) else None
+    missing_names = (type(count) is int and count > 0 and isinstance(assignments, list)
+                     and len(assignments) == count and any(
+                         not isinstance(row, dict) or not row.get('guest_name')
+                         for row in assignments))
     full_only = (response.get('full_payment_only') is True
                  and response.get('payment_choice_needed') is False)
+    chosen_full_with_missing_names = (
+        requested_payment == 'full'
+        and response.get('payment_choice_needed') is False and missing_names)
+    expected_payment = ('full' if full_only or chosen_full_with_missing_names else 'deposit')
+    expected_amount = (offer.get('total_cents') if expected_payment == 'full' else
+                       offer.get('deposit_required_cents')) if isinstance(offer, dict) else None
     if (not isinstance(offer, dict) or not isinstance(availability, dict)
-            or (response.get('payment_choice_needed') is not True and not full_only)
+            or (response.get('payment_choice_needed') is not True
+                and not full_only and not chosen_full_with_missing_names)
             or (requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
-                and not full_only)
+                and not full_only and not chosen_full_with_missing_names)
             or offer.get('client_slug') != tenant
             or offer.get('availability_checked') is not True
             or availability.get('status') != 'checked'
-            or offer.get('payment_choice') != ('full' if full_only else 'deposit')
+            or offer.get('payment_choice') != expected_payment
             or not offer.get('offer_fingerprint')
             or any(not isinstance(offer.get(key), str) or not offer[key].strip()
                    for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
             or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
                    ('guest_count', 'total_cents', 'deposit_required_cents', 'payment_link_amount_cents'))
             or offer.get('total_cents') != response.get('total_cents')
-            or offer.get('payment_link_amount_cents') != (
-                offer.get('total_cents') if full_only else offer.get('deposit_required_cents'))
+            or offer.get('payment_link_amount_cents') != expected_amount
             or (full_only and offer.get('deposit_required_cents') != offer.get('total_cents'))):
         return False
-    assignments = offer.get('guest_bed_assignments')
     rooms = offer.get('room_arrangement')
-    count = offer.get('guest_count')
     return (isinstance(assignments, list) and len(assignments) == count
             and isinstance(rooms, list) and len(rooms) == count
             and availability.get('selected_bed_codes') == [row.get('bed_code') for row in assignments]
