@@ -697,12 +697,45 @@ def _person_plan_does_not_contradict_hints(plan, hints):
     return True
 
 
+def _canonical_person_facts_consistent(revision):
+    if not isinstance(revision, dict):
+        return False
+    hints = revision.get('room_name_hints')
+    guests = revision.get('guests')
+    if not isinstance(hints, list) or not isinstance(guests, list):
+        return True
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    authoritative = {
+        normalize(row.get('name')): row.get('explicit_gender')
+        for row in hints if isinstance(row, dict)
+        and row.get('explicit_gender') in ('male', 'female')
+    }
+    return all(
+        not isinstance(guest, dict)
+        or guest.get('explicit_gender') not in ('male', 'female')
+        or authoritative.get(normalize(guest.get('name'))) in (
+            None, guest.get('explicit_gender'))
+        for guest in guests)
+
+
+def _request_plan_matches_canonical_people(expected, current, prior_revision, current_revision):
+    comparable = {key: expected.get(key) for key in _FIELDS if key in expected}
+    actual = {key: current.get(key) for key in _FIELDS if key in expected}
+    if (_canonical_gender_alias_is_redundant(prior_revision, current_revision)
+            and _person_plan_does_not_contradict_hints(
+                current, current_revision.get('room_name_hints'))):
+        comparable['gender_preference'] = None
+    return comparable == actual
+
+
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
                                  eligibility_index=None, eligibility_value=None,
                                  eligibility_completions=None, person_plan=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
+        return False
+    if not _canonical_person_facts_consistent(current):
         return False
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
@@ -1464,10 +1497,6 @@ def record_quote(params, response):
             prior_plan = prior.get('plan') or {}
             expected_plan = deepcopy(prior_plan)
             expected_plan.update(deepcopy(state.get('completion_plan') or {}))
-            comparable = {key: expected_plan.get(key) for key in _FIELDS if key in expected_plan}
-            current = {key: plan.get(key) for key in _FIELDS if key in expected_plan}
-            if _canonical_gender_alias_is_redundant(expected_plan, plan):
-                comparable['gender_preference'] = None
             prior_quote = prior.get('authoritative_quote') or {}
             prior_revision = prior.get('quote_revision') or prior_quote.get('offer_revision')
             new_revision = response.get('offer_revision')
@@ -1478,7 +1507,8 @@ def record_quote(params, response):
             eligibility_value = ((pending_eligibility or {}).get('value')
                                  if pending_eligibility else None)
             terms_unchanged = (
-                comparable == current
+                _request_plan_matches_canonical_people(
+                    expected_plan, plan, prior_revision, new_revision)
                 and _completion_revision_matches(
                     prior_revision, new_revision,
                     payment_choice=pending_payment, guest_completions=pending_names,

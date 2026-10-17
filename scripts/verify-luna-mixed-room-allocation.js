@@ -92,6 +92,20 @@ test('missing, any, and shared preferences remain distinct from unknown restrict
   }
 });
 
+test('known roster with omitted ordinary shared preference may use a mixed bed', () => {
+  const result = inventory(rows('R1', 'mixed', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: null, roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('explicit mixed preference never falls back to a gendered dorm', () => {
+  const result = inventory(rows('R2', 'male_only', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: 'mixed', roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.equal(result.hasEnoughBeds, false);
+});
+
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
 });

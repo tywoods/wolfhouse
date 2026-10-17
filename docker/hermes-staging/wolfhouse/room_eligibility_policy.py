@@ -194,10 +194,13 @@ def decide_room_eligibility(
         conflict = "female_only_overrides_explicit_male" if statement == "male" else "female_only_conflicts_with_male_hint"
     elif hint_composition == "female" and preference == "male_only":
         conflict = "male_only_overrides_explicit_female" if statement == "female" else "male_only_conflicts_with_female_hint"
+    elif hint_composition == "mixed" and preference in {"female_only", "male_only"}:
+        conflict = f"{preference}_conflicts_with_mixed_group"
 
     if conflict:
-        allowed = _eligible_options("male" if hint_composition == "male" else "female", flags)
-        allowed = [item for item in allowed if item not in {"female_only", "male_only"} or item.startswith(hint_composition)]
+        allowed = _eligible_options(hint_composition, flags)
+        allowed = [item for item in allowed if item not in {"female_only", "male_only"}
+                   or item.startswith(hint_composition)]
         return {
             **base,
             "provisional": statement == "",
@@ -208,7 +211,9 @@ def decide_room_eligibility(
             "needs_human": False,
             "do_not_escalate": True,
             "allowed_room_preferences": allowed,
-            "excluded_room_preferences": ["female_only" if hint_composition == "male" else "male_only"],
+            "excluded_room_preferences": (["female_only", "male_only"]
+                                           if hint_composition == "mixed" else
+                                           ["female_only" if hint_composition == "male" else "male_only"]),
         }
 
     if (preference in {"mixed", "shared"} and not flags["mixed"]) or (

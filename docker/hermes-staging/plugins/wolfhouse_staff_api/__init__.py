@@ -596,10 +596,11 @@ def check_availability(params, **kwargs):
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
-    if eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}:
+    if (status != "unavailable"
+            and eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}):
         status = "eligibility_required"
     decision = _room_decision_for_tool(payload, data)
-    if isinstance(decision, dict) and (
+    if status != "unavailable" and isinstance(decision, dict) and (
             decision.get("clarification_needed") or decision.get("conflict")):
         status = "eligibility_required"
     excluded = set((decision or {}).get("excluded_room_preferences") or [])

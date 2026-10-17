@@ -762,6 +762,32 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertTrue(self.ledger._completion_revision_matches(
             prior, current, person_plan={'guests': deepcopy(prior['guests'])}))
 
+    def test_request_plan_alias_uses_staff_canonical_person_facts(self):
+        prior = {
+            'gender_preference': 'male',
+            'guests': [{'name': 'Emre', 'explicit_gender': 'male'}],
+            'room_name_hints': [{'name': 'Emre', 'explicit_gender': 'male'}],
+        }
+        current = deepcopy(prior)
+        current['gender_preference'] = None
+        self.assertTrue(self.ledger._request_plan_matches_canonical_people(
+            {'gender_preference': 'male', 'guests': [{'name': 'Emre'}]},
+            {'guests': [{'name': 'Emre'}]}, prior, current))
+
+    def test_current_canonical_person_facts_are_checked_without_alias_change(self):
+        for alias in ('male', None):
+            with self.subTest(alias=alias):
+                prior = {
+                    'gender_preference': alias,
+                    'guests': [{'name': 'Alex', 'explicit_gender': 'male'}],
+                    'room_name_hints': [{'name': 'Alex', 'explicit_gender': 'male'}],
+                }
+                current = deepcopy(prior)
+                current['guests'][0]['explicit_gender'] = 'female'
+                self.assertFalse(self.ledger._completion_revision_matches(
+                    prior, current, person_plan={
+                        'guests': [{'name': 'Alex', 'explicit_gender': 'male'}]}))
+
     def test_canonical_person_gender_contradiction_is_not_a_redundant_alias(self):
         prior = {
             'gender_preference': 'male',

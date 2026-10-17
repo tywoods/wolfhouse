@@ -285,7 +285,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       guestCount,
       guestName,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
-      roomPreference: roomPreference || genderPreference || null,
+      roomPreference: roomPreference || roomType || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
       capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
         || requestedPool === 'any' || requestedPool == null,
@@ -295,7 +295,8 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     // to its compatible dorm; eligibility never rewrites the guest's intent.
     if ((capacityPick.selected_bed_codes || []).length < guestCount
       && (canonicalGender === 'female' || canonicalGender === 'male')
-      && requestedPool === 'mixed') {
+      && requestedPool === 'mixed'
+      && String(roomPreference || '').trim().toLowerCase().replace(/[- ]/g, '_') !== 'mixed') {
       capacityPick = runAvailabilityBedSelection({
         bedRows,
         roomFillRanking,
