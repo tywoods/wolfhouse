@@ -337,6 +337,81 @@ class OwnerHostileTests(unittest.TestCase):
                                     '^quote_owner_presented_offer_required$'):
             self.ledger.prepare_create({})
 
+    def test_g4_offered_checked_same_person_completion_advances_all_snapshots(self):
+        """A surname completion is a recheck, not a new commercial offer."""
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='male_only'),
+                dict(bed_code='M2', room_code='M', gender_strategy='male_only')]
+        for choice in ('deposit', 'full', 'pay_on_arrival'):
+            with self.subTest(choice=choice):
+                self.agent.session_id = f'g4-offered-{choice}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'male_only',
+                        'group_gender': 'male', 'payment_choice': choice,
+                        'guests': [{'name': 'Mateo'}, {'name': 'Guest Two'}],
+                        'room_name_hints': [
+                            {'name': 'Mateo', 'explicit_gender': 'male'},
+                            {'name': 'Guest Two', 'explicit_gender': 'male'}]}
+                initial = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                initial['offer_revision']['room_name_hints'] = deepcopy(
+                    plan['room_name_hints'])
+                if choice == 'pay_on_arrival':
+                    initial['offer_revision']['payment_link_amount_cents'] = 0
+                self.turn(f'g4-{choice}-offer', 'Quote this please')
+                self.ledger.record_quote(plan, initial)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                original_text = shown['final_response']
+
+                self.turn(f'g4-{choice}-surname', 'My full name is Mateo Ríos')
+                completed_guests = deepcopy(plan['guests'])
+                completed_guests[0]['name'] = 'Mateo Ríos'
+                prepared = self.ledger.prepare_quote({'guests': completed_guests})
+                self.assertEqual(prepared['payment_choice'], choice)
+                self.assertEqual(prepared['room_name_hints'][0]['name'], 'Mateo Ríos')
+                checked = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), prepared, beds)
+                checked['offer_revision']['room_name_hints'] = deepcopy(
+                    prepared['room_name_hints'])
+                if choice == 'pay_on_arrival':
+                    checked['offer_revision']['payment_link_amount_cents'] = 0
+                self.ledger.record_quote(prepared, checked)
+                state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+                self.assertEqual(state['status'], 'offered')
+                self.assertEqual(state['checked_offer'], checked['offer_revision'])
+                self.assertEqual(state['presentation']['quote_revision'], checked['offer_revision'])
+                self.assertEqual(state['presentation']['plan']['guests'][0]['name'], 'Mateo Ríos')
+                self.assertEqual(state['presentation']['displayed_text'], original_text)
+                self.assertEqual(state['presentation']['original_turn'], f'g4-{choice}-offer')
+                create_probe = self.ledger.prepare_create({})
+                self.assertTrue(create_probe.revalidation)
+                self.assertNotIn('accepted_offer', create_probe)
+
+    def test_g4_same_name_recheck_is_control_and_zero_arrival_has_no_zero_charge_copy(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        plan = {**self.plan, 'payment_choice': 'pay_on_arrival',
+                'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}]}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), plan, beds)
+        response['offer_revision']['payment_link_amount_cents'] = 0
+        self.turn('g4-same-name-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
+        self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
+        prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
+        checked = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), prepared, beds)
+        checked['offer_revision']['payment_link_amount_cents'] = 0
+        self.ledger.record_quote(prepared, checked)
+        state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+        self.assertEqual(state['presentation']['quote_revision'], checked['offer_revision'])
+        self.assertEqual(state['presentation']['original_turn'], 'g4-same-name-offer')
+
     def test_structured_current_turn_intent_accepts_presented_offer_without_phrase_gate(self):
         self.agent.session_id = 'structured-g4-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')

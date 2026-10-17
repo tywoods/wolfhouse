@@ -1238,6 +1238,31 @@ def prepare_quote(params):
         for key in _FIELDS + _CHECKED_FIELDS:
             if key not in result and key in preserved:
                 result[key] = preserved[key]
+        # A model-supplied ordered roster may complete an unambiguous short
+        # name while omitting the legacy hint projection. Keep that projection
+        # person-bound instead of sending Staff a stale Mateo/Mateo Ríos split.
+        old_guests = preserved.get('guests')
+        new_guests = result.get('guests')
+        retained_hints = result.get('room_name_hints')
+        if ('guests' in normalized_params and 'room_name_hints' not in normalized_params
+                and isinstance(old_guests, list) and isinstance(new_guests, list)
+                and len(old_guests) == len(new_guests)
+                and isinstance(retained_hints, list)):
+            normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+            old_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
+                         for row in old_guests]
+            new_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
+                         for row in new_guests]
+            synchronized = deepcopy(retained_hints)
+            for index, (old_name, new_name) in enumerate(zip(old_names, new_names)):
+                if (old_name and new_name and new_name != old_name
+                        and new_name.startswith(old_name + ' ')
+                        and old_names.count(old_name) == 1 and new_names.count(new_name) == 1):
+                    matches = [hint for hint in synchronized if isinstance(hint, dict)
+                               and normalize(hint.get('name')) == old_name]
+                    if len(matches) == 1:
+                        matches[0]['name'] = new_guests[index].get('name')
+            result['room_name_hints'] = synchronized
         # Catalog and atomic add-ons are aliases of the same priced selection.
         # An explicit replacement owns that alias; an omitted field is retained,
         # except for stale duplicates of the explicitly replaced representation.
@@ -1568,7 +1593,7 @@ def record_quote(params, response):
                 prepared.capability.epoch = state['epoch']
                 return
         presentation = state.get('presentation')
-        if valid and isinstance(presentation, dict) and previous_checked is None:
+        if valid and isinstance(presentation, dict):
             prior_revision = presentation.get('quote_revision') or {}
             revision = response.get('offer_revision') or {}
             prior_rows = prior_revision.get('guest_bed_assignments') or []
@@ -1587,6 +1612,8 @@ def record_quote(params, response):
                         same_people = False
                     names.append({'guest_index': index, 'completed_name': after.get('guest_name')})
             payment = prepared.get('payment_choice')
+            payment_completion = (payment if payment != prior_revision.get('payment_choice')
+                                  else None)
             prior_quote = presentation.get('authoritative_quote') or {}
             prior_plan = presentation.get('plan') or {}
             material_matches = True
@@ -1611,7 +1638,7 @@ def record_quote(params, response):
                     material_matches = False
             if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
                     and _completion_revision_matches(prior_revision, revision,
-                        payment_choice=payment, guest_completions=names,
+                        payment_choice=payment_completion, guest_completions=names,
                         person_plan=plan)
                     and all(response.get(key) == prior_quote.get(key)
                             for key in ('total_cents', 'deposit_required_cents', 'currency'))):
@@ -1620,6 +1647,8 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
+                state['checked_offer'] = deepcopy(revision)
+                state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
@@ -2164,7 +2193,8 @@ def finalize_offer_response(result):
         lines.append(f"Total: {money(offer['total_cents'])}.")
         payment = {'full': 'Full payment', 'deposit': 'Deposit',
                    'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
-        lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        if offer['payment_link_amount_cents']:
+            lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
