@@ -60,7 +60,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
           source: __roomFillState.source, touched: __roomFillState.touched, dirty: __roomFillState.dirty
         }));
         const before = await snapshot();
-        await page.getByRole('combobox', { name: 'Gender for Room 1', exact: true }).selectOption('female');
+        await page.getByRole('combobox', { name: 'Who can book for Room 1', exact: true }).selectOption('female');
         await page.getByRole('button', { name: 'Save gender for Room 1', exact: true }).click();
         await genderStarted;
         // Another staff member saves placement while this inventory-only edit is pending.
