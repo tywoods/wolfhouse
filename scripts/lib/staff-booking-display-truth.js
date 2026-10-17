@@ -2,7 +2,7 @@
 
 const { isStaffAccommodationMeta, isIsoDate } = require('./sunset-accommodation-price-resolver');
 const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./sunset-staff-money-scope');
-const { wolfhouseBookingDepositCents } = require('./wolfhouse-stay-deposit');
+const { wolfhouseBookingDepositCents, loadWolfhouseDepositRates } = require('./wolfhouse-stay-deposit');
 
 function staffBookingStayDates(booking, services) {
   const meta = (raw) => {
@@ -37,7 +37,9 @@ function staffPaymentDisplayStatus(total, paid, remaining) {
 // Display status stays partial while a balance remains. Deposit completion is a
 // separate ledger fact: settled collected cents meet the stay deposit rule.
 // A smaller partial does not. The denormalized booking enum is not this signal.
-function staffDepositCompleted(booking, collectedCents) {
+// The rule needs the stored requirement and, when Admin Pricing is readable,
+// the configured rates. Missing pricing falls back to the stay-deposit defaults.
+function staffDepositCompleted(booking, collectedCents, rates) {
   const paid = Number(collectedCents);
   if (!Number.isFinite(paid) || paid <= 0) return false;
   let metadata = booking && booking.metadata;
@@ -47,12 +49,12 @@ function staffDepositCompleted(booking, collectedCents) {
   const required = wolfhouseBookingDepositCents({
     ...(booking || {}),
     metadata: metadata && typeof metadata === 'object' ? metadata : {},
-  });
+  }, rates);
   if (required == null || required <= 0) return false;
   return paid >= required;
 }
 
-function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
+function buildStaffBookingDisplayTruth(booking, services, collectedCents, rates) {
   const number = (value) => value == null || value === '' || !Number.isFinite(Number(value))
     ? null : Number(value);
   // Reuse Bookings' persisted-total fallback, including signed custom lines.
@@ -62,7 +64,7 @@ function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
   const paid = number(collectedCents) ?? number(booking.amount_paid_cents) ?? 0;
   return {
     payment_status: staffPaymentDisplayStatus(total, paid),
-    deposit_completed: staffDepositCompleted(booking, paid),
+    deposit_completed: staffDepositCompleted(booking, paid, rates),
     total_amount_cents: total,
     amount_paid_cents: paid,
     balance_due_cents: total == null || paid == null ? null : Math.max(total - paid, 0),
@@ -72,7 +74,8 @@ function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
 
 const STAFF_BOOKING_DISPLAY_TRUTH_SQL = `
 SELECT b.id::text AS booking_id, b.check_in::text, b.check_out::text, b.guest_count,
-       b.total_amount_cents, b.amount_paid_cents, b.metadata,
+       b.total_amount_cents, b.amount_paid_cents, b.deposit_required_cents, b.metadata,
+       to_regclass('public.wh_pricing_rules') AS deposit_rates_table,
        (SELECT SUM(p.amount_paid_cents) FROM payments p
          WHERE p.booking_id = b.id AND p.client_id = b.client_id
            AND p.status::text = 'paid'
@@ -90,8 +93,11 @@ async function hydrateStaffBookingDisplayTruth(pg, clientSlug, rows) {
   const ids = [...new Set((rows || []).filter(Boolean).map((r) => r.booking_id).filter(Boolean))];
   if (!ids.length) return;
   const result = await pg.query(STAFF_BOOKING_DISPLAY_TRUTH_SQL, [clientSlug, ids]);
+  const rates = result.rows.some((b) => b && b.deposit_rates_table)
+    ? await loadWolfhouseDepositRates(pg)
+    : null;
   const byId = new Map(result.rows.map((b) => [b.booking_id,
-    buildStaffBookingDisplayTruth(b, b.services || [], b.collected_cents)]));
+    buildStaffBookingDisplayTruth(b, b.services || [], b.collected_cents, rates)]));
   for (const row of rows) {
     if (!row || !byId.has(row.booking_id)) continue;
     const truth = byId.get(row.booking_id);

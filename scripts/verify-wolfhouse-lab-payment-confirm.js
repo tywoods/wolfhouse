@@ -11,6 +11,9 @@
  * Confirm path and not-paid path are painted at 1280 and 390.
  * A settled €200 deposit on a €600 booking is replayed through the real
  * inbox thread composite handler, not a hand-made payment status.
+ * Deposit completion also has to see the stored requirement and the
+ * configured Admin rates. Those three input cases are replayed the same
+ * way: real SQL, composite handler, emitted Inbox step, at 1280 and 390.
  * Run: node scripts/verify-wolfhouse-lab-payment-confirm.js
  */
 
@@ -417,6 +420,12 @@ function compositeRoutes(db) {
 }
 
 async function insertCompositeCase(db, spec) {
+  const guestCount = spec.guestCount || 1;
+  const checkIn = spec.checkIn || CHECK_IN;
+  const checkOut = spec.checkOut || CHECK_OUT;
+  const totalCents = spec.totalCents == null ? 60000 : spec.totalCents;
+  const depositCents = spec.depositCents == null ? 20000 : spec.depositCents;
+  const metadata = spec.metadata || {};
   await db.query(
     `INSERT INTO conversations (
        id, client_id, phone, display_name, status, bot_mode, needs_human,
@@ -430,9 +439,12 @@ async function insertCompositeCase(db, spec) {
        status, payment_status, created_at, total_amount_cents, amount_paid_cents,
        balance_due_cents, deposit_required_cents, metadata
      ) VALUES (
-       $1, $2, $3, 'Lab guest', 1, $4, $5, $6, 'confirmed', $7, now(), 60000, 0, 60000, 20000, '{}'::jsonb
+       $1, $2, $3, 'Lab guest', $4, $5, $6, $7, 'confirmed', $8, now(), $9, 0, $9, $10, $11::jsonb
      )`,
-    [spec.bookingId, CLIENT_ID, spec.code, spec.phone, CHECK_IN, CHECK_OUT, spec.paymentStatus],
+    [
+      spec.bookingId, CLIENT_ID, spec.code, guestCount, spec.phone, checkIn, checkOut,
+      spec.paymentStatus, totalCents, depositCents, JSON.stringify(metadata),
+    ],
   );
   await db.query(
     `INSERT INTO messages (
@@ -571,13 +583,196 @@ async function compositeDepositReplay() {
   }
 }
 
+async function ensureAdminDepositRates(db, longCents, shortCents) {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS wh_pricing_rules (
+      id uuid PRIMARY KEY,
+      client_slug text NOT NULL,
+      item_type text NOT NULL,
+      item_code text NOT NULL,
+      season_code text,
+      unit text NOT NULL,
+      amount_cents int NOT NULL,
+      currency char(3) NOT NULL DEFAULT 'EUR',
+      active boolean NOT NULL DEFAULT true
+    );
+  `);
+  await db.query(
+    `DELETE FROM wh_pricing_rules WHERE client_slug = 'wolfhouse-somo' AND item_type = 'deposit'`,
+  );
+  await db.query(
+    `INSERT INTO wh_pricing_rules (
+       id, client_slug, item_type, item_code, season_code, unit, amount_cents
+     ) VALUES
+       ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01', 'wolfhouse-somo', 'deposit', 'standard_package', NULL, 'per_person', $1),
+       ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02', 'wolfhouse-somo', 'deposit', 'custom_or_short_stay', NULL, 'per_person', $2)`,
+    [longCents, shortCents],
+  );
+}
+
+function depositInputSpec(overrides) {
+  return {
+    guestCount: 1,
+    checkIn: CHECK_IN,
+    checkOut: CHECK_OUT,
+    totalCents: 60000,
+    depositCents: 20000,
+    metadata: {},
+    paymentStatus: 'payment_pending',
+    ...overrides,
+  };
+}
+
+async function paintOutcomeWidths(cases) {
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const item of cases) {
+        await page.setContent(pageHtml(item.html, width), { waitUntil: 'load' });
+        const seen = await page.evaluate((code) => {
+          const shell = document.getElementById('lab-shell');
+          const step = [...document.querySelectorAll('.msg')].find((node) => /Booking confirmed/.test(node.textContent || ''));
+          const bubble = step && step.querySelector('.msg-bubble');
+          const box = bubble ? bubble.getBoundingClientRect() : null;
+          const text = document.body.innerText || '';
+          return {
+            confirmed: /Booking confirmed/.test(text),
+            named: code ? text.includes(code) : false,
+            sender: step ? ((step.querySelector('.msg-meta') || {}).textContent || '') : '',
+            overflow: shell.scrollWidth > shell.clientWidth + 1,
+            inView: !!(box && box.width > 0 && box.left >= -1 && box.right <= window.innerWidth + 1),
+            guest: /We paid the test link/.test(text),
+          };
+        }, item.code);
+        const where = `${width}px ${item.label}`;
+        if (item.confirmed) {
+          assert.equal(seen.confirmed, true, `${where} shows Confirmation`);
+          assert.equal(seen.named, true, `${where} names the booking`);
+          assert.match(seen.sender, /Confirmation/, `${where} sender is Confirmation`);
+          assert.equal(seen.inView, true, `${where} bubble is in view`);
+        } else {
+          assert.equal(seen.confirmed, false, `${where} does not show Confirmation`);
+          assert.equal(seen.named, false, `${where} does not name the booking`);
+        }
+        assert.equal(seen.overflow, false, `${where} does not overflow`);
+        assert.equal(seen.guest, true, `${where} keeps the guest message`);
+        console.log(`PASS ${where}`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+async function compositeDepositInputReplay() {
+  const { PGlite } = require('@electric-sql/pglite');
+  const db = new PGlite();
+  const failures = [];
+  const note = (cond, message) => { if (!cond) failures.push(message); };
+  try {
+    await db.exec(compositeSchemaSql());
+    await ensureAdminDepositRates(db, 25000, 10000);
+    const box = compositeRoutes(db);
+    const sandbox = loadRealHelpers();
+    sandbox.client = 'wolfhouse-somo';
+
+    const historical = await replayCompositeCase(db, box, depositInputSpec({
+      label: 'historical per-guest €200 required / €200 paid',
+      convId: '55555555-5555-4555-8555-555555555551',
+      bookingId: '66666666-6666-4666-8666-666666666661',
+      paymentId: '77777777-7777-4777-8777-777777777771',
+      messageId: '88888888-8888-4888-8888-888888888881',
+      phone: '+346****0291',
+      code: 'WH-LAB-HIST',
+      paymentStatus: 'deposit_paid',
+      paidCents: 20000,
+      depositCents: 20000,
+      metadata: { quote_snapshot: { per_guest_dates: true } },
+    }));
+    note(historical.booking.booking_payment_status === 'partial', 'historical stays display partial');
+    note(historical.booking.deposit_completed === true, 'historical €200 required / €200 paid deposit completed missing');
+    const historicalHtml = paint(sandbox, [historical.booking], { wolfhouseLab: true });
+    note(/Booking confirmed/.test(historicalHtml) && /WH-LAB-HIST/.test(historicalHtml),
+      'historical €200 required / €200 paid Confirmation missing');
+
+    const configuredHigh = await replayCompositeCase(db, box, depositInputSpec({
+      label: 'configured €250 deposit / €200 paid',
+      convId: '55555555-5555-4555-8555-555555555552',
+      bookingId: '66666666-6666-4666-8666-666666666662',
+      paymentId: '77777777-7777-4777-8777-777777777772',
+      messageId: '88888888-8888-4888-8888-888888888882',
+      phone: '+346****0292',
+      code: 'WH-LAB-250',
+      paidCents: 20000,
+      depositCents: 20000,
+    }));
+    note(configuredHigh.booking.booking_payment_status === 'partial', 'configured €250 stays display partial');
+    note(configuredHigh.booking.deposit_completed !== true, 'configured €250 / €200 paid false deposit completed');
+    const highHtml = paint(sandbox, [configuredHigh.booking], { wolfhouseLab: true });
+    note(!/Booking confirmed/.test(highHtml) && !/WH-LAB-250/.test(highHtml),
+      'configured €250 / €200 paid false Confirmation');
+
+    await ensureAdminDepositRates(db, 15000, 10000);
+    const configuredLow = await replayCompositeCase(db, box, depositInputSpec({
+      label: 'configured €150 deposit / €150 paid',
+      convId: '55555555-5555-4555-8555-555555555553',
+      bookingId: '66666666-6666-4666-8666-666666666663',
+      paymentId: '77777777-7777-4777-8777-777777777773',
+      messageId: '88888888-8888-4888-8888-888888888883',
+      phone: '+346****0293',
+      code: 'WH-LAB-150',
+      paidCents: 15000,
+      depositCents: 20000,
+    }));
+    note(configuredLow.booking.booking_payment_status === 'partial', 'configured €150 stays display partial');
+    note(configuredLow.booking.deposit_completed === true, 'configured €150 / €150 paid deposit completed missing');
+    const lowHtml = paint(sandbox, [configuredLow.booking], { wolfhouseLab: true });
+    note(/Booking confirmed/.test(lowHtml) && /WH-LAB-150/.test(lowHtml),
+      'configured €150 / €150 paid Confirmation missing');
+
+    const ten = await replayCompositeCase(db, box, depositInputSpec({
+      label: '€10 control under configured rates',
+      convId: '55555555-5555-4555-8555-555555555554',
+      bookingId: '66666666-6666-4666-8666-666666666664',
+      paymentId: '77777777-7777-4777-8777-777777777774',
+      messageId: '88888888-8888-4888-8888-888888888884',
+      phone: '+346****0294',
+      code: 'WH-LAB-TEN',
+      paidCents: 1000,
+    }));
+    note(ten.booking.booking_payment_status === 'partial', '€10 control stays display partial');
+    note(ten.booking.deposit_completed !== true, '€10 control is not deposit completed');
+    const tenHtml = paint(sandbox, [ten.booking], { wolfhouseLab: true });
+    note(!/Booking confirmed/.test(tenHtml) && !/WH-LAB-TEN/.test(tenHtml), '€10 control stays unconfirmed');
+
+    if (failures.length) {
+      throw new Error('deposit input cases\n' + failures.map((line) => 'FAIL ' + line).join('\n'));
+    }
+    return {
+      cases: [
+        { html: historicalHtml, confirmed: true, code: 'WH-LAB-HIST', label: 'historical €200/€200' },
+        { html: highHtml, confirmed: false, code: 'WH-LAB-250', label: 'configured €250 / €200 paid' },
+        { html: lowHtml, confirmed: true, code: 'WH-LAB-150', label: 'configured €150 / €150 paid' },
+      ],
+    };
+  } finally {
+    await db.close();
+  }
+}
+
 async function main() {
   const painted = unitChecks();
   console.log('PASS unit confirm path and not-paid path');
   const composite = await compositeDepositReplay();
   console.log('PASS composite €200/€600 settled deposit, too-small partial, fully paid, unpaid');
+  const inputs = await compositeDepositInputReplay();
+  console.log('PASS composite deposit inputs: historical €200, configured €250, configured €150, €10 control');
   await paintWidths(painted.paidHtml, painted.unpaidHtml);
   await paintWidths(composite.settledHtml, composite.tooSmallHtml);
+  await paintOutcomeWidths(inputs.cases);
   console.log('PASS verify-wolfhouse-lab-payment-confirm');
 }
 
