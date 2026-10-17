@@ -6,11 +6,11 @@ base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CADDYFILE=${CADDYFILE:-/etc/caddy/Caddyfile}; CADDY_BIN=/usr/bin/caddy
 ROUTING_SITE=${LUNA_ROUTING_SITE:-lunabox.lunafrontdesk.com}
 FRAGMENT=/var/lib/luna-routing/luna-number-route.caddy
-files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js validate-controller-env.js'
+files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js validate-controller-env.js validate-systemd-unit.js'
 for f in $files; do [ -f "$base/$f" ] || { echo "missing: $f" >&2; exit 1; }; done
 [ -f "$base/../../scripts/luna-number-routing-controller.js" ] || exit 1
 # Source/static validation deliberately has no host Caddy dependency.
-node --check "$base/caddy-contract.js"; node --check "$base/stage-route-fragment.js"; node --check "$base/validate-controller-env.js"; node --check "$base/../../scripts/luna-number-routing-controller.js"; sh -n "$0"
+node --check "$base/caddy-contract.js"; node --check "$base/stage-route-fragment.js"; node --check "$base/validate-controller-env.js"; node --check "$base/validate-systemd-unit.js"; node --check "$base/../../scripts/luna-number-routing-controller.js"; sh -n "$0"
 
 grep -qx 'User=luna-routing' "$base/luna-routing-controller.service"; grep -qx 'ExecStart=/usr/bin/node /opt/luna-routing/luna-number-routing-controller.js' "$base/luna-routing-controller.service"; grep -qx 'ReadWritePaths=/var/lib/luna-routing' "$base/luna-routing-controller.service"
 if [ "$mode" = --dry-run ]; then
@@ -18,23 +18,8 @@ if [ "$mode" = --dry-run ]; then
   echo 'dry-run: source and contract checks passed; no host caddy required'; exit 0
 fi
 check_no_unit_overrides() {
-  for directory in \
-    /etc/systemd/system/luna-routing-controller.service.d \
-    /run/systemd/system/luna-routing-controller.service.d \
-    /usr/local/lib/systemd/system/luna-routing-controller.service.d \
-    /usr/lib/systemd/system/luna-routing-controller.service.d \
-    /lib/systemd/system/luna-routing-controller.service.d
-  do
-    [ ! -e "$directory" ] || { echo "controller service overrides are unsupported: $directory" >&2; return 1; }
-  done
-  for unit in \
-    /run/systemd/system/luna-routing-controller.service \
-    /usr/local/lib/systemd/system/luna-routing-controller.service \
-    /usr/lib/systemd/system/luna-routing-controller.service \
-    /lib/systemd/system/luna-routing-controller.service
-  do
-    [ ! -e "$unit" ] && [ ! -L "$unit" ] || { echo "noncanonical controller unit is unsupported: $unit" >&2; return 1; }
-  done
+  # Uses systemd's type-wide, dash-prefix, full-unit, and complete system lookup rules.
+  node "$base/validate-systemd-unit.js"
 }
 reject_link(){ [ ! -L "$1" ] || { echo "symbolic link is unsupported: $1" >&2; return 1; }; }
 check_destination_paths() {
@@ -47,9 +32,16 @@ check_destination_paths() {
     "$CADDYFILE"
   do reject_link "$path"; done
 }
+check_effective_unit() {
+  fragment=$(/usr/bin/systemctl show --property=FragmentPath --value luna-routing-controller.service)
+  dropins=$(/usr/bin/systemctl show --property=DropInPaths --value luna-routing-controller.service)
+  environment_files=$(/usr/bin/systemctl show --property=EnvironmentFiles --value luna-routing-controller.service)
+  node "$base/validate-systemd-unit.js" --effective "$fragment" "$dropins" "$environment_files"
+}
 verify() {
   [ -x "$CADDY_BIN" ]; [ ! -e /etc/sudoers.d/luna-routing ]
   check_no_unit_overrides
+  check_effective_unit
   node "$base/validate-controller-env.js" /etc/luna-routing/controller.env "$ROUTING_SITE"
   cmp -s "$base/../../scripts/luna-number-routing-controller.js" /opt/luna-routing/luna-number-routing-controller.js
   cmp -s "$base/luna-routing-controller.service" /etc/systemd/system/luna-routing-controller.service

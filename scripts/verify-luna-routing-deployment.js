@@ -1,7 +1,8 @@
 'use strict';
 const assert=require('node:assert/strict'); const fs=require('fs'); const os=require('os'); const path=require('path'); const cp=require('child_process');
 const root=path.join(__dirname,'../deploy/luna-routing'); const contract=require(path.join(root,'caddy-contract'));
-const unit=fs.readFileSync(path.join(root,'luna-routing-controller.service'),'utf8'); const installer=fs.readFileSync(path.join(root,'install-luna-routing.sh'),'utf8'); const env=fs.readFileSync(path.join(root,'controller.env.example'),'utf8'); const readme=fs.readFileSync(path.join(root,'README.md'),'utf8'); const controller=fs.readFileSync(path.join(__dirname,'luna-number-routing-controller.js'),'utf8');
+const systemdUnitGuard=require(path.join(root,'validate-systemd-unit'));
+const unit=fs.readFileSync(path.join(root,'luna-routing-controller.service'),'utf8'); const installer=fs.readFileSync(path.join(root,'install-luna-routing.sh'),'utf8'); const systemdGuardSource=fs.readFileSync(path.join(root,'validate-systemd-unit.js'),'utf8'); const env=fs.readFileSync(path.join(root,'controller.env.example'),'utf8'); const readme=fs.readFileSync(path.join(root,'README.md'),'utf8'); const controller=fs.readFileSync(path.join(__dirname,'luna-number-routing-controller.js'),'utf8');
 assert.match(unit,/^User=luna-routing$/m); assert.match(unit,/^ReadWritePaths=\/var\/lib\/luna-routing$/m); assert.doesNotMatch(unit,/\/etc\/caddy\/Caddyfile/);
 assert.match(unit,/^CapabilityBoundingSet=$/m);
 assert.equal(fs.existsSync(path.join(root,'luna-routing.sudoers')),false,'obsolete controller sudoers source must not exist');
@@ -49,9 +50,13 @@ assert.equal(routingController.exactRouteFromJson(hostOrHostlessShadow,routingCo
 const hostOrHostlessEffective=structuredClone(groupedEffective); hostOrHostlessEffective.apps.http.servers.staging.routes[0].match.push({path:['/*']});
 assert.equal(routingController.exactRouteFromJson(hostOrHostlessEffective,routingController.FRANCE_STAGING_SITE),null,'host matcher alternatives must not weaken hostname binding');
 const arbitraryGroup=structuredClone(groupedEffective); arbitraryGroup.apps.http.servers.staging.routes[0].handle[0].routes[0].group='operator-defined';
-assert.equal(routingController.exactRouteFromJson(arbitraryGroup),null);
+assert.equal(routingController.exactRouteFromJson(arbitraryGroup,routingController.FRANCE_STAGING_SITE),null);
 const liveGroupedEffective=JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtures/crowsnest-routing/managed-handle-live-grouped.json'),'utf8'));
 assert.equal(routingController.exactRouteFromJson(liveGroupedEffective,routingController.FRANCE_STAGING_SITE).target_luna,'wolfhouse');
+for (const fixture of ['native-ancestor-path-excludes-webhook.json','native-ancestor-get-only.json']) {
+  const constrained=JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtures/crowsnest-routing',fixture),'utf8'));
+  assert.equal(routingController.exactRouteFromJson(constrained,routingController.FRANCE_STAGING_SITE),null,`${fixture} must preserve or reject enclosing constraints`);
+}
 const liveHostOrHostless=structuredClone(liveGroupedEffective); liveHostOrHostless.apps.http.servers.staging.routes[0].match.push({path:['/*']});
 assert.equal(routingController.exactRouteFromJson(liveHostOrHostless,routingController.FRANCE_STAGING_SITE),null,'ancestor host matcher alternatives must not weaken hostname binding');
 const liveExactRoute=liveGroupedEffective.apps.http.servers.staging.routes[0].handle[0].routes[0];
@@ -61,7 +66,7 @@ for (const mutate of [
   route => { delete route.group; },
 ]) {
   const adversarial=structuredClone(liveGroupedEffective); mutate(adversarial.apps.http.servers.staging.routes[0].handle[0].routes[0]);
-  assert.equal(routingController.exactRouteFromJson(adversarial),null,'live grouped outer route must retain its canonical group-only form');
+  assert.equal(routingController.exactRouteFromJson(adversarial,routingController.FRANCE_STAGING_SITE),null,'live grouped outer route must retain its canonical group-only form');
 }
 assert.equal(liveExactRoute.group,'group3');
 for (const [name, mutate] of [
@@ -71,10 +76,10 @@ for (const [name, mutate] of [
   ['reverse proxy transport', route => { route.handle[0].routes[0].handle[0].transport={protocol:'http'}; }],
 ]) {
   const adversarial=structuredClone(groupedEffective); mutate(adversarial.apps.http.servers.staging.routes[0]);
-  assert.equal(routingController.exactRouteFromJson(adversarial),null,`${name} must fail closed`);
+  assert.equal(routingController.exactRouteFromJson(adversarial,routingController.FRANCE_STAGING_SITE),null,`${name} must fail closed`);
 }
 const nonCanonicalOuterTerminal=structuredClone(groupedEffective); nonCanonicalOuterTerminal.apps.http.servers.staging.routes[0].terminal=false;
-assert.equal(routingController.exactRouteFromJson(nonCanonicalOuterTerminal),null,'outer terminal must retain its canonical value');
+assert.equal(routingController.exactRouteFromJson(nonCanonicalOuterTerminal,routingController.FRANCE_STAGING_SITE),null,'outer terminal must retain its canonical value');
 const stageFragment=require(path.join(root,'stage-route-fragment')).stageRouteFragment; const fragmentDir=fs.mkdtempSync(path.join(os.tmpdir(),'route-fragment-')); const live=path.join(fragmentDir,'live'); const seed=path.join(root,'luna-number-route.caddy'); const staged=path.join(fragmentDir,'staged');
 assert.equal(stageFragment(live,seed,staged),'seeded'); assert.equal(fs.readFileSync(staged,'utf8'),fs.readFileSync(seed,'utf8'));
 fs.writeFileSync(live,sunset); assert.equal(stageFragment(live,seed,staged),'preserved'); assert.equal(fs.readFileSync(staged,'utf8'),sunset);
@@ -142,8 +147,30 @@ assert.equal(cp.spawnSync(process.execPath,[envValidator,validEnvFile,franceSite
 assert.match(installer,/fragment\.validation/,'staged fragment needs an isolated Caddy validation wrapper');
 assert.match(installer,/systemctl restart luna-routing-controller\.service/,'installed controller generation must be restarted');
 assert.match(installer,/systemctl is-active --quiet caddy/,'Caddy must be an active precondition');
-assert.match(installer,/controller service overrides are unsupported/,'unit overrides must be refused');
-assert.match(installer,/noncanonical controller unit is unsupported/,'vendor and runtime units must be refused');
+assert.match(systemdGuardSource,/controller service overrides are unsupported/,'unit overrides must be refused');
+const systemdRoot=fs.mkdtempSync(path.join(os.tmpdir(),'routing-systemd-'));
+for (const [relative, expected] of [
+  ['etc/systemd/system/service.d/override.conf',/overrides are unsupported/],
+  ['etc/systemd/system/luna-.service.d/override.conf',/overrides are unsupported/],
+  ['etc/systemd/system/luna-routing-.service.d/override.conf',/overrides are unsupported/],
+  ['etc/systemd/system.control/service.d/override.conf',/overrides are unsupported/],
+  ['run/systemd/generator.early/luna-routing-controller.service.d/override.conf',/overrides are unsupported/],
+  ['usr/lib/systemd/system/luna-routing-controller.service',/noncanonical controller unit/],
+]) {
+  const caseRoot=path.join(systemdRoot,relative.replaceAll('/','-')); fs.mkdirSync(path.join(caseRoot,path.dirname(relative)),{recursive:true}); fs.writeFileSync(path.join(caseRoot,relative),'[Service]\nEnvironmentFile=/tmp/unsafe.env\n');
+  assert.throws(()=>systemdUnitGuard.assertCanonicalUnitLayout(caseRoot),expected,relative);
+}
+assert.doesNotThrow(()=>systemdUnitGuard.assertCanonicalUnitLayout(fs.mkdtempSync(path.join(systemdRoot,'clean-'))));
+assert.doesNotThrow(()=>systemdUnitGuard.assertEffectiveUnit('/etc/systemd/system/luna-routing-controller.service','','/etc/luna-routing/controller.env (ignore_errors=no)'));
+for (const args of [
+  ['/usr/lib/systemd/system/luna-routing-controller.service','','/etc/luna-routing/controller.env (ignore_errors=no)'],
+  ['/etc/systemd/system/luna-routing-controller.service','/etc/systemd/system/service.d/override.conf','/etc/luna-routing/controller.env (ignore_errors=no)'],
+  ['/etc/systemd/system/luna-routing-controller.service','','/etc/luna-routing/controller.env (ignore_errors=no) /tmp/unsafe.env (ignore_errors=no)'],
+]) assert.throws(()=>systemdUnitGuard.assertEffectiveUnit(...args),/effective controller/);
+assert.match(installer,/systemctl show --property=FragmentPath --value luna-routing-controller\.service/,'effective fragment path must be verified');
+assert.match(installer,/systemctl show --property=DropInPaths --value luna-routing-controller\.service/,'effective drop-ins must be verified');
+assert.match(installer,/systemctl show --property=EnvironmentFiles --value luna-routing-controller\.service/,'effective environment files must be verified');
+assert.match(systemdGuardSource,/noncanonical controller unit is unsupported/,'vendor, runtime, control and generated units must be refused');
 assert.match(installer,/symbolic link is unsupported/,'managed destinations must reject symlinks');
 assert.match(installer,/service_commands_started.*rollback_failure.*-eq 0/s,'service restoration must be gated on complete artifact restoration');
 assert.match(installer,/RECOVERY BACKUP PRESERVED/,'incomplete rollback must preserve recovery evidence');

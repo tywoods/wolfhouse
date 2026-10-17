@@ -51,7 +51,7 @@ function hostPatternMatches(pattern, expectedSite) {
 }
 function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
   const exact = [];
-  function walkRoutes(routes, inheritedHosts = []) {
+  function walkRoutes(routes, inheritedHosts = [], inheritedConstraint = false) {
     if (!Array.isArray(routes)) return;
     for (const route of routes) {
       const matches = Array.isArray(route.match) ? route.match : [];
@@ -60,16 +60,18 @@ function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
       if (!applicable.length) continue;
       const exactHostBound = applicable.every((match) => Array.isArray(match.host) && match.host.length === 1 && match.host[0] === expectedSite);
       const hosts = exactHostBound ? [expectedSite] : (matches.some((match) => Array.isArray(match.host)) ? [] : inheritedHosts);
-      if (matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH))) exact.push({ route, hosts });
-      for (const handler of Array.isArray(route.handle) ? route.handle : []) if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts);
+      const isExactRoute = matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH));
+      if (isExactRoute) exact.push({ route, hosts, unsupported: inheritedConstraint });
+      const constrainsDescendants = inheritedConstraint || applicable.some((match) => Object.keys(match).some((key) => key !== 'host'));
+      for (const handler of Array.isArray(route.handle) ? route.handle : []) if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts, constrainsDescendants);
     }
   }
   const servers = cfg && cfg.apps && cfg.apps.http && cfg.apps.http.servers;
   if (!servers || typeof servers !== 'object') return null;
   for (const server of Object.values(servers)) walkRoutes(server && server.routes);
   if (exact.length !== 1) return null;
-  const { route: outer, hosts } = exact[0]; const matches = outer.match;
-  if (hosts.length !== 1 || hosts[0] !== expectedSite) return null;
+  const { route: outer, hosts, unsupported } = exact[0]; const matches = outer.match;
+  if (unsupported || hosts.length !== 1 || hosts[0] !== expectedSite) return null;
   const standaloneOuter = outer.group === undefined && outer.terminal === true;
   const groupedOuter = /^group\d+$/.test(String(outer.group || '')) && outer.terminal === undefined;
   if (Object.keys(outer).some((key) => !['group', 'match', 'handle', 'terminal'].includes(key)) || (!standaloneOuter && !groupedOuter)) return null;
