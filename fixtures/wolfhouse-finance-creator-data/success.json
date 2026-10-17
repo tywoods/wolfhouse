@@ -1,6 +1,1105 @@
 {
-  "label": "synthetic success",
-  "request": {"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","granularity":"month","anchor":"2026-10-17"}},
-  "response": {"status":200,"body":{"success":true,"client":"wolfhouse-somo","location_id":"","wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","scope":{"currency":"EUR"},"metrics":{"gross_receipts":{"state":"complete","amount_cents":15000},"deposits_received":{"state":"complete","amount_cents":10000}}}}},
-  "expected": {"gross_receipts_cents":15000,"deposits_received_cents":10000,"currency":"EUR"}
+  "label": "synthetic complete success",
+  "input": {
+    "bookings": [
+      {
+        "booking_id": "b-luna",
+        "created_at": "2026-10-01T22:30:00Z",
+        "check_in": "2026-10-10",
+        "check_out": "2026-10-17",
+        "total_amount_cents": 10000,
+        "metadata": {
+          "bot_source": "luna_whatsapp"
+        },
+        "status": "confirmed",
+        "currency": "EUR"
+      },
+      {
+        "booking_id": "b-staff",
+        "created_at": "2026-10-03T09:00:00Z",
+        "check_in": "2026-10-20",
+        "check_out": "2026-10-22",
+        "total_amount_cents": 20000,
+        "metadata": {
+          "created_by_staff": true
+        },
+        "status": "confirmed",
+        "currency": "EUR"
+      }
+    ],
+    "payments": [
+      {
+        "payment_id": "p1",
+        "booking_id": "b-luna",
+        "amount_paid_cents": 3000,
+        "paid_at": "2026-10-02T00:30:00Z",
+        "payment_kind": "full_amount",
+        "metadata": {
+          "paid_amount_type": "deposit"
+        },
+        "currency": "EUR",
+        "booking_metadata": {
+          "bot_source": "luna_whatsapp"
+        }
+      },
+      {
+        "payment_id": "p2",
+        "booking_id": "b-staff",
+        "amount_paid_cents": 5000,
+        "paid_at": "2026-10-03T10:00:00Z",
+        "payment_kind": "balance",
+        "metadata": {},
+        "currency": "EUR",
+        "booking_metadata": {
+          "created_by_staff": true
+        }
+      },
+      {
+        "payment_id": "p3",
+        "booking_id": "b-luna",
+        "amount_paid_cents": 7000,
+        "paid_at": "2026-10-04T10:00:00Z",
+        "payment_kind": "balance",
+        "metadata": {},
+        "currency": "EUR",
+        "booking_metadata": {
+          "bot_source": "luna_whatsapp"
+        }
+      }
+    ],
+    "bsr": [
+      {
+        "service_record_id": "service-1",
+        "booking_id": "b-luna",
+        "service_date": "2026-10-10",
+        "service_type": "accommodation",
+        "quantity": 1,
+        "amount_due_cents": 10000,
+        "metadata": {
+          "package_code": "stay",
+          "package_name": "Stay"
+        }
+      },
+      {
+        "service_record_id": "service-2",
+        "booking_id": "b-staff",
+        "service_date": "2026-10-20",
+        "service_type": "accommodation",
+        "quantity": 1,
+        "amount_due_cents": 20000,
+        "metadata": {
+          "package_code": "stay",
+          "package_name": "Stay"
+        }
+      }
+    ],
+    "refund_records": [
+      {
+        "refund_id": "r1",
+        "booking_id": "b-luna",
+        "amount_cents": 500,
+        "effective_date": "2026-10-06",
+        "currency": "EUR",
+        "booking_metadata": {
+          "bot_source": "luna_whatsapp"
+        }
+      }
+    ],
+    "data_quality": {
+      "malformed": [
+        {
+          "source": "payment.amount_paid_cents",
+          "reason": "malformed_money",
+          "payment_id": "p-bad"
+        }
+      ]
+    },
+    "refund_ledger_unavailable": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/staff/admin/finance/summary",
+    "query": {
+      "client": "wolfhouse-somo",
+      "granularity": "month",
+      "anchor": "2026-10-17"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "client": "wolfhouse-somo",
+      "location_id": "",
+      "wolfhouse_creator_finance": {
+        "schema_version": "wolfhouse.creator-finance.v1",
+        "scope": {
+          "client": "wolfhouse-somo",
+          "location_id": "",
+          "timezone": "Europe/Madrid",
+          "currency": "EUR",
+          "range": {
+            "start": "2026-10-01",
+            "end": "2026-10-31",
+            "granularity": "month",
+            "anchor": "2026-10-17"
+          }
+        },
+        "generated_at": "2026-10-17T12:00:00.000Z",
+        "as_of": "2026-10-17T12:00:00.000Z",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "metrics": {
+          "gross_receipts": {
+            "state": "complete",
+            "amount_cents": 15000,
+            "date_basis": "receipt_paid_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 3,
+              "included_count": 3,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "recorded_refunds": {
+            "state": "complete",
+            "amount_cents": 500,
+            "date_basis": "refund_effective_date",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "net_receipts": {
+            "state": "complete",
+            "amount_cents": 14500,
+            "date_basis": "receipt_paid_at_madrid_minus_refund_effective_date",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "deposits_received": {
+            "state": "complete",
+            "amount_cents": 3000,
+            "date_basis": "receipt_paid_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 3,
+              "included_count": 3,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "new_booking_count": {
+            "state": "complete",
+            "count": 2,
+            "date_basis": "booking_created_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "new_booking_value": {
+            "state": "complete",
+            "amount_cents": 30000,
+            "date_basis": "booking_created_at_madrid_current_saved_total",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "outstanding_today": {
+            "state": "complete",
+            "amount_cents": 15000,
+            "date_basis": "current_active_snapshot",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            },
+            "as_of": "2026-10-17T12:00:00.000Z"
+          }
+        },
+        "creators": [
+          {
+            "creator": "luna",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 10000,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 3000,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 1,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 10000,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 6667
+          },
+          {
+            "creator": "staff",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 5000,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 1,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 20000,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 3333
+          },
+          {
+            "creator": "other_imported",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "unattributed",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "total",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 15000,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 3000,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 3,
+                "included_count": 3,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 2,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 30000,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 10000
+          }
+        ],
+        "trend": [
+          {
+            "date": "2026-10-01",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-02",
+            "gross_receipts_cents": 3000,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 3000,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-03",
+            "gross_receipts_cents": 5000,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 5000,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-04",
+            "gross_receipts_cents": 7000,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 7000,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-05",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-06",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 500,
+            "net_receipts_cents": -500,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-07",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-08",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-09",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-10",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-11",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-12",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-13",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-14",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-15",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-16",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-17",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-18",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-19",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-20",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-21",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-22",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-23",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-24",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-25",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-26",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-27",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-28",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-29",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-30",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-31",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          }
+        ],
+        "detail_queries": {
+          "payments": true,
+          "bookings": true,
+          "outstanding": true,
+          "refunds": true,
+          "products": true,
+          "warnings": true,
+          "arrival": true
+        },
+        "warnings": [],
+        "arrival_date_report": {
+          "date_basis": "arrival_or_service_date"
+        }
+      }
+    }
+  },
+  "detail_examples": {
+    "payments": {
+      "request": {
+        "kind": "payments",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "payments",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "payment_id": "p1",
+                  "booking_id": "b-luna",
+                  "receipt_date": "2026-10-02",
+                  "amount_cents": 3000,
+                  "purpose": "deposit",
+                  "creator": "luna"
+                },
+                {
+                  "payment_id": "p2",
+                  "booking_id": "b-staff",
+                  "receipt_date": "2026-10-03",
+                  "amount_cents": 5000,
+                  "purpose": "other",
+                  "creator": "staff"
+                },
+                {
+                  "payment_id": "p3",
+                  "booking_id": "b-luna",
+                  "receipt_date": "2026-10-04",
+                  "amount_cents": 7000,
+                  "purpose": "other",
+                  "creator": "luna"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 3,
+                "returned_count": 3
+              },
+              "full_cohort_totals": {
+                "gross_receipts_cents": 15000,
+                "deposits_received_cents": 3000
+              }
+            }
+          }
+        }
+      }
+    },
+    "bookings": {
+      "request": {
+        "kind": "bookings",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "bookings",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "booking_id": "b-luna",
+                  "created_date": "2026-10-02",
+                  "current_saved_total_cents": 10000,
+                  "creator": "luna"
+                },
+                {
+                  "booking_id": "b-staff",
+                  "created_date": "2026-10-03",
+                  "current_saved_total_cents": 20000,
+                  "creator": "staff"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 2,
+                "returned_count": 2
+              },
+              "full_cohort_totals": {
+                "new_booking_count": 2,
+                "new_booking_value_cents": 30000
+              }
+            }
+          }
+        }
+      }
+    },
+    "outstanding": {
+      "request": {
+        "kind": "outstanding",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "outstanding",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "booking_id": "b-staff",
+                  "current_balance_cents": 15000,
+                  "as_of": "2026-10-17T12:00:00.000Z",
+                  "creator": "staff"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 1,
+                "returned_count": 1
+              },
+              "full_cohort_totals": {
+                "outstanding_cents": 15000
+              }
+            }
+          }
+        }
+      }
+    },
+    "refunds": {
+      "request": {
+        "kind": "refunds",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "refunds",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "refund_id": "r1",
+                  "booking_id": "b-luna",
+                  "effective_date": "2026-10-06",
+                  "amount_cents": 500,
+                  "creator": "luna"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 1,
+                "returned_count": 1
+              },
+              "full_cohort_totals": {
+                "recorded_refunds_cents": 500
+              }
+            }
+          }
+        }
+      }
+    },
+    "products": {
+      "request": {
+        "kind": "products",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "products",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "row_id": "service-1",
+                  "booking_id": "b-luna",
+                  "product_code": "stay",
+                  "product_label": "Stay",
+                  "service_date": "2026-10-10",
+                  "quantity": 1,
+                  "amount_cents": 10000,
+                  "creator": "luna"
+                },
+                {
+                  "row_id": "service-2",
+                  "booking_id": "b-staff",
+                  "product_code": "stay",
+                  "product_label": "Stay",
+                  "service_date": "2026-10-20",
+                  "quantity": 1,
+                  "amount_cents": 20000,
+                  "creator": "staff"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 2,
+                "returned_count": 2
+              },
+              "full_cohort_totals": {
+                "product_amount_cents": 30000,
+                "row_count": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "request": {
+        "kind": "warnings",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "warnings",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "row_id": "malformed:0",
+                  "component": "payment.amount_paid_cents",
+                  "reason_code": "malformed_money",
+                  "payment_id": "p-bad"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 1,
+                "returned_count": 1
+              },
+              "full_cohort_totals": {
+                "row_count": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "arrival": {
+      "request": {
+        "kind": "arrival",
+        "currency": "EUR",
+        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "limit": 100
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "wolfhouse_creator_finance": {
+            "schema_version": "wolfhouse.creator-finance.v1",
+            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "detail": {
+              "kind": "arrival",
+              "creator": null,
+              "currency": "EUR",
+              "rows": [
+                {
+                  "booking_id": "b-luna",
+                  "check_in": "2026-10-10",
+                  "check_out": "2026-10-17",
+                  "current_saved_total_cents": 10000,
+                  "creator": "luna"
+                },
+                {
+                  "booking_id": "b-staff",
+                  "check_in": "2026-10-20",
+                  "check_out": "2026-10-22",
+                  "current_saved_total_cents": 20000,
+                  "creator": "staff"
+                }
+              ],
+              "page": {
+                "limit": 100,
+                "next_cursor": null,
+                "complete": true,
+                "matched_count": 2,
+                "returned_count": 2
+              },
+              "full_cohort_totals": {
+                "row_count": 2
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

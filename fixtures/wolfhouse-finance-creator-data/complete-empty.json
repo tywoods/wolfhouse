@@ -1,6 +1,660 @@
 {
-  "label":"complete empty",
-  "request":{"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","granularity":"month","anchor":"2026-10-17"}},
-  "response":{"status":200,"body":{"success":true,"wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","metrics":{"gross_receipts":{"state":"complete","amount_cents":0,"coverage":{"assessed_count":0,"included_count":0,"excluded_count":0,"unknown_count":0}},"new_booking_count":{"state":"complete","count":0}}}}},
-  "expected":{"state":"complete","gross_receipts_cents":0,"new_booking_count":0}
+  "label": "synthetic complete empty cohort",
+  "input": {
+    "bookings": [],
+    "payments": [],
+    "bsr": [],
+    "refund_records": [],
+    "data_quality": {
+      "malformed": []
+    },
+    "refund_ledger_unavailable": false
+  },
+  "request": {
+    "method": "GET",
+    "path": "/staff/admin/finance/summary",
+    "query": {
+      "client": "wolfhouse-somo",
+      "granularity": "month",
+      "anchor": "2026-10-17"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "client": "wolfhouse-somo",
+      "location_id": "",
+      "wolfhouse_creator_finance": {
+        "schema_version": "wolfhouse.creator-finance.v1",
+        "scope": {
+          "client": "wolfhouse-somo",
+          "location_id": "",
+          "timezone": "Europe/Madrid",
+          "currency": "EUR",
+          "range": {
+            "start": "2026-10-01",
+            "end": "2026-10-31",
+            "granularity": "month",
+            "anchor": "2026-10-17"
+          }
+        },
+        "generated_at": "2026-10-17T12:00:00.000Z",
+        "as_of": "2026-10-17T12:00:00.000Z",
+        "cohort_id": "whcf1_55ab21cd4767326017a55c93",
+        "metrics": {
+          "gross_receipts": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "receipt_paid_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "recorded_refunds": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "refund_effective_date",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "net_receipts": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "receipt_paid_at_madrid_minus_refund_effective_date",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "deposits_received": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "receipt_paid_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "new_booking_count": {
+            "state": "complete",
+            "count": 0,
+            "date_basis": "booking_created_at_madrid",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "new_booking_value": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "booking_created_at_madrid_current_saved_total",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            }
+          },
+          "outstanding_today": {
+            "state": "complete",
+            "amount_cents": 0,
+            "date_basis": "current_active_snapshot",
+            "reason_codes": [],
+            "coverage": {
+              "assessed_count": 0,
+              "included_count": 0,
+              "excluded_count": 0,
+              "unknown_count": 0
+            },
+            "as_of": "2026-10-17T12:00:00.000Z"
+          }
+        },
+        "creators": [
+          {
+            "creator": "luna",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "staff",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "other_imported",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "unattributed",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 0
+          },
+          {
+            "creator": "total",
+            "gross_receipts": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "deposits_received": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "receipt_paid_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_count": {
+              "state": "complete",
+              "count": 0,
+              "date_basis": "booking_created_at_madrid",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "new_booking_value": {
+              "state": "complete",
+              "amount_cents": 0,
+              "date_basis": "booking_created_at_madrid_current_saved_total",
+              "reason_codes": [],
+              "coverage": {
+                "assessed_count": 0,
+                "included_count": 0,
+                "excluded_count": 0,
+                "unknown_count": 0
+              }
+            },
+            "receipt_share_bps": 10000
+          }
+        ],
+        "trend": [
+          {
+            "date": "2026-10-01",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-02",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-03",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-04",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-05",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-06",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-07",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-08",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-09",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-10",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-11",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-12",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-13",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-14",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-15",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-16",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-17",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-18",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-19",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-20",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-21",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-22",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-23",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-24",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-25",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-26",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-27",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-28",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-29",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-30",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          },
+          {
+            "date": "2026-10-31",
+            "gross_receipts_cents": 0,
+            "recorded_refunds_cents": 0,
+            "net_receipts_cents": 0,
+            "state": "complete",
+            "reason_codes": []
+          }
+        ],
+        "detail_queries": {
+          "payments": true,
+          "bookings": true,
+          "outstanding": true,
+          "refunds": true,
+          "products": true,
+          "warnings": true,
+          "arrival": true
+        },
+        "warnings": [],
+        "arrival_date_report": {
+          "date_basis": "arrival_or_service_date"
+        }
+      }
+    }
+  }
 }

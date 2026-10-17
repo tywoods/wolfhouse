@@ -4,6 +4,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const summaryLib = require('./lib/sunset-finance-summary');
 const dataLib = require('./lib/sunset-finance-data');
+const { buildWolfhouseFinanceCreatorFixtures } = require('./lib/wolfhouse-finance-creator-fixtures');
 const now = new Date('2026-10-17T12:00:00.000Z');
 const input = {
   bookings: [
@@ -89,8 +90,19 @@ const conflictRefund = summaryLib.computeWolfhouseCreatorFinance({...input,refun
 assert(conflictRefund.metrics.recorded_refunds.reason_codes.includes('conflicting_refund_identity'));
 assert.equal(conflictRefund.metrics.recorded_refunds.amount_cents,0);
 for (const metric of Object.values(projection.metrics)) assert.deepEqual(Object.keys(metric.coverage).sort(),['assessed_count','excluded_count','included_count','unknown_count']);
+assert.deepEqual(projection.detail_queries,{payments:true,bookings:true,outstanding:true,refunds:true,products:true,warnings:true,arrival:true});
+assert.deepEqual(Object.keys(projection.arrival_date_report),['date_basis']);
+assert.deepEqual(Object.keys(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'arrival',currency:'EUR',cohort_id:projection.cohort_id}).detail.rows[0]).sort(),['booking_id','check_in','check_out','creator','current_saved_total_cents']);
+assert.deepEqual(Object.keys(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'warnings',currency:'EUR',cohort_id:projection.cohort_id}).detail.rows[0]).sort(),['component','payment_id','reason_code','row_id']);
+const expectedTotalKeys={payments:['deposits_received_cents','gross_receipts_cents'],bookings:['new_booking_count','new_booking_value_cents'],outstanding:['outstanding_cents'],refunds:['recorded_refunds_cents'],products:['product_amount_cents','row_count'],warnings:['row_count'],arrival:['row_count']};
+for (const [kind,keys] of Object.entries(expectedTotalKeys)) {
+  const detail=summaryLib.pageWolfhouseCreatorFinance(projection,{kind,currency:'EUR',cohort_id:projection.cohort_id});
+  assert.deepEqual(Object.keys(detail.detail.full_cohort_totals).sort(),keys,`${kind} full cohort total keys are contractual`);
+}
+const generatedFixtures=buildWolfhouseFinanceCreatorFixtures();
 for (const name of ['success.json','complete-empty.json','partial.json','unavailable-refunds.json','multi-page.json']) {
   const fixture=require(path.join(ROOT,'fixtures/wolfhouse-finance-creator-data',name));
-  assert(fixture.request && fixture.response && Number.isInteger(fixture.response.status),`${name} is a full wire example`);
+  assert.deepEqual(fixture,generatedFixtures[name],`${name} is the deterministic producer output`);
+  assert(fixture.input && fixture.request && fixture.response && Number.isInteger(fixture.response.status),`${name} is a complete producer-backed wire example`);
 }
 console.log('verify:wolfhouse-finance-creator-data — ALL CHECKS PASSED');
