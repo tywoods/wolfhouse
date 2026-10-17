@@ -1,0 +1,26 @@
+[
+  {
+    "case": "g3_open",
+    "authority": "current_staff_date_pricing_approved",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "reply": "Those dates work for a 3-night accommodation-only stay 😊 Would you prefer the women-only dorm or the mixed dorm?"
+  },
+  {
+    "case": "couple_open",
+    "authority": "current_staff_date_pricing_approved",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "reply": "Those November dates work 😊 Would you prefer a private double or a shared dorm?"
+  },
+  {
+    "case": "closed",
+    "authority": "quote_booking.next_action=closed_season",
+    "stale_note": "We are open year-round.",
+    "reply": "We’re closed for those dates. Would you like to try different dates?"
+  },
+  {
+    "case": "missing",
+    "authority": "missing",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "reply": "I can’t confirm yet whether we’re open for those dates. Would you like to try another date range?"
+  }
+]
