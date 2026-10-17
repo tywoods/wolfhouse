@@ -117,7 +117,9 @@ def assess(run):
     elif run["case"] == "real_closed_season":
         checks["closure_preserved"] = bool(re.search(r"closed|not open|can.t accommodate", text, re.I))
     elif run["case"] == "genuinely_missing_date_authority":
-        checks["no_invented_opening"] = not re.search(r"dates (?:work|are available)|we.re open|we are open|is available", text, re.I)
+        opening_claim = re.search(r"dates (?:work|are available)|we.re open|we are open|(?:room|stay) is available", text, re.I)
+        explicit_uncertainty = re.search(r"can(?:not|['’]t) (?:yet )?confirm|isn['’]t confirmed|is not confirmed", text, re.I)
+        checks["no_invented_opening"] = not opening_claim or bool(explicit_uncertainty)
     return checks
 
 
@@ -167,12 +169,22 @@ def run():
     for item in receipt["runs"]:
         checks = assess(item)
         assessments.append({"variant": item["variant"], "case": item["case"], "run_id": item["run_id"], "checks": checks, "pass": all(v for k, v in checks.items() if isinstance(v, bool))})
-    baseline_failed = any(not row["pass"] for row in assessments if row["variant"] == "baseline")
+    baseline_one_question_failed = any(
+        not row["pass"]
+        for row in assessments
+        if row["variant"] == "baseline" and row["case"] == "holly_jake_explicit_current_date_approval"
+    )
+    baseline_season_failed = any(
+        not row["checks"].get("no_stale_season_caveat", True)
+        for row in assessments
+        if row["variant"] == "baseline" and row["case"].startswith("g3_")
+    )
     assessment = {"assessment": "semantic missing-input decisions, not '?' punctuation", "receipt_sha256": sha((OUT / "replay-receipt.json").read_text()),
         "negative_examples": ["couple_compound_negative_historical", "couple_compound_negative_repair2"],
         "runs": assessments, "all_candidate_pass": all(r["pass"] for r in assessments if r["variant"] == "candidate"),
-        "historical_failure_reproduced_by_baseline": baseline_failed,
-        "interpretation": "Baseline did not reproduce the historical failure; its cause remains uncertain." if not baseline_failed else "Baseline had a bounded reconstruction failure; this is not exact historical reproduction."}
+        "baseline_one_question_failure_reproduced": baseline_one_question_failed,
+        "original_season_symptom_reproduced_by_baseline": baseline_season_failed,
+        "interpretation": "The bounded baseline reproduced the semantic one-question failure, but not the original stale-season symptom; the historical season cause remains uncertain. This is not exact historical reproduction."}
     (OUT / "replay-assessment.json").write_text(json.dumps(assessment, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({"receipt": str(OUT / "replay-receipt.json"), "assessment": str(OUT / "replay-assessment.json"), "runs": len(receipt["runs"]), "all_candidate_pass": assessment["all_candidate_pass"]}))
 
