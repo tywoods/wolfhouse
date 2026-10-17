@@ -1646,7 +1646,15 @@ def record_quote(params, response):
                     before = after
                 if before != after:
                     material_matches = False
-            if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
+            completed_named_revision = (bool(rows)
+                and all(isinstance(row, dict) and str(row.get('guest_name') or '').strip()
+                        for row in rows))
+            payment_preserved_by_completed_revision = (
+                payment == prior_revision.get('payment_choice')
+                and completed_named_revision)
+            if (material_matches and same_people
+                    and (not payment or payment in presentation.get('payment_choices', [])
+                         or payment_preserved_by_completed_revision)
                     and _completion_revision_matches(prior_revision, revision,
                         payment_choice=payment_completion, guest_completions=names,
                         person_plan=plan)
@@ -2149,8 +2157,6 @@ def finalize_offer_response(result):
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
-            choices.append('full')
-        elif chosen_full_names_missing:
             choices.append('full')
         elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:

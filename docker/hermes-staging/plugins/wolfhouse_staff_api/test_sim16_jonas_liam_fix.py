@@ -266,6 +266,41 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                          [{"kind": "rendered_reply", "text": rendered}],
                          "no second confirmation was rendered")
 
+    def test_r4_chosen_full_incomplete_unnamed_refresh_never_dispatches_create(self):
+        """Late names cannot turn an incomplete Staff refresh into create authority."""
+        beds = self.beds(2)
+        quoted = {"check_in": "2026-11-23", "check_out": "2026-11-26",
+                  "guest_count": 2, "room_type": "shared", "room_preference": "mixed",
+                  "package_code": "package_none", "payment_choice": "full", "guests": []}
+        raw_quote = checked_staff_quote(quoted, beds, total=24000, deposit=10000,
+                                        full_payment_only=False)
+        self.loop.turn("r4-quote", "Two mixed beds; I choose full payment. Please quote.")
+        self.loop.call("quote_booking", quoted,
+            {"/availability-check": availability_receipt(beds),
+             "/booking-preview": raw_quote})
+        self.assertEqual(self.loop.present(),
+            "Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
+            "Total: 240.00 EUR.\n"
+            "Full payment: 240.00 EUR.\n"
+            "What are the guests' full names?")
+
+        names = [{"name": "Aoife Byrne"}, {"name": "Ciara Walsh"}]
+        self.loop.turn("r4-names", "Yes, book it for Aoife Byrne and Ciara Walsh.")
+        incomplete_refresh = checked_staff_quote(
+            {**quoted, "guests": []}, beds, total=24000, deposit=10000,
+            full_payment_only=False)
+        def responses(route, body):
+            if route == "/booking-preview":
+                return incomplete_refresh
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            return {"success": True, "created": True, "write_performed": True,
+                    "booking_id": "must-not-dispatch"}
+        result = self.loop.call("create_booking_from_plan", {"guests": names}, responses)
+
+        self.assertFalse(result.get("success"), result)
+        self.assertEqual(self.loop.create_dispatches, [], self.loop.trace)
+
     def test_r1_changed_person_and_material_terms_refuse_while_unchanged_replay_survives(self):
         beds = self.beds(2)
         plan = {"check_in": "2026-11-01", "check_out": "2026-11-03", "guest_count": 2,
