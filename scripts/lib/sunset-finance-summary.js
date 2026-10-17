@@ -2068,14 +2068,18 @@ function computeWolfhouseCreatorFinance(args) {
     return { date, gross_receipts_cents:rg, recorded_refunds_cents:refundState==='complete'?dayRefunds:null,
       net_receipts_cents:refundState==='complete'?checkedSubtract(rg,dayRefunds):null,
       state:refundState==='complete'&&paymentState==='complete'?'complete':'partial', reason_codes:[...new Set([...reasons,...refundReasons])] }; });
+  const bookingCreatorById = new Map(bookings
+    .filter(b => b && b.booking_id != null)
+    .map(b => [String(b.booking_id), wolfhouseCreator(b.metadata, b.record_source)]));
   const productRows = (Array.isArray(args && args.bsr) ? args.bsr : []).map(r => {
     const amount=parseCanonicalIntCents(effectiveServiceDueCents(r));
     if (!amount.ok) return null;
     const md=r.metadata||{};
-    return { row_id:String(r.service_record_id||r.id||''), booking_id:String(r.booking_id),
+    const bookingId=String(r.booking_id);
+    return { row_id:String(r.service_record_id||r.id||''), booking_id:bookingId,
       product_code:String(md.package_code||r.service_type||'unclassified'), product_label:String(md.package_name||md.package_code||r.service_type||'Unclassified'),
       service_date:r.service_date?String(r.service_date).slice(0,10):null, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
-      amount_cents:amount.value, creator:wolfhouseCreator(md,r.source) };
+      amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'unattributed' };
   }).filter(r=>r&&r.row_id).sort((a,b)=>String(a.service_date||'').localeCompare(String(b.service_date||''))||a.row_id.localeCompare(b.row_id));
   const warningRows = [];
   for (const group of ['malformed','balance_drift','reconciliation_unavailable']) {

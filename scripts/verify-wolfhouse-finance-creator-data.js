@@ -21,6 +21,7 @@ const input = {
   ],
   bsr: [
     { service_record_id:'product-1', booking_id:'luna', service_date:'2026-10-02', service_type:'accommodation', quantity:1, amount_due_cents:10000, metadata:{package_code:'malibu'}, source:'luna_guest' },
+    { service_record_id:'product-2', booking_id:'staff', service_date:'2026-10-03', service_type:'accommodation', quantity:1, amount_due_cents:20000, metadata:{package_code:'malibu'}, source:'luna_guest' },
   ],
   refund_records: [
     { refund_id:'r1', booking_id:'luna', amount_cents:500, effective_date:'2026-10-06', currency:'EUR', booking_metadata:{source:'staff_manual',bot_source:'luna_whatsapp'} },
@@ -59,6 +60,7 @@ for (const kind of ['bookings','outstanding','refunds','products','warnings','ar
 }
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'refunds',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].creator,'luna','refund contributor uses booking creator');
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'products',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].row_id,'product-1');
+assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'products',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows.find(row=>row.row_id==='product-2').creator,'staff','product contributor retains booking creator despite service-row source');
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'warnings',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].reason_code,'malformed_money');
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'arrival',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].booking_id,'luna');
 const outsidePeriodPayment = summaryLib.computeWolfhouseCreatorFinance({ ...input,
