@@ -15,6 +15,7 @@ const injector = fs.readFileSync(INJECTOR_PATH, 'utf8');
 const admin = fs.readFileSync(ADMIN_PATH, 'utf8');
 
 assert.match(injector, /wolfhouse-location-booking-settings-ui\.js/);
+assert.match(source, /staffCollapseEnhanceLate/);
 assert.match(admin, /loadWolfhouseLocationBookingSettings/);
 assert.match(source, /\/staff\/admin\/location-booking-settings/);
 assert.match(source, /\/staff\/admin\/location/);
@@ -120,3 +121,4 @@ assert.strictEqual(each.disabled, false);
 assert.strictEqual(note.hidden, true);
 
 console.log('PASS verify-wolfhouse-location-booking-settings-ui');
+require('./verify-wolfhouse-location-booking-settings-collapse-error.js');

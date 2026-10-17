@@ -212,6 +212,9 @@ const {
   resolveNotificationSettingsLocationId,
 } = require('./lib/staff-notification-settings-routes');
 const {
+  createWolfhouseLocationBookingSettingsRoutes,
+} = require('./lib/wolfhouse-location-booking-settings');
+const {
   createLunaPersonalityRoutes,
   LUNA_PERSONALITY_PATH,
   LUNA_PERSONALITY_BOT_PATH,
@@ -2702,6 +2705,19 @@ const {
   handleNotificationSettingsGet,
   handleNotificationSettingsPut,
 } = notificationSettingsRoutes;
+const {
+  handleLocationBookingSettingsGet,
+  handleLocationPut,
+  handleBookingSettingsPut,
+} = createWolfhouseLocationBookingSettingsRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  SQL_INJECT_RE,
+});
 
 const lunaPersonalityRoutes = createLunaPersonalityRoutes({
   sendJSON,
@@ -47756,7 +47772,8 @@ function lgsCreateStripeLink(){
         ['staff-style-card', 'staff-style-toggle'],
         ['staff-room-setup-card', 'staff-room-setup-toggle'],
         ['to-op-panel', 'staff-room-block-toggle'],
-        ['to-rr-panel', 'staff-room-release-toggle']
+        ['to-rr-panel', 'staff-room-release-toggle'],
+        ['cc-owner-schedule-bridge', 'staff-owner-schedule-toggle']
       ].forEach(function (entry) { enhance(entry[0], entry[1]); });
       if (comingSoonCard) {
         comingSoonDisabledStates = Array.prototype.map.call(
@@ -47774,6 +47791,11 @@ function lgsCreateStripeLink(){
     controls.forEach(function (control) {
       if (control.card.contains(node)) setOpen(control.button, true);
     });
+  };
+  window.staffCollapseEnhanceLate = function (cardId, toggleId) {
+    if (activeClient !== 'wolfhouse-somo') return;
+    if (controls.some(function (control) { return control.card && control.card.id === cardId; })) return;
+    enhance(cardId, toggleId);
   };
   document.addEventListener('click', function (event) {
     var button = event.target.closest && event.target.closest('.staff-collapse-toggle');
@@ -57999,6 +58021,25 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerBulkDelete(parsed.query, req, res, auth.user);
+  }
+
+  // Wolfhouse Luna Staff location + booking settings. Auth stays here.
+  // Reads and writes must be registered before the GET-only fallthrough,
+  // or PUT becomes 405 and GET becomes 404 — the France cards then stay disabled.
+  if (pathname === '/staff/admin/location-booking-settings' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleLocationBookingSettingsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/location' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleLocationPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/booking-settings' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleBookingSettingsPut(parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

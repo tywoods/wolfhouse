@@ -88,6 +88,7 @@ function wolfhouseLocationBookingStatus(node, message, isError) {
   if (!node) return;
   node.textContent = message || '';
   node.classList.toggle('is-error', !!isError);
+  if (isError && window.staffCollapseReveal) window.staffCollapseReveal(node);
 }
 
 function wolfhouseLocationBookingPut(path, body) {
@@ -170,6 +171,10 @@ function loadWolfhouseLocationBookingSettings() {
   } catch (_error) { return Promise.resolve(null); }
   var wrap = ensureWolfhouseLocationBookingCards();
   if (!wrap) return Promise.resolve(null);
+  if (typeof window.staffCollapseEnhanceLate === 'function') {
+    window.staffCollapseEnhanceLate('wh-location-settings-card', 'wh-location-settings-toggle');
+    window.staffCollapseEnhanceLate('wh-booking-settings-card', 'wh-booking-settings-toggle');
+  }
   var operationToken = (wrap._wolfhouseOperationToken || 0) + 1;
   wrap._wolfhouseOperationToken = operationToken;
   wrap._wolfhouseLoadGeneration = (wrap._wolfhouseLoadGeneration || 0) + 1;
