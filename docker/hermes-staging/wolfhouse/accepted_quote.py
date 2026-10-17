@@ -1456,29 +1456,39 @@ def _incomplete_payment_revision(response, tenant, plan=None):
     offer = response.get('offer_revision')
     availability = response.get('availability')
     requested_payment = (plan or {}).get('payment_choice')
+    assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
+    count = offer.get('guest_count') if isinstance(offer, dict) else None
+    missing_names = (type(count) is int and count > 0 and isinstance(assignments, list)
+                     and len(assignments) == count and any(
+                         not isinstance(row, dict) or not row.get('guest_name')
+                         for row in assignments))
     full_only = (response.get('full_payment_only') is True
                  and response.get('payment_choice_needed') is False)
+    chosen_full_with_missing_names = (
+        requested_payment == 'full'
+        and response.get('payment_choice_needed') is False and missing_names)
+    expected_payment = ('full' if full_only or chosen_full_with_missing_names else 'deposit')
+    expected_amount = (offer.get('total_cents') if expected_payment == 'full' else
+                       offer.get('deposit_required_cents')) if isinstance(offer, dict) else None
     if (not isinstance(offer, dict) or not isinstance(availability, dict)
-            or (response.get('payment_choice_needed') is not True and not full_only)
+            or (response.get('payment_choice_needed') is not True
+                and not full_only and not chosen_full_with_missing_names)
             or (requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
-                and not full_only)
+                and not full_only and not chosen_full_with_missing_names)
             or offer.get('client_slug') != tenant
             or offer.get('availability_checked') is not True
             or availability.get('status') != 'checked'
-            or offer.get('payment_choice') != ('full' if full_only else 'deposit')
+            or offer.get('payment_choice') != expected_payment
             or not offer.get('offer_fingerprint')
             or any(not isinstance(offer.get(key), str) or not offer[key].strip()
                    for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
             or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
                    ('guest_count', 'total_cents', 'deposit_required_cents', 'payment_link_amount_cents'))
             or offer.get('total_cents') != response.get('total_cents')
-            or offer.get('payment_link_amount_cents') != (
-                offer.get('total_cents') if full_only else offer.get('deposit_required_cents'))
+            or offer.get('payment_link_amount_cents') != expected_amount
             or (full_only and offer.get('deposit_required_cents') != offer.get('total_cents'))):
         return False
-    assignments = offer.get('guest_bed_assignments')
     rooms = offer.get('room_arrangement')
-    count = offer.get('guest_count')
     return (isinstance(assignments, list) and len(assignments) == count
             and isinstance(rooms, list) and len(rooms) == count
             and availability.get('selected_bed_codes') == [row.get('bed_code') for row in assignments]
@@ -1636,7 +1646,15 @@ def record_quote(params, response):
                     before = after
                 if before != after:
                     material_matches = False
-            if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
+            completed_named_revision = (bool(rows)
+                and all(isinstance(row, dict) and str(row.get('guest_name') or '').strip()
+                        for row in rows))
+            payment_preserved_by_completed_revision = (
+                payment == prior_revision.get('payment_choice')
+                and completed_named_revision)
+            if (material_matches and same_people
+                    and (not payment or payment in presentation.get('payment_choices', [])
+                         or payment_preserved_by_completed_revision)
                     and _completion_revision_matches(prior_revision, revision,
                         payment_choice=payment_completion, guest_completions=names,
                         person_plan=plan)
@@ -1653,6 +1671,13 @@ def record_quote(params, response):
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
+                if state.get('status') == 'accepted' and presentation.get('create_ready') is True:
+                    # A fact-equivalent Staff re-quote advances the authority
+                    # already accepted for this same person/conversation.  Do
+                    # not leave the acceptance snapshots pointing at the prior
+                    # fingerprint and then refuse the exact refreshed offer.
+                    state['accepted_offer_snapshot'] = deepcopy(revision)
+                    state['accepted_presentation'] = deepcopy(presentation)
                 return
         if (valid and checked is not None and state['status'] in ('offered', 'accepted')
                 and isinstance(state.get('presentation'), dict)
@@ -2121,6 +2146,14 @@ def finalize_offer_response(result):
         assistant = next((item for item in reversed(messages or [])
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
+        revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
+        assignments = revision.get('guest_bed_assignments')
+        chosen_full_names_missing = (
+            quote.get('full_payment_only') is not True
+            and quote.get('payment_choice_needed') is False
+            and revision.get('payment_choice') == 'full'
+            and isinstance(assignments, list) and assignments
+            and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
@@ -2163,6 +2196,8 @@ def finalize_offer_response(result):
             lines.append(f"Total: {quoted_money(total)}.")
             if quote.get('full_payment_only') is True:
                 lines.append(f"Full payment required: {quoted_money(total)}.")
+            elif chosen_full_names_missing:
+                lines.append(f"Full payment: {quoted_money(total)}.")
             elif choices:
                 labels = {'deposit': 'deposit', 'full': 'full payment'}
                 option_labels = [labels[item] for item in choices]
@@ -2171,9 +2206,10 @@ def finalize_offer_response(result):
                     option_labels[choices.index('deposit')] += (
                         f" ({quoted_money(quote['deposit_required_cents'])})")
                 lines.append('Payment options: ' + ' or '.join(option_labels) + '.')
-            lines.append('Shall I check this exact offer for booking?'
-                         if quote.get('full_payment_only') is True else
-                         'Which payment option would you like me to check for this booking?')
+            lines.append("What are the guests' full names?" if chosen_full_names_missing else
+                         ('Shall I check this exact offer for booking?'
+                          if quote.get('full_payment_only') is True else
+                          'Which payment option would you like me to check for this booking?'))
             text = '\n'.join(lines)
             output = deepcopy(result)
             output['final_response'] = text

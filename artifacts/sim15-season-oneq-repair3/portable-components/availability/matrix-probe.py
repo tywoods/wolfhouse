@@ -16,7 +16,11 @@ class Registry:
     def register_hook(self, *args): pass
 
 registry=Registry()
-with patch.object(accepted_quote, 'install_owner_hook'):
+# This probe checks Wolfhouse's tenant-specific roster schema. Register under the
+# same trusted tenant explicitly so an invoking shell cannot silently select the
+# tenant-neutral capture shape and turn the schema assertion into a KeyError.
+with patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}), \
+        patch.object(accepted_quote, 'install_owner_hook'):
     plugin.register(registry)
 
 def bed(room, category, n=1, mode='shared'):
@@ -84,7 +88,8 @@ assert 'gender_evidence' not in item['properties']
 assert item['additionalProperties'] is False
 for gender in ('male','female',None):
     guest={'name':'Alex',**({'explicit_gender':gender} if gender else {})}
-    result=json.loads(registry.tools['capture_booking_names']['handler']({'guest_count':1,'guests':[guest]}))
+    with patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+        result=json.loads(registry.tools['capture_booking_names']['handler']({'guest_count':1,'guests':[guest]}))
     assert result['status'] != 'invalid_input', result
     print(json.dumps(dict(case='capture schema accepted',guest=guest,result=result)))
 print(json.dumps(dict(case='capture schema',item=item)))
