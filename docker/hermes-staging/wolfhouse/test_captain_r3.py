@@ -130,12 +130,11 @@ class CaptainR3Tests(unittest.TestCase):
         self.assertEqual(result['room_decision']['resolved_composition'], 'female')
 
     def test_unknown_name_room_and_arbitrary_group_fields_do_not_prove_person(self):
-        guests = [{'name': 'Nora', 'explicit_gender': 'female',
-                   'gender_evidence': 'Nora wants the women room'}]
+        # The model supplies meaning; a room preference/group field is not a
+        # structured person fact. No raw-text parser may mint one here.
+        guests = [{'name': 'Nora'}]
         self.assertEqual(self.validated('Nora wants the women room', guests), {})
-        self.assertEqual(self.validated('Nora is coming', [{
-            'name': 'Nora', 'explicit_gender': 'female',
-            'gender_evidence': 'Nora is coming'}]), {})
+        self.assertEqual(self.validated('Nora is coming', guests), {})
         result, calls = self.quote({
             'check_in': '2027-01-01', 'check_out': '2027-01-02',
             'guest_count': 1, 'package_code': 'package_none',
@@ -149,8 +148,8 @@ class CaptainR3Tests(unittest.TestCase):
     def test_other_person_and_negated_facts_never_authorize_slot_zero(self):
         for raw in ('Bea is a woman', 'Bea is not a woman'):
             with self.subTest(raw=raw):
-                guests = [{'name': 'Alex', 'explicit_gender': 'female',
-                           'gender_evidence': raw}]
+                # Correct structured interpretation leaves Alex unknown.
+                guests = [{'name': 'Alex'}]
                 self.assertEqual(self.validated(raw, guests), {})
                 _result, calls = self.quote({
                     'check_in': '2027-01-01', 'check_out': '2027-01-02',
@@ -159,57 +158,35 @@ class CaptainR3Tests(unittest.TestCase):
                     self.receipt('female_only'))
                 self.assertNotIn('room_name_hints', calls[0][1])
 
-    def test_registered_adapter_binds_affirmative_fact_to_subject(self):
-        cases = (
-            ('Alex says Bea is a woman', 'Alex'),
-            ('Alex is a man. Bea is a woman.', 'Alex'),
-            ('I am not a woman', 'Alex'),
-            ('Alex is not actually a woman', 'Alex'),
-            ('Alex is no longer a woman', 'Alex'),
-        )
-        for raw, name in cases:
+    def test_registered_adapter_preserves_indexed_model_facts_without_literal_evidence(self):
+        for raw in ('oui', 'sí, somos dos', 'Please use the corrected roster'):
             with self.subTest(raw=raw):
-                guests = [{'name': name, 'explicit_gender': 'female',
-                           'gender_evidence': raw}]
-                result, calls = self.registered_quote(raw, guests)
+                guests = [{'name': 'Alex', 'explicit_gender': 'male'},
+                          {'name': 'Bea', 'explicit_gender': 'female'}]
+                _result, calls = self.registered_quote(raw, guests)
                 self.assertEqual(calls[0][0], '/booking-preview')
-                self.assertEqual(calls[0][1]['guests'], [{'name': name}])
+                self.assertEqual(calls[0][1]['guests'], guests)
+                self.assertEqual(calls[0][1]['room_name_hints'], guests)
+                self.assertEqual(calls[0][1]['room_preference'], 'female_only')
+
+    def test_registered_adapter_does_not_infer_from_possessive_predicates(self):
+        for raw, names in (("Alex is a woman's husband", ['Alex']),
+                           ("I am a woman's husband", ['Alex']),
+                           ("Alex and Bea are both women's sons", ['Alex', 'Bea'])):
+            with self.subTest(raw=raw):
+                guests = [{'name': name} for name in names]
+                result, calls = self.registered_quote(raw, guests)
+                self.assertEqual(calls[0][1]['guests'], guests)
                 self.assertNotIn('room_name_hints', calls[0][1])
                 self.assertTrue(result['room_decision']['clarification_needed'])
 
-    def test_registered_adapter_rejects_possessive_demographic_predicate_prefixes(self):
-        cases = (
-            ("Alex is a woman's husband", ['Alex']),
-            ("I am a woman's husband", ['Alex']),
-            ("Alex and Bea are both women's sons", ['Alex', 'Bea']),
-        )
-        for raw, names in cases:
-            with self.subTest(raw=raw):
-                guests = [{'name': name, 'explicit_gender': 'female',
-                           'gender_evidence': raw} for name in names]
-                result, calls = self.registered_quote(raw, guests)
-                sent = calls[0][1]
-                self.assertEqual(sent['guests'], [{'name': name} for name in names])
-                self.assertNotIn('room_name_hints', sent)
-                self.assertTrue(result['room_decision']['clarification_needed'])
-
     def test_registered_adapter_keeps_only_the_person_bound_fact(self):
-        raw = 'Alex is a man. Bea is a woman.'
-        guests = [
-            {'name': 'Alex', 'explicit_gender': 'female',
-             'gender_evidence': 'Bea is a woman'},
-            {'name': 'Bea', 'explicit_gender': 'female',
-             'gender_evidence': 'Bea is a woman'},
-        ]
+        raw = 'Bea is a woman; Alex has not supplied eligibility'
+        guests = [{'name': 'Alex'}, {'name': 'Bea', 'explicit_gender': 'female'}]
         result, calls = self.registered_quote(raw, guests)
         self.assertEqual(calls[0][0], '/booking-preview')
-        self.assertEqual(calls[0][1]['guests'], [
-            {'name': 'Alex'},
-            {'name': 'Bea', 'explicit_gender': 'female'},
-        ])
-        self.assertEqual(calls[0][1]['room_name_hints'], [
-            {'name': 'Bea', 'explicit_gender': 'female'},
-        ])
+        self.assertEqual(calls[0][1]['guests'], guests)
+        self.assertEqual(calls[0][1]['room_name_hints'], [guests[1]])
         self.assertTrue(result['room_decision']['clarification_needed'])
 
     def test_registered_adapter_keeps_affirmative_and_room_controls(self):
@@ -220,15 +197,98 @@ class CaptainR3Tests(unittest.TestCase):
         )
         for raw, names, affirmative in cases:
             with self.subTest(raw=raw):
-                guests = [{'name': name, 'explicit_gender': 'female',
-                           'gender_evidence': raw} for name in names]
+                guests = [{'name': name, **({'explicit_gender': 'female'}
+                           if affirmative else {})} for name in names]
                 _result, calls = self.registered_quote(raw, guests)
                 sent = calls[0][1]
-                expected = ([{'name': name, 'explicit_gender': 'female'}
-                             for name in names] if affirmative else
-                            [{'name': name} for name in names])
-                self.assertEqual(sent['guests'], expected)
+                self.assertEqual(sent['guests'], guests)
                 self.assertEqual('room_name_hints' in sent, affirmative)
+
+    def test_registered_availability_uses_canonical_guest_eligibility(self):
+        registry = Registry()
+        with patch.object(accepted_quote, 'install_owner_hook'), \
+                patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            plugin.register(registry)
+        params = {
+            'check_in': '2027-01-01', 'check_out': '2027-01-02',
+            'guest_count': 1, 'room_type': 'shared',
+            'room_preference': 'female_only',
+            'guests': [{'name': 'Nora', 'explicit_gender': 'female'}],
+        }
+        staff_receipt = {
+            'success': True, 'has_enough_beds': True,
+            'girls_room_available': True,
+            'room_options': {'girls_room_available': True,
+                             'private_room_available': False},
+            'selected_room_code': 'R5', 'selected_bed_codes': ['R5-B3'],
+            'available_beds': [{'bed_code': 'R5-B3', 'room_code': 'R5',
+                                'room_type': 'female_only',
+                                'bed_label': 'R5-B3'}],
+        }
+        calls = []
+        with patch.object(plugin, '_post_bot', side_effect=lambda path, body: (
+                calls.append((path, deepcopy(body))) or deepcopy(staff_receipt))):
+            result = json.loads(registry.tools['check_availability']['handler'](params))
+        expected = [{'name': 'Nora', 'explicit_gender': 'female'}]
+        self.assertEqual(calls[0][0], '/availability-check')
+        self.assertEqual(calls[0][1]['guests'], expected)
+        self.assertEqual(calls[0][1]['room_name_hints'], expected)
+        self.assertTrue(result['available'], result)
+        self.assertEqual(result['selected_bed_codes'], ['R5-B3'])
+        self.assertTrue(result['girls_room_available'])
+        self.assertTrue(result['room_options']['girls_room_available'])
+        self.assertEqual(result['room_decision']['resolved_composition'], 'female')
+
+    def test_staff_clarification_without_selection_is_not_reported_available(self):
+        params = {
+            'client_slug': 'wolfhouse-somo',
+            'check_in': '2027-01-01', 'check_out': '2027-01-02',
+            'guest_count': 2, 'room_type': 'shared',
+            'room_preference': 'mixed',
+            'guests': [{'name': 'Alex'}, {'name': 'Bea', 'explicit_gender': 'female'}],
+        }
+        receipt = {
+            'success': True, 'has_enough_beds': True, 'needs_clarification': True,
+            'selected_bed_codes': [],
+            'available_beds': [
+                {'bed_code': 'F1', 'room_code': 'F', 'room_type': 'female_only'},
+                {'bed_code': 'F2', 'room_code': 'F', 'room_type': 'female_only'},
+            ],
+        }
+        with patch.object(plugin, '_post_bot', return_value=receipt):
+            result = json.loads(plugin.check_availability(params))
+        self.assertFalse(result['available'], result)
+        self.assertEqual(result['availability_status'], 'eligibility_required')
+
+    def test_capture_schema_matches_validator_for_registered_payload(self):
+        registry = Registry()
+        with patch.object(accepted_quote, 'install_owner_hook'), \
+                patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            plugin.register(registry)
+        capture = registry.tools['capture_booking_names']
+        item = capture['schema']['parameters']['properties']['guests']['items']
+        self.assertNotIn('gender_evidence', item['properties'])
+        payload = {'guest_count': 1,
+                   'guests': [{'name': 'Nora', 'explicit_gender': 'female'}]}
+        with patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            result = json.loads(capture['handler'](payload))
+        self.assertNotEqual(result['status'], 'invalid_input')
+
+    def test_current_indexed_correction_supersedes_stale_staff_hint(self):
+        state = {'epoch': 2, 'checked_offer': {'room_name_hints': [
+            {'name': 'Alex', 'explicit_gender': 'female'},
+            {'name': 'Bea', 'explicit_gender': 'female'}]}}
+        guests = [{'name': 'Alex', 'explicit_gender': 'male'}, {'name': 'Bea'}]
+        allowed = self.validated_state(state, guests)
+        self.assertEqual(allowed, {0: 'male', 1: 'female'})
+        payload = {'guests': deepcopy(guests)}
+        plugin._normalize_guests_payload(payload, {0: 'female', 1: 'female'})
+        self.assertEqual(payload['guests'], [guests[0],
+                         {'name': 'Bea', 'explicit_gender': 'female'}])
+        # A reordered roster remaps old hints by exact identity, not old index.
+        self.assertEqual(self.validated_state(state, [{'name': 'Bea'},
+                         {'name': 'Alex', 'explicit_gender': 'male'}]),
+                         {0: 'female', 1: 'male'})
 
     def test_provisional_quote_remains_authority_after_payment_selection(self):
         revision = {'room_name_hints': [
@@ -272,7 +332,9 @@ class CaptainR3Tests(unittest.TestCase):
             {'guest_index': 0, 'guest_name': 'Alex', 'bed_code': 'F1'}],
             'room_name_hints': [{'name': 'Alex', 'explicit_gender': 'female'}]}
         self.assertTrue(accepted_quote._completion_revision_matches(before, before))
-        self.assertIn('quote_revision_requires_owner',
+        self.assertNotIn('quote_revision_requires_owner',
+                         inspect.getsource(accepted_quote.prepare_quote))
+        self.assertIn('preserving omitted draft selections',
                       inspect.getsource(accepted_quote.prepare_quote))
 
 

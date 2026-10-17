@@ -31,7 +31,7 @@ function normalizePref(s) {
   const p = normalizeToken(s);
   if (!p) return null;
   if (p === 'female' || p === 'female_only' || p === 'girls' || p === 'girls_room') return 'female_only';
-  if (p === 'male' || p === 'male_only' || p === 'guys' || p === 'guys_room'
+  if (p === 'male' || p === 'male_only' || p === 'male_dorm' || p === 'guys' || p === 'guys_room'
     || p === 'mens' || p === 'mens_room' || p === 'men' || p === 'men_s_room' || p === 'mensroom') {
     return 'male_only';
   }
@@ -145,6 +145,10 @@ function allowedCategoriesForGroup(groupGender, roomPreference) {
   const gender = groupGender || 'unknown';
   const rp = normalizePref(roomPreference);
   const mixedPool = new Set(['mixed', 'matrimonial_or_mixed']);
+  if (rp === 'mixed') return mixedPool;
+  if (rp === 'female_only') return new Set(gender === 'female' ? ['female_only'] : []);
+  if (rp === 'male_only') return new Set(gender === 'male' ? ['male_only'] : []);
+  if (rp && !['any', 'private'].includes(rp)) return new Set();
 
   if (gender === 'female') {
     if (rp === 'mixed') return new Set(['female_only', 'mixed', 'matrimonial_or_mixed']);
@@ -791,9 +795,9 @@ function deriveAllocatorContext({
   const count = Math.max(1, Number(guestCount) || 1);
 
   if (rp === 'female_only') {
-    if (explicit === 'male') {
+    if (explicit === 'male' || explicit === 'mixed') {
       return {
-        groupGender: 'male',
+        groupGender: explicit,
         roomPreference: null,
         conflict: 'female_only_overrides_explicit_male',
         needsClarification: true,
@@ -802,9 +806,9 @@ function deriveAllocatorContext({
     return { groupGender: 'female', roomPreference: 'female_only' };
   }
   if (rp === 'male_only') {
-    if (explicit === 'female') {
+    if (explicit === 'female' || explicit === 'mixed') {
       return {
-        groupGender: 'female',
+        groupGender: explicit,
         roomPreference: null,
         conflict: 'male_only_overrides_explicit_female',
         needsClarification: true,
@@ -1050,6 +1054,7 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
 }
 
 module.exports = {
+  normalizePref,
   ordinarySellingMode,
   validateExplicitBedSelection,
   chooseBeds,

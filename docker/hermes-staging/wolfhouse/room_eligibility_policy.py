@@ -106,6 +106,7 @@ def decide_room_eligibility(
     confidence: Any = None,
     ambiguous: bool = False,
     explicit_gender: Any = None,
+    group_gender: Any = None,
     room_preference: Any = None,
     private_room_chosen: bool = False,
     available: Optional[Dict[str, Any]] = None,
@@ -125,17 +126,20 @@ def decide_room_eligibility(
         "ambiguous": ambiguous,
         "explicit_gender": explicit_gender,
     })
-    statement = _explicit(explicit_gender)
+    statement = _explicit(group_gender) or _explicit(explicit_gender)
     row_statements = [
         _explicit(row.get("explicit_gender") or row.get("explicit_statement"))
         for row in specific_rows[:count]
     ]
     has_row_statement = any(row_statements)
     if has_row_statement:
-        # Person-level facts are more specific than a caller-level group label.
-        # Every slot must be explicit before a gendered whole-group result exists.
+        # Sparse individual restatements do not revoke an explicit whole-party
+        # fact. Contradictory individuals remain authoritative for their slot.
+        if _explicit(group_gender) in {'male', 'female'}:
+            row_statements = [value or statement for value in row_statements]
+            row_statements += [statement] * max(0, count - len(row_statements))
         statement = ""
-        if len(specific_rows) == count and all(row_statements):
+        if len(row_statements) == count and all(row_statements):
             statement = (row_statements[0] if len(set(row_statements)) == 1
                          else "mixed")
 
@@ -190,10 +194,13 @@ def decide_room_eligibility(
         conflict = "female_only_overrides_explicit_male" if statement == "male" else "female_only_conflicts_with_male_hint"
     elif hint_composition == "female" and preference == "male_only":
         conflict = "male_only_overrides_explicit_female" if statement == "female" else "male_only_conflicts_with_female_hint"
+    elif hint_composition == "mixed" and preference in {"female_only", "male_only"}:
+        conflict = f"{preference}_conflicts_with_mixed_group"
 
     if conflict:
-        allowed = _eligible_options("male" if hint_composition == "male" else "female", flags)
-        allowed = [item for item in allowed if item not in {"female_only", "male_only"} or item.startswith(hint_composition)]
+        allowed = _eligible_options(hint_composition, flags)
+        allowed = [item for item in allowed if item not in {"female_only", "male_only"}
+                   or item.startswith(hint_composition)]
         return {
             **base,
             "provisional": statement == "",
@@ -204,7 +211,9 @@ def decide_room_eligibility(
             "needs_human": False,
             "do_not_escalate": True,
             "allowed_room_preferences": allowed,
-            "excluded_room_preferences": ["female_only" if hint_composition == "male" else "male_only"],
+            "excluded_room_preferences": (["female_only", "male_only"]
+                                           if hint_composition == "mixed" else
+                                           ["female_only" if hint_composition == "male" else "male_only"]),
         }
 
     if (preference in {"mixed", "shared"} and not flags["mixed"]) or (
