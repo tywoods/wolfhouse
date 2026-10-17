@@ -16,11 +16,15 @@ const LUNA_STAFF_CARDS_REGROUP = path.join(
 const LOCATION_BOOKING_SETTINGS_UI = path.join(
   __dirname, '..', 'browser', 'wolfhouse-location-booking-settings-ui.js',
 );
+const STAFF_PORTAL_FIELDS_UI = path.join(
+  __dirname, '..', 'browser', 'wolfhouse-staff-portal-fields-ui.js',
+);
 
 function getWolfhouseAdminUiSource() {
   return [
     fs.readFileSync(LUNA_STAFF_CARDS_REGROUP, 'utf8'),
     fs.readFileSync(LOCATION_BOOKING_SETTINGS_UI, 'utf8'),
+    fs.readFileSync(STAFF_PORTAL_FIELDS_UI, 'utf8'),
     fs.readFileSync(BROWSER_SRC, 'utf8'),
   ].join('\n');
 }
@@ -35,4 +39,5 @@ module.exports = {
   BROWSER_SRC,
   PRICING_BROWSER_SRC,
   LOCATION_BOOKING_SETTINGS_UI,
+  STAFF_PORTAL_FIELDS_UI,
 };
