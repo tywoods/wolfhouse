@@ -159,6 +159,32 @@ class RegisteredNotesFirstTests(unittest.TestCase):
                 self.assertEqual(self.events, ['notes', 'search', 'read'])
         self.assertEqual(self.source.booking, {'dates': 'fixture-dates', 'guest_count': 2})
 
+    def test_season_prose_is_scoped_away_from_booking_date_authority(self):
+        self.notes = {'success': True, 'has_notes': True,
+                      'notes': 'We normally open from Easter until Halloween.'}
+        result = self.call('get_house_info', {})
+        self.assertTrue(result['success'])
+        self.assertEqual(result['notes'], self.notes['notes'])
+        self.assertEqual(result['authority_scope'], 'house_information_only')
+        guidance = result['booking_date_guidance']
+        self.assertIn('Staff-approved dates proceed without a season caveat', guidance)
+        self.assertIn('closed_season result still refuses', guidance)
+        self.assertIn('missing pricing/date authority stays uncertain', guidance)
+        description = self.registered['get_house_info']['description']
+        self.assertIn('stale season prose', description)
+        self.assertIn('one necessary next question', description)
+
+    def test_season_guidance_preserves_closed_and_missing_authority_controls(self):
+        guidance = self.call('get_house_info', {})['booking_date_guidance']
+        cases = {
+            'closed': ('closed_season', 'refuses'),
+            'missing': ('missing pricing/date authority', 'uncertain'),
+        }
+        for name, (authority, outcome) in cases.items():
+            with self.subTest(name=name):
+                self.assertIn(authority, guidance)
+                self.assertIn(outcome, guidance)
+
     def test_notes_do_not_override_staff_gate_or_query_guard(self):
         self.assertTrue(self.call('get_house_info', {})['success'])
         self.setting['enabled'] = False

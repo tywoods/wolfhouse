@@ -1,0 +1,4492 @@
+{
+  "A": {
+    "title": "## A. Ty Lab +999****0236",
+    "events": [
+      {
+        "header": "1. REQUEST `check_availability` — 2026-10-16T20:42:09.795Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-10",
+          "guest_count": 3,
+          "room_type": "any"
+        },
+        "line": 80,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:42:09.798Z",
+        "data": {
+          "availability_status": "available",
+          "available": true,
+          "available_beds": [
+            {
+              "bed_code": "R3-B1",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B2",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B3",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B4",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R1-B1",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B2",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B3",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B4",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B5",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R2-B1",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B2",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B3",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B4",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B5",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R5-B4",
+              "room_code": "R5",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R5-B5",
+              "room_code": "R5",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R5-B6",
+              "room_code": "R5",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R7-B1",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B2",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B3",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R8-B4",
+              "room_code": "R8",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R8-B5",
+              "room_code": "R8",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R9-B1",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B2",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B3",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B6",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B1",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B2",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B3",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B4",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R4-B1",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B2",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B3",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B4",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B5",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B6",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B7",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B8",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B9",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B1",
+              "room_code": "R12",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B2",
+              "room_code": "R12",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 48,
+          "blockers": [],
+          "girls_room_available": true,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": "These beds are male-only, not a mixed dorm.",
+          "next_action": "ready_for_bot_create",
+          "private_room_available": false,
+          "room_decision": null,
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [
+            "R4-B1",
+            "R4-B2",
+            "R4-B3"
+          ],
+          "selected_room_code": "R4",
+          "selected_room_description": "male_only",
+          "selected_room_types": [
+            "male_only"
+          ],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": false,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 91,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `preview_package_prices` — 2026-10-16T20:42:20.352Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-10",
+          "guest_count": 3,
+          "room_type": "shared"
+        },
+        "line": 370,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `preview_package_prices` — 2026-10-16T20:42:20.360Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-10",
+          "guest_count": 3,
+          "guest_safe_next_action": null,
+          "malibu": null,
+          "next_action": "offer_accommodation_or_change_dates",
+          "nights": 6,
+          "package_eligible": false,
+          "package_min_nights": 7,
+          "packages": {},
+          "season_code": null,
+          "staff_review_needed": false,
+          "success": false,
+          "tool": "preview_package_prices",
+          "uluwatu": null,
+          "waimea": null
+        },
+        "line": 381,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `capture_booking_names` — 2026-10-16T20:42:58.197Z",
+        "data": {
+          "guest_count": 3,
+          "guests": [
+            {
+              "name": "Tina"
+            },
+            {
+              "name": "Theresa"
+            },
+            {
+              "name": "Taylor"
+            }
+          ]
+        },
+        "line": 404,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:42:58.200Z",
+        "data": {
+          "names": {
+            "guests": [
+              {
+                "name": "Tina"
+              },
+              {
+                "name": "Theresa"
+              },
+              {
+                "name": "Taylor"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 423,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `check_availability` — 2026-10-16T20:43:15.217Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-11",
+          "guest_count": 3,
+          "room_preference": "female_only",
+          "room_type": "shared"
+        },
+        "line": 446,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:43:15.225Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [
+            {
+              "bed_code": "R3-B1",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B2",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B3",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B4",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R1-B1",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B2",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B3",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B4",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B5",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R7-B1",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B2",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B3",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B1",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B2",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B3",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B6",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B1",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B2",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B3",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B4",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 48,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Is your group all girls, all guys, or a mix?",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": true,
+            "clarification_prompt": "Is your group all girls, all guys, or a mix?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 458,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `check_availability` — 2026-10-16T20:44:11.453Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-11",
+          "gender_preference": "female",
+          "guest_count": 3,
+          "room_preference": "female_only",
+          "room_type": "shared"
+        },
+        "line": 649,
+        "suffix": ""
+      },
+      {
+        "header": "6. REQUEST `preview_package_prices` — 2026-10-16T20:44:11.453Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-11",
+          "guest_count": 3,
+          "room_type": "shared"
+        },
+        "line": 662,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:44:11.456Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [
+            {
+              "bed_code": "R3-B1",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B2",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B3",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B4",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R1-B1",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B2",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B3",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B4",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B5",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R7-B1",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B2",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B3",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B1",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B2",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B3",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B6",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B1",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B2",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B3",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B4",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 45,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would you like to check another room option or different dates?",
+          "room_decision": {
+            "allowed_room_preferences": [],
+            "clarification_needed": true,
+            "clarification_prompt": "Would you like to check another room option or different dates?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": [
+            "group_split_across_rooms_required"
+          ]
+        },
+        "line": 673,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `preview_package_prices` — 2026-10-16T20:44:11.460Z",
+        "data": {
+          "check_in": "2026-11-04",
+          "check_out": "2026-11-11",
+          "guest_count": 3,
+          "guest_safe_next_action": null,
+          "malibu": {
+            "currency": "EUR",
+            "deposit_per_guest_cents": 20000,
+            "deposit_total_cents": 60000,
+            "includes_line": "Includes: 7 nights in a dorm bed, T-shirt",
+            "inclusions": [
+              "shared_room",
+              "shirt"
+            ],
+            "nights": 7,
+            "per_person_cents": 24900,
+            "season_code": "spring_autumn",
+            "success": true,
+            "total_cents": 74700
+          },
+          "next_action": "explain_packages_then_ask_choice",
+          "nights": 7,
+          "package_eligible": true,
+          "package_min_nights": 7,
+          "packages": {
+            "malibu": {
+              "currency": "EUR",
+              "deposit_per_guest_cents": 20000,
+              "deposit_total_cents": 60000,
+              "includes_line": "Includes: 7 nights in a dorm bed, T-shirt",
+              "inclusions": [
+                "shared_room",
+                "shirt"
+              ],
+              "nights": 7,
+              "per_person_cents": 24900,
+              "season_code": "spring_autumn",
+              "success": true,
+              "total_cents": 74700
+            },
+            "rincon": {
+              "currency": "EUR",
+              "deposit_per_guest_cents": 20000,
+              "deposit_total_cents": 60000,
+              "nights": 7,
+              "per_person_cents": 24900,
+              "season_code": "spring_autumn",
+              "success": true,
+              "total_cents": 74700
+            },
+            "uluwatu": {
+              "currency": "EUR",
+              "deposit_per_guest_cents": 20000,
+              "deposit_total_cents": 60000,
+              "includes_line": "Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit",
+              "inclusions": [
+                "shared_room",
+                "shirt",
+                "surfboard_6_days",
+                "wetsuit_6_days"
+              ],
+              "nights": 7,
+              "per_person_cents": 34900,
+              "season_code": "spring_autumn",
+              "success": true,
+              "total_cents": 104700
+            },
+            "waimea": {
+              "currency": "EUR",
+              "deposit_per_guest_cents": 20000,
+              "deposit_total_cents": 60000,
+              "includes_line": "Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit, surf lessons",
+              "inclusions": [
+                "shared_room",
+                "shirt",
+                "surfboard_6_days",
+                "wetsuit_6_days",
+                "surf_lesson_each_day_6_days"
+              ],
+              "nights": 7,
+              "per_person_cents": 49900,
+              "season_code": "spring_autumn",
+              "success": true,
+              "total_cents": 149700
+            }
+          },
+          "season_code": "spring_autumn",
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "preview_package_prices",
+          "uluwatu": {
+            "currency": "EUR",
+            "deposit_per_guest_cents": 20000,
+            "deposit_total_cents": 60000,
+            "includes_line": "Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit",
+            "inclusions": [
+              "shared_room",
+              "shirt",
+              "surfboard_6_days",
+              "wetsuit_6_days"
+            ],
+            "nights": 7,
+            "per_person_cents": 34900,
+            "season_code": "spring_autumn",
+            "success": true,
+            "total_cents": 104700
+          },
+          "waimea": {
+            "currency": "EUR",
+            "deposit_per_guest_cents": 20000,
+            "deposit_total_cents": 60000,
+            "includes_line": "Includes: 7 nights in a dorm bed, T-shirt, board + wetsuit, surf lessons",
+            "inclusions": [
+              "shared_room",
+              "shirt",
+              "surfboard_6_days",
+              "wetsuit_6_days",
+              "surf_lesson_each_day_6_days"
+            ],
+            "nights": 7,
+            "per_person_cents": 49900,
+            "season_code": "spring_autumn",
+            "success": true,
+            "total_cents": 149700
+          }
+        },
+        "line": 863,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:42:04.590Z | Guest | Hey, we are 3 girls looking for a room from Nov 4-10th please |",
+      "| 2026-10-16T20:42:09.802Z | Luna | Hey! 😊 We have three beds available together in a girls-only shared room for **4–10 November 2026**.<br><br>Would you like the girls-only room, or would you prefer a mixed shared room? |",
+      "| 2026-10-16T20:42:14.027Z | Guest | girls room |",
+      "| 2026-10-16T20:42:20.363Z | Luna | Girls-only shared room it is 😊 Your 4–10 November stay is 6 nights; our packages require at least 7.<br><br>Would you like an accommodation-only quote for those dates, or would you prefer to extend your stay to explore the packages? |",
+      "| 2026-10-16T20:42:52.818Z | Guest | We want waimea package please, our names are Tina Theresa and Taylor |",
+      "| 2026-10-16T20:42:58.203Z | Luna | Thanks, Tina, Theresa and Taylor! 😊 Waimea requires a minimum of **7 nights**, so it isn’t available for your current 4–10 November dates.<br><br>Would **4–11 November 2026** work for you? If so, I can check the girls’ room and get your Waimea quote. |",
+      "| 2026-10-16T20:43:09.902Z | Guest | yes |",
+      "| 2026-10-16T20:43:15.230Z | Luna | Thanks! I checked **4–11 November**, but unfortunately the girls-only room isn’t available for all three of you for the extended stay.<br><br>Would you be happy with a **mixed shared room** for those dates, or would you prefer to look at different dates for a girls-only room? |",
+      "| 2026-10-16T20:44:02.185Z | Guest | That's not true room 5 is free |",
+      "| 2026-10-16T20:44:11.463Z | Luna | Sorry for the confusion. I’ve rechecked, and the booking system still isn’t showing three available beds in Room 5 for the full **4–11 November** stay. It did show three beds there for your original **4–10 November** dates.<br><br>Are you seeing Room 5 available for 4–10 or 4–11 November? |"
+    ]
+  },
+  "B0": {
+    "title": "## B0. Probe +346****3009",
+    "events": [
+      {
+        "header": "1. REQUEST `check_availability` — 2026-10-16T20:46:14.420Z",
+        "data": {
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "gender_preference": "male",
+          "guest_count": 1,
+          "room_preference": "male dorm",
+          "room_type": "shared"
+        },
+        "line": 1058,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:46:14.425Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [],
+          "available_count": 6,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would a mixed dorm work for you?",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": true,
+            "clarification_prompt": "Would a mixed dorm work for you?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 1071,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:46:08.509Z | Guest | hi, I'm male, 1 bed in the male dorm Oct 19-23 2026 — available? price? |",
+      "| 2026-10-16T20:46:14.429Z | Luna | Hi! The male dorm isn’t available for October 19–23, 2026. Would a mixed dorm work for you? If so, I can check the price for that option. |"
+    ]
+  },
+  "B1": {
+    "title": "## B1. Sim13 +346****3001",
+    "events": [
+      {
+        "header": "1. REQUEST `capture_booking_names` — 2026-10-16T20:46:29.383Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Emre",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "gender_evidence": "i'm Emre (male)",
+              "name": "Emre"
+            }
+          ]
+        },
+        "line": 1210,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `get_house_info` — 2026-10-16T20:46:29.383Z",
+        "data": {
+          "client_slug": "wolfhouse-somo"
+        },
+        "line": 1226,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `check_availability` — 2026-10-16T20:46:29.383Z",
+        "data": {
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "guest_count": 1,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ],
+          "room_preference": "male dorm",
+          "room_type": "shared"
+        },
+        "line": 1234,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:46:29.386Z",
+        "data": {
+          "status": "invalid_input",
+          "success": false,
+          "tool": "capture_booking_names"
+        },
+        "line": 1253,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `get_house_info` — 2026-10-16T20:46:29.394Z",
+        "data": {
+          "has_notes": true,
+          "notes": "# General Notes for Luna — Wolfhouse Somo\n\n**Property:** Wolfhouse Somo (surf camp / surf school / surf hostel)  \n**Hosts:** Camilla and Alessandro  \n**Location:** Somo, Cantabria, Spain (Ribamontán al Mar / Santander bay area) \n**Season:** Easter to Halloween  \n**Languages spoken at the house:** Italian, Spanish, English  \n**Contact:** alex@wolf-house.com · Camilla +34 650 616 794  \n\nUse these notes for warm, short answers to guests. For live prices, lesson/rental availability, shuttle inclusions, Wi‑Fi credentials, or current weather/surf: use **Staff tools** / Luna Intelligence — do not invent numbers or passwords.\n\nWi-Fi is good enough for video calls, and there is a desk / place to work.\n\nBreakfast is not included in any rate. We do not offer a vegan breakfast.\n\nGuests aged 16 and over can stay without a parent. For guests under 16, hand the request to staff.\n\nGuests can pay the remaining balance on arrival, after paying the deposit configured in Staff Pricing.\n\nThere's a big shared kitchen guests can use, with room in the fridge for each guest.\n\n---\n\n## Where are we?\n\nWolfhouse Somo is a surf camp and surf hostel in **Somo, Cantabria, Spain**, near Playa de Somo and Loredo, on Santander bay. Santander is about **30 minutes** away. The house welcomes guests from **Easter through Halloween**.\n\n**Address for guests:** Prefer **39140 Somo** (Cantabria). Public listings disagree on the street name:\n- Calle Los Beatos N.20, Somo  \n- Barrio Latas 20, 39140 Somo  \n\n**ASK OWNER** which full street address to give guests. Postal code **39140** is preferred; treat **39012** as unreliable.\n\n---\n\n## Who hosts here?\n\nHosts are **Camilla** and **Alessandro**. The house speaks **Italian, Spanish, and English**. Guests can reach the house at **alex@wolf-house.com** or Camilla on **+34 650 616 794**.\n\n---\n\n## Language tips (EN / ES / IT)\n\n- Greet warmly in the guest’s language when you can: English, Spanish, or Italian.\n- Keep answers short and practical.\n- If a guest switches language, follow them.\n- For anything uncertain (prices, times, passwords), say you’ll check with the team / Staff tools rather than guessing.\n\n---\n\n## Check-in and check-out\n\n- **Check-in:** from **15:00** (official FAQ). Hostelworld also notes check-in **15:00–23:00** and reception **08:00–23:00**.\n- **Check-out:** prefer **10:00** (official FAQ) until Owner confirms; Hostelworld says before **10:30**.\n- **No curfew** (per Hostelworld listing).\n- Exact late-arrival process: **ASK OWNER** if not already in Staff tools.\n\n---\n\n## Wi‑Fi\n\nOfficial materials mention fast commercial Wi‑Fi (~1000 MB class).  \n**Network name and password: UNKNOWN — Staff tools / ASK OWNER only.** Never invent or guess credentials.\n\n---\n\n## Parking\n\n**Free parking inside the property** is available.\n\n---\n\n## Pets\n\nAnimals are **welcome in private rooms**. The guest must **supervise** their pet. There is a big garden, but there is a **main road nearby** and **frequent guest traffic**. **No dog-sitting.** Prefer this private-rooms nuance when answering.\n\n---\n\n## Smoking\n\n**Strictly forbidden** to smoke or vape **inside**. This is a **non-smoking** property. Outdoor smoking rules: **ASK OWNER** if not listed in Staff.\n\n---\n\n## Beach and how to get there\n\nNear **Playa de Somo**. Typical times from the house:\n- Walk ~**1.2 km** / about **10 minutes**\n- Skate or bike about **4–5 minutes**\n- Drive about **1 minute**\n\nLive surf/weather: see **Weather & surf** below — do not invent conditions.\n\n---\n\n## Surf lessons and board rentals\n\nPacks often include board/wetsuit rental and lessons via **local partners**. Softboards and warmer wetsuits are used for learners; FAQ notes a **4/3 wetsuit** is recommended in summer.\n\n**Live availability and prices: Staff tools only.** Do not quote fixed lesson/rental prices or invent schedule slots.\n\n---\n\n## Board storage and garden vibe\n\nGuest reviews mention garden hammocks, slackline, wetsuit drying lines, and a hut to store boards. Treat as **soft / confirm with Owner** — say the garden is set up for surf life, and confirm board storage details with the team if asked tightly.\n\n---\n\n## Kitchen and meals\n\nThere is a **shared / full kitchen**. Meals catering is for **groups only**; solo travellers and couples normally **use the kitchen**.\n\n---\n\n## Laundry, towels, TV, BBQ, gardens\n\nListings mention laundry, TV, relaxation spaces, BBQ, and gardens.  \n**Towels: UNKNOWN — ASK OWNER.**  \nQuiet-hours clock: **UNKNOWN** — ask guests to respect other guests and dorm etiquette; exact quiet hours **ASK OWNER**.\n\n---\n\n## House rules (guest-facing)\n\n- No smoking or vaping inside.\n- Drugs are **not allowed**.\n- Respect shared spaces, dorm etiquette, and other guests.\n- Pets: supervise; private rooms only for animals (see Pets).\n\n---\n\n## Airport and transfers (process only)\n\nClosest airport: **Santander (SDR)**. Drive to the area is about **~30 minutes**.\n\nCommon path guests use: **airport → Santander → Los Reginas ferry (Santander–Pedreña–Somo)** — ferry about **20–25 minutes**.\n\n**Do not hardcode ferry fares, bus times, or shuttle schedules.**  \nClaims of a **free airport shuttle with packs** are marketing — **confirm for each guest via Staff tools / ASK OWNER**. For live transfer options and inclusions, use **Staff tools** only.\n\n---\n\n## Local practicals\n\n**Supermarket:** Supermercado Lupa, C. las Quebrantas 4, 39140 — about **1 km** from the house. Hours (soft / verify): Mon closed; Tue–Fri 9:00–20:00; Sat–Sun 9:00–21:00.\n\n**Pharmacy:** Farmacia Martín Rodríguez, C. Isla de Mouro 11, 39140 · tel **942 51 05 84**. Hours often **9:00–14:00 / 16:30–20:00** (confirm if critical).\n\n**Clinic:** Consultorio Local Somo, C/ Las Quebrantas 1, 39140 · tel **942 510 236**.\n\n**Hospital / ER:** Hospital Universitario Marqués de Valdecilla, Avda. Valdecilla s/n, 39008 Santander.\n\n**ATMs:** Often listed on Av. de Trasmiera (e.g. Caixabank / Sabadell).\n\n**Taxi:** No verified house-preferred number — **ASK OWNER**.\n\n---\n\n## Weather & surf\n\nThis is **Atlantic north Spain** — conditions change quickly.  \n**Live weather, swell, wind, tide, and “is it good to surf today?” need Staff tools / Luna Intelligence.** Do not invent swell heights, ratings, or forecasts from memory.\n\n---\n\n## What Luna should not invent\n\nNever invent or guess: Wi‑Fi passwords, prices, lesson/rental availability, shuttle inclusions/times/fares, quiet hours clock, towel policy, or exact street address until Owner picks one. Point guests to the team / Staff tools for live facts.\n\n---\n\n## Gap list (Ty / Owner confirm)\n\n1. **Canonical guest address** — Calle Los Beatos N.20 vs Barrio Latas 20 (keep 39140; drop 39012).\n2. **Check-out time** — lock **10:00** vs **before 10:30**; late-arrival / after-23:00 process.\n3. **Wi‑Fi** — network name + password (Staff only if secret).\n5. **Towels** — bring your own.\n6. **Quiet hours** — exact clock times (if any).\n7. **Outdoor smoking/vaping** — allowed where, or fully banned on property.\n8. **Board storage hut / drying lines / hammocks** — confirm for Luna to state confidently.\n9. **Free airport shuttle with packs** — which packs, for whom, how to book (Staff live).\n10. **House-preferred taxi number**\n11. **Supermarket / pharmacy hours** — \n12. Staff staging / `get_house_info` paste — still blocked without auth.",
+          "success": true,
+          "tool": "get_house_info"
+        },
+        "line": 1263,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:46:29.401Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [],
+          "available_count": 6,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would a mixed dorm work for you?",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": true,
+            "clarification_prompt": "Would a mixed dorm work for you?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 1274,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `capture_booking_names` — 2026-10-16T20:46:29.404Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Emre",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ]
+        },
+        "line": 1329,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:46:29.407Z",
+        "data": {
+          "names": {
+            "guest_name": "Emre",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 1344,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `quote_booking` — 2026-10-16T20:46:42.330Z",
+        "data": {
+          "add_ons": [],
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "guest_count": 1,
+          "guest_name": "Emre",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ],
+          "package_code": "package_none",
+          "room_preference": "mixed",
+          "room_type": "shared"
+        },
+        "line": 1363,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:46:42.334Z",
+        "data": {
+          "allocation_reason": "no_eligible_mixed_room",
+          "allocation_split": false,
+          "auth_mode": "bot_token",
+          "available_beds": [
+            {
+              "bed_code": "R4-B5",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B6",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B7",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B8",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B9",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B2",
+              "room_code": "R12",
+              "room_type": "male_only"
+            }
+          ],
+          "available_count": 6,
+          "blockers": [
+            "needs_clarification"
+          ],
+          "booking_names": {
+            "names": {
+              "guest_name": "Emre",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Emre"
+                }
+              ]
+            }
+          },
+          "capacity_check_only": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "creates_booking": false,
+          "creates_payment": false,
+          "creates_stripe_link": false,
+          "date_rule_ok": true,
+          "deposit_required_cents": null,
+          "do_not_escalate": true,
+          "elapsed_ms": 56,
+          "exact_bed_eligibility": null,
+          "gender_preference": null,
+          "girls_room_available": false,
+          "group_gender": "unknown",
+          "guest_count": 1,
+          "has_enough_beds": true,
+          "needs_clarification": true,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "no_write_performed": true,
+          "occupied_count": 48,
+          "offer_revision": null,
+          "package_eligible": false,
+          "package_min_nights": 7,
+          "preview_only": true,
+          "private_room_available": false,
+          "provenance": {
+            "availability_fingerprint": "8e024aa2b9731e990dbd7d84a106bed382b106b4f8db9eec80cdf0d671369458",
+            "availability_version": 1,
+            "available_count": 6,
+            "blockers": [
+              "needs_clarification"
+            ],
+            "check_in": "2026-10-19",
+            "check_out": "2026-10-23",
+            "checked_at": "2026-10-16T20:46:33.926Z",
+            "client_slug": "wolfhouse-somo",
+            "guest_count": 1,
+            "has_enough_beds": true,
+            "occupied_count": 48,
+            "selected_bed_codes": []
+          },
+          "quote_status": "needs_guest_clarification",
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "rules_based_rooming": true,
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "sends_whatsapp": false,
+          "staff_api_status": "ok",
+          "success": false,
+          "tool": "quote_booking",
+          "total_cents": null,
+          "warnings": [],
+          "write_performed": false
+        },
+        "line": 1385,
+        "suffix": ""
+      },
+      {
+        "header": "6. REQUEST `quote_booking` — 2026-10-16T20:46:42.339Z",
+        "data": {
+          "add_ons": [],
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "gender_preference": "male",
+          "guest_count": 1,
+          "guest_name": "Emre",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ],
+          "package_code": "package_none",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 1502,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:46:42.343Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-10-19",
+            "check_out": "2026-10-23",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "emre"
+              }
+            ],
+            "guest_count": 1,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R4-B5"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 16000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Emre",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Emre"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "full_payment_only": false,
+          "girls_room_available": false,
+          "guest_name": "Emre",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [
+            "payment_choice"
+          ],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-10-19",
+            "check_out": "2026-10-23",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 10000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "emre"
+              }
+            ],
+            "guest_count": 1,
+            "guest_packages": [],
+            "offer_fingerprint": "7d476830c3db65465b3b11c0b1bc8d8b5f05661a19d10475a058215a88d8c861",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 10000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre"
+              }
+            ],
+            "room_preference": "male_only",
+            "room_type": "shared",
+            "total_cents": 16000,
+            "v": 1
+          },
+          "payment_choice_needed": true,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [],
+          "quote_status": "show_quote",
+          "remaining_after_deposit_cents": 6000,
+          "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "male_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "male",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 16000,
+          "unknown_add_on_codes": []
+        },
+        "line": 1525,
+        "suffix": ""
+      },
+      {
+        "header": "7. REQUEST `capture_booking_names` — 2026-10-16T20:47:05.297Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Emre Yilmaz",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ]
+        },
+        "line": 1668,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:47:05.300Z",
+        "data": {
+          "names": {
+            "guest_name": "Emre Yilmaz",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre Yilmaz"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 1683,
+        "suffix": ""
+      },
+      {
+        "header": "8. REQUEST `create_booking_from_plan` — 2026-10-16T20:47:05.303Z",
+        "data": {
+          "add_ons": [],
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "confirm": true,
+          "gender_preference": "male",
+          "guest_count": 1,
+          "guest_name": "Emre Yilmaz",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "language": "en",
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 1702,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `create_booking_from_plan` — 2026-10-16T20:47:05.307Z",
+        "data": {
+          "booking_names": {
+            "names": {
+              "guest_name": "Emre Yilmaz",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Emre Yilmaz"
+                }
+              ]
+            }
+          },
+          "booking_not_created_yet": true,
+          "error": "quote_owner_presented_offer_required",
+          "next_action": "clarify_or_requote",
+          "staff_review_needed": false,
+          "success": false,
+          "tool": "create_booking_from_plan",
+          "write_performed": false
+        },
+        "line": 1728,
+        "suffix": ""
+      },
+      {
+        "header": "9. REQUEST `quote_booking` — 2026-10-16T20:47:05.311Z",
+        "data": {
+          "add_ons": [],
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "gender_preference": "male",
+          "guest_count": 1,
+          "guest_name": "Emre Yilmaz",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 1753,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:47:05.314Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-10-19",
+            "check_out": "2026-10-23",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "emre yilmaz"
+              }
+            ],
+            "guest_count": 1,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R4-B5"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 16000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Emre Yilmaz",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Emre Yilmaz"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "full_payment_only": false,
+          "girls_room_available": false,
+          "guest_name": "Emre Yilmaz",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-10-19",
+            "check_out": "2026-10-23",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 10000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "emre yilmaz"
+              }
+            ],
+            "guest_count": 1,
+            "guest_packages": [],
+            "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 10000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "male",
+                "name": "Emre Yilmaz"
+              }
+            ],
+            "room_preference": "male_only",
+            "room_type": "shared",
+            "total_cents": 16000,
+            "v": 1
+          },
+          "payment_choice": "deposit",
+          "payment_choice_needed": false,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [],
+          "quote_status": "ready_for_create_dry_run",
+          "remaining_after_deposit_cents": 6000,
+          "reply_draft": "For those dates, the estimated total is €160.00. The deposit is €100.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "male_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "male",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 16000,
+          "unknown_add_on_codes": []
+        },
+        "line": 1777,
+        "suffix": ""
+      },
+      {
+        "header": "10. REQUEST `create_booking_from_plan` — 2026-10-16T20:47:05.319Z",
+        "data": {
+          "add_ons": [],
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "confirm": true,
+          "gender_preference": "male",
+          "guest_count": 1,
+          "guest_name": "Emre Yilmaz",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "language": "en",
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 1919,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `create_booking_from_plan` — 2026-10-16T20:47:05.322Z",
+        "data": {
+          "success": false,
+          "tool": "create_booking_from_plan",
+          "error": "quote_owner_presented_offer_required",
+          "write_performed": false,
+          "booking_not_created_yet": true,
+          "next_action": "clarify_or_requote",
+          "staff_review_needed": false,
+          "booking_names": {
+            "names": {
+              "guest_name": "Emre Yilmaz",
+              "guests": [
+                {
+                  "name": "Emre Yilmaz",
+                  "explicit_gender": "male"
+                }
+              ]
+            }
+          }
+        },
+        "line": 1945,
+        "suffix": "[Tool loop warning: repeated_exact_failure_warning; count=2; create_booking_from_plan has failed 2 times with identical arguments. This looks like a loop; inspect the error and change strategy instead of retrying it unchanged.]"
+      },
+      {
+        "header": "11. REQUEST `flag_needs_human` — 2026-10-16T20:47:05.326Z",
+        "data": {
+          "client_slug": "wolfhouse-somo",
+          "reason": "business_tool_error: Booking creation repeatedly refused with quote_owner_presented_offer_required after accepted EUR160 accommodation-only quote, EUR100 deposit, and fresh successful re-quote. Emre Yilmaz, one male dorm bed, 2026-10-19 to 2026-10-23. No booking created or payment link issued."
+        },
+        "line": 1953,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `flag_needs_human` — 2026-10-16T20:47:05.330Z",
+        "data": {
+          "blocked_reasons": [
+            "handoff_not_persisted"
+          ],
+          "conversation_id": null,
+          "conversation_paused": false,
+          "do_not_escalate": false,
+          "error": "HTTP Error 403: Forbidden",
+          "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+          "handoff_persisted": false,
+          "handoff_reason": null,
+          "needs_human": false,
+          "staff_api_status": "http_error",
+          "staff_review_id": null,
+          "staff_review_needed": true,
+          "status": 403,
+          "success": false,
+          "tool": "flag_needs_human"
+        },
+        "line": 1962,
+        "suffix": ""
+      },
+      {
+        "header": "12. REQUEST `list_my_bookings` — 2026-10-16T20:47:12.831Z",
+        "data": {
+          "client_slug": "wolfhouse-somo"
+        },
+        "line": 1986,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `list_my_bookings` — 2026-10-16T20:47:12.835Z",
+        "data": {
+          "booking_status_unknown": true,
+          "bookings": [],
+          "count": 0,
+          "do_not_escalate": true,
+          "do_not_retract_successful_create": true,
+          "do_not_retry_create": true,
+          "lookup_status": "empty",
+          "prior_create_receipt": null,
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "list_my_bookings"
+        },
+        "line": 1994,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:46:15.906Z | Guest | hey luna! i'm Emre (male), flying into Santander soon. looking for 4 nights Oct 19-23, one male dorm bed. do you have wifi that actually works for zoom calls, a desk somewhere, and is breakfast vegan-friendly? |",
+      "| 2026-10-16T20:46:29.410Z | Luna | Hey Emre! 👋<br><br>- **Wi-Fi & work:** Yes—our Wi-Fi is suitable for video calls, and there’s a desk/place to work.<br>- **Breakfast:** Breakfast isn’t included in any rate, and we don’t offer a vegan breakfast. You’re welcome to use the shared kitchen, with fridge space for your food.<br>- **19–23 October:** A male-only dorm isn’t available for those dates. Would a **mixed dorm** work for you? |",
+      "| 2026-10-16T20:46:30.607Z | Guest | cool — can you quote me just the bed for those nights? no surf package, just accommodation |",
+      "| 2026-10-16T20:46:42.354Z | Luna | Sure, Emre! And a correction: the latest check confirms a **male dorm bed is available**—sorry for the earlier mix-up.<br><br>**19–23 October · 4 nights · 1 guest**<br>Accommodation only, no surf package.<br><br>- **Total: €160**<br>- **Deposit: €100**<br>- **Remaining after deposit: €60**, payable on arrival<br><br>Nothing’s booked yet. Would you like to go ahead with the deposit, or pay in full? |",
+      "| 2026-10-16T20:46:43.659Z | Guest | that works. lock it in please — Emre Yilmaz, I'll pay the deposit when you send the link |",
+      "| 2026-10-16T20:47:05.332Z | Luna | Sorry, Emre—the booking system is blocking me from creating your reservation, so **your bed isn’t reserved yet**, and I don’t have a deposit link to send.<br><br>Your quote is still **€160 total, with a €100 deposit** for 19–23 October, accommodation only.<br><br>I also couldn’t complete the staff handoff. Please contact Camilla at **+34 650 616 794** or **alex@wolf-house.com** to finish booking. |",
+      "| 2026-10-16T20:47:06.333Z | Guest | deposit please |",
+      "| 2026-10-16T20:47:12.841Z | Luna | The **€100 deposit** is your selected option, Emre. Unfortunately, I still don’t have a created reservation to attach a payment link to, so your bed isn’t secured.<br><br>Please contact Camilla at **+34 650 616 794** to complete the booking and arrange your deposit. Sorry for the hassle. |"
+    ]
+  },
+  "B2": {
+    "title": "## B2. Sim13 +346****3002",
+    "events": [
+      {
+        "header": "1. REQUEST `capture_booking_names` — 2026-10-16T20:47:23.337Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Nora",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "gender_evidence": "solo female traveler",
+              "name": "Nora"
+            }
+          ]
+        },
+        "line": 2127,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `check_availability` — 2026-10-16T20:47:23.337Z",
+        "data": {
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "gender_preference": "female",
+          "guest_count": 1,
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora"
+            }
+          ],
+          "room_preference": "female_only",
+          "room_type": "shared"
+        },
+        "line": 2143,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:47:23.342Z",
+        "data": {
+          "status": "invalid_input",
+          "success": false,
+          "tool": "capture_booking_names"
+        },
+        "line": 2162,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:47:23.345Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 19,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would a mixed dorm work for you?",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": true,
+            "clarification_prompt": "Would a mixed dorm work for you?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 2172,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `capture_booking_names` — 2026-10-16T20:47:23.349Z",
+        "data": {
+          "guest_name": "Nora",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora"
+            }
+          ]
+        },
+        "line": 2253,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:47:23.352Z",
+        "data": {
+          "names": {
+            "guest_name": "Nora",
+            "guests": [
+              {
+                "explicit_gender": "female",
+                "name": "Nora"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 2267,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `capture_booking_names` — 2026-10-16T20:47:29.805Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Nora Lefevre",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ]
+        },
+        "line": 2286,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:47:29.809Z",
+        "data": {
+          "names": {
+            "guest_name": "Nora Lefevre",
+            "guests": [
+              {
+                "explicit_gender": "female",
+                "name": "Nora Lefevre"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 2301,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `check_availability` — 2026-10-16T20:47:43.441Z",
+        "data": {
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "guest_count": 1,
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared"
+        },
+        "line": 2320,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:47:43.445Z",
+        "data": {
+          "availability_status": "available",
+          "available": true,
+          "available_beds": [
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 19,
+          "blockers": [],
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ready_for_bot_create",
+          "private_room_available": false,
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [
+            "R9-B4"
+          ],
+          "selected_room_code": "R9",
+          "selected_room_description": null,
+          "selected_room_types": [
+            "operator_surfweek"
+          ],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": false,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 2338,
+        "suffix": ""
+      },
+      {
+        "header": "6. REQUEST `quote_booking` — 2026-10-16T20:47:43.449Z",
+        "data": {
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "guest_count": 1,
+          "guest_name": "Nora Lefevre",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ],
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "mixed",
+          "room_type": "shared"
+        },
+        "line": 2419,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:47:43.452Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-10-23",
+            "check_out": "2026-10-25",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R9-B4",
+                "guest_index": 0,
+                "guest_name": "nora lefevre"
+              }
+            ],
+            "guest_count": 1,
+            "room_arrangement": [
+              {
+                "bed_code": "R9-B4",
+                "gender_strategy": "flexible",
+                "room_code": "R9"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R9-B4"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 8000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Nora Lefevre",
+              "guests": [
+                {
+                  "explicit_gender": "female",
+                  "name": "Nora Lefevre"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "full_payment_only": true,
+          "guest_name": "Nora Lefevre",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-10-23",
+            "check_out": "2026-10-25",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 8000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R9-B4",
+                "guest_index": 0,
+                "guest_name": "nora lefevre"
+              }
+            ],
+            "guest_count": 1,
+            "guest_packages": [],
+            "offer_fingerprint": "103078217e7335373f8424438dcfefdb471d78521df0f74749a23ab184819a6a",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 8000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R9-B4",
+                "gender_strategy": "flexible",
+                "room_code": "R9"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "female",
+                "name": "Nora Lefevre"
+              }
+            ],
+            "room_preference": "mixed",
+            "room_type": "shared",
+            "total_cents": 8000,
+            "v": 1
+          },
+          "payment_choice": "deposit",
+          "payment_choice_needed": false,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 8000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [],
+          "quote_status": "ready_for_create_dry_run",
+          "remaining_after_deposit_cents": 0,
+          "reply_draft": "For those dates, the estimated total is €80.00. The deposit is €80.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "female_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "female",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 8000,
+          "unknown_add_on_codes": []
+        },
+        "line": 2440,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:47:13.818Z | Guest | Bonjour! Nora here, solo female traveler. Need a women-only dorm bed Friday 23 Oct to Sunday 25 Oct 2026 (2 nights, check-in Fri 23, out Sun 25). What's the price? |",
+      "| 2026-10-16T20:47:23.364Z | Luna | Bonjour Nora! Unfortunately, a women-only dorm bed isn’t available for **23–25 October 2026**, so I can’t quote that option for your stay.<br><br>Would you consider a **mixed dorm**, or would you prefer to keep women-only and look at different dates? |",
+      "| 2026-10-16T20:47:24.511Z | Guest | oui parfait, book it for Nora Lefevre. deposit is fine, card ready |",
+      "| 2026-10-16T20:47:29.812Z | Luna | Merci Nora! Just to confirm: would you like a **mixed dorm for 23–25 October**, or **women-only on different dates**? The women-only bed isn’t available for your original dates.<br><br>Once you confirm, I can check the option and show you the price before you commit to a deposit. |",
+      "| 2026-10-16T20:47:30.959Z | Guest | oui, I'm a woman |",
+      "| 2026-10-16T20:47:33.446Z | Luna | Yes, Nora, I understand—you’re a woman. The **women-only dorm is unavailable for 23–25 October**.<br><br>Would you be comfortable staying in a **mixed dorm on those dates**? |",
+      "| 2026-10-16T20:47:34.429Z | Guest | oui, I'm a woman |",
+      "| 2026-10-16T20:47:43.456Z | Luna | Merci Nora — I’ve taken your “oui” as agreeing to the **mixed dorm**, not a women-only room.<br><br>For **23–25 October 2026, 2 nights, 1 guest**:<br>- **Total: €80**<br>- This stay requires **full payment of €80**, rather than a smaller deposit.<br><br>Shall I book that mixed-dorm bed for **Nora Lefevre**? |",
+      "| 2026-10-16T20:47:44.476Z | Guest | deposit please |",
+      "| 2026-10-16T20:47:47.489Z | Luna | Nora, a smaller deposit isn’t available for this stay—the required upfront payment is the **full €80**.<br><br>Are you happy to proceed with **€80 upfront for the mixed-dorm bed, 23–25 October**? Nothing has been booked or charged yet. |"
+    ]
+  },
+  "B3": {
+    "title": "## B3. Sim13 +346****3003",
+    "events": [
+      {
+        "header": "1. REQUEST `capture_booking_names` — 2026-10-16T20:48:04.887Z",
+        "data": {
+          "guest_count": 3,
+          "guest_name": "Aisha",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha"
+            }
+          ]
+        },
+        "line": 2682,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `get_house_info` — 2026-10-16T20:48:04.887Z",
+        "data": {},
+        "line": 2697,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `check_availability` — 2026-10-16T20:48:04.887Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "guest_count": 3,
+          "room_type": "shared"
+        },
+        "line": 2703,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `preview_package_prices` — 2026-10-16T20:48:04.887Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "guest_count": 3,
+          "room_type": "shared"
+        },
+        "line": 2714,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:48:04.891Z",
+        "data": {
+          "names": {
+            "guest_name": "Aisha",
+            "guests": [
+              {
+                "explicit_gender": "female",
+                "name": "Aisha"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 2725,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `get_house_info` — 2026-10-16T20:48:04.895Z",
+        "data": {
+          "has_notes": true,
+          "notes": "# General Notes for Luna — Wolfhouse Somo\n\n**Property:** Wolfhouse Somo (surf camp / surf school / surf hostel)  \n**Hosts:** Camilla and Alessandro  \n**Location:** Somo, Cantabria, Spain (Ribamontán al Mar / Santander bay area) \n**Season:** Easter to Halloween  \n**Languages spoken at the house:** Italian, Spanish, English  \n**Contact:** alex@wolf-house.com · Camilla +34 650 616 794  \n\nUse these notes for warm, short answers to guests. For live prices, lesson/rental availability, shuttle inclusions, Wi‑Fi credentials, or current weather/surf: use **Staff tools** / Luna Intelligence — do not invent numbers or passwords.\n\nWi-Fi is good enough for video calls, and there is a desk / place to work.\n\nBreakfast is not included in any rate. We do not offer a vegan breakfast.\n\nGuests aged 16 and over can stay without a parent. For guests under 16, hand the request to staff.\n\nGuests can pay the remaining balance on arrival, after paying the deposit configured in Staff Pricing.\n\nThere's a big shared kitchen guests can use, with room in the fridge for each guest.\n\n---\n\n## Where are we?\n\nWolfhouse Somo is a surf camp and surf hostel in **Somo, Cantabria, Spain**, near Playa de Somo and Loredo, on Santander bay. Santander is about **30 minutes** away. The house welcomes guests from **Easter through Halloween**.\n\n**Address for guests:** Prefer **39140 Somo** (Cantabria). Public listings disagree on the street name:\n- Calle Los Beatos N.20, Somo  \n- Barrio Latas 20, 39140 Somo  \n\n**ASK OWNER** which full street address to give guests. Postal code **39140** is preferred; treat **39012** as unreliable.\n\n---\n\n## Who hosts here?\n\nHosts are **Camilla** and **Alessandro**. The house speaks **Italian, Spanish, and English**. Guests can reach the house at **alex@wolf-house.com** or Camilla on **+34 650 616 794**.\n\n---\n\n## Language tips (EN / ES / IT)\n\n- Greet warmly in the guest’s language when you can: English, Spanish, or Italian.\n- Keep answers short and practical.\n- If a guest switches language, follow them.\n- For anything uncertain (prices, times, passwords), say you’ll check with the team / Staff tools rather than guessing.\n\n---\n\n## Check-in and check-out\n\n- **Check-in:** from **15:00** (official FAQ). Hostelworld also notes check-in **15:00–23:00** and reception **08:00–23:00**.\n- **Check-out:** prefer **10:00** (official FAQ) until Owner confirms; Hostelworld says before **10:30**.\n- **No curfew** (per Hostelworld listing).\n- Exact late-arrival process: **ASK OWNER** if not already in Staff tools.\n\n---\n\n## Wi‑Fi\n\nOfficial materials mention fast commercial Wi‑Fi (~1000 MB class).  \n**Network name and password: UNKNOWN — Staff tools / ASK OWNER only.** Never invent or guess credentials.\n\n---\n\n## Parking\n\n**Free parking inside the property** is available.\n\n---\n\n## Pets\n\nAnimals are **welcome in private rooms**. The guest must **supervise** their pet. There is a big garden, but there is a **main road nearby** and **frequent guest traffic**. **No dog-sitting.** Prefer this private-rooms nuance when answering.\n\n---\n\n## Smoking\n\n**Strictly forbidden** to smoke or vape **inside**. This is a **non-smoking** property. Outdoor smoking rules: **ASK OWNER** if not listed in Staff.\n\n---\n\n## Beach and how to get there\n\nNear **Playa de Somo**. Typical times from the house:\n- Walk ~**1.2 km** / about **10 minutes**\n- Skate or bike about **4–5 minutes**\n- Drive about **1 minute**\n\nLive surf/weather: see **Weather & surf** below — do not invent conditions.\n\n---\n\n## Surf lessons and board rentals\n\nPacks often include board/wetsuit rental and lessons via **local partners**. Softboards and warmer wetsuits are used for learners; FAQ notes a **4/3 wetsuit** is recommended in summer.\n\n**Live availability and prices: Staff tools only.** Do not quote fixed lesson/rental prices or invent schedule slots.\n\n---\n\n## Board storage and garden vibe\n\nGuest reviews mention garden hammocks, slackline, wetsuit drying lines, and a hut to store boards. Treat as **soft / confirm with Owner** — say the garden is set up for surf life, and confirm board storage details with the team if asked tightly.\n\n---\n\n## Kitchen and meals\n\nThere is a **shared / full kitchen**. Meals catering is for **groups only**; solo travellers and couples normally **use the kitchen**.\n\n---\n\n## Laundry, towels, TV, BBQ, gardens\n\nListings mention laundry, TV, relaxation spaces, BBQ, and gardens.  \n**Towels: UNKNOWN — ASK OWNER.**  \nQuiet-hours clock: **UNKNOWN** — ask guests to respect other guests and dorm etiquette; exact quiet hours **ASK OWNER**.\n\n---\n\n## House rules (guest-facing)\n\n- No smoking or vaping inside.\n- Drugs are **not allowed**.\n- Respect shared spaces, dorm etiquette, and other guests.\n- Pets: supervise; private rooms only for animals (see Pets).\n\n---\n\n## Airport and transfers (process only)\n\nClosest airport: **Santander (SDR)**. Drive to the area is about **~30 minutes**.\n\nCommon path guests use: **airport → Santander → Los Reginas ferry (Santander–Pedreña–Somo)** — ferry about **20–25 minutes**.\n\n**Do not hardcode ferry fares, bus times, or shuttle schedules.**  \nClaims of a **free airport shuttle with packs** are marketing — **confirm for each guest via Staff tools / ASK OWNER**. For live transfer options and inclusions, use **Staff tools** only.\n\n---\n\n## Local practicals\n\n**Supermarket:** Supermercado Lupa, C. las Quebrantas 4, 39140 — about **1 km** from the house. Hours (soft / verify): Mon closed; Tue–Fri 9:00–20:00; Sat–Sun 9:00–21:00.\n\n**Pharmacy:** Farmacia Martín Rodríguez, C. Isla de Mouro 11, 39140 · tel **942 51 05 84**. Hours often **9:00–14:00 / 16:30–20:00** (confirm if critical).\n\n**Clinic:** Consultorio Local Somo, C/ Las Quebrantas 1, 39140 · tel **942 510 236**.\n\n**Hospital / ER:** Hospital Universitario Marqués de Valdecilla, Avda. Valdecilla s/n, 39008 Santander.\n\n**ATMs:** Often listed on Av. de Trasmiera (e.g. Caixabank / Sabadell).\n\n**Taxi:** No verified house-preferred number — **ASK OWNER**.\n\n---\n\n## Weather & surf\n\nThis is **Atlantic north Spain** — conditions change quickly.  \n**Live weather, swell, wind, tide, and “is it good to surf today?” need Staff tools / Luna Intelligence.** Do not invent swell heights, ratings, or forecasts from memory.\n\n---\n\n## What Luna should not invent\n\nNever invent or guess: Wi‑Fi passwords, prices, lesson/rental availability, shuttle inclusions/times/fares, quiet hours clock, towel policy, or exact street address until Owner picks one. Point guests to the team / Staff tools for live facts.\n\n---\n\n## Gap list (Ty / Owner confirm)\n\n1. **Canonical guest address** — Calle Los Beatos N.20 vs Barrio Latas 20 (keep 39140; drop 39012).\n2. **Check-out time** — lock **10:00** vs **before 10:30**; late-arrival / after-23:00 process.\n3. **Wi‑Fi** — network name + password (Staff only if secret).\n5. **Towels** — bring your own.\n6. **Quiet hours** — exact clock times (if any).\n7. **Outdoor smoking/vaping** — allowed where, or fully banned on property.\n8. **Board storage hut / drying lines / hammocks** — confirm for Luna to state confidently.\n9. **Free airport shuttle with packs** — which packs, for whom, how to book (Staff live).\n10. **House-preferred taxi number**\n11. **Supermarket / pharmacy hours** — \n12. Staff staging / `get_house_info` paste — still blocked without auth.",
+          "success": true,
+          "tool": "get_house_info"
+        },
+        "line": 2744,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:48:04.903Z",
+        "data": {
+          "availability_status": "available",
+          "available": true,
+          "available_beds": [
+            {
+              "bed_code": "R3-B1",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B2",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B3",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B4",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R1-B1",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B2",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B3",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B4",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B5",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R2-B1",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B2",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B3",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B4",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R2-B5",
+              "room_code": "R2",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R7-B1",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B2",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B3",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R8-B4",
+              "room_code": "R8",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R8-B5",
+              "room_code": "R8",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R9-B1",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B2",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B3",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B6",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B1",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B2",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B3",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B4",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R4-B1",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B2",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B3",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B4",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B5",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B6",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B7",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B8",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B9",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B1",
+              "room_code": "R12",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B2",
+              "room_code": "R12",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 45,
+          "blockers": [],
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": "These beds are male-only, not a mixed dorm.",
+          "next_action": "ready_for_bot_create",
+          "private_room_available": false,
+          "room_decision": null,
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [
+            "R4-B1",
+            "R4-B2",
+            "R4-B3"
+          ],
+          "selected_room_code": "R4",
+          "selected_room_description": "male_only",
+          "selected_room_types": [
+            "male_only"
+          ],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": false,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 2755,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `preview_package_prices` — 2026-10-16T20:48:04.908Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "guest_count": 3,
+          "guest_safe_next_action": null,
+          "malibu": null,
+          "next_action": "offer_accommodation_or_change_dates",
+          "nights": 3,
+          "package_eligible": false,
+          "package_min_nights": 7,
+          "packages": {},
+          "season_code": null,
+          "staff_review_needed": false,
+          "success": false,
+          "tool": "preview_package_prices",
+          "uluwatu": null,
+          "waimea": null
+        },
+        "line": 3019,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `lookup_catalog_service` — 2026-10-16T20:48:04.917Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "guest_count": 3,
+          "message_text": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+        },
+        "line": 3042,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `lookup_catalog_service` — 2026-10-16T20:48:04.922Z",
+        "data": {
+          "facts": null,
+          "guest_safe_next_action": null,
+          "matched": false,
+          "needs_date_shift": null,
+          "reply": null,
+          "service": null,
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "lookup_catalog_service",
+          "within_window": null
+        },
+        "line": 3053,
+        "suffix": ""
+      },
+      {
+        "header": "6. REQUEST `check_availability` — 2026-10-16T20:48:11.760Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "guest_count": 3,
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha"
+            }
+          ],
+          "room_preference": "female_only",
+          "room_type": "shared"
+        },
+        "line": 3070,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:48:11.764Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [
+            {
+              "bed_code": "R3-B1",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B2",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B3",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R3-B4",
+              "room_code": "R3",
+              "room_type": "matrimonial_or_mixed"
+            },
+            {
+              "bed_code": "R1-B1",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B2",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B3",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B4",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R1-B5",
+              "room_code": "R1",
+              "room_type": "mixed"
+            },
+            {
+              "bed_code": "R7-B1",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B2",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B3",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R7-B4",
+              "room_code": "R7",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B1",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B2",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B3",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B4",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B5",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R9-B6",
+              "room_code": "R9",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B1",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B2",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B3",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B4",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R6-B1",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            },
+            {
+              "bed_code": "R6-B2",
+              "room_code": "R6",
+              "room_type": "matrimonial_private_couple"
+            }
+          ],
+          "available_count": 45,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would you like to check another room option or different dates?",
+          "room_decision": {
+            "allowed_room_preferences": [],
+            "clarification_needed": true,
+            "clarification_prompt": "Would you like to check another room option or different dates?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": false,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": [
+            "group_split_across_rooms_required"
+          ]
+        },
+        "line": 3088,
+        "suffix": ""
+      },
+      {
+        "header": "7. REQUEST `capture_booking_names` — 2026-10-16T20:48:21.756Z",
+        "data": {
+          "guest_count": 3,
+          "guest_name": "Aisha Rahman",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "name": "Priya Shah"
+            },
+            {
+              "name": "Leila Hassan"
+            }
+          ]
+        },
+        "line": 3278,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:48:21.760Z",
+        "data": {
+          "names": {
+            "guest_name": "Aisha Rahman",
+            "guests": [
+              {
+                "explicit_gender": "female",
+                "name": "Aisha Rahman"
+              },
+              {
+                "name": "Priya Shah"
+              },
+              {
+                "name": "Leila Hassan"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 3299,
+        "suffix": ""
+      },
+      {
+        "header": "8. REQUEST `quote_booking` — 2026-10-16T20:48:21.763Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "group_gender": "female",
+          "guest_count": 3,
+          "guest_name": "Aisha Rahman",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "name": "Priya Shah"
+            },
+            {
+              "name": "Leila Hassan"
+            }
+          ],
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "mixed",
+          "room_type": "shared"
+        },
+        "line": 3324,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:48:21.766Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R1-B1",
+                "guest_index": 0,
+                "guest_name": "aisha rahman"
+              },
+              {
+                "bed_code": "R1-B2",
+                "guest_index": 1,
+                "guest_name": "priya shah"
+              },
+              {
+                "bed_code": "R1-B3",
+                "guest_index": 2,
+                "guest_name": "leila hassan"
+              }
+            ],
+            "guest_count": 3,
+            "room_arrangement": [
+              {
+                "bed_code": "R1-B1",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              },
+              {
+                "bed_code": "R1-B2",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              },
+              {
+                "bed_code": "R1-B3",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R1-B1",
+              "R1-B2",
+              "R1-B3"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 36000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Aisha Rahman",
+              "guests": [
+                {
+                  "explicit_gender": "female",
+                  "name": "Aisha Rahman"
+                },
+                {
+                  "name": "Priya Shah"
+                },
+                {
+                  "name": "Leila Hassan"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "full_payment_only": false,
+          "guest_name": "Aisha Rahman",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Priya Shah"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Leila Hassan"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 30000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R1-B1",
+                "guest_index": 0,
+                "guest_name": "aisha rahman"
+              },
+              {
+                "bed_code": "R1-B2",
+                "guest_index": 1,
+                "guest_name": "priya shah"
+              },
+              {
+                "bed_code": "R1-B3",
+                "guest_index": 2,
+                "guest_name": "leila hassan"
+              }
+            ],
+            "guest_count": 3,
+            "guest_packages": [],
+            "offer_fingerprint": "8de5bd292d6304553881cd478ff7eb583ed85432963dab3923a270ec0330c2ff",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 30000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R1-B1",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              },
+              {
+                "bed_code": "R1-B2",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              },
+              {
+                "bed_code": "R1-B3",
+                "gender_strategy": "flexible",
+                "room_code": "R1"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "female",
+                "name": "Aisha Rahman"
+              },
+              {
+                "explicit_gender": "female",
+                "name": "Priya Shah"
+              },
+              {
+                "explicit_gender": "female",
+                "name": "Leila Hassan"
+              }
+            ],
+            "room_preference": "mixed",
+            "room_type": "shared",
+            "total_cents": 36000,
+            "v": 1
+          },
+          "payment_choice": "deposit",
+          "payment_choice_needed": false,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            },
+            {
+              "deposit_cents": 10000,
+              "guest_number": 2,
+              "package_code": "package_none"
+            },
+            {
+              "deposit_cents": 10000,
+              "guest_number": 3,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            },
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_number": 2,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            },
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_number": 3,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            }
+          ],
+          "quote_status": "ready_for_create_dry_run",
+          "remaining_after_deposit_cents": 6000,
+          "reply_draft": "For those dates, the estimated total is €360.00. The deposit is €300.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "female_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "female",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 36000,
+          "unknown_add_on_codes": []
+        },
+        "line": 3352,
+        "suffix": ""
+      },
+      {
+        "header": "9. REQUEST `create_booking_from_plan` — 2026-10-16T20:48:30.396Z",
+        "data": {
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "confirm": true,
+          "group_gender": "female",
+          "guest_count": 3,
+          "guest_name": "Aisha Rahman",
+          "guests": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "name": "Priya Shah"
+            },
+            {
+              "name": "Leila Hassan"
+            }
+          ],
+          "language": "en",
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R1-B1",
+            "R1-B2",
+            "R1-B3"
+          ]
+        },
+        "line": 3604,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `create_booking_from_plan` — 2026-10-16T20:48:30.399Z",
+        "data": {
+          "amount_due_cents": 30000,
+          "blocked_reasons": [],
+          "booking_code": "WH-20261103-00058792",
+          "booking_guests": [
+            {
+              "booking_guest_id": "c94f922b-eecc-4b5d-b410-bab0ba28ffb2",
+              "deposit_amount_cents": 10000,
+              "guest_name": "Aisha Rahman",
+              "guest_number": 1,
+              "payment_status": "not_requested"
+            },
+            {
+              "booking_guest_id": "37dad7be-7e2a-4e38-b6a2-efe4b5eeb9e9",
+              "deposit_amount_cents": 10000,
+              "guest_name": "Priya Shah",
+              "guest_number": 2,
+              "payment_status": "not_requested"
+            },
+            {
+              "booking_guest_id": "cbcd5089-2e61-42b2-b6c7-f88d5f153c3e",
+              "deposit_amount_cents": 10000,
+              "guest_name": "Leila Hassan",
+              "guest_number": 3,
+              "payment_status": "not_requested"
+            }
+          ],
+          "booking_id": "1511cb55-b748-4339-a745-952c1f652752",
+          "booking_names": {
+            "names": {
+              "guest_name": "Aisha Rahman",
+              "guests": [
+                {
+                  "explicit_gender": "female",
+                  "name": "Aisha Rahman"
+                },
+                {
+                  "name": "Priya Shah"
+                },
+                {
+                  "name": "Leila Hassan"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "do_not_escalate": false,
+          "guest_location_line": "📍 Here is our Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+          "guest_payment_links": null,
+          "guest_safe_next_action": null,
+          "needs_human": false,
+          "next_action": "send_secure_payment_link",
+          "no_payment_truth_recorded": true,
+          "outcome": null,
+          "payment_id": "a0ea2c2d-396c-4e61-8280-61b73dc30df3",
+          "payment_link_created": true,
+          "payment_link_error": null,
+          "payment_link_failures": [],
+          "payment_status": "draft",
+          "per_person": [
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_name": "Aisha Rahman",
+              "guest_number": 1,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            },
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_name": "Priya Shah",
+              "guest_number": 2,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            },
+            {
+              "accommodation_cents": 12000,
+              "addons_cents": 0,
+              "amount_paid_cents": 0,
+              "balance_cents": 2000,
+              "deposit_cents": 10000,
+              "guest_name": "Leila Hassan",
+              "guest_number": 3,
+              "package_code": "package_none",
+              "payment_status": "not_requested",
+              "subtotal_cents": 12000,
+              "supplement_cents": 0
+            }
+          ],
+          "post_booking_email": null,
+          "reply_draft": null,
+          "room_decision": {
+            "private_room": false
+          },
+          "safe_next_step": null,
+          "secure_payment_url": "[REDACTED TEST PAYMENT URL]",
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "create_booking_from_plan",
+          "transfer_save_results": [],
+          "transfers_saved": [],
+          "uses_per_guest_model": true,
+          "write_performed": true
+        },
+        "line": 3639,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:47:48.518Z | Guest | hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed? |",
+      "| 2026-10-16T20:48:04.925Z | Luna | Hi Aisha! 😊 For the three of you, **3–6 November 2026**:<br><br>- **Surf + stay packages require at least 7 nights**, so they aren’t available for this three-night stay. We can look at accommodation-only with surf lessons priced separately instead; I don’t yet have a confirmed price comparison.<br>- The live calendar shows mixed-dorm capacity, but **not three women-only beds**. One important caveat: our house notes list the season as Easter–Halloween, so November opening needs confirming before you make plans.<br>- **Your 16-year-old sister is allowed to stay without a parent.** She would still need her own booked bed, subject to availability—not an unregistered overnight stay.<br><br>Would a **mixed dorm with separately priced surf lessons** suit you, and which night might your sister join? |",
+      "| 2026-10-16T20:48:06.110Z | Guest | ok sister stays home. quote bed-only for the 3 of us those nights please, women's dorm is fine |",
+      "| 2026-10-16T20:48:11.770Z | Luna | Got it—just the three of you, bed-only, **3–6 November**.<br><br>I rechecked, and unfortunately a **women’s dorm isn’t available for all three of you** on those dates. Would you be happy with a **mixed dorm** so I can quote that instead? |",
+      "| 2026-10-16T20:48:12.890Z | Guest | yes take it — Aisha Rahman, Priya Shah, Leila Hassan. book us in, deposit for all three |",
+      "| 2026-10-16T20:48:21.773Z | Luna | Thanks, Aisha! The quote for **Aisha Rahman, Priya Shah and Leila Hassan** is:<br><br>**3–6 November 2026 · 3 nights · mixed dorm · bed-only**<br>- **Total for all three: €360**<br>- **Combined deposit: €300**<br>- **Remaining after the deposit: €60**<br><br>Nothing is booked yet—you hadn’t been shown the price before. **Do you accept this quote so I can create the booking and one deposit link for all three?** |",
+      "| 2026-10-16T20:48:22.956Z | Guest | deposit please |",
+      "| 2026-10-16T20:48:30.409Z | Luna | Your booking is created, **pending deposit payment** 😊<br><br>**3–6 November 2026 · 3 guests · mixed dorm · bed-only**<br><br>Pay the **€300 deposit for all three** here:<br>[REDACTED TEST PAYMENT URL]<br><br>**Total: €360** · Remaining after the deposit: **€60**<br><br>Booking reference: **WH-20261103-00058792** |"
+    ]
+  },
+  "B4": {
+    "title": "## B4. Sim13 +346****3004",
+    "events": [
+      {
+        "header": "1. REQUEST `capture_booking_names` — 2026-10-16T20:48:43.579Z",
+        "data": {
+          "guest_count": 1,
+          "guest_name": "Mateo",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "gender_evidence": "Mateo from BA (male)",
+              "name": "Mateo"
+            }
+          ]
+        },
+        "line": 3851,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:48:43.582Z",
+        "data": {
+          "status": "invalid_input",
+          "success": false,
+          "tool": "capture_booking_names"
+        },
+        "line": 3867,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `check_availability` — 2026-10-16T20:48:43.585Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "guest_count": 1,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ],
+          "room_preference": "male dorm",
+          "room_type": "shared"
+        },
+        "line": 3877,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `get_house_info` — 2026-10-16T20:48:43.585Z",
+        "data": {},
+        "line": 3895,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:48:43.589Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [],
+          "available_count": 8,
+          "blockers": [
+            "requested_room_unavailable"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would a mixed dorm work for you?",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": true,
+            "clarification_prompt": "Would a mixed dorm work for you?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 3901,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `get_house_info` — 2026-10-16T20:48:43.592Z",
+        "data": {
+          "has_notes": true,
+          "notes": "# General Notes for Luna — Wolfhouse Somo\n\n**Property:** Wolfhouse Somo (surf camp / surf school / surf hostel)  \n**Hosts:** Camilla and Alessandro  \n**Location:** Somo, Cantabria, Spain (Ribamontán al Mar / Santander bay area) \n**Season:** Easter to Halloween  \n**Languages spoken at the house:** Italian, Spanish, English  \n**Contact:** alex@wolf-house.com · Camilla +34 650 616 794  \n\nUse these notes for warm, short answers to guests. For live prices, lesson/rental availability, shuttle inclusions, Wi‑Fi credentials, or current weather/surf: use **Staff tools** / Luna Intelligence — do not invent numbers or passwords.\n\nWi-Fi is good enough for video calls, and there is a desk / place to work.\n\nBreakfast is not included in any rate. We do not offer a vegan breakfast.\n\nGuests aged 16 and over can stay without a parent. For guests under 16, hand the request to staff.\n\nGuests can pay the remaining balance on arrival, after paying the deposit configured in Staff Pricing.\n\nThere's a big shared kitchen guests can use, with room in the fridge for each guest.\n\n---\n\n## Where are we?\n\nWolfhouse Somo is a surf camp and surf hostel in **Somo, Cantabria, Spain**, near Playa de Somo and Loredo, on Santander bay. Santander is about **30 minutes** away. The house welcomes guests from **Easter through Halloween**.\n\n**Address for guests:** Prefer **39140 Somo** (Cantabria). Public listings disagree on the street name:\n- Calle Los Beatos N.20, Somo  \n- Barrio Latas 20, 39140 Somo  \n\n**ASK OWNER** which full street address to give guests. Postal code **39140** is preferred; treat **39012** as unreliable.\n\n---\n\n## Who hosts here?\n\nHosts are **Camilla** and **Alessandro**. The house speaks **Italian, Spanish, and English**. Guests can reach the house at **alex@wolf-house.com** or Camilla on **+34 650 616 794**.\n\n---\n\n## Language tips (EN / ES / IT)\n\n- Greet warmly in the guest’s language when you can: English, Spanish, or Italian.\n- Keep answers short and practical.\n- If a guest switches language, follow them.\n- For anything uncertain (prices, times, passwords), say you’ll check with the team / Staff tools rather than guessing.\n\n---\n\n## Check-in and check-out\n\n- **Check-in:** from **15:00** (official FAQ). Hostelworld also notes check-in **15:00–23:00** and reception **08:00–23:00**.\n- **Check-out:** prefer **10:00** (official FAQ) until Owner confirms; Hostelworld says before **10:30**.\n- **No curfew** (per Hostelworld listing).\n- Exact late-arrival process: **ASK OWNER** if not already in Staff tools.\n\n---\n\n## Wi‑Fi\n\nOfficial materials mention fast commercial Wi‑Fi (~1000 MB class).  \n**Network name and password: UNKNOWN — Staff tools / ASK OWNER only.** Never invent or guess credentials.\n\n---\n\n## Parking\n\n**Free parking inside the property** is available.\n\n---\n\n## Pets\n\nAnimals are **welcome in private rooms**. The guest must **supervise** their pet. There is a big garden, but there is a **main road nearby** and **frequent guest traffic**. **No dog-sitting.** Prefer this private-rooms nuance when answering.\n\n---\n\n## Smoking\n\n**Strictly forbidden** to smoke or vape **inside**. This is a **non-smoking** property. Outdoor smoking rules: **ASK OWNER** if not listed in Staff.\n\n---\n\n## Beach and how to get there\n\nNear **Playa de Somo**. Typical times from the house:\n- Walk ~**1.2 km** / about **10 minutes**\n- Skate or bike about **4–5 minutes**\n- Drive about **1 minute**\n\nLive surf/weather: see **Weather & surf** below — do not invent conditions.\n\n---\n\n## Surf lessons and board rentals\n\nPacks often include board/wetsuit rental and lessons via **local partners**. Softboards and warmer wetsuits are used for learners; FAQ notes a **4/3 wetsuit** is recommended in summer.\n\n**Live availability and prices: Staff tools only.** Do not quote fixed lesson/rental prices or invent schedule slots.\n\n---\n\n## Board storage and garden vibe\n\nGuest reviews mention garden hammocks, slackline, wetsuit drying lines, and a hut to store boards. Treat as **soft / confirm with Owner** — say the garden is set up for surf life, and confirm board storage details with the team if asked tightly.\n\n---\n\n## Kitchen and meals\n\nThere is a **shared / full kitchen**. Meals catering is for **groups only**; solo travellers and couples normally **use the kitchen**.\n\n---\n\n## Laundry, towels, TV, BBQ, gardens\n\nListings mention laundry, TV, relaxation spaces, BBQ, and gardens.  \n**Towels: UNKNOWN — ASK OWNER.**  \nQuiet-hours clock: **UNKNOWN** — ask guests to respect other guests and dorm etiquette; exact quiet hours **ASK OWNER**.\n\n---\n\n## House rules (guest-facing)\n\n- No smoking or vaping inside.\n- Drugs are **not allowed**.\n- Respect shared spaces, dorm etiquette, and other guests.\n- Pets: supervise; private rooms only for animals (see Pets).\n\n---\n\n## Airport and transfers (process only)\n\nClosest airport: **Santander (SDR)**. Drive to the area is about **~30 minutes**.\n\nCommon path guests use: **airport → Santander → Los Reginas ferry (Santander–Pedreña–Somo)** — ferry about **20–25 minutes**.\n\n**Do not hardcode ferry fares, bus times, or shuttle schedules.**  \nClaims of a **free airport shuttle with packs** are marketing — **confirm for each guest via Staff tools / ASK OWNER**. For live transfer options and inclusions, use **Staff tools** only.\n\n---\n\n## Local practicals\n\n**Supermarket:** Supermercado Lupa, C. las Quebrantas 4, 39140 — about **1 km** from the house. Hours (soft / verify): Mon closed; Tue–Fri 9:00–20:00; Sat–Sun 9:00–21:00.\n\n**Pharmacy:** Farmacia Martín Rodríguez, C. Isla de Mouro 11, 39140 · tel **942 51 05 84**. Hours often **9:00–14:00 / 16:30–20:00** (confirm if critical).\n\n**Clinic:** Consultorio Local Somo, C/ Las Quebrantas 1, 39140 · tel **942 510 236**.\n\n**Hospital / ER:** Hospital Universitario Marqués de Valdecilla, Avda. Valdecilla s/n, 39008 Santander.\n\n**ATMs:** Often listed on Av. de Trasmiera (e.g. Caixabank / Sabadell).\n\n**Taxi:** No verified house-preferred number — **ASK OWNER**.\n\n---\n\n## Weather & surf\n\nThis is **Atlantic north Spain** — conditions change quickly.  \n**Live weather, swell, wind, tide, and “is it good to surf today?” need Staff tools / Luna Intelligence.** Do not invent swell heights, ratings, or forecasts from memory.\n\n---\n\n## What Luna should not invent\n\nNever invent or guess: Wi‑Fi passwords, prices, lesson/rental availability, shuttle inclusions/times/fares, quiet hours clock, towel policy, or exact street address until Owner picks one. Point guests to the team / Staff tools for live facts.\n\n---\n\n## Gap list (Ty / Owner confirm)\n\n1. **Canonical guest address** — Calle Los Beatos N.20 vs Barrio Latas 20 (keep 39140; drop 39012).\n2. **Check-out time** — lock **10:00** vs **before 10:30**; late-arrival / after-23:00 process.\n3. **Wi‑Fi** — network name + password (Staff only if secret).\n5. **Towels** — bring your own.\n6. **Quiet hours** — exact clock times (if any).\n7. **Outdoor smoking/vaping** — allowed where, or fully banned on property.\n8. **Board storage hut / drying lines / hammocks** — confirm for Luna to state confidently.\n9. **Free airport shuttle with packs** — which packs, for whom, how to book (Staff live).\n10. **House-preferred taxi number**\n11. **Supermarket / pharmacy hours** — \n12. Staff staging / `get_house_info` paste — still blocked without auth.",
+          "success": true,
+          "tool": "get_house_info"
+        },
+        "line": 3956,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `capture_booking_names` — 2026-10-16T20:48:43.602Z",
+        "data": {
+          "guest_name": "Mateo",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ]
+        },
+        "line": 3967,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:48:43.608Z",
+        "data": {
+          "names": {
+            "guest_name": "Mateo",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 3981,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `quote_booking` — 2026-10-16T20:48:55.002Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "guest_count": 1,
+          "guest_name": "Mateo",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ],
+          "package_code": "package_none",
+          "room_preference": "mixed",
+          "room_type": "shared"
+        },
+        "line": 4000,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:48:55.006Z",
+        "data": {
+          "allocation_reason": "no_eligible_mixed_room",
+          "allocation_split": false,
+          "auth_mode": "bot_token",
+          "available_beds": [
+            {
+              "bed_code": "R5-B4",
+              "room_code": "R5",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R5-B6",
+              "room_code": "R5",
+              "room_type": "female_only"
+            },
+            {
+              "bed_code": "R4-B5",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B6",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B7",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B8",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R4-B9",
+              "room_code": "R4",
+              "room_type": "male_only"
+            },
+            {
+              "bed_code": "R12-B2",
+              "room_code": "R12",
+              "room_type": "male_only"
+            }
+          ],
+          "available_count": 8,
+          "blockers": [
+            "needs_clarification"
+          ],
+          "booking_names": {
+            "names": {
+              "guest_name": "Mateo",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Mateo"
+                }
+              ]
+            }
+          },
+          "capacity_check_only": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "creates_booking": false,
+          "creates_payment": false,
+          "creates_stripe_link": false,
+          "date_rule_ok": true,
+          "deposit_required_cents": null,
+          "do_not_escalate": true,
+          "elapsed_ms": 40,
+          "exact_bed_eligibility": null,
+          "gender_preference": null,
+          "girls_room_available": true,
+          "group_gender": "unknown",
+          "guest_count": 1,
+          "has_enough_beds": true,
+          "needs_clarification": true,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "no_write_performed": true,
+          "occupied_count": 46,
+          "offer_revision": null,
+          "package_eligible": false,
+          "package_min_nights": 7,
+          "preview_only": true,
+          "private_room_available": false,
+          "provenance": {
+            "availability_fingerprint": "2aecc8ae133090b4d3b02b8da3ba3d62c6f9709898dafad1880382f47bcc1c77",
+            "availability_version": 1,
+            "available_count": 8,
+            "blockers": [
+              "needs_clarification"
+            ],
+            "check_in": "2026-10-21",
+            "check_out": "2026-10-24",
+            "checked_at": "2026-10-16T20:48:48.470Z",
+            "client_slug": "wolfhouse-somo",
+            "guest_count": 1,
+            "has_enough_beds": true,
+            "occupied_count": 46,
+            "selected_bed_codes": []
+          },
+          "quote_status": "needs_guest_clarification",
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "rules_based_rooming": true,
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "sends_whatsapp": false,
+          "staff_api_status": "ok",
+          "success": false,
+          "tool": "quote_booking",
+          "total_cents": null,
+          "warnings": [],
+          "write_performed": false
+        },
+        "line": 4020,
+        "suffix": ""
+      },
+      {
+        "header": "6. REQUEST `quote_booking` — 2026-10-16T20:48:55.009Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "gender_preference": "male",
+          "group_gender": "male",
+          "guest_count": 1,
+          "guest_name": "Mateo",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ],
+          "package_code": "package_none",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 4147,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:48:55.012Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-10-21",
+            "check_out": "2026-10-24",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "mateo"
+              }
+            ],
+            "guest_count": 1,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R4-B5"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 12000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Mateo",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Mateo"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "full_payment_only": false,
+          "girls_room_available": false,
+          "guest_name": "Mateo",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [
+            "payment_choice"
+          ],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-10-21",
+            "check_out": "2026-10-24",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 10000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "mateo"
+              }
+            ],
+            "guest_count": 1,
+            "guest_packages": [],
+            "offer_fingerprint": "af582272b1a2594a5dd20ee6178da2f68ffd830f9140a8855fcb84c3d47f3364",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 10000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo"
+              }
+            ],
+            "room_preference": "male_only",
+            "room_type": "shared",
+            "total_cents": 12000,
+            "v": 1
+          },
+          "payment_choice_needed": true,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [],
+          "quote_status": "show_quote",
+          "remaining_after_deposit_cents": 2000,
+          "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "male_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "male",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 12000,
+          "unknown_add_on_codes": []
+        },
+        "line": 4169,
+        "suffix": ""
+      },
+      {
+        "header": "7. REQUEST `capture_booking_names` — 2026-10-16T20:49:19.967Z",
+        "data": {
+          "guest_name": "Mateo Ríos",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ]
+        },
+        "line": 4312,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:49:19.971Z",
+        "data": {
+          "names": {
+            "guest_name": "Mateo Ríos",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo Ríos"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 4326,
+        "suffix": ""
+      },
+      {
+        "header": "8. REQUEST `create_booking_from_plan` — 2026-10-16T20:49:19.973Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "confirm": true,
+          "gender_preference": "male",
+          "group_gender": "male",
+          "guest_count": 1,
+          "guest_name": "Mateo Ríos",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "language": "en",
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 4345,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `create_booking_from_plan` — 2026-10-16T20:49:19.976Z",
+        "data": {
+          "booking_names": {
+            "names": {
+              "guest_name": "Mateo Ríos",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Mateo Ríos"
+                }
+              ]
+            }
+          },
+          "booking_not_created_yet": true,
+          "error": "quote_owner_presented_offer_required",
+          "next_action": "clarify_or_requote",
+          "staff_review_needed": false,
+          "success": false,
+          "tool": "create_booking_from_plan",
+          "write_performed": false
+        },
+        "line": 4370,
+        "suffix": ""
+      },
+      {
+        "header": "9. REQUEST `interpret_booking_turn` — 2026-10-16T20:49:19.980Z",
+        "data": {
+          "action": "accept",
+          "action_evidence": "dale, book it — Mateo Ríos. send deposit link if needed",
+          "ambiguous": false,
+          "completions": {
+            "guests": [
+              {
+                "evidence": "Mateo Ríos",
+                "guest_index": 0,
+                "name": "Mateo Ríos"
+              }
+            ],
+            "payment_choice": {
+              "evidence": "send deposit link if needed",
+              "value": "deposit"
+            }
+          },
+          "conditional": false,
+          "material_changes": [],
+          "negated": false
+        },
+        "line": 4395,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `interpret_booking_turn` — 2026-10-16T20:49:19.982Z",
+        "data": {
+          "accepted": false,
+          "diagnostic_only": true,
+          "success": true,
+          "tool": "interpret_booking_turn",
+          "warning": "quote_owner_presented_offer_required",
+          "write_performed": false
+        },
+        "line": 4421,
+        "suffix": ""
+      },
+      {
+        "header": "10. REQUEST `quote_booking` — 2026-10-16T20:49:19.986Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "gender_preference": "male",
+          "group_gender": "male",
+          "guest_count": 1,
+          "guest_name": "Mateo Ríos",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 4434,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `quote_booking` — 2026-10-16T20:49:19.989Z",
+        "data": {
+          "add_on_errors": [],
+          "availability": {
+            "availability_checked": true,
+            "check_in": "2026-10-21",
+            "check_out": "2026-10-24",
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "mateo ríos"
+              }
+            ],
+            "guest_count": 1,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_type": "shared",
+            "selected_bed_codes": [
+              "R4-B5"
+            ],
+            "status": "checked"
+          },
+          "balance_due_cents": 12000,
+          "booking_names": {
+            "names": {
+              "guest_name": "Mateo Ríos",
+              "guests": [
+                {
+                  "explicit_gender": "male",
+                  "name": "Mateo Ríos"
+                }
+              ]
+            }
+          },
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "full_payment_only": false,
+          "girls_room_available": false,
+          "guest_name": "Mateo Ríos",
+          "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+          "guest_safe_next_action": null,
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "included_items": [],
+          "missing_fields": [],
+          "needs_human": false,
+          "offer_revision": {
+            "add_ons": [],
+            "availability_checked": true,
+            "check_in": "2026-10-21",
+            "check_out": "2026-10-24",
+            "client_slug": "wolfhouse-somo",
+            "currency": "EUR",
+            "deposit_required_cents": 10000,
+            "gender_preference": null,
+            "guest_bed_assignments": [
+              {
+                "bed_code": "R4-B5",
+                "guest_index": 0,
+                "guest_name": "mateo ríos"
+              }
+            ],
+            "guest_count": 1,
+            "guest_packages": [],
+            "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+            "offer_revision_version": 1,
+            "package_code": "package_none",
+            "payment_choice": "deposit",
+            "payment_distribution": [],
+            "payment_link_amount_cents": 10000,
+            "per_guest_payment_links": false,
+            "resolved_room_claim": null,
+            "room_arrangement": [
+              {
+                "bed_code": "R4-B5",
+                "gender_strategy": "male preferred",
+                "room_code": "R4"
+              }
+            ],
+            "room_name_hints": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo Ríos"
+              }
+            ],
+            "room_preference": "male_only",
+            "room_type": "shared",
+            "total_cents": 12000,
+            "v": 1
+          },
+          "payment_choice": "deposit",
+          "payment_choice_needed": false,
+          "per_guest_deposits": [
+            {
+              "deposit_cents": 10000,
+              "guest_number": 1,
+              "package_code": "package_none"
+            }
+          ],
+          "per_person": [],
+          "quote_status": "ready_for_create_dry_run",
+          "remaining_after_deposit_cents": 2000,
+          "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+          "room_decision": {
+            "allowed_room_preferences": [
+              "male_only",
+              "mixed",
+              "shared"
+            ],
+            "clarification_needed": false,
+            "clarification_prompt": null,
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "provisional": false,
+            "resolved_composition": "male",
+            "threshold": 0.7
+          },
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "quote_booking",
+          "total_cents": 12000,
+          "unknown_add_on_codes": []
+        },
+        "line": 4457,
+        "suffix": ""
+      },
+      {
+        "header": "11. REQUEST `create_booking_from_plan` — 2026-10-16T20:49:19.992Z",
+        "data": {
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "confirm": true,
+          "gender_preference": "male",
+          "group_gender": "male",
+          "guest_count": 1,
+          "guest_name": "Mateo Ríos",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "language": "en",
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "room_preference": "male_only",
+          "room_type": "shared"
+        },
+        "line": 4599,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `create_booking_from_plan` — 2026-10-16T20:49:19.995Z",
+        "data": {
+          "success": false,
+          "tool": "create_booking_from_plan",
+          "error": "quote_owner_presented_offer_required",
+          "write_performed": false,
+          "booking_not_created_yet": true,
+          "next_action": "clarify_or_requote",
+          "staff_review_needed": false,
+          "booking_names": {
+            "names": {
+              "guest_name": "Mateo Ríos",
+              "guests": [
+                {
+                  "name": "Mateo Ríos",
+                  "explicit_gender": "male"
+                }
+              ]
+            }
+          }
+        },
+        "line": 4624,
+        "suffix": "[Tool loop warning: repeated_exact_failure_warning; count=2; create_booking_from_plan has failed 2 times with identical arguments. This looks like a loop; inspect the error and change strategy instead of retrying it unchanged.]"
+      },
+      {
+        "header": "12. REQUEST `flag_needs_human` — 2026-10-16T20:49:19.997Z",
+        "data": {
+          "reason": "business_tool_error: Booking creation blocked by quote_owner_presented_offer_required despite accepted €120 bed-only quote, €100 deposit, fresh successful re-quote. Mateo Ríos, 2026-10-21 to 2026-10-24, solo male dorm. No booking or payment created."
+        },
+        "line": 4632,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `flag_needs_human` — 2026-10-16T20:49:20.000Z",
+        "data": {
+          "blocked_reasons": [
+            "handoff_not_persisted"
+          ],
+          "conversation_id": null,
+          "conversation_paused": false,
+          "do_not_escalate": false,
+          "error": "HTTP Error 403: Forbidden",
+          "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+          "handoff_persisted": false,
+          "handoff_reason": null,
+          "needs_human": false,
+          "staff_api_status": "http_error",
+          "staff_review_id": null,
+          "staff_review_needed": true,
+          "status": 403,
+          "success": false,
+          "tool": "flag_needs_human"
+        },
+        "line": 4640,
+        "suffix": ""
+      },
+      {
+        "header": "13. REQUEST `list_my_bookings` — 2026-10-16T20:49:27.557Z",
+        "data": {},
+        "line": 4664,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `list_my_bookings` — 2026-10-16T20:49:27.560Z",
+        "data": {
+          "booking_status_unknown": true,
+          "bookings": [],
+          "count": 0,
+          "do_not_escalate": true,
+          "do_not_retract_successful_create": true,
+          "do_not_retry_create": true,
+          "lookup_status": "empty",
+          "prior_create_receipt": null,
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "list_my_bookings"
+        },
+        "line": 4670,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:48:31.396Z | Guest | Hola Luna, Mateo from BA (male). 3 nights Oct 21-24, male dorm. Can I pay on arrival? And once I book, am I already paid in full or is there still a balance? |",
+      "| 2026-10-16T20:48:43.612Z | Luna | Hola Mateo! You can pay the **remaining balance on arrival**, but a deposit is required upfront—not the entire payment on arrival.<br><br>**Booking doesn’t automatically mean paid in full:** if you pay only the deposit, there’s still a balance due; if you pay the full total, there’s no remaining balance for the booked stay. Nothing has been booked or charged yet.<br><br>For **October 21–24, 2026**, the male-only dorm isn’t available. Would a **mixed dorm** work for you? |",
+      "| 2026-10-16T20:48:44.990Z | Guest | got it. quote me the bed only for those dates |",
+      "| 2026-10-16T20:48:55.017Z | Luna | Mateo, the latest check **does show a male-dorm bed**—sorry for the earlier conflicting result.<br><br>**Bed only · October 21–24, 2026 · 1 guest**<br>- **Total: €120**<br>- **Deposit upfront: €100**<br>- **Remaining after the deposit is paid: €20**, payable on arrival.<br><br>Nothing is booked or paid yet. Would you like to go ahead with the deposit option? |",
+      "| 2026-10-16T20:48:56.219Z | Guest | dale, book it — Mateo Ríos. send deposit link if needed |",
+      "| 2026-10-16T20:49:20.002Z | Luna | Mateo, I couldn’t complete the booking because the booking system blocked the final step. **No reservation was created, no payment was taken, and no deposit link was generated.**<br><br>Your quote is still **€120 total**, with **€100 upfront** and **€20 remaining after the deposit is paid**.<br><br>I also couldn’t send the staff handoff through the system. Please contact **alex@wolf-house.com** or **Camilla on +34 650 616 794** to finish booking under **Mateo Ríos**, October 21–24, bed only in the male dorm. Sorry for the hassle. |",
+      "| 2026-10-16T20:49:21.041Z | Guest | deposit please |",
+      "| 2026-10-16T20:49:27.570Z | Luna | Mateo, I checked and there’s **no booking available to attach a deposit link to**. The earlier booking attempt failed, so I can’t send a working payment link yet.<br><br>Please contact **Camilla on +34 650 616 794** to complete the booking with the quoted **€100 deposit**. The **€20 remainder** would be payable on arrival once that deposit is paid. |"
+    ]
+  },
+  "B5": {
+    "title": "## B5. Sim13 +346****3005",
+    "events": [
+      {
+        "header": "1. REQUEST `capture_booking_names` — 2026-10-16T20:49:39.445Z",
+        "data": {
+          "guest_count": 2,
+          "guest_name": "Holly",
+          "guests": [
+            {
+              "name": "Holly"
+            },
+            {
+              "name": "Jake"
+            }
+          ]
+        },
+        "line": 4785,
+        "suffix": ""
+      },
+      {
+        "header": "2. REQUEST `get_house_info` — 2026-10-16T20:49:39.445Z",
+        "data": {
+          "client_slug": "wolfhouse-somo"
+        },
+        "line": 4802,
+        "suffix": ""
+      },
+      {
+        "header": "3. REQUEST `check_availability` — 2026-10-16T20:49:39.445Z",
+        "data": {
+          "check_in": "2026-10-25",
+          "check_out": "2026-10-28",
+          "client_slug": "wolfhouse-somo",
+          "guest_count": 2,
+          "room_preference": "couple_private",
+          "room_type": "private"
+        },
+        "line": 4810,
+        "suffix": ""
+      },
+      {
+        "header": "4. REQUEST `lookup_catalog_service` — 2026-10-16T20:49:39.445Z",
+        "data": {
+          "check_in": "2026-10-25",
+          "check_out": "2026-10-28",
+          "client_slug": "wolfhouse-somo",
+          "guest_count": 2,
+          "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Oct 25-28 (3 nights). Can we rent boards there, what's parking like?"
+        },
+        "line": 4823,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:49:39.449Z",
+        "data": {
+          "names": {
+            "guest_name": "Holly",
+            "guests": [
+              {
+                "name": "Holly"
+              },
+              {
+                "name": "Jake"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 4835,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `get_house_info` — 2026-10-16T20:49:39.451Z",
+        "data": {
+          "has_notes": true,
+          "notes": "# General Notes for Luna — Wolfhouse Somo\n\n**Property:** Wolfhouse Somo (surf camp / surf school / surf hostel)  \n**Hosts:** Camilla and Alessandro  \n**Location:** Somo, Cantabria, Spain (Ribamontán al Mar / Santander bay area) \n**Season:** Easter to Halloween  \n**Languages spoken at the house:** Italian, Spanish, English  \n**Contact:** alex@wolf-house.com · Camilla +34 650 616 794  \n\nUse these notes for warm, short answers to guests. For live prices, lesson/rental availability, shuttle inclusions, Wi‑Fi credentials, or current weather/surf: use **Staff tools** / Luna Intelligence — do not invent numbers or passwords.\n\nWi-Fi is good enough for video calls, and there is a desk / place to work.\n\nBreakfast is not included in any rate. We do not offer a vegan breakfast.\n\nGuests aged 16 and over can stay without a parent. For guests under 16, hand the request to staff.\n\nGuests can pay the remaining balance on arrival, after paying the deposit configured in Staff Pricing.\n\nThere's a big shared kitchen guests can use, with room in the fridge for each guest.\n\n---\n\n## Where are we?\n\nWolfhouse Somo is a surf camp and surf hostel in **Somo, Cantabria, Spain**, near Playa de Somo and Loredo, on Santander bay. Santander is about **30 minutes** away. The house welcomes guests from **Easter through Halloween**.\n\n**Address for guests:** Prefer **39140 Somo** (Cantabria). Public listings disagree on the street name:\n- Calle Los Beatos N.20, Somo  \n- Barrio Latas 20, 39140 Somo  \n\n**ASK OWNER** which full street address to give guests. Postal code **39140** is preferred; treat **39012** as unreliable.\n\n---\n\n## Who hosts here?\n\nHosts are **Camilla** and **Alessandro**. The house speaks **Italian, Spanish, and English**. Guests can reach the house at **alex@wolf-house.com** or Camilla on **+34 650 616 794**.\n\n---\n\n## Language tips (EN / ES / IT)\n\n- Greet warmly in the guest’s language when you can: English, Spanish, or Italian.\n- Keep answers short and practical.\n- If a guest switches language, follow them.\n- For anything uncertain (prices, times, passwords), say you’ll check with the team / Staff tools rather than guessing.\n\n---\n\n## Check-in and check-out\n\n- **Check-in:** from **15:00** (official FAQ). Hostelworld also notes check-in **15:00–23:00** and reception **08:00–23:00**.\n- **Check-out:** prefer **10:00** (official FAQ) until Owner confirms; Hostelworld says before **10:30**.\n- **No curfew** (per Hostelworld listing).\n- Exact late-arrival process: **ASK OWNER** if not already in Staff tools.\n\n---\n\n## Wi‑Fi\n\nOfficial materials mention fast commercial Wi‑Fi (~1000 MB class).  \n**Network name and password: UNKNOWN — Staff tools / ASK OWNER only.** Never invent or guess credentials.\n\n---\n\n## Parking\n\n**Free parking inside the property** is available.\n\n---\n\n## Pets\n\nAnimals are **welcome in private rooms**. The guest must **supervise** their pet. There is a big garden, but there is a **main road nearby** and **frequent guest traffic**. **No dog-sitting.** Prefer this private-rooms nuance when answering.\n\n---\n\n## Smoking\n\n**Strictly forbidden** to smoke or vape **inside**. This is a **non-smoking** property. Outdoor smoking rules: **ASK OWNER** if not listed in Staff.\n\n---\n\n## Beach and how to get there\n\nNear **Playa de Somo**. Typical times from the house:\n- Walk ~**1.2 km** / about **10 minutes**\n- Skate or bike about **4–5 minutes**\n- Drive about **1 minute**\n\nLive surf/weather: see **Weather & surf** below — do not invent conditions.\n\n---\n\n## Surf lessons and board rentals\n\nPacks often include board/wetsuit rental and lessons via **local partners**. Softboards and warmer wetsuits are used for learners; FAQ notes a **4/3 wetsuit** is recommended in summer.\n\n**Live availability and prices: Staff tools only.** Do not quote fixed lesson/rental prices or invent schedule slots.\n\n---\n\n## Board storage and garden vibe\n\nGuest reviews mention garden hammocks, slackline, wetsuit drying lines, and a hut to store boards. Treat as **soft / confirm with Owner** — say the garden is set up for surf life, and confirm board storage details with the team if asked tightly.\n\n---\n\n## Kitchen and meals\n\nThere is a **shared / full kitchen**. Meals catering is for **groups only**; solo travellers and couples normally **use the kitchen**.\n\n---\n\n## Laundry, towels, TV, BBQ, gardens\n\nListings mention laundry, TV, relaxation spaces, BBQ, and gardens.  \n**Towels: UNKNOWN — ASK OWNER.**  \nQuiet-hours clock: **UNKNOWN** — ask guests to respect other guests and dorm etiquette; exact quiet hours **ASK OWNER**.\n\n---\n\n## House rules (guest-facing)\n\n- No smoking or vaping inside.\n- Drugs are **not allowed**.\n- Respect shared spaces, dorm etiquette, and other guests.\n- Pets: supervise; private rooms only for animals (see Pets).\n\n---\n\n## Airport and transfers (process only)\n\nClosest airport: **Santander (SDR)**. Drive to the area is about **~30 minutes**.\n\nCommon path guests use: **airport → Santander → Los Reginas ferry (Santander–Pedreña–Somo)** — ferry about **20–25 minutes**.\n\n**Do not hardcode ferry fares, bus times, or shuttle schedules.**  \nClaims of a **free airport shuttle with packs** are marketing — **confirm for each guest via Staff tools / ASK OWNER**. For live transfer options and inclusions, use **Staff tools** only.\n\n---\n\n## Local practicals\n\n**Supermarket:** Supermercado Lupa, C. las Quebrantas 4, 39140 — about **1 km** from the house. Hours (soft / verify): Mon closed; Tue–Fri 9:00–20:00; Sat–Sun 9:00–21:00.\n\n**Pharmacy:** Farmacia Martín Rodríguez, C. Isla de Mouro 11, 39140 · tel **942 51 05 84**. Hours often **9:00–14:00 / 16:30–20:00** (confirm if critical).\n\n**Clinic:** Consultorio Local Somo, C/ Las Quebrantas 1, 39140 · tel **942 510 236**.\n\n**Hospital / ER:** Hospital Universitario Marqués de Valdecilla, Avda. Valdecilla s/n, 39008 Santander.\n\n**ATMs:** Often listed on Av. de Trasmiera (e.g. Caixabank / Sabadell).\n\n**Taxi:** No verified house-preferred number — **ASK OWNER**.\n\n---\n\n## Weather & surf\n\nThis is **Atlantic north Spain** — conditions change quickly.  \n**Live weather, swell, wind, tide, and “is it good to surf today?” need Staff tools / Luna Intelligence.** Do not invent swell heights, ratings, or forecasts from memory.\n\n---\n\n## What Luna should not invent\n\nNever invent or guess: Wi‑Fi passwords, prices, lesson/rental availability, shuttle inclusions/times/fares, quiet hours clock, towel policy, or exact street address until Owner picks one. Point guests to the team / Staff tools for live facts.\n\n---\n\n## Gap list (Ty / Owner confirm)\n\n1. **Canonical guest address** — Calle Los Beatos N.20 vs Barrio Latas 20 (keep 39140; drop 39012).\n2. **Check-out time** — lock **10:00** vs **before 10:30**; late-arrival / after-23:00 process.\n3. **Wi‑Fi** — network name + password (Staff only if secret).\n5. **Towels** — bring your own.\n6. **Quiet hours** — exact clock times (if any).\n7. **Outdoor smoking/vaping** — allowed where, or fully banned on property.\n8. **Board storage hut / drying lines / hammocks** — confirm for Luna to state confidently.\n9. **Free airport shuttle with packs** — which packs, for whom, how to book (Staff live).\n10. **House-preferred taxi number**\n11. **Supermarket / pharmacy hours** — \n12. Staff staging / `get_house_info` paste — still blocked without auth.",
+          "success": true,
+          "tool": "get_house_info"
+        },
+        "line": 4856,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `check_availability` — 2026-10-16T20:49:39.458Z",
+        "data": {
+          "availability_status": "unavailable",
+          "available": false,
+          "available_beds": [
+            {
+              "bed_code": "R10-B5",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            },
+            {
+              "bed_code": "R10-B6",
+              "room_code": "R10",
+              "room_type": "operator_surfweek"
+            }
+          ],
+          "available_count": 15,
+          "blockers": [
+            "requested_room_unavailable",
+            "not_enough_available_beds"
+          ],
+          "do_not_escalate": true,
+          "girls_room_available": false,
+          "guest_safe_next_action": null,
+          "guest_safe_room_label": null,
+          "needs_human": false,
+          "next_action": "ask_room_eligibility",
+          "private_room_available": false,
+          "reply_draft": "Would you like to check another room option or different dates?",
+          "room_decision": {
+            "allowed_room_preferences": [],
+            "clarification_needed": true,
+            "clarification_prompt": "Would you like to check another room option or different dates?",
+            "conflict": null,
+            "do_not_escalate": true,
+            "excluded_room_preferences": [
+              "female_only",
+              "male_only"
+            ],
+            "needs_human": false,
+            "not_a_verified_demographic": true,
+            "private_room": true,
+            "provisional": true,
+            "resolved_composition": "unknown",
+            "threshold": 0.7
+          },
+          "room_options": {
+            "girls_room_available": true,
+            "private_room_available": false
+          },
+          "selected_bed_codes": [],
+          "selected_room_code": null,
+          "selected_room_description": null,
+          "selected_room_types": [],
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "check_availability",
+          "unavailable": true,
+          "unclear": false,
+          "warnings": []
+        },
+        "line": 4867,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `lookup_catalog_service` — 2026-10-16T20:49:39.466Z",
+        "data": {
+          "facts": null,
+          "guest_safe_next_action": null,
+          "matched": false,
+          "needs_date_shift": null,
+          "reply": null,
+          "service": null,
+          "staff_review_needed": false,
+          "success": true,
+          "tool": "lookup_catalog_service",
+          "within_window": null
+        },
+        "line": 4932,
+        "suffix": ""
+      },
+      {
+        "header": "5. REQUEST `capture_booking_names` — 2026-10-16T20:49:53.177Z",
+        "data": {
+          "guest_count": 2,
+          "guest_name": "Holly Bennett",
+          "guests": [
+            {
+              "name": "Holly Bennett"
+            },
+            {
+              "name": "Jake Bennett"
+            }
+          ]
+        },
+        "line": 4949,
+        "suffix": ""
+      },
+      {
+        "header": "RESULT `capture_booking_names` — 2026-10-16T20:49:53.181Z",
+        "data": {
+          "names": {
+            "guest_name": "Holly Bennett",
+            "guests": [
+              {
+                "name": "Holly Bennett"
+              },
+              {
+                "name": "Jake Bennett"
+              }
+            ]
+          },
+          "status": "saved",
+          "success": true,
+          "tool": "capture_booking_names"
+        },
+        "line": 4966,
+        "suffix": ""
+      }
+    ],
+    "turns": [
+      "| 2026-10-16T20:49:28.595Z | Guest | Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Oct 25-28 (3 nights). Can we rent boards there, what's parking like? |",
+      "| 2026-10-16T20:49:39.468Z | Luna | Hiya Holly & Jake! 😊<br><br>- **Private room:** unfortunately, none is available for **25–28 October**. Would you consider a shared room, or are your dates flexible?<br>- **Boards:** board and wetsuit rentals can be arranged through local partners; availability and prices still need checking for your stay.<br>- **Parking:** there’s **free parking inside the property**. |",
+      "| 2026-10-16T20:49:40.741Z | Guest | just accommodation quote for 2 please, no package |",
+      "| 2026-10-16T20:49:45.516Z | Luna | Of course—accommodation only for 2, **25–28 October**, with no package or rentals.<br><br>As the private room isn’t available, would you be happy with a **shared room**, or do you only want a private room? |",
+      "| 2026-10-16T20:49:46.673Z | Guest | deal — book us: Holly Bennett and Jake Bennett. deposit please |",
+      "| 2026-10-16T20:49:53.184Z | Luna | Thanks, Holly—I’ve noted both full names and your preference to pay a deposit. Before I can quote and book: **are you happy with a shared mixed room?** The private room isn’t available for 25–28 October.<br><br>I’ll need to confirm shared-room availability and show you the accommodation-only total before taking your deposit. |",
+      "| 2026-10-16T20:49:54.235Z | Guest | deposit please |"
+    ]
+  }
+}

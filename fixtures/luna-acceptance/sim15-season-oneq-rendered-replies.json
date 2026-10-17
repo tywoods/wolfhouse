@@ -1,0 +1,57 @@
+[
+  {
+    "case": "g3_open",
+    "label": "expected_text_example_not_model_output",
+    "guest_turn": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?",
+    "authority": "current_staff_date_pricing_approved",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "supported_facts": {"room_options": ["women-only dorm", "mixed dorm"], "minor_policy": "A 16-year-old may stay without a parent but needs a booked available bed.", "surf_stay_min_nights": 7},
+    "expected_text": "Those dates work for a 3-night accommodation-only stay. Surf + stay requires at least 7 nights, and your 16-year-old sister may stay if she has her own booked, available bed. Would you prefer the women-only dorm or the mixed dorm?",
+    "requested_missing_quote_inputs": ["room_option"]
+  },
+  {
+    "case": "couple_open",
+    "label": "expected_text_example_not_model_output",
+    "guest_turn": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?",
+    "authority": "current_staff_date_pricing_approved",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "known_preference": "private room",
+    "supported_facts": {"private_room_available": true, "board_rental_available": true, "parking": "free inside the property"},
+    "expected_text": "Your private room is available for 10–13 November. Parking is free inside the property, and board rental is available. Would you prefer softboards or hardboards?",
+    "requested_missing_quote_inputs": ["board_type"]
+  },
+  {
+    "case": "couple_compound_negative_historical",
+    "label": "negative_acceptance_example_actual_historical_emission",
+    "guest_turn": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?",
+    "expected_text": "Would you like softboards or hardboards, and for how many days?",
+    "requested_missing_quote_inputs": ["board_type", "rental_duration"],
+    "expected_contract_pass": false
+  },
+  {
+    "case": "couple_compound_negative_repair2",
+    "label": "negative_acceptance_example_actual_repair2_emission",
+    "guest_turn": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 3-6 (3 nights). Can we rent boards there, what's parking like?",
+    "expected_text": "The private room is available for 3–6 November, and you can rent surfboards during your stay. I don’t have verified parking details; would you like soft-top or hard boards, and for how many of the three days?",
+    "requested_missing_quote_inputs": ["board_type", "rental_duration"],
+    "expected_contract_pass": false
+  },
+  {
+    "case": "closed",
+    "label": "expected_text_example_not_model_output",
+    "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+    "authority": "quote_booking.next_action=closed_season",
+    "stale_note": "We are open year-round.",
+    "expected_text": "We’re closed for those dates. Would you like to try different dates?",
+    "requested_missing_quote_inputs": ["alternative_dates"]
+  },
+  {
+    "case": "missing",
+    "label": "expected_text_example_not_model_output",
+    "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+    "authority": "missing",
+    "stale_note": "We normally open from Easter until Halloween.",
+    "expected_text": "I can’t confirm yet whether we’re open for those dates.",
+    "requested_missing_quote_inputs": []
+  }
+]

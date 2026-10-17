@@ -1,0 +1,119 @@
+{
+  "assessment": "semantic missing-input decisions, not '?' punctuation",
+  "receipt_sha256": "447f360403c5f4b7f7439062da3fcda5b6385c6ad2901cab64d4205104880d6e",
+  "negative_examples": [
+    "couple_compound_negative_historical",
+    "couple_compound_negative_repair2"
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "case": "g3_failed_preview",
+      "run_id": "sim15-repair3-baseline-g3_failed_preview",
+      "checks": {
+        "no_stale_season_caveat": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "g3_explicit_current_date_approval",
+      "run_id": "sim15-repair3-baseline-g3_explicit_current_date_approval",
+      "checks": {
+        "no_stale_season_caveat": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "holly_jake_explicit_current_date_approval",
+      "run_id": "sim15-repair3-baseline-holly_jake_explicit_current_date_approval",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "requested_missing_quote_inputs": [
+          "board_type",
+          "rental_duration"
+        ],
+        "at_most_one_missing_quote_input": false,
+        "no_private_reask": true
+      },
+      "pass": false
+    },
+    {
+      "variant": "baseline",
+      "case": "real_closed_season",
+      "run_id": "sim15-repair3-baseline-real_closed_season",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "closure_preserved": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "genuinely_missing_date_authority",
+      "run_id": "sim15-repair3-baseline-genuinely_missing_date_authority",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "no_invented_opening": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "g3_failed_preview",
+      "run_id": "sim15-repair3-candidate-g3_failed_preview",
+      "checks": {
+        "no_stale_season_caveat": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "g3_explicit_current_date_approval",
+      "run_id": "sim15-repair3-candidate-g3_explicit_current_date_approval",
+      "checks": {
+        "no_stale_season_caveat": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "holly_jake_explicit_current_date_approval",
+      "run_id": "sim15-repair3-candidate-holly_jake_explicit_current_date_approval",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "requested_missing_quote_inputs": [
+          "board_type"
+        ],
+        "at_most_one_missing_quote_input": true,
+        "no_private_reask": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "real_closed_season",
+      "run_id": "sim15-repair3-candidate-real_closed_season",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "closure_preserved": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "genuinely_missing_date_authority",
+      "run_id": "sim15-repair3-candidate-genuinely_missing_date_authority",
+      "checks": {
+        "no_stale_season_caveat": true,
+        "no_invented_opening": true
+      },
+      "pass": true
+    }
+  ],
+  "all_candidate_pass": true,
+  "baseline_one_question_failure_reproduced": true,
+  "original_season_symptom_reproduced_by_baseline": false,
+  "interpretation": "The bounded baseline reproduced the semantic one-question failure, but not the original stale-season symptom; the historical season cause remains uncertain. This is not exact historical reproduction."
+}

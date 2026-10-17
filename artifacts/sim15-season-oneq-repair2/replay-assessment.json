@@ -1,0 +1,92 @@
+{
+  "assessment": "deterministic assertions over actual AIAgent emitted replies; not authored fixture text",
+  "receipt_sha256": "bec13457a90d850d039c8b7d38b19a1d919cbb53306e48c01e3549d7b36cb5d3",
+  "runs": [
+    {
+      "variant": "baseline",
+      "case": "approved_november_g3",
+      "run_id": "sim15-repair2-baseline-approved_november_g3",
+      "checks": {
+        "at_most_one_question": true,
+        "no_stale_season_caveat": true,
+        "no_sister_night_question": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "approved_november_holly_jake",
+      "run_id": "sim15-repair2-baseline-approved_november_holly_jake",
+      "checks": {
+        "at_most_one_question": true,
+        "no_stale_season_caveat": true,
+        "does_not_reask_private_vs_shared": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "closed_season",
+      "run_id": "sim15-repair2-baseline-closed_season",
+      "checks": {
+        "at_most_one_question": true,
+        "closure_preserved": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "missing_date_authority",
+      "run_id": "sim15-repair2-baseline-missing_date_authority",
+      "checks": {
+        "at_most_one_question": true,
+        "no_invented_opening": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "approved_november_g3",
+      "run_id": "sim15-repair2-candidate-approved_november_g3",
+      "checks": {
+        "at_most_one_question": true,
+        "no_stale_season_caveat": true,
+        "no_sister_night_question": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "approved_november_holly_jake",
+      "run_id": "sim15-repair2-candidate-approved_november_holly_jake",
+      "checks": {
+        "at_most_one_question": true,
+        "no_stale_season_caveat": true,
+        "does_not_reask_private_vs_shared": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "closed_season",
+      "run_id": "sim15-repair2-candidate-closed_season",
+      "checks": {
+        "at_most_one_question": true,
+        "closure_preserved": true
+      },
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "missing_date_authority",
+      "run_id": "sim15-repair2-candidate-missing_date_authority",
+      "checks": {
+        "at_most_one_question": true,
+        "no_invented_opening": true
+      },
+      "pass": true
+    }
+  ],
+  "all_pass": true,
+  "interpretation": "Baseline and candidate both satisfied the bounded cases in this replay. The replay did not demonstrate a need for any additional production-code change; the previously reviewed candidate tool-context change was retained unchanged."
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "sim15-repair4-audit-v1",
+  "passed": 8,
+  "failed": 0,
+  "checks": [
+    {
+      "variant": "baseline",
+      "case": "g3_current_date_authority_pricing_unavailable",
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "holly_current_date_authority_pricing_unavailable",
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "genuine_closure",
+      "pass": true
+    },
+    {
+      "variant": "baseline",
+      "case": "missing_date_authority",
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "g3_current_date_authority_pricing_unavailable",
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "holly_current_date_authority_pricing_unavailable",
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "genuine_closure",
+      "pass": true
+    },
+    {
+      "variant": "candidate",
+      "case": "missing_date_authority",
+      "pass": true
+    }
+  ],
+  "boundary": "offline; no Staff/model network, sends, writes, deploys, restarts, or config"
+}
