@@ -110,9 +110,10 @@ After secrets and certificates are provisioned through the approved operator pat
 Host/SNI override to `178.33.91.59` before DNS publication. Confirm the candidate has the
 controller/proof handles but no `/whatsapp/webhook`, no broad `/whatsapp/*`, and no route
 fragment import. Only then may the separately dispatched operator run `--install`, which
-will start the loopback controller and perform one validated Caddy reload. Re-read the
-service, port, effective Caddy JSON, unrelated sites, exact authenticated GET, and a valid
-authenticated POST returning `403 mutations_disabled`. Do not send a webhook probe.
+will restart only the loopback routing controller onto the installed read-only generation and perform one validated Caddy reload. Re-read the
+service generation, loopback port, effective Caddy JSON, unrelated sites, and exact
+authenticated GET plus safe health. The signed POST refusal/recovery matrix remains an
+offline synthetic HMAC rejection test only; do not send any host POST or webhook probe.
 
 On any partial failure, restore both files and the captured service/Caddy runtime state;
 report `ROLLBACK INCOMPLETE` if any restoration command fails. Do not copy a prior host's

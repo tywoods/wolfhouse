@@ -43,15 +43,23 @@ function parseRoute(text) {
 }
 function buildCandidate(current, target) { if (!parseRoute(current) || !Object.hasOwn(TARGETS, target)) throw Object.assign(new Error('fragment shape unsupported'), { code: 'caddy_route_shape_unsupported' }); return managedBlock(target); }
 function verifyIngressProof(proof, target, key, now = Date.now()) { if (!proof || proof.number_e164 !== NUMBER_E164 || proof.phone_number_id !== PHONE_NUMBER_ID || proof.path !== EXACT_PATH || proof.environment !== 'staging' || normalizeDial(proof.upstream) !== TARGETS[target]) return false; if (!Number.isFinite(proof.observed_at_ms) || Math.abs(now - proof.observed_at_ms) > 120000) return false; const payload = [proof.number_e164, proof.phone_number_id, proof.path, proof.environment, proof.upstream, String(proof.observed_at_ms)].join('\n'); return equalHex(String(proof.signature || ''), crypto.createHmac('sha256', key).update(payload).digest('hex')); }
+function hostPatternMatches(pattern, expectedSite) {
+  if (pattern === expectedSite) return true;
+  if (typeof pattern !== 'string' || !pattern.includes('*')) return false;
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^.]+');
+  return new RegExp(`^${escaped}$`, 'i').test(expectedSite);
+}
 function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
   const exact = [];
   function walkRoutes(routes, inheritedHosts = []) {
     if (!Array.isArray(routes)) return;
     for (const route of routes) {
       const matches = Array.isArray(route.match) ? route.match : [];
-      const hostMatchers = matches.filter((m) => Array.isArray(m.host));
-      if (hostMatchers.length && (matches.length !== 1 || hostMatchers[0].host.length !== 1 || hostMatchers[0].host[0] !== expectedSite)) continue;
-      const hosts = hostMatchers.length ? hostMatchers[0].host : inheritedHosts;
+      const alternatives = matches.length ? matches : [{}];
+      const applicable = alternatives.filter((match) => !Array.isArray(match.host) || match.host.some((host) => hostPatternMatches(host, expectedSite)));
+      if (!applicable.length) continue;
+      const exactHostBound = applicable.every((match) => Array.isArray(match.host) && match.host.length === 1 && match.host[0] === expectedSite);
+      const hosts = exactHostBound ? [expectedSite] : (matches.some((match) => Array.isArray(match.host)) ? [] : inheritedHosts);
       if (matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH))) exact.push({ route, hosts });
       for (const handler of Array.isArray(route.handle) ? route.handle : []) if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts);
     }

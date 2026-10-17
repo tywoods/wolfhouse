@@ -6,19 +6,54 @@ base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CADDYFILE=${CADDYFILE:-/etc/caddy/Caddyfile}; CADDY_BIN=/usr/bin/caddy
 ROUTING_SITE=${LUNA_ROUTING_SITE:-lunabox.lunafrontdesk.com}
 FRAGMENT=/var/lib/luna-routing/luna-number-route.caddy
-files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js'
+files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js validate-controller-env.js'
 for f in $files; do [ -f "$base/$f" ] || { echo "missing: $f" >&2; exit 1; }; done
 [ -f "$base/../../scripts/luna-number-routing-controller.js" ] || exit 1
 # Source/static validation deliberately has no host Caddy dependency.
-node --check "$base/caddy-contract.js"; node --check "$base/stage-route-fragment.js"; node --check "$base/../../scripts/luna-number-routing-controller.js"; sh -n "$0"
+node --check "$base/caddy-contract.js"; node --check "$base/stage-route-fragment.js"; node --check "$base/validate-controller-env.js"; node --check "$base/../../scripts/luna-number-routing-controller.js"; sh -n "$0"
 
 grep -qx 'User=luna-routing' "$base/luna-routing-controller.service"; grep -qx 'ExecStart=/usr/bin/node /opt/luna-routing/luna-number-routing-controller.js' "$base/luna-routing-controller.service"; grep -qx 'ReadWritePaths=/var/lib/luna-routing' "$base/luna-routing-controller.service"
 if [ "$mode" = --dry-run ]; then
   if [ -f "$CADDYFILE" ]; then t=$(mktemp); trap 'rm -f "$t"' EXIT; node "$base/caddy-contract.js" install "$CADDYFILE" "$t" "$ROUTING_SITE"; fi
   echo 'dry-run: source and contract checks passed; no host caddy required'; exit 0
 fi
+check_no_unit_overrides() {
+  for directory in \
+    /etc/systemd/system/luna-routing-controller.service.d \
+    /run/systemd/system/luna-routing-controller.service.d \
+    /usr/local/lib/systemd/system/luna-routing-controller.service.d \
+    /usr/lib/systemd/system/luna-routing-controller.service.d \
+    /lib/systemd/system/luna-routing-controller.service.d
+  do
+    [ ! -e "$directory" ] || { echo "controller service overrides are unsupported: $directory" >&2; return 1; }
+  done
+  for unit in \
+    /run/systemd/system/luna-routing-controller.service \
+    /usr/local/lib/systemd/system/luna-routing-controller.service \
+    /usr/lib/systemd/system/luna-routing-controller.service \
+    /lib/systemd/system/luna-routing-controller.service
+  do
+    [ ! -e "$unit" ] && [ ! -L "$unit" ] || { echo "noncanonical controller unit is unsupported: $unit" >&2; return 1; }
+  done
+}
+reject_link(){ [ ! -L "$1" ] || { echo "symbolic link is unsupported: $1" >&2; return 1; }; }
+check_destination_paths() {
+  for path in \
+    /var/lib/luna-routing /etc/luna-routing /opt/luna-routing \
+    "$FRAGMENT" /etc/luna-routing/controller.env \
+    /opt/luna-routing/luna-number-routing-controller.js \
+    /etc/systemd/system/luna-routing-controller.service \
+    /etc/sudoers.d/luna-routing /etc/tmpfiles.d/luna-routing.conf \
+    "$CADDYFILE"
+  do reject_link "$path"; done
+}
 verify() {
   [ -x "$CADDY_BIN" ]; [ ! -e /etc/sudoers.d/luna-routing ]
+  check_no_unit_overrides
+  node "$base/validate-controller-env.js" /etc/luna-routing/controller.env "$ROUTING_SITE"
+  cmp -s "$base/../../scripts/luna-number-routing-controller.js" /opt/luna-routing/luna-number-routing-controller.js
+  cmp -s "$base/luna-routing-controller.service" /etc/systemd/system/luna-routing-controller.service
+  /usr/bin/systemctl is-active --quiet luna-routing-controller.service
   node "$base/caddy-contract.js" verify "$CADDYFILE" /dev/null "$ROUTING_SITE"
   "$CADDY_BIN" validate --config "$CADDYFILE" --adapter caddyfile >/dev/null
   getent passwd luna-routing >/dev/null; [ "$(id -u luna-routing)" -ne 0 ]
@@ -28,11 +63,14 @@ verify() {
 [ "$mode" = --verify ] && { verify; echo verified; exit 0; }
 [ "$(id -u)" -eq 0 ] || { echo 'install must run as root' >&2; exit 1; }
 : "${CONTROLLER_ENV:?set CONTROLLER_ENV}"; [ -f "$CONTROLLER_ENV" ]; [ -x "$CADDY_BIN" ]; [ -f "$CADDYFILE" ]
-grep -Eq '^LUNA_ROUTING_CONTROLLER_HMAC_KEY=.{32,}$' "$CONTROLLER_ENV"; grep -Eq '^LUNA_ROUTING_INGRESS_PROOF_KEY=.{32,}$' "$CONTROLLER_ENV"
-[ "$(grep -c '^LUNA_ROUTING_MUTATIONS_ENABLED=' "$CONTROLLER_ENV")" -eq 1 ] && grep -qx 'LUNA_ROUTING_MUTATIONS_ENABLED=false' "$CONTROLLER_ENV" || { echo 'staged install requires exactly one LUNA_ROUTING_MUTATIONS_ENABLED=false' >&2; exit 1; }
-[ "$(grep -c '^LUNA_ROUTING_SITE=' "$CONTROLLER_ENV")" -eq 1 ] || { echo 'staged install requires exactly one LUNA_ROUTING_SITE' >&2; exit 1; }
-env_site=$(grep '^LUNA_ROUTING_SITE=' "$CONTROLLER_ENV" | cut -d= -f2-)
-[ "$env_site" = "$ROUTING_SITE" ] || { echo 'LUNA_ROUTING_SITE must match the selected installer site' >&2; exit 1; }
+node "$base/validate-controller-env.js" "$CONTROLLER_ENV" "$ROUTING_SITE"
+check_no_unit_overrides
+check_destination_paths
+/usr/bin/systemctl is-active --quiet caddy || { echo 'staged install requires Caddy to already be active' >&2; exit 1; }
+check_existing_dir(){ [ ! -e "$1" ] || { [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -c %U:%G:%a "$1")" = "$2" ]; } || { echo "existing directory has unsupported type/ownership/mode: $1" >&2; exit 1; }; }
+check_existing_dir /var/lib/luna-routing luna-routing:luna-routing:750
+check_existing_dir /etc/luna-routing root:luna-routing:750
+check_existing_dir /opt/luna-routing root:root:755
 stage=$(mktemp -d); backup=$(mktemp -d); committed=0; mutations_started=0; service_commands_started=0
 for p in Caddyfile fragment env controller unit sudoers tmpfiles; do eval dest_$p=; eval backup_$p=; done
 rollback_failure=0
@@ -41,27 +79,36 @@ cleanup(){
   rc=$?; trap - EXIT HUP INT TERM
   if [ "$committed" -eq 0 ] && [ "$mutations_started" -eq 1 ]; then
     echo "install failed (status $rc); restoring routing artifacts and runtime state" >&2
-    # An enable created wants-links which systemctl can reliably remove only while the new unit
-    # file is still present. Stop/disable it before deleting an installation with no prior unit.
+    # Stop any newly loaded generation before restoring bytes. A prior active generation is
+    # restarted only after every prerequisite and daemon-reload have restored successfully.
+    if [ "$service_commands_started" -eq 1 ]; then rollback_run 'stop controller before artifact restore' /usr/bin/systemctl stop luna-routing-controller.service; fi
     if [ "$service_commands_started" -eq 1 ] && [ "$unit_was_present" -eq 0 ]; then
-      rollback_run 'stop newly introduced controller service' /usr/bin/systemctl stop luna-routing-controller.service
       rollback_run 'disable newly introduced controller service' /usr/bin/systemctl disable luna-routing-controller.service
     fi
+    caddyfile_restored=1
     for p in Caddyfile fragment env controller unit sudoers tmpfiles; do
       eval src=\"\$backup_$p\"; eval dst=\"\$dest_$p\"
-      if [ -e "$src" ]; then rollback_run "restore $dst" cp -a "$src" "$dst"; elif [ -n "$dst" ]; then rollback_run "remove newly installed $dst" rm -f "$dst"; fi
+      if [ -e "$src" ]; then
+        if ! cp -a "$src" "$dst"; then echo "ROLLBACK FAILED: restore $dst" >&2; rollback_failure=1; [ "$p" != Caddyfile ] || caddyfile_restored=0; fi
+      elif [ -n "$dst" ]; then rollback_run "remove newly installed $dst" rm -f "$dst"; fi
     done
-    if [ "$service_commands_started" -eq 1 ]; then
+    if [ "$service_commands_started" -eq 1 ] && [ "$rollback_failure" -eq 0 ]; then
       rollback_run 'daemon-reload restored units' /usr/bin/systemctl daemon-reload
-      rollback_run 'reload Caddy from restored configuration' /usr/bin/systemctl reload caddy
-      if [ "$unit_was_present" -eq 1 ]; then
+      if [ "$rollback_failure" -eq 0 ] && [ "$caddyfile_restored" -eq 1 ]; then rollback_run 'reload Caddy from restored configuration' /usr/bin/systemctl reload caddy; fi
+      if [ "$rollback_failure" -eq 0 ] && [ "$unit_was_present" -eq 1 ]; then
         if [ "$unit_was_enabled" -eq 1 ]; then rollback_run 're-enable prior controller service' /usr/bin/systemctl enable luna-routing-controller.service; else rollback_run 'disable newly enabled controller service' /usr/bin/systemctl disable luna-routing-controller.service; fi
-        if [ "$unit_was_active" -eq 1 ]; then rollback_run 'restart prior active controller service' /usr/bin/systemctl restart luna-routing-controller.service; else rollback_run 'stop newly started controller service' /usr/bin/systemctl stop luna-routing-controller.service; fi
+        if [ "$rollback_failure" -eq 0 ] && [ "$unit_was_active" -eq 1 ]; then rollback_run 'restart prior active controller service' /usr/bin/systemctl restart luna-routing-controller.service; fi
       fi
     fi
-    [ "$rollback_failure" -eq 0 ] || echo 'ROLLBACK INCOMPLETE: manual recovery is required' >&2
+    if [ "$rollback_failure" -ne 0 ]; then
+      chmod -R go-rwx "$backup" 2>/dev/null || :
+      echo "ROLLBACK INCOMPLETE: manual recovery is required" >&2
+      echo "RECOVERY BACKUP PRESERVED: $backup" >&2
+    fi
   fi
-  rm -rf "$stage" "$backup"; exit "$rc"
+  rm -rf "$stage"
+  [ "$rollback_failure" -ne 0 ] || rm -rf "$backup"
+  exit "$rc"
 }
 trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 # Build every candidate before mutation.
@@ -70,7 +117,12 @@ node "$base/caddy-contract.js" "$([ "$mode" = --update-contract ] && echo update
 # replacing it with the repository's first-install Wolfhouse seed.
 node "$base/stage-route-fragment.js" "$FRAGMENT" "$base/luna-number-route.caddy" "$stage/fragment"
 cp "$CONTROLLER_ENV" "$stage/env"; cp "$base/../../scripts/luna-number-routing-controller.js" "$stage/controller"; cp "$base/luna-routing-controller.service" "$stage/unit"; cp "$base/luna-routing.tmpfiles.conf" "$stage/tmpfiles"
-# Validation always targets the staged fragment (preserved on reinstall, seeded on first install).
+# Validate the staged fragment in an isolated, non-public wrapper even when the selected
+# site's candidate deliberately has no fragment import (France no-send staging).
+printf 'http://127.0.0.1:18096 {\n  import %s\n}\n' "$stage/fragment" >"$stage/fragment.validation"
+"$CADDY_BIN" validate --config "$stage/fragment.validation" --adapter caddyfile >/dev/null
+# Also validate the full staged root candidate. Legacy replaces its canonical import with
+# the staged file; France remains import-free and therefore cannot expose the webhook.
 STAGED_CADDYFILE="$stage/Caddyfile" STAGED_FRAGMENT="$stage/fragment" STAGED_VALIDATION="$stage/Caddyfile.validation" node -e '
 const fs=require("fs"); const source=fs.readFileSync(process.env.STAGED_CADDYFILE,"utf8");
 const canonical="import /var/lib/luna-routing/luna-number-route.caddy";
@@ -92,5 +144,5 @@ install -o luna-routing -g luna-routing -m 0640 "$stage/fragment" "$FRAGMENT"; i
 "$CADDY_BIN" validate --config "$stage/Caddyfile" --adapter caddyfile >/dev/null
 # Root config is intentionally the final filesystem mutation.
 uid=$(stat -c %u "$CADDYFILE"); gid=$(stat -c %g "$CADDYFILE"); perm=$(stat -c %a "$CADDYFILE"); install -o "$uid" -g "$gid" -m "$perm" "$stage/Caddyfile" "$CADDYFILE"
-service_commands_started=1; /usr/bin/systemctl daemon-reload; /usr/bin/systemctl enable --now luna-routing-controller.service; /usr/bin/systemctl reload caddy; verify
+service_commands_started=1; /usr/bin/systemctl daemon-reload; /usr/bin/systemctl enable luna-routing-controller.service; /usr/bin/systemctl restart luna-routing-controller.service; /usr/bin/systemctl reload caddy; verify
 committed=1; echo 'installed and verified'
