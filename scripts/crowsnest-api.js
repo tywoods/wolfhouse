@@ -13,7 +13,7 @@ const http = require('http');
 const path = require('path');
 const { renderCrowsnestLoginPage, renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 const { getCrowsnestClients } = require('./lib/crowsnest/crowsnest-clients');
-const { collectClientConnectionStatuses } = require('./lib/crowsnest/crowsnest-client-status');
+const { collectClientConnectionStatuses, loadCrowsnestClientsView } = require('./lib/crowsnest/crowsnest-client-status');
 const { createCrowsnestClientPortalEvidenceCollector, CLIENT_PORTAL_SOURCES } = require('./lib/crowsnest/crowsnest-client-portal-evidence');
 const collectClientPortalEvidence = createCrowsnestClientPortalEvidenceCollector();
 const {
@@ -1559,13 +1559,18 @@ async function handleProtectedUi(req, res, method, pathname) {
     }
     if (view === 'clients') {
       const staffStatus = resolveCrowsnestStaffStatusConfig(process.env);
-      pageOptions.clientStatuses = await collectClientConnectionStatuses({
-        clients: getCrowsnestClients(),
-        readWhatsApp: readLunaNumberRoute,
-        staffOrigins: staffStatus.origins,
-        requestJson: createCrowsnestStaffStatusReader(staffStatus),
+      const loaded = await loadCrowsnestClientsView({
+        collectStatuses: () => collectClientConnectionStatuses({
+          clients: getCrowsnestClients(),
+          readWhatsApp: readLunaNumberRoute,
+          staffOrigins: staffStatus.origins,
+          requestJson: createCrowsnestStaffStatusReader(staffStatus),
+        }),
+        collectEvidence: () => collectClientPortalEvidence(getCrowsnestClients()),
+        collectDeploy: () => collectClientPortalDeploy(getCrowsnestClients()),
       });
-      pageOptions.portalEvidence = await collectClientPortalEvidence(getCrowsnestClients());
+      pageOptions.clientStatuses = loaded.clientStatuses;
+      pageOptions.portalEvidence = loaded.portalEvidence;
       // Compatibility with Slice A's URL-keyed display seam. Preserve the
       // environment-keyed DTO for observation times/reasons; only admitted
       // sources get aliases, never browser-supplied/unapproved URLs.
@@ -1575,11 +1580,8 @@ async function handleProtectedUi(req, res, method, pathname) {
       }
       // Deploy age from stored stamps (Skipper POST after Staff deploy) — not healthz.
       // Fail-soft: missing stamp leaves deploy_* null (no "Checked" fallback).
-      try {
-        const deployEvidence = await collectClientPortalDeploy(getCrowsnestClients());
-        mergePortalDeployIntoEvidence(pageOptions.portalEvidence, deployEvidence);
-      } catch (_) {
-        // Keep availability evidence; omit Updated meta.
+      if (loaded.deployResult.ok) {
+        mergePortalDeployIntoEvidence(pageOptions.portalEvidence, loaded.deployResult.value);
       }
       pageOptions.directoryBuild = directoryBuild;
     }

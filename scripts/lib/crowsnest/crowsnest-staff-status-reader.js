@@ -1,5 +1,7 @@
 'use strict';
 
+const STAFF_STATUS_READ_TIMEOUT_MS = 2000;
+
 const ENVIRONMENTS = Object.freeze([
   Object.freeze({
     client_slug: 'wolfhouse-somo',
@@ -42,11 +44,11 @@ function createCrowsnestStaffStatusReader(config, transport = fetch) {
       method: 'GET',
       headers: { accept: 'application/json', 'x-crowsnest-status-token': token },
       redirect: 'error',
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(STAFF_STATUS_READ_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`status_read_${response.status}`);
     return response.json();
   };
 }
 
-module.exports = { ENVIRONMENTS, resolveCrowsnestStaffStatusConfig, createCrowsnestStaffStatusReader };
+module.exports = { ENVIRONMENTS, STAFF_STATUS_READ_TIMEOUT_MS, resolveCrowsnestStaffStatusConfig, createCrowsnestStaffStatusReader };
