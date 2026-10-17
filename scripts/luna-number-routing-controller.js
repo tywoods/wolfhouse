@@ -49,10 +49,28 @@ function hostPatternMatches(pattern, expectedSite) {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^.]+');
   return new RegExp(`^${escaped}$`, 'i').test(expectedSite);
 }
+function pathPatternMatches(pattern, requestPath) {
+  if (pattern === requestPath) return true;
+  if (typeof pattern !== 'string' || !pattern.includes('*')) return false;
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`).test(requestPath);
+}
+function routeCanPrecedeWebhook(route, expectedSite) {
+  if (!route || !Array.isArray(route.handle) || route.handle.length === 0) return false;
+  const matches = Array.isArray(route.match) && route.match.length ? route.match : [{}];
+  return matches.some((match) => {
+    if (!match || typeof match !== 'object' || Array.isArray(match)) return true;
+    if (Array.isArray(match.host) && !match.host.some((host) => hostPatternMatches(host, expectedSite))) return false;
+    if (Array.isArray(match.path) && !match.path.some((pattern) => pathPatternMatches(pattern, EXACT_PATH))) return false;
+    if (Array.isArray(match.method) && !match.method.some((method) => method === 'GET' || method === 'POST')) return false;
+    return true;
+  });
+}
 function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
   const exact = [];
-  function walkRoutes(routes, inheritedHosts = [], inheritedConstraint = false) {
+  function walkRoutes(routes, inheritedHosts = [], inheritedConstraint = false, inheritedPreceding = false) {
     if (!Array.isArray(routes)) return;
+    let preceding = inheritedPreceding;
     for (const route of routes) {
       const matches = Array.isArray(route.match) ? route.match : [];
       const alternatives = matches.length ? matches : [{}];
@@ -61,9 +79,14 @@ function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
       const exactHostBound = applicable.every((match) => Array.isArray(match.host) && match.host.length === 1 && match.host[0] === expectedSite);
       const hosts = exactHostBound ? [expectedSite] : (matches.some((match) => Array.isArray(match.host)) ? [] : inheritedHosts);
       const isExactRoute = matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH));
-      if (isExactRoute) exact.push({ route, hosts, unsupported: inheritedConstraint });
+      if (isExactRoute) exact.push({ route, hosts, unsupported: inheritedConstraint || preceding });
       const constrainsDescendants = inheritedConstraint || applicable.some((match) => Object.keys(match).some((key) => key !== 'host'));
-      for (const handler of Array.isArray(route.handle) ? route.handle : []) if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts, constrainsDescendants);
+      let precedingHandler = false;
+      for (const handler of Array.isArray(route.handle) ? route.handle : []) {
+        if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts, constrainsDescendants, preceding || precedingHandler);
+        precedingHandler = true;
+      }
+      if (routeCanPrecedeWebhook(route, expectedSite)) preceding = true;
     }
   }
   const servers = cfg && cfg.apps && cfg.apps.http && cfg.apps.http.servers;
