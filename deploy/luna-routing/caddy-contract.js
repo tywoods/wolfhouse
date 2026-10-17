@@ -18,7 +18,7 @@ function uncomment(line) { return line.replace(/#.*/, ''); }
 function settings(options = {}) {
   if (typeof options === 'boolean') options = { update: options };
   const site = options.site || LEGACY_SITE;
-  const policy = SITE_POLICIES[site];
+  const policy = Object.hasOwn(SITE_POLICIES, site) ? SITE_POLICIES[site] : null;
   if (!policy) throw new Error(`routing site is not allowlisted: ${site}`);
   return { site, policy, update: options.update === true };
 }
@@ -28,18 +28,32 @@ function locate(text, options = {}) {
   const escapedSite = siteName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let depth = 0;
   const sites = [];
+  let selectedLabels = 0;
   let active = null;
   for (let i = 0; i < lines.length; i += 1) {
     const code = uncomment(lines[i]);
+    if (depth === 0) {
+      const header = /^\s*([^{}]+?)\s*\{\s*$/.exec(code);
+      if (header) {
+        const labels = header[1].split(',').map((label) => label.trim().replace(/^https?:\/\//, '').replace(/:\d+$/, ''));
+        if (labels.includes(siteName)) selectedLabels += 1;
+      }
+    }
     if (depth === 0 && new RegExp(`^\\s*${escapedSite}\\s*\\{\\s*$`).test(code)) active = { start: i, depth: 1 };
     const opens = (code.match(/{/g) || []).length;
     const closes = (code.match(/}/g) || []).length;
     depth += opens - closes;
     if (active && depth === 0) { active.end = i; sites.push(active); active = null; }
   }
-  if (active || sites.length !== 1) throw new Error(`expected exactly one unambiguous ${siteName} site block`);
+  if (active || sites.length !== 1 || selectedLabels !== 1) throw new Error(`expected exactly one unambiguous ${siteName} site block`);
   const site = sites[0];
   const rows = lines.slice(site.start + 1, site.end);
+  if (siteName === FRANCE_STAGING_SITE) {
+    const withoutContract = rows.join('\n').replace(/^\s*# BEGIN luna-routing-contract\s*$[\s\S]*?^\s*# END luna-routing-contract\s*$/gm, '');
+    if (withoutContract.split('\n').some((line) => uncomment(line).trim())) {
+      throw new Error('France staging site must retain the reviewed non-delivery shape');
+    }
+  }
   let local = 0;
   const broad = [];
   for (let i = 0; i < rows.length; i += 1) {
@@ -88,6 +102,9 @@ function transform(text, options = {}) {
   const matches = [...source.matchAll(marker)];
   if (matches.length) {
     if (matches.length !== 1) throw new Error('duplicate contract markers');
+    const owner = locate(source, resolved);
+    const markerLine = source.slice(0, matches[0].index).split('\n').length - 1;
+    if (markerLine <= owner.site.start || markerLine >= owner.site.end) throw new Error('routing contract is owned by another site');
     if (!resolved.update) { verify(source, resolved); return source; }
     source = source.replace(marker, '');
   }
