@@ -217,6 +217,50 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                          [{"kind": "rendered_reply", "text": rendered}],
                          "no second confirmation was rendered")
 
+    def test_r1_names_after_quote_with_chosen_full_payment_dispatches_once(self):
+        """Chosen full payment survives late name completion, not only full-only tariffs."""
+        beds = self.beds(2)
+        quoted = {"check_in": "2026-10-25", "check_out": "2026-10-27",
+                  "guest_count": 2, "room_type": "shared", "room_preference": "mixed",
+                  "package_code": "package_none", "payment_choice": "full", "guests": []}
+        raw_quote = checked_staff_quote(quoted, beds, total=24000, deposit=10000,
+                                        full_payment_only=False)
+        self.loop.turn("chosen-full-quote", "Show me the full-payment total for two beds")
+        result = self.loop.call("quote_booking", quoted,
+            {"/availability-check": availability_receipt(beds),
+             "/booking-preview": raw_quote})
+        self.assertEqual(result["total_cents"], 24000)
+        self.assertFalse(result["full_payment_only"])
+        rendered = self.loop.present()
+
+        yes = "Yes — book that exact offer for Jonas Bergström and Mia Chen."
+        self.loop.turn("chosen-full-names", yes)
+        decision = self.loop.interpret("accept", yes, completions={"guests": [
+            {"guest_index": 0, "name": "Jonas Bergström", "evidence": "Jonas Bergström"},
+            {"guest_index": 1, "name": "Mia Chen", "evidence": "Mia Chen"}]})
+        self.assertFalse(decision["create_ready"], decision)
+        names = [{"name": "Jonas Bergström"}, {"name": "Mia Chen"}]
+        refreshed_plan = {**quoted, "guests": names}
+        refreshed = checked_staff_quote(refreshed_plan, beds, total=24000, deposit=10000,
+                                        full_payment_only=False)
+        def responses(route, body):
+            if route == "/booking-preview":
+                return refreshed
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            return {"success": True, "created": True, "write_performed": True,
+                    "booking_id": "chosen-full-one", "booking_code": "WH-CHOSEN-FULL"}
+        created = self.loop.call("create_booking_from_plan", {"guests": names}, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        sent = self.loop.create_dispatches[0]
+        self.assertEqual(sent["payment_choice"], "full")
+        self.assertEqual(sent["selected_bed_codes"], [b["bed_code"] for b in beds])
+        self.assertEqual(sent["guests"], names)
+        self.assertEqual([t for t in self.loop.trace if t["kind"] == "rendered_reply"],
+                         [{"kind": "rendered_reply", "text": rendered}],
+                         "no second confirmation was rendered")
+
     def test_r1_changed_person_and_material_terms_refuse_while_unchanged_replay_survives(self):
         beds = self.beds(2)
         plan = {"check_in": "2026-11-01", "check_out": "2026-11-03", "guest_count": 2,
