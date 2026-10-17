@@ -16,7 +16,11 @@ class Registry:
     def register_hook(self, *args): pass
 
 registry=Registry()
-with patch.object(accepted_quote, 'install_owner_hook'):
+# This probe checks Wolfhouse's tenant-specific roster schema. Register under the
+# same trusted tenant explicitly so an invoking shell cannot silently select the
+# tenant-neutral capture shape and turn the schema assertion into a KeyError.
+with patch.dict(os.environ, {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}), \
+        patch.object(accepted_quote, 'install_owner_hook'):
     plugin.register(registry)
 
 def bed(room, category, n=1, mode='shared'):

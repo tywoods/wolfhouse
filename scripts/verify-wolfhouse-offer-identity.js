@@ -888,7 +888,11 @@ assert('whole-booking payment is not the same as per-guest distribution',
   assert('real command accepts the issued offer without a room-rule rejection',
     realDecision.ok === true && realDecision.detail !== 'room_eligibility_changed');
 
-  await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler();
+  // Offline synthetic principal: bind the same trusted header context required
+  // by the production handler.  This is not a live-auth relaxation.
+  await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler({
+    trustedGuestPhone: '+34912345678',
+  });
   assert('ordinary create handler retries preserve person-to-bed pairs and fail closed for legacy rows', true);
 
   console.log(`\n${pass} passed, ${fail} failed`);

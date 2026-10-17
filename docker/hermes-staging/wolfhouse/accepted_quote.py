@@ -1653,6 +1653,13 @@ def record_quote(params, response):
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
+                if state.get('status') == 'accepted' and presentation.get('create_ready') is True:
+                    # A fact-equivalent Staff re-quote advances the authority
+                    # already accepted for this same person/conversation.  Do
+                    # not leave the acceptance snapshots pointing at the prior
+                    # fingerprint and then refuse the exact refreshed offer.
+                    state['accepted_offer_snapshot'] = deepcopy(revision)
+                    state['accepted_presentation'] = deepcopy(presentation)
                 return
         if (valid and checked is not None and state['status'] in ('offered', 'accepted')
                 and isinstance(state.get('presentation'), dict)

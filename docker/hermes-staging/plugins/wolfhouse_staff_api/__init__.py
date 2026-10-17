@@ -451,6 +451,9 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     params = params if isinstance(params, dict) else {}
     preference = _clean(params.get("room_preference")).lower().replace("-", "_").replace(" ", "_")
     room_type = _clean(params.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    preference = {"male_dorm": "male_only", "guys_dorm": "male_only",
+                  "female_dorm": "female_only", "girls_dorm": "female_only"}.get(
+                      preference, preference)
     if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
         preference = room_type
     raw_travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else []
@@ -481,7 +484,10 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         hint=None,
         confidence=None,
         ambiguous=False,
-        explicit_gender=params.get("explicit_gender"),
+        # The registered availability schema historically calls this explicit,
+        # person-bound fact gender_preference.  Omitting guests/names must not
+        # discard it before a gendered-bed eligibility decision.
+        explicit_gender=params.get("explicit_gender") or params.get("gender_preference"),
         group_gender=params.get("group_gender"),
         room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
@@ -673,9 +679,17 @@ def check_availability(params, **kwargs):
         selected_codes = []
         selected_room = None
         room_contract = {"selected_room_types": []}
-        status = "unavailable"
-        data = {**data, "next_action": "offer_accommodation_or_change_dates",
-                "blockers": [*(data.get("blockers") or []), "requested_room_unavailable"]}
+        if isinstance(decision, dict) and decision.get("clarification_needed") and not decision.get("conflict"):
+            # Inventory was positive; only person eligibility is missing.  Do
+            # not turn that absence into the materially different claim that
+            # the requested stock is unavailable.
+            status = "eligibility_required"
+            data = {**data, "next_action": "ask_room_eligibility",
+                    "blockers": [*(data.get("blockers") or []), "room_eligibility_unknown"]}
+        else:
+            status = "unavailable"
+            data = {**data, "next_action": "offer_accommodation_or_change_dates",
+                    "blockers": [*(data.get("blockers") or []), "requested_room_unavailable"]}
     avail_result = {
         "success": bool(data.get("success")),
         "tool": "check_availability",

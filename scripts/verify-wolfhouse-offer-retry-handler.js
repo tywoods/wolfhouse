@@ -14,7 +14,7 @@ const service = require('./lib/luna-front-desk-accommodation-booking-create-serv
 const offer = require('./lib/luna-front-desk-accommodation-availability-service');
 const { mapBotBookingCreateBlockedHttp } = require('./lib/booking-guests');
 
-async function verifyWolfhouseOfferRetryHandler() {
+async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345678' } = {}) {
   const db = new PGlite();
   const calls = [];
   const errors = [];
@@ -27,7 +27,7 @@ async function verifyWolfhouseOfferRetryHandler() {
     confirm: true, require_offer_identity: true, idempotency_key: 'offline-retry-pairs',
     check_in: '2026-10-20', check_out: '2026-10-22', guest_count: 2,
     guest_name: 'Lucia', guests: [{ name: 'Lucia' }, { name: 'Carmen' }],
-    phone: '+999****1288', package_code: 'package_none', room_type: 'shared',
+    phone: trustedGuestPhone, package_code: 'package_none', room_type: 'shared',
     group_gender: 'female', selected_bed_codes: ['R8-B1', 'R8-B2'], payment_choice: 'full',
   };
   try {
@@ -74,6 +74,7 @@ async function verifyWolfhouseOfferRetryHandler() {
     const lib = name => require('./lib/' + name);
     const context = {
       ...lib('bot-booking-package-normalize'), ...lib('staff-manual-booking-payment'),
+      ...lib('staff-manual-booking-create-sql'), ...lib('staff-booking-portal-policy'),
       ...lib('wolfhouse-room-options'), ...lib('wolfhouse-quote-calculator'),
       ...lib('guest-addon-pricing'), ...lib('bot-quote-included-items'),
       ...lib('wolfhouse-package-night-rules'), ...lib('booking-guests'),
@@ -82,6 +83,14 @@ async function verifyWolfhouseOfferRetryHandler() {
       BOT_BOOKING_ENABLED: true, STAFF_AUTH_REQUIRED: true, DEFAULT_CLIENT: 'wolfhouse-somo',
       appendAuditLog() {}, readBody: async () => JSON.stringify(requestBody),
       resolveBotHandlerTrustedClientSlug: () => 'wolfhouse-somo',
+      // Synthetic portal-policy fixture for this offline verifier.  Production
+      // still resolves the authenticated conversation through Staff SQL.
+      resolveWolfhouseAutomaticBookingAdmission: async (_pg, input) => ({
+        allowed: input.client_slug === 'wolfhouse-somo'
+          && input.guest_phone === trustedGuestPhone,
+        reason: null,
+        policy_source: 'synthetic_trusted_context',
+      }),
       loadWolfhouseQuoteConfigWithOverlay: () => service.loadBookingQuoteConfigWithOverlay(pg),
       withPgClient: fn => fn(pg),
       sendJSON: (_res, status, body) => ({ status, body }),
@@ -105,7 +114,11 @@ async function verifyWolfhouseOfferRetryHandler() {
     vm.runInContext(source.slice(start, source.indexOf('\n}\n', start) + 2), context);
     const invoke = async body => {
       requestBody = structuredClone(body);
-      return context.handleBotBookingCreate({}, {}, null, 'offline');
+      // Synthetic authenticated Luna request.  The phone comes from the trusted
+      // request header, exactly as it does at the live route boundary; putting it
+      // in the fixture body alone must not bypass that boundary.
+      const req = { headers: { 'x-luna-guest-phone': trustedGuestPhone } };
+      return context.handleBotBookingCreate(req, {}, null, 'bot_token');
     };
     const original = await invoke(payload);
     assert.equal(original.status, 201, JSON.stringify(original));
@@ -172,9 +185,8 @@ async function verifyWolfhouseOfferRetryHandler() {
     await db.query("UPDATE bookings SET metadata = metadata - 'operation_fingerprint' WHERE id=$1", [original.body.booking_id]);
     await expectRefused('legacy recovery even with an identical request', payload);
     const changedLegacy = structuredClone(payload);
-    changedLegacy.phone = '+999****7777';
     changedLegacy.guests[1].name = 'Other Person';
-    await expectRefused('legacy recovery with changed phone/second guest', changedLegacy);
+    await expectRefused('legacy recovery with changed second guest', changedLegacy);
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal(failures.length, 0, failures.join('\n'));
     return { evidence_mode: 'offline real preview/create handlers and SQL; minimal supporting schema; no live transport',
@@ -183,7 +195,7 @@ async function verifyWolfhouseOfferRetryHandler() {
 }
 
 module.exports = { verifyWolfhouseOfferRetryHandler };
-if (require.main === module) verifyWolfhouseOfferRetryHandler().catch(error => {
+if (require.main === module) verifyWolfhouseOfferRetryHandler({ trustedGuestPhone: '+34912345678' }).catch(error => {
   console.error(error.stack || error);
   process.exitCode = 1;
 });
