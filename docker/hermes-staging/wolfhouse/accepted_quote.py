@@ -2222,6 +2222,7 @@ def finalize_offer_response(result):
                    'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
         if offer['payment_link_amount_cents']:
             lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        if not offer['payment_link_amount_cents']: lines.append(f"Due now: {money(0)}.")
         due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']
         if due_on_arrival:
             lines.append(f"Due on arrival: {money(due_on_arrival)}.")
