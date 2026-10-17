@@ -88,6 +88,7 @@ function wolfhouseLocationBookingStatus(node, message, isError) {
   if (!node) return;
   node.textContent = message || '';
   node.classList.toggle('is-error', !!isError);
+  if (isError && window.staffCollapseReveal) window.staffCollapseReveal(node);
 }
 
 function wolfhouseLocationBookingPut(path, body) {

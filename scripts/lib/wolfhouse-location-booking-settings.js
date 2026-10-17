@@ -112,13 +112,13 @@ async function readRow(pg, clientSlug) {
   return res.rows[0] || null;
 }
 
-async function depositLanded(pg, clientSlug) {
+async function depositExistsSql(pg) {
   const probe = await pg.query(
     `SELECT to_regclass('public.payments') AS payments,
             to_regclass('public.clients') AS clients`,
   );
   const rel = probe.rows[0] || {};
-  if (!rel.payments || !rel.clients) return false;
+  if (!rel.payments || !rel.clients) return null;
   const cols = await pg.query(
     `SELECT column_name
        FROM information_schema.columns
@@ -127,25 +127,28 @@ async function depositLanded(pg, clientSlug) {
         AND column_name IN ('client_id', 'status', 'amount_paid_cents', 'payment_kind')`,
   );
   const names = new Set(cols.rows.map((row) => row.column_name));
-  if (!names.has('client_id') || !names.has('status')) return false;
+  if (!names.has('client_id') || !names.has('status')) return null;
   const amountSql = names.has('amount_paid_cents')
     ? 'AND COALESCE(p.amount_paid_cents, 0) > 0'
     : '';
   const kindSql = names.has('payment_kind')
     ? `AND p.payment_kind::text IN ('deposit', 'deposit_only')`
     : '';
-  const res = await pg.query(
-    `SELECT EXISTS (
-       SELECT 1
-         FROM payments p
-         INNER JOIN clients c ON c.id = p.client_id
-        WHERE c.slug = $1
-          AND p.status::text = 'paid'
-          ${amountSql}
-          ${kindSql}
-     ) AS landed`,
-    [clientSlug],
-  );
+  return `EXISTS (
+    SELECT 1
+      FROM payments p
+      INNER JOIN clients c ON c.id = p.client_id
+     WHERE c.slug = $1
+       AND p.status::text = 'paid'
+       ${amountSql}
+       ${kindSql}
+  )`;
+}
+
+async function depositLanded(pg, clientSlug) {
+  const existsSql = await depositExistsSql(pg);
+  if (!existsSql) return false;
+  const res = await pg.query(`SELECT ${existsSql} AS landed`, [clientSlug]);
   return !!(res.rows[0] && res.rows[0].landed);
 }
 
@@ -173,25 +176,33 @@ async function saveLocation(pg, clientSlug, location, actorId) {
 
 async function saveBooking(pg, clientSlug, booking, actorId) {
   await ensureTable(pg);
-  await pg.query(
+  const params = [
+    clientSlug,
+    DEFAULTS.address_text,
+    DEFAULTS.google_maps_url,
+    booking.unpaid_hold_minutes,
+    booking.require_each_guest_deposit,
+    actorId,
+  ];
+  const existsSql = await depositExistsSql(pg);
+  const guard = existsSql ? `WHERE NOT ${existsSql}` : '';
+  const res = await pg.query(
     `INSERT INTO ${TABLE} (
        client_slug, address_text, google_maps_url, unpaid_hold_minutes,
        require_each_guest_deposit, updated_by
-     ) VALUES ($1, $2, $3, $4, $5, $6::uuid)
+     )
+     SELECT $1, $2, $3, $4, $5, $6::uuid
+     ${guard}
      ON CONFLICT (client_slug) DO UPDATE
        SET unpaid_hold_minutes = EXCLUDED.unpaid_hold_minutes,
            require_each_guest_deposit = EXCLUDED.require_each_guest_deposit,
            updated_at = now(),
-           updated_by = EXCLUDED.updated_by`,
-    [
-      clientSlug,
-      DEFAULTS.address_text,
-      DEFAULTS.google_maps_url,
-      booking.unpaid_hold_minutes,
-      booking.require_each_guest_deposit,
-      actorId,
-    ],
+           updated_by = EXCLUDED.updated_by
+       ${guard}
+     RETURNING client_slug`,
+    params,
   );
+  return Array.isArray(res.rows) && res.rows.length > 0;
 }
 
 function actorId(user) {
@@ -223,20 +234,22 @@ function createWolfhouseLocationBookingSettingsRoutes(deps) {
     return false;
   }
 
+  const JSON_ALREADY_ANSWERED = Symbol('json-already-answered');
+
   async function readJson(req, res) {
     let raw;
     try {
       raw = await readBody(req);
     } catch (_error) {
       send400(res, 'invalid JSON body');
-      return null;
+      return JSON_ALREADY_ANSWERED;
     }
     try {
       const text = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw || '');
       return JSON.parse(text || '{}');
     } catch (_error) {
       send400(res, 'invalid JSON body');
-      return null;
+      return JSON_ALREADY_ANSWERED;
     }
   }
 
@@ -256,7 +269,7 @@ function createWolfhouseLocationBookingSettingsRoutes(deps) {
     if (rejectOtherClient(query, res)) return;
     if (!assertStaffClientAccess(user, CLIENT_SLUG, res)) return;
     const body = await readJson(req, res);
-    if (!body) return;
+    if (body === JSON_ALREADY_ANSWERED) return;
     const location = validateLocationBody(body);
     if (!location.ok) return sendJSON(res, location.status, { success: false, error: location.error });
     try {
@@ -282,17 +295,13 @@ function createWolfhouseLocationBookingSettingsRoutes(deps) {
     if (rejectOtherClient(query, res)) return;
     if (!assertStaffClientAccess(user, CLIENT_SLUG, res)) return;
     const body = await readJson(req, res);
-    if (!body) return;
+    if (body === JSON_ALREADY_ANSWERED) return;
     const booking = validateBookingBody(body);
     if (!booking.ok) return sendJSON(res, booking.status, { success: false, error: booking.error });
     try {
       const saved = await withPgClient(async (pg) => {
-        const current = await readSettings(pg, CLIENT_SLUG);
-        if (current.booking_settings.locked) {
-          return { locked: true, settings: current };
-        }
-        await saveBooking(pg, CLIENT_SLUG, booking, actorId(user));
-        return { locked: false, settings: await readSettings(pg, CLIENT_SLUG) };
+        const wrote = await saveBooking(pg, CLIENT_SLUG, booking, actorId(user));
+        return { locked: !wrote, settings: await readSettings(pg, CLIENT_SLUG) };
       });
       if (saved.locked) {
         return sendJSON(res, 409, {

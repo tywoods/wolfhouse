@@ -49,9 +49,20 @@ async function createHarness(out = OUT) {
   const api = require('./staff-query-api');
   assert.equal(api.server.listening, false);
   const owner = { staff_user_id: '10000000-0000-4000-8000-000000000001', role: 'owner' };
+  let beforeBookingWrite = null;
+  const pgProxy = {
+    query: async (sql, params) => {
+      if (beforeBookingWrite && /INSERT INTO wolfhouse_location_booking_settings/i.test(String(sql))) {
+        const hook = beforeBookingWrite;
+        beforeBookingWrite = null;
+        await hook(db);
+      }
+      return db.query(sql, params);
+    },
+  };
   api.setFortress15j3OfflineSeams({
     resolveSessionUser: () => session,
-    withPgClient: async (fn) => fn(db),
+    withPgClient: async (fn) => fn(pgProxy),
   });
 
   async function route(spec) {
@@ -101,6 +112,7 @@ async function createHarness(out = OUT) {
       db = new PGlite(dbPath);
     },
     exec(sql) { return db.exec(sql); },
+    armBookingWrite(fn) { beforeBookingWrite = fn; },
     async close() {
       api.setFortress15j3OfflineSeams(null);
       await db.close();
@@ -277,6 +289,72 @@ async function createHarness(out = OUT) {
     });
     assert.equal(locationRead.body.location.google_maps_url, 'https://maps.google.com/after-lock');
     assert.equal(locationRead.body.booking_settings.locked, true);
+
+    async function answered(spec) {
+      let timer;
+      const result = await Promise.race([
+        harness.route(spec),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('unanswered ' + spec.path + ' ' + spec.body)), 200);
+        }),
+      ]);
+      clearTimeout(timer);
+      return result;
+    }
+    for (const raw of ['null', 'false', '0', '""']) {
+      for (const putPath of ['/staff/admin/location', '/staff/admin/booking-settings']) {
+        const falsy = await answered({ session: 'owner', method: 'PUT', path: putPath, body: raw });
+        assert.equal(falsy.status, 400, raw + ' ' + putPath + ' ' + JSON.stringify(falsy));
+      }
+    }
+    const broken = await answered({
+      session: 'owner', method: 'PUT', path: '/staff/admin/location', body: '{',
+    });
+    assert.equal(broken.status, 400, JSON.stringify(broken));
+
+    await harness.exec(`DELETE FROM payments`);
+    harness.armBookingWrite(async (live) => {
+      await live.query(
+        `INSERT INTO payments (id, client_id, status, amount_paid_cents, payment_kind)
+         VALUES ('30000000-0000-4000-8000-000000000099', '20000000-0000-4000-8000-000000000002', 'paid', 10000, 'deposit_only')`,
+      );
+    });
+    const racedUpdate = await harness.route({
+      session: 'owner',
+      method: 'PUT',
+      path: '/staff/admin/booking-settings',
+      body: { unpaid_hold_minutes: 12, require_each_guest_deposit: false },
+    });
+    assert.equal(racedUpdate.status, 409, JSON.stringify(racedUpdate));
+    const racedUpdateRead = await harness.route({
+      session: 'owner',
+      method: 'GET',
+      path: '/staff/admin/location-booking-settings',
+    });
+    assert.equal(racedUpdateRead.body.booking_settings.unpaid_hold_minutes, 45);
+    assert.equal(racedUpdateRead.body.booking_settings.require_each_guest_deposit, true);
+
+    await harness.exec(`
+      DELETE FROM payments;
+      DELETE FROM wolfhouse_location_booking_settings;
+    `);
+    harness.armBookingWrite(async (live) => {
+      await live.query(
+        `INSERT INTO payments (id, client_id, status, amount_paid_cents, payment_kind)
+         VALUES ('30000000-0000-4000-8000-000000000098', '20000000-0000-4000-8000-000000000002', 'paid', 10000, 'deposit_only')`,
+      );
+    });
+    const racedInsert = await harness.route({
+      session: 'owner',
+      method: 'PUT',
+      path: '/staff/admin/booking-settings',
+      body: { unpaid_hold_minutes: 12, require_each_guest_deposit: false },
+    });
+    assert.equal(racedInsert.status, 409, JSON.stringify(racedInsert));
+    const racedInsertRows = await harness.exec(
+      `SELECT COUNT(*)::int AS n FROM wolfhouse_location_booking_settings`,
+    );
+    assert.equal(Number(racedInsertRows.rows ? racedInsertRows.rows[0].n : racedInsertRows[0].rows[0].n), 0);
 
     console.log('PASS verify-wolfhouse-location-booking-settings-routes');
   } finally {

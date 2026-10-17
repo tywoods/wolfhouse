@@ -121,3 +121,4 @@ assert.strictEqual(each.disabled, false);
 assert.strictEqual(note.hidden, true);
 
 console.log('PASS verify-wolfhouse-location-booking-settings-ui');
+require('./verify-wolfhouse-location-booking-settings-collapse-error.js');
