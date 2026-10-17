@@ -764,15 +764,25 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_request_plan_alias_uses_staff_canonical_person_facts(self):
         prior = {
-            'gender_preference': 'male',
-            'guests': [{'name': 'Emre', 'explicit_gender': 'male'}],
+            'gender_preference': None,
             'room_name_hints': [{'name': 'Emre', 'explicit_gender': 'male'}],
         }
         current = deepcopy(prior)
-        current['gender_preference'] = None
         self.assertTrue(self.ledger._request_plan_matches_canonical_people(
             {'gender_preference': 'male', 'guests': [{'name': 'Emre'}]},
             {'guests': [{'name': 'Emre'}]}, prior, current))
+
+    def test_prepared_person_fact_cannot_contradict_staff_hints_when_alias_is_unchanged(self):
+        for alias in ('male', None):
+            with self.subTest(alias=alias):
+                staff_revision = {
+                    'gender_preference': alias,
+                    'room_name_hints': [
+                        {'name': 'Alex', 'explicit_gender': 'male'}],
+                }
+                self.assertFalse(self.ledger._completion_revision_matches(
+                    staff_revision, deepcopy(staff_revision), person_plan={
+                        'guests': [{'name': 'Alex', 'explicit_gender': 'female'}]}))
 
     def test_current_canonical_person_facts_are_checked_without_alias_change(self):
         for alias in ('male', None):

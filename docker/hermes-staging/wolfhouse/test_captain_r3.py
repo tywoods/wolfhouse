@@ -239,6 +239,27 @@ class CaptainR3Tests(unittest.TestCase):
         self.assertTrue(result['room_options']['girls_room_available'])
         self.assertEqual(result['room_decision']['resolved_composition'], 'female')
 
+    def test_staff_clarification_without_selection_is_not_reported_available(self):
+        params = {
+            'client_slug': 'wolfhouse-somo',
+            'check_in': '2027-01-01', 'check_out': '2027-01-02',
+            'guest_count': 2, 'room_type': 'shared',
+            'room_preference': 'mixed',
+            'guests': [{'name': 'Alex'}, {'name': 'Bea', 'explicit_gender': 'female'}],
+        }
+        receipt = {
+            'success': True, 'has_enough_beds': True, 'needs_clarification': True,
+            'selected_bed_codes': [],
+            'available_beds': [
+                {'bed_code': 'F1', 'room_code': 'F', 'room_type': 'female_only'},
+                {'bed_code': 'F2', 'room_code': 'F', 'room_type': 'female_only'},
+            ],
+        }
+        with patch.object(plugin, '_post_bot', return_value=receipt):
+            result = json.loads(plugin.check_availability(params))
+        self.assertFalse(result['available'], result)
+        self.assertEqual(result['availability_status'], 'eligibility_required')
+
     def test_capture_schema_matches_validator_for_registered_payload(self):
         registry = Registry()
         with patch.object(accepted_quote, 'install_owner_hook'), \

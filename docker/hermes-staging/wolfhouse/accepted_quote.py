@@ -719,9 +719,27 @@ def _canonical_person_facts_consistent(revision):
 def _request_plan_matches_canonical_people(expected, current, prior_revision, current_revision):
     comparable = {key: expected.get(key) for key in _FIELDS if key in expected}
     actual = {key: current.get(key) for key in _FIELDS if key in expected}
-    if (_canonical_gender_alias_is_redundant(prior_revision, current_revision)
-            and _person_plan_does_not_contradict_hints(
-                current, current_revision.get('room_name_hints'))):
+    expected_alias = expected.get('gender_preference')
+    current_alias = current.get('gender_preference')
+    hints = current_revision.get('room_name_hints') if isinstance(current_revision, dict) else None
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    expected_guests = expected.get('guests')
+    current_guests = current.get('guests')
+    names = ([normalize(row.get('name')) for row in expected_guests]
+             if isinstance(expected_guests, list)
+             and all(isinstance(row, dict) for row in expected_guests) else [])
+    current_names = ([normalize(row.get('name')) for row in current_guests]
+                     if isinstance(current_guests, list)
+                     and all(isinstance(row, dict) for row in current_guests) else [])
+    authoritative = ({normalize(row.get('name')): row.get('explicit_gender') for row in hints
+                      if isinstance(row, dict)} if isinstance(hints, list) else {})
+    request_alias_redundant = (
+        expected_alias in ('male', 'female') and current_alias is None
+        and names and names == current_names and len(set(names)) == len(names)
+        and len(authoritative) == len(names)
+        and all(authoritative.get(name) == expected_alias for name in names)
+        and _person_plan_does_not_contradict_hints(current, hints))
+    if request_alias_redundant:
         comparable['gender_preference'] = None
     return comparable == actual
 
@@ -734,6 +752,9 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
     if not _canonical_person_facts_consistent(current):
+        return False
+    if not _person_plan_does_not_contradict_hints(
+            person_plan, current.get('room_name_hints')):
         return False
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
@@ -1513,7 +1534,7 @@ def record_quote(params, response):
                     eligibility_index=eligibility_index,
                     eligibility_value=eligibility_value,
                     eligibility_completions=state.get('pending_eligibility_completions'),
-                    person_plan=expected_plan)
+                    person_plan=dict(prepared))
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')

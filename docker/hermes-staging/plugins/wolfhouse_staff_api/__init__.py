@@ -433,6 +433,8 @@ def _json_result(payload):
 def _availability_status(data):
     if not data.get("success"):
         return "unclear"
+    if data.get("needs_clarification") is True:
+        return "eligibility_required"
     if data.get("has_enough_beds") is True:
         return "available"
     if data.get("has_enough_beds") is False:
