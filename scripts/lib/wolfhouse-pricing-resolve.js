@@ -414,7 +414,15 @@ function buildAdminPricingView(input) {
 
   const packages = codesFor('package').map((code) => {
     const item = items.find((it) => it.item_type === 'package' && it.item_code === code);
-    const meta = (item && item.metadata) || {};
+    const meta = (item && item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata))
+      ? item.metadata
+      : {};
+    const includes = Array.isArray(meta.includes)
+      ? meta.includes.map((line) => String(line == null ? '' : line).trim()).filter(Boolean)
+      : [];
+    const description = item && String(item.description || '').trim()
+      ? String(item.description).trim()
+      : null;
     return {
     code,
     label: labelFor('package', code),
@@ -424,6 +432,9 @@ function buildAdminPricingView(input) {
       : (DEFAULT_PACKAGE_PEBBLES[code] || 'stone'),
     min_days: Number(meta.min_days) > 0 ? Number(meta.min_days) : 7,
     allow_daily_proration: meta.allow_daily_proration !== false,
+    description,
+    // Staff lines for Luna. Do not confuse with coded config.packages[].inclusions.
+    includes,
     metadata: meta,
     prices: seasons.map((s) => ({
       season_code: s.code,

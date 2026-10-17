@@ -440,16 +440,13 @@ async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
         active: true,
       }, actorId);
       created += 1;
-    } else if (existing.rows[0].active && /_/.test(String(existing.rows[0].label || ''))) {
-      await saveItem(pg, slug, {
-        item_type: itemType,
-        item_code: seed.code,
-        label: seed.label,
-        description: null,
-        metadata: { promoted_from: 'config' },
-        active: true,
-      }, actorId);
     }
+    // An existing row is staff-owned. Do not rewrite it because the label
+    // contains "_": Malibu_VIP is a valid name. That branch replaced the name
+    // and saved a null description plus { promoted_from: 'config' }, which
+    // erased Includes and policy metadata on the readback after a 200 save.
+    // Missing rows are still seeded above. Price rules below insert only
+    // when that rule is absent.
     if (Array.isArray(seed.prices) && seed.prices.length) {
       for (const price of seed.prices) {
         if (price.amount_cents == null) continue;
