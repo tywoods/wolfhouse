@@ -9,7 +9,11 @@ const {
   mapBotHttpAvailabilityResponse,
   validateAvailabilityProvenanceForCreate,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
-const { needsGenderAwareBedAssignment, runAvailabilityBedSelection } = require('./lib/luna-bed-allocator');
+const {
+  needsGenderAwareBedAssignment,
+  normalizePref,
+  runAvailabilityBedSelection,
+} = require('./lib/luna-bed-allocator');
 const { buildWolfhouseBookingCreateCommand, executeWolfhouseBookingCreate } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const { getBedCalendarRoomsQuery, getBedCalendarBlocksQuery } = require('./lib/staff-bed-calendar-queries');
 
@@ -23,6 +27,84 @@ function rows(roomCode, roomType, count, extra = {}) {
 const command = { guestCount: 2, roomType: 'shared', roomPreference: 'mixed', assignmentMode: true };
 const tests = [];
 function test(name, run) { tests.push({ name, run }); }
+
+for (const extra of [
+  { room_preference: 'female', group_gender: 'female' },
+  { gender_preference: 'female' },
+  { room_preference: 'female_only', group_gender: 'mixed' },
+  { room_preference: 'male_only', group_gender: 'mixed' },
+  { room_preference: 'female_only', group_gender: 'female', absent: true },
+  { room_type: 'private', room_preference: 'private', absent: true },
+]) {
+  test(`SIM9 registered transport room case ${JSON.stringify(extra)}`, async () => {
+    const { absent, ...facts } = extra;
+    const built = buildWolfhouseAvailabilityCommand({ channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo',
+      assignmentMode: false, demoCalendarEnrichment: false,
+      transportBody: { check_in: '2026-10-19', check_out: '2026-10-23', guest_count: 2, room_type: 'shared', ...facts } });
+    assert.equal(built.ok, true);
+    const beds = absent ? rows('R2', 'male_only', 2) : [...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 4)];
+    const pg = { query: async sql => {
+      if (sql === getBedCalendarRoomsQuery()) return { rows: beds };
+      if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return { rows: [] };
+      throw Error('Unexpected SQL ' + sql);
+    } };
+    const result = mapBotHttpAvailabilityResponse((await executeWolfhouseAvailabilityCheck(pg, built.command)).body);
+    if (absent || facts.group_gender === 'mixed') {
+      assert.deepEqual(result.selected_bed_codes, []);
+      assert.notEqual(result.next_action, 'ready_for_bot_create');
+      if (absent) assert.equal(result.has_enough_beds, false);
+      else assert.equal(result.group_gender, 'mixed');
+    } else assert.deepEqual(result.selected_bed_codes, ['R5-B1', 'R5-B2']);
+  });
+}
+
+test('male dorm aliases the canonical male-only restriction', () => {
+  assert.equal(normalizePref('male dorm'), 'male_only');
+  const bedRows = rows('R1', 'mixed', 1);
+  const canonical = inventory(bedRows, [], { ...command, guestCount: 1,
+    roomPreference: 'male_only', genderPreference: 'male' });
+  const alias = inventory(bedRows, [], { ...command, guestCount: 1,
+    roomPreference: 'male dorm', genderPreference: 'male' });
+  assert.deepEqual(alias.selectedBedCodes, canonical.selectedBedCodes);
+  assert.equal(alias.hasEnoughBeds, canonical.hasEnoughBeds);
+  assert.equal(alias.allocationReason, canonical.allocationReason);
+});
+
+test('unknown specific room restriction cannot broaden to capacity-only', () => {
+  const result = inventory(rows('R1', 'mixed', 1), [], { ...command, guestCount: 1,
+    roomPreference: 'unrecognized_specific_dorm', genderPreference: 'male' });
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.equal(result.hasEnoughBeds, false);
+  assert.equal(result.allocationReason, 'no_eligible_room');
+});
+
+test('missing, any, and shared preferences remain distinct from unknown restrictions', () => {
+  assert.equal(normalizePref(null), null);
+  assert.equal(normalizePref('any'), 'any');
+  assert.equal(normalizePref('shared'), 'mixed');
+  assert.equal(normalizePref('unrecognized_specific_dorm'), 'unrecognized_specific_dorm');
+  const bedRows = rows('R1', 'mixed', 1);
+  for (const roomPreference of [null, 'any', 'shared']) {
+    const result = inventory(bedRows, [], { ...command, guestCount: 1,
+      roomPreference, genderPreference: null });
+    assert.deepEqual(result.selectedBedCodes, ['R1-B1']);
+    assert.equal(result.hasEnoughBeds, true);
+  }
+});
+
+test('known roster with omitted ordinary shared preference may use a mixed bed', () => {
+  const result = inventory(rows('R1', 'mixed', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: null, roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('explicit mixed preference never falls back to a gendered dorm', () => {
+  const result = inventory(rows('R2', 'male_only', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: 'mixed', roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.equal(result.hasEnoughBeds, false);
+});
 
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
@@ -136,18 +218,57 @@ test('inactive and unsellable mixed beds do not satisfy safe capacity', () => {
   assert.equal(result.needsClarification, true);
 });
 
-test('capacity-only early availability stays gender-neutral', () => {
+test('capacity-only early availability keeps missing eligibility distinct from sold-out', () => {
   const bedRows = rows('R5', 'female_only', 2);
-  const result = inventory(bedRows, [], { ...command, assignmentMode: false });
-  assert.equal(result.hasEnoughBeds, true);
+  const result = inventory(bedRows, [], { ...command, roomPreference: 'shared', assignmentMode: false });
+  assert.equal(result.hasEnoughBeds, true, 'physical capacity is still present');
   assert.equal(result.groupGenderResolved, 'unknown');
-  assert.equal(result.needsClarification, false);
-  assert.deepEqual(result.blockers, []);
-  for (const useRules of [true, false]) {
-    const pick = runAvailabilityBedSelection({ bedRows, ...command, useRules, capacityOnly: true });
-    assert.deepEqual(pick.selected_bed_codes, ['R5-B1', 'R5-B2']);
-    assert.equal(pick.group_gender, 'unknown');
-  }
+  assert.equal(result.needsClarification, true);
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.ok(result.blockers.includes('room_eligibility_unknown'));
+});
+
+test('complete canonical female roster steers ordinary shared selection', () => {
+  const bedRows = [...rows('R4', 'male_only', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command,
+    roomPreference: 'shared',
+    assignmentMode: false,
+    guests: [
+      { name: 'Ana', explicit_gender: 'female' },
+      { name: 'Bea', explicit_gender: 'female' },
+    ],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R5-B1', 'R5-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests requesting mixed keep mixed intent when gendered rooms also exist', () => {
+  const bedRows = [...rows('R1', 'mixed', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests requesting mixed retain mixed-only fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests with ordinary shared request retain usable mixed fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'shared',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
 });
 
 test('explicit composition and opposite-room conflicts are preserved', () => {
@@ -191,6 +312,17 @@ function readOnlyInventory(bedRows, blocks = []) {
     throw new Error('Unexpected query at read-only fixture seam');
   } };
 }
+// Synthetic Pricing coverage for this fixture; never changes operational seasons.
+function fixtureQuoteConfig() {
+  const config = require('./lib/wolfhouse-quote-calculator').loadConfig();
+  config.seasons = config.seasons.map(season => ({ ...season,
+    ranges: (season.month_numbers || []).map(month => ({
+      start_month: month, start_day: 1, end_month: month,
+      end_day: new Date(Date.UTC(2026, month, 0)).getUTCDate(),
+    })),
+  }));
+  return config;
+}
 const transport = {
   confirm: true, check_in: '2026-07-06', check_out: '2026-07-13',
   guest_count: 2, package_code: 'malibu', room_type: 'shared', room_preference: 'mixed',
@@ -210,7 +342,7 @@ function bookingRows(mixedAvailable) {
 for (const roomPreference of ['mixed', 'shared']) {
   test(`cached gendered beds require a real preflight for ${roomPreference}`, async () => {
     const result = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
       channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
       transportBody: { ...transport, room_preference: roomPreference },
     });
@@ -221,7 +353,7 @@ for (const roomPreference of ['mixed', 'shared']) {
     test(`booking preflight ${roomPreference}: unsafe cached beds blocked, mixed availability=${mixedAvailable}`, async () => {
       const pg = readOnlyInventory(bookingRows(mixedAvailable));
       const result = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
         channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo', pgClient: pg,
         transportBody: { ...transport, room_preference: roomPreference },
       });
@@ -253,11 +385,11 @@ test('canonical availability exposes neutral room clarification, not handoff', a
 test('pre-commit recheck rejects a mixed room that becomes gendered', async () => {
   const initial = bookingRows(true);
   const built = await buildWolfhouseBookingCreateCommand({
-      quoteConfig: require('./lib/wolfhouse-quote-calculator').loadConfig(),
+      quoteConfig: fixtureQuoteConfig(),
     channel: 'luna_whatsapp', trustedClientSlug: 'wolfhouse-somo',
     pgClient: readOnlyInventory(initial), transportBody: { ...transport, selected_bed_codes: ['R1-B1', 'R1-B2'] },
   });
-  assert.equal(built.ok, true);
+  assert.equal(built.ok, true, JSON.stringify(built.body));
   const changed = initial.map((row) => row.room_code === 'R1' ? { ...row, room_type: 'female_only' } : row);
   const pg = readOnlyInventory(changed);
   const result = await executeWolfhouseBookingCreate(pg, built.command);
@@ -265,6 +397,27 @@ test('pre-commit recheck rejects a mixed room that becomes gendered', async () =
   assert.equal(result.body.reason_code, 'incompatible_preselected_beds');
   assert.equal(pg.calls.length, 3); // idempotency lookup + current room/block SELECTs, no writes
 });
+
+for (const [preference, gender, room] of [
+  ['female_only', 'female', 'R5'], ['male_only', 'male', 'R2'], ['mixed', null, 'R1'],
+]) {
+  test(`SIM9 BOT_HTTP explicit ${preference} uses the requested pool`, async () => {
+    const built = buildWolfhouseAvailabilityCommand({
+      channel: 'bot_http', trustedClientSlug: 'wolfhouse-somo', assignmentMode: false,
+      demoCalendarEnrichment: false,
+      transportBody: { check_in: '2026-10-19', check_out: '2026-10-23', guest_count: 2,
+        room_type: 'shared', room_preference: preference, group_gender: gender },
+    });
+    assert.equal(built.ok, true);
+    const result = await executeWolfhouseAvailabilityCheck(readOnlyInventory([
+      ...rows('R2', 'male_only', 2), ...rows('R5', 'female_only', 2), ...rows('R1', 'mixed', 2),
+    ]), built.command);
+    assert.equal(result.ok, true);
+    const body = mapBotHttpAvailabilityResponse(result.body);
+    assert.equal(body.selected_bed_codes.length, 2);
+    assert.ok(body.selected_bed_codes.every(code => code.startsWith(`${room}-`)), JSON.stringify(body));
+  });
+}
 
 async function main() {
   let passed = 0;

@@ -1,5 +1,29 @@
 # Luna Guest Behavior Spec
 
+## Hermes booking completion contract
+
+After a Staff-backed offer is displayed to the same trusted conversation, the model
+owns the contextual accept/reject/revise/clarify decision. On acceptance it calls
+`create_booking_from_plan` directly. `interpret_booking_turn` is optional diagnostics;
+evidence wording, schema, digest, and cached readiness do not form a second consent
+gate. The create boundary fetches a fresh Staff offer in that invocation and verifies
+the same stay, party, exact room, services, currency, price, selected presented payment
+terms, and availability. Changed facts must be shown again; missing real booking data
+gets one targeted question.
+
+An ordinary fact-equivalent read-only re-quote retains the originally displayed
+offer; an unseen material revision is never treated as displayed. Names may be
+completed for the same indexed occupants without renewed consent. Redundant
+representations (including empty extras, established eligibility and full-only
+payment labels) normalize only against authoritative shown facts; changed party,
+room, bed, services or payment facts still invalidate acceptance.
+
+General Notes owns house information. Pricing/date tools own opening dates,
+minimum stays and deposits: stale season prose cannot veto Staff-approved dates,
+and a price total cannot override a genuine closed-season refusal. Recovery retains
+known stay/party/payment facts, preserves leak scrubbing, and never claims a saved
+booking, payment link or staff referral without the corresponding persisted receipt.
+
 **Status:** canonical. This is the single rubric that GPT planners, the Cami voice layer, humans, and the coach evaluator all share. If behavior and this doc disagree, one of them is a bug — fix the mismatch, don't fork a second source of truth.
 
 **North star:** one grounded conversation brain with staff-portal tools. Business facts come from Staff tools/DB/config only. Public knowledge may come from attributed search/read evidence when the tenant’s default-OFF Luna Intelligence switch is ON. Voice comes from Cami. Writes happen only when truth is ready.

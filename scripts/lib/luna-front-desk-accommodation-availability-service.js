@@ -128,6 +128,7 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
     : null;
   const roomPreference = String(transportBody.room_preference || genderPreference || '').trim() || null;
   const guestName = String(transportBody.guest_name || '').trim() || null;
+  const guests = Array.isArray(transportBody.guests) ? transportBody.guests : [];
   const packageCode = transportBody.package_code != null
     ? String(transportBody.package_code).trim()
     : (transportBody.package_interest != null ? String(transportBody.package_interest).trim() : null);
@@ -145,6 +146,7 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
       groupGender,
       roomPreference,
       guestName,
+      guests,
       packageCode: packageCode || null,
       quoteConfig: opts.quoteConfig,
       guestPackages: Array.isArray(transportBody.guest_packages) ? transportBody.guest_packages : [],
@@ -164,6 +166,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     roomPreference,
     guestName,
     assignmentMode,
+    guests,
   } = command;
 
   const warnings = [];
@@ -206,16 +209,29 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
   const occupiedBedCodes = new Set((blockRows || []).map((r) => r.bed_code).filter(Boolean));
   const availableBeds = bedsForPool.filter((b) => !occupiedBedCodes.has(b.bed_code));
   const availableCount = availableBeds.length;
-  const hasEnoughBeds = availableCount >= guestCount;
+  let hasEnoughBeds = availableCount >= guestCount;
+  const { normalizePref } = require('./luna-bed-allocator');
+  const requestedPool = normalizePref(roomPreference || genderPreference || roomType);
+  const canonicalGenders = Array.isArray(guests) && guests.length === guestCount
+    ? guests.map(row => normalizeGroupGender(row && row.explicit_gender)) : [];
+  const canonicalKnown = canonicalGenders.length === guestCount
+    && canonicalGenders.every(value => value === 'female' || value === 'male');
+  const canonicalGender = canonicalKnown && new Set(canonicalGenders).size === 1
+    ? canonicalGenders[0] : (canonicalKnown ? 'mixed' : null);
+  const aggregateGender = normalizeGroupGender(genderPreference || groupGender);
+  const selectionGender = canonicalGender
+    || (aggregateGender === 'female' || aggregateGender === 'male' ? aggregateGender : null);
 
   let selectedBedCodes = [];
   let selectedRoomCode = null;
+  let selectedPrivateRoom = false;
   let allocationReason = null;
   let allocationSplit = false;
   let roomingHandoff = false;
   let needsClarification = false;
   let clarificationConflict = null;
   let groupGenderResolved = null;
+  let exactBedValidation = null;
 
   function absorbClarification(pick) {
     if (!pick || pick.needs_clarification !== true) return false;
@@ -229,7 +245,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     return true;
   }
 
-  if (hasEnoughBeds && Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
+  if (Array.isArray(command.transportBody && command.transportBody.selected_bed_codes)
     && command.transportBody.selected_bed_codes.length
     && command.assignmentMode !== true) {
     const { validateExplicitBedSelection } = require('./luna-bed-allocator');
@@ -241,6 +257,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       bedRows,
       blockRows,
     });
+    exactBedValidation = validation;
     if (!validation.ok) {
       blockers.push(validation.reason || 'availability_changed');
       allocationReason = validation.reason || 'availability_changed';
@@ -252,8 +269,14 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       selectedRoomCode = first ? first.room_code : null;
     }
   } else if (hasEnoughBeds) {
-    const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
-    const capacityPick = runAvailabilityBedSelection({
+    const { resolveRoomCategory } = require('./luna-bed-allocator');
+    const allowedBedCodes = new Set(bedsForPool.filter((bed) => {
+      if (requestedPool === 'private') return true;
+      const category = resolveRoomCategory(bed);
+      if (!['female_only', 'male_only'].includes(category)) return true;
+      return selectionGender === (category === 'female_only' ? 'female' : 'male');
+    }).map((b) => b.bed_code));
+    let capacityPick = runAvailabilityBedSelection({
       bedRows,
       roomFillRanking,
       occupiedBedCodes,
@@ -261,11 +284,33 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       blockRows,
       guestCount,
       guestName,
-      genderPreference: genderPreference || groupGender || null,
-      roomPreference: roomPreference || genderPreference || null,
-      groupGender: groupGender || genderPreference || null,
-      capacityOnly: true,
+      genderPreference: canonicalGender || genderPreference || groupGender || null,
+      roomPreference: roomPreference || roomType || genderPreference || null,
+      groupGender: canonicalGender || groupGender || genderPreference || null,
+      capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
+        || requestedPool === 'any' || requestedPool == null,
     });
+    // Keep an explicit/shared mixed request as the first choice. Only when that
+    // pool cannot fit the group may a complete single-gender roster fall back
+    // to its compatible dorm; eligibility never rewrites the guest's intent.
+    if ((capacityPick.selected_bed_codes || []).length < guestCount
+      && (canonicalGender === 'female' || canonicalGender === 'male')
+      && requestedPool === 'mixed'
+      && String(roomPreference || '').trim().toLowerCase().replace(/[- ]/g, '_') !== 'mixed') {
+      capacityPick = runAvailabilityBedSelection({
+        bedRows,
+        roomFillRanking,
+        occupiedBedCodes,
+        allowedBedCodes,
+        blockRows,
+        guestCount,
+        guestName,
+        genderPreference: canonicalGender,
+        roomPreference: `${canonicalGender}_only`,
+        groupGender: canonicalGender,
+        capacityOnly: false,
+      });
+    }
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;
     groupGenderResolved = capacityPick.group_gender || null;
@@ -274,6 +319,20 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     } else {
     selectedBedCodes = capacityPick.selected_bed_codes || [];
     selectedRoomCode = capacityPick.selected_room_code || null;
+    selectedPrivateRoom = capacityPick.private_room === true;
+    if (selectedBedCodes.length < guestCount) {
+      const eligibilityRestricted = allowedBedCodes.size < bedsForPool.length;
+      if (eligibilityRestricted && (!selectionGender || canonicalGender === 'mixed')) {
+        const reason = canonicalKnown ? 'room_eligibility_policy_conflict' : 'room_eligibility_unknown';
+        if (!blockers.includes(reason)) blockers.push(reason);
+        needsClarification = true;
+        clarificationConflict = reason;
+        allocationReason = reason;
+      } else {
+        hasEnoughBeds = false;
+        blockers.push('requested_room_unavailable');
+      }
+    }
     if (capacityPick.split) warnings.push('group_split_across_rooms_required');
 
     if (assignmentMode) {
@@ -313,6 +372,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
         } else {
           selectedBedCodes = genderPick.selected_bed_codes || [];
           selectedRoomCode = genderPick.selected_room_code || null;
+          selectedPrivateRoom = genderPick.private_room === true;
           allocationReason = genderPick.reason || allocationReason;
           allocationSplit = !!genderPick.split;
           if (genderPick.split) warnings.push('group_split_across_rooms_required');
@@ -333,6 +393,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     hasEnoughBeds,
     selectedBedCodes,
     selectedRoomCode,
+    selectedPrivateRoom,
     allocationReason,
     allocationSplit,
     groupGenderResolved,
@@ -344,6 +405,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     blockers,
     roomOptionFlags,
     rulesRooming,
+    exactBedValidation,
   };
 }
 
@@ -401,6 +463,25 @@ function buildAvailabilityProvenance(canonical) {
 
 function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
   const domainNextAction = resolveDomainNextAction(command.channel, inventory, dateEval);
+  const explicitCodes = command.transportBody && command.transportBody.selected_bed_codes;
+  const explicitGuests = command.transportBody && command.transportBody.guests;
+  const exactValidation = inventory.exactBedValidation;
+  const exactBedEligibility = Array.isArray(explicitCodes) && explicitCodes.length
+    ? {
+      // Staff's inventory/occupancy/person-policy validator is the authority.
+      // Never self-attest by merely comparing allocator output to the request.
+      eligible: exactValidation && exactValidation.ok === true,
+      reason: exactValidation && exactValidation.ok !== true ? exactValidation.reason : null,
+      selected_bed_codes: explicitCodes.map(String),
+      guest_bed_assignments: exactValidation && exactValidation.ok === true && Array.isArray(explicitGuests)
+        ? explicitCodes.map((bedCode, guestIndex) => ({
+          guest_index: guestIndex,
+          guest_name: String((explicitGuests[guestIndex] && explicitGuests[guestIndex].name) || '').trim(),
+          bed_code: bedCode,
+        }))
+        : [],
+    }
+    : null;
   const canonical = {
     ...DRY_RUN_SAFETY_FLAGS,
     client_slug: command.clientSlug,
@@ -422,6 +503,7 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
       private_room_available: inventory.roomOptionFlags.private_room_available,
     },
     selected_bed_codes: inventory.selectedBedCodes,
+    exact_bed_eligibility: exactBedEligibility,
     selected_room_code: inventory.selectedRoomCode,
     needs_clarification: inventory.needsClarification === true,
     clarification_conflict: inventory.clarificationConflict || null,
@@ -433,6 +515,8 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
       bed_code: b.bed_code,
       room_code: b.room_code,
       room_type: b.room_type,
+      selected_selling_mode: inventory.selectedPrivateRoom
+        && inventory.selectedBedCodes.includes(b.bed_code) ? 'private' : undefined,
     })),
     occupied_count: inventory.occupiedBedCodes.size,
     occupied_bed_codes: [...inventory.occupiedBedCodes].sort(),
@@ -582,6 +666,7 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     private_room_available: canonical.private_room_available,
     room_options: canonical.room_options,
     selected_bed_codes: canonical.selected_bed_codes,
+    exact_bed_eligibility: canonical.exact_bed_eligibility,
     selected_room_code: canonical.selected_room_code,
     needs_clarification: canonical.needs_clarification === true,
     needs_human: false,
@@ -722,7 +807,7 @@ function normalizeOfferGuestPackages(raw) {
 
 function wolfhouseOfferPayload(offer) {
   const src = offer && typeof offer === 'object' ? offer : {};
-  return {
+  const bound = {
     v: OFFER_REVISION_VERSION,
     client_slug: src.client_slug || null,
     check_in: src.check_in || null,
@@ -753,6 +838,15 @@ function wolfhouseOfferPayload(offer) {
     payment_distribution: normalizePaymentDistribution(src.payment_distribution),
     availability_checked: src.availability_checked === true,
   };
+  // Equal deposit and total is one commercial charge. Canonicalize before
+  // fingerprinting so displayed deposit vs allowed full does not force another
+  // confirmation step.
+  if (bound.total_cents != null && bound.deposit_required_cents === bound.total_cents
+      && ['deposit', 'full'].includes(bound.payment_choice)) {
+    bound.payment_choice = 'full';
+    bound.payment_link_amount_cents = bound.total_cents;
+  }
+  return bound;
 }
 
 function computeWolfhouseOfferFingerprint(offer) {

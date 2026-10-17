@@ -161,6 +161,12 @@ class BlockingModelClient:
             return _Response(_Message(tool_calls=[_ToolCall("quote-casey", "quote_booking", booking_args)]))
         if latest.startswith("I accept the quote.") and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("create-casey", "create_booking_from_plan", booking_args)]))
+        if latest == "No thanks, don't book it." and not tool_messages:
+            return _Response(_Message(content="No problem — I won't create the booking."))
+        if latest == "Maybe later." and not tool_messages:
+            return _Response(_Message(content="Of course. I will leave this as a quote."))
+        if latest == "Only if breakfast is included." and not tool_messages:
+            return _Response(_Message(content="Breakfast is not in the displayed offer. Would you like a revised quote?"))
         if ("Show my saved unpaid bookings" in latest or "Show me my booking" in latest
                 or "Check my booking again" in latest) and not tool_messages:
             return _Response(_Message(tool_calls=[_ToolCall("list-casey", "list_my_bookings", {})]))
@@ -213,6 +219,12 @@ class BlockingModelClient:
 
 
 class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
+    def test_source_contract_allows_model_direct_create(self):
+        import inspect
+        from wolfhouse import accepted_quote
+        self.assertNotIn("raise QuoteBoundaryError('quote_current_turn_not_adjudicated')",
+                         inspect.getsource(accepted_quote.prepare_create))
+
     async def asyncSetUp(self):
         BlockingModelClient.adversarial_readback = False
         BlockingModelClient.chained_readback = False
@@ -329,6 +341,20 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
                             "room_arrangement": offer["room_arrangement"],
                             "check_in": "2027-05-20", "check_out": "2027-05-23",
                             "guest_count": 1, "room_type": "shared"}}
+            if route == "/booking-preview" and payload.get("guest_name") == "Casey":
+                import subprocess
+                quote = {"success": True, "total_cents": 65000,
+                         "deposit_required_cents": 10000,
+                         "payment_link_amount_cents": 10000, "currency": "EUR"}
+                source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service');console.log(JSON.stringify(b(JSON.parse(process.argv[1]))))"
+                checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps({
+                    **payload, 'client_slug': 'wolfhouse-somo', 'quote': quote,
+                    'availability': {**payload, 'status': 'checked',
+                                     'selected_bed_codes': ['R3-B1']},
+                    'room_rows': [{'bed_code': 'R3-B1', 'room_code': 'R3',
+                                   'gender_strategy': 'flexible'}],
+                })], cwd=Path(__file__).resolve().parents[3]))
+                return {**quote, **checked, 'payment_choice_needed': False}
             if route == "/booking-create-from-plan":
                 code = "ALPHA-1330" if payload.get("guest_name") == "Test Unpaid Alpha" else "CASEY-100"
                 row = {"booking_code": code, "check_in": payload.get("check_in", "2027-06-10"),
@@ -544,7 +570,7 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         # Live-turn owner binding/revocation has a dedicated exact-handler suite.
         # Keep this flow test focused on the ordinary model/registry/Staff path.
         owner_patch = patch.dict(
-            self.handler_globals, {"_live_turn_guest_phone": lambda: "+349****1777"})
+            self.handler_globals, {"_live_turn_guest_phone": lambda: "+34900001777"})
         owner_patch.start(); self.addCleanup(owner_patch.stop)
 
         async def turn(text, ident):
@@ -606,6 +632,30 @@ class InstalledEntrypointQueuedPendingEvent(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("only quoted", empty["reply_text"].lower())
         self.assertIn("created successfully earlier", empty["reply_text"].lower())
         self.assertIn("can't verify its current details", empty["reply_text"].lower())
+
+    async def test_model_reject_defer_and_clarify_do_not_call_create(self):
+        """Semantic non-acceptance is model-owned and exercised at ordinary ingress."""
+        self.release.set()
+        phone = "+34900001888"
+
+        async def turn(text, ident):
+            result = await crowsnest_guest_door.run_crowsnest_guest_turn(
+                runner=self.runner, phone=phone, text=text, message_id=ident,
+                mirror=lambda **_kwargs: None, timeout_sec=20)
+            self.assertTrue(result["ok"], result)
+            return result
+
+        await turn("Prepare Casey's cancellable booking quote.", "semantic-offer-01")
+        before = len([path for path, _ in self.staff_calls
+                      if path == "/staff/bot/booking-create-from-plan"])
+        for text, ident in (
+                ("No thanks, don't book it.", "semantic-reject-02"),
+                ("Maybe later.", "semantic-defer-03"),
+                ("Only if breakfast is included.", "semantic-clarify-04")):
+            with self.subTest(text=text):
+                await turn(text, ident)
+                self.assertEqual(len([path for path, _ in self.staff_calls
+                                      if path == "/staff/bot/booking-create-from-plan"]), before)
 
     async def test_real_entrypoint_queues_ana_and_fails_closed_for_bad_owners(self):
         mirror = lambda **_kwargs: None

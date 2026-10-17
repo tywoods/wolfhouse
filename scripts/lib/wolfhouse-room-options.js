@@ -1,6 +1,5 @@
 'use strict';
 
-const GIRLS_ROOM_CODES = Object.freeze(['R5', 'R8']);
 const PRIVATE_COUPLE_ROOM_CODES = Object.freeze(['R6']);
 const COUPLE_OR_MIXED_ROOM_CODES = Object.freeze(['R3', 'R6']);
 
@@ -31,10 +30,15 @@ function roomHasCapacity(availableBeds, roomCodes, guestCount) {
 
 function computeWolfhouseRoomOptionFlags(availableBeds, guestCount, allBeds, blockRows) {
   const count = Math.max(1, Number(guestCount) || 1);
-  const { ordinarySellingMode } = require('./luna-bed-allocator');
+  const { ordinarySellingMode, resolveRoomCategory } = require('./luna-bed-allocator');
   const sharedBeds = (availableBeds || []).filter(b => ordinarySellingMode(b) !== 'private');
-  const girlsRoomAvailable = roomHasCapacity(sharedBeds, GIRLS_ROOM_CODES, 1)
-    && (count === 1 || roomHasCapacity(sharedBeds, GIRLS_ROOM_CODES, count));
+  // Share Staff's canonical room rules with allocation; room codes are inventory.
+  const girlsBeds = sharedBeds.filter(b => resolveRoomCategory(b) === 'female_only');
+  const girlsRoomCodes = [...new Set(girlsBeds.map(b => b.room_code))];
+  // Female shared inventory is ordinary per-bed capacity. The legacy R6
+  // one-bed-for-two exception belongs only to its private-couple semantics.
+  const girlsRoomAvailable = [...bedsByRoom(girlsBeds).values()]
+    .some(beds => beds.length >= count);
   // Preserve the legacy couple offer alongside explicit ordinary private modes.
   const freeCodes = new Set((availableBeds || []).map(b => b.bed_code));
   const newPrivateAvailable = [...bedsByRoom(allBeds).values()].some(beds =>
@@ -60,7 +64,6 @@ function resolveQuoteRoomTypeFromPreference(roomType, roomPreference) {
 }
 
 module.exports = {
-  GIRLS_ROOM_CODES,
   PRIVATE_COUPLE_ROOM_CODES,
   computeWolfhouseRoomOptionFlags,
   resolveQuoteRoomTypeFromPreference,

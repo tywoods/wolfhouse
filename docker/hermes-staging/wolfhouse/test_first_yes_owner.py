@@ -16,6 +16,444 @@ import wolfhouse_staff_api as plugin
 
 
 class FirstYesOwnerTests(unittest.TestCase):
+    def _provisional_refresh_case(self, complete=False, price_change=False):
+        plan = dict(check_in='2026-10-21', check_out='2026-10-24', guest_count=1,
+                    room_type='shared', room_preference='male_only', package_code='package_none',
+                    guest_name='Mateo', guests=[{'name': 'Mateo', 'explicit_gender': 'male'}],
+                    room_name_hints=[{'name': 'Mateo', 'explicit_gender': 'male'}])
+        beds = [dict(bed_code='R4-B3', room_code='R4', gender_strategy='male preferred')]
+        money = dict(total_cents=12000, deposit_required_cents=10000, payment_link_amount_cents=10000)
+        response = self._checked_offer({**plan, 'payment_choice': 'deposit'}, beds, quote_overrides=money)
+        response['payment_choice_needed'] = True
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+        self.turn('refresh-accept', 'Book it, Mateo Ríos, deposit please')
+        args = {'payment_choice': 'deposit'}
+        if complete:
+            plan.update(guest_name='Mateo Ríos', guests=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        room_name_hints=[{'name': 'Mateo Ríos', 'explicit_gender': 'male'}],
+                        payment_choice='deposit', add_ons=[], catalog_selections=[])
+            response = self._checked_offer(plan, beds, quote_overrides=money)
+            args = {**plan, 'confirm': True, 'gender_preference': 'male'}
+        if price_change:
+            response['total_cents'] += 100
+            response['offer_revision']['total_cents'] += 100
+        ledger.record_quote(plan, response)
+        if price_change:
+            with self.assertRaises(ledger.QuoteBoundaryError):
+                ledger.prepare_create(args)
+        else:
+            self.assertTrue(ledger._transaction(lambda state, ingress: bool(state.get('presentation'))))
+            ledger.prepare_create(args)
+
+    def test_provisional_identical_quote_before_create(self):
+        self._provisional_refresh_case()
+
+    def test_provisional_completed_quote_before_create(self):
+        self._provisional_refresh_case(complete=True)
+
+    def test_provisional_changed_price_requires_presentation(self):
+        self._provisional_refresh_case(price_change=True)
+
+    def test_sim9_complete_create_restatements(self):
+        # Supplied trace argument shapes; synthetic shown plans/Staff refreshes,
+        # not reconstructed historical intermediate owner snapshots.
+        cases = [
+            ('G1', '2026-10-19', '2026-10-23', 'shared', 'male_only',
+             ['Emre'], ['Emre Yilmaz'], 'male', ['R4-B3'], 16000, 10000),
+            ('G2', '2026-10-23', '2026-10-25', 'shared', 'female_only',
+             ['Nora'], ['Nora Lefevre'], 'female', ['R5-B4'], 8000, 8000),
+            ('G4', '2026-10-21', '2026-10-24', 'shared', 'male_only',
+             ['Mateo'], ['Mateo Ríos'], 'male', ['R4-B3'], 12000, 10000),
+            ('G5', '2026-10-25', '2026-10-28', 'private', 'couple_private',
+             ['Holly', 'Jake'], ['Holly Bennett', 'Jake Bennett'], None,
+             ['R6-B1', 'R6-B2'], 27000, 20000),
+        ]
+        for label, start, end, room_type, preference, names, completed, gender, codes, total, deposit in cases:
+            with self.subTest(scenario=label):
+                self.agent.session_id = 'sim9-full-' + label
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn('shown-' + label, 'Quote this stay')
+                guests = [{'name': name, **({'explicit_gender': gender} if gender else {})}
+                          for name in names]
+                plan = dict(check_in=start, check_out=end, guest_count=len(names),
+                            room_type=room_type, room_preference=preference,
+                            guests=guests, package_code='package_none')
+                if gender:
+                    plan['room_name_hints'] = deepcopy(guests)
+                priced = {**plan, 'payment_choice': 'deposit'}
+                beds = [dict(bed_code=code, room_code=code.split('-')[0],
+                             gender_strategy='private' if not gender else gender + ' preferred')
+                        for code in codes]
+                response = self._checked_offer(priced, beds, quote_overrides={
+                    'total_cents': total, 'deposit_required_cents': deposit,
+                    'payment_link_amount_cents': deposit})
+                response.update(full_payment_only=total == deposit,
+                                payment_choice_needed=total != deposit)
+                ledger.record_quote(plan, response)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn('create-' + label, 'Book that offer; deposit please')
+                args = dict(confirm=True, check_in=start, check_out=end,
+                            guest_count=len(names), room_type=room_type,
+                            room_preference=preference, package_code='package_none',
+                            guest_name=completed[0], payment_choice='deposit', language='en',
+                            guests=[{'name': name, **({'explicit_gender': gender} if gender else {})}
+                                    for name in completed])
+                if label != 'G2':
+                    args['add_ons'] = []
+                if gender:
+                    args['gender_preference'] = gender
+                if label == 'G1':
+                    args.update(client_slug='wolfhouse-somo', selected_bed_codes=codes)
+                if label == 'G4':
+                    first_args = {key: value for key, value in args.items()
+                                  if key not in ('confirm', 'guest_name', 'language')}
+                    first_args['catalog_selections'] = []
+                    prepared = ledger.prepare_create(first_args)
+                    self.assertTrue(prepared.revalidation)
+                    self.turn('create-' + label + '-second', 'Same accepted offer')
+                prepared = ledger.prepare_create(args)
+                self.assertTrue(prepared.revalidation)
+                self.assertEqual(prepared['guests'], args['guests'])
+                self.assertEqual(prepared['payment_choice'], 'full' if label == 'G2' else 'deposit')
+
+    def test_sim9_restatement_material_negatives(self):
+        self.plan['guests'] = [{'name': 'Alex', 'explicit_gender': 'male'},
+                               {'name': 'Sam', 'explicit_gender': 'male'}]
+        self.plan['add_ons'] = [{'code': 'yoga_class', 'quantity': 1}]
+        self.response = self._checked_offer(self.plan, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('sim9-material-negatives', 'Book that')
+        for changed in ({'gender_preference': 'female'}, {'add_ons': []},
+                        {'guest_count': 3}, {'room_preference': 'private'},
+                        {'selected_bed_codes': ['M2', 'M1']}):
+            with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
+                ledger.prepare_create(changed)
+
+    def test_sim9_registered_quote_whole_party_fact_reaches_staff(self):
+        from wolfhouse import booking_names
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        plan = {**self.plan, 'guest_count': 3, 'group_gender': 'female',
+                'room_preference': 'female_only', 'guests': [
+                    {'name': 'Aisha', 'explicit_gender': 'female'},
+                    {'name': 'Priya'}, {'name': 'Leila'}]}
+        complete = {**plan, 'guests': [{**guest, 'explicit_gender': 'female'}
+                                      for guest in plan['guests']]}
+        response = self._checked_offer(complete, [
+            dict(bed_code='R5-B' + str(i + 1), room_code='R5', gender_strategy='female preferred')
+            for i in range(3)])
+        calls = []
+        def staff(path, body):
+            self.assertEqual(path, '/booking-preview')
+            calls.append(deepcopy(body))
+            return deepcopy(response)
+        token = booking_names._agent.set(self.agent)
+        try:
+            with patch.object(plugin, '_post_bot', side_effect=staff):
+                booking_names.begin_turn(session_id=self.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                result = json.loads(registry.tools['quote_booking']['handler'](plan))
+            self.assertTrue(result['success'], result)
+            self.assertFalse(result['room_decision']['clarification_needed'], result)
+            self.assertEqual([guest.get('explicit_gender') for guest in calls[0]['guests']],
+                             ['female'] * 3)
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(token)
+
+    def test_sim9_plugin_group_gender_survives_sparse_roster(self):
+        params = {'guest_count': 3, 'group_gender': 'female',
+                  'room_preference': 'female_only', 'room_name_hints': [
+                      {'name': 'Aisha', 'explicit_gender': 'female'},
+                      {'name': 'Priya'}, {'name': 'Leila'}]}
+        decision = plugin._room_decision_for_tool(
+            params, {'girls_room_available': True})
+        self.assertEqual(decision['resolved_composition'], 'female')
+        self.assertFalse(decision['clarification_needed'])
+        params['room_name_hints'][1]['explicit_gender'] = 'male'
+        contradictory = plugin._room_decision_for_tool(
+            params, {'girls_room_available': True})
+        self.assertNotIn('female_only', contradictory['allowed_room_preferences'])
+
+    def test_sim9_ordinary_equivalent_requote_retains_shown_authority(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        before = ledger._transaction(lambda state, ingress: deepcopy(state['presentation']))
+        self.turn('sim9-read-refresh', 'Please book that offer')
+        ledger.record_quote(self.plan, self.response)
+        after = ledger._transaction(lambda state, ingress: deepcopy(state.get('presentation')))
+        self.assertEqual(after, before)
+        self.assertTrue(ledger.prepare_create({}).revalidation)
+
+    def test_sim9_explicit_empty_extras_match_shown_empty_extras(self):
+        self._registered_create_with_completion({'add_ons': [], 'payment_choice': 'deposit'})
+
+    def test_sim9_redundant_gender_matches_person_bound_shown_facts(self):
+        self.plan['guests'] = [{'name': 'Alex', 'explicit_gender': 'male'},
+                               {'name': 'Sam', 'explicit_gender': 'male'}]
+        self.response = self._checked_offer(self.plan, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('sim9-gender-restatement', 'Book that please')
+        prepared = ledger.prepare_create({**self.plan, 'gender_preference': 'male'})
+        self.assertTrue(prepared.revalidation)
+        self.assertIsNone(prepared.get('gender_preference'))
+
+    def test_registered_create_refreshes_quote_in_same_invocation(self):
+        """Exercise the registered boundary, not its source spelling."""
+        self._registered_create_with_completion({})
+
+    def test_registered_create_structured_names_and_payment_without_interpreter(self):
+        self._registered_create_with_completion({
+            'guests': [{'name': 'Alex Rivera'}, {'name': 'Sam Lee'}],
+            'payment_choice': 'deposit'})
+
+    def test_structured_eligibility_completion_on_unchanged_mixed_beds(self):
+        self._registered_create_with_completion({'guests': [
+            {'name': 'Alex', 'explicit_gender': 'male'},
+            {'name': 'Sam', 'explicit_gender': 'female'}]})
+
+    def test_indexed_eligibility_refresh_rejects_transfers_and_factual_changes(self):
+        before = {
+            'guest_bed_assignments': [
+                {'guest_index': 0, 'guest_name': 'Alex', 'bed_code': 'M1'},
+                {'guest_index': 1, 'guest_name': 'Sam', 'bed_code': 'M2'}],
+            'total_cents': 10000, 'currency': 'EUR',
+            'payment_choice': 'per_guest', 'payment_link_amount_cents': 5000}
+        after = deepcopy(before)
+        after['room_name_hints'] = [
+            {'name': 'Alex', 'explicit_gender': 'male'},
+            {'name': 'Sam', 'explicit_gender': 'female'}]
+        completions = [{'guest_index': 0, 'value': 'male'},
+                       {'guest_index': 1, 'value': 'female'}]
+        self.assertTrue(ledger._completion_revision_matches(
+            before, after, eligibility_completions=completions))
+        mutations = []
+        swapped = deepcopy(after)
+        swapped['room_name_hints'][0]['explicit_gender'] = 'female'
+        swapped['room_name_hints'][1]['explicit_gender'] = 'male'
+        mutations.append(swapped)
+        moved = deepcopy(after)
+        moved['guest_bed_assignments'][0]['bed_code'] = 'M2'
+        mutations.append(moved)
+        for field, value in (('total_cents', 10001), ('currency', 'USD'),
+                             ('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+            mutations.append({**deepcopy(after), field: value})
+        for changed in mutations:
+            with self.subTest(changed=changed):
+                self.assertFalse(ledger._completion_revision_matches(
+                    before, changed, eligibility_completions=completions))
+
+    def test_unchanged_full_payment_refresh(self):
+        self.plan['payment_choice'] = 'full'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_deposit_payment_refresh(self):
+        self.plan['payment_choice'] = 'deposit'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_per_guest_payment_refresh(self):
+        self.plan['payment_choice'] = 'per_guest'
+        self._registered_create_with_completion({})
+
+    def test_unchanged_pay_on_arrival_payment_refresh(self):
+        self.plan['payment_choice'] = 'pay_on_arrival'
+        self._registered_create_with_completion({})
+
+    def test_pending_dispatch_identity_survives_missing_cache_next_turn(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('first-create', 'yes')
+        refresh = ledger.prepare_create({})
+        self.assertTrue(refresh.revalidation)
+        ledger.record_quote(refresh, self.response)
+        first = ledger.prepare_create({})
+        attempts = []
+        def timeout_transport():
+            attempts.append(first['idempotency_key'])
+            raise TimeoutError('offline unresolved transport')
+        with self.assertRaises(TimeoutError):
+            ledger.dispatch_create(first, timeout_transport)
+        before = ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertTrue(before['dispatch_pending'])
+        self.assertFalse(before.get('receipt'))
+        self.turn('retry-create', 'Please finish that booking')
+        ledger._transaction(lambda state, ingress: state.pop('checked_offer', None))
+        refresh = ledger.prepare_create({})
+        self.assertTrue(refresh.revalidation)
+        ledger.record_quote(refresh, self.response)
+        second = ledger.prepare_create({})
+        after = ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertEqual(before['acceptance_message'], after['acceptance_message'])
+        self.assertEqual(before.get('acceptance_raw_digest'), after.get('acceptance_raw_digest'))
+        self.assertEqual(dict(first), dict(second))
+        self.assertTrue(after['dispatch_pending'])
+        self.assertFalse(after.get('receipt'))
+        self.assertEqual(attempts, [first['idempotency_key']])
+
+    def _registered_create_with_completion(self, completions):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        calls = []
+        def staff(path, body):
+            calls.append((path, deepcopy(body)))
+            if path == '/booking-preview':
+                return self._checked_offer(body, [
+                    dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                    dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+            if path == '/bookings/update-contact':
+                return {'success': True, 'email_saved': True, 'email_sent': False}
+            if path == '/availability-check':
+                return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                    {'bed_code': 'M1', 'room_type': 'mixed'},
+                    {'bed_code': 'M2', 'room_type': 'mixed'}]}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True,
+                    'booking_id': 'offline-r2', 'booking_code': 'OFFLINE-R2'}
+        initial_plan = deepcopy(self.plan)
+        initial_response = self._checked_offer(self.plan, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+        if completions.get('payment_choice'):
+            initial_response = self._checked_offer(
+                {**self.plan, 'payment_choice': 'deposit'}, [
+                    dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                    dict(bed_code='M2', room_code='M', gender_strategy='mixed')])
+            initial_plan.pop('payment_choice')
+            initial_response['payment_choice_needed'] = True
+        ledger.record_quote(initial_plan, initial_response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('model-create-no-cache', 'oui')
+        ledger._transaction(lambda state, ingress: state.pop('checked_offer', None))
+        from wolfhouse import booking_names
+        agent_token = booking_names._agent.set(self.agent)
+        try:
+            with patch.object(plugin, '_session_guest_phone', return_value='+34900001234'), \
+                    patch.object(plugin, '_post_bot', side_effect=staff):
+                scope = plugin._booking_name_scope()
+                self.assertIsNotNone(booking_names.begin_turn(
+                    session_id=self.agent.session_id, scope=scope))
+                booking_names.remember_names({'guests': self.plan['guests']}, scope)
+                result = json.loads(registry.tools['create_booking_from_plan']['handler'](completions))
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(agent_token)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(sum(path == '/booking-preview' for path, _ in calls), 1)
+        writes = [body for path, body in calls if path == '/booking-create-from-plan']
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0]['require_offer_identity'])
+        expected = {**self.plan, **completions}
+        self.assertEqual(writes[0]['accepted_offer'], self._checked_offer(expected, [
+            dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+            dict(bed_code='M2', room_code='M', gender_strategy='mixed')])['offer_revision'])
+        self.assertEqual(writes[0]['guests'], expected['guests'])
+        self.assertEqual(writes[0]['payment_choice'], expected['payment_choice'])
+
+    def test_structured_create_cannot_reorder_or_duplicate_occupant_identity(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('bad-indexed-completion', 'Please book')
+        for guests in (list(reversed(self.plan['guests'])),
+                       [self.plan['guests'][0], self.plan['guests'][0]]):
+            with self.subTest(guests=guests), patch.object(plugin, '_post_bot') as transport:
+                with self.assertRaisesRegex(ledger.QuoteBoundaryError,
+                                            'quote_completion_identity_changed'):
+                    ledger.prepare_create({'guests': guests})
+                transport.assert_not_called()
+
+    def test_registered_create_rejects_changed_price_currency_and_unavailable(self):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        from wolfhouse import booking_names
+        for mode in ('price', 'currency', 'unavailable'):
+            with self.subTest(mode=mode):
+                self.agent.session_id = 'registered-negative-' + mode
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn('shown-' + mode, 'Quote this please')
+                ledger.record_quote(self.plan, self.response)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                self.turn('create-' + mode, 'oui')
+                refreshed = deepcopy(self.response)
+                if mode == 'price':
+                    refreshed['total_cents'] += 100
+                    refreshed['offer_revision']['total_cents'] += 100
+                    refreshed['offer_revision']['payment_link_amount_cents'] += 100
+                elif mode == 'currency':
+                    refreshed['currency'] = 'USD'
+                    refreshed['offer_revision']['currency'] = 'USD'
+                else:
+                    refreshed.update(success=False, error='room_unavailable')
+                    refreshed['availability']['status'] = 'unavailable'
+                calls = []
+                def staff(path, body):
+                    calls.append((path, deepcopy(body)))
+                    self.assertEqual(path, '/booking-preview')
+                    return deepcopy(refreshed)
+                registry = Registry()
+                plugin.register(registry)
+                token = booking_names._agent.set(self.agent)
+                try:
+                    with patch.object(plugin, '_session_guest_phone', return_value='+' + '34' + '7' * 9), \
+                            patch.object(plugin, '_post_bot', side_effect=staff):
+                        scope = plugin._booking_name_scope()
+                        self.assertIsNotNone(booking_names.begin_turn(
+                            session_id=self.agent.session_id, scope=scope))
+                        booking_names.remember_names({'guests': self.plan['guests']}, scope)
+                        result = json.loads(registry.tools['create_booking_from_plan']['handler']({}))
+                finally:
+                    booking_names.end_turn()
+                    booking_names._agent.reset(token)
+                self.assertFalse(result.get('success'), result)
+                self.assertEqual([path for path, _ in calls], ['/booking-preview'])
+                self.assertNotIn('booking_code', result)
+
+    def test_pending_name_completion_revalidates_without_another_interpreter(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('completed-name', 'Use Alex Rivera and proceed')
+        ledger.interpret_owner_turn({
+            'action': 'accept', 'action_evidence': 'Use Alex Rivera and proceed',
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [], 'completions': {'guests': [
+                {'guest_index': 0, 'name': 'Alex Rivera', 'evidence': 'Alex Rivera'}]},
+        })
+        prepared = ledger.prepare_create({})
+        self.assertTrue(prepared.revalidation)
+        self.assertEqual(prepared['guests'], [{'name': 'Alex Rivera'}, {'name': 'Sam'}])
+
+    def test_optional_diagnostic_readiness_is_recomputed_after_revalidation(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('diagnostic-accept', 'oui')
+        interpretation = {'action': 'accept', 'action_evidence': 'oui',
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [], 'completions': {}}
+        ledger.interpret_owner_turn(interpretation)
+        ledger._transaction(lambda state, ingress: state['current_turn'].update(
+            interpretation_result={'accepted': True, 'create_ready': False,
+                                   'missing': ['staff_checked_offer']}))
+        result = ledger.interpret_owner_turn(interpretation)
+        self.assertTrue(result['create_ready'], result)
+        self.assertEqual(result['missing'], [])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
@@ -86,18 +524,57 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.interpret_accept('Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
 
-    def _checked_offer(self, plan, beds):
+    def _checked_offer(self, plan, beds, quote_overrides=None):
+        # Mirror the registered quote's canonical wire aliases before Staff's
+        # real JS offer builder fingerprints the deterministic offline response.
+        plan = deepcopy(dict(plan))
+        if 'add_ons' not in plan and plan.get('catalog_selections'):
+            plan['add_ons'] = [{'code': row['service_code'],
+                                'quantity': row.get('quantity', 1)}
+                               for row in plan['catalog_selections']
+                               if row.get('service_code')]
         root = Path(__file__).resolve().parents[3]
         source = "const {buildCheckedWolfhousePreviewOffer:b}=require('./scripts/lib/luna-front-desk-accommodation-availability-service'); console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));"
         quote = dict(success=True, total_cents=20000, deposit_required_cents=10000,
                      payment_link_amount_cents=(10000 if plan['payment_choice'] in ('deposit', 'per_guest') else 20000),
                      currency='EUR', package_code=plan['package_code'])
+        quote.update(quote_overrides or {})
         checked = json.loads(subprocess.check_output(['node', '-e', source, json.dumps(dict(
+            **{key: value for key, value in plan.items() if key not in ('guests', 'payment_choice')},
             client_slug='wolfhouse-somo', quote=quote, guests=plan['guests'],
             payment_choice=plan['payment_choice'], availability={**plan, 'status': 'checked',
             'selected_bed_codes': [bed['bed_code'] for bed in beds]}, room_rows=beds))], cwd=root))
-        return dict(success=True, total_cents=20000, deposit_required_cents=10000,
-                    payment_choice_needed=False, currency='EUR', **checked)
+        return dict(success=True, total_cents=quote['total_cents'],
+                    deposit_required_cents=quote['deposit_required_cents'],
+                    payment_choice_needed=False, currency=quote['currency'], **checked)
+
+    def test_shown_three_person_quote_survives_missing_name_completion(self):
+        plan = dict(check_in='2026-11-03', check_out='2026-11-06', guest_count=3,
+                    room_type='shared', room_preference='female_only', package_code='package_none',
+                    group_gender='female', guests=[{'name': 'Aisha', 'explicit_gender': 'female'}])
+        beds = [dict(bed_code=f'R5-B{index}', room_code='R5', gender_strategy='female only')
+                for index in range(1, 4)]
+        amounts = dict(total_cents=36000, deposit_required_cents=30000,
+                       payment_link_amount_cents=30000)
+        response = self._checked_offer({**plan, 'payment_choice': 'deposit'}, beds,
+                                       quote_overrides=amounts)
+        response['payment_choice_needed'] = True
+        ledger.record_quote(plan, response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+
+        self.turn('sim10-complete',
+                  'Yes take it — Aisha Rahman, Priya Shah, Leila Hassan. Deposit for all three.')
+        complete = {**plan, 'guests': [
+            {'name': name, 'explicit_gender': 'female'}
+            for name in ('Aisha Rahman', 'Priya Shah', 'Leila Hassan')],
+            'payment_choice': 'deposit'}
+        refreshed = self._checked_offer(complete, beds, quote_overrides=amounts)
+        ledger.record_quote(complete, refreshed)
+
+        state = ledger._transaction(lambda owner, ingress: deepcopy(owner))
+        self.assertTrue(state.get('presentation'), state)
+        prepared = ledger.prepare_create(complete)
+        self.assertEqual(prepared['guests'], complete['guests'])
 
     def test_exact_france_confirmation_preserves_same_checked_offer_consent(self):
         plan = dict(check_in='2027-05-20', check_out='2027-05-23', guest_count=1,
@@ -299,10 +776,13 @@ console.log(JSON.stringify({accepted,current}));
                 'completions': {'guests': [{
                     'guest_index': 0, 'name': 'Alex Other', 'evidence': 'Alex Other'}]},
             })
-        with self.assertRaisesRegex(ledger.QuoteBoundaryError, 'quote_owner_acceptance_required'):
-            ledger.prepare_create({})
+        # An optional diagnostic failure cannot poison a later create. With no
+        # structured roster change, the exact shown Liam roster is retained.
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['guests'], plan['guests'])
+        self.assertNotEqual(prepared['guests'][0]['name'], 'Alex Other')
 
-    def test_packet_consent_rejects_contradictory_terms(self):
+    def test_packet_contradictions_make_model_stub_skip_create(self):
         replacements = (
             ('10 to 12 May 2027', '11 to 12 May 2027'),
             ('95 euros', '96 euros'),
@@ -316,9 +796,22 @@ console.log(JSON.stringify({accepted,current}));
                     self.db.create_session(self.agent.session_id, source='whatsapp')
                     self.turn(f'q-{index}', 'Quote this please')
                 _plan, _response, exact, _result = self.present_packet_offer()
-                self.turn(f'contradiction-{index}', exact.replace(old, new))
-                with self.assertRaises(ledger.QuoteBoundaryError):
-                    ledger.prepare_create({})
+                contradictory = exact.replace(old, new)
+                self.turn(f'contradiction-{index}', contradictory)
+                from agent import conversation_loop
+                from wolfhouse.offline_ingress_harness import gateway_ingress
+                seen = []
+                def model_stub(agent, text, *args, **kwargs):
+                    seen.append(text)
+                    return {'completed': True,
+                            'final_response': 'I will recheck those terms.', 'messages': []}
+                with patch.object(conversation_loop, 'run_conversation', model_stub), \
+                        patch.object(plugin, '_post_bot') as transport:
+                    result = gateway_ingress(self.agent, contradictory, f'model-revise-{index}',
+                        lambda text: conversation_loop.run_conversation(self.agent, text))
+                self.assertTrue(any(contradictory in text for text in seen), seen)
+                transport.assert_not_called()
+                self.assertIn('recheck', result['final_response'])
 
     def test_pronoun_confirmation_rejects_missing_presentation(self):
         plan, response, _exact = self.packet_offer()
@@ -380,8 +873,8 @@ console.log(JSON.stringify({accepted,current}));
         self.assertIn('210.00 EUR', again['final_response'])
         self.assertTrue(again['final_response'].endswith('Shall I create this updated booking?'))
         self.assertNotIn('DORM-12', again['final_response'])
-        with self.assertRaises(ledger.QuoteBoundaryError):
-            ledger.prepare_create({})
+        self.assertFalse(ledger._completion_revision_matches(
+            response['offer_revision'], changed['offer_revision']))
         self.turn('revised-yes-2', 'yes')
         self.interpret_accept('yes')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
@@ -418,8 +911,12 @@ console.log(JSON.stringify({accepted,current}));
         script = """
 const { computePackagePricePreview } = require('./scripts/lib/booking-guests');
 const { loadConfig } = require('./scripts/lib/wolfhouse-quote-calculator');
+// Offline Pricing fixture: explicit July coverage, never production calendar mutation.
 const input = JSON.parse(process.argv[1]);
-console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
+const config = loadConfig();
+config.seasons = [{code: 'summer', active: true, bookable: true, priority: 0,
+    ranges: [{start_month: 7, start_day: 1, end_month: 7, end_day: 31}]}];
+console.log(JSON.stringify(computePackagePricePreview(input, config)));
 """
         for room, expected in (
             ('shared', 'Includes: 7 nights in a dorm bed, T-shirt'),
@@ -430,6 +927,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                 'client_slug': 'wolfhouse-somo', 'check_in': '2027-07-01', 'check_out': '2027-07-08',
                 'guest_count': 2, 'room_type': room,
             })], cwd=root))
+            self.assertTrue(preview['success'], preview)
             with patch.object(plugin, '_post_bot', return_value=preview):
                 visible = json.loads(plugin.preview_package_prices({
                     'check_in': '2027-07-01', 'check_out': '2027-07-08', 'guest_count': 2,
@@ -743,9 +1241,9 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
                 }))
                 self.assertTrue(result['create_ready'])
             else:
-                blocked = json.loads(plugin._quote_owner_handler(
-                    'create_booking_from_plan', inert)({}))
-                self.assertEqual(blocked.get('error'), 'quote_current_turn_not_adjudicated')
+                # A cancellation response is model-owned and must not select
+                # create_booking_from_plan at all.
+                self.assertEqual(text, 'No, do not book.')
             return {'completed': True, 'final_response': 'offline model reply', 'messages': []}
         def inert(params):
             creates.append(deepcopy(dict(params)))
@@ -813,7 +1311,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
             self.assertEqual(created['booking_code'], 'ALEX-1')
             creates = [body for path, body in calls if path == '/booking-create-from-plan']
             self.assertEqual(len(creates), 1)
-            self.assertEqual(creates[0]['guests'], [{'name': 'Alex Test'}])
+            self.assertEqual(creates[0]['guests'], [{'name': 'Alex Test', 'explicit_gender': 'male'}])
             self.assertEqual(creates[0]['room_name_hints'],
                              [{'name': 'Alex Test', 'explicit_gender': 'male'}])
 
@@ -877,7 +1375,8 @@ console.log(JSON.stringify(computePackagePricePreview(input, loadConfig())));
         self.assertEqual(len(creates), 1)
         self.assertEqual(creates[0]['room_name_hints'],
                          [{'name': 'Sam', 'explicit_gender': 'female'}])
-        self.assertEqual(creates[0]['guests'], [{'name': 'Alex'}, {'name': 'Sam'}])
+        self.assertEqual(creates[0]['guests'], [{'name': 'Alex'},
+                         {'name': 'Sam', 'explicit_gender': 'female'}])
 
     def test_sparse_unknown_person_cannot_use_gendered_bed(self):
         room_rows = [dict(bed_code='M1', room_code='A', gender_strategy='male preferred'),

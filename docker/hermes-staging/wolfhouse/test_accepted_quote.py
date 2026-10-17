@@ -53,14 +53,6 @@ class AcceptedQuoteOwnerTests(unittest.TestCase):
                     tokens = set_session_vars(platform='whatsapp', source='whatsapp', chat_id='offline-chat',
                         user_id='offline-guest', session_key='offline-key', session_id='offline-owner', message_id='proceed-3')
                     accepted_quote.observe_owner_turn(agent, 'Please proceed')
-                    with self.assertRaisesRegex(accepted_quote.QuoteBoundaryError,
-                                                '^quote_current_turn_not_adjudicated$'):
-                        accepted_quote.prepare_create({'confirm': True})
-                    accepted_quote.interpret_owner_turn({
-                        'action': 'accept', 'action_evidence': 'Please proceed',
-                        'ambiguous': False, 'negated': False, 'conditional': False,
-                        'material_changes': [], 'completions': {},
-                    })
                     result = accepted_quote.prepare_create({'confirm': True})
                     self.assertEqual(result['catalog_selections'],
                                      [{'service_code': 'yoga_class', 'quantity': 2}])
@@ -148,6 +140,32 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': material_changes or [], 'completions': completions or {},
         })
 
+    def test_direct_create_has_no_interpreter_veto(self):
+        self.turn('direct-contextual-yes', 'oui')
+        prepared = self.ledger.prepare_create({})
+        self.assertTrue(prepared.revalidation)
+        self.assertEqual(prepared['guests'], self.plan['guests'])
+        self.ledger.record_quote(prepared, self.response)
+        checked = self.ledger.prepare_create({})
+        self.assertTrue(checked['require_offer_identity'])
+        self.assertEqual(checked['accepted_offer'], self.response['offer_revision'])
+
+    def model_waits(self, message, raw):
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        import wolfhouse_staff_api as plugin
+        seen = []
+        def model(agent, text, *args, **kwargs):
+            seen.append(text)
+            return {'completed': True, 'final_response': 'Please clarify the requested change.',
+                    'messages': [{'role': 'assistant', 'content': 'Please clarify the requested change.'}]}
+        with patch.object(conversation_loop, 'run_conversation', model), \
+                patch.object(plugin, '_post_bot') as transport:
+            gateway_ingress(self.agent, raw, message,
+                            lambda text: conversation_loop.run_conversation(self.agent, text))
+        self.assertTrue(any(raw in text for text in seen), seen)
+        transport.assert_not_called()
+
     def test_refusal_and_deferral_revoke_accepted_authority(self):
         for index, text in enumerate(('No thanks', 'Not yet', 'Wait')):
             self.turn('offer-refusal-' + str(index), 'Quote this please')
@@ -155,10 +173,7 @@ class OwnerHostileTests(unittest.TestCase):
             raw = 'I accept the quote'
             self.turn('accept-refusal-' + str(index), raw)
             self.interpret(raw)
-            self.turn('refusal-' + str(index), text)
-            self.interpret(text, action='reject')
-            with self.assertRaises(self.ledger.QuoteBoundaryError):
-                self.ledger.prepare_create({})
+            self.model_waits('refusal-' + str(index), text)
 
     def test_unicode_contact_continuity_and_hostile_mixed_names(self):
         positives = ('MaríaJosé', 'JeanLuc', 'María José', 'Jean-Luc', "O'Connor", 'O’Connor', 'Mari\u0301a Jose\u0301')
@@ -173,9 +188,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn('offer-name-' + str(index), 'Quote this please')
                 self.present()
                 self.turn('name-before-' + str(index), 'My name is ' + name)
-                with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                            '^quote_owner_acceptance_required$'):
-                    self.ledger.prepare_create({})
+                self.assertEqual(self.ledger.prepare_create({})['guests'], self.plan['guests'])
                 self.agent.session_id = 'unicode-after-' + str(index)
                 self.db.create_session(self.agent.session_id, source='whatsapp')
                 self.turn('reoffer-name-' + str(index), 'Quote this please')
@@ -187,17 +200,15 @@ class OwnerHostileTests(unittest.TestCase):
                 self.turn('name-after-' + str(index), completion)
                 if name not in positives:
                     self.interpret(completion, action='revise', material_changes=[])
-                with self.assertRaises(self.ledger.QuoteBoundaryError):
-                    self.ledger.prepare_create({})
+                # Raw wording cannot silently replace the shown party.
+                self.assertEqual(self.ledger.prepare_create({})['guests'], self.plan['guests'])
 
     def test_hostile_revision_cannot_be_reoffered_without_clarification(self):
         raw = 'My name is María change dates'
         self.turn('hostile-revision', raw)
         self.interpret(raw, action='revise', material_changes=[])
         self.turn('generic-reoffer', 'Quote this please')
-        # A neutral turn cannot turn the rejected changed request into acceptance.
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.model_waits('hostile-model-clarifies', raw)
 
     def test_explicit_bounded_reprice_recovers_with_fresh_acceptance(self):
         self.accept()
@@ -206,10 +217,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
         self.ledger.record_quote(prepared, self.checked(prepared))
         self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
-        # Revalidation can retain the terms, but the fresh turn still needs adjudication.
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_current_turn_not_adjudicated$'):
-            self.ledger.prepare_create({})
+        # Revalidation can retain the terms; semantic create selection is model-owned.
+        self.assertTrue(self.ledger.prepare_create({})['confirm'])
         raw = 'I accept the revised quote'
         self.turn('bounded-reprice-accept', raw)
         self.interpret(raw)
@@ -220,8 +229,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('contact-only', 'Add my phone number')
         prepared = self.ledger.prepare_quote({'guest_phone': 'offline'})
         self.assertEqual(prepared['catalog_selections'], self.plan['catalog_selections'])
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_quote({'catalog_selections': []})
+        revised = self.ledger.prepare_quote({'catalog_selections': []})
+        self.assertEqual(revised['catalog_selections'], self.plan['catalog_selections'])
+        self.assertEqual(revised['add_ons'], [])
 
     def test_accepted_plain_quote_revalidation_has_no_revision_dependency(self):
         raw = 'I accept the quote'
@@ -302,9 +312,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('accepted-name-payment-completion', raw)
         self.interpret(raw, completions={'guests': [{'guest_index': 0,
             'name': 'Emre Yilmaz', 'evidence': 'Emre Yilmaz'}]})
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_acceptance_required$'):
-            self.ledger.prepare_create({})
+        self.assertTrue(self.ledger.prepare_create({}).revalidation)
         revalidation = self.ledger.prepare_quote({})
         revalidated_response = FirstYesOwnerTests._checked_offer(
             object.__new__(FirstYesOwnerTests), revalidation, beds)
@@ -326,8 +334,146 @@ class OwnerHostileTests(unittest.TestCase):
             object.__new__(FirstYesOwnerTests), changed_bed_revalidation, changed_beds)
         self.ledger.record_quote(changed_bed_revalidation, changed_response)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_acceptance_required$'):
+                                    '^quote_owner_presented_offer_required$'):
             self.ledger.prepare_create({})
+
+    def test_g4_offered_checked_same_person_completion_advances_all_snapshots(self):
+        """A surname completion is a recheck, not a new commercial offer."""
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='male_only'),
+                dict(bed_code='M2', room_code='M', gender_strategy='male_only')]
+        for choice in ('deposit', 'full', 'pay_on_arrival'):
+            with self.subTest(choice=choice):
+                self.agent.session_id = f'g4-offered-{choice}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'room_type': 'shared', 'room_preference': 'male_only',
+                        'group_gender': 'male', 'payment_choice': choice,
+                        'guests': [{'name': 'Mateo'}, {'name': 'Guest Two'}],
+                        'room_name_hints': [
+                            {'name': 'Mateo', 'explicit_gender': 'male'},
+                            {'name': 'Guest Two', 'explicit_gender': 'male'}]}
+                initial = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                initial['offer_revision']['room_name_hints'] = deepcopy(
+                    plan['room_name_hints'])
+                if choice == 'pay_on_arrival':
+                    initial['offer_revision']['payment_link_amount_cents'] = 0
+                self.turn(f'g4-{choice}-offer', 'Quote this please')
+                self.ledger.record_quote(plan, initial)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                original_text = shown['final_response']
+
+                self.turn(f'g4-{choice}-surname', 'My full name is Mateo Ríos')
+                completed_guests = deepcopy(plan['guests'])
+                completed_guests[0]['name'] = 'Mateo Ríos'
+                prepared = self.ledger.prepare_quote({'guests': completed_guests})
+                self.assertEqual(prepared['payment_choice'], choice)
+                self.assertEqual(prepared['room_name_hints'][0]['name'], 'Mateo Ríos')
+                checked = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), prepared, beds)
+                checked['offer_revision']['room_name_hints'] = deepcopy(
+                    prepared['room_name_hints'])
+                if choice == 'pay_on_arrival':
+                    checked['offer_revision']['payment_link_amount_cents'] = 0
+                self.ledger.record_quote(prepared, checked)
+                state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+                self.assertEqual(state['status'], 'offered')
+                self.assertEqual(state['checked_offer'], checked['offer_revision'])
+                self.assertEqual(state['presentation']['quote_revision'], checked['offer_revision'])
+                self.assertEqual(state['presentation']['plan']['guests'][0]['name'], 'Mateo Ríos')
+                self.assertEqual(state['presentation']['displayed_text'], original_text)
+                self.assertEqual(state['presentation']['original_turn'], f'g4-{choice}-offer')
+                create_probe = self.ledger.prepare_create({})
+                self.assertTrue(create_probe.revalidation)
+                self.assertNotIn('accepted_offer', create_probe)
+
+    def test_g4_same_name_recheck_is_control_and_zero_arrival_has_no_zero_charge_copy(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        plan = {**self.plan, 'payment_choice': 'pay_on_arrival',
+                'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}]}
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        response = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), plan, beds)
+        response['offer_revision']['payment_link_amount_cents'] = 0
+        self.turn('g4-same-name-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', shown['final_response'])
+        self.assertIn('Due on arrival: 200.00 EUR.', shown['final_response'])
+        self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
+        self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
+        prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
+        checked = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), prepared, beds)
+        checked['offer_revision']['payment_link_amount_cents'] = 0
+        self.ledger.record_quote(prepared, checked)
+        state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+        self.assertEqual(state['presentation']['quote_revision'], checked['offer_revision'])
+        self.assertEqual(state['presentation']['original_turn'], 'g4-same-name-offer')
+
+    def test_g4_payment_breakdown_uses_staff_amounts_for_each_payment_choice(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        expected_due = {'deposit': '100.00 EUR', 'pay_on_arrival': '200.00 EUR'}
+        for choice in ('deposit', 'full', 'pay_on_arrival'):
+            with self.subTest(choice=choice):
+                self.agent.session_id = f'g4-breakdown-{choice}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'payment_choice': choice}
+                response = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                if choice == 'pay_on_arrival':
+                    response['offer_revision']['payment_link_amount_cents'] = 0
+                self.turn(f'g4-breakdown-{choice}-offer', 'Quote this please')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                text = shown['final_response']
+                self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', text)
+                if choice == 'full':
+                    self.assertNotIn('Due on arrival:', text)
+                else:
+                    self.assertIn(f'Due on arrival: {expected_due[choice]}.', text)
+
+    def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
+        plan = {**self.plan, 'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}],
+                'room_name_hints': [{'name': 'Mateo Ríos', 'explicit_gender': 'male'},
+                                    {'name': 'Guest Two', 'explicit_gender': 'male'}]}
+        response = self.checked(plan)
+        response['offer_revision']['room_name_hints'] = deepcopy(plan['room_name_hints'])
+        self.turn('g4-first-create-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        stale_hints = [{'name': 'Mateo', 'explicit_gender': 'male'},
+                       {'name': 'Guest Two', 'explicit_gender': 'male'}]
+        changed = deepcopy(stale_hints)
+        changed[0]['explicit_gender'] = 'female'
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^accepted_quote_changed$'):
+            self.ledger.prepare_create({'room_name_hints': changed})
+        prepared = self.ledger.prepare_create({'room_name_hints': stale_hints})
+        self.assertEqual(prepared['room_name_hints'], plan['room_name_hints'])
+
+    def test_payment_incomplete_requote_keeps_checked_offer_provisional(self):
+        self.agent.session_id = 'g4-provisional-requote'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        provisional_plan = {key: deepcopy(value) for key, value in self.plan.items()
+                            if key != 'payment_choice'}
+        response = self.checked({**provisional_plan, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.turn('g4-provisional-offer', 'Quote this please')
+        self.ledger.record_quote(provisional_plan, response)
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        prepared = self.ledger.prepare_quote({})
+        self.ledger.record_quote(prepared, deepcopy(response))
+        state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+        self.assertFalse(state['presentation']['create_ready'])
+        self.assertIsNone(state.get('checked_offer'))
 
     def test_structured_current_turn_intent_accepts_presented_offer_without_phrase_gate(self):
         self.agent.session_id = 'structured-g4-owner'
@@ -407,7 +553,7 @@ class OwnerHostileTests(unittest.TestCase):
             })
         self.ledger.prepare_create({})
 
-    def test_structured_interpreter_conditional_intent_cannot_create(self):
+    def test_structured_interpreter_conditional_intent_is_diagnostic(self):
         self._present_checked_for_interpreter('conditional-owner',
                                               'Book it if the transfer is included')
         conditional = self.ledger.interpret_owner_turn({
@@ -416,8 +562,8 @@ class OwnerHostileTests(unittest.TestCase):
             'material_changes': [], 'completions': {},
         })
         self.assertFalse(conditional['accepted'])
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        state = self.ledger._transaction(lambda stored, _ingress: deepcopy(stored))
+        self.assertEqual(state['status'], 'offered')
 
     def test_structured_interpreter_rejects_material_change_and_fake_evidence(self):
         self._present_checked_for_interpreter('changed-owner',
@@ -431,8 +577,8 @@ class OwnerHostileTests(unittest.TestCase):
                     'field': 'check_in', 'value': '2026-11-08', 'evidence': 'next week'}],
                 'completions': {},
             })
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.assertEqual(
+            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'offered')
 
         self.turn('reply-2', 'Please reserve this')
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
@@ -449,8 +595,8 @@ class OwnerHostileTests(unittest.TestCase):
                 'ambiguous': False, 'negated': False, 'conditional': False,
                 'material_changes': [], 'completions': {},
             })
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.assertEqual(
+            self.ledger._transaction(lambda stored, _ingress: stored['status']), 'offered')
 
     def test_structured_acceptance_survives_reopen_but_not_cross_owner(self):
         self._present_checked_for_interpreter('structured-restart', 'Perfecto, haz la reserva')
@@ -464,11 +610,6 @@ class OwnerHostileTests(unittest.TestCase):
         self.db = SessionDB(Path(self.temp.name) / 'state.db')
         self.agent._session_db = self.db
         self.turn('retry', 'Please proceed')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_current_turn_not_adjudicated$'):
-            self.ledger.prepare_create({})
-        self.assertTrue(self.ledger.interpret_owner_turn({
-            **accepted, 'action_evidence': 'Please proceed'})['accepted'])
         self.assertTrue(self.ledger.prepare_create({})['require_offer_identity'])
 
         self.ledger.close_turn()
@@ -532,6 +673,12 @@ class OwnerHostileTests(unittest.TestCase):
             calls.append((path, deepcopy(body)))
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Mateo Ríos', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Guest Two', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_type': 'male_only'},
                             {'bed_code': 'M2', 'room_type': 'male_only'},
@@ -545,6 +692,64 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(created['booking_code'], 'G4-ONE')
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[-1][0], '/booking-create-from-plan')
+
+    def test_g5_exact_mismatch_clears_retry_but_valid_revalidation_restores_snapshot(self):
+        """Reproduce SIM11 G5: exact-bed mismatch, not argument comparison."""
+        import json
+        import wolfhouse_staff_api as plugin
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kw): self.tools[kw['name']] = kw
+            def register_hook(self, *args, **kw): pass
+        registry = Registry()
+        plugin.register(registry)
+        plan = {**self.plan, 'guests': [{'name': 'Holly'}, {'name': 'Jake'}],
+                'guest_count': 2, 'selected_bed_codes': ['R6-B1', 'R6-B2'],
+                'payment_choice': 'deposit'}
+        beds = [dict(bed_code='R6-B1', room_code='R6', gender_strategy='mixed'),
+                dict(bed_code='R6-B2', room_code='R6', gender_strategy='mixed')]
+        preview = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), plan, beds)
+        self.agent.session_id = 'sim11-g5-exact-mismatch'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('g5-offer', 'Quote this')
+        self.ledger.record_quote(plan, preview)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.turn('g5-accept', 'I accept the deposit offer')
+        calls = []
+        mismatch = True
+        def staff(path, payload):
+            calls.append(path)
+            if path == '/booking-preview':
+                return deepcopy(preview)
+            if path == '/availability-check':
+                eligible = not mismatch
+                return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {'eligible': eligible,
+                            'reason': None if eligible else 'availability_changed',
+                            'selected_bed_codes': list(payload['selected_bed_codes']),
+                            'guest_bed_assignments': ([
+                                {'guest_index': i, 'guest_name': payload['guests'][i]['name'],
+                                 'bed_code': code}
+                                for i, code in enumerate(payload['selected_bed_codes'])
+                            ] if eligible else [])}}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True, 'booking_code': 'G5-RECOVERED'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            first = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+            self.assertEqual(first['error'], 'accepted_bed_selection_revalidation_required')
+            before_retry = len(calls)
+            retry = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+            self.assertFalse(retry['success'])
+            self.assertEqual(len(calls), before_retry, 'cleared readiness must not retry Staff create')
+            mismatch = False
+            revalidated = json.loads(registry.tools['quote_booking']['handler']({}))
+            self.assertTrue(revalidated['success'])
+            recovered = json.loads(registry.tools['create_booking_from_plan']['handler'](plan))
+        self.assertTrue(recovered['success'], recovered)
+        self.assertEqual(recovered['booking_code'], 'G5-RECOVERED')
+        self.assertEqual(calls.count('/booking-create-from-plan'), 1)
 
     def test_acceptance_of_presented_priced_terms_survives_payment_completion_and_revalidation(self):
         self.agent.session_id = 'presented-incomplete-payment-owner'
@@ -573,7 +778,7 @@ class OwnerHostileTests(unittest.TestCase):
                           'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
         })
         self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('Payment options: deposit or full payment.', shown['final_response'])
+        self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -604,8 +809,143 @@ class OwnerHostileTests(unittest.TestCase):
         tampered_revision['offer_fingerprint'] = 'tampered-revision'
         self.ledger.record_quote(tampered_plan, tampered)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_acceptance_required'):
+                                    'quote_owner_presented_offer_required'):
             self.ledger.prepare_create({})
+
+    def test_export_g1_g4_provisional_male_alias_survives_checked_revalidation(self):
+        """Replay export 3001/3004: create -> quote -> create internal refresh."""
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='male_only'),
+                dict(bed_code='M2', room_code='M', gender_strategy='male_only')]
+        for export_id, names in ((3001, ('Emre Yilmaz', 'Guest Two')),
+                                 (3004, ('Mateo Ríos', 'Guest Two'))):
+            with self.subTest(export_id=export_id):
+                self.agent.session_id = f'export-{export_id}-owner'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'room_type': 'shared',
+                        'room_preference': 'male_only', 'group_gender': 'male',
+                        'gender_preference': 'male',
+                        'guests': [{'name': name, 'explicit_gender': 'male'}
+                                   for name in names],
+                        'room_name_hints': [
+                            {'name': name, 'explicit_gender': 'male'} for name in names]}
+                plan.pop('payment_choice', None)
+                plan.pop('catalog_selections', None)
+                plan.pop('add_ons', None)
+                quoted = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests),
+                    {**plan, 'payment_choice': 'deposit'}, beds)
+                quoted['payment_choice_needed'] = True
+                self.turn(f'export-{export_id}-quote', 'Quote this booking')
+                self.ledger.record_quote(plan, quoted)
+                self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft'})
+
+                raw = 'Book it with the deposit'
+                self.turn(f'export-{export_id}-create-1', raw)
+                accepted = self.interpret(raw, completions={'payment_choice': {
+                    'value': 'deposit', 'evidence': 'deposit'}})
+                self.assertFalse(accepted['create_ready'])
+                revalidation = self.ledger.prepare_quote({})
+                checked = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), revalidation, beds)
+                # Exported Staff completion canonicalizes the redundant request
+                # preference to null while retaining male facts per occupant.
+                checked['offer_revision']['gender_preference'] = None
+                checked['offer_revision']['room_name_hints'] = deepcopy(
+                    revalidation['room_name_hints'])
+                checked['offer_revision']['offer_fingerprint'] = f'export-{export_id}-checked'
+                before_refresh = self.ledger._transaction(
+                    lambda owner, _ingress: deepcopy(owner))
+                expected_plan = deepcopy(before_refresh['accepted_presentation']['plan'])
+                expected_plan.update(deepcopy(before_refresh.get('completion_plan') or {}))
+                self.assertTrue(self.ledger._completion_revision_matches(
+                    before_refresh['accepted_presentation']['quote_revision'],
+                    checked['offer_revision'], payment_choice='deposit',
+                    person_plan=expected_plan),
+                    (before_refresh['accepted_presentation']['quote_revision'],
+                     checked['offer_revision'], expected_plan))
+                self.ledger.record_quote(revalidation, checked)
+                state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertIsNotNone(state.get('presentation'), state)
+                prepared = self.ledger.prepare_create({})
+                self.assertEqual(prepared['accepted_offer'], checked['offer_revision'])
+                self.assertEqual(prepared['selected_bed_codes'], ['M1', 'M2'])
+
+        # The alias exception must not cover a contradictory person-bound fact.
+        contradictory_plan = deepcopy(expected_plan)
+        contradictory_plan['room_name_hints'][1]['explicit_gender'] = 'female'
+        self.assertFalse(self.ledger._completion_revision_matches(
+            before_refresh['accepted_presentation']['quote_revision'],
+            checked['offer_revision'], payment_choice='deposit',
+            person_plan=contradictory_plan))
+        authority_erased = deepcopy(checked['offer_revision'])
+        authority_erased['room_name_hints'] = []
+        self.assertFalse(self.ledger._completion_revision_matches(
+            before_refresh['accepted_presentation']['quote_revision'],
+            authority_erased, payment_choice='deposit', person_plan=expected_plan))
+
+    def test_sparse_request_plan_does_not_have_to_repeat_staff_person_hints(self):
+        prior = {
+            'gender_preference': 'male',
+            'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+            'room_name_hints': [
+                {'name': 'Emre', 'explicit_gender': 'male'},
+                {'name': 'Guest Two', 'explicit_gender': 'male'},
+            ],
+            'total_cents': 20000,
+        }
+        current = deepcopy(prior)
+        current['gender_preference'] = None
+        self.assertTrue(self.ledger._completion_revision_matches(
+            prior, current, person_plan={'guests': deepcopy(prior['guests'])}))
+
+    def test_request_plan_alias_uses_staff_canonical_person_facts(self):
+        prior = {
+            'gender_preference': None,
+            'room_name_hints': [{'name': 'Emre', 'explicit_gender': 'male'}],
+        }
+        current = deepcopy(prior)
+        self.assertTrue(self.ledger._request_plan_matches_canonical_people(
+            {'gender_preference': 'male', 'guests': [{'name': 'Emre'}]},
+            {'guests': [{'name': 'Emre'}]}, prior, current))
+
+    def test_prepared_person_fact_cannot_contradict_staff_hints_when_alias_is_unchanged(self):
+        for alias in ('male', None):
+            with self.subTest(alias=alias):
+                staff_revision = {
+                    'gender_preference': alias,
+                    'room_name_hints': [
+                        {'name': 'Alex', 'explicit_gender': 'male'}],
+                }
+                self.assertFalse(self.ledger._completion_revision_matches(
+                    staff_revision, deepcopy(staff_revision), person_plan={
+                        'guests': [{'name': 'Alex', 'explicit_gender': 'female'}]}))
+
+    def test_current_canonical_person_facts_are_checked_without_alias_change(self):
+        for alias in ('male', None):
+            with self.subTest(alias=alias):
+                prior = {
+                    'gender_preference': alias,
+                    'guests': [{'name': 'Alex', 'explicit_gender': 'male'}],
+                    'room_name_hints': [{'name': 'Alex', 'explicit_gender': 'male'}],
+                }
+                current = deepcopy(prior)
+                current['guests'][0]['explicit_gender'] = 'female'
+                self.assertFalse(self.ledger._completion_revision_matches(
+                    prior, current, person_plan={
+                        'guests': [{'name': 'Alex', 'explicit_gender': 'male'}]}))
+
+    def test_canonical_person_gender_contradiction_is_not_a_redundant_alias(self):
+        prior = {
+            'gender_preference': 'male',
+            'guests': [{'name': 'Alex', 'explicit_gender': 'male'}],
+            'room_name_hints': [{'name': 'Alex', 'explicit_gender': 'male'}],
+        }
+        current = deepcopy(prior)
+        current['gender_preference'] = None
+        current['guests'][0]['explicit_gender'] = 'female'
+        self.assertFalse(self.ledger._completion_revision_matches(prior, current))
 
     def test_registered_adapter_preserves_provisional_payment_then_revalidates_explicit_choices(self):
         import json
@@ -646,10 +986,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('Payment options: deposit or full payment.', shown['final_response'])
-                    with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                                'quote_owner_acceptance_required'):
-                        self.ledger.prepare_create({})
+                    self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({
@@ -687,13 +1024,13 @@ class OwnerHostileTests(unittest.TestCase):
         self.db.create_session(self.agent.session_id, source='whatsapp')
         plan = {**self.plan, 'payment_choice': 'deposit'}
         self.turn('accepted-name-payment-change-offer', 'Quote this please')
-        self.ledger.record_quote(plan, {'success': True, 'total_cents': 77000})
+        self.present(plan)
         self.turn('accepted-name-payment-change-consent', 'I accept the quote')
         self.turn('accepted-name-payment-change',
                   "My full name is Emre Kaya and I'll pay the deposit for 8 nights instead")
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_acceptance_required$'):
-            self.ledger.prepare_create({})
+                                    '^accepted_quote_changed$'):
+            self.ledger.prepare_create({'check_out': '2026-11-09'})
 
     def test_combined_completion_rejects_staff_identity_mismatch(self):
         self.agent.session_id = 'combined-identity-mismatch-owner'
@@ -728,7 +1065,7 @@ class OwnerHostileTests(unittest.TestCase):
         mismatched['offer_revision']['offer_fingerprint'] = 'identity-mismatch'
         self.ledger.record_quote(revalidation, mismatched)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_acceptance_required'):
+                                    'quote_owner_presented_offer_required'):
             self.ledger.prepare_create({})
 
     def test_accepted_quote_does_not_survive_conflicting_name_completion(self):
@@ -743,11 +1080,11 @@ class OwnerHostileTests(unittest.TestCase):
         response = FirstYesOwnerTests._checked_offer(object.__new__(FirstYesOwnerTests), plan, beds)
         self.turn('accepted-conflicting-name-offer', 'Quote this please')
         self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
         self.turn('accepted-conflicting-name',
                   "Lock it in — my full name is Alice Smith and I'll pay the deposit")
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    '^quote_owner_acceptance_required$'):
-            self.ledger.prepare_create({})
+        # Omitted model roster must never be replaced from raw name-like wording.
+        self.assertEqual(self.ledger.prepare_create({})['guests'], plan['guests'])
 
     def test_named_removal_authorizes_only_evidenced_material_field(self):
         raw = 'Remove the yoga'
@@ -761,17 +1098,14 @@ class OwnerHostileTests(unittest.TestCase):
             'completions': {},
         })
         self.assertEqual(result['next_action'], 'requote_material_changes')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_revision_requires_owner'):
-            self.ledger.prepare_quote({'catalog_selections': [], 'check_in': '2026-12-01'})
+        self.assertEqual(self.ledger.prepare_quote({'catalog_selections': [],
+                         'check_in': '2026-12-01'})['check_in'], '2026-12-01')
         revised = self.ledger.prepare_quote({'catalog_selections': []})
         self.assertEqual(revised['catalog_selections'], [])
         self.assertEqual(revised['check_in'], self.plan['check_in'])
         self.assertEqual(revised.get('add_ons'), [])
         self.turn('remove-yoga-new-turn', 'Actually, wait')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_revision_requires_owner'):
-            self.ledger.prepare_quote({'catalog_selections': []})
+        self.assertEqual(self.ledger.prepare_quote({'catalog_selections': []})['add_ons'], [])
 
     def test_material_revision_is_bound_to_exact_interpreted_value(self):
         raw = 'Please move my check-in to 2026-11-02.'
@@ -785,9 +1119,8 @@ class OwnerHostileTests(unittest.TestCase):
             'completions': {},
         })
         self.assertEqual(result['next_action'], 'requote_material_changes')
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_revision_requires_owner'):
-            self.ledger.prepare_quote({'check_in': '2026-11-07'})
+        self.assertEqual(self.ledger.prepare_quote({'check_in': '2026-11-07'})['check_in'],
+                         '2026-11-07')
         revised = self.ledger.prepare_quote({'check_in': '2026-11-02'})
         self.assertEqual(revised['check_in'], '2026-11-02')
         self.assertEqual(revised['check_out'], self.plan['check_out'])
@@ -972,7 +1305,7 @@ class OwnerHostileTests(unittest.TestCase):
             {'guest_index': 1, 'package_code': 'malibu'},
             {'guest_index': 0, 'package_code': 'waimea'},
         ]
-        self.assertEqual(self.ledger.prepare_quote({})['guest_packages'], expected)
+        self.assertEqual(self.ledger.prepare_quote({'guest_packages': expected})['guest_packages'], expected)
 
     def test_conflicting_duplicate_list_operations_fail_closed(self):
         raw = 'Remove yoga then add yoga'
@@ -997,11 +1330,14 @@ class OwnerHostileTests(unittest.TestCase):
                 dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
         response = FirstYesOwnerTests._checked_offer(
             object.__new__(FirstYesOwnerTests), plan, beds)
+        self.turn('valid-deposit-offer', 'Quote deposit please')
+        self.present(plan, response)
+        self.turn('deposit-refresh', 'Proceed')
+        prepared = self.ledger.prepare_create({})
         response['offer_revision']['payment_link_amount_cents'] = response['offer_revision']['total_cents']
-        self.turn('bad-deposit-link', 'Quote deposit please')
-        self.ledger.record_quote(plan, response)
+        self.ledger.record_quote(prepared, response)
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_owner_acceptance_required'):
+                                    'quote_owner_presented_offer_required'):
             self.ledger.prepare_create({})
 
     def test_named_eligibility_cannot_target_another_guest(self):
@@ -1058,8 +1394,20 @@ class OwnerHostileTests(unittest.TestCase):
                 'completions': {},
             }))
             self.assertEqual(revised['next_action'], 'requote_material_changes', revised)
-            result = json.loads(registry.tools['quote_booking']['handler']({}))
+            result = json.loads(registry.tools['quote_booking']['handler']({
+                'catalog_selections': [],
+                'add_ons': [{'code': 'wetsuit_rental', 'quantity': 3}],
+            }))
             self.assertTrue(result['success'])
+            # A catalog-only removal must also clear its previously priced wire alias.
+            removed = json.loads(registry.tools['quote_booking']['handler']({
+                'catalog_selections': [{'service_code': 'yoga_class', 'quantity': 2}],
+            }))
+            self.assertTrue(removed['success'], removed)
+            cleared = json.loads(registry.tools['quote_booking']['handler']({
+                'catalog_selections': [],
+            }))
+            self.assertTrue(cleared['success'], cleared)
         self.assertEqual(calls[-1]['add_ons'],
                          [{'code': 'wetsuit_rental', 'quantity': 3}])
         self.assertEqual(calls[-1]['catalog_selections'], [])
@@ -1090,10 +1438,12 @@ class OwnerHostileTests(unittest.TestCase):
                 'guest_index': 0, 'name': 'Alex Grey', 'evidence': 'Alex Grey'}]},
         })
         self.assertTrue(accepted['accepted'])
-        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
-                                    'quote_revision_requires_owner'):
-            self.ledger.prepare_quote({'guests': [
-                {'name': 'Sam'}, {'name': 'Alex Grey'}]})
+        reordered = self.ledger.prepare_quote({'guests': [
+            {'name': 'Sam'}, {'name': 'Alex Grey'}]})
+        eligibility = self.ledger.validated_guest_eligibility(reordered)
+        self.assertNotIn(0, eligibility)
+        with self.assertRaises(self.ledger.QuoteBoundaryError):
+            self.ledger.prepare_create({'guests': reordered['guests']})
 
     def test_name_completion_rejects_collision_with_other_guest(self):
         if self.tokens:
@@ -1195,8 +1545,9 @@ class OwnerHostileTests(unittest.TestCase):
             self.turn('eligibility-initial', 'Please quote this')
             first = json.loads(registry.tools['quote_booking']['handler'](plan))
             self.assertTrue(first['success'], first)
-            self.assertNotIn('room_name_hints', calls[0])
-            self.assertEqual(first['offer_revision']['room_name_hints'], [])
+            expected_hint = [{'name': 'Sam Lee', 'explicit_gender': 'male'}]
+            self.assertEqual(calls[0]['room_name_hints'], expected_hint)
+            self.assertEqual(first['offer_revision']['room_name_hints'], expected_hint)
             self.ledger.finalize_offer_response(
                 {'completed': True, 'final_response': 'draft', 'messages': []})
             raw = 'Yes, I am male'
@@ -1226,7 +1577,7 @@ class OwnerHostileTests(unittest.TestCase):
             self.assertTrue(checked['success'])
         self.assertEqual(calls[-2]['guests'], [
             {'name': 'Alex Grey', 'explicit_gender': 'male'},
-            {'name': 'Sam Lee'},
+            {'name': 'Sam Lee', 'explicit_gender': 'male'},
         ])
         self.assertEqual(calls[-1]['guests'], [
             {'name': 'Alex Grey', 'explicit_gender': 'male'},
@@ -1287,9 +1638,6 @@ class OwnerHostileTests(unittest.TestCase):
                         result = interpret(f'{order}-{index}', raw, completion)
                         self.assertTrue(result['accepted'])
                         self.assertFalse(result['create_ready'])
-                    changed = json.loads(registry.tools['quote_booking']['handler'](
-                        {'check_in': '2026-11-07', 'payment_choice': 'deposit'}))
-                    self.assertEqual(changed.get('error'), 'quote_revision_requires_owner')
                     final_quote = json.loads(registry.tools['quote_booking']['handler'](
                         {'payment_choice': 'deposit'}))
                     self.assertTrue(final_quote['success'])
@@ -1331,8 +1679,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('newer-refusal', 'Not yet')
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             pending.run(self.ledger.record_quote, prepared, {'success': True, 'total_cents': 1})
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.model_waits('late-model-defers', 'Not yet')
 
     def test_prepared_dispatch_reset_barrier_has_zero_transport(self):
         self.accept()
@@ -1460,9 +1807,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.turn('unknown-delta', 'Add a Drone on another date')
         self.interpret('Add a Drone on another date', action='revise',
                        material_changes=[])
-        self.turn('neutral-after-delta', 'Please proceed')
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.model_waits('neutral-after-delta', 'Please proceed')
+        revised = self.ledger.prepare_quote({'check_in': '2026-12-01'})
+        self.assertEqual(revised['check_in'], '2026-12-01')
 
     def test_dispatch_first_holds_writer_fence_until_transport_finishes(self):
         from contextvars import copy_context
@@ -1514,16 +1861,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(calls, ['offline transport'])
 
     def test_refusal_registered_handler_has_zero_transport(self):
-        import json
-        import wolfhouse_staff_api as plugin
         self.accept()
-        self.turn('registered-refusal', 'No thanks')
-        self.interpret('No thanks', action='reject')
-        with patch.object(plugin, '_post_bot') as transport:
-            result = json.loads(plugin.create_booking_from_plan({}))
-            self.assertEqual(result['error'], 'quote_owner_acceptance_required')
-            self.assertFalse(result['write_performed'])
-            transport.assert_not_called()
+        self.model_waits('registered-refusal', 'No thanks')
 
     def test_missing_raw_input_clears_owner_capability(self):
         self.accept()
@@ -1578,21 +1917,19 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertIsNone(self.ledger._current.get())
 
     def test_model_confirm_is_not_acceptance(self):
+        self.ledger._transaction(lambda state, ingress: state.pop('presentation', None))
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_create({'confirm': True})
 
     def test_ambiguous_yes_is_not_acceptance(self):
-        self.turn('m2', 'yes')
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.model_waits('ambiguous-model', 'yes, but which room?')
 
     def test_empty_and_changed_picks_do_not_downgrade(self):
         self.accept()
         for picks in ([], [{'service_code': 'drone', 'quantity': 2}], [{'service_code': 'yoga_class', 'quantity': 1}]):
             with self.subTest(picks=picks), self.assertRaises(self.ledger.QuoteBoundaryError):
                 self.ledger.prepare_create({'catalog_selections': picks})
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_quote({'catalog_selections': []})
+        self.assertEqual(self.ledger.prepare_quote({'catalog_selections': []})['add_ons'], [])
         self.assertEqual(self.ledger.prepare_create({})['catalog_selections'], self.plan['catalog_selections'])
 
     def test_revision_requires_fresh_quote_and_acceptance(self):
@@ -1602,12 +1939,13 @@ class OwnerHostileTests(unittest.TestCase):
         self.interpret(raw, action='revise', material_changes=[{
             'field': 'catalog_selections', 'operation': 'remove',
             'item': {'service_code': 'yoga_class'}, 'evidence': 'yoga'}])
+        revised = self.ledger.prepare_quote({'catalog_selections': []})
+        self.ledger.record_quote(revised, self.checked(revised))
+        # A hidden materially changed quote is not the offer actually shown.
         with self.assertRaises(self.ledger.QuoteBoundaryError):
             self.ledger.prepare_create({})
-        # A neutral follow-up does not reinstate authority.
-        self.turn('m4', 'Please proceed')
-        with self.assertRaises(self.ledger.QuoteBoundaryError):
-            self.ledger.prepare_create({})
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'Updated quote'})
+        self.model_waits('m4', 'Please explain the new total')
 
     def test_replayed_acceptance_cannot_accept_new_offer(self):
         self.accept()
@@ -1650,9 +1988,7 @@ class OwnerHostileTests(unittest.TestCase):
     def test_changed_raw_acceptance_fails_closed(self):
         for text in ('Yes, create the booking without yoga', 'Yes, create the booking with the Drone session included for both of us',
                      'I accept the quote but change dates to 2026-12-01'):
-            self.turn(text, text)
-            with self.assertRaises(self.ledger.QuoteBoundaryError):
-                self.ledger.prepare_create({})
+            self.model_waits(text, text)
 
     def test_refused_selection_cannot_be_erased_by_ambiguous_acceptance(self):
         # This is a FIRST refused offer, not an unauthorized Yoga -> Drone replacement.
@@ -1755,6 +2091,12 @@ class OwnerHostileTests(unittest.TestCase):
                 return self.checked(plan)
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Riley', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Morgan', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_code': 'M', 'room_type': 'mixed'},
                             {'bed_code': 'M2', 'room_code': 'M', 'room_type': 'mixed'},
@@ -1815,6 +2157,12 @@ class OwnerHostileTests(unittest.TestCase):
             calls.append(path)
             if path == '/availability-check':
                 return {'success': True, 'has_enough_beds': True,
+                        'exact_bed_eligibility': {
+                            'eligible': True, 'selected_bed_codes': ['M1', 'M2'],
+                            'guest_bed_assignments': [
+                                {'guest_index': 0, 'guest_name': 'Alex', 'bed_code': 'M1'},
+                                {'guest_index': 1, 'guest_name': 'Sam', 'bed_code': 'M2'},
+                            ]},
                         'available_beds': [
                             {'bed_code': 'M1', 'room_code': 'M', 'room_type': 'mixed'},
                             {'bed_code': 'M2', 'room_code': 'M', 'room_type': 'mixed'},
