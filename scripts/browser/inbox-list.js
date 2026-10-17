@@ -286,6 +286,7 @@ function inboxThreadDayLabel(ts){
 }
 
 function inboxBookingPaymentConfirmed(b){
+  if (b && b.deposit_completed === true) return true;
   var key = String((b && (b.booking_payment_status || b.payment_status)) || '')
     .trim().toLowerCase().replace(/\s+/g, '_');
   return key === 'paid' || key === 'deposit_paid';

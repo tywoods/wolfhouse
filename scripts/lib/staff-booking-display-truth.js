@@ -2,6 +2,7 @@
 
 const { isStaffAccommodationMeta, isIsoDate } = require('./sunset-accommodation-price-resolver');
 const { PAYMENT_COLLECTED_SCOPE_SQL } = require('./sunset-staff-money-scope');
+const { wolfhouseBookingDepositCents } = require('./wolfhouse-stay-deposit');
 
 function staffBookingStayDates(booking, services) {
   const meta = (raw) => {
@@ -33,6 +34,24 @@ function staffPaymentDisplayStatus(total, paid, remaining) {
   return 'unpaid';
 }
 
+// Display status stays partial while a balance remains. Deposit completion is a
+// separate ledger fact: settled collected cents meet the stay deposit rule.
+// A smaller partial does not. The denormalized booking enum is not this signal.
+function staffDepositCompleted(booking, collectedCents) {
+  const paid = Number(collectedCents);
+  if (!Number.isFinite(paid) || paid <= 0) return false;
+  let metadata = booking && booking.metadata;
+  if (typeof metadata === 'string') {
+    try { metadata = JSON.parse(metadata || '{}') || {}; } catch (_) { metadata = {}; }
+  }
+  const required = wolfhouseBookingDepositCents({
+    ...(booking || {}),
+    metadata: metadata && typeof metadata === 'object' ? metadata : {},
+  });
+  if (required == null || required <= 0) return false;
+  return paid >= required;
+}
+
 function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
   const number = (value) => value == null || value === '' || !Number.isFinite(Number(value))
     ? null : Number(value);
@@ -43,6 +62,7 @@ function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
   const paid = number(collectedCents) ?? number(booking.amount_paid_cents) ?? 0;
   return {
     payment_status: staffPaymentDisplayStatus(total, paid),
+    deposit_completed: staffDepositCompleted(booking, paid),
     total_amount_cents: total,
     amount_paid_cents: paid,
     balance_due_cents: total == null || paid == null ? null : Math.max(total - paid, 0),
@@ -51,7 +71,7 @@ function buildStaffBookingDisplayTruth(booking, services, collectedCents) {
 }
 
 const STAFF_BOOKING_DISPLAY_TRUTH_SQL = `
-SELECT b.id::text AS booking_id, b.check_in::text, b.check_out::text,
+SELECT b.id::text AS booking_id, b.check_in::text, b.check_out::text, b.guest_count,
        b.total_amount_cents, b.amount_paid_cents, b.metadata,
        (SELECT SUM(p.amount_paid_cents) FROM payments p
          WHERE p.booking_id = b.id AND p.client_id = b.client_id
@@ -78,6 +98,7 @@ async function hydrateStaffBookingDisplayTruth(pg, clientSlug, rows) {
     Object.assign(row, truth, {
       display_truth: truth,
       booking_payment_status: truth.payment_status,
+      deposit_completed: truth.deposit_completed === true,
       payment_amount_paid_cents: truth.amount_paid_cents,
       // Historical field name; Guests uses it as remaining collection balance.
       payment_amount_due_cents: truth.balance_due_cents,
