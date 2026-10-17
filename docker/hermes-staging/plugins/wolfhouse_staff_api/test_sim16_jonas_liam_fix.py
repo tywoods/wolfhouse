@@ -309,6 +309,12 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertEqual((prepared["check_in"], prepared["check_out"]),
                          ("2026-11-18", "2026-11-21"))
         self.assertEqual(prepared["guests"][0]["explicit_gender"], "male")
+        responses = lambda route, body: create_recheck_receipt(mixed, body) if route == "/availability-check" else {
+            "success": True, "created": True, "write_performed": True,
+            "booking_id": "kenji-original-dates"}
+        created = self.loop.call("create_booking_from_plan", prepared, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
 
     def test_r2_missing_eligibility_differs_from_real_unavailable_and_explicit_male_control(self):
         bed = self.beds(1, "male_only", "M")
