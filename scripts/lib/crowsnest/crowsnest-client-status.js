@@ -138,7 +138,7 @@ async function loadCrowsnestClientsView(readers = {}) {
   const collectStatuses = typeof readers.collectStatuses === 'function' ? readers.collectStatuses : async () => ({});
   const collectEvidence = typeof readers.collectEvidence === 'function' ? readers.collectEvidence : async () => ({});
   const collectDeploy = typeof readers.collectDeploy === 'function' ? readers.collectDeploy : null;
-  const [clientStatuses, portalEvidence, deployResult] = await Promise.all([
+  const [clientStatuses, _initialPortalEvidence, deployResult] = await Promise.all([
     collectStatuses(),
     collectEvidence(),
     collectDeploy
@@ -148,6 +148,10 @@ async function loadCrowsnestClientsView(readers = {}) {
         )
       : Promise.resolve({ ok: false }),
   ]);
+  // The first call starts health reads in parallel with the other page readers.
+  // Re-enter the same collector after the join so its private request-start
+  // deadline remains the sole freshness authority at the real render handoff.
+  const portalEvidence = await collectEvidence();
   return { clientStatuses, portalEvidence, deployResult };
 }
 
