@@ -288,13 +288,13 @@ section('I. Availability capacity-only vs gender-aware create');
 section('G. Room option flags from beds');
 {
   const beds = [
-    { bed_code: 'R5-A', room_code: 'R5' },
-    { bed_code: 'R5-B', room_code: 'R5' },
-    { bed_code: 'R6-A', room_code: 'R6' },
-    { bed_code: 'R3-A', room_code: 'R3' },
+    { bed_code: 'R5-A', room_code: 'R5', room_type: 'female_only' },
+    { bed_code: 'R5-B', room_code: 'R5', room_type: 'female_only' },
+    { bed_code: 'R6-A', room_code: 'R6', room_type: 'matrimonial_private_couple' },
+    { bed_code: 'R3-A', room_code: 'R3', room_type: 'matrimonial_or_mixed' },
   ];
   const flags1 = computeWolfhouseRoomOptionFlags(beds, 1);
-  check('G1', flags1.girls_room_available === true, 'R5 free → girls avail solo');
+  check('G1', flags1.girls_room_available === true, 'female-only room free → girls avail solo');
   const flags2 = computeWolfhouseRoomOptionFlags(beds, 2);
   check('G2', flags2.private_room_available === true, 'R6 free → private for 2');
   const flags3 = computeWolfhouseRoomOptionFlags(

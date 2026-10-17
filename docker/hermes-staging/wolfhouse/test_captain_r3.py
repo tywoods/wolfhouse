@@ -204,6 +204,76 @@ class CaptainR3Tests(unittest.TestCase):
                 self.assertEqual(sent['guests'], guests)
                 self.assertEqual('room_name_hints' in sent, affirmative)
 
+    def test_registered_availability_uses_canonical_guest_eligibility(self):
+        registry = Registry()
+        with patch.object(accepted_quote, 'install_owner_hook'), \
+                patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            plugin.register(registry)
+        params = {
+            'check_in': '2027-01-01', 'check_out': '2027-01-02',
+            'guest_count': 1, 'room_type': 'shared',
+            'room_preference': 'female_only',
+            'guests': [{'name': 'Nora', 'explicit_gender': 'female'}],
+        }
+        staff_receipt = {
+            'success': True, 'has_enough_beds': True,
+            'girls_room_available': True,
+            'room_options': {'girls_room_available': True,
+                             'private_room_available': False},
+            'selected_room_code': 'R5', 'selected_bed_codes': ['R5-B3'],
+            'available_beds': [{'bed_code': 'R5-B3', 'room_code': 'R5',
+                                'room_type': 'female_only',
+                                'bed_label': 'R5-B3'}],
+        }
+        calls = []
+        with patch.object(plugin, '_post_bot', side_effect=lambda path, body: (
+                calls.append((path, deepcopy(body))) or deepcopy(staff_receipt))):
+            result = json.loads(registry.tools['check_availability']['handler'](params))
+        expected = [{'name': 'Nora', 'explicit_gender': 'female'}]
+        self.assertEqual(calls[0][0], '/availability-check')
+        self.assertEqual(calls[0][1]['guests'], expected)
+        self.assertEqual(calls[0][1]['room_name_hints'], expected)
+        self.assertTrue(result['available'], result)
+        self.assertEqual(result['selected_bed_codes'], ['R5-B3'])
+        self.assertTrue(result['girls_room_available'])
+        self.assertTrue(result['room_options']['girls_room_available'])
+        self.assertEqual(result['room_decision']['resolved_composition'], 'female')
+
+    def test_staff_clarification_without_selection_is_not_reported_available(self):
+        params = {
+            'client_slug': 'wolfhouse-somo',
+            'check_in': '2027-01-01', 'check_out': '2027-01-02',
+            'guest_count': 2, 'room_type': 'shared',
+            'room_preference': 'mixed',
+            'guests': [{'name': 'Alex'}, {'name': 'Bea', 'explicit_gender': 'female'}],
+        }
+        receipt = {
+            'success': True, 'has_enough_beds': True, 'needs_clarification': True,
+            'selected_bed_codes': [],
+            'available_beds': [
+                {'bed_code': 'F1', 'room_code': 'F', 'room_type': 'female_only'},
+                {'bed_code': 'F2', 'room_code': 'F', 'room_type': 'female_only'},
+            ],
+        }
+        with patch.object(plugin, '_post_bot', return_value=receipt):
+            result = json.loads(plugin.check_availability(params))
+        self.assertFalse(result['available'], result)
+        self.assertEqual(result['availability_status'], 'eligibility_required')
+
+    def test_capture_schema_matches_validator_for_registered_payload(self):
+        registry = Registry()
+        with patch.object(accepted_quote, 'install_owner_hook'), \
+                patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            plugin.register(registry)
+        capture = registry.tools['capture_booking_names']
+        item = capture['schema']['parameters']['properties']['guests']['items']
+        self.assertNotIn('gender_evidence', item['properties'])
+        payload = {'guest_count': 1,
+                   'guests': [{'name': 'Nora', 'explicit_gender': 'female'}]}
+        with patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            result = json.loads(capture['handler'](payload))
+        self.assertNotEqual(result['status'], 'invalid_input')
+
     def test_current_indexed_correction_supersedes_stale_staff_hint(self):
         state = {'epoch': 2, 'checked_offer': {'room_name_hints': [
             {'name': 'Alex', 'explicit_gender': 'female'},

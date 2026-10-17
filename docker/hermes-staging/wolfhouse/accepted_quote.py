@@ -631,16 +631,140 @@ def _presentation_matches_completion_state(state, presentation):
     return expected == presented
 
 
+def _canonical_gender_alias_is_redundant(before, after):
+    """Allow a dropped aggregate alias only when canonical person facts persist."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    gender = before.get('gender_preference')
+    if gender not in ('male', 'female') or after.get('gender_preference') is not None:
+        return False
+    hints = after.get('room_name_hints')
+    if hints != before.get('room_name_hints'):
+        return False
+    def occupant_names(revision):
+        guests = revision.get('guests')
+        if isinstance(guests, list) and guests:
+            return [guest.get('name') for guest in guests if isinstance(guest, dict)]
+        assignments = revision.get('guest_bed_assignments')
+        if isinstance(assignments, list) and assignments:
+            return [row.get('guest_name') for row in assignments if isinstance(row, dict)]
+        return []
+    before_names = occupant_names(before)
+    after_names = occupant_names(after)
+    if (before_names != after_names or not after_names or not isinstance(hints, list)
+            or len(after_names) != len(hints)
+            or any(not isinstance(row, dict) for row in hints)):
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    names = [normalize(name) for name in after_names]
+    facts = {normalize(hint.get('name')): hint.get('explicit_gender') for hint in hints}
+    for revision in (before, after):
+        guests = revision.get('guests')
+        if isinstance(guests, list):
+            canonical = {
+                normalize(guest.get('name')): guest.get('explicit_gender')
+                for guest in guests if isinstance(guest, dict)
+                and guest.get('explicit_gender') in ('male', 'female')
+            }
+            if any(canonical.get(name) not in (None, gender) for name in names):
+                return False
+    return (all(names) and len(set(names)) == len(names) and len(facts) == len(hints)
+            and all(facts.get(name) == gender for name in names))
+
+
+def _person_plan_does_not_contradict_hints(plan, hints):
+    """Sparse request plans may omit facts, but may never contradict Staff facts."""
+    if plan is None:
+        return True
+    if not isinstance(plan, dict) or not isinstance(hints, list):
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    authoritative = {
+        normalize(row.get('name')): row.get('explicit_gender')
+        for row in hints if isinstance(row, dict)
+        and row.get('explicit_gender') in ('male', 'female')
+    }
+    for key in ('guests', 'room_name_hints'):
+        rows = plan.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if (isinstance(row, dict)
+                    and row.get('explicit_gender') in ('male', 'female')
+                    and authoritative.get(normalize(row.get('name'))) != row.get('explicit_gender')):
+                return False
+    return True
+
+
+def _canonical_person_facts_consistent(revision):
+    if not isinstance(revision, dict):
+        return False
+    hints = revision.get('room_name_hints')
+    guests = revision.get('guests')
+    if not isinstance(hints, list) or not isinstance(guests, list):
+        return True
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    authoritative = {
+        normalize(row.get('name')): row.get('explicit_gender')
+        for row in hints if isinstance(row, dict)
+        and row.get('explicit_gender') in ('male', 'female')
+    }
+    return all(
+        not isinstance(guest, dict)
+        or guest.get('explicit_gender') not in ('male', 'female')
+        or authoritative.get(normalize(guest.get('name'))) == guest.get('explicit_gender')
+        for guest in guests)
+
+
+def _request_plan_matches_canonical_people(expected, current, prior_revision, current_revision):
+    comparable = {key: expected.get(key) for key in _FIELDS if key in expected}
+    actual = {key: current.get(key) for key in _FIELDS if key in expected}
+    expected_alias = expected.get('gender_preference')
+    current_alias = current.get('gender_preference')
+    hints = current_revision.get('room_name_hints') if isinstance(current_revision, dict) else None
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    expected_guests = expected.get('guests')
+    current_guests = current.get('guests')
+    names = ([normalize(row.get('name')) for row in expected_guests]
+             if isinstance(expected_guests, list)
+             and all(isinstance(row, dict) for row in expected_guests) else [])
+    current_names = ([normalize(row.get('name')) for row in current_guests]
+                     if isinstance(current_guests, list)
+                     and all(isinstance(row, dict) for row in current_guests) else [])
+    authoritative = ({normalize(row.get('name')): row.get('explicit_gender') for row in hints
+                      if isinstance(row, dict)} if isinstance(hints, list) else {})
+    request_alias_redundant = (
+        expected_alias in ('male', 'female') and current_alias is None
+        and names and names == current_names and len(set(names)) == len(names)
+        and len(authoritative) == len(names)
+        and all(authoritative.get(name) == expected_alias for name in names)
+        and _person_plan_does_not_contradict_hints(current, hints))
+    if request_alias_redundant:
+        comparable['gender_preference'] = None
+    return comparable == actual
+
+
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
                                  eligibility_index=None, eligibility_value=None,
-                                 eligibility_completions=None):
+                                 eligibility_completions=None, person_plan=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
+        return False
+    if not _canonical_person_facts_consistent(current):
+        return False
+    if not _person_plan_does_not_contradict_hints(
+            person_plan, current.get('room_name_hints')):
         return False
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
     after.pop('offer_fingerprint', None)
+    # Staff's completed canonical offer may drop a redundant aggregate alias,
+    # but only while the same person-bound authority remains in both revisions.
+    if (_canonical_gender_alias_is_redundant(before, after)
+            and _person_plan_does_not_contradict_hints(
+                person_plan, after.get('room_name_hints'))):
+        before['gender_preference'] = None
     if payment_choice:
         if payment_choice not in ('deposit', 'full'):
             return False
@@ -1096,7 +1220,19 @@ def prepare_quote(params):
     are sent to Staff for pricing, while omitted values retain the previous draft.
     """
     def prepare(state, ingress):
-        result = deepcopy(params)
+        normalized_params = dict(params)
+        authorized = state.get('authorized_revision_changes') or []
+        catalog_removal_authorized = any(
+            isinstance(change, dict)
+            and change.get('field') == 'catalog_selections'
+            and change.get('operation') == 'remove'
+            for change in authorized)
+        # Tool schemas may materialize an omitted optional list as []. Treat it
+        # as absence unless this turn carries an evidenced catalog removal.
+        if (normalized_params.get('catalog_selections') == []
+                and not catalog_removal_authorized):
+            normalized_params.pop('catalog_selections')
+        result = deepcopy(normalized_params)
         preserved = deepcopy(state.get('plan') or {})
         preserved.update(deepcopy(state.get('completion_plan') or {}))
         for key in _FIELDS + _CHECKED_FIELDS:
@@ -1380,8 +1516,6 @@ def record_quote(params, response):
             prior_plan = prior.get('plan') or {}
             expected_plan = deepcopy(prior_plan)
             expected_plan.update(deepcopy(state.get('completion_plan') or {}))
-            comparable = {key: expected_plan.get(key) for key in _FIELDS if key in expected_plan}
-            current = {key: plan.get(key) for key in _FIELDS if key in expected_plan}
             prior_quote = prior.get('authoritative_quote') or {}
             prior_revision = prior.get('quote_revision') or prior_quote.get('offer_revision')
             new_revision = response.get('offer_revision')
@@ -1392,13 +1526,15 @@ def record_quote(params, response):
             eligibility_value = ((pending_eligibility or {}).get('value')
                                  if pending_eligibility else None)
             terms_unchanged = (
-                comparable == current
+                _request_plan_matches_canonical_people(
+                    expected_plan, plan, prior_revision, new_revision)
                 and _completion_revision_matches(
                     prior_revision, new_revision,
                     payment_choice=pending_payment, guest_completions=pending_names,
                     eligibility_index=eligibility_index,
                     eligibility_value=eligibility_value,
-                    eligibility_completions=state.get('pending_eligibility_completions'))
+                    eligibility_completions=state.get('pending_eligibility_completions'),
+                    person_plan=dict(prepared))
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
@@ -1461,11 +1597,22 @@ def record_quote(params, response):
                 if key == 'selected_bed_codes' and before is None:
                     before = [row.get('bed_code') for row in prior_rows]
                     after = after if after is not None else before
+                if key == 'group_gender' and before != after:
+                    facts = {guest.get('explicit_gender') for guest in plan.get('guests', [])
+                             if isinstance(guest, dict) and guest.get('explicit_gender')}
+                    # A matching aggregate restatement adds no fact. A
+                    # contradiction remains material and clears the offer.
+                    if len(facts) == 1 and after in facts and before in (None, after):
+                        before = after
+                if (key == 'gender_preference'
+                        and _canonical_gender_alias_is_redundant(prior_plan, plan)):
+                    before = after
                 if before != after:
                     material_matches = False
             if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
                     and _completion_revision_matches(prior_revision, revision,
-                        payment_choice=payment, guest_completions=names)
+                        payment_choice=payment, guest_completions=names,
+                        person_plan=plan)
                     and all(response.get(key) == prior_quote.get(key)
                             for key in ('total_cents', 'deposit_required_cents', 'currency'))):
                 # Preserve the owner-rendered text while advancing only the
@@ -1506,7 +1653,8 @@ def record_quote(params, response):
         state.pop('pending_eligibility_completion', None)
         state.pop('pending_eligibility_completions', None)
         state.pop('pending_fact_refresh', None)
-        state.pop('authorized_revision_changes', None)
+        # Keep bounded revision authority for retries within this interpreted
+        # ingress. observe_owner_turn clears it before any fresh guest turn.
         state['unresolved_change'] = False
         state['delta'] = {}
         state['epoch'] += 1
@@ -1962,7 +2110,12 @@ def finalize_offer_response(result):
                 lines.append(f"Full payment required: {quoted_money(total)}.")
             elif choices:
                 labels = {'deposit': 'deposit', 'full': 'full payment'}
-                lines.append('Payment options: ' + ' or '.join(labels[item] for item in choices) + '.')
+                option_labels = [labels[item] for item in choices]
+                if ('deposit' in choices
+                        and type(quote.get('deposit_required_cents')) is int):
+                    option_labels[choices.index('deposit')] += (
+                        f" ({quoted_money(quote['deposit_required_cents'])})")
+                lines.append('Payment options: ' + ' or '.join(option_labels) + '.')
             lines.append('Shall I check this exact offer for booking?'
                          if quote.get('full_payment_only') is True else
                          'Which payment option would you like me to check for this booking?')

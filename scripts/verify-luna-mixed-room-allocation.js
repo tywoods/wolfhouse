@@ -92,6 +92,20 @@ test('missing, any, and shared preferences remain distinct from unknown restrict
   }
 });
 
+test('known roster with omitted ordinary shared preference may use a mixed bed', () => {
+  const result = inventory(rows('R1', 'mixed', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: null, roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('explicit mixed preference never falls back to a gendered dorm', () => {
+  const result = inventory(rows('R2', 'male_only', 1), [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: 'mixed', roomType: 'shared', guests: [{ name: 'Alex', explicit_gender: 'male' }] });
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.equal(result.hasEnoughBeds, false);
+});
+
 test('unknown mixed group must enter assignment validation, including cached beds', () => {
   assert.equal(needsGenderAwareBedAssignment(command), true);
 });
@@ -204,18 +218,57 @@ test('inactive and unsellable mixed beds do not satisfy safe capacity', () => {
   assert.equal(result.needsClarification, true);
 });
 
-test('capacity-only early availability stays gender-neutral', () => {
+test('capacity-only early availability keeps missing eligibility distinct from sold-out', () => {
   const bedRows = rows('R5', 'female_only', 2);
   const result = inventory(bedRows, [], { ...command, roomPreference: 'shared', assignmentMode: false });
-  assert.equal(result.hasEnoughBeds, true);
+  assert.equal(result.hasEnoughBeds, true, 'physical capacity is still present');
   assert.equal(result.groupGenderResolved, 'unknown');
-  assert.equal(result.needsClarification, false);
-  assert.deepEqual(result.blockers, []);
-  for (const useRules of [true, false]) {
-    const pick = runAvailabilityBedSelection({ bedRows, ...command, useRules, capacityOnly: true });
-    assert.deepEqual(pick.selected_bed_codes, ['R5-B1', 'R5-B2']);
-    assert.equal(pick.group_gender, 'unknown');
-  }
+  assert.equal(result.needsClarification, true);
+  assert.deepEqual(result.selectedBedCodes, []);
+  assert.ok(result.blockers.includes('room_eligibility_unknown'));
+});
+
+test('complete canonical female roster steers ordinary shared selection', () => {
+  const bedRows = [...rows('R4', 'male_only', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command,
+    roomPreference: 'shared',
+    assignmentMode: false,
+    guests: [
+      { name: 'Ana', explicit_gender: 'female' },
+      { name: 'Bea', explicit_gender: 'female' },
+    ],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R5-B1', 'R5-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests requesting mixed keep mixed intent when gendered rooms also exist', () => {
+  const bedRows = [...rows('R1', 'mixed', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests requesting mixed retain mixed-only fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests with ordinary shared request retain usable mixed fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'shared',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
 });
 
 test('explicit composition and opposite-room conflicts are preserved', () => {
