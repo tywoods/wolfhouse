@@ -50,7 +50,7 @@ function hostPatternMatches(pattern, expectedSite) {
   return new RegExp(`^${escaped}$`, 'i').test(expectedSite);
 }
 function pathPatternMatches(pattern, requestPath) {
-  if (typeof pattern !== 'string' || /[{}?\[\]\\]/.test(pattern)) return true;
+  if (typeof pattern !== 'string' || /[{}?%\[\]\\]/.test(pattern)) return true;
   if (pattern.toLowerCase() === requestPath.toLowerCase()) return true;
   if (!pattern.includes('*')) return false;
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
