@@ -2138,9 +2138,19 @@ def finalize_offer_response(result):
         assistant = next((item for item in reversed(messages or [])
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
+        revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
+        assignments = revision.get('guest_bed_assignments')
+        chosen_full_names_missing = (
+            quote.get('full_payment_only') is not True
+            and quote.get('payment_choice_needed') is False
+            and revision.get('payment_choice') == 'full'
+            and isinstance(assignments, list) and assignments
+            and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
+            choices.append('full')
+        elif chosen_full_names_missing:
             choices.append('full')
         elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
@@ -2180,6 +2190,8 @@ def finalize_offer_response(result):
             lines.append(f"Total: {quoted_money(total)}.")
             if quote.get('full_payment_only') is True:
                 lines.append(f"Full payment required: {quoted_money(total)}.")
+            elif chosen_full_names_missing:
+                lines.append(f"Full payment: {quoted_money(total)}.")
             elif choices:
                 labels = {'deposit': 'deposit', 'full': 'full payment'}
                 option_labels = [labels[item] for item in choices]
@@ -2188,9 +2200,10 @@ def finalize_offer_response(result):
                     option_labels[choices.index('deposit')] += (
                         f" ({quoted_money(quote['deposit_required_cents'])})")
                 lines.append('Payment options: ' + ' or '.join(option_labels) + '.')
-            lines.append('Shall I check this exact offer for booking?'
-                         if quote.get('full_payment_only') is True else
-                         'Which payment option would you like me to check for this booking?')
+            lines.append("What are the guests' full names?" if chosen_full_names_missing else
+                         ('Shall I check this exact offer for booking?'
+                          if quote.get('full_payment_only') is True else
+                          'Which payment option would you like me to check for this booking?'))
             text = '\n'.join(lines)
             output = deepcopy(result)
             output['final_response'] = text

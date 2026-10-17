@@ -232,6 +232,11 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertEqual(result["total_cents"], 24000)
         self.assertFalse(result["full_payment_only"])
         rendered = self.loop.present()
+        self.assertEqual(rendered,
+            "Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
+            "Total: 240.00 EUR.\n"
+            "Full payment: 240.00 EUR.\n"
+            "What are the guests' full names?")
 
         yes = "Yes — book that exact offer for Jonas Bergström and Mia Chen."
         self.loop.turn("chosen-full-names", yes)
