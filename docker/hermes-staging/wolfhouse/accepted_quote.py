@@ -691,8 +691,7 @@ def _person_plan_does_not_contradict_hints(plan, hints):
         for row in rows:
             if (isinstance(row, dict)
                     and row.get('explicit_gender') in ('male', 'female')
-                    and authoritative.get(normalize(row.get('name'))) not in (
-                        None, row.get('explicit_gender'))):
+                    and authoritative.get(normalize(row.get('name'))) != row.get('explicit_gender')):
                 return False
     return True
 
@@ -713,8 +712,7 @@ def _canonical_person_facts_consistent(revision):
     return all(
         not isinstance(guest, dict)
         or guest.get('explicit_gender') not in ('male', 'female')
-        or authoritative.get(normalize(guest.get('name'))) in (
-            None, guest.get('explicit_gender'))
+        or authoritative.get(normalize(guest.get('name'))) == guest.get('explicit_gender')
         for guest in guests)
 
 
