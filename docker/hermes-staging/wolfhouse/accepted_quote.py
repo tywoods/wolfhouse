@@ -1647,8 +1647,9 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
-                state['checked_offer'] = deepcopy(revision)
-                state['presented_offer'] = deepcopy(revision)
+                if presentation.get('create_ready') is True:
+                    state['checked_offer'] = deepcopy(revision)
+                    state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
@@ -1745,6 +1746,31 @@ def prepare_create(params):
             # Person-bound facts already establish this redundant representation;
             # room/bed and roster changes still face the ordinary comparisons.
             params.pop('gender_preference')
+        supplied_hints = params.get('room_name_hints')
+        canonical_hints = baseline.get('room_name_hints')
+        if (isinstance(supplied_hints, list) and isinstance(canonical_hints, list)
+                and len(supplied_hints) == len(canonical_hints)
+                and all(isinstance(row, dict) for row in supplied_hints + canonical_hints)):
+            normalize_hint_name = lambda value: ' '.join(str(value or '').split()).casefold()
+            hint_completion = True
+            for supplied, canonical in zip(supplied_hints, canonical_hints):
+                old_name = normalize_hint_name(supplied.get('name'))
+                new_name = normalize_hint_name(canonical.get('name'))
+                if ({key: value for key, value in supplied.items() if key != 'name'}
+                        != {key: value for key, value in canonical.items() if key != 'name'}
+                        or not old_name or not new_name
+                        or (old_name != new_name and not new_name.startswith(old_name + ' '))):
+                    hint_completion = False
+                    break
+            if (hint_completion
+                    and len({normalize_hint_name(row.get('name')) for row in supplied_hints})
+                    == len(supplied_hints)
+                    and len({normalize_hint_name(row.get('name')) for row in canonical_hints})
+                    == len(canonical_hints)):
+                # Staff already synchronized this same-person completion. A
+                # stale model hint cannot veto the first create; any changed
+                # eligibility, person, or ordering still fails below.
+                params['room_name_hints'] = deepcopy(canonical_hints)
         if isinstance(state.get('presentation'), dict):
             updates = {}
             guests = params.get('guests')
@@ -2190,11 +2216,15 @@ def finalize_offer_response(result):
                     text += f" for {duration} days"
                 extras.append(text)
             lines.append('Extras: ' + '; '.join(extras) + '.')
-        lines.append(f"Total: {money(offer['total_cents'])}.")
+        lines.append(f"Total: {money(offer['total_cents'])} "
+                     f"(deposit: {money(offer['deposit_required_cents'])}).")
         payment = {'full': 'Full payment', 'deposit': 'Deposit',
                    'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
         if offer['payment_link_amount_cents']:
             lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']
+        if due_on_arrival:
+            lines.append(f"Due on arrival: {money(due_on_arrival)}.")
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])

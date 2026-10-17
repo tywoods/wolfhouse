@@ -401,6 +401,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', shown['final_response'])
+        self.assertIn('Due on arrival: 200.00 EUR.', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
         prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
@@ -411,6 +413,67 @@ class OwnerHostileTests(unittest.TestCase):
         state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
         self.assertEqual(state['presentation']['quote_revision'], checked['offer_revision'])
         self.assertEqual(state['presentation']['original_turn'], 'g4-same-name-offer')
+
+    def test_g4_payment_breakdown_uses_staff_amounts_for_each_payment_choice(self):
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        expected_due = {'deposit': '100.00 EUR', 'pay_on_arrival': '200.00 EUR'}
+        for choice in ('deposit', 'full', 'pay_on_arrival'):
+            with self.subTest(choice=choice):
+                self.agent.session_id = f'g4-breakdown-{choice}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'payment_choice': choice}
+                response = FirstYesOwnerTests._checked_offer(
+                    object.__new__(FirstYesOwnerTests), plan, beds)
+                if choice == 'pay_on_arrival':
+                    response['offer_revision']['payment_link_amount_cents'] = 0
+                self.turn(f'g4-breakdown-{choice}-offer', 'Quote this please')
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                text = shown['final_response']
+                self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', text)
+                if choice == 'full':
+                    self.assertNotIn('Due on arrival:', text)
+                else:
+                    self.assertIn(f'Due on arrival: {expected_due[choice]}.', text)
+
+    def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
+        plan = {**self.plan, 'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}],
+                'room_name_hints': [{'name': 'Mateo Ríos', 'explicit_gender': 'male'},
+                                    {'name': 'Guest Two', 'explicit_gender': 'male'}]}
+        response = self.checked(plan)
+        response['offer_revision']['room_name_hints'] = deepcopy(plan['room_name_hints'])
+        self.turn('g4-first-create-offer', 'Quote this please')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        stale_hints = [{'name': 'Mateo', 'explicit_gender': 'male'},
+                       {'name': 'Guest Two', 'explicit_gender': 'male'}]
+        changed = deepcopy(stale_hints)
+        changed[0]['explicit_gender'] = 'female'
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^accepted_quote_changed$'):
+            self.ledger.prepare_create({'room_name_hints': changed})
+        prepared = self.ledger.prepare_create({'room_name_hints': stale_hints})
+        self.assertEqual(prepared['room_name_hints'], plan['room_name_hints'])
+
+    def test_payment_incomplete_requote_keeps_checked_offer_provisional(self):
+        self.agent.session_id = 'g4-provisional-requote'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        provisional_plan = {key: deepcopy(value) for key, value in self.plan.items()
+                            if key != 'payment_choice'}
+        response = self.checked({**provisional_plan, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.turn('g4-provisional-offer', 'Quote this please')
+        self.ledger.record_quote(provisional_plan, response)
+        self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        prepared = self.ledger.prepare_quote({})
+        self.ledger.record_quote(prepared, deepcopy(response))
+        state = self.ledger._transaction(lambda value, _ingress: deepcopy(value))
+        self.assertFalse(state['presentation']['create_ready'])
+        self.assertIsNone(state.get('checked_offer'))
 
     def test_structured_current_turn_intent_accepts_presented_offer_without_phrase_gate(self):
         self.agent.session_id = 'structured-g4-owner'
