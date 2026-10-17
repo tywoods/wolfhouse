@@ -4,6 +4,7 @@ mode=${1:---dry-run}
 case "$mode" in --install|--dry-run|--verify|--update-contract) ;; *) echo 'usage: install-luna-routing.sh [--install|--dry-run|--verify|--update-contract]' >&2; exit 2;; esac
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CADDYFILE=${CADDYFILE:-/etc/caddy/Caddyfile}; CADDY_BIN=/usr/bin/caddy
+ROUTING_SITE=${LUNA_ROUTING_SITE:-lunabox.lunafrontdesk.com}
 FRAGMENT=/var/lib/luna-routing/luna-number-route.caddy
 files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js'
 for f in $files; do [ -f "$base/$f" ] || { echo "missing: $f" >&2; exit 1; }; done
@@ -13,12 +14,12 @@ node --check "$base/caddy-contract.js"; node --check "$base/stage-route-fragment
 
 grep -qx 'User=luna-routing' "$base/luna-routing-controller.service"; grep -qx 'ExecStart=/usr/bin/node /opt/luna-routing/luna-number-routing-controller.js' "$base/luna-routing-controller.service"; grep -qx 'ReadWritePaths=/var/lib/luna-routing' "$base/luna-routing-controller.service"
 if [ "$mode" = --dry-run ]; then
-  if [ -f "$CADDYFILE" ]; then t=$(mktemp); trap 'rm -f "$t"' EXIT; node "$base/caddy-contract.js" install "$CADDYFILE" "$t"; fi
+  if [ -f "$CADDYFILE" ]; then t=$(mktemp); trap 'rm -f "$t"' EXIT; node "$base/caddy-contract.js" install "$CADDYFILE" "$t" "$ROUTING_SITE"; fi
   echo 'dry-run: source and contract checks passed; no host caddy required'; exit 0
 fi
 verify() {
   [ -x "$CADDY_BIN" ]; [ ! -e /etc/sudoers.d/luna-routing ]
-  node "$base/caddy-contract.js" verify "$CADDYFILE"
+  node "$base/caddy-contract.js" verify "$CADDYFILE" /dev/null "$ROUTING_SITE"
   "$CADDY_BIN" validate --config "$CADDYFILE" --adapter caddyfile >/dev/null
   getent passwd luna-routing >/dev/null; [ "$(id -u luna-routing)" -ne 0 ]
   [ "$(stat -c %U:%G:%a "$FRAGMENT")" = luna-routing:luna-routing:640 ]
@@ -28,6 +29,10 @@ verify() {
 [ "$(id -u)" -eq 0 ] || { echo 'install must run as root' >&2; exit 1; }
 : "${CONTROLLER_ENV:?set CONTROLLER_ENV}"; [ -f "$CONTROLLER_ENV" ]; [ -x "$CADDY_BIN" ]; [ -f "$CADDYFILE" ]
 grep -Eq '^LUNA_ROUTING_CONTROLLER_HMAC_KEY=.{32,}$' "$CONTROLLER_ENV"; grep -Eq '^LUNA_ROUTING_INGRESS_PROOF_KEY=.{32,}$' "$CONTROLLER_ENV"
+[ "$(grep -c '^LUNA_ROUTING_MUTATIONS_ENABLED=' "$CONTROLLER_ENV")" -eq 1 ] && grep -qx 'LUNA_ROUTING_MUTATIONS_ENABLED=false' "$CONTROLLER_ENV" || { echo 'staged install requires exactly one LUNA_ROUTING_MUTATIONS_ENABLED=false' >&2; exit 1; }
+[ "$(grep -c '^LUNA_ROUTING_SITE=' "$CONTROLLER_ENV")" -eq 1 ] || { echo 'staged install requires exactly one LUNA_ROUTING_SITE' >&2; exit 1; }
+env_site=$(grep '^LUNA_ROUTING_SITE=' "$CONTROLLER_ENV" | cut -d= -f2-)
+[ "$env_site" = "$ROUTING_SITE" ] || { echo 'LUNA_ROUTING_SITE must match the selected installer site' >&2; exit 1; }
 stage=$(mktemp -d); backup=$(mktemp -d); committed=0; mutations_started=0; service_commands_started=0
 for p in Caddyfile fragment env controller unit sudoers tmpfiles; do eval dest_$p=; eval backup_$p=; done
 rollback_failure=0
@@ -60,7 +65,7 @@ cleanup(){
 }
 trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 # Build every candidate before mutation.
-node "$base/caddy-contract.js" "$([ "$mode" = --update-contract ] && echo update || echo install)" "$CADDYFILE" "$stage/Caddyfile"
+node "$base/caddy-contract.js" "$([ "$mode" = --update-contract ] && echo update || echo install)" "$CADDYFILE" "$stage/Caddyfile" "$ROUTING_SITE"
 # Preserve a canonical live route on reinstall. Refuse unknown content instead of silently
 # replacing it with the repository's first-install Wolfhouse seed.
 node "$base/stage-route-fragment.js" "$FRAGMENT" "$base/luna-number-route.caddy" "$stage/fragment"
@@ -69,8 +74,9 @@ cp "$CONTROLLER_ENV" "$stage/env"; cp "$base/../../scripts/luna-number-routing-c
 STAGED_CADDYFILE="$stage/Caddyfile" STAGED_FRAGMENT="$stage/fragment" STAGED_VALIDATION="$stage/Caddyfile.validation" node -e '
 const fs=require("fs"); const source=fs.readFileSync(process.env.STAGED_CADDYFILE,"utf8");
 const canonical="import /var/lib/luna-routing/luna-number-route.caddy";
-if (source.split(canonical).length !== 2) throw new Error("candidate must contain one canonical fragment import");
-fs.writeFileSync(process.env.STAGED_VALIDATION,source.replace(canonical,`import ${process.env.STAGED_FRAGMENT}`));'
+const occurrences=source.split(canonical).length-1;
+if (occurrences > 1) throw new Error("candidate must contain at most one canonical fragment import");
+fs.writeFileSync(process.env.STAGED_VALIDATION,occurrences === 1 ? source.replace(canonical,`import ${process.env.STAGED_FRAGMENT}`) : source);'
 "$CADDY_BIN" validate --config "$stage/Caddyfile.validation" --adapter caddyfile >/dev/null
 # Capture both disk and systemd runtime state before the first host mutation.
 unit_was_present=0; [ ! -e /etc/systemd/system/luna-routing-controller.service ] || unit_was_present=1
