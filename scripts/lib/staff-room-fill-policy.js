@@ -6,6 +6,7 @@
  */
 
 const crypto = require('crypto');
+const { resolveRoomCategory } = require('./luna-bed-allocator');
 
 const CONTRACT_VERSION = 1;
 const SETTINGS_KEY = 'luna_room_fill_policy';
@@ -151,6 +152,32 @@ function genderLabelFromStrategy(value) {
   return roomGenderPresentation({ roomType: '', genderStrategy: value }).genderLabel;
 }
 
+function whoCanBookToken(label) {
+  if (label === 'Female') return 'women_only';
+  if (label === 'Male') return 'men_only';
+  return 'anyone';
+}
+
+function eligibilityCapacity(room) {
+  // Display capacity is the sellable-bed count. Legacy private fallback must
+  // see the stored room capacity, matching the allocator's raw input.
+  if (room && Object.prototype.hasOwnProperty.call(room, 'storedCapacity')) return room.storedCapacity;
+  return room && room.capacity;
+}
+
+function whoCanBookForRoom(room) {
+  const category = resolveRoomCategory({
+    room_type: room && room.roomType,
+    gender_strategy: room && room.genderStrategy,
+    capacity: eligibilityCapacity(room),
+    can_be_matrimonial: room && room.canBeMatrimonial,
+    often_used_by_operator: room && room.oftenUsedByOperator,
+  });
+  if (category === 'female_only') return 'women_only';
+  if (category === 'male_only') return 'men_only';
+  return 'anyone';
+}
+
 function roomGenderEditable(room) {
   return !!room;
 }
@@ -170,6 +197,7 @@ function projectRoom(room, rank) {
     numericLabel: room.roomNumber == null ? 'No numeric room number' : null,
     genderStrategy: room.genderStrategy || '',
     genderLabel: roomGenderPresentation(room).genderLabel,
+    whoCanBook: whoCanBookForRoom(room),
     genderReview: roomGenderPresentation(room).reviewLabel,
     genderEditable: roomGenderEditable(room),
     sellingMode: room.sellingMode || (restrictionLabel(room) || room.roomType === 'matrimonial_or_mixed' ? 'private' : 'shared'),
@@ -205,7 +233,7 @@ function projectCatalogueRows(rows, options) {
     if (!byRoom.has(roomId)) {
       const roomCode = String(row.room_code == null ? '' : row.room_code).trim();
       if (!roomCode) return { ok: false, status: 503, error: 'inventory_unavailable' };
-      byRoom.set(roomId, {
+      const created = {
         roomId,
         roomCode,
         roomNumber: roomNumberFromCode(roomCode),
@@ -219,7 +247,9 @@ function projectCatalogueRows(rows, options) {
         active: boolish(row.room_active),
         beds: [],
         seenBeds: new Set(),
-      });
+      };
+      if (Object.prototype.hasOwnProperty.call(row, 'capacity')) created.storedCapacity = row.capacity;
+      byRoom.set(roomId, created);
     }
     const room = byRoom.get(roomId);
     if (row.bed_id == null || row.bed_id === '') continue;
@@ -243,7 +273,7 @@ function projectCatalogueRows(rows, options) {
     const staticWarnings = [];
     if (!room.active) staticWarnings.push('room_inactive');
     if (capacity < 1) staticWarnings.push('no_sellable_beds');
-    return {
+    const projected = {
       roomId: room.roomId,
       roomCode: room.roomCode,
       roomNumber: room.roomNumber,
@@ -259,6 +289,8 @@ function projectCatalogueRows(rows, options) {
       beds: room.beds,
       staticWarnings,
     };
+    if (Object.prototype.hasOwnProperty.call(room, 'storedCapacity')) projected.storedCapacity = room.storedCapacity;
+    return projected;
   });
   if (!rooms.length) {
     if (!allowEmpty) return { ok: false, status: 503, error: 'inventory_unavailable' };
@@ -367,6 +399,8 @@ module.exports = {
   displayLabel,
   genderLabelFromStrategy,
   roomGenderPresentation,
+  whoCanBookToken,
+  whoCanBookForRoom,
   roomGenderEditable,
   numericRoomOrder,
   parseStoredPolicy,
