@@ -110,20 +110,7 @@
         "de": "Ja — wir helfen mit Board- und Neopren-Verleih 🌊 Kann zur Buchung hinzugefügt und beim Checkout bezahlt werden. Sag mir deine Daten, wenn du ein Angebot willst."
       }
     },
-    {
-      "id": "lesson_times",
-      "label": "Surf lesson rhythm",
-      "visibility": "public",
-      "allowed_guest_answer": true,
-      "keywords": ["lesson times", "surf lessons", "when are lessons", "orario lezioni", "a che ora", "horario clases", "surfkurse"],
-      "facts": ["Almost daily in season; low season quieter.", "08:30/09:00–11:00 and 10:30/11:00–13:00.", "Exact group staff-confirmed."],
-      "templates": {
-        "en": "Most mornings we run two surf lesson groups: one leaves Wolfhouse around 08:30 for 09:00–11:00, and the second leaves around 10:30 for 11:00–13:00. The exact group gets confirmed closer to the day. Low season can be quieter.",
-        "it": "La maggior parte delle mattine ci sono due gruppi lezione: uno parte da Wolfhouse verso le 08:30 per 09:00–11:00, il secondo verso le 10:30 per 11:00–13:00. Il gruppo esatto lo conferma il team più avanti. In bassa stagione può essere più tranquillo.",
-        "es": "La mayoría de las mañanas hay dos grupos de surf: uno sale de Wolfhouse sobre las 08:30 para 09:00–11:00, y el segundo sobre las 10:30 para 11:00–13:00. El grupo exacto lo confirma el equipo más cerca del día. En temporada baja puede haber menos.",
-        "de": "Die Surfkurse laufen meistens morgens in zwei Gruppen 🌊 Eine Gruppe fährt gegen 08:30 los, Unterricht 09:00–11:00; die zweite gegen 10:30, Unterricht 11:00–13:00. Die genaue Gruppe bestätigt das Team später. In der Nebensaison kann es ruhiger sein."
-      }
-    },
+
     {
       "id": "yoga_info",
       "label": "Yoga",

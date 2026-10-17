@@ -396,15 +396,10 @@
     },
     "lesson_scheduling": {
       "_status": "confirmed",
-      "_note": "3x.2g (Ale, CONFIRMED): lessons run almost every day except low season; tracked MANUALLY by staff. Engine-default: bot collects the lesson request + paid voucher; STAFF assign the actual time slot. Bot does not auto-book a slot.",
-      "frequency": "almost_daily_except_low_season",
+      "_note": "Guest-facing lesson schedule facts are owner-editable in Staff General Notes. This block only controls assignment ownership: the bot collects the request + paid voucher; staff assign the actual time slot.",
       "tracking": "manual_by_staff",
       "bot_assigns_slot": false,
-      "bot_collects_request_then_staff_schedule": true,
-      "daily_slots": [
-        { "group": 1, "transport_time": "08:30", "lesson_window": "09:00-11:00" },
-        { "group": 2, "transport_time": "10:30", "lesson_window": "11:00-13:00" }
-      ]
+      "bot_collects_request_then_staff_schedule": true
     },
     "addon_days_capped_by_free_days_remaining": true,
     "dinner_booking_enabled": true,

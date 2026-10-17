@@ -381,20 +381,15 @@ section('P. Private room supplement — per-room not per-person');
   check('P4', quote.total_cents === quote.subtotal_cents && quote.total_cents > 0, 'deposit/total include supplement');
 }
 
-section('N. Lesson schedule + SOUL guest-safe copy');
+section('N. General Notes own lesson schedule + SOUL guest-safe copy');
 {
-  const {
-    buildLessonScheduleGuestSection,
-    bookingDraftIncludesSurfLessons,
-  } = require('./lib/luna-guest-lesson-schedule-config');
-  check('N1', !bookingDraftIncludesSurfLessons({ package_code: 'malibu' }), 'malibu no lesson section');
-  check('N2', bookingDraftIncludesSurfLessons({ package_code: 'waimea' }), 'waimea has lesson section');
-  const itSection = buildLessonScheduleGuestSection('wolfhouse-somo', 'it', { package_code: 'waimea' });
-  check('N3', itSection && !/Lessons run most days in season/i.test(itSection), 'IT section has no English caveat');
-  check('N4', /bassa stagione/i.test(itSection), 'IT low-season caveat localized');
+  const lessonConfig = fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-lesson-schedule-config.js'), 'utf8');
+  check('N1', !/08:30|09:00-11:00|10:30|11:00-13:00/.test(lessonConfig), 'lesson helper has no fixed schedule');
+  check('N2', !/buildLessonScheduleGuestSection/.test(lessonConfig), 'lesson helper does not compose guest schedule copy');
   const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
-  check('N5', /Never expose backend mechanics/i.test(soul), 'SOUL forbids system/tool leaks');
-  check('N6', /`yoga`/.test(soul) && /`surfboard`/.test(soul), 'SOUL documents post-booking service types');
+  check('N3', /lesson schedule\/times\/rhythm[\s\S]*get_house_info/i.test(soul), 'SOUL routes lesson schedule to General Notes');
+  check('N4', /Never expose backend mechanics/i.test(soul), 'SOUL forbids system/tool leaks');
+  check('N5', /`yoga`/.test(soul) && /`surfboard`/.test(soul), 'SOUL documents post-booking service types');
   check('L1-guidance', /both short stays and weekly packages/i.test(soul)
     && /every re-quote/i.test(soul) && /do not add them again/i.test(soul),
   'SOUL retains selected activities through re-quote/create without double charging');
