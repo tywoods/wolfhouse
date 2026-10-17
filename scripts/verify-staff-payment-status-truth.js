@@ -31,7 +31,7 @@ async function main() {
         guest_name text, phone text, check_in date, check_out date, status text,
         payment_status text, guest_count int, created_at timestamptz,
         total_amount_cents int, amount_paid_cents int, balance_due_cents int,
-        metadata jsonb DEFAULT '{}');
+        metadata jsonb DEFAULT '{}', deposit_required_cents int);
       CREATE TYPE payment_record_status AS ENUM ('paid', 'checkout_created');
       CREATE TABLE payments (id uuid PRIMARY KEY, client_id uuid, booking_id uuid,
         status payment_record_status, amount_paid_cents int, paid_at timestamptz DEFAULT now(),
@@ -42,7 +42,7 @@ async function main() {
       INSERT INTO clients VALUES ('00000000-0000-0000-0000-000000000001','wolfhouse-somo');
       INSERT INTO bookings VALUES ('10000000-0000-0000-0000-000000000001',
         '00000000-0000-0000-0000-000000000001','WH-TEST','Fixture guest','+34000000001',
-        '2026-09-19','2026-09-23','confirmed','paid',1,now(),97500,97500,0,'{}');
+        '2026-09-19','2026-09-23','confirmed','paid',1,now(),97500,97500,0,'{}', NULL);
       INSERT INTO payments (id, client_id, booking_id, status, amount_paid_cents) VALUES ('20000000-0000-0000-0000-000000000001',
         '00000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','paid',32500);
     `);
@@ -78,7 +78,7 @@ async function main() {
     assert.equal(list.check_out, '2026-09-23', 'Bookings dates use the accommodation invoice stay, not one-day shell');
     await db.query(`INSERT INTO clients VALUES ('00000000-0000-0000-0000-000000000002','sunset')`);
     await db.query(`INSERT INTO bookings VALUES ($1,'00000000-0000-0000-0000-000000000002',
-      'SUN-TEST','Fixture guest','+340****0002','2026-09-19','2026-09-20','confirmed','waiting_payment',1,now(),42000,0,42000,'{}')`, [ramiro.booking_id]);
+      'SUN-TEST','Fixture guest','+340****0002','2026-09-19','2026-09-20','confirmed','waiting_payment',1,now(),42000,0,42000,'{}', NULL)`, [ramiro.booking_id]);
     await db.query(`INSERT INTO booking_service_records VALUES ('30000000-0000-0000-0000-000000000002',
       $1,'sunset','accommodation','2026-09-19','confirmed',42000,$2)`, [ramiro.booking_id, JSON.stringify(services[0].metadata)]);
     await db.query(`INSERT INTO payments (id, client_id, booking_id, status, amount_paid_cents) VALUES ('20000000-0000-0000-0000-000000000002',

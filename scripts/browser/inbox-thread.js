@@ -2843,7 +2843,12 @@ function loadConvDetail(convId, targetEl){
     var bookingRows = (ctxData.success && ctxData.bookings && ctxData.bookings.length)
       ? filterActiveInboxBookings(ctxData.bookings)
       : (ctx && (ctx.booking_code || ctx.booking_id) ? [ctx] : []);
-    if (typeof inboxRememberConfirmationEvents === 'function') inboxRememberConfirmationEvents(bookingRows);
+    if (typeof inboxRememberConfirmationEvents === 'function') {
+      inboxRememberConfirmationEvents(bookingRows, {
+        wolfhouseLab: typeof inboxConversationIsWolfhouseLab === 'function'
+          && inboxConversationIsWolfhouseLab(c),
+      });
+    }
     var draft = (draftData.success && draftData.draft)     ? draftData.draft    : null;
     var lunaGuestPaused = isLunaGuestAutomationPaused([pauseData, detailData, c]);
     var composerChannel = inboxComposerChannelFor(c);
