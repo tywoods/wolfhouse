@@ -229,6 +229,34 @@ test('complete canonical female roster steers ordinary shared selection', () => 
   assert.equal(result.hasEnoughBeds, true);
 });
 
+test('known guests requesting mixed keep mixed intent when gendered rooms also exist', () => {
+  const bedRows = [...rows('R1', 'mixed', 2), ...rows('R5', 'female_only', 2)];
+  const result = inventory(bedRows, [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests requesting mixed retain mixed-only fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'mixed',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
+test('known guests with ordinary shared request retain usable mixed fallback', () => {
+  const result = inventory(rows('R1', 'mixed', 2), [], {
+    ...command, assignmentMode: false, roomPreference: 'shared',
+    guests: [{ name: 'Ana', explicit_gender: 'female' }, { name: 'Bea', explicit_gender: 'female' }],
+  });
+  assert.deepEqual(result.selectedBedCodes, ['R1-B1', 'R1-B2']);
+  assert.equal(result.hasEnoughBeds, true);
+});
+
 test('explicit composition and opposite-room conflicts are preserved', () => {
   const bedRows = [...rows('R5', 'female_only', 2), ...rows('R2', 'male_only', 2), ...rows('R1', 'mixed', 2)];
   for (const [groupGender, roomPreference, roomCode] of [['female', 'female_only', 'R5'], ['male', 'male_only', 'R2'], ['mixed', 'mixed', 'R1']]) {

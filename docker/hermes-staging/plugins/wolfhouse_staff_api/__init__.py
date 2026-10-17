@@ -599,16 +599,26 @@ def check_availability(params, **kwargs):
     if eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}:
         status = "eligibility_required"
     decision = _room_decision_for_tool(payload, data)
+    if isinstance(decision, dict) and (
+            decision.get("clarification_needed") or decision.get("conflict")):
+        status = "eligibility_required"
     excluded = set((decision or {}).get("excluded_room_preferences") or [])
     available_beds = []
     excluded_room_codes = set()
     raw_beds = data.get("available_beds")
+    selected_codes = data.get("selected_bed_codes") or []
+    private_room_codes = {
+        _clean(bed.get("room_code")) for bed in (raw_beds or [])
+        if isinstance(bed, dict) and bed.get("bed_code") in selected_codes
+        and bed.get("selected_selling_mode") == "private"
+    }
     if data.get("success") is True and isinstance(raw_beds, list):
         for bed in raw_beds:
             if not isinstance(bed, dict) or not isinstance(bed.get("bed_code"), str) or not bed["bed_code"].strip():
                 continue
             room_type = _clean(bed.get("room_type")).lower().replace("-", "_").replace(" ", "_")
-            if room_type in excluded and bed.get("selected_selling_mode") != "private":
+            if (room_type in excluded and bed.get("selected_selling_mode") != "private"
+                    and _clean(bed.get("room_code")) not in private_room_codes):
                 excluded_room_codes.add(_clean(bed.get("room_code")))
                 continue
             available_beds.append({key: bed[key] for key in (
@@ -617,7 +627,6 @@ def check_availability(params, **kwargs):
     selected_room = data.get("selected_room_code")
     if data.get("success") is not True or not isinstance(selected_room, str) or selected_room in excluded_room_codes:
         selected_room = None
-    selected_codes = data.get("selected_bed_codes") or []
     raw_beds_by_code = {}
     if data.get("success") is True and isinstance(raw_beds, list):
         for bed in raw_beds:
@@ -636,12 +645,18 @@ def check_availability(params, **kwargs):
             complete_selection = False
             whole_selection_eligible = False
             continue
-        if room_type in excluded and (bed or {}).get("selected_selling_mode") != "private":
+        if (room_type in excluded and (bed or {}).get("selected_selling_mode") != "private"
+                and _clean((bed or {}).get("room_code")) not in private_room_codes):
             whole_selection_eligible = False
         if room_type not in selected_types:
             selected_types.append(room_type)
     room_contract: Dict[str, Any] = {"selected_room_types": selected_types}
-    if complete_selection and whole_selection_eligible and selected_types == ["male_only"]:
+    if complete_selection and whole_selection_eligible and private_room_codes:
+        room_contract.update({
+            "selected_room_description": "private",
+            "guest_safe_room_label": "Private room.",
+        })
+    elif complete_selection and whole_selection_eligible and selected_types == ["male_only"]:
         room_contract.update({
             "selected_room_description": "male_only",
             "guest_safe_room_label": "These beds are male-only, not a mixed dorm.",

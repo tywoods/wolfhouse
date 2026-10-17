@@ -122,6 +122,36 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertIsNone(result['guest_safe_room_label'])
         self.assertEqual(result['selected_bed_codes'], ['A1', 'B1'])
 
+    def test_eligibility_conflict_is_neither_available_nor_sold_out(self):
+        receipt = {'success': True, 'has_enough_beds': True,
+                   'selected_room_code': None, 'selected_bed_codes': [],
+                   'available_beds': [
+                       {'bed_code': 'F1', 'room_code': 'F', 'room_type': 'female_only'},
+                   ]}
+        result, _ = self.invoke('check_availability', {
+            **self.params, 'guest_count': 1, 'room_preference': 'female_only',
+            'explicit_gender': 'male',
+        }, receipt)
+        self.assertFalse(result['available'])
+        self.assertFalse(result['unavailable'])
+        self.assertEqual(result['next_action'], 'ask_room_eligibility')
+
+    def test_private_selected_room_survives_unmarked_free_sibling(self):
+        receipt = {'success': True, 'has_enough_beds': True,
+                   'selected_room_code': 'P', 'selected_bed_codes': ['P-B1'],
+                   'available_beds': [
+                       {'bed_code': 'P-B1', 'room_code': 'P', 'room_type': 'female_only',
+                        'selected_selling_mode': 'private'},
+                       {'bed_code': 'P-B2', 'room_code': 'P', 'room_type': 'female_only'},
+                   ]}
+        result, _ = self.invoke('check_availability', {
+            **self.params, 'guest_count': 1, 'room_preference': 'private',
+        }, receipt)
+        self.assertEqual(result['selected_room_code'], 'P')
+        self.assertEqual(result['selected_bed_codes'], ['P-B1'])
+        self.assertEqual(result['selected_room_description'], 'private')
+        self.assertEqual(result['guest_safe_room_label'], 'Private room.')
+
     def test_raw_booking_receipt_resumes_adapter_but_completed_receipt_short_circuits(self):
         import sys
         from wolfhouse import accepted_quote as ledger

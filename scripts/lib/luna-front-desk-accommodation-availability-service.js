@@ -276,7 +276,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       if (!['female_only', 'male_only'].includes(category)) return true;
       return selectionGender === (category === 'female_only' ? 'female' : 'male');
     }).map((b) => b.bed_code));
-    const capacityPick = runAvailabilityBedSelection({
+    let capacityPick = runAvailabilityBedSelection({
       bedRows,
       roomFillRanking,
       occupiedBedCodes,
@@ -285,14 +285,31 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       guestCount,
       guestName,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
-      roomPreference: canonicalGender === 'female' && normalizePref(roomPreference) === 'mixed'
-        ? 'female_only'
-        : (canonicalGender === 'male' && normalizePref(roomPreference) === 'mixed'
-          ? 'male_only' : (roomPreference || genderPreference || null)),
+      roomPreference: roomPreference || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
       capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
         || requestedPool === 'any' || requestedPool == null,
     });
+    // Keep an explicit/shared mixed request as the first choice. Only when that
+    // pool cannot fit the group may a complete single-gender roster fall back
+    // to its compatible dorm; eligibility never rewrites the guest's intent.
+    if ((capacityPick.selected_bed_codes || []).length < guestCount
+      && (canonicalGender === 'female' || canonicalGender === 'male')
+      && requestedPool === 'mixed') {
+      capacityPick = runAvailabilityBedSelection({
+        bedRows,
+        roomFillRanking,
+        occupiedBedCodes,
+        allowedBedCodes,
+        blockRows,
+        guestCount,
+        guestName,
+        genderPreference: canonicalGender,
+        roomPreference: `${canonicalGender}_only`,
+        groupGender: canonicalGender,
+        capacityOnly: false,
+      });
+    }
     allocationReason = capacityPick.reason || null;
     allocationSplit = !!capacityPick.split;
     groupGenderResolved = capacityPick.group_gender || null;

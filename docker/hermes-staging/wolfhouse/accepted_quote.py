@@ -658,8 +658,43 @@ def _canonical_gender_alias_is_redundant(before, after):
     normalize = lambda value: ' '.join(str(value or '').split()).casefold()
     names = [normalize(name) for name in after_names]
     facts = {normalize(hint.get('name')): hint.get('explicit_gender') for hint in hints}
+    for revision in (before, after):
+        guests = revision.get('guests')
+        if isinstance(guests, list):
+            canonical = {
+                normalize(guest.get('name')): guest.get('explicit_gender')
+                for guest in guests if isinstance(guest, dict)
+                and guest.get('explicit_gender') in ('male', 'female')
+            }
+            if any(canonical.get(name) not in (None, gender) for name in names):
+                return False
     return (all(names) and len(set(names)) == len(names) and len(facts) == len(hints)
             and all(facts.get(name) == gender for name in names))
+
+
+def _person_plan_does_not_contradict_hints(plan, hints):
+    """Sparse request plans may omit facts, but may never contradict Staff facts."""
+    if plan is None:
+        return True
+    if not isinstance(plan, dict) or not isinstance(hints, list):
+        return False
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    authoritative = {
+        normalize(row.get('name')): row.get('explicit_gender')
+        for row in hints if isinstance(row, dict)
+        and row.get('explicit_gender') in ('male', 'female')
+    }
+    for key in ('guests', 'room_name_hints'):
+        rows = plan.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if (isinstance(row, dict)
+                    and row.get('explicit_gender') in ('male', 'female')
+                    and authoritative.get(normalize(row.get('name'))) not in (
+                        None, row.get('explicit_gender'))):
+                return False
+    return True
 
 
 def _completion_revision_matches(prior, current, *, payment_choice=None,
@@ -675,8 +710,8 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     # Staff's completed canonical offer may drop a redundant aggregate alias,
     # but only while the same person-bound authority remains in both revisions.
     if (_canonical_gender_alias_is_redundant(before, after)
-            and (person_plan is None
-                 or person_plan.get('room_name_hints') == after.get('room_name_hints'))):
+            and _person_plan_does_not_contradict_hints(
+                person_plan, after.get('room_name_hints'))):
         before['gender_preference'] = None
     if payment_choice:
         if payment_choice not in ('deposit', 'full'):

@@ -747,6 +747,32 @@ class OwnerHostileTests(unittest.TestCase):
             before_refresh['accepted_presentation']['quote_revision'],
             authority_erased, payment_choice='deposit', person_plan=expected_plan))
 
+    def test_sparse_request_plan_does_not_have_to_repeat_staff_person_hints(self):
+        prior = {
+            'gender_preference': 'male',
+            'guests': [{'name': 'Emre'}, {'name': 'Guest Two'}],
+            'room_name_hints': [
+                {'name': 'Emre', 'explicit_gender': 'male'},
+                {'name': 'Guest Two', 'explicit_gender': 'male'},
+            ],
+            'total_cents': 20000,
+        }
+        current = deepcopy(prior)
+        current['gender_preference'] = None
+        self.assertTrue(self.ledger._completion_revision_matches(
+            prior, current, person_plan={'guests': deepcopy(prior['guests'])}))
+
+    def test_canonical_person_gender_contradiction_is_not_a_redundant_alias(self):
+        prior = {
+            'gender_preference': 'male',
+            'guests': [{'name': 'Alex', 'explicit_gender': 'male'}],
+            'room_name_hints': [{'name': 'Alex', 'explicit_gender': 'male'}],
+        }
+        current = deepcopy(prior)
+        current['gender_preference'] = None
+        current['guests'][0]['explicit_gender'] = 'female'
+        self.assertFalse(self.ledger._completion_revision_matches(prior, current))
+
     def test_registered_adapter_preserves_provisional_payment_then_revalidates_explicit_choices(self):
         import json
         import wolfhouse_staff_api as plugin
