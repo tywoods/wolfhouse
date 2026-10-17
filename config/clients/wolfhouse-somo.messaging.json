@@ -207,8 +207,8 @@
       "it": "Scusate — il link precedente è scaduto. Buone notizie: le date sono ancora disponibili. Ecco un nuovo link sicuro: {payment_link}"
     },
     "unavailable": {
-      "en": "Sorry — that payment link expired and the spot was only held for 6 hours, so those dates are no longer available. I can check nearby dates if you'd like.",
-      "it": "Scusate — il link è scaduto e il posto era bloccato solo per 6 ore, quindi quelle date non sono più disponibili. Posso controllare date vicine se volete."
+      "en": "Sorry — that payment link expired and those dates are no longer available. I can check nearby dates if you'd like.",
+      "it": "Scusate — il link è scaduto e quelle date non sono più disponibili. Posso controllare date vicine se volete."
     }
   },
   "confirmation_templates": {
