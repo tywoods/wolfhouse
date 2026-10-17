@@ -565,13 +565,20 @@
     return btn;
   }
 
+  function whoCanBookChoice(room) {
+    if (room.whoCanBook === 'women_only') return 'female';
+    if (room.whoCanBook === 'men_only') return 'male';
+    if (room.whoCanBook === 'anyone') return 'mixed';
+    var label = String(room.genderLabel || '').toLowerCase();
+    return ['female', 'male', 'mixed'].indexOf(label) >= 0 ? label : '';
+  }
+
   function genderEditor(room) {
     var s = state();
     var id = room.roomId;
     if (room.genderEditable !== true) return document.createDocumentFragment();
     var wrap = document.createElement('div');
-    var current = String(room.genderLabel || '').toLowerCase();
-    if (['female', 'male', 'mixed'].indexOf(current) < 0) current = '';
+    var current = whoCanBookChoice(room);
     var draft = s.genderDrafts[id];
     wrap.className = 'rf-gender-edit' + (draft ? ' rf-gender-dirty' : '');
     var sellingMode = draft && draft.sellingMode || room.sellingMode || 'shared';
@@ -645,7 +652,7 @@
       method: 'PUT', credentials: 'same-origin',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(Object.assign({ expectedCatalogRevision: s.server.catalogRevision },
-        draft.value && draft.value !== String(room.genderLabel || '').toLowerCase() ? { gender: draft.value } : {},
+        draft.value && draft.value !== whoCanBookChoice(room) ? { gender: draft.value } : {},
         draft.sellingMode ? { sellingMode: draft.sellingMode } : { gender: draft.value }))
     }).then(function (res) { return res.json().then(function (body) { return { status: res.status, body: body }; }); })
       .then(function (res) {

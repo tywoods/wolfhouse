@@ -6,6 +6,7 @@
  */
 
 const crypto = require('crypto');
+const { resolveRoomCategory } = require('./luna-bed-allocator');
 
 const CONTRACT_VERSION = 1;
 const SETTINGS_KEY = 'luna_room_fill_policy';
@@ -157,6 +158,19 @@ function whoCanBookToken(label) {
   return 'anyone';
 }
 
+function whoCanBookForRoom(room) {
+  const category = resolveRoomCategory({
+    room_type: room && room.roomType,
+    gender_strategy: room && room.genderStrategy,
+    capacity: room && room.capacity,
+    can_be_matrimonial: room && room.canBeMatrimonial,
+    often_used_by_operator: room && room.oftenUsedByOperator,
+  });
+  if (category === 'female_only') return 'women_only';
+  if (category === 'male_only') return 'men_only';
+  return 'anyone';
+}
+
 function roomGenderEditable(room) {
   return !!room;
 }
@@ -176,7 +190,7 @@ function projectRoom(room, rank) {
     numericLabel: room.roomNumber == null ? 'No numeric room number' : null,
     genderStrategy: room.genderStrategy || '',
     genderLabel: roomGenderPresentation(room).genderLabel,
-    whoCanBook: whoCanBookToken(roomGenderPresentation(room).genderLabel),
+    whoCanBook: whoCanBookForRoom(room),
     genderReview: roomGenderPresentation(room).reviewLabel,
     genderEditable: roomGenderEditable(room),
     sellingMode: room.sellingMode || (restrictionLabel(room) || room.roomType === 'matrimonial_or_mixed' ? 'private' : 'shared'),
@@ -375,6 +389,7 @@ module.exports = {
   genderLabelFromStrategy,
   roomGenderPresentation,
   whoCanBookToken,
+  whoCanBookForRoom,
   roomGenderEditable,
   numericRoomOrder,
   parseStoredPolicy,

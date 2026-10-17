@@ -8,6 +8,25 @@ function wolfhouseStaffPortalFieldsStatus(node, message, isError, reveal) {
   if (reveal && isError && window.staffCollapseReveal) window.staffCollapseReveal(node);
 }
 
+function wolfhouseStaffPortalClient() {
+  try {
+    if (typeof getClient === 'function') return getClient();
+  } catch (_error) { /* selected client is unavailable */ }
+  return '';
+}
+
+function clearWolfhouseStaffPortalFields() {
+  var code = document.getElementById('wh-staff-access-code');
+  if (code) {
+    code.value = '';
+    code.setAttribute('data-configured', 'false');
+  }
+  var promo = document.getElementById('wh-wetsuit-promo-text');
+  if (promo) promo.value = '';
+  var wrap = document.getElementById('wh-staff-portal-fields');
+  if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+}
+
 function ensureWolfhouseStaffPortalFields() {
   var host = document.getElementById('al-wrap');
   var notes = document.getElementById('cc-house-notes');
@@ -65,9 +84,10 @@ function ensureWolfhouseStaffPortalFields() {
 }
 
 function loadWolfhouseStaffPortalFields() {
-  try {
-    if (typeof getClient === 'function' && getClient() !== 'wolfhouse-somo') return Promise.resolve(null);
-  } catch (_error) { return Promise.resolve(null); }
+  if (wolfhouseStaffPortalClient() !== 'wolfhouse-somo') {
+    clearWolfhouseStaffPortalFields();
+    return Promise.resolve(null);
+  }
   var wrap = ensureWolfhouseStaffPortalFields();
   if (!wrap) return Promise.resolve(null);
   if (typeof window.staffCollapseEnhanceLate === 'function') {
@@ -86,8 +106,14 @@ function loadWolfhouseStaffPortalFields() {
   wrap._wolfhouseFieldsWired = true;
 
   function put(path, body, statusNode) {
+    var client = wolfhouseStaffPortalClient();
+    if (client !== 'wolfhouse-somo') {
+      wolfhouseStaffPortalFieldsStatus(statusNode, 'Could not save.', true, true);
+      return Promise.resolve(false);
+    }
+    var scoped = path + (path.indexOf('?') === -1 ? '?' : '&') + 'client=' + encodeURIComponent(client);
     wolfhouseStaffPortalFieldsStatus(statusNode, 'Saving…', false);
-    return fetch(path, {
+    return fetch(scoped, {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -163,4 +189,12 @@ function refreshWolfhouseStaffPortalFields(wrap) {
 
 if (typeof window !== 'undefined') {
   window.loadWolfhouseStaffPortalFields = loadWolfhouseStaffPortalFields;
+  if (!window.__whStaffPortalFieldsClientBound) {
+    window.__whStaffPortalFieldsClientBound = true;
+    document.addEventListener('change', function (event) {
+      var target = event.target;
+      if (!target || target.id !== 'c-client') return;
+      loadWolfhouseStaffPortalFields();
+    });
+  }
 }

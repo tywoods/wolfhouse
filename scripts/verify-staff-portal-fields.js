@@ -188,13 +188,23 @@ function assertFileHasNoSecret(file, label) {
   check('who can book save', roomSave.status === 200 && roomSave.body.catalogue[0].whoCanBook === 'women_only');
   const roomSql = await db.query('SELECT room_type, gender_strategy FROM rooms WHERE id=$1', [ROOM]);
   check('who can book sql', roomSql.rows[0].room_type === 'female_only' && roomSql.rows[0].gender_strategy === 'Female preferred');
+  await db.query("UPDATE rooms SET room_type='female_only', gender_strategy='Flexible' WHERE id=$1", [ROOM]);
+  const flexibleFemale = await dispatch({ method: 'GET', path: '/staff/luna-intelligence/room-fill' });
+  check('female_only flexible matches eligibility', flexibleFemale.status === 200 && flexibleFemale.body.catalogue[0].whoCanBook === 'women_only');
   await db.query("UPDATE rooms SET room_type='mixed', gender_strategy='Flexible' WHERE id=$1", [ROOM]);
 
   const fieldsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-staff-portal-fields-ui.js'), 'utf8');
   const roomUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/staff-room-fill.js'), 'utf8');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Staff fields</title></head><body>
+    <label>Company <select id="c-client"><option value="wolfhouse-somo" selected>Wolfhouse</option><option value="sunset">Sunset</option></select></label>
     <div id="al-wrap"><div id="cc-house-notes"></div></div>
     <div id="staff-room-fill"></div>
+    <script>
+      function getClient(){
+        var sel = document.getElementById('c-client');
+        return sel && sel.value ? sel.value : 'wolfhouse-somo';
+      }
+    </script>
     <script>${roomUi}\n${fieldsUi}\nwindow.loadWolfhouseStaffPortalFields();</script>
   </body></html>`;
 
@@ -267,6 +277,37 @@ function assertFileHasNoSecret(file, label) {
       await page.locator('#wh-staff-access-code').waitFor();
       assertSecret(await page.locator('#wh-staff-access-code').inputValue(), SECRET, width + ' access reload');
       check(width + ' access still masked', await page.locator('#wh-staff-access-code').getAttribute('type') === 'password');
+
+      await page.locator('#c-client').selectOption('sunset');
+      const sunsetSave = page.locator('#wh-staff-access-code-save');
+      if (await sunsetSave.count()) {
+        await page.locator('#wh-staff-access-code').fill('NOT-' + width);
+        await sunsetSave.click();
+        await page.locator('#wh-staff-access-code-status').filter({ hasText: /Saved|Could not save/ }).waitFor({ timeout: 3000 }).catch(() => {});
+      }
+      const afterSunsetSave = await db.query('SELECT staff_access_code FROM wolfhouse_staff_portal_fields');
+      const sunsetWroteWolfhouse = !sameSecret(afterSunsetSave.rows[0].staff_access_code, SECRET);
+      const sunsetCards = await page.locator('#wh-staff-portal-fields').count();
+      const sunsetCode = await page.locator('#wh-staff-access-code').count();
+      check(width + ' sunset switch clears cards and does not write wolfhouse',
+        sunsetCards === 0 && sunsetCode === 0 && !sunsetWroteWolfhouse);
+      await page.locator('#c-client').selectOption('wolfhouse-somo');
+      await page.locator('#wh-staff-access-code').waitFor();
+      assertSecret(await page.locator('#wh-staff-access-code').inputValue(), SECRET, width + ' wolfhouse reload after switch');
+      check(width + ' wolfhouse code still masked after switch', await page.locator('#wh-staff-access-code').getAttribute('type') === 'password');
+
+      await db.query("UPDATE rooms SET room_type='female_only', gender_strategy='Flexible' WHERE id=$1", [ROOM]);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('#rf-gender-' + ROOM).waitFor();
+      const flexibleWho = page.getByRole('combobox', { name: 'Who can book for Room 1', exact: true });
+      check(width + ' female_only flexible shows women only', await flexibleWho.locator('option:checked').textContent() === 'Women only');
+      check(width + ' female_only flexible token', await page.evaluate((id) => {
+        const room = window.__roomFillState.server.catalogue.find((item) => item.roomId === id);
+        return room && room.whoCanBook;
+      }, ROOM) === 'women_only');
+      await db.query("UPDATE rooms SET room_type='mixed', gender_strategy='Flexible' WHERE id=$1", [ROOM]);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('#rf-gender-' + ROOM).waitFor();
 
       const whoAgain = page.getByRole('combobox', { name: 'Who can book for Room 1', exact: true });
       await whoAgain.selectOption('male');
