@@ -1,0 +1,643 @@
+{
+  "schema": "sim15-controlled-source-faithful-reconstruction-v3",
+  "created_at": "2026-10-17T10:32:11.544149+00:00",
+  "command": "/opt/hermes/.venv/bin/python artifacts/sim15-season-oneq-repair3/replay.py",
+  "limitations": {
+    "historical_full_callback_bodies_retained": false,
+    "exact_historical_reproduction_claimed": false,
+    "baseline_failure_required": false
+  },
+  "fixture_provenance": "Retained guest/tool order and known facts from original-first-turns.json; unretained callback bodies are explicit inert source-shaped reconstruction fixtures.",
+  "offline_contract": {
+    "registered_callback_invoked": "get_house_info",
+    "callback_events": [
+      {
+        "route": "/house-info",
+        "payload": {},
+        "read_only": true
+      }
+    ],
+    "staff_fixtures": "inert/read-only",
+    "model_tools": [],
+    "product_writes": false,
+    "guest_sends": false,
+    "network_staff_calls": false
+  },
+  "runtime": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "python": "/opt/hermes/.venv/bin/python"
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "g3_failed_preview",
+      "run_id": "sim15-repair3-baseline-g3_failed_preview",
+      "guest_turn": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "next_action": "ready_for_bot_create",
+            "available_room_options": [
+              "mixed shared room"
+            ],
+            "women_only_places_available": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "error": "fixture_pricing_unavailable",
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": false,
+            "message_text": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+          }
+        }
+      ],
+      "source_sha256": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+      "soul_sha256": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181",
+      "assembled_system_prompt_sha256": "982cb57421c3c7e494d8e7a69892a37773d168e615937d53a9d801ff430eb7da",
+      "input_prompt_sha256": "07fdbf1732413a418114a86156a059c0ba77433c6bb78514546d0b136d8d0508",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 12.262,
+      "actual_emitted_reply": "Hi Aisha — I’m Luna, welcome to Wolf-House! For the three of you, we have space Nov 3–6 in a mixed shared room; a women-only room isn’t available. Your 16-year-old sister may stay without a parent, but she’ll need her own booked bed—I can’t confirm the surf-package versus bed-only comparison just now, so would you like me to include her as a fourth guest, and for which night?"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "g3_explicit_current_date_approval",
+      "run_id": "sim15-repair3-baseline-g3_explicit_current_date_approval",
+      "guest_turn": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "next_action": "ready_for_bot_create",
+            "available_room_options": [
+              "women-only dorm",
+              "mixed dorm"
+            ]
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": true,
+            "tool": "preview_package_prices",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "dates_approved": true,
+            "package_eligible": false,
+            "package_min_nights": 7,
+            "accommodation_only_available": true,
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": false,
+            "message_text": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+          }
+        }
+      ],
+      "source_sha256": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+      "soul_sha256": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181",
+      "assembled_system_prompt_sha256": "982cb57421c3c7e494d8e7a69892a37773d168e615937d53a9d801ff430eb7da",
+      "input_prompt_sha256": "9c0c4df3b6c28b5bbc0305f0e845160d18c4a99e8446f4a07fe0e2563f8f2b24",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 13.519,
+      "actual_emitted_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! We have space for three from 3–6 November, with a women-only or mixed dorm; the surf packages require at least 7 nights, so for this stay it would be accommodation with any surf rentals or lessons added separately.\n\nYour 16-year-old sister may stay without a parent, but she’ll need her own booked bed. Which night might she join, so I can check a fourth bed?"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "holly_jake_explicit_current_date_approval",
+      "run_id": "sim15-repair3-baseline-holly_jake_explicit_current_date_approval",
+      "guest_turn": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private",
+            "room_preference": "couple_private",
+            "private_room_available": true,
+            "next_action": "ready_for_bot_create"
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": true,
+            "tool": "preview_package_prices",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "dates_approved": true,
+            "package_eligible": false,
+            "package_min_nights": 7,
+            "accommodation_only_available": true,
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": true,
+            "service": {
+              "name": "partner surfboard rental"
+            },
+            "availability_confirmed": false,
+            "price_confirmed": false,
+            "pricing_inputs_required": [
+              "board_type",
+              "rental_duration"
+            ],
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          }
+        }
+      ],
+      "source_sha256": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+      "soul_sha256": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181",
+      "assembled_system_prompt_sha256": "982cb57421c3c7e494d8e7a69892a37773d168e615937d53a9d801ff430eb7da",
+      "input_prompt_sha256": "f94bc9f76ed6614722123f96f5e80bcd08b75cd5edca9cca2c371dc22116a3d6",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 6.753,
+      "actual_emitted_reply": "Hi Holly & Jake — I’m Luna, welcome to Wolf-House! Your private room is available for 10–13 November, and there’s free parking inside the property. We can arrange board rental too: would you like soft tops or hard boards, and for how many of the three days? 🏄"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "real_closed_season",
+      "run_id": "sim15-repair3-baseline-real_closed_season",
+      "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "capacity_available": true,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06"
+          }
+        },
+        {
+          "role": "tool",
+          "name": "quote_booking",
+          "content": {
+            "success": false,
+            "tool": "quote_booking",
+            "next_action": "closed_season",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_safe_next_action": "We’re closed for those dates.",
+            "write_performed": false
+          }
+        }
+      ],
+      "source_sha256": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+      "soul_sha256": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181",
+      "assembled_system_prompt_sha256": "982cb57421c3c7e494d8e7a69892a37773d168e615937d53a9d801ff430eb7da",
+      "input_prompt_sha256": "8d5f1961a8fbde429b7f8108287f9eb6498e2e0d367bb0d9e4d3a94ef81fcad7",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 2.075,
+      "actual_emitted_reply": "We’re closed from 3–6 November 2026, so Holly and Jake can’t stay on those dates."
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "genuinely_missing_date_authority",
+      "run_id": "sim15-repair3-baseline-genuinely_missing_date_authority",
+      "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "house_capacity_hint",
+          "content": {
+            "success": true,
+            "tool": "house_capacity_hint",
+            "capacity_available": true,
+            "not_booking_date_authority": true
+          }
+        }
+      ],
+      "source_sha256": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+      "soul_sha256": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181",
+      "assembled_system_prompt_sha256": "982cb57421c3c7e494d8e7a69892a37773d168e615937d53a9d801ff430eb7da",
+      "input_prompt_sha256": "40078b4ccf439dd01eb2454573e85e343ac31a49ca1e5a8af9d5c349fe0a4c8f",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 16.105,
+      "actual_emitted_reply": "Welcome to Wolf-House — I’m Luna. I can help with Holly and Jake’s stay from 3–6 November 2026, but I can’t yet confirm that the private room is available for those dates."
+    },
+    {
+      "variant": "candidate",
+      "ref": "WORKTREE",
+      "case": "g3_failed_preview",
+      "run_id": "sim15-repair3-candidate-g3_failed_preview",
+      "guest_turn": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "next_action": "ready_for_bot_create",
+            "available_room_options": [
+              "mixed shared room"
+            ],
+            "women_only_places_available": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "error": "fixture_pricing_unavailable",
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": false,
+            "message_text": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+          }
+        }
+      ],
+      "source_sha256": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+      "soul_sha256": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1",
+      "assembled_system_prompt_sha256": "5e2b09fc4a220e3ed148243cbdbd7846af2ac51c8d95b5244f40e7acd9ed9949",
+      "input_prompt_sha256": "07fdbf1732413a418114a86156a059c0ba77433c6bb78514546d0b136d8d0508",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 10.661,
+      "actual_emitted_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! We have space for the three of you in a mixed shared room; I can’t confirm the surf-package versus bed-only price comparison just yet. Your 16-year-old sister may stay without a parent, but she’ll need her own booked, available bed—which night would she join you?"
+    },
+    {
+      "variant": "candidate",
+      "ref": "WORKTREE",
+      "case": "g3_explicit_current_date_approval",
+      "run_id": "sim15-repair3-candidate-g3_explicit_current_date_approval",
+      "guest_turn": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "next_action": "ready_for_bot_create",
+            "available_room_options": [
+              "women-only dorm",
+              "mixed dorm"
+            ]
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": true,
+            "tool": "preview_package_prices",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "dates_approved": true,
+            "package_eligible": false,
+            "package_min_nights": 7,
+            "accommodation_only_available": true,
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": false,
+            "message_text": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+          }
+        }
+      ],
+      "source_sha256": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+      "soul_sha256": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1",
+      "assembled_system_prompt_sha256": "5e2b09fc4a220e3ed148243cbdbd7846af2ac51c8d95b5244f40e7acd9ed9949",
+      "input_prompt_sha256": "9c0c4df3b6c28b5bbc0305f0e845160d18c4a99e8446f4a07fe0e2563f8f2b24",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 10.599,
+      "actual_emitted_reply": "Hi Aisha, I’m Luna — welcome to Wolf-House! 🌊 We have space for the three of you from 3–6 November, including a women-only dorm option; the surf+stay packages require at least 7 nights, but you can book accommodation only and add surfboard, wetsuit or lessons separately.\n\nYour 16-year-old sister may stay without a parent, but she’ll need her own booked bed—what night might she join you?"
+    },
+    {
+      "variant": "candidate",
+      "ref": "WORKTREE",
+      "case": "holly_jake_explicit_current_date_approval",
+      "run_id": "sim15-repair3-candidate-holly_jake_explicit_current_date_approval",
+      "guest_turn": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private",
+            "room_preference": "couple_private",
+            "private_room_available": true,
+            "next_action": "ready_for_bot_create"
+          }
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "content": {
+            "success": true,
+            "tool": "preview_package_prices",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "dates_approved": true,
+            "package_eligible": false,
+            "package_min_nights": 7,
+            "accommodation_only_available": true,
+            "write_performed": false
+          }
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "content": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": true,
+            "service": {
+              "name": "partner surfboard rental"
+            },
+            "availability_confirmed": false,
+            "price_confirmed": false,
+            "pricing_inputs_required": [
+              "board_type",
+              "rental_duration"
+            ],
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          }
+        }
+      ],
+      "source_sha256": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+      "soul_sha256": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1",
+      "assembled_system_prompt_sha256": "5e2b09fc4a220e3ed148243cbdbd7846af2ac51c8d95b5244f40e7acd9ed9949",
+      "input_prompt_sha256": "f94bc9f76ed6614722123f96f5e80bcd08b75cd5edca9cca2c371dc22116a3d6",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 8.897,
+      "actual_emitted_reply": "Hi Holly and Jake — welcome to Wolf-House! 🌊 We have a private room available for 10–13 November, and there’s free parking inside the property. We can check partner board rental for you; would you prefer soft tops or hard boards?"
+    },
+    {
+      "variant": "candidate",
+      "ref": "WORKTREE",
+      "case": "real_closed_season",
+      "run_id": "sim15-repair3-candidate-real_closed_season",
+      "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "content": {
+            "success": true,
+            "tool": "check_availability",
+            "capacity_available": true,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06"
+          }
+        },
+        {
+          "role": "tool",
+          "name": "quote_booking",
+          "content": {
+            "success": false,
+            "tool": "quote_booking",
+            "next_action": "closed_season",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_safe_next_action": "We’re closed for those dates.",
+            "write_performed": false
+          }
+        }
+      ],
+      "source_sha256": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+      "soul_sha256": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1",
+      "assembled_system_prompt_sha256": "5e2b09fc4a220e3ed148243cbdbd7846af2ac51c8d95b5244f40e7acd9ed9949",
+      "input_prompt_sha256": "8d5f1961a8fbde429b7f8108287f9eb6498e2e0d367bb0d9e4d3a94ef81fcad7",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 1.337,
+      "actual_emitted_reply": "We’re closed from 3–6 November 2026, so Holly and Jake can’t stay in a private room on those dates."
+    },
+    {
+      "variant": "candidate",
+      "ref": "WORKTREE",
+      "case": "genuinely_missing_date_authority",
+      "run_id": "sim15-repair3-candidate-genuinely_missing_date_authority",
+      "guest_turn": "Can Holly and Jake stay in a private room from 3–6 November 2026?",
+      "ordered_tool_results": [
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "content": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "role": "tool",
+          "name": "house_capacity_hint",
+          "content": {
+            "success": true,
+            "tool": "house_capacity_hint",
+            "capacity_available": true,
+            "not_booking_date_authority": true
+          }
+        }
+      ],
+      "source_sha256": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+      "soul_sha256": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1",
+      "assembled_system_prompt_sha256": "5e2b09fc4a220e3ed148243cbdbd7846af2ac51c8d95b5244f40e7acd9ed9949",
+      "input_prompt_sha256": "40078b4ccf439dd01eb2454573e85e343ac31a49ca1e5a8af9d5c349fe0a4c8f",
+      "personality_id": "sunny",
+      "case_specific_coaching": false,
+      "elapsed_seconds": 7.438,
+      "actual_emitted_reply": "Welcome to Wolf-House — I’m Luna 😊 Holly and Jake’s private room isn’t confirmed for 3–6 November 2026 yet."
+    }
+  ]
+}

@@ -1,0 +1,1433 @@
+{
+  "probe": "canonical-consistent-already-null",
+  "initial_alias": null,
+  "refresh_alias": null,
+  "current_canonical_gender": "male",
+  "required_create_prepared": true,
+  "passed": true,
+  "status": "accepted",
+  "comparator_calls": [
+    {
+      "person_plan": {
+        "guests": [
+          {
+            "name": "unit guest",
+            "explicit_gender": "male"
+          }
+        ],
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "guest_packages": [],
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false
+      },
+      "result": true
+    }
+  ],
+  "create_prepared": true,
+  "revalidation": false,
+  "ready": {
+    "check_in": "2027-07-05",
+    "check_out": "2027-07-07",
+    "guest_count": 1,
+    "package_code": "package_none",
+    "guest_packages": [],
+    "room_type": "shared",
+    "room_preference": "male_only",
+    "gender_preference": null,
+    "add_ons": [],
+    "catalog_selections": [],
+    "selected_bed_codes": [
+      "UNIT-B1"
+    ],
+    "guests": [
+      {
+        "explicit_gender": "male",
+        "name": "unit guest"
+      }
+    ],
+    "room_name_hints": [
+      {
+        "explicit_gender": "male",
+        "name": "unit guest"
+      }
+    ],
+    "payment_choice": "deposit",
+    "per_guest_payment_links": false,
+    "accepted_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "require_offer_identity": true,
+    "idempotency_key": "luna-owner-daa84067ef00b27a628aba2fbc573ce2",
+    "confirm": true
+  },
+  "initial": {
+    "acceptance_message": "canonical-consistent-already-null-accept",
+    "acceptance_raw_digest": "7d84f9055f6fc3d3011d99c74eb77458eb19adeb3cc96efe1aa09c2cf5c845a8",
+    "accepted_presentation": {
+      "authoritative_quote": {
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "UNIT-B1"
+          ],
+          "status": "checked"
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "full_payment_only": false,
+        "missing_fields": [],
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 2345,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 2345,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "unit guest"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "payment_choice_needed": false,
+        "success": true,
+        "total_cents": 8000
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 5 Jul to Wed 7 Jul \u2014 1 guest.\nunit guest: a bed in the men's room.\nAccommodation only.\nTotal: 80.00 EUR (deposit: 23.45 EUR).\nDeposit: 23.45 EUR.\nDue on arrival: 56.55 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "displayed_text_digest": "df0e5fbf9ae193e714b9bd25e92f57aedf39498f6924ffe0e5833e829ed205a2",
+      "incarnation": 1792240275.957571,
+      "original_turn": "canonical-consistent-already-null-quote",
+      "payment_choices": [
+        "deposit"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "reply_reference": "7743ce348d9284d677a185f33295b92266cc435a5b5f775029b300066d26693a",
+      "scope": {
+        "CHAT_ID": "chat1",
+        "ID": "canonical-consistent-already-null",
+        "KEY": "key1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "guest1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "checked_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "completion_plan": {
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ]
+    },
+    "current_turn": {
+      "message_id": "canonical-consistent-already-null-accept",
+      "raw": "Book it with the deposit",
+      "raw_digest": "7d84f9055f6fc3d3011d99c74eb77458eb19adeb3cc96efe1aa09c2cf5c845a8"
+    },
+    "delta": {},
+    "epoch": 3,
+    "incarnation": 1792240275.957571,
+    "offer_message": "canonical-consistent-already-null-quote",
+    "pending_fact_refresh": true,
+    "plan": {
+      "add_ons": [],
+      "catalog_selections": [],
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "gender_preference": null,
+      "guest_count": 1,
+      "guest_packages": [],
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "selected_bed_codes": [
+        "UNIT-B1"
+      ]
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "UNIT-B1"
+          ],
+          "status": "checked"
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "full_payment_only": false,
+        "missing_fields": [],
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 2345,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 2345,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "unit guest"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "payment_choice_needed": false,
+        "success": true,
+        "total_cents": 8000
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 5 Jul to Wed 7 Jul \u2014 1 guest.\nunit guest: a bed in the men's room.\nAccommodation only.\nTotal: 80.00 EUR (deposit: 23.45 EUR).\nDeposit: 23.45 EUR.\nDue on arrival: 56.55 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "displayed_text_digest": "df0e5fbf9ae193e714b9bd25e92f57aedf39498f6924ffe0e5833e829ed205a2",
+      "incarnation": 1792240275.957571,
+      "original_turn": "canonical-consistent-already-null-quote",
+      "payment_choices": [
+        "deposit"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "reply_reference": "7743ce348d9284d677a185f33295b92266cc435a5b5f775029b300066d26693a",
+      "scope": {
+        "CHAT_ID": "chat1",
+        "ID": "canonical-consistent-already-null",
+        "KEY": "key1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "guest1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "presented_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "quote": {
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ],
+        "status": "checked"
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "full_payment_only": false,
+      "missing_fields": [],
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "payment_choice_needed": false,
+      "success": true,
+      "total_cents": 8000
+    },
+    "scope": {
+      "CHAT_ID": "chat1",
+      "ID": "canonical-consistent-already-null",
+      "KEY": "key1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "guest1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "canonical-consistent-already-null-quote",
+      "canonical-consistent-already-null-accept"
+    ],
+    "status": "accepted",
+    "unresolved_change": false,
+    "version": 1
+  },
+  "prepared": {
+    "guests": [
+      {
+        "name": "unit guest",
+        "explicit_gender": "male"
+      }
+    ],
+    "check_in": "2027-07-05",
+    "check_out": "2027-07-07",
+    "guest_count": 1,
+    "package_code": "package_none",
+    "guest_packages": [],
+    "room_type": "shared",
+    "room_preference": "male_only",
+    "gender_preference": null,
+    "add_ons": [],
+    "catalog_selections": [],
+    "selected_bed_codes": [
+      "UNIT-B1"
+    ],
+    "room_name_hints": [
+      {
+        "explicit_gender": "male",
+        "name": "unit guest"
+      }
+    ],
+    "payment_choice": "deposit",
+    "per_guest_payment_links": false
+  },
+  "refresh_receipt": {
+    "availability": {
+      "status": "checked",
+      "availability_checked": true,
+      "selected_bed_codes": [
+        "UNIT-B1"
+      ],
+      "guest_bed_assignments": [
+        {
+          "guest_index": 0,
+          "guest_name": "unit guest",
+          "bed_code": "UNIT-B1"
+        }
+      ],
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "room_code": "UNIT",
+          "gender_strategy": "male_only"
+        }
+      ],
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "guest_count": 1,
+      "room_type": "shared"
+    },
+    "offer_revision": {
+      "v": 1,
+      "client_slug": "wolfhouse-somo",
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "guest_count": 1,
+      "guest_bed_assignments": [
+        {
+          "guest_index": 0,
+          "guest_name": "unit guest",
+          "bed_code": "UNIT-B1"
+        }
+      ],
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "room_code": "UNIT",
+          "gender_strategy": "male_only"
+        }
+      ],
+      "room_type": "shared",
+      "room_preference": "male_only",
+      "gender_preference": null,
+      "resolved_room_claim": null,
+      "room_name_hints": [
+        {
+          "name": "unit guest",
+          "explicit_gender": "male"
+        }
+      ],
+      "package_code": "package_none",
+      "guest_packages": [],
+      "add_ons": [],
+      "total_cents": 8000,
+      "deposit_required_cents": 2345,
+      "payment_link_amount_cents": 2345,
+      "currency": "EUR",
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "payment_distribution": [],
+      "availability_checked": true,
+      "offer_revision_version": 1,
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578"
+    },
+    "success": true,
+    "total_cents": 8000,
+    "deposit_required_cents": 2345,
+    "currency": "EUR",
+    "payment_choice_needed": false,
+    "full_payment_only": false,
+    "missing_fields": []
+  },
+  "after": {
+    "acceptance_message": "canonical-consistent-already-null-accept",
+    "acceptance_raw_digest": "7d84f9055f6fc3d3011d99c74eb77458eb19adeb3cc96efe1aa09c2cf5c845a8",
+    "accepted_offer_snapshot": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "accepted_presentation": {
+      "authoritative_quote": {
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "UNIT-B1"
+          ],
+          "status": "checked"
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "full_payment_only": false,
+        "missing_fields": [],
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 2345,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 2345,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "unit guest"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "payment_choice_needed": false,
+        "success": true,
+        "total_cents": 8000
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 5 Jul to Wed 7 Jul \u2014 1 guest.\nunit guest: a bed in the men's room.\nAccommodation only.\nTotal: 80.00 EUR (deposit: 23.45 EUR).\nDeposit: 23.45 EUR.\nDue on arrival: 56.55 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "displayed_text_digest": "df0e5fbf9ae193e714b9bd25e92f57aedf39498f6924ffe0e5833e829ed205a2",
+      "incarnation": 1792240275.957571,
+      "original_turn": "canonical-consistent-already-null-quote",
+      "payment_choices": [
+        "deposit"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "reply_reference": "7743ce348d9284d677a185f33295b92266cc435a5b5f775029b300066d26693a",
+      "scope": {
+        "CHAT_ID": "chat1",
+        "ID": "canonical-consistent-already-null",
+        "KEY": "key1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "guest1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "auto_acceptance": true,
+    "checked_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "completion_plan": {},
+    "current_turn": {
+      "message_id": "canonical-consistent-already-null-accept",
+      "raw": "Book it with the deposit",
+      "raw_digest": "7d84f9055f6fc3d3011d99c74eb77458eb19adeb3cc96efe1aa09c2cf5c845a8"
+    },
+    "delta": {},
+    "epoch": 4,
+    "incarnation": 1792240275.957571,
+    "offer_message": "canonical-consistent-already-null-quote",
+    "plan": {
+      "add_ons": [],
+      "catalog_selections": [],
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "gender_preference": null,
+      "guest_count": 1,
+      "guest_packages": [],
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "selected_bed_codes": [
+        "UNIT-B1"
+      ]
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "UNIT-B1"
+          ],
+          "status": "checked"
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "full_payment_only": false,
+        "missing_fields": [],
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2027-07-05",
+          "check_out": "2027-07-07",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 2345,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "UNIT-B1",
+              "guest_index": 0,
+              "guest_name": "unit guest"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 2345,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "UNIT-B1",
+              "gender_strategy": "male_only",
+              "room_code": "UNIT"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "unit guest"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "payment_choice_needed": false,
+        "success": true,
+        "total_cents": 8000
+      },
+      "create_ready": true,
+      "displayed_text": "Mon 5 Jul to Wed 7 Jul \u2014 1 guest.\nunit guest: a bed in the men's room.\nAccommodation only.\nTotal: 80.00 EUR (deposit: 23.45 EUR).\nDeposit: 23.45 EUR.\nDue on arrival: 56.55 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "displayed_text_digest": "df0e5fbf9ae193e714b9bd25e92f57aedf39498f6924ffe0e5833e829ed205a2",
+      "incarnation": 1792240275.957571,
+      "original_turn": "canonical-consistent-already-null-quote",
+      "payment_choices": [
+        "deposit"
+      ],
+      "plan": {
+        "add_ons": [],
+        "catalog_selections": [],
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "gender_preference": null,
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "reply_reference": "7743ce348d9284d677a185f33295b92266cc435a5b5f775029b300066d26693a",
+      "scope": {
+        "CHAT_ID": "chat1",
+        "ID": "canonical-consistent-already-null",
+        "KEY": "key1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "guest1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "presented_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2027-07-05",
+      "check_out": "2027-07-07",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "UNIT-B1",
+          "guest_index": 0,
+          "guest_name": "unit guest"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 2345,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "UNIT-B1",
+          "gender_strategy": "male_only",
+          "room_code": "UNIT"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "unit guest"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 8000,
+      "v": 1
+    },
+    "quote": {
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "UNIT-B1"
+        ],
+        "status": "checked"
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 2345,
+      "full_payment_only": false,
+      "missing_fields": [],
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2027-07-05",
+        "check_out": "2027-07-07",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 2345,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "UNIT-B1",
+            "guest_index": 0,
+            "guest_name": "unit guest"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "bff91af672a938d3d1fde74030549df19b0dc74aedf651bda168320309018578",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 2345,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "UNIT-B1",
+            "gender_strategy": "male_only",
+            "room_code": "UNIT"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "unit guest"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 8000,
+        "v": 1
+      },
+      "payment_choice_needed": false,
+      "success": true,
+      "total_cents": 8000
+    },
+    "scope": {
+      "CHAT_ID": "chat1",
+      "ID": "canonical-consistent-already-null",
+      "KEY": "key1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "guest1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "canonical-consistent-already-null-quote",
+      "canonical-consistent-already-null-accept"
+    ],
+    "status": "accepted",
+    "unresolved_change": false,
+    "version": 1
+  }
+}

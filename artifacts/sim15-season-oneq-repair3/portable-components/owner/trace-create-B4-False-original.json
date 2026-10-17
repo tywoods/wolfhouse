@@ -1,0 +1,1349 @@
+{
+  "case": "B4",
+  "mutation": null,
+  "normalized_request_alias": false,
+  "internal_receipt_provenance": "later exported quote, NOT captured internal reply",
+  "outcome": {
+    "offline_dispatch_reached": true,
+    "business_create_executed": false
+  },
+  "diagnostics": [
+    {
+      "terms_unchanged": true,
+      "comparison_diff": {
+        "gender_preference": [
+          "male",
+          null
+        ]
+      },
+      "expected_plan": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "gender_preference": "male",
+        "group_gender": "male",
+        "guest_count": 1,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "payment_choice": "deposit"
+      },
+      "actual_plan": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "gender_preference": null,
+        "group_gender": "male",
+        "guest_packages": [],
+        "add_ons": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "prior_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "af582272b1a2594a5dd20ee6178da2f68ffd830f9140a8855fcb84c3d47f3364",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      }
+    }
+  ],
+  "before": {
+    "checked_offer": null,
+    "completion_plan": {
+      "guests": [
+        {
+          "name": "mateo"
+        }
+      ]
+    },
+    "current_turn": {
+      "message_id": "export-quote",
+      "raw": "Quote accommodation only for those dates",
+      "raw_digest": "e143237160f9018e79b5cae75773cd5567b73e906ff25a7124dfd9d59801bf40"
+    },
+    "delta": {},
+    "epoch": 4,
+    "incarnation": 1792240270.395773,
+    "offer_message": "export-quote",
+    "plan": {
+      "check_in": "2026-10-21",
+      "check_out": "2026-10-24",
+      "gender_preference": "male",
+      "group_gender": "male",
+      "guest_count": 1,
+      "package_code": "package_none",
+      "room_preference": "male_only",
+      "room_type": "shared"
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 12000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Mateo",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Mateo",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [
+          "payment_choice"
+        ],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "af582272b1a2594a5dd20ee6178da2f68ffd830f9140a8855fcb84c3d47f3364",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "payment_choice_needed": true,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "show_quote",
+        "remaining_after_deposit_cents": 2000,
+        "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 12000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": false,
+      "displayed_text": "Wed 21 Oct to Sat 24 Oct — 1 guest.\nTotal: 120.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "incarnation": 1792240270.395773,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "gender_preference": "male",
+        "group_gender": "male",
+        "guest_count": 1,
+        "guests": [
+          {
+            "name": "mateo"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "af582272b1a2594a5dd20ee6178da2f68ffd830f9140a8855fcb84c3d47f3364",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      },
+      "reply_reference": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "quote": {
+      "add_on_errors": [],
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "status": "checked"
+      },
+      "balance_due_cents": 12000,
+      "booking_names": {
+        "names": {
+          "guest_name": "Mateo",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo"
+            }
+          ]
+        }
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "full_payment_only": false,
+      "girls_room_available": false,
+      "guest_name": "Mateo",
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "guest_safe_next_action": null,
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo"
+        }
+      ],
+      "included_items": [],
+      "missing_fields": [
+        "payment_choice"
+      ],
+      "needs_human": false,
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "af582272b1a2594a5dd20ee6178da2f68ffd830f9140a8855fcb84c3d47f3364",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      },
+      "payment_choice_needed": true,
+      "per_guest_deposits": [
+        {
+          "deposit_cents": 10000,
+          "guest_number": 1,
+          "package_code": "package_none"
+        }
+      ],
+      "per_person": [],
+      "quote_status": "show_quote",
+      "remaining_after_deposit_cents": 2000,
+      "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+      "room_decision": {
+        "allowed_room_preferences": [
+          "male_only",
+          "mixed",
+          "shared"
+        ],
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "do_not_escalate": true,
+        "excluded_room_preferences": [
+          "female_only"
+        ],
+        "needs_human": false,
+        "not_a_verified_demographic": true,
+        "provisional": false,
+        "resolved_composition": "male",
+        "threshold": 0.7
+      },
+      "staff_review_needed": false,
+      "success": true,
+      "tool": "quote_booking",
+      "total_cents": 12000,
+      "unknown_add_on_codes": []
+    },
+    "scope": {
+      "CHAT_ID": "c1",
+      "ID": "first-yes",
+      "KEY": "k1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "g1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "q1",
+      "export-quote"
+    ],
+    "status": "offered",
+    "unresolved_change": false,
+    "version": 1
+  },
+  "after": {
+    "acceptance_message": "export-accept",
+    "acceptance_raw_digest": "34b447b38f35922bb6e3733ecc2f8b7bbee8244802f8365320f5c679c8ac2e93",
+    "accepted_offer_snapshot": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-21",
+      "check_out": "2026-10-24",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "mateo ríos"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 12000,
+      "v": 1
+    },
+    "accepted_presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo ríos"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 12000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Mateo Ríos",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo Ríos"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Mateo Ríos",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo ríos"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "payment_choice": "deposit",
+        "payment_choice_needed": false,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "ready_for_create_dry_run",
+        "remaining_after_deposit_cents": 2000,
+        "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 12000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": true,
+      "displayed_text": "Wed 21 Oct to Sat 24 Oct — 1 guest.\nTotal: 120.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "incarnation": 1792240270.395773,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "add_ons": [],
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "gender_preference": null,
+        "group_gender": "male",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo ríos"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      },
+      "reply_reference": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "auto_acceptance": true,
+    "checked_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-21",
+      "check_out": "2026-10-24",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "mateo ríos"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 12000,
+      "v": 1
+    },
+    "completion_plan": {},
+    "current_turn": {
+      "message_id": "export-accept",
+      "raw": "Book it, my full name is supplied and I choose deposit",
+      "raw_digest": "34b447b38f35922bb6e3733ecc2f8b7bbee8244802f8365320f5c679c8ac2e93"
+    },
+    "delta": {},
+    "epoch": 6,
+    "incarnation": 1792240270.395773,
+    "offer_message": "export-quote",
+    "plan": {
+      "add_ons": [],
+      "check_in": "2026-10-21",
+      "check_out": "2026-10-24",
+      "gender_preference": null,
+      "group_gender": "male",
+      "guest_count": 1,
+      "guest_packages": [],
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "per_guest_payment_links": false,
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "selected_bed_codes": [
+        "R4-B5"
+      ]
+    },
+    "presentation": {
+      "authoritative_quote": {
+        "add_on_errors": [],
+        "availability": {
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo ríos"
+            }
+          ],
+          "guest_count": 1,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_type": "shared",
+          "selected_bed_codes": [
+            "R4-B5"
+          ],
+          "status": "checked"
+        },
+        "balance_due_cents": 12000,
+        "booking_names": {
+          "names": {
+            "guest_name": "Mateo Ríos",
+            "guests": [
+              {
+                "explicit_gender": "male",
+                "name": "Mateo Ríos"
+              }
+            ]
+          }
+        },
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "full_payment_only": false,
+        "girls_room_available": false,
+        "guest_name": "Mateo Ríos",
+        "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+        "guest_safe_next_action": null,
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "included_items": [],
+        "missing_fields": [],
+        "needs_human": false,
+        "offer_revision": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "mateo ríos"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "payment_choice": "deposit",
+        "payment_choice_needed": false,
+        "per_guest_deposits": [
+          {
+            "deposit_cents": 10000,
+            "guest_number": 1,
+            "package_code": "package_none"
+          }
+        ],
+        "per_person": [],
+        "quote_status": "ready_for_create_dry_run",
+        "remaining_after_deposit_cents": 2000,
+        "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+        "room_decision": {
+          "allowed_room_preferences": [
+            "male_only",
+            "mixed",
+            "shared"
+          ],
+          "clarification_needed": false,
+          "clarification_prompt": null,
+          "conflict": null,
+          "do_not_escalate": true,
+          "excluded_room_preferences": [
+            "female_only"
+          ],
+          "needs_human": false,
+          "not_a_verified_demographic": true,
+          "provisional": false,
+          "resolved_composition": "male",
+          "threshold": 0.7
+        },
+        "staff_review_needed": false,
+        "success": true,
+        "tool": "quote_booking",
+        "total_cents": 12000,
+        "unknown_add_on_codes": []
+      },
+      "create_ready": true,
+      "displayed_text": "Wed 21 Oct to Sat 24 Oct — 1 guest.\nTotal: 120.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "displayed_text_digest": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "incarnation": 1792240270.395773,
+      "original_turn": "export-quote",
+      "payment_choices": [
+        "deposit",
+        "full"
+      ],
+      "plan": {
+        "add_ons": [],
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "gender_preference": null,
+        "group_gender": "male",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "quote_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo ríos"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      },
+      "reply_reference": "8549814b76631a5226a1e27bc23b304410438c8a282f1d7c4d807b1dc13ffd86",
+      "scope": {
+        "CHAT_ID": "c1",
+        "ID": "first-yes",
+        "KEY": "k1",
+        "PLATFORM": "whatsapp",
+        "SOURCE": "whatsapp",
+        "THREAD_ID": "",
+        "USER_ID": "g1",
+        "tenant": "wolfhouse-somo"
+      },
+      "tenant": "wolfhouse-somo"
+    },
+    "presented_offer": {
+      "add_ons": [],
+      "availability_checked": true,
+      "check_in": "2026-10-21",
+      "check_out": "2026-10-24",
+      "client_slug": "wolfhouse-somo",
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "gender_preference": null,
+      "guest_bed_assignments": [
+        {
+          "bed_code": "R4-B5",
+          "guest_index": 0,
+          "guest_name": "mateo ríos"
+        }
+      ],
+      "guest_count": 1,
+      "guest_packages": [],
+      "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+      "offer_revision_version": 1,
+      "package_code": "package_none",
+      "payment_choice": "deposit",
+      "payment_distribution": [],
+      "payment_link_amount_cents": 10000,
+      "per_guest_payment_links": false,
+      "resolved_room_claim": null,
+      "room_arrangement": [
+        {
+          "bed_code": "R4-B5",
+          "gender_strategy": "male preferred",
+          "room_code": "R4"
+        }
+      ],
+      "room_name_hints": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "room_preference": "male_only",
+      "room_type": "shared",
+      "total_cents": 12000,
+      "v": 1
+    },
+    "quote": {
+      "add_on_errors": [],
+      "availability": {
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo ríos"
+          }
+        ],
+        "guest_count": 1,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "status": "checked"
+      },
+      "balance_due_cents": 12000,
+      "booking_names": {
+        "names": {
+          "guest_name": "Mateo Ríos",
+          "guests": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ]
+        }
+      },
+      "currency": "EUR",
+      "deposit_required_cents": 10000,
+      "full_payment_only": false,
+      "girls_room_available": false,
+      "guest_name": "Mateo Ríos",
+      "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+      "guest_safe_next_action": null,
+      "guests": [
+        {
+          "explicit_gender": "male",
+          "name": "Mateo Ríos"
+        }
+      ],
+      "included_items": [],
+      "missing_fields": [],
+      "needs_human": false,
+      "offer_revision": {
+        "add_ons": [],
+        "availability_checked": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "client_slug": "wolfhouse-somo",
+        "currency": "EUR",
+        "deposit_required_cents": 10000,
+        "gender_preference": null,
+        "guest_bed_assignments": [
+          {
+            "bed_code": "R4-B5",
+            "guest_index": 0,
+            "guest_name": "mateo ríos"
+          }
+        ],
+        "guest_count": 1,
+        "guest_packages": [],
+        "offer_fingerprint": "b4bf76e6be86c312fa0374ad83750386dd231f56ef37c801cb8a6162318c462a",
+        "offer_revision_version": 1,
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "payment_distribution": [],
+        "payment_link_amount_cents": 10000,
+        "per_guest_payment_links": false,
+        "resolved_room_claim": null,
+        "room_arrangement": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "total_cents": 12000,
+        "v": 1
+      },
+      "payment_choice": "deposit",
+      "payment_choice_needed": false,
+      "per_guest_deposits": [
+        {
+          "deposit_cents": 10000,
+          "guest_number": 1,
+          "package_code": "package_none"
+        }
+      ],
+      "per_person": [],
+      "quote_status": "ready_for_create_dry_run",
+      "remaining_after_deposit_cents": 2000,
+      "reply_draft": "For those dates, the estimated total is €120.00. The deposit is €100.00. Does that look good? 😊",
+      "room_decision": {
+        "allowed_room_preferences": [
+          "male_only",
+          "mixed",
+          "shared"
+        ],
+        "clarification_needed": false,
+        "clarification_prompt": null,
+        "conflict": null,
+        "do_not_escalate": true,
+        "excluded_room_preferences": [
+          "female_only"
+        ],
+        "needs_human": false,
+        "not_a_verified_demographic": true,
+        "provisional": false,
+        "resolved_composition": "male",
+        "threshold": 0.7
+      },
+      "staff_review_needed": false,
+      "success": true,
+      "tool": "quote_booking",
+      "total_cents": 12000,
+      "unknown_add_on_codes": []
+    },
+    "scope": {
+      "CHAT_ID": "c1",
+      "ID": "first-yes",
+      "KEY": "k1",
+      "PLATFORM": "whatsapp",
+      "SOURCE": "whatsapp",
+      "THREAD_ID": "",
+      "USER_ID": "g1",
+      "tenant": "wolfhouse-somo"
+    },
+    "seen": [
+      "q1",
+      "export-quote",
+      "export-accept"
+    ],
+    "status": "accepted",
+    "unresolved_change": false,
+    "version": 1
+  },
+  "initial_quote": {
+    "check_in": "2026-10-21",
+    "check_out": "2026-10-24",
+    "gender_preference": "male",
+    "group_gender": "male",
+    "guest_count": 1,
+    "guest_name": "Mateo",
+    "guests": [
+      {
+        "explicit_gender": "male",
+        "name": "Mateo"
+      }
+    ],
+    "package_code": "package_none",
+    "room_preference": "male_only",
+    "room_type": "shared"
+  },
+  "create_args": {
+    "check_in": "2026-10-21",
+    "check_out": "2026-10-24",
+    "confirm": true,
+    "gender_preference": "male",
+    "group_gender": "male",
+    "guest_count": 1,
+    "guest_name": "Mateo Ríos",
+    "guests": [
+      {
+        "explicit_gender": "male",
+        "name": "Mateo Ríos"
+      }
+    ],
+    "language": "en",
+    "package_code": "package_none",
+    "payment_choice": "deposit",
+    "room_preference": "male_only",
+    "room_type": "shared"
+  }
+}

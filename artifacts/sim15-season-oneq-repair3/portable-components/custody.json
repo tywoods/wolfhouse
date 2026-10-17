@@ -1,0 +1,17 @@
+{
+  "head": "32760f21018a55fc51560dc74691aac9f0754593",
+  "tree": "88e1d06798784d6eaaf9760995ba52f378227637",
+  "source": "/opt/data/workspace/sandbox-repos/WH-captain/worktrees/review-sim15-32760f21",
+  "python": "/opt/hermes/.venv/bin/python",
+  "environment": {
+    "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games",
+    "HOME": "/tmp",
+    "REVIEW_WORKTREE": "/opt/data/workspace/sandbox-repos/WH-captain/worktrees/review-sim15-32760f21",
+    "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHON_DOTENV_DISABLED": "1",
+    "PYTHONPATH": "/opt/data/workspace/sandbox-repos/WH-captain/worktrees/review-sim15-32760f21/docker/hermes-staging:/opt/data/workspace/sandbox-repos/WH-captain/worktrees/review-sim15-32760f21/docker/hermes-staging/plugins:/opt/hermes"
+  },
+  "runner_sha256": "e04b9cbe651c117f1a9a672042a3e815d61f68ab056345d5590a1f38c0b2f0d4",
+  "capture_sha256": "b1547c0e5f0d21ba339798d244a033f688c7ccd38c4641418abb533a79022750"
+}

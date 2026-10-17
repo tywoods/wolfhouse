@@ -1,0 +1,636 @@
+{
+  "verdict": "PASS",
+  "head": "32760f21018a55fc51560dc74691aac9f0754593",
+  "commands": [
+    {
+      "gate": "authority",
+      "exit": 0,
+      "command": [
+        "node",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/owner/payment-authority-probe.js"
+      ],
+      "stdout": "authority.log",
+      "stderr": "authority.stderr.log"
+    },
+    {
+      "gate": "captured-wrapper",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/owner/trace-create-boundary-successor.py"
+      ],
+      "stdout": "captured-wrapper.log",
+      "stderr": "captured-wrapper.stderr.log"
+    },
+    {
+      "gate": "captured-all-controls",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/owner/trace-create-boundary-diagnostics.py"
+      ],
+      "stdout": "captured-all-controls.log",
+      "stderr": "captured-all-controls.stderr.log"
+    },
+    {
+      "gate": "canonical-required",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/owner/canonical-owner-boundary.py"
+      ],
+      "stdout": "canonical-required.log",
+      "stderr": "canonical-required.stderr.log"
+    },
+    {
+      "gate": "owner-keep",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/owner/owner-probes.py"
+      ],
+      "stdout": "owner-keep.log",
+      "stderr": "owner-keep.stderr.log"
+    },
+    {
+      "gate": "registered-matrix",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/availability/matrix-probe.py"
+      ],
+      "stdout": "availability/matrix-head.jsonl",
+      "stderr": "registered-matrix.stderr.log"
+    },
+    {
+      "gate": "matrix-required",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/availability/check-matrix.py"
+      ],
+      "stdout": "matrix-required.log",
+      "stderr": "matrix-required.stderr.log"
+    },
+    {
+      "gate": "bounded-edges",
+      "exit": 0,
+      "command": [
+        "/opt/hermes/.venv/bin/python",
+        "/opt/data/workspace/sandbox-repos/WH-captain/artifacts/review-sim15-32760f21/portable/availability/edge-probe.py"
+      ],
+      "stdout": "availability/edge-head.jsonl",
+      "stderr": "bounded-edges.stderr.log"
+    }
+  ],
+  "checks": [
+    {
+      "requirement": "eight captured case IDs",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "requirement": "capture B1:True:bed",
+      "passed": true,
+      "detail": {
+        "success": false,
+        "tool": "create_booking_from_plan",
+        "error": "quote_owner_presented_offer_required",
+        "write_performed": false,
+        "booking_not_created_yet": true,
+        "next_action": "clarify_or_requote",
+        "staff_review_needed": false
+      }
+    },
+    {
+      "requirement": "capture B1:True:person",
+      "passed": true,
+      "detail": {
+        "success": false,
+        "tool": "create_booking_from_plan",
+        "error": "quote_owner_presented_offer_required",
+        "write_performed": false,
+        "booking_not_created_yet": true,
+        "next_action": "clarify_or_requote",
+        "staff_review_needed": false
+      }
+    },
+    {
+      "requirement": "capture B1:True:tenant",
+      "passed": true,
+      "detail": {
+        "success": false,
+        "tool": "create_booking_from_plan",
+        "error": "quote_owner_presented_offer_required",
+        "write_performed": false,
+        "booking_not_created_yet": true,
+        "next_action": "clarify_or_requote",
+        "staff_review_needed": false
+      }
+    },
+    {
+      "requirement": "capture B4:False:None",
+      "passed": true,
+      "detail": {
+        "offline_dispatch_reached": true,
+        "business_create_executed": false
+      }
+    },
+    {
+      "requirement": "capture B1:True:None",
+      "passed": true,
+      "detail": {
+        "offline_dispatch_reached": true,
+        "business_create_executed": false
+      }
+    },
+    {
+      "requirement": "capture B1:False:None",
+      "passed": true,
+      "detail": {
+        "offline_dispatch_reached": true,
+        "business_create_executed": false
+      }
+    },
+    {
+      "requirement": "capture B1:True:price",
+      "passed": true,
+      "detail": {
+        "success": false,
+        "tool": "create_booking_from_plan",
+        "error": "quote_owner_presented_offer_required",
+        "write_performed": false,
+        "booking_not_created_yet": true,
+        "next_action": "clarify_or_requote",
+        "staff_review_needed": false
+      }
+    },
+    {
+      "requirement": "capture B4:True:None",
+      "passed": true,
+      "detail": {
+        "offline_dispatch_reached": true,
+        "business_create_executed": false
+      }
+    },
+    {
+      "requirement": "51 registered matrix case IDs",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "requirement": "53 matrix requirement records",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "requirement": "matrix female canonical requested female",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"F-B1\"], \"head_room\": \"F\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"F-B1\"]}"
+    },
+    {
+      "requirement": "matrix male canonical requested male",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"M-B1\"], \"head_room\": \"M\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"M-B1\"]}"
+    },
+    {
+      "requirement": "matrix unknown requested female",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_unknown\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix male requested female conflict",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"needs_clarification\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix private female category unknown guest",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix private male category unknown guest",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix private mixed category unknown guest",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix optional private occupied sibling",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"requested_room_unavailable\", \"not_enough_available_beds\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix female canonical generic shared male ranks first",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"R5-B1\"], \"head_room\": \"R5\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"R5-B1\"]}"
+    },
+    {
+      "requirement": "matrix three explicit girls generic shared",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"R5-B1\", \"R5-B2\", \"R5-B3\"], \"head_room\": \"R5\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"R5-B1\", \"R5-B2\", \"R5-B3\"]}"
+    },
+    {
+      "requirement": "matrix partial female roster does not gender companion",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_unknown\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix mixed explicit roster rejects female dorm",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"needs_clarification\"], \"base_status\": \"available\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix no name inference explicit preference only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_unknown\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix stale hints do not override canonical female",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"F-B1\"], \"head_room\": \"F\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"F-B1\"]}"
+    },
+    {
+      "requirement": "matrix female mixed only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female mixed gendered plus mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female mixed occupied gendered plus free mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female shared only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female shared gendered plus mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female shared occupied gendered plus free mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix female omitted preference only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"unavailable\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix private female private unused sibling",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix private female private_optional unused sibling",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix female explicit gendered genuinely full",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"not_enough_available_beds\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix male mixed only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male mixed gendered plus mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male mixed occupied gendered plus free mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male shared only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male shared gendered plus mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male shared occupied gendered plus free mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\"]}"
+    },
+    {
+      "requirement": "matrix male omitted preference only mixed beds",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"unavailable\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix private male private unused sibling",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix private male private_optional unused sibling",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"P-B1\"], \"head_room\": \"P\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"P-B1\"]}"
+    },
+    {
+      "requirement": "matrix male explicit gendered genuinely full",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"not_enough_available_beds\"], \"base_status\": \"unavailable\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix unknown roster shared only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix unknown roster shared only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_unknown\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix unknown roster mixed only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix unknown roster mixed only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"needs_clarification\"], \"base_status\": \"available\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix partial roster shared only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix partial roster shared only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_unknown\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix partial roster mixed only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix partial roster mixed only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"needs_clarification\"], \"base_status\": \"available\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix mixed roster shared only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix mixed roster shared only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_policy_conflict\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix mixed roster mixed only mixed",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"X-B1\", \"X-B2\"], \"head_room\": \"X\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"X-B1\", \"X-B2\"]}"
+    },
+    {
+      "requirement": "matrix mixed roster mixed only female_only",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"eligibility_required\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"room_eligibility_policy_conflict\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix male ordinary shared female ranks first",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"Z-B1\"], \"head_room\": \"Z\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"Z-B1\"]}"
+    },
+    {
+      "requirement": "matrix female R6 one bed two occupants",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"not_enough_available_beds\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix female R6 two beds two occupants",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"available\", \"head_beds\": [\"R6-B1\", \"R6-B2\"], \"head_room\": \"R6\", \"head_blockers\": [], \"base_status\": \"available\", \"base_beds\": [\"R6-B1\", \"R6-B2\"]}"
+    },
+    {
+      "requirement": "matrix unknown genuinely empty inventory",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"not_enough_available_beds\"], \"base_status\": \"unavailable\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix private unknown room fully occupied",
+      "passed": true,
+      "detail": "{\"problems\": [], \"head_status\": \"unavailable\", \"head_beds\": [], \"head_room\": null, \"head_blockers\": [\"not_enough_available_beds\"], \"base_status\": \"eligibility_required\", \"base_beds\": []}"
+    },
+    {
+      "requirement": "matrix R6 female shared actual bed capacity: female R6 one bed two occupants",
+      "passed": true,
+      "detail": "{\"girls\": false, \"nested\": {\"girls_room_available\": false, \"private_room_available\": true}, \"baseline\": {\"girls_room_available\": false, \"private_room_available\": true}}"
+    },
+    {
+      "requirement": "matrix R6 female shared actual bed capacity: female R6 two beds two occupants",
+      "passed": true,
+      "detail": "{\"girls\": true, \"nested\": {\"girls_room_available\": true, \"private_room_available\": true}, \"baseline\": {\"girls_room_available\": true, \"private_room_available\": true}}"
+    },
+    {
+      "requirement": "28 bounded edge case IDs",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "requirement": "edge female mixed matching-only",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female mixed mixed-occupied",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female mixed mixed-insufficient",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female shared matching-only",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female shared mixed-occupied",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female shared mixed-insufficient",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female omitted preference mixed-only room_type_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female omitted preference mixed-only room_type_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private female private sibling_occupied_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private female private sibling_occupied_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private female private_optional sibling_occupied_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private female private_optional sibling_occupied_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female explicitly requests opposite category",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge female mixed roster requests gendered",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male mixed matching-only",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male mixed mixed-occupied",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male mixed mixed-insufficient",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male shared matching-only",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male shared mixed-occupied",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male shared mixed-insufficient",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male omitted preference mixed-only room_type_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male omitted preference mixed-only room_type_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private male private sibling_occupied_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private male private sibling_occupied_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private male private_optional sibling_occupied_False",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge private male private_optional sibling_occupied_True",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male explicitly requests opposite category",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "edge male mixed roster requests gendered",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "requirement": "canonical canonical-original-drop-alias",
+      "passed": true,
+      "detail": {
+        "prepared": false,
+        "required": false
+      }
+    },
+    {
+      "requirement": "canonical canonical-new-change-keep-alias",
+      "passed": true,
+      "detail": {
+        "prepared": false,
+        "required": false
+      }
+    },
+    {
+      "requirement": "canonical canonical-new-change-already-null",
+      "passed": true,
+      "detail": {
+        "prepared": false,
+        "required": false
+      }
+    },
+    {
+      "requirement": "canonical canonical-consistent-already-null",
+      "passed": true,
+      "detail": {
+        "prepared": true,
+        "required": true
+      }
+    },
+    {
+      "requirement": "source still exact and clean",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "failed_requirements": [],
+  "boundary": "offline fixtures and inert create dispatch only; not live booking proof"
+}

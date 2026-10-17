@@ -1,0 +1,1423 @@
+{
+  "schema": "sim15-offline-callback-and-message-evidence-v4",
+  "candidate_head": "d468622fde32f2d0adae17247bc8de91bb63ca88",
+  "baseline_ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+  "deterministic": true,
+  "model_generation_performed": false,
+  "historical_reproduction_claimed": false,
+  "repair3_mixed_context_diagnostic": {
+    "path": "artifacts/sim15-season-oneq-repair3/replay-receipt.json",
+    "sha256": "447f360403c5f4b7f7439062da3fcda5b6385c6ad2901cab64d4205104880d6e",
+    "label": "MIXED-CONTEXT DIAGNOSTIC ONLY; baseline SOUL with candidate plugin context"
+  },
+  "safety": {
+    "staff_network_calls": false,
+    "guest_sends": false,
+    "writes": false,
+    "deploys": false,
+    "restarts": false,
+    "other_tenants": false
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "g3_current_date_authority_pricing_unavailable",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "b018f0befa9082cd7439a55138837e1ab834b605c3c748a04140357183536f67",
+      "assembled_personality_sha256": "d2ff8ebc85ac4db02b3d3a024688d0517a09868557e285c51624b3243485c46a",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "check_availability",
+          "route": "/availability-check",
+          "payload": {
+            "client_slug": null,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "room_type": "shared"
+          },
+          "fixture_id": "inert-g3-availability",
+          "read_only": true
+        },
+        {
+          "tool": "preview_package_prices",
+          "route": "/package-price-preview",
+          "payload": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3
+          },
+          "fixture_id": "inert-g3-pricing",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property."
+          }
+        },
+        {
+          "tool": "check_availability",
+          "tool_call_id": "g3-availability",
+          "fixture_id": "inert-g3-availability",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "room_type": "shared"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "check_availability",
+            "availability_status": "available",
+            "available": true,
+            "unavailable": false,
+            "unclear": false,
+            "staff_review_needed": false,
+            "selected_bed_codes": [],
+            "selected_room_types": [],
+            "selected_room_description": null,
+            "guest_safe_room_label": null,
+            "available_beds": [],
+            "selected_room_code": null,
+            "available_count": 3,
+            "girls_room_available": null,
+            "private_room_available": null,
+            "room_options": {},
+            "warnings": [],
+            "blockers": [],
+            "next_action": "ready_for_bot_create",
+            "guest_safe_next_action": null,
+            "room_decision": null
+          }
+        },
+        {
+          "tool": "preview_package_prices",
+          "tool_call_id": "g3-pricing",
+          "fixture_id": "inert-g3-pricing",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "package_min_nights": 7,
+            "package_eligible": false,
+            "next_action": "offer_accommodation_or_change_dates",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "nights": 3,
+            "season_code": null,
+            "packages": {},
+            "malibu": null,
+            "uluwatu": null,
+            "waimea": null,
+            "staff_review_needed": false,
+            "guest_safe_next_action": null
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "g3-availability",
+              "type": "function",
+              "function": {
+                "name": "check_availability",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":3,\"room_type\":\"shared\"}"
+              }
+            },
+            {
+              "id": "g3-pricing",
+              "type": "function",
+              "function": {
+                "name": "preview_package_prices",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":3}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "tool_call_id": "g3-availability",
+          "content": "{\"success\": true, \"tool\": \"check_availability\", \"availability_status\": \"available\", \"available\": true, \"unavailable\": false, \"unclear\": false, \"staff_review_needed\": false, \"selected_bed_codes\": [], \"selected_room_types\": [], \"selected_room_description\": null, \"guest_safe_room_label\": null, \"available_beds\": [], \"selected_room_code\": null, \"available_count\": 3, \"girls_room_available\": null, \"private_room_available\": null, \"room_options\": {}, \"warnings\": [], \"blockers\": [], \"next_action\": \"ready_for_bot_create\", \"guest_safe_next_action\": null, \"room_decision\": null}"
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "tool_call_id": "g3-pricing",
+          "content": "{\"success\": false, \"tool\": \"preview_package_prices\", \"package_min_nights\": 7, \"package_eligible\": false, \"next_action\": \"offer_accommodation_or_change_dates\", \"check_in\": \"2026-11-03\", \"check_out\": \"2026-11-06\", \"guest_count\": 3, \"nights\": 3, \"season_code\": null, \"packages\": {}, \"malibu\": null, \"uluwatu\": null, \"waimea\": null, \"staff_review_needed\": false, \"guest_safe_next_action\": null}"
+        }
+      ],
+      "message_history_sha256": "6bb2710d02ef453a6bbd832a71eb322f3550543528fced67ec1dc167c4d6adef"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "holly_current_date_authority_pricing_unavailable",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "b018f0befa9082cd7439a55138837e1ab834b605c3c748a04140357183536f67",
+      "assembled_personality_sha256": "d2ff8ebc85ac4db02b3d3a024688d0517a09868557e285c51624b3243485c46a",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "check_availability",
+          "route": "/availability-check",
+          "payload": {
+            "client_slug": null,
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private"
+          },
+          "fixture_id": "inert-holly-availability",
+          "read_only": true
+        },
+        {
+          "tool": "preview_package_prices",
+          "route": "/package-price-preview",
+          "payload": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2
+          },
+          "fixture_id": "inert-holly-pricing",
+          "read_only": true
+        },
+        {
+          "tool": "lookup_catalog_service",
+          "route": "/catalog-service-lookup",
+          "payload": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          },
+          "fixture_id": "inert-holly-catalog",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property."
+          }
+        },
+        {
+          "tool": "check_availability",
+          "tool_call_id": "holly-availability",
+          "fixture_id": "inert-holly-availability",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "check_availability",
+            "availability_status": "available",
+            "available": true,
+            "unavailable": false,
+            "unclear": false,
+            "staff_review_needed": false,
+            "selected_bed_codes": [],
+            "selected_room_types": [],
+            "selected_room_description": null,
+            "guest_safe_room_label": null,
+            "available_beds": [],
+            "selected_room_code": null,
+            "available_count": 2,
+            "girls_room_available": false,
+            "private_room_available": true,
+            "room_options": {
+              "girls_room_available": false
+            },
+            "warnings": [],
+            "blockers": [],
+            "next_action": "ready_for_bot_create",
+            "guest_safe_next_action": null,
+            "room_decision": {
+              "threshold": 0.7,
+              "provisional": true,
+              "not_a_verified_demographic": true,
+              "resolved_composition": "unknown",
+              "clarification_needed": false,
+              "clarification_prompt": null,
+              "conflict": null,
+              "needs_human": false,
+              "do_not_escalate": true,
+              "allowed_room_preferences": [
+                "private",
+                "couple_private"
+              ],
+              "excluded_room_preferences": [
+                "female_only",
+                "male_only"
+              ],
+              "private_room": true
+            },
+            "needs_human": false
+          }
+        },
+        {
+          "tool": "preview_package_prices",
+          "tool_call_id": "holly-pricing",
+          "fixture_id": "inert-holly-pricing",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "package_min_nights": 7,
+            "package_eligible": false,
+            "next_action": "offer_accommodation_or_change_dates",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "nights": 3,
+            "season_code": null,
+            "packages": {},
+            "malibu": null,
+            "uluwatu": null,
+            "waimea": null,
+            "staff_review_needed": false,
+            "guest_safe_next_action": null
+          }
+        },
+        {
+          "tool": "lookup_catalog_service",
+          "tool_call_id": "holly-catalog",
+          "fixture_id": "inert-holly-catalog",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": true,
+            "service": {
+              "name": "partner surfboard rental"
+            },
+            "within_window": null,
+            "needs_date_shift": null,
+            "reply": "Board type and duration are still needed.",
+            "facts": {
+              "availability_confirmed": false,
+              "price_confirmed": false
+            },
+            "staff_review_needed": false,
+            "guest_safe_next_action": "Board type and duration are still needed."
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "holly-availability",
+              "type": "function",
+              "function": {
+                "name": "check_availability",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2,\"room_type\":\"private\"}"
+              }
+            },
+            {
+              "id": "holly-pricing",
+              "type": "function",
+              "function": {
+                "name": "preview_package_prices",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2}"
+              }
+            },
+            {
+              "id": "holly-catalog",
+              "type": "function",
+              "function": {
+                "name": "lookup_catalog_service",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2,\"message_text\":\"Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "tool_call_id": "holly-availability",
+          "content": "{\"success\": true, \"tool\": \"check_availability\", \"availability_status\": \"available\", \"available\": true, \"unavailable\": false, \"unclear\": false, \"staff_review_needed\": false, \"selected_bed_codes\": [], \"selected_room_types\": [], \"selected_room_description\": null, \"guest_safe_room_label\": null, \"available_beds\": [], \"selected_room_code\": null, \"available_count\": 2, \"girls_room_available\": false, \"private_room_available\": true, \"room_options\": {\"girls_room_available\": false}, \"warnings\": [], \"blockers\": [], \"next_action\": \"ready_for_bot_create\", \"guest_safe_next_action\": null, \"room_decision\": {\"threshold\": 0.7, \"provisional\": true, \"not_a_verified_demographic\": true, \"resolved_composition\": \"unknown\", \"clarification_needed\": false, \"clarification_prompt\": null, \"conflict\": null, \"needs_human\": false, \"do_not_escalate\": true, \"allowed_room_preferences\": [\"private\", \"couple_private\"], \"excluded_room_preferences\": [\"female_only\", \"male_only\"], \"private_room\": true}, \"needs_human\": false}"
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "tool_call_id": "holly-pricing",
+          "content": "{\"success\": false, \"tool\": \"preview_package_prices\", \"package_min_nights\": 7, \"package_eligible\": false, \"next_action\": \"offer_accommodation_or_change_dates\", \"check_in\": \"2026-11-10\", \"check_out\": \"2026-11-13\", \"guest_count\": 2, \"nights\": 3, \"season_code\": null, \"packages\": {}, \"malibu\": null, \"uluwatu\": null, \"waimea\": null, \"staff_review_needed\": false, \"guest_safe_next_action\": null}"
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "tool_call_id": "holly-catalog",
+          "content": "{\"success\": true, \"tool\": \"lookup_catalog_service\", \"matched\": true, \"service\": {\"name\": \"partner surfboard rental\"}, \"within_window\": null, \"needs_date_shift\": null, \"reply\": \"Board type and duration are still needed.\", \"facts\": {\"availability_confirmed\": false, \"price_confirmed\": false}, \"staff_review_needed\": false, \"guest_safe_next_action\": \"Board type and duration are still needed.\"}"
+        }
+      ],
+      "message_history_sha256": "a348ab7d9b143daf300845c6fc2c34a5c992092d69400d50db01edaebde061a7"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "genuine_closure",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "b018f0befa9082cd7439a55138837e1ab834b605c3c748a04140357183536f67",
+      "assembled_personality_sha256": "d2ff8ebc85ac4db02b3d3a024688d0517a09868557e285c51624b3243485c46a",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "quote_booking",
+          "route": "/booking-preview",
+          "payload": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 2,
+            "room_type": "private",
+            "package_code": "package_none",
+            "selected_bed_codes": [
+              "P1",
+              "P2"
+            ],
+            "source": "agent_luna_whatsapp"
+          },
+          "fixture_id": "inert-closed-quote",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property."
+          }
+        },
+        {
+          "tool": "quote_booking",
+          "tool_call_id": "closed-quote",
+          "fixture_id": "inert-closed-quote",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 2,
+            "room_type": "private",
+            "package_code": "package_none",
+            "selected_bed_codes": [
+              "P1",
+              "P2"
+            ]
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "quote_booking",
+            "availability": null,
+            "offer_revision": "synthetic-closed-season",
+            "quote_status": "closed_season",
+            "total_cents": null,
+            "deposit_required_cents": null,
+            "balance_due_cents": null,
+            "remaining_after_deposit_cents": null,
+            "payment_choice_needed": false,
+            "full_payment_only": false,
+            "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+            "per_person": [],
+            "per_guest_deposits": [],
+            "currency": "EUR",
+            "included_items": [],
+            "missing_fields": [],
+            "unknown_add_on_codes": [],
+            "add_on_errors": [],
+            "reply_draft": "We’re closed for those dates.",
+            "staff_review_needed": false,
+            "guest_safe_next_action": "We’re closed for those dates.",
+            "room_decision": {
+              "threshold": 0.7,
+              "provisional": true,
+              "not_a_verified_demographic": true,
+              "resolved_composition": "unknown",
+              "clarification_needed": false,
+              "clarification_prompt": null,
+              "conflict": null,
+              "needs_human": false,
+              "do_not_escalate": true,
+              "allowed_room_preferences": [
+                "mixed",
+                "shared"
+              ],
+              "excluded_room_preferences": [
+                "female_only",
+                "male_only"
+              ],
+              "private_room": true
+            },
+            "girls_room_available": false,
+            "needs_human": false
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Can Holly and Jake stay in a private room from 3–6 November 2026?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "closed-quote",
+              "type": "function",
+              "function": {
+                "name": "quote_booking",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":2,\"package_code\":\"package_none\",\"room_type\":\"private\",\"selected_bed_codes\":[\"P1\",\"P2\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "quote_booking",
+          "tool_call_id": "closed-quote",
+          "content": "{\"success\": false, \"tool\": \"quote_booking\", \"availability\": null, \"offer_revision\": \"synthetic-closed-season\", \"quote_status\": \"closed_season\", \"total_cents\": null, \"deposit_required_cents\": null, \"balance_due_cents\": null, \"remaining_after_deposit_cents\": null, \"payment_choice_needed\": false, \"full_payment_only\": false, \"guest_safe_balance_label\": \"remaining if all quoted deposits are paid (not money received)\", \"per_person\": [], \"per_guest_deposits\": [], \"currency\": \"EUR\", \"included_items\": [], \"missing_fields\": [], \"unknown_add_on_codes\": [], \"add_on_errors\": [], \"reply_draft\": \"We’re closed for those dates.\", \"staff_review_needed\": false, \"guest_safe_next_action\": \"We’re closed for those dates.\", \"room_decision\": {\"threshold\": 0.7, \"provisional\": true, \"not_a_verified_demographic\": true, \"resolved_composition\": \"unknown\", \"clarification_needed\": false, \"clarification_prompt\": null, \"conflict\": null, \"needs_human\": false, \"do_not_escalate\": true, \"allowed_room_preferences\": [\"mixed\", \"shared\"], \"excluded_room_preferences\": [\"female_only\", \"male_only\"], \"private_room\": true}, \"girls_room_available\": false, \"needs_human\": false}"
+        }
+      ],
+      "message_history_sha256": "6960eab5e5cb5709c564178794c6dcdb2f1745ea638a7b6c4a2668c99b701a9a"
+    },
+    {
+      "variant": "baseline",
+      "ref": "d1d42d5b45c42173848ac8ff29f272489cd3768f",
+      "case": "missing_date_authority",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "2514fb2679ef06e29110c6baa6bd564c249d8a7ae519137870043b1c7465480f",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "90107917a184ea7de02ab1ceec04922fbe1b1c5584f8ae31ebd35cad8ab85181"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "b018f0befa9082cd7439a55138837e1ab834b605c3c748a04140357183536f67",
+      "assembled_personality_sha256": "d2ff8ebc85ac4db02b3d3a024688d0517a09868557e285c51624b3243485c46a",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property."
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Can Holly and Jake stay in a private room from 3–6 November 2026?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\"}"
+        }
+      ],
+      "message_history_sha256": "92fe2545c8454c07d944ebadbd67f592acc5e2b0c4484625b026d101fa0c867d"
+    },
+    {
+      "variant": "candidate",
+      "ref": "d468622fde32f2d0adae17247bc8de91bb63ca88",
+      "case": "g3_current_date_authority_pricing_unavailable",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "72eb962951c752997eeb5be7d2e9e29c7ef600be9fa1c54a564fa49b9b311334",
+      "assembled_personality_sha256": "046bc60fddb85233c850e951f7c8d4b47da017d45e1032b1f55e5b293cd4ab65",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "check_availability",
+          "route": "/availability-check",
+          "payload": {
+            "client_slug": null,
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "room_type": "shared"
+          },
+          "fixture_id": "inert-g3-availability",
+          "read_only": true
+        },
+        {
+          "tool": "preview_package_prices",
+          "route": "/package-price-preview",
+          "payload": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3
+          },
+          "fixture_id": "inert-g3-pricing",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "tool": "check_availability",
+          "tool_call_id": "g3-availability",
+          "fixture_id": "inert-g3-availability",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "room_type": "shared"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "check_availability",
+            "availability_status": "available",
+            "available": true,
+            "unavailable": false,
+            "unclear": false,
+            "staff_review_needed": false,
+            "selected_bed_codes": [],
+            "selected_room_types": [],
+            "selected_room_description": null,
+            "guest_safe_room_label": null,
+            "available_beds": [],
+            "selected_room_code": null,
+            "available_count": 3,
+            "girls_room_available": null,
+            "private_room_available": null,
+            "room_options": {},
+            "warnings": [],
+            "blockers": [],
+            "next_action": "ready_for_bot_create",
+            "guest_safe_next_action": null,
+            "room_decision": null
+          }
+        },
+        {
+          "tool": "preview_package_prices",
+          "tool_call_id": "g3-pricing",
+          "fixture_id": "inert-g3-pricing",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "package_min_nights": 7,
+            "package_eligible": false,
+            "next_action": "offer_accommodation_or_change_dates",
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 3,
+            "nights": 3,
+            "season_code": null,
+            "packages": {},
+            "malibu": null,
+            "uluwatu": null,
+            "waimea": null,
+            "staff_review_needed": false,
+            "guest_safe_next_action": null
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "hi! Aisha — me + 2 friends (all women, 22-24) want 3 nights Nov 3-6 (check-in Tue 3 Nov, out Fri 6 Nov 2026). Do you have a surf+stay package, or is bed-only cheaper? Also my 16yo sister might crash one night — is that allowed?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "g3-availability",
+              "type": "function",
+              "function": {
+                "name": "check_availability",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":3,\"room_type\":\"shared\"}"
+              }
+            },
+            {
+              "id": "g3-pricing",
+              "type": "function",
+              "function": {
+                "name": "preview_package_prices",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":3}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\", \"authority_scope\": \"house_information_only\", \"booking_date_guidance\": \"General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "tool_call_id": "g3-availability",
+          "content": "{\"success\": true, \"tool\": \"check_availability\", \"availability_status\": \"available\", \"available\": true, \"unavailable\": false, \"unclear\": false, \"staff_review_needed\": false, \"selected_bed_codes\": [], \"selected_room_types\": [], \"selected_room_description\": null, \"guest_safe_room_label\": null, \"available_beds\": [], \"selected_room_code\": null, \"available_count\": 3, \"girls_room_available\": null, \"private_room_available\": null, \"room_options\": {}, \"warnings\": [], \"blockers\": [], \"next_action\": \"ready_for_bot_create\", \"guest_safe_next_action\": null, \"room_decision\": null}"
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "tool_call_id": "g3-pricing",
+          "content": "{\"success\": false, \"tool\": \"preview_package_prices\", \"package_min_nights\": 7, \"package_eligible\": false, \"next_action\": \"offer_accommodation_or_change_dates\", \"check_in\": \"2026-11-03\", \"check_out\": \"2026-11-06\", \"guest_count\": 3, \"nights\": 3, \"season_code\": null, \"packages\": {}, \"malibu\": null, \"uluwatu\": null, \"waimea\": null, \"staff_review_needed\": false, \"guest_safe_next_action\": null}"
+        }
+      ],
+      "message_history_sha256": "f71641504846dd6c75c1f9751deac6eef89e60f5bfdb6af014931f84cc9055ce"
+    },
+    {
+      "variant": "candidate",
+      "ref": "d468622fde32f2d0adae17247bc8de91bb63ca88",
+      "case": "holly_current_date_authority_pricing_unavailable",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "72eb962951c752997eeb5be7d2e9e29c7ef600be9fa1c54a564fa49b9b311334",
+      "assembled_personality_sha256": "046bc60fddb85233c850e951f7c8d4b47da017d45e1032b1f55e5b293cd4ab65",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "check_availability",
+          "route": "/availability-check",
+          "payload": {
+            "client_slug": null,
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private"
+          },
+          "fixture_id": "inert-holly-availability",
+          "read_only": true
+        },
+        {
+          "tool": "preview_package_prices",
+          "route": "/package-price-preview",
+          "payload": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2
+          },
+          "fixture_id": "inert-holly-pricing",
+          "read_only": true
+        },
+        {
+          "tool": "lookup_catalog_service",
+          "route": "/catalog-service-lookup",
+          "payload": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          },
+          "fixture_id": "inert-holly-catalog",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "tool": "check_availability",
+          "tool_call_id": "holly-availability",
+          "fixture_id": "inert-holly-availability",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "room_type": "private"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "check_availability",
+            "availability_status": "available",
+            "available": true,
+            "unavailable": false,
+            "unclear": false,
+            "staff_review_needed": false,
+            "selected_bed_codes": [],
+            "selected_room_types": [],
+            "selected_room_description": null,
+            "guest_safe_room_label": null,
+            "available_beds": [],
+            "selected_room_code": null,
+            "available_count": 2,
+            "girls_room_available": false,
+            "private_room_available": true,
+            "room_options": {
+              "girls_room_available": false
+            },
+            "warnings": [],
+            "blockers": [],
+            "next_action": "ready_for_bot_create",
+            "guest_safe_next_action": null,
+            "room_decision": {
+              "threshold": 0.7,
+              "provisional": true,
+              "not_a_verified_demographic": true,
+              "resolved_composition": "unknown",
+              "clarification_needed": false,
+              "clarification_prompt": null,
+              "conflict": null,
+              "needs_human": false,
+              "do_not_escalate": true,
+              "allowed_room_preferences": [
+                "private",
+                "couple_private"
+              ],
+              "excluded_room_preferences": [
+                "female_only",
+                "male_only"
+              ],
+              "private_room": true
+            },
+            "needs_human": false
+          }
+        },
+        {
+          "tool": "preview_package_prices",
+          "tool_call_id": "holly-pricing",
+          "fixture_id": "inert-holly-pricing",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "preview_package_prices",
+            "package_min_nights": 7,
+            "package_eligible": false,
+            "next_action": "offer_accommodation_or_change_dates",
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "nights": 3,
+            "season_code": null,
+            "packages": {},
+            "malibu": null,
+            "uluwatu": null,
+            "waimea": null,
+            "staff_review_needed": false,
+            "guest_safe_next_action": null
+          }
+        },
+        {
+          "tool": "lookup_catalog_service",
+          "tool_call_id": "holly-catalog",
+          "fixture_id": "inert-holly-catalog",
+          "params": {
+            "check_in": "2026-11-10",
+            "check_out": "2026-11-13",
+            "guest_count": 2,
+            "message_text": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+          },
+          "actual_callback_output": {
+            "success": true,
+            "tool": "lookup_catalog_service",
+            "matched": true,
+            "service": {
+              "name": "partner surfboard rental"
+            },
+            "within_window": null,
+            "needs_date_shift": null,
+            "reply": "Board type and duration are still needed.",
+            "facts": {
+              "availability_confirmed": false,
+              "price_confirmed": false
+            },
+            "staff_review_needed": false,
+            "guest_safe_next_action": "Board type and duration are still needed."
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "holly-availability",
+              "type": "function",
+              "function": {
+                "name": "check_availability",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2,\"room_type\":\"private\"}"
+              }
+            },
+            {
+              "id": "holly-pricing",
+              "type": "function",
+              "function": {
+                "name": "preview_package_prices",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2}"
+              }
+            },
+            {
+              "id": "holly-catalog",
+              "type": "function",
+              "function": {
+                "name": "lookup_catalog_service",
+                "arguments": "{\"check_in\":\"2026-11-10\",\"check_out\":\"2026-11-13\",\"guest_count\":2,\"message_text\":\"Hiya — Holly & Jake from Bristol (a couple, she/he). Private room if you have one, Nov 10-13 (3 nights). Can we rent boards there, what's parking like?\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\", \"authority_scope\": \"house_information_only\", \"booking_date_guidance\": \"General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "check_availability",
+          "tool_call_id": "holly-availability",
+          "content": "{\"success\": true, \"tool\": \"check_availability\", \"availability_status\": \"available\", \"available\": true, \"unavailable\": false, \"unclear\": false, \"staff_review_needed\": false, \"selected_bed_codes\": [], \"selected_room_types\": [], \"selected_room_description\": null, \"guest_safe_room_label\": null, \"available_beds\": [], \"selected_room_code\": null, \"available_count\": 2, \"girls_room_available\": false, \"private_room_available\": true, \"room_options\": {\"girls_room_available\": false}, \"warnings\": [], \"blockers\": [], \"next_action\": \"ready_for_bot_create\", \"guest_safe_next_action\": null, \"room_decision\": {\"threshold\": 0.7, \"provisional\": true, \"not_a_verified_demographic\": true, \"resolved_composition\": \"unknown\", \"clarification_needed\": false, \"clarification_prompt\": null, \"conflict\": null, \"needs_human\": false, \"do_not_escalate\": true, \"allowed_room_preferences\": [\"private\", \"couple_private\"], \"excluded_room_preferences\": [\"female_only\", \"male_only\"], \"private_room\": true}, \"needs_human\": false}"
+        },
+        {
+          "role": "tool",
+          "name": "preview_package_prices",
+          "tool_call_id": "holly-pricing",
+          "content": "{\"success\": false, \"tool\": \"preview_package_prices\", \"package_min_nights\": 7, \"package_eligible\": false, \"next_action\": \"offer_accommodation_or_change_dates\", \"check_in\": \"2026-11-10\", \"check_out\": \"2026-11-13\", \"guest_count\": 2, \"nights\": 3, \"season_code\": null, \"packages\": {}, \"malibu\": null, \"uluwatu\": null, \"waimea\": null, \"staff_review_needed\": false, \"guest_safe_next_action\": null}"
+        },
+        {
+          "role": "tool",
+          "name": "lookup_catalog_service",
+          "tool_call_id": "holly-catalog",
+          "content": "{\"success\": true, \"tool\": \"lookup_catalog_service\", \"matched\": true, \"service\": {\"name\": \"partner surfboard rental\"}, \"within_window\": null, \"needs_date_shift\": null, \"reply\": \"Board type and duration are still needed.\", \"facts\": {\"availability_confirmed\": false, \"price_confirmed\": false}, \"staff_review_needed\": false, \"guest_safe_next_action\": \"Board type and duration are still needed.\"}"
+        }
+      ],
+      "message_history_sha256": "588c15e8ceeed91f4c4d65bca2b5871632c0f9503bce9335985676b57da7252e"
+    },
+    {
+      "variant": "candidate",
+      "ref": "d468622fde32f2d0adae17247bc8de91bb63ca88",
+      "case": "genuine_closure",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "72eb962951c752997eeb5be7d2e9e29c7ef600be9fa1c54a564fa49b9b311334",
+      "assembled_personality_sha256": "046bc60fddb85233c850e951f7c8d4b47da017d45e1032b1f55e5b293cd4ab65",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        },
+        {
+          "tool": "quote_booking",
+          "route": "/booking-preview",
+          "payload": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 2,
+            "room_type": "private",
+            "package_code": "package_none",
+            "selected_bed_codes": [
+              "P1",
+              "P2"
+            ],
+            "source": "agent_luna_whatsapp"
+          },
+          "fixture_id": "inert-closed-quote",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        },
+        {
+          "tool": "quote_booking",
+          "tool_call_id": "closed-quote",
+          "fixture_id": "inert-closed-quote",
+          "params": {
+            "check_in": "2026-11-03",
+            "check_out": "2026-11-06",
+            "guest_count": 2,
+            "room_type": "private",
+            "package_code": "package_none",
+            "selected_bed_codes": [
+              "P1",
+              "P2"
+            ]
+          },
+          "actual_callback_output": {
+            "success": false,
+            "tool": "quote_booking",
+            "availability": null,
+            "offer_revision": "synthetic-closed-season",
+            "quote_status": "closed_season",
+            "total_cents": null,
+            "deposit_required_cents": null,
+            "balance_due_cents": null,
+            "remaining_after_deposit_cents": null,
+            "payment_choice_needed": false,
+            "full_payment_only": false,
+            "guest_safe_balance_label": "remaining if all quoted deposits are paid (not money received)",
+            "per_person": [],
+            "per_guest_deposits": [],
+            "currency": "EUR",
+            "included_items": [],
+            "missing_fields": [],
+            "unknown_add_on_codes": [],
+            "add_on_errors": [],
+            "reply_draft": "We’re closed for those dates.",
+            "staff_review_needed": false,
+            "guest_safe_next_action": "We’re closed for those dates.",
+            "room_decision": {
+              "threshold": 0.7,
+              "provisional": true,
+              "not_a_verified_demographic": true,
+              "resolved_composition": "unknown",
+              "clarification_needed": false,
+              "clarification_prompt": null,
+              "conflict": null,
+              "needs_human": false,
+              "do_not_escalate": true,
+              "allowed_room_preferences": [
+                "mixed",
+                "shared"
+              ],
+              "excluded_room_preferences": [
+                "female_only",
+                "male_only"
+              ],
+              "private_room": true
+            },
+            "girls_room_available": false,
+            "needs_human": false
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Can Holly and Jake stay in a private room from 3–6 November 2026?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            },
+            {
+              "id": "closed-quote",
+              "type": "function",
+              "function": {
+                "name": "quote_booking",
+                "arguments": "{\"check_in\":\"2026-11-03\",\"check_out\":\"2026-11-06\",\"guest_count\":2,\"package_code\":\"package_none\",\"room_type\":\"private\",\"selected_bed_codes\":[\"P1\",\"P2\"]}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\", \"authority_scope\": \"house_information_only\", \"booking_date_guidance\": \"General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain.\"}"
+        },
+        {
+          "role": "tool",
+          "name": "quote_booking",
+          "tool_call_id": "closed-quote",
+          "content": "{\"success\": false, \"tool\": \"quote_booking\", \"availability\": null, \"offer_revision\": \"synthetic-closed-season\", \"quote_status\": \"closed_season\", \"total_cents\": null, \"deposit_required_cents\": null, \"balance_due_cents\": null, \"remaining_after_deposit_cents\": null, \"payment_choice_needed\": false, \"full_payment_only\": false, \"guest_safe_balance_label\": \"remaining if all quoted deposits are paid (not money received)\", \"per_person\": [], \"per_guest_deposits\": [], \"currency\": \"EUR\", \"included_items\": [], \"missing_fields\": [], \"unknown_add_on_codes\": [], \"add_on_errors\": [], \"reply_draft\": \"We’re closed for those dates.\", \"staff_review_needed\": false, \"guest_safe_next_action\": \"We’re closed for those dates.\", \"room_decision\": {\"threshold\": 0.7, \"provisional\": true, \"not_a_verified_demographic\": true, \"resolved_composition\": \"unknown\", \"clarification_needed\": false, \"clarification_prompt\": null, \"conflict\": null, \"needs_human\": false, \"do_not_escalate\": true, \"allowed_room_preferences\": [\"mixed\", \"shared\"], \"excluded_room_preferences\": [\"female_only\", \"male_only\"], \"private_room\": true}, \"girls_room_available\": false, \"needs_human\": false}"
+        }
+      ],
+      "message_history_sha256": "b5699b99637edaec86357cd2b6d94f5b2c24f38d6e2da4a60daf739558d0f2b6"
+    },
+    {
+      "variant": "candidate",
+      "ref": "d468622fde32f2d0adae17247bc8de91bb63ca88",
+      "case": "missing_date_authority",
+      "consumed_module_paths": {
+        "plugin": "<isolated-tree>/docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py",
+        "personality": "<isolated-tree>/docker/hermes-staging/wolfhouse/luna_personality.py",
+        "soul": "<isolated-tree>/docker/hermes-staging/SOUL.md"
+      },
+      "consumed_module_sha256": {
+        "plugin": "010d95f29bb306d840336f78f86c48c97f25812f9cb9a5abf105dcd447c20467",
+        "personality": "d07e77179b88f08724150f756a70ae6405195db4fe6953be6bf3d32b4713e22a",
+        "soul": "d01c90c3115ea52289e6b06729eef2a117303e5fbccd5952b60a77f1898e0dd1"
+      },
+      "descriptions": {
+        "get_house_info": "Read owner-written General Notes first in this turn for any possibly property/house question, before answering or public research, even if you think you know the answer: wifi, parking, pets, smoking, quiet hours, towels, kitchen, laundry, check-in/check-out rules, facilities, how the stay works. Answer covered details from returned notes, never invent house facts. General Notes are house information only: stale season prose must not add an opening caveat or veto dates approved by current pricing/date results; preserve a genuine quote_booking closed_season refusal and honest uncertainty when pricing/date authority is missing. Answer what is known, then ask only one necessary next question. Only a successful lookup with an uncovered public part (including empty notes) permits search/read with Staff Luna Intelligence ON. Failed notes are not proof of an uncovered topic; missing or failed notes alone do not justify handoff or a team-follow-up promise. Booking prices, availability and payments remain Staff tools only.",
+        "check_availability": "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender on availability. Resolve any needed room/composition choice before quote/payment, never after payment intent.",
+        "preview_package_prices": "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.",
+        "quote_booking": "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).",
+        "lookup_catalog_service": "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, eligibility is unknown from this lookup; do not claim no such experience exists."
+      },
+      "descriptions_sha256": "72eb962951c752997eeb5be7d2e9e29c7ef600be9fa1c54a564fa49b9b311334",
+      "assembled_personality_sha256": "046bc60fddb85233c850e951f7c8d4b47da017d45e1032b1f55e5b293cd4ab65",
+      "callback_events": [
+        {
+          "tool": "get_house_info",
+          "route": "/house-info",
+          "payload": {},
+          "fixture_id": "inert-house",
+          "read_only": true
+        }
+      ],
+      "actual_callback_outputs": [
+        {
+          "tool": "get_house_info",
+          "tool_call_id": "house",
+          "fixture_id": "inert-house",
+          "params": {},
+          "actual_callback_output": {
+            "success": true,
+            "tool": "get_house_info",
+            "has_notes": true,
+            "notes": "Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.",
+            "authority_scope": "house_information_only",
+            "booking_date_guidance": "General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain."
+          }
+        }
+      ],
+      "message_history": [
+        {
+          "role": "user",
+          "content": "Can Holly and Jake stay in a private room from 3–6 November 2026?"
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "house",
+              "type": "function",
+              "function": {
+                "name": "get_house_info",
+                "arguments": "{}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "name": "get_house_info",
+          "tool_call_id": "house",
+          "content": "{\"success\": true, \"tool\": \"get_house_info\", \"has_notes\": true, \"notes\": \"Season normally runs Easter through Halloween. Guests aged 16 may stay without a parent, but every overnight guest needs a booked available bed. Free parking is inside the property.\", \"authority_scope\": \"house_information_only\", \"booking_date_guidance\": \"General Notes are not booking-date authority. Use current pricing/date results for opening dates: Staff-approved dates proceed without a season caveat; a quote_booking closed_season result still refuses; missing pricing/date authority stays uncertain.\"}"
+        }
+      ],
+      "message_history_sha256": "fe95116f1bf5b6d40961db57397af5db16d84e0455d897685fa09a597ff6c8e7"
+    }
+  ]
+}
