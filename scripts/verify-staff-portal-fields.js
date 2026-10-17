@@ -193,6 +193,57 @@ function assertFileHasNoSecret(file, label) {
   check('female_only flexible matches eligibility', flexibleFemale.status === 200 && flexibleFemale.body.catalogue[0].whoCanBook === 'women_only');
   await db.query("UPDATE rooms SET room_type='mixed', gender_strategy='Flexible' WHERE id=$1", [ROOM]);
 
+  // Legacy private fallback must use stored room capacity, not the sellable-bed count.
+  const { resolveRoomCategory, buildAllocatorRoomsFromBedRows } = require('./lib/luna-bed-allocator');
+  await db.query(
+    "UPDATE rooms SET room_type='legacy_private', gender_strategy='Female preferred', capacity=4, can_be_matrimonial=false, often_used_by_operator=false WHERE id=$1",
+    [ROOM],
+  );
+  for (let n = 2; n <= 4; n += 1) {
+    await db.query(
+      'INSERT INTO beds(id, client_id, room_id, bed_code, bed_number) VALUES ($1,$2,$3,$4,$5)',
+      ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb' + n, CLIENT, ROOM, 'R1-B' + n, n],
+    );
+  }
+  async function capacityWitness(label, sellableCount) {
+    const loaded = await dispatch({ method: 'GET', path: '/staff/luna-intelligence/room-fill' });
+    const raw = await db.query(
+      `SELECT r.room_code, r.room_type, r.gender_strategy, r.capacity, r.can_be_matrimonial,
+              r.often_used_by_operator, b.bed_code, b.active AS bed_active, b.sellable AS bed_sellable
+         FROM rooms r JOIN beds b ON b.room_id = r.id WHERE r.id=$1`,
+      [ROOM],
+    );
+    const built = buildAllocatorRoomsFromBedRows(raw.rows, new Set(), null);
+    const allocatorCategory = resolveRoomCategory(built[0]);
+    const room = loaded.body && loaded.body.catalogue && loaded.body.catalogue[0];
+    const stored = await db.query('SELECT capacity FROM rooms WHERE id=$1', [ROOM]);
+    check(label + ' who can book stays women only',
+      loaded.status === 200
+      && allocatorCategory === 'female_only'
+      && room && room.whoCanBook === 'women_only'
+      && room.capacity === sellableCount
+      && Number(stored.rows[0].capacity) === 4
+      && built[0].capacity === 4
+      && built[0].beds.length === sellableCount);
+  }
+  await capacityWitness('four sellable legacy private', 4);
+  await db.query('UPDATE beds SET sellable=false WHERE room_id=$1 AND bed_number > 2', [ROOM]);
+  const unchanged = await db.query(
+    'SELECT room_type, gender_strategy, capacity FROM rooms WHERE id=$1',
+    [ROOM],
+  );
+  check('unsellable mark does not change room metadata',
+    unchanged.rows[0].room_type === 'legacy_private'
+    && unchanged.rows[0].gender_strategy === 'Female preferred'
+    && Number(unchanged.rows[0].capacity) === 4);
+  await capacityWitness('two sellable legacy private', 2);
+  await db.query('DELETE FROM beds WHERE room_id=$1 AND bed_number > 1', [ROOM]);
+  await db.query('UPDATE beds SET sellable=true WHERE room_id=$1', [ROOM]);
+  await db.query(
+    "UPDATE rooms SET room_type='mixed', gender_strategy='Flexible', capacity=4, can_be_matrimonial=false, often_used_by_operator=false WHERE id=$1",
+    [ROOM],
+  );
+
   const fieldsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-staff-portal-fields-ui.js'), 'utf8');
   const roomUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/staff-room-fill.js'), 'utf8');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Staff fields</title></head><body>
