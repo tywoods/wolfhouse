@@ -88,6 +88,7 @@
       '#staff-room-fill .rf-deleted{margin-top:12px}',
       '@media(max-width:540px){#staff-room-fill .rf-delete-cell{margin-left:auto}}',
       '#staff-room-fill .rf-gender-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;font-size:13px}',
+      '#staff-room-fill .rf-who-label{flex:1 1 100%;font-size:12px;font-weight:650;line-height:1.2}',
       '#staff-room-fill .rf-gender-edit select{width:auto;max-width:100%;padding:5px 8px;min-height:32px}',
       '#staff-room-fill .rf-gender-status{flex-basis:100%;font-size:12px}',
       '@media(pointer:coarse),(max-width:540px){#staff-room-fill .rf-gender-edit select{min-height:44px}}',
@@ -117,6 +118,7 @@
       '#staff-room-fill .rf-delete-cell{grid-area:delete;margin-left:12px;flex:0 0 36px}',
       '#staff-room-fill .rf-delete{width:36px;height:36px;min-width:36px;min-height:36px}',
       '#staff-room-fill .rf-gender-edit{grid-area:gender;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:6px;min-width:0}',
+      '#staff-room-fill .rf-who-label{grid-column:1 / -1}',
       '#staff-room-fill .rf-gender-edit select{width:100%;min-width:0;max-width:100%;min-height:36px;padding:4px 6px;font-size:13px}',
       '#staff-room-fill .rf-gender-edit button{min-width:36px;min-height:36px;height:36px;padding:0 8px;font-size:12px}',
       '#staff-room-fill .rf-gender-edit:not(.rf-gender-dirty)>button{display:none}',
@@ -591,8 +593,12 @@
     }
     var select = document.createElement('select');
     select.id = 'rf-gender-' + id;
-    select.setAttribute('aria-label', 'Gender for ' + labelFor(room));
-    [['', 'Choose gender'], ['female', 'Female'], ['male', 'Male'], ['mixed', 'Mixed']].forEach(function (pair) {
+    select.setAttribute('aria-label', 'Who can book for ' + labelFor(room));
+    var who = document.createElement('span');
+    who.className = 'rf-who-label';
+    who.textContent = 'Who can book';
+    wrap.insertBefore(who, wrap.firstChild);
+    [['', 'Choose'], ['female', 'Women only'], ['male', 'Men only'], ['mixed', 'Anyone']].forEach(function (pair) {
       var opt = document.createElement('option'); opt.value = pair[0]; opt.textContent = pair[1];
       opt.disabled = !pair[0]; select.appendChild(opt);
     });

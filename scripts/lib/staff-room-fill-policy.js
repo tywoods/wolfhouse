@@ -151,6 +151,12 @@ function genderLabelFromStrategy(value) {
   return roomGenderPresentation({ roomType: '', genderStrategy: value }).genderLabel;
 }
 
+function whoCanBookToken(label) {
+  if (label === 'Female') return 'women_only';
+  if (label === 'Male') return 'men_only';
+  return 'anyone';
+}
+
 function roomGenderEditable(room) {
   return !!room;
 }
@@ -170,6 +176,7 @@ function projectRoom(room, rank) {
     numericLabel: room.roomNumber == null ? 'No numeric room number' : null,
     genderStrategy: room.genderStrategy || '',
     genderLabel: roomGenderPresentation(room).genderLabel,
+    whoCanBook: whoCanBookToken(roomGenderPresentation(room).genderLabel),
     genderReview: roomGenderPresentation(room).reviewLabel,
     genderEditable: roomGenderEditable(room),
     sellingMode: room.sellingMode || (restrictionLabel(room) || room.roomType === 'matrimonial_or_mixed' ? 'private' : 'shared'),
@@ -367,6 +374,7 @@ module.exports = {
   displayLabel,
   genderLabelFromStrategy,
   roomGenderPresentation,
+  whoCanBookToken,
   roomGenderEditable,
   numericRoomOrder,
   parseStoredPolicy,
