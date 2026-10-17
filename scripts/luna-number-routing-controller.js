@@ -50,10 +50,11 @@ function hostPatternMatches(pattern, expectedSite) {
   return new RegExp(`^${escaped}$`, 'i').test(expectedSite);
 }
 function pathPatternMatches(pattern, requestPath) {
-  if (pattern === requestPath) return true;
-  if (typeof pattern !== 'string' || !pattern.includes('*')) return false;
+  if (typeof pattern !== 'string' || pattern.includes('{') || pattern.includes('}')) return true;
+  if (pattern.toLowerCase() === requestPath.toLowerCase()) return true;
+  if (!pattern.includes('*')) return false;
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
-  return new RegExp(`^${escaped}$`).test(requestPath);
+  return new RegExp(`^${escaped}$`, 'i').test(requestPath);
 }
 function routeCanPrecedeWebhook(route, expectedSite) {
   if (!route || !Array.isArray(route.handle) || route.handle.length === 0) return false;
