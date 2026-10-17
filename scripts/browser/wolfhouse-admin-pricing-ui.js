@@ -34,6 +34,7 @@
     notice: null,
     editing: null,
     seasonDraft: null,
+    packageDraft: null,
     openSections: Object.create(null),
     actionSection: null,
   };
@@ -53,6 +54,7 @@
     state.view = null;
     state.editing = null;
     state.seasonDraft = null;
+    state.packageDraft = null;
     state.error = null;
     state.notice = null;
     state.loading = false;
@@ -281,11 +283,107 @@
   function packageMetaFromForm() {
     var days = parseInt(inputValue('wh-price-item-min-days'), 10);
     if (!Number.isFinite(days) || days < 1) days = 7;
+    var includes = [];
+    var rawLines = readIncludeLines();
+    for (var i = 0; i < rawLines.length; i++) {
+      var line = String(rawLines[i] || '').trim();
+      if (line) includes.push(line);
+    }
     return {
       pebble: inputValue('wh-price-item-pebble') || 'stone',
       min_days: days,
       allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      includes: includes,
     };
+  }
+
+  function packageDescriptionFromForm() {
+    var el = node('wh-price-item-description');
+    if (!el) return null;
+    var text = String(el.value == null ? '' : el.value).trim();
+    return text || null;
+  }
+
+  function packageIncludesList(pkg) {
+    if (!pkg) return [];
+    var raw = Array.isArray(pkg.includes)
+      ? pkg.includes
+      : (pkg.metadata && Array.isArray(pkg.metadata.includes) ? pkg.metadata.includes : []);
+    var out = [];
+    for (var i = 0; i < raw.length; i++) out.push(String(raw[i] == null ? '' : raw[i]));
+    return out;
+  }
+
+  function packageDraftFor(key) {
+    return state.packageDraft && state.packageDraft.key === key ? state.packageDraft : null;
+  }
+
+  function packageCopyStyles() {
+    return '<style>'
+      + '#wh-admin-pricing-body .wh-price-copy-field{grid-column:1 / -1}'
+      + '#wh-admin-pricing-body .wh-price-include-row{display:flex;align-items:center;gap:6px;margin:0 0 6px}'
+      + '#wh-admin-pricing-body .wh-price-include-row input{flex:1 1 auto;width:auto;max-width:none}'
+      + '#wh-admin-pricing-body .wh-price-include-actions{display:flex;gap:4px;flex:0 0 auto}'
+      + '#wh-admin-pricing-body .wh-price-copy-field textarea{width:100%;max-width:none;min-height:88px;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font:inherit;background:var(--surface);color:var(--text)}'
+      + '#wh-admin-pricing-body .wh-price-copy-preview{margin:4px 0 0}'
+      + '</style>';
+  }
+
+  function packageCopyFieldsHtml(source) {
+    var lines = packageIncludesList(source);
+    if (!lines.length) lines = [''];
+    var rows = '';
+    for (var i = 0; i < lines.length && i < 24; i++) {
+      rows += '<div class="wh-price-include-row">'
+        + '<input type="text" id="wh-price-include-' + i + '" data-wh-include-line maxlength="160" value="'
+        + whEsc(lines[i]) + '" aria-label="'
+        + whEsc(whT('admin.wh.pricing.includeLine', 'Included item')) + '">'
+        + '<span class="wh-price-include-actions">'
+        + actionBtn('move-include', '↑',
+          ' data-wh-include-index="' + i + '" data-wh-include-dir="up" aria-label="'
+          + whEsc(whT('admin.wh.pricing.moveIncludeUp', 'Move up')) + '"')
+        + actionBtn('move-include', '↓',
+          ' data-wh-include-index="' + i + '" data-wh-include-dir="down" aria-label="'
+          + whEsc(whT('admin.wh.pricing.moveIncludeDown', 'Move down')) + '"')
+        + actionBtn('remove-include', '×',
+          ' data-wh-include-index="' + i + '" aria-label="'
+          + whEsc(whT('admin.wh.pricing.removeInclude', 'Remove')) + '"',
+          'btn-ghost portal-admin-danger')
+        + '</span></div>';
+    }
+    var description = source && source.description != null ? String(source.description) : '';
+    return '<div class="portal-admin-edit-field wh-price-copy-field">'
+      + '<span class="portal-admin-field-label">'
+      + whEsc(whT('admin.wh.pricing.includes', 'Includes')) + '</span>'
+      + '<p class="portal-admin-section-note">'
+      + whEsc(whT('admin.wh.pricing.includesNote', 'What this package comes with. One line each.'))
+      + '</p>'
+      + '<div id="wh-price-item-includes">' + rows + '</div>'
+      + (lines.length < 24
+        ? actionBtn('add-include', '+ ' + whT('admin.wh.pricing.addInclude', 'Add line'))
+        : '')
+      + '</div>'
+      + '<div class="portal-admin-edit-field wh-price-copy-field">'
+      + '<label for="wh-price-item-description">'
+      + whEsc(whT('admin.wh.pricing.description', 'Description')) + '</label>'
+      + '<p class="portal-admin-section-note">'
+      + whEsc(whT('admin.wh.pricing.descriptionNote',
+        'Anything Luna should know about this package.'))
+      + '</p>'
+      + '<textarea id="wh-price-item-description" maxlength="2000" rows="4">'
+      + whEsc(description) + '</textarea>'
+      + '</div>';
+  }
+
+  function packageCopyPreviewHtml(pkg) {
+    var lines = packageIncludesList(pkg).filter(function (line) {
+      return String(line || '').trim();
+    });
+    var description = pkg && pkg.description != null ? String(pkg.description).trim() : '';
+    if (!lines.length && !description) return '';
+    var text = lines.join(' · ');
+    if (description) text = text ? (text + ' — ' + description) : description;
+    return '<p class="portal-admin-price-meta wh-price-copy-preview">' + whEsc(text) + '</p>';
   }
 
   function catalogTitleActions(itemType, entry) {
@@ -435,7 +533,7 @@
 
   function renderPackagesSection() {
     var packages = state.view.packages || [];
-    var html = '';
+    var html = packageCopyStyles();
     if (isEditing('item:package:__new__')) html += renderNewItemForm('package');
 
     if (!packages.length && !isEditing('item:package:__new__')) {
@@ -448,13 +546,19 @@
       var pkgEditKey = 'item:package:' + p.code;
       html += '<div class="portal-admin-subsection">';
       if (isEditing(pkgEditKey)) {
+        var draft = packageDraftFor(pkgEditKey);
+        var shown = draft || p;
+        var shownLabel = draft && draft.label != null
+          ? draft.label
+          : (p.label || humanize(p.code));
         html += '<div class="portal-admin-edit-form">'
           + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
           + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
           + '<input type="text" id="wh-price-item-label" maxlength="120" value="'
-          + whEsc(p.label || humanize(p.code)) + '"></div>'
-          + pebbleDropdownHtml(p.pebble)
-          + packageStayFieldsHtml(p)
+          + whEsc(shownLabel) + '"></div>'
+          + pebbleDropdownHtml(shown.pebble)
+          + packageStayFieldsHtml(shown)
+          + packageCopyFieldsHtml(shown)
           + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"',
             p.source === 'db' ? deleteItemBtn('package', p.code) : '')
           + '</div>';
@@ -472,7 +576,8 @@
           + '</span>'
           + '</div>'
           + catalogTitleActions('package', p)
-          + '</div>';
+          + '</div>'
+          + packageCopyPreviewHtml(p);
       }
       html += '<div class="portal-admin-card-grid">';
 
@@ -539,6 +644,7 @@
     // A package carries one price per season, so it is created empty and priced
     // from the season cards it gains — there is no single amount to ask for here.
     var isPackage = itemType === 'package';
+    var packageDraft = isPackage ? packageDraftFor('item:package:__new__') : null;
     var namePh = itemType === 'package' ? 'Malibu' : (itemType === 'rental' ? 'Longboard' : 'Yoga class');
     var unitOptions = itemType === 'rental'
       ? ['per_day', 'per_stay', 'flat']
@@ -552,10 +658,15 @@
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
       + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
       + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
-      + whEsc(namePh) + '"></div>'
+      + whEsc(namePh) + '"'
+      + (packageDraft && packageDraft.label != null
+        ? ' value="' + whEsc(packageDraft.label) + '"'
+        : '')
+      + '></div>'
       + (isPackage
-        ? pebbleDropdownHtml()
-          + packageStayFieldsHtml(null)
+        ? pebbleDropdownHtml(packageDraft && packageDraft.pebble)
+          + packageStayFieldsHtml(packageDraft)
+          + packageCopyFieldsHtml(packageDraft || {})
           + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
             'Set a weekly price for each season once the package is created.')) + '</p>'
@@ -1088,6 +1199,7 @@
         state.view = r.data;
         state.editing = null;
         state.seasonDraft = null;
+        state.packageDraft = null;
         state.notice = successMsg || whT('admin.wh.pricing.saved', 'Saved.');
       } else {
         state.error = (r.data && (r.data.message || r.data.error))
@@ -1150,6 +1262,41 @@
     return out;
   }
 
+  function readIncludeLines() {
+    var wrap = node('wh-price-item-includes');
+    if (!wrap || !wrap.querySelectorAll) return [];
+    var inputs = wrap.querySelectorAll('[data-wh-include-line]');
+    var out = [];
+    for (var i = 0; i < inputs.length; i++) {
+      out.push(String(inputs[i].value == null ? '' : inputs[i].value));
+    }
+    return out;
+  }
+
+  function readPackageForm() {
+    var days = parseInt(inputValue('wh-price-item-min-days'), 10);
+    if (!Number.isFinite(days) || days < 1) days = 7;
+    var descEl = node('wh-price-item-description');
+    return {
+      label: inputValue('wh-price-item-label'),
+      pebble: inputValue('wh-price-item-pebble') || 'stone',
+      min_days: days,
+      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+      description: descEl ? String(descEl.value == null ? '' : descEl.value) : '',
+      includes: readIncludeLines(),
+    };
+  }
+
+  function mutatePackageDraft(mutate) {
+    var key = state.editing;
+    if (!key || String(key).indexOf('item:package:') !== 0) return;
+    var draft = readPackageForm();
+    draft.key = key;
+    mutate(draft);
+    state.packageDraft = draft;
+    render();
+  }
+
   function seasonByCode(code) {
     var seasons = (state.view && state.view.seasons) || [];
     for (var i = 0; i < seasons.length; i++) {
@@ -1200,6 +1347,7 @@
     cancel: function () {
       state.editing = null;
       state.seasonDraft = null;
+      state.packageDraft = null;
       state.error = null;
       render();
     },
@@ -1260,8 +1408,33 @@
       render();
     },
     'edit-package': function (btn) {
+      state.packageDraft = null;
       state.editing = 'item:package:' + btn.getAttribute('data-wh-item-code');
       render();
+    },
+    'add-include': function () {
+      mutatePackageDraft(function (draft) {
+        if (draft.includes.length >= 24) return;
+        draft.includes.push('');
+      });
+    },
+    'remove-include': function (btn) {
+      var index = Number(btn.getAttribute('data-wh-include-index'));
+      mutatePackageDraft(function (draft) {
+        if (index >= 0 && index < draft.includes.length) draft.includes.splice(index, 1);
+        if (!draft.includes.length) draft.includes.push('');
+      });
+    },
+    'move-include': function (btn) {
+      var index = Number(btn.getAttribute('data-wh-include-index'));
+      var dir = btn.getAttribute('data-wh-include-dir');
+      mutatePackageDraft(function (draft) {
+        var next = dir === 'up' ? index - 1 : index + 1;
+        if (next < 0 || next >= draft.includes.length) return;
+        var tmp = draft.includes[index];
+        draft.includes[index] = draft.includes[next];
+        draft.includes[next] = tmp;
+      });
     },
     'toggle-pebble-dd': function (btn) {
       var wrap = btn.closest ? btn.closest('.wh-price-pebble-dd') : null;
@@ -1286,10 +1459,11 @@
       wrap.classList.remove('is-open');
     },
     'save-package-item': function (btn) {
-      commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
+      return commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
         item_type: 'package',
         item_code: btn.getAttribute('data-wh-item-code'),
         label: inputValue('wh-price-item-label'),
+        description: packageDescriptionFromForm(),
         metadata: packageMetaFromForm(),
       });
     },
@@ -1360,6 +1534,7 @@
     },
 
     'new-item': function (btn) {
+      state.packageDraft = null;
       state.editing = 'item:' + btn.getAttribute('data-wh-item-type') + ':__new__';
       render();
     },
@@ -1431,6 +1606,7 @@
             item_type: 'package',
             item_code: code,
             label: label,
+            description: packageDescriptionFromForm(),
             metadata: packageMetaFromForm(),
           },
           whT('admin.wh.pricing.packageCreated',
@@ -1624,4 +1800,13 @@
   window.loadWolfhouseAdminPricing = loadWolfhouseAdminPricing;
   window.__whPricingRenderForTest = render;
   window.__whPricingStateForTest = state;
+  window.__whPricingDispatchForTest = function (name, attrs) {
+    var btn = {
+      getAttribute: function (key) {
+        return attrs && Object.prototype.hasOwnProperty.call(attrs, key) ? attrs[key] : null;
+      },
+    };
+    var action = ACTIONS[name];
+    return typeof action === 'function' ? action(btn) : null;
+  };
 })();

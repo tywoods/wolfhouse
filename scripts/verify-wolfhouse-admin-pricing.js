@@ -1026,6 +1026,7 @@ function runPricingUi(viewPayload, editing) {
   return {
     html: dom.document.getElementById('wh-admin-pricing-body').innerHTML,
     window: sandbox.window,
+    document: sandbox.document,
   };
 }
 
@@ -1145,6 +1146,61 @@ function uiChecks() {
     runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount')
     && !runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-code'));
 
+  const copyPackages = JSON.parse(JSON.stringify(viewPromotedPackages.packages));
+  const malibuCopy = copyPackages.find((p) => p.code === 'malibu');
+  malibuCopy.description = 'comes with a free t-shirt';
+  malibuCopy.includes = ['Shared room', 'T-shirt'];
+  const copyView = Object.assign({}, writable, { packages: copyPackages });
+  const packageEdit = runPricingUi(copyView, 'item:package:malibu').html;
+  ok('package edit shows saved includes and description',
+    packageEdit.includes('id="wh-price-item-includes"')
+    && packageEdit.includes('id="wh-price-item-description"')
+    && packageEdit.includes('value="Shared room"')
+    && packageEdit.includes('value="T-shirt"')
+    && packageEdit.includes('comes with a free t-shirt')
+    && packageEdit.includes('data-wh-price-action="add-include"')
+    && packageEdit.includes('data-wh-price-action="remove-include"')
+    && packageEdit.includes('data-wh-price-action="move-include"'));
+  ok('a closed package shows the saved includes after reload',
+    runPricingUi(copyView).html.includes('Shared room')
+    && runPricingUi(copyView).html.includes('comes with a free t-shirt'));
+  const hostileCopy = JSON.parse(JSON.stringify(copyPackages));
+  hostileCopy.find((p) => p.code === 'malibu').description = '</textarea><script>';
+  hostileCopy.find((p) => p.code === 'malibu').includes = ['<img src=x>'];
+  const hostilePackage = runPricingUi(
+    Object.assign({}, copyView, { packages: hostileCopy }),
+    'item:package:malibu',
+  ).html;
+  ok('package description and includes are escaped',
+    !hostilePackage.includes('</textarea><script>')
+    && !hostilePackage.includes('<img src=x>')
+    && hostilePackage.includes('&lt;/textarea&gt;')
+    && hostilePackage.includes('&lt;img src=x&gt;'));
+
+  const reorder = runPricingUi(copyView, 'item:package:malibu');
+  const includeWrap = reorder.document.getElementById('wh-price-item-includes');
+  includeWrap.querySelectorAll = () => [
+    { value: 'Shared room' },
+    { value: 'T-shirt' },
+  ];
+  reorder.document.getElementById('wh-price-item-label').value = 'Malibu';
+  reorder.document.getElementById('wh-price-item-pebble').value = 'peach';
+  reorder.document.getElementById('wh-price-item-min-days').value = '7';
+  reorder.document.getElementById('wh-price-item-prorate').checked = true;
+  reorder.document.getElementById('wh-price-item-description').value = 'comes with a free t-shirt';
+  reorder.window.__whPricingDispatchForTest('move-include', {
+    'data-wh-include-index': '1',
+    'data-wh-include-dir': 'up',
+  });
+  const reorderedHtml = reorder.document.getElementById('wh-admin-pricing-body').innerHTML;
+  const includeSlice = reorderedHtml.slice(
+    reorderedHtml.indexOf('id="wh-price-item-includes"'),
+    reorderedHtml.indexOf('id="wh-price-item-description"'),
+  );
+  ok('moving an include line reorders it in the edit panel',
+    includeSlice.indexOf('value="T-shirt"') >= 0
+    && includeSlice.indexOf('value="T-shirt"') < includeSlice.indexOf('value="Shared room"'));
+
   // Read-only mode
   const readOnly = runPricingUi(Object.assign({}, view, {
     writes_enabled: false,
@@ -1189,6 +1245,88 @@ function uiChecks() {
     !/data-admin-action|admin-sunset-shell|#admin-tab-/.test(uiCode));
   ok('the UI only calls its own Wolfhouse endpoints',
     (uiCode.match(/'\/staff\/[a-z/-]*'/g) || []).every((p) => p === "'/staff/admin/wh/pricing'"));
+}
+
+async function packageEditSaveChecks() {
+  const vm = require('vm');
+  const dom = fakeDom();
+  const captured = [];
+  const sandbox = {
+    window: { addEventListener() {} },
+    document: dom.document,
+    fetch: (url, opts) => {
+      captured.push({
+        path: url,
+        body: opts && opts.body ? JSON.parse(opts.body) : null,
+      });
+      return Promise.resolve({
+        status: 200,
+        json: () => Promise.resolve({
+          success: true,
+          packages: [{
+            code: 'malibu',
+            label: 'Malibu',
+            description: 'comes with a free t-shirt',
+            includes: ['T-shirt', 'Shared room'],
+            source: 'db',
+            pebble: 'peach',
+            min_days: 7,
+            allow_daily_proration: true,
+            prices: [],
+          }],
+          writes_enabled: true,
+          seasons: [],
+          rentals: [],
+          services: [],
+          transfers: [],
+          extras: { deposits: [], supplements: [], addons: [] },
+        }),
+      });
+    },
+    console,
+    Promise,
+    Number,
+    encodeURIComponent,
+  };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(
+    path.join(ROOT, 'scripts/browser/wolfhouse-admin-pricing-ui.js'), 'utf8',
+  ), sandbox);
+  sandbox.window.__whPricingStateForTest.view = Object.assign({}, viewPromotedPackages, {
+    writes_enabled: true,
+  });
+  sandbox.window.loadWolfhouseAdminPricing();
+  sandbox.window.__whPricingStateForTest.editing = 'item:package:malibu';
+  sandbox.window.__whPricingRenderForTest();
+  const doc = sandbox.document;
+  doc.getElementById('wh-price-item-label').value = 'Malibu';
+  doc.getElementById('wh-price-item-pebble').value = 'peach';
+  doc.getElementById('wh-price-item-min-days').value = '7';
+  doc.getElementById('wh-price-item-prorate').checked = true;
+  doc.getElementById('wh-price-item-description').value = '  comes with a free t-shirt  ';
+  doc.getElementById('wh-price-item-includes').querySelectorAll = () => [
+    { value: ' T-shirt ' },
+    { value: '   ' },
+    { value: 'Shared room' },
+  ];
+  await sandbox.window.__whPricingDispatchForTest('save-package-item', {
+    'data-wh-item-code': 'malibu',
+  });
+  const sentCall = captured.find((call) => String(call.path).indexOf('/staff/admin/wh/pricing/items') === 0);
+  const sent = sentCall && sentCall.body;
+  ok('edit save sends the description and includes lines',
+    !!(sent
+      && sent.item_type === 'package'
+      && sent.item_code === 'malibu'
+      && sent.description === 'comes with a free t-shirt'
+      && sent.metadata
+      && sent.metadata.includes.join('|') === 'T-shirt|Shared room'));
+  const after = doc.getElementById('wh-admin-pricing-body').innerHTML;
+  ok('edit save reloads the saved description and includes',
+    after.includes('comes with a free t-shirt')
+    && after.indexOf('T-shirt') >= 0
+    && after.indexOf('T-shirt') < after.indexOf('Shared room'));
 }
 
 // ── Tenant isolation ────────────────────────────────────────────────────────
@@ -1276,9 +1414,184 @@ ok('the runtime twin creates the same tables as the migration',
     .every((t) => new RegExp(`CREATE TABLE IF NOT EXISTS ${t}\\b`).test(store.CREATE_SQL)));
 }
 
+function packageCopyChecks() {
+  console.log('\n── Package includes and description ──');
+  const saved = resolve.buildAdminPricingView({
+    config,
+    dbItems: [{
+      item_type: 'package',
+      item_code: 'malibu',
+      label: 'Malibu',
+      description: 'comes with a free t-shirt',
+      metadata: {
+        pebble: 'peach',
+        min_days: 7,
+        allow_daily_proration: true,
+        includes: ['Shared room', 'T-shirt', 'Airport transfer'],
+      },
+      active: true,
+    }],
+    dbSeasons: [],
+    dbRules: [],
+    writesEnabled: true,
+  });
+  const malibu = (saved.packages || []).find((p) => p.code === 'malibu');
+  ok('reload shows the saved package description',
+    !!(malibu && malibu.description === 'comes with a free t-shirt'));
+  ok('reload shows includes lines in saved order',
+    !!(malibu && Array.isArray(malibu.includes)
+      && malibu.includes.join('|') === 'Shared room|T-shirt|Airport transfer'));
+
+  ok('coded config inclusions are not staff includes lines',
+    viewPromotedPackages.packages.length === 3
+    && viewPromotedPackages.packages.every((p) => Array.isArray(p.includes)
+      && p.includes.length === 0
+      && p.description == null));
+
+  const messy = writes.validateItemBody({
+    item_type: 'package',
+    item_code: 'malibu',
+    label: 'Malibu',
+    description: '  comes with a free t-shirt  ',
+    metadata: {
+      pebble: 'peach',
+      min_days: 7,
+      allow_daily_proration: false,
+      includes: [' Shared room ', '', 'T-shirt', '   ', 'Airport transfer'],
+    },
+  });
+  ok('save keeps description text and drops blank includes lines',
+    messy.ok === true
+    && messy.value.description === 'comes with a free t-shirt'
+    && messy.value.metadata.includes.join('|') === 'Shared room|T-shirt|Airport transfer'
+    && messy.value.metadata.pebble === 'peach'
+    && messy.value.metadata.allow_daily_proration === false);
+  ok('includes must be a list of lines',
+    writes.validateItemBody({
+      item_type: 'package',
+      item_code: 'malibu',
+      label: 'Malibu',
+      metadata: { includes: 'Shared room' },
+    }).ok === false);
+  ok('an includes line collapses internal whitespace',
+    writes.validateItemBody({
+      item_type: 'package',
+      item_code: 'malibu',
+      label: 'Malibu',
+      metadata: { includes: ['board' + String.fromCharCode(10) + 'and  wetsuit'] },
+    }).value.metadata.includes.join('|') === 'board and wetsuit');
+  ok('a package description longer than 2000 characters is rejected',
+    writes.validateItemBody({
+      item_type: 'package',
+      item_code: 'malibu',
+      label: 'Malibu',
+      description: 'x'.repeat(2001),
+      metadata: { includes: [] },
+    }).ok === false);
+}
+
+function memoryPackagePg() {
+  const items = [];
+  return {
+    items,
+    async query(text, params) {
+      const sql = String(text || '');
+      if (/SELECT id FROM wh_pricing_items/i.test(sql)) {
+        const found = items.filter((it) => it.client_slug === params[0]
+          && it.item_type === params[1]
+          && it.item_code === params[2]
+          && it.active);
+        return { rows: found.map((it) => ({ id: it.id })), rowCount: found.length };
+      }
+      if (/UPDATE wh_pricing_items/i.test(sql)) {
+        const row = items.find((it) => it.id === params[0] && it.client_slug === params[1]);
+        if (!row) return { rows: [], rowCount: 0 };
+        row.label = params[2];
+        row.description = params[3];
+        row.metadata = JSON.parse(params[4]);
+        row.active = params[5];
+        return { rows: [Object.assign({}, row)], rowCount: 1 };
+      }
+      if (/INSERT INTO wh_pricing_items/i.test(sql)) {
+        const row = {
+          id: 'pkg-' + (items.length + 1),
+          client_slug: params[0],
+          item_type: params[1],
+          item_code: params[2],
+          label: params[3],
+          description: params[4],
+          metadata: JSON.parse(params[5]),
+          active: params[6],
+        };
+        items.push(row);
+        return { rows: [Object.assign({}, row)], rowCount: 1 };
+      }
+      throw new Error('unexpected pricing sql: ' + sql.replace(/\s+/g, ' ').slice(0, 120));
+    },
+  };
+}
+
+function packageViewFromItems(items) {
+  return resolve.buildAdminPricingView({
+    config,
+    dbItems: items,
+    dbSeasons: [],
+    dbRules: [],
+    writesEnabled: true,
+  });
+}
+
+async function packageCopySaveChecks() {
+  const pricingStore = require('./lib/wolfhouse-pricing-store');
+  const pg = memoryPackagePg();
+  const first = writes.validateItemBody({
+    item_type: 'package',
+    item_code: 'malibu',
+    label: 'Malibu',
+    description: 'comes with a free t-shirt',
+    metadata: {
+      pebble: 'peach',
+      min_days: 7,
+      allow_daily_proration: true,
+      includes: ['Shared room', 'T-shirt', 'Airport transfer'],
+    },
+  });
+  await pricingStore.saveItem(pg, 'wolfhouse-somo', first.value, null);
+  const loaded = packageViewFromItems(pg.items).packages.find((p) => p.code === 'malibu');
+  ok('save then reload shows the description and includes',
+    !!(loaded
+      && loaded.description === 'comes with a free t-shirt'
+      && loaded.includes.join('|') === 'Shared room|T-shirt|Airport transfer'));
+
+  const second = writes.validateItemBody({
+    item_type: 'package',
+    item_code: 'malibu',
+    label: 'Malibu',
+    description: 'ask about the shirt size',
+    metadata: {
+      pebble: 'rose',
+      min_days: 5,
+      allow_daily_proration: false,
+      includes: ['Airport transfer', 'T-shirt'],
+    },
+  });
+  await pricingStore.saveItem(pg, 'wolfhouse-somo', second.value, null);
+  const reloaded = packageViewFromItems(pg.items).packages.find((p) => p.code === 'malibu');
+  ok('a later save reloads the new description and include order',
+    !!(reloaded
+      && reloaded.description === 'ask about the shirt size'
+      && reloaded.includes.join('|') === 'Airport transfer|T-shirt'
+      && reloaded.pebble === 'rose'
+      && reloaded.min_days === 5
+      && reloaded.allow_daily_proration === false));
+}
+
 runStoreChecks()
   .then(runRouteChecks)
+  .then(packageCopySaveChecks)
+  .then(packageEditSaveChecks)
   .then(() => {
+    packageCopyChecks();
     uiChecks();
     tenantIsolationChecks();
     console.log(`\n── wolfhouse-admin-pricing: ${passed} passed, ${failed} failed ──\n`);
