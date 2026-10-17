@@ -364,7 +364,10 @@ const LODGING_BOOKINGS_SQL = `
          b.check_in::text AS check_in,
          b.check_out::text AS check_out,
          b.guest_count,
-         b.created_at
+         b.created_at,
+         b.status::text AS status, b.record_source::text AS record_source,
+         b.metadata,
+         NULLIF(upper(b.metadata->>'currency'), '') AS currency
     FROM bookings b
     JOIN clients c ON b.client_id = c.id
    WHERE c.slug = $1
@@ -409,11 +412,14 @@ const LODGING_BSR_SQL = `
 `;
 
 const LODGING_PAYMENTS_SQL = `
-  SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at
-    FROM payments p
-    JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
-    JOIN clients c ON b.client_id = c.id
-   WHERE c.slug = $1
+  SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at,
+         p.payment_kind::text AS payment_kind, p.metadata,
+         p.metadata->>'paid_amount_type' AS paid_amount_type,
+         COALESCE(NULLIF(upper(p.metadata->>'currency'), ''), NULLIF(upper(b.metadata->>'currency'), '')) AS currency,
+         b.metadata AS booking_metadata, b.status::text AS booking_status, b.created_at AS booking_created_at,
+         b.total_amount_cents AS booking_total_amount_cents
+    FROM payments p JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
+    JOIN clients c ON b.client_id = c.id WHERE c.slug = $1
      AND p.status = 'paid'
      ${PAYMENT_COLLECTED_SCOPE_SQL}
 `;
@@ -453,9 +459,13 @@ const LODGING_REFUNDS_SQL = `
          r.amount_cents,
          r.effective_date::text AS effective_date,
          r.location_id,
-         r.source
+         r.source,
+         NULLIF(upper(b.metadata->>'currency'), '') AS currency,
+         b.metadata AS booking_metadata,
+         b.record_source::text AS booking_record_source
     FROM booking_refund_records r
     JOIN clients c ON c.id = r.client_id
+    JOIN bookings b ON b.id = r.booking_id AND b.client_id = r.client_id
    WHERE c.slug = $1
      AND r.source = 'staff_manual_record'
 `;
@@ -547,14 +557,31 @@ async function fetchLodgingFinanceData(pg, scope) {
       check_out: r.check_out != null ? String(r.check_out).slice(0, 10) : null,
       guest_count: r.guest_count != null ? Number(r.guest_count) : null,
       record_source: r.record_source != null ? String(r.record_source) : null,
+      created_at: r.created_at,
+      status: r.status != null ? String(r.status) : null,
+      metadata: r.metadata || {},
+      currency: r.currency != null ? String(r.currency) : null,
     }));
     const payments = rows(paymentsRes).map((r) => ({
       payment_id: r.payment_id != null ? String(r.payment_id) : null,
       booking_id: r.booking_id,
       amount_paid_cents: r.amount_paid_cents,
       paid_at: r.paid_at,
+      payment_kind: r.payment_kind != null ? String(r.payment_kind) : null,
+      metadata: r.metadata || {},
+      paid_amount_type: r.paid_amount_type != null ? String(r.paid_amount_type) : null,
+      currency: r.currency != null ? String(r.currency) : null,
+      booking_metadata: r.booking_metadata || {},
+      booking_status: r.booking_status != null ? String(r.booking_status) : null,
+      booking_created_at: r.booking_created_at,
+      booking_total_amount_cents: r.booking_total_amount_cents,
     }));
-    const refund_records = rows(refundsRes).map(mapRefund);
+    const refund_records = rows(refundsRes).map((r) => ({
+      ...mapRefund(r),
+      currency: r.currency != null ? String(r.currency) : null,
+      booking_metadata: r.booking_metadata || {},
+      booking_record_source: r.booking_record_source != null ? String(r.booking_record_source) : null,
+    }));
     const diagnostics = createFinanceDiagnostics();
     softScanFinanceRows({ bsr, bookings, payments, refund_records }, diagnostics);
     const incompleteBsrBookingIds = new Set();
@@ -633,6 +660,9 @@ module.exports = {
   fetchLodgingFinanceData,
   LODGING_BEDS_SQL,
   LODGING_BED_ASSIGNMENTS_SQL,
+  LODGING_BOOKINGS_SQL,
+  LODGING_PAYMENTS_SQL,
+  LODGING_REFUNDS_SQL,
   FinanceDataQualityError,
   // Deprecated export kept so any stale require of PENDING_REFUND_SQL does not crash
   // at module load; Slice 2 no longer queries it.

@@ -1,0 +1,6 @@
+{
+  "label":"complete empty",
+  "request":{"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","granularity":"month","anchor":"2026-10-17"}},
+  "response":{"status":200,"body":{"success":true,"wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","metrics":{"gross_receipts":{"state":"complete","amount_cents":0,"coverage":{"assessed_count":0,"included_count":0,"excluded_count":0,"unknown_count":0}},"new_booking_count":{"state":"complete","count":0}}}}},
+  "expected":{"state":"complete","gross_receipts_cents":0,"new_booking_count":0}
+}

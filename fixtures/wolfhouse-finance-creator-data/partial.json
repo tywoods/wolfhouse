@@ -1,0 +1,6 @@
+{
+  "label":"partial currency coverage",
+  "request":{"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","currency":"EUR"}},
+  "response":{"status":200,"body":{"success":true,"wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","metrics":{"gross_receipts":{"state":"partial","amount_cents":1000,"reason_codes":["mixed_currency"],"coverage":{"assessed_count":2,"included_count":1,"excluded_count":1,"unknown_count":0}}},"creators":[{"creator":"total","receipt_share_bps":null}]}}},
+  "expected":{"state":"partial","reason_codes":["mixed_currency"],"receipt_share_bps":null}
+}

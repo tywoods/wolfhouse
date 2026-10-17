@@ -24,9 +24,10 @@ ok('lodging booked rows are stay totals, not sunset location',
 ok('lodging BSR metadata carries package_code (revenue-by-product)',
   /LODGING_BSR_SQL[\s\S]{0,1600}package_code/.test(data)
   && /LODGING_BSR_SQL[\s\S]{0,1600}LEFT JOIN packages/.test(data));
+const lodgingPaymentsSql = (data.match(/const LODGING_PAYMENTS_SQL = `([\s\S]*?)`;/) || [])[1] || '';
 ok('lodging payments are client-scoped only',
-  /LODGING_PAYMENTS_SQL[\s\S]{0,400}c\.slug = \$1/.test(data)
-  && !/LODGING_PAYMENTS_SQL[\s\S]{0,400}location_id/.test(data));
+  /c\.slug = \$1/.test(lodgingPaymentsSql)
+  && !/location_id/.test(lodgingPaymentsSql));
 ok('handler accepts wolfhouse-somo', /const lodging = clientSlug === 'wolfhouse-somo'/.test(api));
 ok('handler still uses sunset fetch for sunset',
   /withPgClient\(\(pg\) => fetchSunsetFinanceData\(pg, \{ clientSlug, locationId \}\)\)/.test(api));

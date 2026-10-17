@@ -1899,6 +1899,235 @@ function reconcileBookingBalances(args) {
   }
 }
 
+const WOLFHOUSE_CREATOR_SCHEMA = 'wolfhouse.creator-finance.v1';
+const WOLFHOUSE_CREATORS = ['luna', 'staff', 'other_imported', 'unattributed'];
+
+function wolfhouseCreator(metadata, recordSource) {
+  const md = metadata && typeof metadata === 'object' ? metadata : {};
+  const evidence = [md.source, md.actor_source, md.bot_source, recordSource]
+    .filter(v => v != null).map(v => String(v).toLowerCase());
+  if (md.luna_guest_booking === true || md.luna_guest_booking === 'true'
+      || evidence.some(source => source === 'luna_whatsapp' || source === 'luna_guest_whatsapp'
+        || source === 'agent_luna_whatsapp_bot' || source === 'luna_guest')) return 'luna';
+  if (md.staff_manual_schedule === true || md.staff_manual_schedule === 'true'
+      || md.created_by_staff === true || md.created_by_staff === 'true'
+      || evidence.some(source => source === 'staff_manual' || source === 'staff')) return 'staff';
+  if (evidence.some(source => /import|migration|legacy|stripe/.test(source))) return 'other_imported';
+  return 'unattributed';
+}
+
+function wolfMetric(valueKey, value, state, dateBasis, coverage, reasons, extra) {
+  const c = coverage || {};
+  return { state, [valueKey]: state === 'unavailable' ? null : value, date_basis: dateBasis,
+    reason_codes: [...new Set(reasons || [])], coverage: {
+      assessed_count:c.assessed_count || 0, included_count:c.included_count || 0,
+      excluded_count:c.excluded_count || 0, unknown_count:c.unknown_count || 0,
+    }, ...(extra || {}) };
+}
+
+function computeWolfhouseCreatorFinance(args) {
+  const now = args && args.now ? new Date(args.now) : new Date();
+  const timeZone = 'Europe/Madrid';
+  const primary = resolvePrimaryRange({ now, timeZone, view: args && args.view });
+  const range = primary.range;
+  const currency = String((args && args.currency) || 'EUR').toUpperCase();
+  if (currency !== 'EUR') {
+    const error = new Error('invalid reporting currency');
+    error.code = 'FINANCE_INVALID_CURRENCY';
+    throw error;
+  }
+  const bookings = Array.isArray(args && args.bookings) ? args.bookings : [];
+  const rawPayments = Array.isArray(args && args.payments) ? args.payments : [];
+  const refunds = Array.isArray(args && args.refund_records) ? args.refund_records : [];
+  const reasons = [];
+  const paymentMap = new Map(); const conflictingPayments = new Set();
+  let missingPaymentIds = 0; let malformedPayments = 0; let foreignPayments = 0; let missingPaymentDates = 0;
+  const paymentSignature = p => [p.booking_id,p.amount_paid_cents,p.paid_at,p.currency,p.payment_kind,
+    p.paid_amount_type || (p.metadata || {}).paid_amount_type].map(v=>String(v == null ? '' : v)).join('|');
+  for (const p of rawPayments) {
+    const id = p && p.payment_id != null ? String(p.payment_id) : '';
+    if (!id) { missingPaymentIds += 1; continue; }
+    if (conflictingPayments.has(id)) continue;
+    if (paymentMap.has(id)) {
+      if (paymentMap.get(id)._signature !== paymentSignature(p)) { paymentMap.delete(id); conflictingPayments.add(id); }
+      continue;
+    }
+    const parsed = parseCanonicalIntCents(p.amount_paid_cents);
+    if (!parsed.ok) { malformedPayments += 1; reasons.push(parsed.reason === 'non_integer_or_unsafe' ? 'unsafe_integer' : 'malformed_money'); continue; }
+    const rowCurrency = String(p.currency || '').toUpperCase();
+    if (!rowCurrency) { foreignPayments += 1; reasons.push('unknown_currency'); continue; }
+    if (rowCurrency !== currency) { foreignPayments += 1; reasons.push('mixed_currency'); continue; }
+    const date = p.paid_at == null ? null : zonedDateString(p.paid_at, timeZone);
+    if (!date) { missingPaymentDates += 1; continue; }
+    const creator = wolfhouseCreator(p.booking_metadata, p.booking_record_source);
+    if (creator === 'unattributed') reasons.push('creator_unresolved');
+    paymentMap.set(id, { ...p, payment_id:id, amount_cents:parsed.value, receipt_date:date,
+      creator, _signature:paymentSignature(p) });
+  }
+  if (missingPaymentIds) reasons.push('payment_identity_missing');
+  if (malformedPayments && !reasons.includes('unsafe_integer')) reasons.push('malformed_money');
+  if (missingPaymentDates) reasons.push('receipt_date_missing');
+  if (conflictingPayments.size) reasons.push('conflicting_payment_identity');
+  const receiptRows = [...paymentMap.values()].filter(p => inRange(p.receipt_date, range));
+  const paymentState = reasons.length ? 'partial' : 'complete';
+  const payCoverage = { assessed_count:rawPayments.length, included_count:receiptRows.length,
+    excluded_count:foreignPayments + malformedPayments + missingPaymentIds + missingPaymentDates + conflictingPayments.size,
+    unknown_count:missingPaymentIds + missingPaymentDates + conflictingPayments.size };
+  const sum = rows => rows.reduce((n, r) => checkedAdd(n, r.amount_cents), 0);
+  const gross = sum(receiptRows);
+  const purposeUnknown = [];
+  const deposits = receiptRows.filter(p => {
+    const kind = String(p.payment_kind || '').toLowerCase();
+    const paidType = String(p.paid_amount_type || (p.metadata || {}).paid_amount_type || '').toLowerCase();
+    if (kind === 'deposit' || paidType === 'deposit') return true;
+    if (kind === 'full_amount' || kind === 'balance' || paidType === 'full_amount' || paidType === 'balance') return false;
+    purposeUnknown.push(p.payment_id); return false;
+  });
+  const depositCoverage = { ...payCoverage, unknown_count: payCoverage.unknown_count + purposeUnknown.length };
+  const depositState = paymentState === 'complete' && !purposeUnknown.length ? 'complete' : 'partial';
+
+  const bookingRows = []; let malformedBookings = 0; let missingCreation = 0; let foreignBookings = 0;
+  for (const b of bookings) {
+    const createdDate = zonedDateString(b.created_at, timeZone);
+    if (!createdDate) { missingCreation += 1; continue; }
+    if (!inRange(createdDate, range)) continue;
+    const c = String(b.currency || '').toUpperCase();
+    if (!c || c !== currency) { foreignBookings += 1; continue; }
+    const amount = parseCanonicalIntCents(b.total_amount_cents);
+    if (!amount.ok) { malformedBookings += 1; continue; }
+    bookingRows.push({ booking_id:String(b.booking_id), created_date:createdDate,
+      current_saved_total_cents:amount.value, creator:wolfhouseCreator(b.metadata, b.record_source) });
+  }
+  const bookingReasons = [];
+  if (missingCreation) bookingReasons.push('creation_date_missing');
+  if (malformedBookings) bookingReasons.push('saved_total_unreadable');
+  if (foreignBookings) bookingReasons.push('unknown_currency');
+  if (bookingRows.some(row => row.creator === 'unattributed')) bookingReasons.push('creator_unresolved');
+  const bookingState = bookingReasons.length ? 'partial' : 'complete';
+
+  const allPaid = new Map();
+  for (const p of paymentMap.values()) allPaid.set(String(p.booking_id), checkedAdd(allPaid.get(String(p.booking_id)) || 0, p.amount_cents));
+  const quality = args && args.data_quality && typeof args.data_quality === 'object' ? args.data_quality : {};
+  const outstandingRows = []; const outstandingReasons = reasons.filter(reason =>
+    ['unknown_currency','mixed_currency','malformed_money','unsafe_integer','conflicting_payment_identity','payment_identity_missing'].includes(reason));
+  if ((quality.balance_drift || []).length) outstandingReasons.push('balance_drift');
+  if ((quality.reconciliation_unavailable || []).length) outstandingReasons.push('balance_reconciliation_unavailable');
+  for (const b of bookings) {
+    const c = String(b.currency || '').toUpperCase();
+    if (!c || c !== currency) { outstandingReasons.push(!c ? 'unknown_currency' : 'mixed_currency'); continue; }
+    const total = parseCanonicalIntCents(b.total_amount_cents);
+    if (!total.ok) { outstandingReasons.push('balance_reconciliation_unavailable'); continue; }
+    const balance = Math.max(0, checkedSubtract(total.value, allPaid.get(String(b.booking_id)) || 0));
+    if (balance) outstandingRows.push({ booking_id:String(b.booking_id), current_balance_cents:balance,
+      as_of:now.toISOString(), creator:wolfhouseCreator(b.metadata, b.record_source) });
+  }
+  const creatorRows = WOLFHOUSE_CREATORS.map(creator => {
+    const cp = receiptRows.filter(r => r.creator === creator); const cd = deposits.filter(r => r.creator === creator);
+    const cb = bookingRows.filter(r => r.creator === creator);
+    return { creator,
+      gross_receipts:wolfMetric('amount_cents',sum(cp),paymentState,'receipt_paid_at_madrid',payCoverage,reasons),
+      deposits_received:wolfMetric('amount_cents',sum(cd),depositState,'receipt_paid_at_madrid',depositCoverage,reasons),
+      new_booking_count:wolfMetric('count',cb.length,bookingState,'booking_created_at_madrid',{},bookingReasons),
+      new_booking_value:wolfMetric('amount_cents',cb.reduce((n,r)=>checkedAdd(n,r.current_saved_total_cents),0),bookingState,'booking_created_at_madrid_current_saved_total',{},bookingReasons),
+      receipt_share_bps:paymentState === 'complete' ? (gross ? Math.round(sum(cp)*10000/gross) : 0) : null };
+  });
+  const totalCreator = { creator:'total', gross_receipts:wolfMetric('amount_cents',gross,paymentState,'receipt_paid_at_madrid',payCoverage,reasons),
+    deposits_received:wolfMetric('amount_cents',sum(deposits),depositState,'receipt_paid_at_madrid',depositCoverage,reasons),
+    new_booking_count:wolfMetric('count',bookingRows.length,bookingState,'booking_created_at_madrid',{},bookingReasons),
+    new_booking_value:wolfMetric('amount_cents',bookingRows.reduce((n,r)=>checkedAdd(n,r.current_saved_total_cents),0),bookingState,'booking_created_at_madrid_current_saved_total',{},bookingReasons),
+    receipt_share_bps:paymentState === 'complete' ? 10000 : null };
+  const refundUnavailable = !!(args && args.refund_ledger_unavailable);
+  let refundSum = 0; let refundMalformed = false; let refundForeign = false;
+  const refundRows = []; const refundMap = new Map(); const conflictingRefunds = new Set();
+  for (const r of refunds) {
+    const effectiveDate = String(r.effective_date || '').slice(0,10);
+    if (!inRange(effectiveDate,range)) continue;
+    const id = r && r.refund_id != null ? String(r.refund_id) : '';
+    if (!id) { refundMalformed=true; continue; }
+    const signature=[r.booking_id,r.amount_cents,effectiveDate,r.currency].map(v=>String(v==null?'':v)).join('|');
+    if (conflictingRefunds.has(id)) continue;
+    if (refundMap.has(id)) {
+      if(refundMap.get(id)!==signature){ conflictingRefunds.add(id); const index=refundRows.findIndex(x=>x.refund_id===id); if(index>=0){refundSum=checkedSubtract(refundSum,refundRows[index].amount_cents);refundRows.splice(index,1);} }
+      continue;
+    }
+    refundMap.set(id,signature);
+    const rowCurrency = String(r.currency || '').toUpperCase();
+    if (!rowCurrency || rowCurrency !== currency) { refundForeign = true; continue; }
+    const a=parseCanonicalIntCents(r.amount_cents);
+    if (!a.ok) { refundMalformed=true; continue; }
+    refundSum=checkedAdd(refundSum,a.value);
+    refundRows.push({ refund_id:id, booking_id:String(r.booking_id), effective_date:effectiveDate,
+      amount_cents:a.value, creator:wolfhouseCreator(r.booking_metadata, r.booking_record_source) });
+  }
+  const refundState = refundUnavailable || refundMalformed ? 'unavailable' : (refundForeign || conflictingRefunds.size ? 'partial' : 'complete');
+  const refundReasons = refundUnavailable ? ['refund_ledger_unavailable']
+    : refundMalformed ? ['refund_row_unreadable'] : conflictingRefunds.size ? ['conflicting_refund_identity']
+      : refundForeign ? ['unknown_currency'] : [];
+  const trend = eachDate(range).map(date => { const rows=receiptRows.filter(p=>p.receipt_date===date); const rg=sum(rows);
+    const dayRefunds=refundRows.filter(r=>r.effective_date===date).reduce((n,r)=>checkedAdd(n,r.amount_cents),0);
+    return { date, gross_receipts_cents:rg, recorded_refunds_cents:refundState==='complete'?dayRefunds:null,
+      net_receipts_cents:refundState==='complete'?checkedSubtract(rg,dayRefunds):null,
+      state:refundState==='complete'&&paymentState==='complete'?'complete':'partial', reason_codes:[...new Set([...reasons,...refundReasons])] }; });
+  const productRows = (Array.isArray(args && args.bsr) ? args.bsr : []).map(r => {
+    const amount=parseCanonicalIntCents(effectiveServiceDueCents(r));
+    if (!amount.ok) return null;
+    const md=r.metadata||{};
+    return { row_id:String(r.service_record_id||r.id||''), booking_id:String(r.booking_id),
+      product_code:String(md.package_code||r.service_type||'unclassified'), product_label:String(md.package_name||md.package_code||r.service_type||'Unclassified'),
+      service_date:r.service_date?String(r.service_date).slice(0,10):null, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
+      amount_cents:amount.value, creator:wolfhouseCreator(md,r.source) };
+  }).filter(r=>r&&r.row_id).sort((a,b)=>String(a.service_date||'').localeCompare(String(b.service_date||''))||a.row_id.localeCompare(b.row_id));
+  const warningRows = [];
+  for (const group of ['malformed','balance_drift','reconciliation_unavailable']) {
+    for (const item of Array.isArray(quality[group])?quality[group]:[]) warningRows.push({
+      row_id:`${group}:${warningRows.length}`, component:String(item.source||group), reason_code:String(item.reason||group),
+      ...(item.booking_id!=null?{booking_id:String(item.booking_id)}:{}), ...(item.payment_id!=null?{payment_id:String(item.payment_id)}:{}),
+      ...(item.refund_id!=null?{refund_id:String(item.refund_id)}:{}), ...(item.service_record_id!=null?{service_record_id:String(item.service_record_id)}:{}),
+    });
+  }
+  const arrivalRows = bookings.filter(b=>b.check_in||b.check_out).map(b=>({ booking_id:String(b.booking_id),
+    check_in:b.check_in?String(b.check_in).slice(0,10):null, check_out:b.check_out?String(b.check_out).slice(0,10):null,
+    current_saved_total_cents:parseCanonicalIntCents(b.total_amount_cents).ok?parseCanonicalIntCents(b.total_amount_cents).value:null,
+    creator:wolfhouseCreator(b.metadata,b.record_source) })).sort((a,b)=>String(a.check_in||'').localeCompare(String(b.check_in||''))||a.booking_id.localeCompare(b.booking_id));
+  const fingerprint = JSON.stringify({ client:String(args.clientSlug||''),location:String(args.locationId||''),range,currency,
+    paidLedger:[...paymentMap.values()].map(r=>[r.payment_id,r.booking_id,r.amount_cents,r.receipt_date,r.payment_kind,r.paid_amount_type,r.creator]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+    payments:receiptRows.map(r=>[r.payment_id,r.amount_cents]),bookings:bookingRows.map(r=>[r.booking_id,r.current_saved_total_cents]),
+    outstanding:outstandingRows.map(r=>[r.booking_id,r.current_balance_cents]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+    refunds:refundRows.map(r=>[r.refund_id,r.amount_cents]),products:productRows.map(r=>[r.row_id,r.amount_cents]),warnings:warningRows.map(r=>[r.row_id,r.reason_code]),arrival:arrivalRows.map(r=>[r.booking_id,r.check_in]) });
+  const crypto = require('crypto'); const cohortId = `whcf1_${crypto.createHash('sha256').update(fingerprint).digest('hex').slice(0,24)}`;
+  const projection = { schema_version:WOLFHOUSE_CREATOR_SCHEMA, scope:{client:String(args.clientSlug||'wolfhouse-somo'),location_id:String(args.locationId||''),timezone:timeZone,currency,
+      range:{start:range.start,end:range.end,granularity:primary.granularity,anchor:(args.view||{}).anchor||primary.today}}, generated_at:now.toISOString(),as_of:now.toISOString(),cohort_id:cohortId,
+    metrics:{ gross_receipts:totalCreator.gross_receipts, recorded_refunds:wolfMetric('amount_cents',refundSum,refundState,'refund_effective_date',{},refundReasons),
+      net_receipts:wolfMetric('amount_cents',refundState==='complete'?checkedSubtract(gross,refundSum):null,refundState==='complete'?paymentState:'unavailable','receipt_paid_at_madrid_minus_refund_effective_date',{},refundState==='complete'?reasons:refundReasons),
+      deposits_received:totalCreator.deposits_received,new_booking_count:totalCreator.new_booking_count,new_booking_value:totalCreator.new_booking_value,
+      outstanding_today:wolfMetric('amount_cents',outstandingRows.reduce((n,r)=>checkedAdd(n,r.current_balance_cents),0),outstandingReasons.length?'partial':'complete','current_active_snapshot',{},outstandingReasons,{as_of:now.toISOString()}) },
+    creators:[...creatorRows,totalCreator],trend,detail_queries:{payments:true,bookings:true,outstanding:true,refunds:true,products:true,warnings:true,arrival:true},warnings:[...new Set([...reasons,...bookingReasons,...outstandingReasons,...refundReasons])],arrival_date_report:{date_basis:'arrival_or_service_date'} };
+  const byDateId=(dateKey,idKey)=>(a,b)=>String(a[dateKey]||'').localeCompare(String(b[dateKey]||''))||String(a[idKey]||'').localeCompare(String(b[idKey]||''));
+  Object.defineProperty(projection,'_contributors',{enumerable:false,value:{payments:receiptRows.map(p=>({payment_id:p.payment_id,booking_id:String(p.booking_id),receipt_date:p.receipt_date,amount_cents:p.amount_cents,purpose:deposits.includes(p)?'deposit':'other',creator:p.creator})).sort(byDateId('receipt_date','payment_id')),bookings:bookingRows.sort(byDateId('created_date','booking_id')),outstanding:outstandingRows.sort(byDateId('as_of','booking_id')),refunds:refundRows.sort(byDateId('effective_date','refund_id')),products:productRows,warnings:warningRows.sort(byDateId('component','row_id')),arrival:arrivalRows}});
+  return projection;
+}
+
+function pageWolfhouseCreatorFinance(projection, query) {
+  const err = msg => { const e=new Error(msg); e.code=msg==='stale'?'FINANCE_COHORT_STALE':'FINANCE_INVALID_DETAIL'; throw e; };
+  const kind=String(query.kind||''); if (!['payments','bookings','outstanding','refunds','products','warnings','arrival'].includes(kind)) err('invalid');
+  const limit=query.limit==null?100:Number(query.limit); if (!Number.isInteger(limit)||limit<1||limit>200) err('invalid');
+  if (query.creator && !WOLFHOUSE_CREATORS.includes(query.creator)) err('invalid');
+  if (typeof query.currency !== 'string' || !query.currency || typeof query.cohort_id !== 'string' || !query.cohort_id) err('invalid');
+  if (!projection || query.cohort_id !== projection.cohort_id || query.currency !== projection.scope.currency) err('stale');
+  const all=(projection._contributors[kind]||[]).filter(r=>!query.creator||r.creator===query.creator);
+  let offset=0; if(query.cursor){ if(!/^[A-Za-z0-9_-]+$/.test(String(query.cursor))) err('invalid'); try{const decoded=Buffer.from(String(query.cursor),'base64url').toString('utf8');if(!/^(?:0|[1-9][0-9]*)$/.test(decoded))err('invalid');offset=Number(decoded);}catch(_e){err('invalid');} }
+  if(!Number.isInteger(offset)||offset<0||offset>all.length) err('invalid');
+  const rows=all.slice(offset,offset+limit); const next=offset+rows.length;
+  let fullCohortTotals;
+  if (kind==='payments') fullCohortTotals={gross_receipts_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0),deposits_received_cents:all.filter(r=>r.purpose==='deposit').reduce((n,r)=>checkedAdd(n,r.amount_cents),0)};
+  else if (kind==='bookings') fullCohortTotals={new_booking_count:all.length,new_booking_value_cents:all.reduce((n,r)=>checkedAdd(n,r.current_saved_total_cents),0)};
+  else if (kind==='outstanding') fullCohortTotals={outstanding_cents:all.reduce((n,r)=>checkedAdd(n,r.current_balance_cents),0)};
+  else if (kind==='refunds') fullCohortTotals={recorded_refunds_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0)};
+  else if (kind==='products') fullCohortTotals={product_amount_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0),row_count:all.length};
+  else fullCohortTotals={row_count:all.length};
+  return {schema_version:WOLFHOUSE_CREATOR_SCHEMA,cohort_id:projection.cohort_id,detail:{kind,creator:query.creator||null,currency:projection.scope.currency,rows,page:{limit,next_cursor:next<all.length?Buffer.from(String(next)).toString('base64url'):null,complete:next>=all.length,matched_count:all.length,returned_count:rows.length},full_cohort_totals:fullCohortTotals}};
+}
+
 module.exports = {
   computeSunsetFinanceSummary,
   effectiveServiceDueCents,
@@ -1931,4 +2160,7 @@ module.exports = {
   withFinanceDiagnostics,
   toIntSoft,
   toInt,
+  computeWolfhouseCreatorFinance,
+  pageWolfhouseCreatorFinance,
+  wolfhouseCreator,
 };

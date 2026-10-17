@@ -1,0 +1,6 @@
+{
+  "label": "synthetic success",
+  "request": {"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","granularity":"month","anchor":"2026-10-17"}},
+  "response": {"status":200,"body":{"success":true,"client":"wolfhouse-somo","location_id":"","wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","scope":{"currency":"EUR"},"metrics":{"gross_receipts":{"state":"complete","amount_cents":15000},"deposits_received":{"state":"complete","amount_cents":10000}}}}},
+  "expected": {"gross_receipts_cents":15000,"deposits_received_cents":10000,"currency":"EUR"}
+}

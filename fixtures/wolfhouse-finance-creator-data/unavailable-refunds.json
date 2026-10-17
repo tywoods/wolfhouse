@@ -1,0 +1,6 @@
+{
+  "label":"unavailable refund adjustment",
+  "request":{"method":"GET","path":"/staff/admin/finance/summary","query":{"client":"wolfhouse-somo","currency":"EUR"}},
+  "response":{"status":200,"body":{"success":true,"wolfhouse_creator_finance":{"schema_version":"wolfhouse.creator-finance.v1","metrics":{"gross_receipts":{"state":"complete","amount_cents":15000},"recorded_refunds":{"state":"unavailable","amount_cents":null,"reason_codes":["refund_ledger_unavailable"]},"net_receipts":{"state":"unavailable","amount_cents":null}}}}},
+  "expected":{"gross_receipts_state":"complete","net_receipts_state":"unavailable","reason_codes":["refund_ledger_unavailable"]}
+}
