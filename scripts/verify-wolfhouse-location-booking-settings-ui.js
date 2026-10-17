@@ -15,6 +15,7 @@ const injector = fs.readFileSync(INJECTOR_PATH, 'utf8');
 const admin = fs.readFileSync(ADMIN_PATH, 'utf8');
 
 assert.match(injector, /wolfhouse-location-booking-settings-ui\.js/);
+assert.match(source, /staffCollapseEnhanceLate/);
 assert.match(admin, /loadWolfhouseLocationBookingSettings/);
 assert.match(source, /\/staff\/admin\/location-booking-settings/);
 assert.match(source, /\/staff\/admin\/location/);
