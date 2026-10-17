@@ -1238,6 +1238,31 @@ def prepare_quote(params):
         for key in _FIELDS + _CHECKED_FIELDS:
             if key not in result and key in preserved:
                 result[key] = preserved[key]
+        # A model-supplied ordered roster may complete an unambiguous short
+        # name while omitting the legacy hint projection. Keep that projection
+        # person-bound instead of sending Staff a stale Mateo/Mateo Ríos split.
+        old_guests = preserved.get('guests')
+        new_guests = result.get('guests')
+        retained_hints = result.get('room_name_hints')
+        if ('guests' in normalized_params and 'room_name_hints' not in normalized_params
+                and isinstance(old_guests, list) and isinstance(new_guests, list)
+                and len(old_guests) == len(new_guests)
+                and isinstance(retained_hints, list)):
+            normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+            old_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
+                         for row in old_guests]
+            new_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
+                         for row in new_guests]
+            synchronized = deepcopy(retained_hints)
+            for index, (old_name, new_name) in enumerate(zip(old_names, new_names)):
+                if (old_name and new_name and new_name != old_name
+                        and new_name.startswith(old_name + ' ')
+                        and old_names.count(old_name) == 1 and new_names.count(new_name) == 1):
+                    matches = [hint for hint in synchronized if isinstance(hint, dict)
+                               and normalize(hint.get('name')) == old_name]
+                    if len(matches) == 1:
+                        matches[0]['name'] = new_guests[index].get('name')
+            result['room_name_hints'] = synchronized
         # Catalog and atomic add-ons are aliases of the same priced selection.
         # An explicit replacement owns that alias; an omitted field is retained,
         # except for stale duplicates of the explicitly replaced representation.
@@ -1568,7 +1593,7 @@ def record_quote(params, response):
                 prepared.capability.epoch = state['epoch']
                 return
         presentation = state.get('presentation')
-        if valid and isinstance(presentation, dict) and previous_checked is None:
+        if valid and isinstance(presentation, dict):
             prior_revision = presentation.get('quote_revision') or {}
             revision = response.get('offer_revision') or {}
             prior_rows = prior_revision.get('guest_bed_assignments') or []
@@ -1587,6 +1612,8 @@ def record_quote(params, response):
                         same_people = False
                     names.append({'guest_index': index, 'completed_name': after.get('guest_name')})
             payment = prepared.get('payment_choice')
+            payment_completion = (payment if payment != prior_revision.get('payment_choice')
+                                  else None)
             prior_quote = presentation.get('authoritative_quote') or {}
             prior_plan = presentation.get('plan') or {}
             material_matches = True
@@ -1611,7 +1638,7 @@ def record_quote(params, response):
                     material_matches = False
             if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
                     and _completion_revision_matches(prior_revision, revision,
-                        payment_choice=payment, guest_completions=names,
+                        payment_choice=payment_completion, guest_completions=names,
                         person_plan=plan)
                     and all(response.get(key) == prior_quote.get(key)
                             for key in ('total_cents', 'deposit_required_cents', 'currency'))):
@@ -1620,6 +1647,9 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
+                if presentation.get('create_ready') is True:
+                    state['checked_offer'] = deepcopy(revision)
+                    state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
@@ -1716,6 +1746,31 @@ def prepare_create(params):
             # Person-bound facts already establish this redundant representation;
             # room/bed and roster changes still face the ordinary comparisons.
             params.pop('gender_preference')
+        supplied_hints = params.get('room_name_hints')
+        canonical_hints = baseline.get('room_name_hints')
+        if (isinstance(supplied_hints, list) and isinstance(canonical_hints, list)
+                and len(supplied_hints) == len(canonical_hints)
+                and all(isinstance(row, dict) for row in supplied_hints + canonical_hints)):
+            normalize_hint_name = lambda value: ' '.join(str(value or '').split()).casefold()
+            hint_completion = True
+            for supplied, canonical in zip(supplied_hints, canonical_hints):
+                old_name = normalize_hint_name(supplied.get('name'))
+                new_name = normalize_hint_name(canonical.get('name'))
+                if ({key: value for key, value in supplied.items() if key != 'name'}
+                        != {key: value for key, value in canonical.items() if key != 'name'}
+                        or not old_name or not new_name
+                        or (old_name != new_name and not new_name.startswith(old_name + ' '))):
+                    hint_completion = False
+                    break
+            if (hint_completion
+                    and len({normalize_hint_name(row.get('name')) for row in supplied_hints})
+                    == len(supplied_hints)
+                    and len({normalize_hint_name(row.get('name')) for row in canonical_hints})
+                    == len(canonical_hints)):
+                # Staff already synchronized this same-person completion. A
+                # stale model hint cannot veto the first create; any changed
+                # eligibility, person, or ordering still fails below.
+                params['room_name_hints'] = deepcopy(canonical_hints)
         if isinstance(state.get('presentation'), dict):
             updates = {}
             guests = params.get('guests')
@@ -2161,10 +2216,16 @@ def finalize_offer_response(result):
                     text += f" for {duration} days"
                 extras.append(text)
             lines.append('Extras: ' + '; '.join(extras) + '.')
-        lines.append(f"Total: {money(offer['total_cents'])}.")
+        lines.append(f"Total: {money(offer['total_cents'])} "
+                     f"(deposit: {money(offer['deposit_required_cents'])}).")
         payment = {'full': 'Full payment', 'deposit': 'Deposit',
                    'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
-        lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        if offer['payment_link_amount_cents']:
+            lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
+        if not offer['payment_link_amount_cents']: lines.append(f"Due now: {money(0)}.")
+        due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']
+        if due_on_arrival:
+            lines.append(f"Due on arrival: {money(due_on_arrival)}.")
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
