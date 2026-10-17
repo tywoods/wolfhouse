@@ -5,7 +5,16 @@
         "staging": {
           "routes": [
             {
-              "match": [{ "path": ["/whatsapp/webhook"] }],
+              "match": [
+                {
+                  "path": [
+                    "/whatsapp/webhook"
+                  ],
+                  "host": [
+                    "whatsapp-staging.lunafrontdesk.com"
+                  ]
+                }
+              ],
               "handle": [
                 {
                   "handler": "subroute",
@@ -15,7 +24,11 @@
                       "handle": [
                         {
                           "handler": "reverse_proxy",
-                          "upstreams": [{ "dial": "127.0.0.1:8090" }]
+                          "upstreams": [
+                            {
+                              "dial": "127.0.0.1:8090"
+                            }
+                          ]
                         }
                       ]
                     }
