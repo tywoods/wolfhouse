@@ -247,6 +247,18 @@ class CaptainR1R5Tests(unittest.TestCase):
                 'fr': "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux hommes ?",
                 'de': 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Männerzimmer zu übernachten?',
             },
+            'Is she a woman?': {
+                'en': 'Is she a woman?',
+                'es': '¿Es la huésped una mujer?',
+                'fr': 'La personne est-elle une femme ?',
+                'de': 'Ist der Gast eine Frau?',
+            },
+            'Is he a man?': {
+                'en': 'Is he a man?',
+                'es': '¿Es el huésped un hombre?',
+                'fr': 'La personne est-elle un homme ?',
+                'de': 'Ist der Gast ein Mann?',
+            },
         }
         def expected_count_question(count, female):
             nouns = {
@@ -320,6 +332,8 @@ class CaptainR1R5Tests(unittest.TestCase):
             'Is everyone a man?': (4,),
             'Are the guests men?': (4,),
             'Are the guests women?': (4,),
+            'Is she a woman?': (4,),
+            'Is he a man?': (4,),
             **{question: (guest_count,)
                for question, (guest_count, _female) in additional_cases.items()},
         }

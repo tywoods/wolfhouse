@@ -604,10 +604,12 @@ def _localized_eligibility_question(question, language, guest_count=None):
                         and not isinstance(guest_count, bool) and guest_count > 0 else None)
         singular_subject = bool(re.search(
             r'\b(?:the|this|that|one|a)\s+(?:guest|person)\b', low))
+        singular_predicate = bool(re.search(
+            r'^is\s+\S+\s+(?:a|an)\s+(?:woman|man|female|male)\s*\?*$', low))
         count = (4 if re.search(r'\b(?:four|4)\b', low)
                  else 3 if re.search(r'\b(?:three|3)\b', low)
                  else 2 if re.search(r'\b(?:both|two|2)\b', low)
-                 else 1 if singular_subject
+                 else 1 if singular_subject or singular_predicate
                  else stored_count)
         if count is None:
             return text
