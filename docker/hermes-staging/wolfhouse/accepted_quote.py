@@ -459,9 +459,10 @@ def _guest_room_lines(plan, offer, language='en'):
         emitted.add(kind)
         if len(same) > 1 and all(len(item['names']) <= 1 for item in same):
             names = [name for item in same for name in item['names']]
+            all_guests_named = len(names) == sum(item['beds'] for item in same)
             count = _count_word(len(same), language)
             plural_kind = _plural_room_kind(kind, language)
-            who = _join_names(names, language) if names else ''
+            who = _join_names(names, language) if all_guests_named else ''
             prefix = (f'{who} : ' if language == 'fr' else f'{who}: ') if who else ''
             templates = {'en': f'{prefix}beds in {count} separate {plural_kind}.',
                          'es': f'{prefix}camas en {count} {plural_kind} separadas.',
@@ -544,7 +545,21 @@ def _localized_eligibility_question(question, language):
     everyone_stay = bool(re.search(r'\b(?:everyone|everybody|all guests)\b', low)
                          and re.search(r'\b(?:stay|sleep|accommodat\w*)\b', low)
                          and re.search(r'\b(?:room|dorm)\b', low))
+    female_room_negated = bool(
+        female and everyone_stay
+        and re.search(r"\bnot\b[^?]*(?:female|women|woman|girls?|lad(?:y|ies))", low))
+    uncomfortable_female_room = bool(
+        female and re.search(r'\bany\b', low)
+        and re.search(r"\bnot\s+comfortable\b", low)
+        and re.search(r'\b(?:stay|staying|sleep|sleeping)\b', low)
+        and re.search(r'\b(?:room|dorm)\b', low))
     semantic_questions = {
+        ('es', 'female_room_negated'): '¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?',
+        ('fr', 'female_room_negated'): "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?",
+        ('de', 'female_room_negated'): 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?',
+        ('es', 'uncomfortable_female_room'): '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?',
+        ('fr', 'uncomfortable_female_room'): "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?",
+        ('de', 'uncomfortable_female_room'): 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?',
         ('es', 'any_not'): ('¿Hay alguna huésped que no sea mujer?' if female
                             else '¿Hay algún huésped que no sea hombre?'),
         ('fr', 'any_not'): ('Y a-t-il une personne qui ne soit pas une femme ?' if female
@@ -558,7 +573,10 @@ def _localized_eligibility_question(question, language):
         ('de', 'everyone_stay'): ('Können alle Gäste in einem Frauenzimmer übernachten?' if female
                                   else 'Können alle Gäste in einem Männerzimmer übernachten?'),
     }
-    semantic = 'any_not' if any_not else 'everyone_stay' if everyone_stay else None
+    semantic = ('female_room_negated' if female_room_negated
+                else 'uncomfortable_female_room' if uncomfortable_female_room
+                else 'any_not' if any_not
+                else 'everyone_stay' if everyone_stay else None)
     if semantic:
         return semantic_questions.get((language, semantic), text)
     count = (3 if re.search(r'\b(?:three|3)\b', low)

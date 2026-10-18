@@ -72,6 +72,48 @@ class CaptainR1R5Tests(unittest.TestCase):
             calls[0][1]["room_name_hints"],
         )
 
+    def test_r4_negated_room_questions_keep_predicate_through_real_finalizer(self):
+        cases = {
+            'Can everyone stay in a room that is not female-only?': {
+                'es': '¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?',
+                'fr': "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?",
+                'de': 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?',
+            },
+            'Are any guests not comfortable staying in a female-only room?': {
+                'es': '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?',
+                'fr': "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?",
+                'de': 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?',
+            },
+        }
+        for question, translations in cases.items():
+            for language, expected in translations.items():
+                for guest_count in (1, 2, 3):
+                    with self.subTest(question=question, language=language,
+                                      guest_count=guest_count):
+                        state = {
+                            'status': 'blocked',
+                            'guest_language': language,
+                            'plan': {'guest_count': guest_count, 'language': language},
+                            'quote': {
+                                'quote_status': 'needs_guest_clarification',
+                                'guest_safe_next_action': question,
+                                'offer_revision': None,
+                            },
+                            'offer_message': 'sim19-negation',
+                        }
+                        ingress = {'MESSAGE_ID': 'sim19-negation',
+                                   'tenant': 'wolfhouse-somo'}
+                        with patch.object(
+                                accepted_quote, '_transaction',
+                                side_effect=lambda operation: operation(state, ingress)):
+                            shown = accepted_quote.finalize_offer_response({
+                                'completed': True,
+                                'final_response': 'draft',
+                                'messages': [{'role': 'assistant', 'content': 'draft'}],
+                            })
+                        self.assertEqual(expected, shown['final_response'])
+                        self.assertEqual(expected, shown['messages'][-1]['content'])
+
     def test_r4_two_and_three_name_completions_compare_atomically(self):
         before = {"offer_fingerprint": "old", "guest_bed_assignments": [
             {"guest_index": i, "guest_name": name, "bed_code": f"B{i}"}
