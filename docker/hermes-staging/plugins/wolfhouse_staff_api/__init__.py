@@ -465,6 +465,12 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         for item in raw_travelers
         if isinstance(item, dict)
     ] or None
+    group_gender = params.get("group_gender")
+    known_genders = {item["explicit_gender"] for item in (travelers or [])
+                     if item.get("explicit_gender") in {"female", "male"}}
+    if (_clean(group_gender).lower() in {"female", "male"}
+            and any(value != _clean(group_gender).lower() for value in known_genders)):
+        group_gender = None
     if not payment_intent and not preference and not travelers and not any(
             params.get(key) not in (None, "", []) for key in (
                 "name_hint", "name_confidence", "room_name_hints", "name_ambiguous",
@@ -488,7 +494,7 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         # person-bound fact gender_preference.  Omitting guests/names must not
         # discard it before a gendered-bed eligibility decision.
         explicit_gender=params.get("explicit_gender") or params.get("gender_preference"),
-        group_gender=params.get("group_gender"),
+        group_gender=group_gender,
         room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
         available=available or None,
@@ -571,6 +577,21 @@ def _intentional_block_result(data):
     }
 
 
+def _strip_group_gender_conflicting_with_person_facts(payload):
+    """Never let an aggregate guess override a known occupant fact."""
+    if not isinstance(payload, dict):
+        return
+    group_gender = _clean(payload.get("group_gender")).lower()
+    if group_gender not in {"female", "male"}:
+        return
+    rows = payload.get("room_name_hints") or payload.get("guests") or []
+    known = {_clean(row.get("explicit_gender")).lower() for row in rows
+             if isinstance(row, dict)
+             and _clean(row.get("explicit_gender")).lower() in {"female", "male"}}
+    if any(value != group_gender for value in known):
+        payload.pop("group_gender", None)
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -601,6 +622,7 @@ def check_availability(params, **kwargs):
              and guest.get("explicit_gender") in ("male", "female")]
     if hints:
         payload["room_name_hints"] = hints
+    _strip_group_gender_conflicting_with_person_facts(payload)
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
@@ -751,6 +773,8 @@ def quote_booking(params, **kwargs):
     owner_eligibility_context = '_owner_validated_guest_eligibility' in kwargs
     owner_validated_guest_eligibility = kwargs.pop(
         '_owner_validated_guest_eligibility', {})
+    owner_validated_group_composition = kwargs.pop(
+        '_owner_validated_group_composition', None)
     if not isinstance(owner_validated_guest_eligibility, dict):
         owner_validated_guest_eligibility = {}
     del kwargs
@@ -774,6 +798,8 @@ def quote_booking(params, **kwargs):
         payload.pop('group_gender', None)
         payload.pop('gender_preference', None)
         payload.pop('explicit_gender', None)
+        if owner_validated_group_composition in ('male', 'female'):
+            payload['group_gender'] = owner_validated_group_composition
     # Staff hints must be regenerated from owner-proven per-person guest fields.
     payload.pop("room_name_hints", None)
     payload.setdefault("source", "agent_luna_whatsapp")
@@ -793,6 +819,7 @@ def quote_booking(params, **kwargs):
              and guest.get("explicit_gender") in ("male", "female")]
     if hints:
         payload["room_name_hints"] = hints
+    _strip_group_gender_conflicting_with_person_facts(payload)
     # The quote shown to the guest must itself carry Staff's ordered bed pick.
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.
@@ -4773,6 +4800,8 @@ def _quote_owner_handler(name, original):
                     wire,
                     _owner_validated_guest_eligibility=(
                         ledger.validated_guest_eligibility(canonical)),
+                    _owner_validated_group_composition=(
+                        ledger.validated_unnamed_group_composition(canonical)),
                     **kwargs)
             else:
                 result = original(wire, **kwargs)
