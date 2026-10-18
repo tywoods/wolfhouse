@@ -532,7 +532,7 @@ def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
 
 
-def _localized_eligibility_question(question, language):
+def _localized_eligibility_question(question, language, guest_count=None):
     """Retain Staff's eligibility meaning, including subject count and negation."""
     text = str(question or '').strip()
     low = text.casefold()
@@ -586,7 +586,7 @@ def _localized_eligibility_question(question, language):
     if semantic:
         return semantic_questions.get((language, semantic), text)
     explicit_count_match = re.search(
-        r'\ball\s+(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten|'
+        r'\b(?:all\s+)?(?:the\s+)?(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten|'
         r'eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|'
         r'nineteen|twenty)\s+guests?\b', low)
     count_words = {
@@ -600,10 +600,15 @@ def _localized_eligibility_question(question, language):
         count_token = explicit_count_match.group('count')
         count = int(count_token) if count_token.isdigit() else count_words[count_token]
     else:
+        stored_count = (guest_count if isinstance(guest_count, int)
+                        and not isinstance(guest_count, bool) and guest_count > 0 else None)
         count = (4 if re.search(r'\b(?:four|4)\b', low)
                  else 3 if re.search(r'\b(?:three|3)\b', low)
-                 else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
-    all_group = bool(re.search(r'\ball\s+guests?\b', low))
+                 else 2 if re.search(r'\b(?:both|two|2)\b', low)
+                 else (stored_count or 2) if re.search(
+                     r'\b(?:guests|everyone|everybody)\b', low) else 1)
+    all_group = bool(re.search(
+        r'\b(?:all(?:\s+the)?\s+guests?|everyone|everybody)\b', low))
     negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))
     if all_group:
         all_group_questions = {
@@ -615,7 +620,7 @@ def _localized_eligibility_question(question, language):
             ('de', True): 'Sind nicht alle Gäste Frauen?' if female else 'Sind nicht alle Gäste Männer?',
         }
         return all_group_questions.get((language, negated), text)
-    if explicit_count_match and count > 4:
+    if count > 4:
         generic_questions = {
             ('es', False): f'¿Son mujeres las {count} huéspedes?' if female else f'¿Son hombres los {count} huéspedes?',
             ('es', True): f'¿No son mujeres las {count} huéspedes?' if female else f'¿No son hombres los {count} huéspedes?',
@@ -2367,7 +2372,9 @@ def finalize_offer_response(result):
                 and any(term in next_action.casefold() for term in eligibility_terms))
             # Preserve a concrete Staff eligibility clarification. Other Staff
             # prose is not language-authoritative and must not leak into copy.
-            text = (_localized_eligibility_question(next_action, language)
+            plan = state.get('plan') or {}
+            text = (_localized_eligibility_question(
+                        next_action, language, guest_count=plan.get('guest_count'))
                     if valid_eligibility_question else _final_copy(language, 'refusal'))
             output = deepcopy(result)
             output['final_response'] = text
