@@ -1926,7 +1926,10 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_empty_and_changed_picks_do_not_downgrade(self):
         self.accept()
-        for picks in ([], [{'service_code': 'drone', 'quantity': 2}], [{'service_code': 'yoga_class', 'quantity': 1}]):
+        # Empty duplicate catalog projection does not remove the same canonical
+        # service carried in add_ons; actual service changes remain material.
+        self.ledger.prepare_create({'catalog_selections': []})
+        for picks in ([{'service_code': 'drone', 'quantity': 2}], [{'service_code': 'yoga_class', 'quantity': 1}]):
             with self.subTest(picks=picks), self.assertRaises(self.ledger.QuoteBoundaryError):
                 self.ledger.prepare_create({'catalog_selections': picks})
         self.assertEqual(self.ledger.prepare_quote({'catalog_selections': []})['add_ons'], [])
@@ -2199,6 +2202,190 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertTrue(first['idempotency_key'].startswith('luna-owner-'))
         self.assertNotIn('total_cents', first)
         self.assertNotIn('quote_total_cents', second)
+
+    def test_sim20_locale_is_rendering_metadata_not_offer_identity(self):
+        for index, language in enumerate(('en', 'es', 'fr', 'de')):
+            with self.subTest(language=language):
+                self.agent.session_id = f'sim20-locale-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {key: deepcopy(value) for key, value in self.plan.items()
+                        if key != 'language'}
+                self.turn(f'sim20-offer-{index}', 'Quote this please')
+                response = self.checked(plan)
+                self.present(plan, response)
+                self.turn(f'sim20-yes-{index}', 'yes')
+                first = self.ledger.prepare_create({'language': language})
+                self.assertTrue(first.revalidation)
+                self.assertEqual(first['language'], language)
+                self.ledger.record_quote(first, deepcopy(response))
+                accepted = self.ledger.prepare_create({'language': language})
+                changed_locale = self.ledger.prepare_create(
+                    {'language': 'de' if language != 'de' else 'en'})
+                self.assertEqual(accepted['idempotency_key'], changed_locale['idempotency_key'])
+                self.assertEqual(changed_locale['language'], 'de' if language != 'de' else 'en')
+
+    def test_sim20_new_mixed_group_fact_requires_equivalent_staff_revalidation(self):
+        plan = {key: deepcopy(value) for key, value in self.plan.items()
+                if key != 'group_gender'}
+        self.turn('sim20-g2-offer', 'Quote this please')
+        response = self.checked(plan)
+        self.present(plan, response)
+        self.turn('sim20-g2-yes', 'yes, our group is mixed')
+        prepared = self.ledger.prepare_create({'group_gender': 'mixed'})
+        self.assertTrue(prepared.revalidation)
+        self.assertEqual(prepared['group_gender'], 'mixed')
+        refreshed = self.checked(prepared)
+        self.ledger.record_quote(prepared, refreshed)
+        self.assertEqual(self.ledger.prepare_create({})['accepted_offer'],
+                         refreshed['offer_revision'])
+
+        self.agent.session_id = 'sim20-g2-conflict'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim20-g2-conflict-offer', 'Quote this please')
+        self.present(plan, response)
+        self.turn('sim20-g2-conflict-yes', 'yes, our group is mixed')
+        contradictory = self.ledger.prepare_create({'group_gender': 'mixed'})
+        changed = self.checked({**dict(contradictory), 'selected_bed_codes': ['F1', 'F2']},
+                               [dict(bed_code='F1', room_code='F', gender_strategy='female_only'),
+                                dict(bed_code='F2', room_code='F', gender_strategy='female_only')])
+        self.ledger.record_quote(contradictory, changed)
+        with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
+                                    '^quote_owner_presented_offer_required$'):
+            self.ledger.prepare_create({})
+
+    def test_sim20_four_fact_material_contract_and_stable_operation_key(self):
+        self.accept()
+        carried = self.ledger.prepare_create({
+            'language': 'fr', 'email': 'guest@example.invalid',
+            'guests': [{'name': 'Alex Rivera'}, {'name': 'Sam Lee'}],
+            'payment_choice': 'deposit',
+        })
+        self.assertTrue(carried.revalidation)
+        refreshed = self.checked(carried)
+        self.ledger.record_quote(carried, refreshed)
+        first = self.ledger.prepare_create({})
+        key = first['idempotency_key']
+        second = self.ledger.prepare_create({'language': 'de', 'email': 'other@example.invalid'})
+        self.assertEqual(second['idempotency_key'], key)
+        self.assertEqual(second['language'], 'de')
+        for change in (
+                {'check_in': '2026-11-02'}, {'check_out': '2026-11-09'},
+                {'guest_count': 3}, {'selected_bed_codes': ['M2', 'M1']},
+                {'package_code': 'surf_week'},
+                {'catalog_selections': [{'service_code': 'drone', 'quantity': 2}]}):
+            with self.subTest(change=change), self.assertRaisesRegex(
+                    self.ledger.QuoteBoundaryError, '^accepted_quote_changed$'):
+                self.ledger.prepare_create(change)
+
+    def test_jw1749_materially_new_presented_offer_mints_new_operation_key(self):
+        changes = (
+            {'check_in': '2026-12-01', 'check_out': '2026-12-08'},
+            {'selected_bed_codes': ['M2', 'M1']},
+            {'package_code': 'surf_week'},
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(change=change):
+                self.agent.session_id = f'jw1749-new-operation-{index}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'offer-{index}-a', 'Quote this please')
+                self.present()
+                self.turn(f'accept-{index}-a', 'yes')
+                self.interpret('yes')
+                old_key = self.ledger.prepare_create({})['idempotency_key']
+                changed = {**deepcopy(self.plan), **change}
+                self.turn(f'offer-{index}-b', 'Please quote the changed offer')
+                self.present(changed, self.checked(changed))
+                self.turn(f'accept-{index}-b', 'yes')
+                self.interpret('yes')
+                self.assertNotEqual(self.ledger.prepare_create({})['idempotency_key'], old_key)
+
+        self.agent.session_id = 'jw1749-new-operation-price'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('price-offer-a', 'Quote this please')
+        original = self.present()
+        self.turn('price-accept-a', 'yes')
+        self.interpret('yes')
+        old_key = self.ledger.prepare_create({})['idempotency_key']
+        repriced = deepcopy(original)
+        for field in ('total_cents', 'deposit_required_cents', 'payment_link_amount_cents'):
+            if field in repriced:
+                repriced[field] = int(repriced[field]) + 1000
+            if field in repriced['offer_revision']:
+                repriced['offer_revision'][field] = int(repriced['offer_revision'][field]) + 1000
+        self.turn('price-offer-b', 'Please quote the new price')
+        self.present(self.plan, repriced)
+        self.turn('price-accept-b', 'yes')
+        self.interpret('yes')
+        self.assertNotEqual(self.ledger.prepare_create({})['idempotency_key'], old_key)
+
+    def test_jw1749_newer_checked_tool_truth_supersedes_stale_eligibility(self):
+        import json
+        eligibility = {'success': True, 'availability_status': 'eligibility_required',
+                       'next_action': 'ask_room_eligibility',
+                       'reply_draft': 'Are all guests women?'}
+        checked = self.checked()
+        rendered = self.ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'Current checked quote',
+            'messages': [
+                {'role': 'user', 'content': 'Please check'},
+                {'role': 'tool', 'content': json.dumps(eligibility)},
+                {'role': 'tool', 'content': json.dumps(checked)},
+                {'role': 'assistant', 'content': 'Current checked quote'},
+            ],
+        })
+        self.assertNotEqual(rendered['final_response'], 'Are all guests women?')
+        self.assertNotIn('all guests women', rendered['final_response'].casefold())
+
+    def test_sim20_missing_and_empty_optional_selections_are_equivalent(self):
+        plan = deepcopy(self.plan)
+        plan.pop('catalog_selections', None)
+        plan.pop('add_ons', None)
+        self.agent.session_id = 'sim20-empty-optional'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('empty-offer', 'Quote this please')
+        self.present(plan, self.checked(plan))
+        self.turn('empty-accept', 'yes')
+        self.assertTrue(self.ledger.prepare_create(
+            {'catalog_selections': [], 'add_ons': []}).revalidation)
+
+    def test_sim20_eligibility_finalizer_cannot_claim_unavailability(self):
+        import json
+        receipt = {'success': True, 'availability_status': 'eligibility_required',
+                   'available': False, 'unavailable': False,
+                   'next_action': 'ask_room_eligibility',
+                   'reply_draft': 'Would a mixed dorm work for you?'}
+        rendered = self.ledger.finalize_offer_response({
+            'completed': True, 'final_response': "The women's dorm is unavailable.",
+            'messages': [
+                {'role': 'user', 'content': 'Can I have a women-only dorm?'},
+                {'role': 'tool', 'content': json.dumps(receipt)},
+                {'role': 'assistant', 'content': "The women's dorm is unavailable."},
+            ],
+        })
+        self.assertEqual(rendered['final_response'], 'Would a mixed dorm work for you?')
+        self.assertNotIn('unavailable', rendered['messages'][-1]['content'])
+
+    def test_sim20_legacy_pending_and_completed_operation_keys_remain_compatible(self):
+        import hashlib
+        state = {
+            'scope': {'tenant': 'wolfhouse-somo'}, 'incarnation': 7,
+            'offer_message': 'offer', 'acceptance_message': 'yes',
+            'plan': {'check_in': '2026-11-01'},
+            'quote': {'success': True, 'total_cents': 20000},
+        }
+        encoded = self.ledger._encode({
+            'scope': state['scope'], 'incarnation': state['incarnation'],
+            'offer': state['offer_message'], 'acceptance': state['acceptance_message'],
+            'plan': state['plan'], 'quote': state['quote'],
+        })
+        expected = 'luna-owner-' + hashlib.sha256(encoded.encode()).hexdigest()[:32]
+        for marker in ({'dispatch_pending': True},
+                       {'receipt': {'success': True, 'booking_id': 'legacy'}}):
+            with self.subTest(marker=marker):
+                self.assertEqual(self.ledger._owner_operation_key({**state, **marker}), expected)
+        self.assertEqual(self.ledger._owner_operation_key(
+            {**state, 'operation_key': 'luna-owner-persisted'}),
+            'luna-owner-persisted')
 
     def test_structurally_corrupt_accepted_quote_fails_closed(self):
         import json
