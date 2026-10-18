@@ -37,7 +37,7 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects, expec
   const seen = [];
   const cfg = structuredClone(fixture);
   mutate(controllerRoutes(cfg));
-  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|intercepting empty terminal route/);
+  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|intercepting empty terminal route|preceding route (?:rewrite|termination) effect/);
   else inspector.verifyInactiveObject(cfg);
   const upstream = http.createServer((req, res) => { seen.push(req.url); res.writeHead(204); res.end(); });
   const upstreamPort = await listen(upstream);
@@ -78,9 +78,10 @@ function replaceDials(value, controllerDial, proofDial) {
   if (value.dial === '127.0.0.1:8094') value.dial = proofDial;
   for (const child of Object.values(value)) replaceDials(child, controllerDial, proofDial);
 }
-async function runExactLead(root, name, expectedController, expectedProof, expectedAlias) {
+async function runExactLead(root, name, expectedController, expectedProof, expectedAlias, inspectorRejects = true) {
   const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${name}.json`), 'utf8'));
-  assert.throws(() => inspector.verifyInactiveObject(cfg));
+  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg));
+  else inspector.verifyInactiveObject(cfg);
   const controllerSeen = [], proofSeen = [];
   const controllerUpstream = http.createServer((req, res) => { controllerSeen.push(req.url); res.writeHead(204); res.end(); });
   const proofUpstream = http.createServer((req, res) => { proofSeen.push(req.url); res.writeHead(204); res.end(); });
@@ -120,7 +121,7 @@ async function runExactLead(root, name, expectedController, expectedProof, expec
     await close(controllerUpstream); await close(proofUpstream);
     assert.deepStrictEqual(exit, { code: 0, signal: null }, `${name} Caddy exit`);
   }
-  return { name, inspector: 'REJECT', controllerSeen, proofSeen };
+  return { name, inspector: inspectorRejects ? 'REJECT' : 'PASS', controllerSeen, proofSeen };
 }
 (async () => {
   const version = cp.execFileSync(caddy, ['version'], { encoding: 'utf8' }).trim();
@@ -140,7 +141,13 @@ async function runExactLead(root, name, expectedController, expectedProof, expec
     await runCase(root, 'earlier-empty-terminal-same-group', routes => routes.unshift({ group: routes[0].group, terminal: true, handle: [] }), null, true, 200),
     await runExactLead(root, 'lead-outer-group2', [], [], 0),
     await runExactLead(root, 'lead-ungrouped-terminal', [], [inspector.PROOF], 0),
-    await runExactLead(root, 'lead-matched-alias', [inspector.CONTROLLER_REWRITE, inspector.CONTROLLER_REWRITE], [inspector.PROOF], 2)
+    await runExactLead(root, 'lead-matched-alias', [inspector.CONTROLLER_REWRITE, inspector.CONTROLLER_REWRITE], [inspector.PROOF], 2),
+    await runExactLead(root, 'terminal-inert-subroute', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'nonterminal-inert-subroute-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'preceding-rewrite', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'nested-preceding-rewrite', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'nested-preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false)
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);
   process.stdout.write(`PASS native Caddy routing regression ${root}\n${JSON.stringify(cases)}\n`);

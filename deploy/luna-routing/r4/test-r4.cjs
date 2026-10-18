@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const cp = require('child_process');
 const inspector = require('./check-luna-caddy-json.cjs');
 const probe = require('./probe-luna-routing-get.cjs');
 const caddyContract = require('../caddy-contract.js');
@@ -59,37 +60,49 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: routes[0].group, handle: [] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
  });
  await test('native rewrite group consumed by an earlier uppercase-equivalent sibling is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: routes[0].group, match: [{ path: [inspector.CONTROLLER.toUpperCase()] }], handle: [] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
  });
  await test('native rewrite group consumed by an earlier placeholder-path sibling is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: routes[0].group, match: [{ path: ['{http.request.uri.path}'] }], handle: [] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
  });
  await test('native rewrite group consumed in an earlier nested subroute is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ handle: [{ handler: 'subroute', routes: [{ group: routes[0].group, handle: [] }] }] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
  });
  await test('native rewrite group consumed by an earlier outer grouped route is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: routes[0].group, handle: [{ handler: 'subroute', routes: [{ handle: [] }] }] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
  });
  await test('native rewrite group reached after an earlier rewrite is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ handle: [{ handler: 'rewrite', uri: '/rewritten-before-group' }, { handler: 'subroute', routes: [{ group: routes[0].group, match: [{ path: ['/rewritten-before-group'] }], handle: [] }] }] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|preceding route rewrite effect/);
+ });
+ await test('native rewrite group reached after an earlier nested rewrite is rejected', () => {
+   const cfg = load('native-actual-canonical.json');
+   const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
+   routes.unshift({ handle: [{ handler: 'subroute', routes: [{ match: [{ path: [inspector.CONTROLLER] }], handle: [{ handler: 'rewrite', uri: '/nested-diverted' }] }] }] });
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding route rewrite effect/);
+ });
+ await test('native path-disjoint nested rewrite passes', () => {
+   const cfg = load('native-actual-canonical.json');
+   const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
+   routes.unshift({ handle: [{ handler: 'subroute', routes: [{ match: [{ path: ['/health'] }], handle: [{ handler: 'rewrite', uri: '/nested-diverted' }] }] }] });
+   inspector.verifyInactiveObject(cfg);
  });
  await test('native rewrite group consumed by an earlier empty terminal route is rejected', () => {
    const cfg = load('native-actual-canonical.json');
@@ -112,11 +125,37 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
  for (const [name, message] of [
    ['lead-outer-group2.json', /preceding sibling group collision/],
    ['lead-ungrouped-terminal.json', /intercepting empty terminal route/],
-   ['lead-matched-alias.json', /unapproved or delivery proxy/]
- ]) await test(`Captain exact native lead ${name} is rejected`, () => {
+   ['lead-matched-alias.json', /unapproved or delivery proxy/],
+   ['terminal-inert-subroute.json', /preceding route termination effect/],
+   ['preceding-rewrite.json', /preceding route rewrite effect/]
+ ]) await test(`Captain exact native lead ${name} is rejected in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
    const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
    assert.throws(() => inspector.verifyInactiveObject(cfg), message);
-   assert.throws(() => inspector.compareProtectedObjects(load('protected-baseline.json'), cfg), message);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), message);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, message, `${name} ${args[0]} stderr`);
+   }
+ });
+ for (const name of ['nonterminal-inert-subroute-control.json', 'preceding-disjoint-rewrite-control.json']) await test(`Captain exact control ${name} passes in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   inspector.verifyInactiveObject(cfg);
+   inspector.compareProtectedObjects(load('captain-r7-protected-baseline.json'), cfg);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
+     assert.match(result.stdout, /^PASS /);
+   }
  });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');

@@ -59,6 +59,27 @@ function effectiveLeaves(cfg) {
       const pathApplies = paths === null || paths.some(pattern => nativeStaticMatch(pattern, requestPath, false) !== false);
       return hostApplies && pathApplies;
     }
+    function hasEscapingRewrite(list, host, requestPath) {
+      if (!Array.isArray(list)) return true;
+      for (let i = 0; i < list.length; i++) {
+        const route = list[i], next = list[i + 1];
+        if (!route || typeof route !== 'object' || Array.isArray(route)) return true;
+        const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
+        if (!alternatives.some(match => alternativeMayApply(match, host, requestPath))) continue;
+        const handlers = Array.isArray(route.handle) ? route.handle : [];
+        const directRewrite = handlers.length === 1 && handlers[0]?.handler === 'rewrite' ? handlers[0] : null;
+        const nextProxy = Array.isArray(next?.handle) && next.handle.length === 1 && next.handle[0]?.handler === 'reverse_proxy';
+        const supportedPair = directRewrite?.uri === CONTROLLER_REWRITE && nextProxy && next.match === undefined
+          && typeof route.group === 'string' && Object.keys(route).every(key => ['group', 'handle'].includes(key))
+          && Object.keys(next).every(key => key === 'handle');
+        if (supportedPair) { i++; continue; }
+        for (const handler of handlers) {
+          if (handler?.handler === 'rewrite') return true;
+          if (handler?.handler === 'subroute' && hasEscapingRewrite(handler.routes, host, requestPath)) return true;
+        }
+      }
+      return false;
+    }
     function routeMayConsumeGroup(route, group, host, requestPath) {
       if (!route || typeof route !== 'object' || Array.isArray(route)) return true;
       const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
@@ -96,14 +117,25 @@ function effectiveLeaves(cfg) {
       const rewrite = handlers.length === 1 && handlers[0]?.handler === 'rewrite' ? handlers[0] : null;
       const nextProxy = Array.isArray(next?.handle) && next.handle.length === 1 && next.handle[0]?.handler === 'reverse_proxy' ? next.handle[0] : null;
       const rewritePath = rewrite?.uri;
-      const nativeSequential = rewrite && nextProxy && rewritePath === CONTROLLER_REWRITE && exact(state.paths, CONTROLLER)
+      const sequentialShape = rewrite && nextProxy && rewritePath === CONTROLLER_REWRITE && exact(state.paths, CONTROLLER)
         && next.match === undefined && typeof route.group === 'string'
-        && !state.groups.includes(route.group)
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
+      const nativeSequential = sequentialShape && !state.groups.includes(route.group);
       if (nativeSequential) {
         if (route.terminal || next.terminal || next.group) fail('unsupported sequential rewrite control');
         normalized.push({ ...route, handle: [rewrite, nextProxy] }); i++; continue;
+      }
+      const affectedApproved = relevantApproved.filter(requestPath => list.slice(i + 1).some(sibling => {
+        const alternatives = Array.isArray(sibling?.match) && sibling.match.length ? sibling.match : [{}];
+        return alternatives.some(match => alternativeMayApply(match, SITE, requestPath));
+      }));
+      if (affectedApproved.length) {
+        if (route?.terminal === true) fail(handlers.length === 0 ? 'intercepting empty terminal route' : 'preceding route termination effect');
+        const hasUnresolvedRewrite = affectedApproved.some(requestPath => handlers.some(handler =>
+          handler?.handler === 'rewrite' && !sequentialShape
+          || handler?.handler === 'subroute' && hasEscapingRewrite(handler.routes, SITE, requestPath)));
+        if (hasUnresolvedRewrite) fail('preceding route rewrite effect');
       }
       normalized.push(route);
     }
