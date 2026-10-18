@@ -471,7 +471,8 @@ def _guest_room_lines(plan, offer, language='en'):
             continue
         first = True
         for item in same:
-            who = _join_names(item['names'], language)
+            names = item['names'] if len(item['names']) == item['beds'] else []
+            who = _join_names(names, language)
             beds = item['beds']
             n = _count_word(beds, language)
             # Room and bed codes are Staff internals, never guest-facing copy.
@@ -538,6 +539,28 @@ def _localized_eligibility_question(question, language):
     male = bool(re.search(r'\b(?:men|man|male|boys?|guys?)\b', low))
     if not (female ^ male) or language == 'en':
         return text
+    any_not = bool(re.search(r'\bany\b', low) and re.search(
+        r"\b(?:not|isn't|aren't|isnt|arent)\b", low))
+    everyone_stay = bool(re.search(r'\b(?:everyone|everybody|all guests)\b', low)
+                         and re.search(r'\b(?:stay|sleep|accommodat\w*)\b', low)
+                         and re.search(r'\b(?:room|dorm)\b', low))
+    semantic_questions = {
+        ('es', 'any_not'): ('¿Hay alguna huésped que no sea mujer?' if female
+                            else '¿Hay algún huésped que no sea hombre?'),
+        ('fr', 'any_not'): ('Y a-t-il une personne qui ne soit pas une femme ?' if female
+                            else 'Y a-t-il une personne qui ne soit pas un homme ?'),
+        ('de', 'any_not'): ('Gibt es Gäste, die keine Frauen sind?' if female
+                            else 'Gibt es Gäste, die keine Männer sind?'),
+        ('es', 'everyone_stay'): ('¿Pueden todas las personas alojarse en una habitación solo para mujeres?' if female
+                                  else '¿Pueden todas las personas alojarse en una habitación solo para hombres?'),
+        ('fr', 'everyone_stay'): ('Tout le monde peut-il séjourner dans une chambre réservée aux femmes ?' if female
+                                  else 'Tout le monde peut-il séjourner dans une chambre réservée aux hommes ?'),
+        ('de', 'everyone_stay'): ('Können alle Gäste in einem Frauenzimmer übernachten?' if female
+                                  else 'Können alle Gäste in einem Männerzimmer übernachten?'),
+    }
+    semantic = 'any_not' if any_not else 'everyone_stay' if everyone_stay else None
+    if semantic:
+        return semantic_questions.get((language, semantic), text)
     count = (3 if re.search(r'\b(?:three|3)\b', low)
              else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
     negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))

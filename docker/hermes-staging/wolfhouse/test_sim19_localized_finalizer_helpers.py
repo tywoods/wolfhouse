@@ -37,7 +37,8 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         lines = owner._guest_room_lines(plan, offer, "en")
-        self.assertEqual(["Alex: two beds in the same room."], lines)
+        self.assertEqual(["two beds in the same room."], lines)
+        self.assertNotIn("Alex:", "\n".join(lines))
 
     def test_three_unnamed_guests_in_three_rooms_still_render(self):
         plan = {
@@ -146,6 +147,30 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
                 "es": "¿No son mujeres las dos huéspedes?",
                 "fr": "Les deux personnes ne sont-elles pas des femmes ?",
                 "de": "Sind nicht beide Gäste Frauen?",
+            },
+            "Is the guest not a woman?": {
+                "en": "Is the guest not a woman?",
+                "es": "¿No es la huésped una mujer?",
+                "fr": "La personne n'est-elle pas une femme ?",
+                "de": "Ist der Gast keine Frau?",
+            },
+            "Are all three guests not women?": {
+                "en": "Are all three guests not women?",
+                "es": "¿No son mujeres las tres huéspedes?",
+                "fr": "Les trois personnes ne sont-elles pas des femmes ?",
+                "de": "Sind nicht alle drei Gäste Frauen?",
+            },
+            "Are any guests not women?": {
+                "en": "Are any guests not women?",
+                "es": "¿Hay alguna huésped que no sea mujer?",
+                "fr": "Y a-t-il une personne qui ne soit pas une femme ?",
+                "de": "Gibt es Gäste, die keine Frauen sind?",
+            },
+            "Can everyone stay in a female-only room?": {
+                "en": "Can everyone stay in a female-only room?",
+                "es": "¿Pueden todas las personas alojarse en una habitación solo para mujeres?",
+                "fr": "Tout le monde peut-il séjourner dans une chambre réservée aux femmes ?",
+                "de": "Können alle Gäste in einem Frauenzimmer übernachten?",
             },
         }
         for question, translations in cases.items():
