@@ -183,15 +183,19 @@ function effectiveLeaves(cfg) {
         if (!match || typeof match !== 'object' || Array.isArray(match)) fail('invalid match');
         if (Object.keys(match).some(key => !['host', 'path'].includes(key))) fail('unsupported matcher constraint');
         if (typeof route.group === 'string' && state.groups.includes(route.group)) fail('nested route group collision');
-        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group, groups: typeof route.group === 'string' ? state.groups.concat(route.group) : state.groups, consumedGroups: [...consumedBefore.get(route)] };
-        if (branch.hosts && !branch.hosts.length || branch.paths && !branch.paths.length) return;
+        const matchedCurrentPaths = intersect(state.currentPaths, patterns(match, 'path'), false);
+        const incomingPaths = state.rewrites.length ? state.paths : intersect(state.paths, patterns(match, 'path'), false);
+        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: incomingPaths, currentPaths: matchedCurrentPaths, order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group, groups: typeof route.group === 'string' ? state.groups.concat(route.group) : state.groups, consumedGroups: [...consumedBefore.get(route)] };
+        if (branch.hosts && !branch.hosts.length || branch.paths && !branch.paths.length || branch.currentPaths && !branch.currentPaths.length) return;
         let rewrites = state.rewrites.slice();
+        let currentPaths = branch.currentPaths;
         const handlers = Array.isArray(route.handle) ? route.handle : [];
         handlers.forEach((handler, handlerOrder) => {
           if (!handler || typeof handler !== 'object' || Array.isArray(handler) || typeof handler.handler !== 'string') fail('invalid handler');
           if (handler.handler === 'rewrite') {
             if (typeof handler.uri !== 'string' || Object.keys(handler).some(k => !['handler', 'uri'].includes(k))) fail('unsupported rewrite handler');
             rewrites = rewrites.concat(handler.uri);
+            currentPaths = [handler.uri];
           } else if (handler.handler === 'subroute') {
             if (Object.keys(handler).some(k => !['handler', 'routes', 'errors'].includes(k)) || handler.errors !== undefined) fail('unsupported subroute handler');
             const possibleApproved = [...APPROVED.keys()].filter(requestPath => canMatch(branch.paths, requestPath));
@@ -200,7 +204,7 @@ function effectiveLeaves(cfg) {
                 fail('preceding handler group collision');
               }
             }
-            routes(handler.routes, { ...branch, rewrites: rewrites.slice(), order: branch.order.concat(handlerOrder) });
+            routes(handler.routes, { ...branch, currentPaths, rewrites: rewrites.slice(), order: branch.order.concat(handlerOrder) });
           } else if (handler.handler === 'reverse_proxy') {
             leaves.push({ ...branch, rewrites: rewrites.slice(), handler, handlerOrder });
           } else if (canMatch(branch.hosts, SITE, true)) {
@@ -210,7 +214,7 @@ function effectiveLeaves(cfg) {
       });
     });
   }
-  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, rewrites: [], order: [], groups: [], consumedGroups: [] });
+  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, currentPaths: null, rewrites: [], order: [], groups: [], consumedGroups: [] });
   return leaves;
 }
 

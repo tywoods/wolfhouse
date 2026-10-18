@@ -188,6 +188,11 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
     await runExactLead(root, 'nonterminal-inert-subroute-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runExactLead(root, 'preceding-rewrite', [], [inspector.PROOF], 0),
     await runExactLead(root, 'preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'inline-rewrite-old-path', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'inline-rewrite-old-path-grouped', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'inline-rewrite-pathless-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'inline-rewrite-current-path-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'path-disjoint-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runExactLead(root, 'nested-preceding-rewrite', [], [inspector.PROOF], 0),
     await runExactLead(root, 'nested-preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runCaptainR8(root, 'cross-scope-group-consumer', true, [
