@@ -1,0 +1,7 @@
+{"cases": 56, "failures": 0, "not_replayable": 25, "replayed": 31}
+test_all_recorded_decisions (fixtures.booking-replay-sim13-20.test_decision_replay.DecisionReplayTests.test_all_recorded_decisions) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 14.761s
+
+OK
