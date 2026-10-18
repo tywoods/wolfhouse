@@ -9,6 +9,10 @@ const exec = promisify(execFile);
 const ROUTE_PATH = '/v1/routes/meta-whatsapp-verified-webhook';
 const PUBLIC_CONTROLLER_PATH = '/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook';
 const EXACT_PATH = '/whatsapp/webhook';
+const LEGACY_SITE = 'lunabox.lunafrontdesk.com';
+const FRANCE_STAGING_SITE = 'whatsapp-staging.lunafrontdesk.com';
+const ALLOWED_SITES = Object.freeze([LEGACY_SITE, FRANCE_STAGING_SITE]);
+const EXPECTED_SITE = LEGACY_SITE;
 const NUMBER_E164 = ['+34', '6****', '9419'].join('');
 const PHONE_NUMBER_ID = '1152900101233109';
 const TARGETS = Object.freeze({ wolfhouse: '127.0.0.1:8090', sunset: '127.0.0.1:8094' });
@@ -39,18 +43,63 @@ function parseRoute(text) {
 }
 function buildCandidate(current, target) { if (!parseRoute(current) || !Object.hasOwn(TARGETS, target)) throw Object.assign(new Error('fragment shape unsupported'), { code: 'caddy_route_shape_unsupported' }); return managedBlock(target); }
 function verifyIngressProof(proof, target, key, now = Date.now()) { if (!proof || proof.number_e164 !== NUMBER_E164 || proof.phone_number_id !== PHONE_NUMBER_ID || proof.path !== EXACT_PATH || proof.environment !== 'staging' || normalizeDial(proof.upstream) !== TARGETS[target]) return false; if (!Number.isFinite(proof.observed_at_ms) || Math.abs(now - proof.observed_at_ms) > 120000) return false; const payload = [proof.number_e164, proof.phone_number_id, proof.path, proof.environment, proof.upstream, String(proof.observed_at_ms)].join('\n'); return equalHex(String(proof.signature || ''), crypto.createHmac('sha256', key).update(payload).digest('hex')); }
-function exactRouteFromJson(cfg) {
+function hostPatternMatches(pattern, expectedSite) {
+  if (pattern === expectedSite) return true;
+  if (typeof pattern !== 'string' || !pattern.includes('*')) return false;
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '[^.]+');
+  return new RegExp(`^${escaped}$`, 'i').test(expectedSite);
+}
+function pathPatternMatches(pattern, requestPath) {
+  if (typeof pattern !== 'string' || /[{}?%\[\]\\]/.test(pattern)) return true;
+  if (pattern.toLowerCase() === requestPath.toLowerCase()) return true;
+  if (!pattern.includes('*')) return false;
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*');
+  return new RegExp(`^${escaped}$`, 'i').test(requestPath);
+}
+function routeCanPrecedeWebhook(route, expectedSite) {
+  if (!route || !Array.isArray(route.handle) || route.handle.length === 0) return false;
+  const matches = Array.isArray(route.match) && route.match.length ? route.match : [{}];
+  return matches.some((match) => {
+    if (!match || typeof match !== 'object' || Array.isArray(match)) return true;
+    if (Array.isArray(match.host) && !match.host.some((host) => hostPatternMatches(host, expectedSite))) return false;
+    if (Array.isArray(match.path) && !match.path.some((pattern) => pathPatternMatches(pattern, EXACT_PATH))) return false;
+    if (Array.isArray(match.method) && !match.method.some((method) => method === 'GET' || method === 'POST')) return false;
+    return true;
+  });
+}
+function exactRouteFromJson(cfg, expectedSite = EXPECTED_SITE) {
   const exact = [];
-  function walkRoutes(routes) { if (!Array.isArray(routes)) return; for (const route of routes) { const matches = Array.isArray(route.match) ? route.match : []; if (matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH))) exact.push(route); for (const handler of Array.isArray(route.handle) ? route.handle : []) if (handler && handler.handler === 'subroute') walkRoutes(handler.routes); } }
+  function walkRoutes(routes, inheritedHosts = [], inheritedConstraint = false, inheritedPreceding = false) {
+    if (!Array.isArray(routes)) return;
+    let preceding = inheritedPreceding;
+    for (const route of routes) {
+      const matches = Array.isArray(route.match) ? route.match : [];
+      const alternatives = matches.length ? matches : [{}];
+      const applicable = alternatives.filter((match) => !Array.isArray(match.host) || match.host.some((host) => hostPatternMatches(host, expectedSite)));
+      if (!applicable.length) continue;
+      const exactHostBound = applicable.every((match) => Array.isArray(match.host) && match.host.length === 1 && match.host[0] === expectedSite);
+      const hosts = exactHostBound ? [expectedSite] : (matches.some((match) => Array.isArray(match.host)) ? [] : inheritedHosts);
+      const isExactRoute = matches.some((m) => Array.isArray(m.path) && m.path.includes(EXACT_PATH));
+      if (isExactRoute) exact.push({ route, hosts, unsupported: inheritedConstraint || preceding });
+      const constrainsDescendants = inheritedConstraint || applicable.some((match) => Object.keys(match).some((key) => key !== 'host'));
+      let precedingHandler = false;
+      for (const handler of Array.isArray(route.handle) ? route.handle : []) {
+        if (handler && handler.handler === 'subroute') walkRoutes(handler.routes, hosts, constrainsDescendants, preceding || precedingHandler);
+        precedingHandler = true;
+      }
+      if (routeCanPrecedeWebhook(route, expectedSite)) preceding = true;
+    }
+  }
   const servers = cfg && cfg.apps && cfg.apps.http && cfg.apps.http.servers;
   if (!servers || typeof servers !== 'object') return null;
   for (const server of Object.values(servers)) walkRoutes(server && server.routes);
   if (exact.length !== 1) return null;
-  const outer = exact[0]; const matches = outer.match;
+  const { route: outer, hosts, unsupported } = exact[0]; const matches = outer.match;
+  if (unsupported || hosts.length !== 1 || hosts[0] !== expectedSite) return null;
   const standaloneOuter = outer.group === undefined && outer.terminal === true;
   const groupedOuter = /^group\d+$/.test(String(outer.group || '')) && outer.terminal === undefined;
   if (Object.keys(outer).some((key) => !['group', 'match', 'handle', 'terminal'].includes(key)) || (!standaloneOuter && !groupedOuter)) return null;
-  if (!Array.isArray(matches) || matches.length !== 1 || Object.keys(matches[0]).length !== 1 || !Array.isArray(matches[0].path) || matches[0].path.length !== 1 || matches[0].path[0] !== EXACT_PATH) return null;
+  if (!Array.isArray(matches) || matches.length !== 1 || Object.keys(matches[0]).some((key) => !['host', 'path'].includes(key)) || !Array.isArray(matches[0].path) || matches[0].path.length !== 1 || matches[0].path[0] !== EXACT_PATH) return null;
   if (!Array.isArray(outer.handle) || outer.handle.length !== 1) return null;
   const subroute = outer.handle[0];
   if (!subroute || typeof subroute !== 'object' || Array.isArray(subroute) || Object.keys(subroute).some((key) => !['handler', 'routes'].includes(key)) || subroute.handler !== 'subroute' || !Array.isArray(subroute.routes) || subroute.routes.length !== 1) return null;
@@ -63,7 +112,7 @@ function exactRouteFromJson(cfg) {
   const dial = normalizeDial(upstreams[0].dial); const target = Object.keys(TARGETS).find((key) => TARGETS[key] === dial);
   return target ? { target_luna: target, upstream: dial } : null;
 }
-async function effectiveRoute(fetchImpl = fetch) { try { const response = await fetchImpl('http://127.0.0.1:2019/config/', { headers: { origin: 'http://127.0.0.1:2019' } }); return response.ok ? exactRouteFromJson(await response.json()) : null; } catch (_) { return null; } }
+async function effectiveRoute(fetchImpl = fetch, expectedSite = EXPECTED_SITE) { try { const response = await fetchImpl('http://127.0.0.1:2019/config/', { headers: { origin: 'http://127.0.0.1:2019' } }); return response.ok ? exactRouteFromJson(await response.json(), expectedSite) : null; } catch (_) { return null; } }
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function fsyncDir(f, filename) { const fd = f.openSync(path.dirname(filename), 'r'); try { f.fsyncSync(fd); } finally { f.closeSync(fd); } }
 function atomicWrite(f, filename, value, mode = 0o600) { const tmp = `${filename}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`; const fd = f.openSync(tmp, 'wx', mode); try { f.writeFileSync(fd, value); f.fsyncSync(fd); } finally { f.closeSync(fd); } f.renameSync(tmp, filename); fsyncDir(f, filename); }
@@ -95,12 +144,14 @@ function validJournal(j, body, bound, caddy) {
 }
 function preserveMetadata(f, source, destination) { const stat = f.statSync(source); f.chmodSync(destination, stat.mode & 0o7777); if (typeof f.chownSync === 'function') f.chownSync(destination, stat.uid, stat.gid); }
 function createController(deps = {}) {
-  const f = deps.fs || fs; const run = deps.exec || exec; const fetchImpl = deps.fetch || fetch; const caddy = deps.fragmentFile || deps.caddyfile || '/var/lib/luna-routing/luna-number-route.caddy'; const caddyBin = '/usr/bin/caddy'; const stateDir = deps.stateDir || path.dirname(caddy); const lockDir = deps.lockDir || path.join(stateDir, 'mutation.lock'); const ledgerFile = deps.ledgerFile || path.join(stateDir, 'operations.json'); const journalFile = deps.journalFile || path.join(stateDir, 'journal.json'); const key = deps.hmacKey || process.env.LUNA_ROUTING_CONTROLLER_HMAC_KEY; const proofKey = deps.proofKey || process.env.LUNA_ROUTING_INGRESS_PROOF_KEY;
+  const f = deps.fs || fs; const run = deps.exec || exec; const fetchImpl = deps.fetch || fetch; const caddy = deps.fragmentFile || deps.caddyfile || '/var/lib/luna-routing/luna-number-route.caddy'; const caddyBin = '/usr/bin/caddy'; const stateDir = deps.stateDir || path.dirname(caddy); const lockDir = deps.lockDir || path.join(stateDir, 'mutation.lock'); const ledgerFile = deps.ledgerFile || path.join(stateDir, 'operations.json'); const journalFile = deps.journalFile || path.join(stateDir, 'journal.json'); const key = deps.hmacKey || process.env.LUNA_ROUTING_CONTROLLER_HMAC_KEY; const proofKey = deps.proofKey || process.env.LUNA_ROUTING_INGRESS_PROOF_KEY; const mutationsEnabled = deps.mutationsEnabled === undefined ? process.env.LUNA_ROUTING_MUTATIONS_ENABLED === 'true' : deps.mutationsEnabled === true; const expectedSite = deps.expectedSite || process.env.LUNA_ROUTING_SITE || LEGACY_SITE;
+  if (!ALLOWED_SITES.includes(expectedSite)) throw Object.assign(new Error('routing site unsupported'), { code: 'routing_site_unsupported' });
   const checkpoint = (name) => { if (deps.crashAt === name) throw Object.assign(new Error(`injected crash: ${name}`), { crashInjected: true }); };
   const saveJournal = (j, phase) => { j.phase = phase; j.updated_at_ms = Date.now(); atomicWrite(f, journalFile, `${JSON.stringify(j)}\n`); };
   function validationWrapper(candidateFile) { return `http://127.0.0.1:18096 {\n  import ${candidateFile}\n}\n`; }
-  async function state() { const text = f.readFileSync(caddy, 'utf8'); const route = parseRoute(text); const effective = await effectiveRoute(fetchImpl); if (!route || !effective || route.target_luna !== effective.target_luna) throw Object.assign(new Error(), { code: 'route_readback_failed' }); return route; }
+  async function state() { const text = f.readFileSync(caddy, 'utf8'); const route = parseRoute(text); const effective = await effectiveRoute(fetchImpl, expectedSite); if (!route || !effective || route.target_luna !== effective.target_luna) throw Object.assign(new Error(), { code: 'route_readback_failed' }); return route; }
   async function mutate(body) {
+    if (!mutationsEnabled) return { status: 403, body: { ok: false, code: 'mutations_disabled' } };
     if (!body || !ACTION_TARGET[body.action] || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(body.operation_id || '')) || !/^[a-f0-9]{64}$/i.test(String(body.expected_revision || '')) || !['earthling', 'monshies'].includes(body.actor_account_id)) return { status: 422, body: { ok: false, code: 'invalid_request' } };
     let release; try { release = await acquireLock(f, lockDir, deps.lockTimeoutMs, { staleMs: deps.staleLockMs, processIdentity: deps.processIdentity, now: deps.now }); } catch (error) { return { status: error.code === 'mutation_busy' ? 409 : 503, body: { ok: false, code: error.code || 'lock_unavailable' } }; }
     const bound = binding(body); let j;
@@ -112,7 +163,7 @@ function createController(deps = {}) {
       const journalState = readJsonState(f, journalFile); j = journalState.exists ? journalState.value : null;
       if (j && !validJournal(j, body, bound, caddy)) return { status: 503, body: { ok: false, indeterminate: true, code: 'corrupt_operation_journal' } };
       if (!j) {
-        const beforeText = f.readFileSync(caddy, 'utf8'); const before = parseRoute(beforeText); const beforeEffective = await effectiveRoute(fetchImpl);
+        const beforeText = f.readFileSync(caddy, 'utf8'); const before = parseRoute(beforeText); const beforeEffective = await effectiveRoute(fetchImpl, expectedSite);
         if (!before || !beforeEffective || before.target_luna !== beforeEffective.target_luna) return { status: 503, body: { ok: false, code: 'route_readback_failed' } };
         if (body.expected_revision !== before.revision) return { status: 409, body: { ok: false, code: 'stale_revision' } };
         const target = ACTION_TARGET[body.action];
@@ -126,7 +177,7 @@ function createController(deps = {}) {
         j = { version: 1, operation_id: body.operation_id, binding: bound, target, original_target: before.target_luna, original_revision: before.revision, candidate_revision: digest(candidate), candidate_file: candidateFile, backup_file: backupFile };
         saveJournal(j, 'prepared'); checkpoint('after-journal-before-rename');
       }
-      let diskText = f.readFileSync(caddy, 'utf8'); let diskHash = digest(diskText); let effective = await effectiveRoute(fetchImpl);
+      let diskText = f.readFileSync(caddy, 'utf8'); let diskHash = digest(diskText); let effective = await effectiveRoute(fetchImpl, expectedSite);
       if (j.phase === 'rolled_back') {
         if (diskHash !== j.original_revision || !effective || effective.target_luna !== j.original_target) return { status: 503, body: { ok: false, indeterminate: true, code: 'recovery_state_ambiguous' } };
         return finish({ status: 503, body: { ok: false, code: 'mutation_rolled_back', events: [{ type: 'rollback', details: { restored: true } }] } });
@@ -138,13 +189,13 @@ function createController(deps = {}) {
         else return { status: 503, body: { ok: false, indeterminate: true, code: 'recovery_state_ambiguous' } };
       }
       if (j.phase === 'installed') {
-        diskText = f.readFileSync(caddy, 'utf8'); effective = await effectiveRoute(fetchImpl);
+        diskText = f.readFileSync(caddy, 'utf8'); effective = await effectiveRoute(fetchImpl, expectedSite);
         if (digest(diskText) !== j.candidate_revision || !effective || ![j.original_target, j.target].includes(effective.target_luna)) return { status: 503, body: { ok: false, indeterminate: true, code: 'recovery_state_ambiguous' } };
-        if (effective.target_luna !== j.target) { try { await run(caddyBin, ['reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']); } catch (_) { return finish(await rollback(j)); } effective = await effectiveRoute(fetchImpl); }
+        if (effective.target_luna !== j.target) { try { await run(caddyBin, ['reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']); } catch (_) { return finish(await rollback(j)); } effective = await effectiveRoute(fetchImpl, expectedSite); }
         if (!effective || effective.target_luna !== j.target) return finish(await rollback(j));
         saveJournal(j, 'reloaded'); checkpoint('after-reload-before-final-ledger');
       }
-      diskText = f.readFileSync(caddy, 'utf8'); effective = await effectiveRoute(fetchImpl); const route = parseRoute(diskText);
+      diskText = f.readFileSync(caddy, 'utf8'); effective = await effectiveRoute(fetchImpl, expectedSite); const route = parseRoute(diskText);
       if (j.phase !== 'reloaded' || digest(diskText) !== j.candidate_revision || !route || route.target_luna !== j.target || !effective || effective.target_luna !== j.target) return { status: 503, body: { ok: false, indeterminate: true, code: 'recovery_state_ambiguous' } };
       const response = { status: 200, body: { ok: true, route, events: [{ type: 'precondition', details: { accepted: true } }, { type: 'applied', details: { target: j.target } }, { type: 'readback', details: { target: j.target } }] } };
       return finish(response);
@@ -152,10 +203,10 @@ function createController(deps = {}) {
     finally { release(); }
   }
   async function rollback(journal) {
-    const effective = await effectiveRoute(fetchImpl); const diskHash = digest(f.readFileSync(caddy, 'utf8'));
+    const effective = await effectiveRoute(fetchImpl, expectedSite); const diskHash = digest(f.readFileSync(caddy, 'utf8'));
     if (diskHash !== journal.candidate_revision || !effective || ![journal.original_target, journal.target].includes(effective.target_luna) || !f.existsSync(journal.backup_file) || digest(f.readFileSync(journal.backup_file, 'utf8')) !== journal.original_revision) return { status: 503, body: { ok: false, indeterminate: true, code: 'mutation_indeterminate', events: [{ type: 'rollback', details: { restored: false } }] } };
     const metadata = f.statSync(caddy); atomicWrite(f, caddy, f.readFileSync(journal.backup_file, 'utf8'), metadata.mode & 0o7777); f.chmodSync(caddy, metadata.mode & 0o7777); if (typeof f.chownSync === 'function') f.chownSync(caddy, metadata.uid, metadata.gid);
-    try { const validationFile = path.join(stateDir, `rollback-${journal.operation_id}.Caddyfile`); atomicWrite(f, validationFile, validationWrapper(caddy), 0o600); try { await run(caddyBin, ['validate', '--config', validationFile, '--adapter', 'caddyfile']); } finally { try { f.unlinkSync(validationFile); fsyncDir(f, validationFile); } catch (_) {} } await run(caddyBin, ['reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']); const after = await effectiveRoute(fetchImpl); if (!after || after.target_luna !== journal.original_target) throw new Error(); saveJournal(journal, 'rolled_back'); checkpoint('after-rollback-before-final-ledger'); return { status: 503, body: { ok: false, code: 'mutation_rolled_back', events: [{ type: 'rollback', details: { restored: true } }] } };
+    try { const validationFile = path.join(stateDir, `rollback-${journal.operation_id}.Caddyfile`); atomicWrite(f, validationFile, validationWrapper(caddy), 0o600); try { await run(caddyBin, ['validate', '--config', validationFile, '--adapter', 'caddyfile']); } finally { try { f.unlinkSync(validationFile); fsyncDir(f, validationFile); } catch (_) {} } await run(caddyBin, ['reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']); const after = await effectiveRoute(fetchImpl, expectedSite); if (!after || after.target_luna !== journal.original_target) throw new Error(); saveJournal(journal, 'rolled_back'); checkpoint('after-rollback-before-final-ledger'); return { status: 503, body: { ok: false, code: 'mutation_rolled_back', events: [{ type: 'rollback', details: { restored: true } }] } };
     } catch (error) { if (error.crashInjected) throw error; return { status: 503, body: { ok: false, indeterminate: true, code: 'mutation_indeterminate', events: [{ type: 'rollback', details: { restored: false } }] } }; }
   }
   return { state, mutate, key };
@@ -163,4 +214,4 @@ function createController(deps = {}) {
 function send(res, status, body) { const data = JSON.stringify(body); res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(data) }); res.end(data); }
 function makeHandler(controller = createController()) { return async (req, res) => { if ((req.url || '').split('?')[0] !== ROUTE_PATH) return send(res, 404, { ok: false, code: 'not_found' }); let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > 8192) return send(res, 413, { ok: false, code: 'payload_too_large' }); } if (!authenticate(req, raw, controller.key)) return send(res, 401, { ok: false, code: 'unauthorized' }); if (req.method === 'GET') { try { return send(res, 200, { ok: true, route: await controller.state() }); } catch (error) { return send(res, 503, { ok: false, code: error.code || 'readback_failed' }); } } if (req.method !== 'POST') return send(res, 405, { ok: false, code: 'method_not_allowed' }); if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) return send(res, 415, { ok: false, code: 'unsupported_media_type' }); let body; try { body = JSON.parse(raw); } catch (_) { return send(res, 422, { ok: false, code: 'invalid_json' }); } const out = await controller.mutate(body); return send(res, out.status, out.body); }; }
 if (require.main === module) http.createServer(makeHandler()).listen(Number(process.env.LUNA_ROUTING_CONTROLLER_PORT || 8096), '127.0.0.1');
-module.exports = { ROUTE_PATH, PUBLIC_CONTROLLER_PATH, EXACT_PATH, NUMBER_E164, PHONE_NUMBER_ID, TARGETS, ACTION_TARGET, MAX_NONCES, DEFAULT_STALE_LOCK_MS, digest, canonical, authenticate, managedBlock, parseRoute, buildCandidate, verifyIngressProof, exactRouteFromJson, effectiveRoute, processIdentity, acquireLock, createController, makeHandler };
+module.exports = { ROUTE_PATH, PUBLIC_CONTROLLER_PATH, EXACT_PATH, LEGACY_SITE, FRANCE_STAGING_SITE, ALLOWED_SITES, EXPECTED_SITE, NUMBER_E164, PHONE_NUMBER_ID, TARGETS, ACTION_TARGET, MAX_NONCES, DEFAULT_STALE_LOCK_MS, digest, canonical, authenticate, managedBlock, parseRoute, buildCandidate, verifyIngressProof, exactRouteFromJson, effectiveRoute, processIdentity, acquireLock, createController, makeHandler };
