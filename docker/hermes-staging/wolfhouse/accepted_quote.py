@@ -411,16 +411,38 @@ def _plural_room_kind(kind, language='en'):
 def _guest_room_lines(plan, offer, language='en'):
     """Group people by frozen room and disclose an authoritative room split."""
     rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+    assignments = offer.get('guest_bed_assignments')
+    if isinstance(assignments, list) and assignments:
+        guests = []
+        selected_bed_codes = []
+        plan_guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
+        for assignment in assignments:
+            if not isinstance(assignment, dict) or assignment.get('bed_code') not in rooms:
+                continue
+            guest_index = assignment.get('guest_index')
+            fallback_name = (plan_guests[guest_index].get('name')
+                             if type(guest_index) is int and 0 <= guest_index < len(plan_guests)
+                             and isinstance(plan_guests[guest_index], dict) else '')
+            guests.append({'name': assignment.get('guest_name') or fallback_name or ''})
+            selected_bed_codes.append(assignment['bed_code'])
+    else:
+        guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
+        selected_bed_codes = (plan.get('selected_bed_codes')
+                              if isinstance(plan.get('selected_bed_codes'), list) else [])
     groups = []
     index = {}
-    for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
-        room = rooms[code]
+    for guest, code in zip(guests, selected_bed_codes):
+        room = rooms.get(code)
+        if not isinstance(room, dict):
+            continue
         kind = _room_kind(offer, room, language)
         key = (room.get('room_code'), kind)
         if key not in index:
             index[key] = len(groups)
             groups.append({'kind': kind, 'room': room.get('room_code'), 'names': []})
-        groups[index[key]]['names'].append(guest['name'])
+        name = guest.get('name') if isinstance(guest, dict) else ''
+        if isinstance(name, str) and name.strip():
+            groups[index[key]]['names'].append(name.strip())
     by_kind = {}
     for group in groups:
         by_kind.setdefault(group['kind'], []).append(group)
@@ -432,15 +454,16 @@ def _guest_room_lines(plan, offer, language='en'):
             continue
         same = by_kind[kind]
         emitted.add(kind)
-        if len(same) > 1 and all(len(item['names']) == 1 for item in same):
+        if len(same) > 1 and all(len(item['names']) <= 1 for item in same):
             names = [name for item in same for name in item['names']]
-            who = _join_names(names, language)
             count = _count_word(len(same), language)
             plural_kind = _plural_room_kind(kind, language)
-            templates = {'en': f'{who}: beds in {count} separate {plural_kind}.',
-                         'es': f'{who}: camas en {count} {plural_kind} separadas.',
-                         'fr': f'{who} : lits dans {count} {plural_kind} séparées.',
-                         'de': f'{who}: Betten in {count} getrennten {plural_kind}.'}
+            who = _join_names(names, language) if names else ''
+            prefix = (f'{who} : ' if language == 'fr' else f'{who}: ') if who else ''
+            templates = {'en': f'{prefix}beds in {count} separate {plural_kind}.',
+                         'es': f'{prefix}camas en {count} {plural_kind} separadas.',
+                         'fr': f'{prefix}lits dans {count} {plural_kind} séparées.',
+                         'de': f'{prefix}Betten in {count} getrennten {plural_kind}.'}
             lines.append(templates.get(language, templates['en']))
             continue
         first = True
@@ -479,21 +502,16 @@ def _guest_room_lines(plan, offer, language='en'):
 
 
 def _guest_language(state):
-    """Prefer authoritative quote-plan language, otherwise inspect this guest turn."""
+    """Use the owner-observed guest locale; explicit internal hints are fallback only."""
+    observed = str(state.get('guest_language') or '').strip().casefold()
+    if observed in ('en', 'es', 'fr', 'de'):
+        return observed
     plan = _presentation_plan(state)
     authoritative = str(plan.get('language') or '').strip().casefold() if isinstance(plan, dict) else ''
     aliases = {'english': 'en', 'spanish': 'es', 'español': 'es', 'french': 'fr',
                'français': 'fr', 'german': 'de', 'deutsch': 'de'}
     authoritative = aliases.get(authoritative, authoritative.split('-', 1)[0])
-    if authoritative in ('en', 'es', 'fr', 'de'):
-        return authoritative
-    raw = str((state.get('current_turn') or {}).get('raw') or '').casefold()
-    markers = {
-        'es': ('quiero', 'reservar', 'habitación', 'personas', 'precio', 'pago', 'reserva', 'huésped'),
-        'fr': ('bonjour', 'réserver', 'chambre', 'personnes', 'prix', 'paiement', 'séjour', 'je voudrais'),
-        'de': ('hallo', 'buchen', 'zimmer', 'personen', 'preis', 'zahlung', 'aufenthalt', 'ich möchte'),
-    }
-    return next((language for language, words in markers.items() if any(word in raw for word in words)), 'en')
+    return authoritative if authoritative in ('en', 'es', 'fr', 'de') else 'en'
 
 
 _FINAL_COPY = {
@@ -1258,6 +1276,12 @@ def observe_owner_turn(agent, raw):
             'raw': raw,
             'raw_digest': raw_digest,
         }
+        # Locale belongs to owner-observed ingress, not to quote_booking's model
+        # schema. A short acknowledgment retains the last resolved guest locale.
+        from .output_guard import _guest_lang_from_history
+        detected_language = _guest_lang_from_history([{'role': 'user', 'content': raw}])
+        if detected_language in ('en', 'es', 'fr', 'de'):
+            state['guest_language'] = detected_language
         # IDs stay durable for the incarnation; do not age out replay protection.
         # Raw text is provenance only. It never grants, revokes, or revises booking
         # authority: every response to an owner presentation must be adjudicated by
@@ -1471,6 +1495,23 @@ def validated_guest_eligibility(prepared):
                     and completed_guests[index] == guests[index]):
                 allowed.setdefault(index, value)
         return allowed
+    return _transaction(read)
+
+
+def validated_unnamed_group_composition(prepared):
+    """Return explicit whole-party composition only before a roster exists."""
+    def read(state, _ingress):
+        if (not isinstance(prepared, PreparedPlan)
+                or prepared.capability is not _current.get()
+                or prepared.epoch != state['epoch']):
+            raise QuoteBoundaryError('quote_response_superseded')
+        guests = prepared.get('guests')
+        if isinstance(guests, list) and any(
+                isinstance(guest, dict) and str(guest.get('name') or '').strip()
+                for guest in guests):
+            return None
+        group = prepared.get('group_gender')
+        return group if group in ('male', 'female') else None
     return _transaction(read)
 
 
@@ -2188,8 +2229,16 @@ def finalize_offer_response(result):
         )
         if unresolved_presentable:
             language = _guest_language(state)
-            # Staff next-action prose is not language-authoritative.
-            text = _final_copy(language, 'refusal')
+            next_action = unresolved.get('guest_safe_next_action')
+            eligibility_terms = ('women', 'woman', 'female', 'men', 'man', 'male',
+                                 'gender', 'chicas', 'mujeres', 'femenin', 'hombres',
+                                 'masculin', 'femmes', 'hommes', 'frauen', 'männer')
+            valid_eligibility_question = (
+                isinstance(next_action, str) and next_action.strip().endswith('?')
+                and any(term in next_action.casefold() for term in eligibility_terms))
+            # Preserve a concrete Staff eligibility clarification. Other Staff
+            # prose is not language-authoritative and must not leak into copy.
+            text = str(next_action).strip() if valid_eligibility_question else _final_copy(language, 'refusal')
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -2308,8 +2357,7 @@ def finalize_offer_response(result):
                 lines.append(_final_copy(language, 'options') + ': ' + (' ' + _final_copy(language, 'or') + ' ').join(option_labels) + '.')
             lines.extend(_guest_room_lines(plan, quote.get('offer_revision') or {}, language)
                          if isinstance((quote.get('offer_revision') or {}).get('room_arrangement'), list)
-                         and isinstance(plan.get('guests'), list)
-                         and isinstance(plan.get('selected_bed_codes'), list) else [])
+                         else [])
             lines.append(_final_copy(language, 'names') if chosen_full_names_missing else
                          (_final_copy(language, 'check_exact') if quote.get('full_payment_only') is True
                           else _final_copy(language, 'which_payment')))

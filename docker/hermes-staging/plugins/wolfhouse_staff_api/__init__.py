@@ -751,6 +751,8 @@ def quote_booking(params, **kwargs):
     owner_eligibility_context = '_owner_validated_guest_eligibility' in kwargs
     owner_validated_guest_eligibility = kwargs.pop(
         '_owner_validated_guest_eligibility', {})
+    owner_validated_group_composition = kwargs.pop(
+        '_owner_validated_group_composition', None)
     if not isinstance(owner_validated_guest_eligibility, dict):
         owner_validated_guest_eligibility = {}
     del kwargs
@@ -774,6 +776,9 @@ def quote_booking(params, **kwargs):
         payload.pop('group_gender', None)
         payload.pop('gender_preference', None)
         payload.pop('explicit_gender', None)
+        if (owner_validated_group_composition in ('male', 'female')
+                and not payload.get('guests')):
+            payload['group_gender'] = owner_validated_group_composition
     # Staff hints must be regenerated from owner-proven per-person guest fields.
     payload.pop("room_name_hints", None)
     payload.setdefault("source", "agent_luna_whatsapp")
@@ -4773,6 +4778,8 @@ def _quote_owner_handler(name, original):
                     wire,
                     _owner_validated_guest_eligibility=(
                         ledger.validated_guest_eligibility(canonical)),
+                    _owner_validated_group_composition=(
+                        ledger.validated_unnamed_group_composition(canonical)),
                     **kwargs)
             else:
                 result = original(wire, **kwargs)
