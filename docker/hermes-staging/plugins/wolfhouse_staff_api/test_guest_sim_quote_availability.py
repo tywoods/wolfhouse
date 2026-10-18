@@ -7,6 +7,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -108,6 +109,41 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertIn('female_only', result['room_decision']['excluded_room_preferences'])
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_named_room_real_service_and_owner_renderer_keep_free_room_available(self):
+        repo = Path(__file__).resolve().parents[4]
+        script = r"""
+const pref = process.argv[1];
+const {computeWolfhouseAvailabilityInventory: inventory} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const beds = [
+  {bed_code:'R1-B1', room_code:'R1', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:9},
+  {bed_code:'R9-B1', room_code:'R9', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:1},
+];
+const got = inventory(beds, [], {guestCount:1, roomType:'shared', roomPreference:pref,
+  genderPreference:null, groupGender:null, guestName:'Raj', assignmentMode:false, guests:[],
+  transportBody:{room_preference:pref}});
+process.stdout.write(JSON.stringify({success:true, has_enough_beds:got.hasEnoughBeds,
+  selected_bed_codes:got.selectedBedCodes, selected_room_code:got.selectedRoomCode,
+  available_count:got.availableCount, blockers:got.blockers,
+  available_beds:got.availableBeds.map(b => ({bed_code:b.bed_code, room_code:b.room_code, room_type:b.room_type}))}));
+"""
+        expected = {'room 1': 'R1', 'R1': 'R1', 'mixed': 'R9'}
+        for preference, room_code in expected.items():
+            with self.subTest(preference=preference):
+                completed = subprocess.run(
+                    ['node', '-e', script, preference], cwd=repo, check=True,
+                    text=True, capture_output=True,
+                )
+                receipt = json.loads(completed.stdout)
+                result, _ = self.invoke('check_availability', {
+                    **self.params, 'guest_count': 1, 'room_preference': preference,
+                    'guest_name': 'Raj',
+                }, receipt)
+                self.assertEqual(result['availability_status'], 'available', result)
+                self.assertFalse(result['unavailable'], result)
+                self.assertEqual(result['selected_room_code'], room_code, result)
+                self.assertEqual(result['selected_bed_codes'], [f'{room_code}-B1'], result)
+                self.assertNotIn('not available', str(result.get('reply_draft', '')).casefold())
 
     def test_unknown_women_room_eligibility_preserves_positive_inventory_fact(self):
         params = {

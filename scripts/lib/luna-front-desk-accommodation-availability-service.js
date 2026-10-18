@@ -157,6 +157,11 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
   };
 }
 
+function explicitRoomCodeFromPreference(value) {
+  const match = String(value || '').trim().match(/^(?:room\s+|r)(\d+)$/i);
+  return match ? `R${Number(match[1])}` : null;
+}
+
 function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, roomFillRanking = null) {
   const {
     guestCount,
@@ -270,7 +275,15 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     }
   } else if (hasEnoughBeds) {
     const { resolveRoomCategory } = require('./luna-bed-allocator');
+    const explicitRoomCode = explicitRoomCodeFromPreference(roomPreference);
+    const explicitRoomBeds = explicitRoomCode
+      ? bedsForPool.filter(bed => String(bed.room_code || '').toUpperCase() === explicitRoomCode)
+      : [];
+    const explicitRoomCategories = new Set(explicitRoomBeds.map(resolveRoomCategory));
+    const explicitRoomPreference = explicitRoomCategories.size === 1
+      ? [...explicitRoomCategories][0] : null;
     const allowedBedCodes = new Set(bedsForPool.filter((bed) => {
+      if (explicitRoomCode && String(bed.room_code || '').toUpperCase() !== explicitRoomCode) return false;
       if (requestedPool === 'private') return true;
       const category = resolveRoomCategory(bed);
       if (!['female_only', 'male_only'].includes(category)) return true;
@@ -285,7 +298,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       guestCount,
       guestName,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
-      roomPreference: roomPreference || roomType || genderPreference || null,
+      roomPreference: explicitRoomPreference || roomPreference || roomType || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
       capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
         || requestedPool === 'any' || requestedPool == null,
