@@ -23,4 +23,22 @@ class DecisionReplayTests(unittest.TestCase):
         print(json.dumps({"cases": len(results), "replayed": len(replayed),
                           "not_replayable": len(skipped), "failures": len(failures)}, sort_keys=True))
 
+    def test_explicitly_synthetic_refusals_and_controls(self):
+        from accepted_quote_replay import replay_synthetic_case
+        fixture = json.loads((HERE / "synthetic_refusal_cases.json").read_text())
+        self.assertEqual(fixture["provenance"],
+                         "synthetic Staff variations; not historical outcomes")
+        expected_ids = {
+            "synthetic-refusal-changed-dates", "synthetic-refusal-changed-count",
+            "synthetic-refusal-changed-bed", "synthetic-refusal-changed-price",
+            "synthetic-refusal-changed-package", "synthetic-refusal-unavailable-bed",
+            "synthetic-refusal-conflicting-bed", "synthetic-control-unchanged",
+            "synthetic-control-name-completion", "synthetic-control-payment-completion",
+        }
+        self.assertEqual({case["id"] for case in fixture["cases"]}, expected_ids)
+        results = [replay_synthetic_case({**fixture["base"], **case})
+                   for case in fixture["cases"]]
+        failures = [row for row in results if row["actual"] != row["expected"]]
+        self.assertFalse(failures, json.dumps(failures, indent=2, sort_keys=True))
+
 if __name__ == "__main__": unittest.main(verbosity=2)

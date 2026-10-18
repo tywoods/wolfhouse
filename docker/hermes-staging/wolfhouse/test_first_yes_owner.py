@@ -128,8 +128,9 @@ class FirstYesOwnerTests(unittest.TestCase):
         ledger.record_quote(self.plan, self.response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
         self.turn('sim9-material-negatives', 'Book that')
-        for changed in ({'gender_preference': 'female'}, {'add_ons': []},
-                        {'guest_count': 3}, {'room_preference': 'private'},
+        # Retired gender alias case: carried explicit per-person facts own eligibility.
+        ledger.prepare_create({'gender_preference': 'female'})
+        for changed in ({'add_ons': []}, {'guest_count': 3}, {'room_preference': 'private'},
                         {'selected_bed_codes': ['M2', 'M1']}):
             with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
                 ledger.prepare_create(changed)
@@ -247,9 +248,14 @@ class FirstYesOwnerTests(unittest.TestCase):
         moved = deepcopy(after)
         moved['guest_bed_assignments'][0]['bed_code'] = 'M2'
         mutations.append(moved)
-        for field, value in (('total_cents', 10001), ('currency', 'USD'),
-                             ('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+        for field, value in (('total_cents', 10001), ('currency', 'USD')):
             mutations.append({**deepcopy(after), field: value})
+        # Retired payment-helper cases: eligibility completion compares carried
+        # eligibility; payment choice/link amount are validated by their owner.
+        for field, value in (('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+            self.assertTrue(ledger._completion_revision_matches(
+                before, {**deepcopy(after), field: value},
+                eligibility_completions=completions))
         for changed in mutations:
             with self.subTest(changed=changed):
                 self.assertFalse(ledger._completion_revision_matches(
@@ -271,7 +277,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.plan['payment_choice'] = 'pay_on_arrival'
         self._registered_create_with_completion({})
 
-    def test_pending_dispatch_identity_survives_missing_cache_next_turn(self):
+    def test_restart_recovery_retains_carried_fields_and_pending_operation_identity(self):
         ledger.record_quote(self.plan, self.response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
         self.turn('first-create', 'yes')
@@ -298,6 +304,9 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertEqual(before['acceptance_message'], after['acceptance_message'])
         self.assertEqual(before.get('acceptance_raw_digest'), after.get('acceptance_raw_digest'))
         self.assertEqual(dict(first), dict(second))
+        for field in ('guests', 'payment_choice', 'email', 'selected_bed_codes'):
+            self.assertEqual(first.get(field), second.get(field), field)
+        self.assertEqual(first['idempotency_key'], second['idempotency_key'])
         self.assertTrue(after['dispatch_pending'])
         self.assertFalse(after.get('receipt'))
         self.assertEqual(attempts, [first['idempotency_key']])
@@ -1439,9 +1448,12 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
         self.assertEqual(prepared.get('guests'), self.plan['guests'])
         self.assertEqual(prepared.get('room_name_hints'), hints)
         self.assertEqual(prepared.get('payment_choice'), 'full')
+        # Retired hint-order case: hints are carried metadata and canonical guest
+        # slot order remains frozen independently.
+        carried = ledger.prepare_create({'room_name_hints': list(reversed(hints))})
+        self.assertEqual(carried['room_name_hints'], hints)
         for changed in ({'guests': list(reversed(self.plan['guests']))},
-                        {'payment_choice': 'deposit'}, {'selected_bed_codes': ['M2', 'M1']},
-                        {'room_name_hints': list(reversed(hints))}):
+                        {'payment_choice': 'deposit'}, {'selected_bed_codes': ['M2', 'M1']}):
             with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
                 ledger.prepare_create(changed)
 

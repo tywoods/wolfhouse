@@ -34,6 +34,8 @@ Reproduce SIM11 G5: exact-bed mismatch, not argument comparison. ... ok
 test_hostile_revision_cannot_be_reoffered_without_clarification (wolfhouse.test_accepted_quote.OwnerHostileTests.test_hostile_revision_cannot_be_reoffered_without_clarification) ... ok
 test_installed_entrypoint_revalidates_completed_name_before_create (wolfhouse.test_accepted_quote.OwnerHostileTests.test_installed_entrypoint_revalidates_completed_name_before_create) ... ok
 test_installed_owner_loop_observes_before_model_body_and_cleans_up (wolfhouse.test_accepted_quote.OwnerHostileTests.test_installed_owner_loop_observes_before_model_body_and_cleans_up) ... ok
+test_jw1749_materially_new_presented_offer_mints_new_operation_key (wolfhouse.test_accepted_quote.OwnerHostileTests.test_jw1749_materially_new_presented_offer_mints_new_operation_key) ... ok
+test_jw1749_newer_checked_tool_truth_supersedes_stale_eligibility (wolfhouse.test_accepted_quote.OwnerHostileTests.test_jw1749_newer_checked_tool_truth_supersedes_stale_eligibility) ... ok
 test_late_quote_response_cannot_overwrite_newer_intent (wolfhouse.test_accepted_quote.OwnerHostileTests.test_late_quote_response_cannot_overwrite_newer_intent) ... ok
 test_list_revision_rejects_unevidenced_quantity (wolfhouse.test_accepted_quote.OwnerHostileTests.test_list_revision_rejects_unevidenced_quantity) ... ok
 test_material_revision_is_bound_to_exact_interpreted_value (wolfhouse.test_accepted_quote.OwnerHostileTests.test_material_revision_is_bound_to_exact_interpreted_value) ... ok
@@ -108,6 +110,6 @@ test_unicode_contact_continuity_and_hostile_mixed_names (wolfhouse.test_accepted
 test_unknown_commercial_revision_stays_unresolved_on_neutral_turn (wolfhouse.test_accepted_quote.OwnerHostileTests.test_unknown_commercial_revision_stays_unresolved_on_neutral_turn) ... ok
 
 ----------------------------------------------------------------------
-Ran 105 tests in 124.323s
+Ran 107 tests in 124.194s
 
 OK

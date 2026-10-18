@@ -95,3 +95,58 @@ def _replay(case):
 def replay_table(table, corpus):
     if not Path(corpus).is_dir(): raise FileNotFoundError(corpus)
     return [_replay(case) for case in table["cases"]]
+
+
+def replay_synthetic_case(case):
+    """Execute an explicitly synthetic Staff refresh through the real owner boundary."""
+    tokens = None
+    with tempfile.TemporaryDirectory() as directory:
+        db = SessionDB(Path(directory) / "state.db")
+        session = "synthetic-" + case["id"]
+        db.create_session(session, source="whatsapp")
+        agent = SimpleNamespace(_session_db=db, session_id=session)
+        def turn(message_id, text):
+            nonlocal tokens
+            if tokens: clear_session_vars(tokens)
+            tokens = set_session_vars(platform="whatsapp", source="whatsapp", chat_id=session,
+                user_id=session, session_key=session, session_id=session, message_id=message_id)
+            owner.observe_owner_turn(agent, text)
+        try:
+            plan = deepcopy(case["shown_plan"])
+            plan.update(deepcopy(case.get("shown_plan_changes", {})))
+            beds = deepcopy(case["shown_staff"]["beds"])
+            amounts = {key: case["shown_staff"][key] for key in (
+                "total_cents", "deposit_required_cents", "payment_link_amount_cents", "currency")}
+            shown = FirstYesOwnerTests._checked_offer(
+                object.__new__(FirstYesOwnerTests), plan, beds, quote_overrides=amounts)
+            turn("offer", "Synthetic offer")
+            owner.record_quote(plan, shown)
+            owner.finalize_offer_response({"completed": True, "final_response": "Synthetic offer"})
+            turn("accept", "Yes, book it")
+            owner.interpret_owner_turn({"action": "accept", "action_evidence": "Yes, book it",
+                "ambiguous": False, "negated": False, "conditional": False,
+                "material_changes": [], "completions": {}})
+            owner._transaction(lambda state, ingress: state.pop("checked_offer", None))
+            requested = deepcopy(case.get("create_args", {}))
+            prepared = owner.prepare_create(requested)
+            refresh_plan = dict(prepared)
+            refresh_plan.update(deepcopy(case.get("refresh_plan_changes", {})))
+            refresh_beds = deepcopy(case.get("refresh_beds", beds))
+            refresh_amounts = deepcopy(amounts)
+            refresh_amounts.update(deepcopy(case.get("refresh_amount_changes", {})))
+            refreshed = FirstYesOwnerTests._checked_offer(
+                object.__new__(FirstYesOwnerTests), refresh_plan, refresh_beds,
+                quote_overrides=refresh_amounts)
+            if case.get("availability") == "unavailable":
+                refreshed.update(success=False, error="room_unavailable")
+                refreshed["availability"]["status"] = "unavailable"
+            owner.record_quote(prepared, refreshed)
+            owner.prepare_create(requested)
+            actual = "allowed"
+        except owner.QuoteBoundaryError as error:
+            actual = str(error)
+        finally:
+            if tokens: clear_session_vars(tokens)
+            owner._current.set(None)
+            db.close()
+    return {"id": case["id"], "expected": case["expected"], "actual": actual}

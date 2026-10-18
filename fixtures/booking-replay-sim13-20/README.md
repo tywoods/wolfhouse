@@ -23,6 +23,12 @@ PYTHONPATH="docker/hermes-staging:docker/hermes-staging/plugins:/opt/hermes" \
 
 The harness calls the real `wolfhouse.accepted_quote` owner with frozen captured Staff facts. It performs no live Staff, inventory, pricing, eligibility, booking, payment, or messaging calls.
 
+`synthetic_refusal_cases.json` is explicitly non-historical and contains executable
+shown plans, frozen Staff facts, refresh variations, and strict expected owner decisions
+for changed-date/count/bed/price/package and unavailable/conflicting-bed refusals plus
+unchanged/name/payment controls. `test_explicitly_synthetic_refusals_and_controls` runs
+every row through the same real `accepted_quote` owner and SessionDB harness.
+
 Expected current result:
 
 - 56 total captures

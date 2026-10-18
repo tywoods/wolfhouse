@@ -2277,6 +2277,65 @@ class OwnerHostileTests(unittest.TestCase):
                     self.ledger.QuoteBoundaryError, '^accepted_quote_changed$'):
                 self.ledger.prepare_create(change)
 
+    def test_jw1749_materially_new_presented_offer_mints_new_operation_key(self):
+        changes = (
+            {'check_in': '2026-12-01', 'check_out': '2026-12-08'},
+            {'selected_bed_codes': ['M2', 'M1']},
+            {'package_code': 'surf_week'},
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(change=change):
+                self.agent.session_id = f'jw1749-new-operation-{index}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'offer-{index}-a', 'Quote this please')
+                self.present()
+                self.turn(f'accept-{index}-a', 'yes')
+                self.interpret('yes')
+                old_key = self.ledger.prepare_create({})['idempotency_key']
+                changed = {**deepcopy(self.plan), **change}
+                self.turn(f'offer-{index}-b', 'Please quote the changed offer')
+                self.present(changed, self.checked(changed))
+                self.turn(f'accept-{index}-b', 'yes')
+                self.interpret('yes')
+                self.assertNotEqual(self.ledger.prepare_create({})['idempotency_key'], old_key)
+
+        self.agent.session_id = 'jw1749-new-operation-price'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('price-offer-a', 'Quote this please')
+        original = self.present()
+        self.turn('price-accept-a', 'yes')
+        self.interpret('yes')
+        old_key = self.ledger.prepare_create({})['idempotency_key']
+        repriced = deepcopy(original)
+        for field in ('total_cents', 'deposit_required_cents', 'payment_link_amount_cents'):
+            if field in repriced:
+                repriced[field] = int(repriced[field]) + 1000
+            if field in repriced['offer_revision']:
+                repriced['offer_revision'][field] = int(repriced['offer_revision'][field]) + 1000
+        self.turn('price-offer-b', 'Please quote the new price')
+        self.present(self.plan, repriced)
+        self.turn('price-accept-b', 'yes')
+        self.interpret('yes')
+        self.assertNotEqual(self.ledger.prepare_create({})['idempotency_key'], old_key)
+
+    def test_jw1749_newer_checked_tool_truth_supersedes_stale_eligibility(self):
+        import json
+        eligibility = {'success': True, 'availability_status': 'eligibility_required',
+                       'next_action': 'ask_room_eligibility',
+                       'reply_draft': 'Are all guests women?'}
+        checked = self.checked()
+        rendered = self.ledger.finalize_offer_response({
+            'completed': True, 'final_response': 'Current checked quote',
+            'messages': [
+                {'role': 'user', 'content': 'Please check'},
+                {'role': 'tool', 'content': json.dumps(eligibility)},
+                {'role': 'tool', 'content': json.dumps(checked)},
+                {'role': 'assistant', 'content': 'Current checked quote'},
+            ],
+        })
+        self.assertNotEqual(rendered['final_response'], 'Are all guests women?')
+        self.assertNotIn('all guests women', rendered['final_response'].casefold())
+
     def test_sim20_missing_and_empty_optional_selections_are_equivalent(self):
         plan = deepcopy(self.plan)
         plan.pop('catalog_selections', None)

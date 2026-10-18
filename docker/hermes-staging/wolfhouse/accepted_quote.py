@@ -156,6 +156,9 @@ def _material_projection(plan, revision=None):
         'allocation': allocation, 'package_code': value('package_code'),
         'guest_packages': packages,
         'services': sorted(services, key=lambda item: _encode(item)),
+        # Price and currency are accepted Staff-owned commercial terms.
+        'total_cents': revision.get('total_cents'),
+        'currency': revision.get('currency'),
     }
 
 
@@ -1022,6 +1025,24 @@ def _person_plan_does_not_contradict_hints(plan, hints):
                     and authoritative.get(normalize(row.get('name'))) != row.get('explicit_gender')):
                 return False
     return True
+
+
+def _reconcile_carried_hint_order(supplied, canonical):
+    """Keep carried hint metadata in the canonical occupant-slot order."""
+    if not isinstance(supplied, list) or not isinstance(canonical, list):
+        return supplied
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    supplied_by_name = {
+        normalize(row.get('name')): row for row in supplied if isinstance(row, dict)
+        and normalize(row.get('name'))
+    }
+    canonical_names = [normalize(row.get('name')) for row in canonical
+                       if isinstance(row, dict)]
+    if (len(supplied_by_name) != len(supplied) or len(canonical_names) != len(canonical)
+            or len(set(canonical_names)) != len(canonical_names)
+            or set(supplied_by_name) != set(canonical_names)):
+        return supplied
+    return [deepcopy(supplied_by_name[name]) for name in canonical_names]
 
 
 def _canonical_person_facts_consistent(revision):
@@ -2043,6 +2064,9 @@ def record_quote(params, response):
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
         state.pop('post_booking_contact', None)
+        # This is a newly checked material offer; any prepared identity belonged
+        # to the prior accepted offer and cannot authorize this one.
+        state.pop('operation_key', None)
         unresolved_eligibility = (
             response.get('success') is False
             and response.get('quote_status') == 'needs_guest_clarification'
@@ -2219,6 +2243,10 @@ def prepare_create(params):
                         params, baseline.get('room_name_hints')
                         or shown.get('room_name_hints') or [])):
                 raise QuoteBoundaryError('accepted_quote_changed')
+            # Carried hints follow frozen guest slots even when restated out of order.
+            if 'room_name_hints' in params:
+                params['room_name_hints'] = _reconcile_carried_hint_order(
+                    params['room_name_hints'], baseline.get('room_name_hints') or [])
             result = deepcopy(baseline)
             for key in _CARRIED_FIELDS:
                 if key in params:
@@ -2271,6 +2299,10 @@ def prepare_create(params):
                     params, plan.get('room_name_hints')
                     or state.get('checked_offer', {}).get('room_name_hints') or [])):
             raise QuoteBoundaryError('accepted_quote_changed')
+        # Carried hints follow frozen guest slots even when restated out of order.
+        if 'room_name_hints' in params:
+            params['room_name_hints'] = _reconcile_carried_hint_order(
+                params['room_name_hints'], plan.get('room_name_hints') or [])
         for key, value in plan.items():
             if key not in _CARRIED_FIELDS:
                 result[key] = deepcopy(value)
@@ -2488,6 +2520,13 @@ def finalize_offer_response(result):
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = text
                     return output
+                # Iteration is newest-first: checked quote/create truth resolves
+                # any older eligibility uncertainty in this same guest turn.
+                if (isinstance(tool_result, dict) and tool_result.get('success') is True
+                        and (isinstance(tool_result.get('offer_revision'), dict)
+                             or tool_result.get('booking_id')
+                             or tool_result.get('booking_code'))):
+                    break
         unresolved = state.get('quote') or {}
         unresolved_presentable = (
             state.get('status') == 'blocked'
