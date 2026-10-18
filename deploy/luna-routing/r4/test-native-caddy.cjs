@@ -23,14 +23,15 @@ async function freePort() {
   await close(server);
   return port;
 }
-async function request(port, requestPath = inspector.CONTROLLER) {
+async function request(port, requestPath = inspector.CONTROLLER, method = 'GET') {
   return new Promise((resolve, reject) => {
-    const req = http.get({ host: '127.0.0.1', port, path: requestPath, headers: { host: inspector.SITE }, timeout: 2000 }, res => {
+    const req = http.request({ host: '127.0.0.1', port, path: requestPath, method, headers: { host: inspector.SITE }, timeout: 2000 }, res => {
       res.resume();
       res.on('end', () => resolve(res.statusCode));
     });
     req.on('timeout', () => req.destroy(new Error('request timeout')));
     req.on('error', reject);
+    req.end();
   });
 }
 async function runCase(root, name, mutate, expectedPath, inspectorRejects, expectedStatus = 204) {
@@ -123,6 +124,47 @@ async function runExactLead(root, name, expectedController, expectedProof, expec
   }
   return { name, inspector: inspectorRejects ? 'REJECT' : 'PASS', controllerSeen, proofSeen };
 }
+async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
+  const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${name}.json`), 'utf8'));
+  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg));
+  else inspector.verifyInactiveObject(cfg);
+  const seen = [];
+  const upstream = http.createServer((req, res) => { seen.push({ method: req.method, url: req.url }); res.writeHead(204); res.end(); });
+  const upstreamPort = await listen(upstream);
+  const listenPort = await freePort();
+  replaceDials(cfg, `127.0.0.1:${upstreamPort}`, `127.0.0.1:${upstreamPort}`);
+  cfg.admin = { disabled: true };
+  cfg.apps.http.servers.srv0.automatic_https = { disable: true };
+  cfg.apps.http.servers.srv0.listen = [`127.0.0.1:${listenPort}`];
+  const config = path.join(root, `${name}.json`);
+  const stdout = fs.openSync(path.join(root, `${name}.stdout.log`), 'w');
+  const stderr = fs.openSync(path.join(root, `${name}.stderr.log`), 'w');
+  fs.writeFileSync(config, `${JSON.stringify(cfg, null, 2)}\n`);
+  const child = cp.spawn(caddy, ['run', '--config', config], {
+    env: { ...process.env, XDG_CONFIG_HOME: path.join(root, `${name}-config`), XDG_DATA_HOME: path.join(root, `${name}-data`) },
+    stdio: ['ignore', stdout, stderr]
+  });
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (child.exitCode !== null) throw new Error(`Caddy exited ${child.exitCode} in ${name}`);
+      try { await request(listenPort, '/ready-probe'); ready = true; break; } catch { await new Promise(resolve => setTimeout(resolve, 40)); }
+    }
+    assert(ready, `${name} Caddy readiness`);
+    await request(listenPort, inspector.CONTROLLER);
+    await request(listenPort, inspector.PROOF);
+    await request(listenPort, inspector.WEBHOOK, 'GET');
+    await request(listenPort, inspector.WEBHOOK, 'POST');
+    assert.deepStrictEqual(seen, expectedCalls, `${name} native upstream calls`);
+  } finally {
+    child.kill('SIGTERM');
+    const exit = await new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+    fs.closeSync(stdout); fs.closeSync(stderr);
+    await close(upstream);
+    assert.deepStrictEqual(exit, { code: 0, signal: null }, `${name} Caddy exit`);
+  }
+  return { name, inspector: inspectorRejects ? 'REJECT' : 'PASS', seen };
+}
 (async () => {
   const version = cp.execFileSync(caddy, ['version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^v2\.6\.2\b/, 'native regression requires exact Caddy 2.6.2');
@@ -147,7 +189,31 @@ async function runExactLead(root, name, expectedController, expectedProof, expec
     await runExactLead(root, 'preceding-rewrite', [], [inspector.PROOF], 0),
     await runExactLead(root, 'preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runExactLead(root, 'nested-preceding-rewrite', [], [inspector.PROOF], 0),
-    await runExactLead(root, 'nested-preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false)
+    await runExactLead(root, 'nested-preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runCaptainR8(root, 'cross-scope-group-consumer', true, [
+      { method: 'GET', url: inspector.CONTROLLER },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'cross-scope-disjoint-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'uppercase-nested-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK },
+      { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'lowercase-nested-delivery-rejection-control', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK },
+      { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'disjoint-nested-delivery-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ])
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);
   process.stdout.write(`PASS native Caddy routing regression ${root}\n${JSON.stringify(cases)}\n`);

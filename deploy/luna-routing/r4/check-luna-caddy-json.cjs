@@ -22,7 +22,7 @@ function patterns(value, key) {
 function glob(pattern, value, host) {
   if (typeof pattern !== 'string') return false;
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', host ? '[^.]+' : '.*');
-  return new RegExp(`^${escaped}$`, host ? 'i' : '').test(value);
+  return new RegExp(`^${escaped}$`, 'i').test(value);
 }
 function intersect(a, b, host) {
   if (a === null) return b;
@@ -100,12 +100,32 @@ function effectiveLeaves(cfg) {
         return false;
       });
     }
+    function routeGroups(route, out = new Set()) {
+      if (!route || typeof route !== 'object' || Array.isArray(route)) return out;
+      if (typeof route.group === 'string') out.add(route.group);
+      if (!Array.isArray(route.handle)) return out;
+      for (const handler of route.handle) {
+        if (handler?.handler === 'subroute' && Array.isArray(handler.routes)) {
+          for (const child of handler.routes) routeGroups(child, out);
+        }
+      }
+      return out;
+    }
+    const consumedBefore = new Map();
     const normalized = [];
     for (let i = 0; i < list.length; i++) {
       const route = list[i], next = list[i + 1];
       const routeAlternatives = Array.isArray(route?.match) && route.match.length ? route.match : [{}];
       const relevantApproved = [...APPROVED.keys()].filter(requestPath =>
         routeAlternatives.some(match => alternativeMayApply(match, SITE, requestPath)));
+      const priorConsumed = new Set(state.consumedGroups);
+      for (const group of routeGroups(route)) {
+        if (relevantApproved.some(requestPath =>
+          list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, group, SITE, requestPath)))) {
+          priorConsumed.add(group);
+        }
+      }
+      consumedBefore.set(route, priorConsumed);
       if (typeof route?.group === 'string' && relevantApproved.some(requestPath =>
         list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, route.group, SITE, requestPath)))) {
         fail('preceding sibling group collision');
@@ -121,10 +141,12 @@ function effectiveLeaves(cfg) {
         && next.match === undefined && typeof route.group === 'string'
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
-      const nativeSequential = sequentialShape && !state.groups.includes(route.group);
+      const nativeSequential = sequentialShape && !state.groups.includes(route.group) && !state.consumedGroups.includes(route.group);
       if (nativeSequential) {
         if (route.terminal || next.terminal || next.group) fail('unsupported sequential rewrite control');
-        normalized.push({ ...route, handle: [rewrite, nextProxy] }); i++; continue;
+        const combined = { ...route, handle: [rewrite, nextProxy] };
+        consumedBefore.set(combined, priorConsumed);
+        normalized.push(combined); i++; continue;
       }
       const affectedApproved = relevantApproved.filter(requestPath => list.slice(i + 1).some(sibling => {
         const alternatives = Array.isArray(sibling?.match) && sibling.match.length ? sibling.match : [{}];
@@ -146,7 +168,7 @@ function effectiveLeaves(cfg) {
         if (!match || typeof match !== 'object' || Array.isArray(match)) fail('invalid match');
         if (Object.keys(match).some(key => !['host', 'path'].includes(key))) fail('unsupported matcher constraint');
         if (typeof route.group === 'string' && state.groups.includes(route.group)) fail('nested route group collision');
-        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group, groups: typeof route.group === 'string' ? state.groups.concat(route.group) : state.groups };
+        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group, groups: typeof route.group === 'string' ? state.groups.concat(route.group) : state.groups, consumedGroups: [...consumedBefore.get(route)] };
         if (branch.hosts && !branch.hosts.length || branch.paths && !branch.paths.length) return;
         let rewrites = state.rewrites.slice();
         const handlers = Array.isArray(route.handle) ? route.handle : [];
@@ -167,7 +189,7 @@ function effectiveLeaves(cfg) {
       });
     });
   }
-  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, rewrites: [], order: [], groups: [] });
+  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, rewrites: [], order: [], groups: [], consumedGroups: [] });
   return leaves;
 }
 

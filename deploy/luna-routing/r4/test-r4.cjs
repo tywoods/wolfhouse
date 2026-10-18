@@ -157,6 +157,40 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      assert.match(result.stdout, /^PASS /);
    }
  });
+ for (const name of [
+   'cross-scope-group-consumer.json',
+   'uppercase-nested-delivery.json',
+   'lowercase-nested-delivery-rejection-control.json'
+ ]) await test(`Captain R8 exact witness ${name} is rejected in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg));
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg));
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, /^FAIL /);
+   }
+ });
+ for (const name of ['cross-scope-disjoint-control.json', 'disjoint-nested-delivery-control.json']) await test(`Captain R8 exact control ${name} passes in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   inspector.verifyInactiveObject(cfg);
+   inspector.compareProtectedObjects(baseline, cfg);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
+     assert.match(result.stdout, /^PASS /);
+   }
+ });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes.splice(1, 0, { handle: [{ handler: 'static_response', status_code: 204 }] });
