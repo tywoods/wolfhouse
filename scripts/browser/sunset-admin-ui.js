@@ -3407,6 +3407,8 @@ var financeDetailCreator = '';
 var financeDetailCursor = '';
 var financeWolfhouseLoadFailed = false;
 var financeSummaryPhase = 'idle';
+// Set only for a real FINANCE_COHORT_STALE. A later request clock is not a new cohort.
+var financeDetailResume = null;
 
 function financeMarkSummaryPhase(phase) {
   financeSummaryPhase = phase;
@@ -3523,6 +3525,7 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
   var currency = financeLastCreator.scope && financeLastCreator.scope.currency;
   var originClient = getClient();
   financePaintDetail(financeDetailStatusHtml('loading', sel));
+  // cohort_id is the only generation key. Do not send as_of or a cache-bust the contract rejects.
   var q = adminClientQuery() + financeViewQuery() +
     '&creator_detail=' + encodeURIComponent(kind) +
     '&currency=' + encodeURIComponent(currency || '') +
@@ -3534,7 +3537,7 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
     return seq === financeDetailSeq && getClient() === originClient &&
       financeDetailKind === kind && (financeDetailCreator || '') === creator && (financeDetailCursor || '') === cursor;
   }
-  fetch('/staff/admin/finance/summary' + q + '&_ts=' + Date.now(), {
+  fetch('/staff/admin/finance/summary' + q, {
     credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
   }).then(function (r) {
     return r.text().then(function (text) {
@@ -3546,8 +3549,13 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
     if (!stillCurrent()) return;
     if (!financeLastCreator || financeLastCreator.cohort_id !== cohort) return;
     if (res.status === 409 && res.data && res.data.code === 'FINANCE_COHORT_STALE') {
-      financeLastCreator = null;
-      financeWolfhouseLoadFailed = false;
+      // A clock-only response is HTTP 200 with the same cohort_id. This 409 is a real balance change.
+      // Refresh the summary, then retry this selection once against the new cohort. Do not paint a stale error.
+      if (opts.cohortRefresh) {
+        financePaintDetail(financeDetailStatusHtml('error', sel));
+        return;
+      }
+      financeDetailResume = { kind: kind, creator: creator };
       loadAdminFinanceSummary();
       return;
     }
@@ -3572,11 +3580,13 @@ function loadWolfhouseCreatorFinanceDetail(opts) {
 }
 
 function loadWolfhouseFinanceSummary(body) {
+  var pendingResume = financeDetailResume;
+  financeDetailResume = null;
   var seq = ++financeLoadSeq;
   var originClient = getClient();
   financeDetailSeq += 1;
   financePaintSummaryPending(body);
-  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery() + '&_ts=' + Date.now();
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
   fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
     .then(function (r) {
       return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; })
@@ -3621,6 +3631,14 @@ function loadWolfhouseFinanceSummary(body) {
         body.innerHTML = renderWolfhouseCreatorFinanceHtml(data);
         wireFinanceRedesignNav(body);
         wireWolfhouseCreatorFinanceDetails(body);
+        if (pendingResume && pendingResume.kind) {
+          loadWolfhouseCreatorFinanceDetail({
+            kind: pendingResume.kind,
+            creator: pendingResume.creator || '',
+            cursor: '',
+            cohortRefresh: true,
+          });
+        }
         return;
       }
       var state = financeLastCreator && financeLastCreator.schema_version ? 'unsupported' : 'missing';

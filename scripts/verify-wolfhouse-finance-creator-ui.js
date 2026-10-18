@@ -130,6 +130,12 @@ check('spanish title', fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal
 const ui = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
 check('wolfhouse load is gated', ui.includes("getClient() === 'wolfhouse-somo') return loadWolfhouseFinanceSummary"));
 check('stale cohort refresh', ui.includes('FINANCE_COHORT_STALE'));
+const detailLoader = ui.slice(ui.indexOf('function loadWolfhouseCreatorFinanceDetail'), ui.indexOf('function loadWolfhouseFinanceSummary'));
+const summaryLoader = ui.slice(ui.indexOf('function loadWolfhouseFinanceSummary'), ui.indexOf('function loadAdminFinanceSummary'));
+check('detail identity is cohort_id, not request-time as_of', detailLoader.includes("'&cohort_id='") && !detailLoader.includes('as_of=') && !detailLoader.includes('&as_of') && !detailLoader.includes('as_of !==') && !detailLoader.includes('.as_of'));
+check('a clock change does not clear the cohort or paint stale', !detailLoader.includes('financeLastCreator = null') && !detailLoader.includes('older refresh') && !detailLoader.includes('stale_generation'));
+check('a real 409 refreshes the summary and retries the detail once', detailLoader.includes('financeDetailResume = { kind: kind, creator: creator }') && detailLoader.includes('opts.cohortRefresh') && summaryLoader.includes('pendingResume') && summaryLoader.includes('cohortRefresh: true') && summaryLoader.includes("cursor: ''"));
+check('wolfhouse finance requests stay inside the contract query', !detailLoader.includes('_ts=') && !summaryLoader.includes('_ts='));
 check('closed detail query does not fetch', ui.includes('queries[kind] === true'));
 check('sunset load string remains', /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 check('stub presentation fixture is gone', !fs.existsSync(path.join(ROOT, 'fixtures/wolfhouse-finance-creator-ui/success.json')));
@@ -155,6 +161,26 @@ check('R8 rejects a detail that is not the exact contract version', rejectedVers
   });
   return rendered.includes('data-wh-fin-detail-state="unsupported"') && !rendered.includes(bad.marker) && !rendered.includes('data-wh-fin-row=');
 }) && renderWolfhouseCreatorFinanceDetailHtml({ detail: { kind: 'payments', rows: [{ amount_cents: 88888 }] } }).includes('unsupported') && !renderWolfhouseCreatorFinanceDetailHtml({ detail: { kind: 'payments', rows: [{ amount_cents: 88888 }] } }).includes('88888'));
+
+const laterClock = '2026-10-17T12:05:00.000Z';
+const clockProjection = JSON.parse(JSON.stringify(success));
+clockProjection.as_of = laterClock;
+clockProjection.generated_at = laterClock;
+clockProjection.metrics.outstanding_today.as_of = laterClock;
+const clockHtml = renderWolfhouseCreatorFinanceHtml({ wolfhouse_creator_finance: clockProjection });
+check('a later summary clock is not a stale banner', clockHtml.includes(laterClock) && clockHtml.includes(`data-wh-fin-cohort="${success.cohort_id}"`) && !clockHtml.includes('older refresh') && !clockHtml.includes('stale_generation'));
+const clockDetail = renderWolfhouseCreatorFinanceDetailHtml({
+  schema_version: 'wolfhouse.creator-finance.v1',
+  cohort_id: success.cohort_id,
+  detail: {
+    kind: 'outstanding',
+    currency: 'EUR',
+    rows: [{ booking_id: 'b-clock', current_balance_cents: 4400, as_of: laterClock, creator: 'luna' }],
+    page: { matched_count: 1, complete: true, returned_count: 1 },
+    full_cohort_totals: { outstanding_cents: 4400 },
+  },
+});
+check('an outstanding row clock is data, not a stale banner', clockDetail.includes('data-wh-fin-field="as_of"') && clockDetail.includes(laterClock) && clockDetail.includes('€44.00') && !clockDetail.includes('older refresh'));
 
 async function paint() {
   const { chromium } = require('playwright');

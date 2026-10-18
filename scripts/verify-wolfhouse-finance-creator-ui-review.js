@@ -126,13 +126,13 @@ async function proveComposedFinanceReview(fixtures) {
   let detailMode = 'page1';
   const held = [];
   const heldSummaries = [];
-  function detailEnvelope(detail, schema) {
+  function detailEnvelope(detail, schema, cohortId) {
     return {
       success: true,
       summary: summaryBody.summary,
       wolfhouse_creator_finance: {
         schema_version: schema || 'wolfhouse.creator-finance.v1',
-        cohort_id: success.cohort_id,
+        cohort_id: cohortId || success.cohort_id,
         detail,
       },
     };
@@ -186,6 +186,42 @@ async function proveComposedFinanceReview(fixtures) {
           body: JSON.stringify({ success: true, summary: summaryBody.summary, detail: { kind: 'payments', rows: [{ amount_cents: 88888 }] } }),
         });
       }
+      if (detailMode === 'clock') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(detailEnvelope({
+            kind: 'outstanding',
+            creator: null,
+            currency: 'EUR',
+            rows: [{ booking_id: 'b-clock', current_balance_cents: 4400, as_of: '2026-10-17T12:05:00.000Z', creator: 'luna' }],
+            page: { limit: 100, next_cursor: null, complete: true, matched_count: 1, returned_count: 1 },
+            full_cohort_totals: { outstanding_cents: 4400 },
+          })),
+        });
+      }
+      if (detailMode === 'stale-once') {
+        const asked = new URL(url).searchParams.get('cohort_id');
+        if (asked !== 'whcf1_balance_changed_01') {
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, error: 'finance summary refresh required', code: 'FINANCE_COHORT_STALE' }),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(detailEnvelope({
+            kind: 'payments',
+            creator: 'luna',
+            currency: 'EUR',
+            rows: [{ payment_id: 'p-refreshed', booking_id: 'b-luna', receipt_date: '2026-10-02', amount_cents: 8800, purpose: 'other', creator: 'luna' }],
+            page: { limit: 100, next_cursor: null, complete: true, matched_count: 1, returned_count: 1 },
+            full_cohort_totals: { gross_receipts_cents: 33300, deposits_received_cents: 3000 },
+          }, 'wolfhouse.creator-finance.v1', 'whcf1_balance_changed_01')),
+        });
+      }
       const cursor = new URL(url).searchParams.get('cursor');
       return route.fulfill({
         status: 200,
@@ -210,6 +246,28 @@ async function proveComposedFinanceReview(fixtures) {
           body: JSON.stringify(weekEnvelope),
         });
       }
+    }
+    if (summaryMode === 'refreshed') {
+      const refreshed = JSON.parse(JSON.stringify(success));
+      refreshed.cohort_id = 'whcf1_balance_changed_01';
+      refreshed.as_of = '2026-10-17T12:05:00.000Z';
+      refreshed.generated_at = '2026-10-17T12:05:00.000Z';
+      if (refreshed.metrics && refreshed.metrics.outstanding_today) {
+        refreshed.metrics.outstanding_today.as_of = '2026-10-17T12:05:00.000Z';
+      }
+      const luna = refreshed.creators.find((row) => row.creator === 'luna');
+      luna.gross_receipts.amount_cents = 33300;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          client: 'wolfhouse-somo',
+          location_id: '',
+          summary: summaryBody.summary,
+          wolfhouse_creator_finance: refreshed,
+        }),
+      });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summaryBody) });
   });
@@ -405,6 +463,52 @@ async function proveComposedFinanceReview(fixtures) {
     const host = document.querySelector('#wh-admin-finance-body');
     return !!(host && host.innerText.includes('Complete') && !host.innerText.includes('Completo'));
   }, null, { timeout: 10000 });
+
+  detailMode = 'clock';
+  const beforeClock = summaryCount();
+  const clockStart = requests.length;
+  await page.locator('#wh-admin-finance-body [data-wh-fin-open="outstanding"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-row="b-clock"] [data-wh-fin-field="as_of"]', { timeout: 10000 });
+  const clockUrl = requests.slice(clockStart).find((url) => url.includes('creator_detail=outstanding'));
+  assert.equal(!!clockUrl, true, 'clock change made no outstanding detail request');
+  assert.equal(clockUrl.includes('as_of='), false, `clock detail sent as_of: ${clockUrl}`);
+  assert.equal(clockUrl.includes('_ts='), false, `clock detail sent a rejected cache key: ${clockUrl}`);
+  assert.equal(clockUrl.includes(`cohort_id=${encodeURIComponent(success.cohort_id)}`), true, `clock detail dropped the cohort: ${clockUrl}`);
+  assert.equal(summaryCount(), beforeClock, 'a later clock started a summary refresh');
+  const clockText = await page.locator('#wh-admin-finance-body').innerText();
+  assert.equal(clockText.includes('2026-10-17T12:05:00.000Z'), true, 'later outstanding clock was not shown as data');
+  assert.equal(clockText.includes('older refresh'), false, `clock change painted stale: ${clockText.slice(0, 240)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"]').count(), 0, 'clock change painted a detail error');
+  console.log('PASS clock change keeps the cohort and does not paint stale');
+
+  detailMode = 'stale-once';
+  summaryMode = 'refreshed';
+  const staleStart = requests.length;
+  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="luna"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-row="p-refreshed"]', { timeout: 10000 });
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="33300"]', { timeout: 10000 });
+  const staleUrls = requests.slice(staleStart);
+  const staleDetails = staleUrls.filter((url) => url.includes('creator_detail='));
+  const staleSummaries = staleUrls.filter((url) => !url.includes('creator_detail='));
+  assert.equal(staleDetails.length, 2, `real 409 did not refresh then retry: ${staleDetails.join(' | ')}`);
+  assert.equal(staleSummaries.length, 1, `real 409 did not make one summary refresh: ${staleSummaries.join(' | ')}`);
+  assert.equal(staleDetails[0].includes(`cohort_id=${encodeURIComponent(success.cohort_id)}`), true, `first detail was not the old cohort: ${staleDetails[0]}`);
+  assert.equal(staleDetails[1].includes('cohort_id=whcf1_balance_changed_01'), true, `retry did not use the refreshed cohort: ${staleDetails[1]}`);
+  assert.equal(staleDetails[1].includes('creator=luna'), true, `retry dropped creator: ${staleDetails[1]}`);
+  assert.equal(staleDetails[1].includes('as_of='), false, `retry sent as_of: ${staleDetails[1]}`);
+  assert.equal(staleDetails[1].includes('cursor='), false, `retry reused the old cursor: ${staleDetails[1]}`);
+  assert.equal(staleSummaries[0].includes('creator_detail='), false, `refresh was a detail: ${staleSummaries[0]}`);
+  assert.equal(staleSummaries[0].includes('as_of='), false, `refresh sent as_of: ${staleSummaries[0]}`);
+  const refreshedText = await page.locator('#wh-admin-finance-body').innerText();
+  assert.equal(refreshedText.includes('88.00'), true, `refreshed detail did not paint: ${refreshedText.slice(0, 240)}`);
+  assert.equal(refreshedText.includes('older refresh'), false, `real 409 left a stale banner: ${refreshedText.slice(0, 240)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"]').count(), 0, 'real 409 left a detail error');
+  console.log('PASS real 409 refreshes the summary then paints the 200 detail');
+
+  summaryMode = 'ok';
+  detailMode = 'page1';
+  await page.locator('#wh-admin-finance-body [data-finance-nav="today"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
 
   summaryMode = 'abort';
   const beforeFail = summaryCount();
