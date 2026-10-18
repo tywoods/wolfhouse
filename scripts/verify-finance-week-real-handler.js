@@ -33,6 +33,14 @@ query.client = 'wolfhouse-somo';
 (async () => {
   const impossible = await server.handleAdminFinanceSummaryGet({...query, anchor:'2026-02-30'}, {}, {}, {});
   assert.strictEqual(impossible.status, 400, 'impossible anchor date must fail before finance fetch');
+  const impossibleStart = await server.handleAdminFinanceSummaryGet({...query, granularity:'custom', start:'2026-02-30', end:'2026-03-02'}, {}, {}, {});
+  assert.strictEqual(impossibleStart.status, 400, 'impossible custom start date must fail before finance fetch');
+  const impossibleEnd = await server.handleAdminFinanceSummaryGet({...query, granularity:'custom', start:'2026-02-01', end:'2026-02-30'}, {}, {}, {});
+  assert.strictEqual(impossibleEnd.status, 400, 'impossible custom end date must fail before finance fetch');
+  const nonLeap = await server.handleAdminFinanceSummaryGet({...query, anchor:'2027-02-29'}, {}, {}, {});
+  assert.strictEqual(nonLeap.status, 400, 'non-leap February 29 must fail before finance fetch');
+  const leap = await server.handleAdminFinanceSummaryGet({...query, anchor:'2028-02-29'}, {}, {}, {});
+  assert.strictEqual(leap.status, 200, 'valid leap-day anchor must reach finance summary');
   const { status, data } = await server.handleAdminFinanceSummaryGet(query, {}, {}, {});
   assert.strictEqual(status, 200);
   assert.strictEqual(data.summary.redesign.view.granularity, 'week', 'actual Week click must survive actual HTTP handler');
