@@ -602,11 +602,15 @@ def _localized_eligibility_question(question, language, guest_count=None):
     else:
         stored_count = (guest_count if isinstance(guest_count, int)
                         and not isinstance(guest_count, bool) and guest_count > 0 else None)
+        singular_subject = bool(re.search(
+            r'\b(?:the|this|that|one|a)\s+(?:guest|person)\b', low))
         count = (4 if re.search(r'\b(?:four|4)\b', low)
                  else 3 if re.search(r'\b(?:three|3)\b', low)
                  else 2 if re.search(r'\b(?:both|two|2)\b', low)
-                 else (stored_count or 2) if re.search(
-                     r'\b(?:guests|everyone|everybody)\b', low) else 1)
+                 else 1 if singular_subject
+                 else stored_count)
+        if count is None:
+            return text
     all_group = bool(re.search(
         r'\b(?:all(?:\s+the)?\s+guests?|everyone|everybody)\b', low))
     negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))

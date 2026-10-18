@@ -248,6 +248,55 @@ class CaptainR1R5Tests(unittest.TestCase):
                 'de': 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Männerzimmer zu übernachten?',
             },
         }
+        def expected_count_question(count, female):
+            nouns = {
+                'es': ('mujeres', 'las', 'huéspedes') if female else ('hombres', 'los', 'huéspedes'),
+                'fr': ('femmes',) if female else ('hommes',),
+                'de': ('Frauen',) if female else ('Männer',),
+            }
+            if count == 1:
+                return {
+                    'en': 'Is this one person a woman?' if female else 'Is this one person a man?',
+                    'es': '¿Es la huésped una mujer?' if female else '¿Es el huésped un hombre?',
+                    'fr': 'La personne est-elle une femme ?' if female else 'La personne est-elle un homme ?',
+                    'de': 'Ist der Gast eine Frau?' if female else 'Ist der Gast ein Mann?',
+                }
+            if count == 4:
+                return {
+                    'es': '¿Son mujeres las cuatro huéspedes?' if female else '¿Son hombres los cuatro huéspedes?',
+                    'fr': 'Les quatre personnes sont-elles des femmes ?' if female else 'Les quatre personnes sont-elles des hommes ?',
+                    'de': 'Sind alle vier Gäste Frauen?' if female else 'Sind alle vier Gäste Männer?',
+                }
+            es_gender, es_article, es_guest = nouns['es']
+            fr_gender = nouns['fr'][0]
+            de_gender = nouns['de'][0]
+            return {
+                'es': f'¿Son {es_gender} {es_article} {count} {es_guest}?',
+                'fr': f'Les {count} personnes sont-elles des {fr_gender} ?',
+                'de': f'Sind alle {count} Gäste {de_gender}?',
+            }
+
+        additional_cases = {
+            'Are they all women?': (4, True),
+            'Are they all men?': (4, False),
+            'Are all of them women?': (4, True),
+            'Are all of them men?': (4, False),
+            'Are the people women?': (4, True),
+            'Are the people men?': (4, False),
+            'Is the group made up of women?': (4, True),
+            'Is the group made up of men?': (4, False),
+            'Are all five people women?': (5, True),
+            'Are all five people men?': (5, False),
+            'Are all 5 people women?': (5, True),
+            'Are all 5 people men?': (5, False),
+            'Is this one person a woman?': (1, True),
+            'Is this one person a man?': (1, False),
+        }
+        for question, (guest_count, female) in additional_cases.items():
+            expected = expected_count_question(guest_count, female)
+            expected['en'] = question
+            cases[question] = expected
+
         ingresses = {
             'en': 'Please check this room.',
             'es': 'Hola, quiero comprobar esta habitación.',
@@ -271,6 +320,8 @@ class CaptainR1R5Tests(unittest.TestCase):
             'Is everyone a man?': (4,),
             'Are the guests men?': (4,),
             'Are the guests women?': (4,),
+            **{question: (guest_count,)
+               for question, (guest_count, _female) in additional_cases.items()},
         }
         with tempfile.TemporaryDirectory() as root, \
                 patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
