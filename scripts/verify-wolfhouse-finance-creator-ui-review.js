@@ -67,6 +67,21 @@ async function proveComposedFinanceReview(fixtures) {
     summary: { redesign: { view: { granularity: 'month', range: success.scope.range } } },
     wolfhouse_creator_finance: success,
   };
+  function envelopeFor(amountCents, granularity, start, end) {
+    const proj = JSON.parse(JSON.stringify(success));
+    proj.scope.range = Object.assign({}, proj.scope.range, { granularity, start, end });
+    const luna = proj.creators.find((row) => row.creator === 'luna');
+    luna.gross_receipts.amount_cents = amountCents;
+    return {
+      success: true,
+      client: 'wolfhouse-somo',
+      location_id: '',
+      summary: { redesign: { view: { granularity, range: proj.scope.range } } },
+      wolfhouse_creator_finance: proj,
+    };
+  }
+  const weekEnvelope = envelopeFor(11100, 'week', '2026-10-12', '2026-10-18');
+  const monthEnvelope = envelopeFor(22200, 'month', '2026-10-01', '2026-10-31');
   const html = buildPortalHtml();
   assert.equal(html.includes('--finance-bar-green:'), true, 'composed portal defines --finance-bar-green');
   assert.equal(/--green\s*:/.test(html), false, 'composed portal must not define --green');
@@ -105,9 +120,12 @@ async function proveComposedFinanceReview(fixtures) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const requests = [];
+  const summaryCount = () => requests.filter((url) => !url.includes('creator_detail=')).length;
   let summaryMode = 'ok';
+  let summaryHold = false;
   let detailMode = 'page1';
   const held = [];
+  const heldSummaries = [];
   function detailEnvelope(detail, schema) {
     return {
       success: true,
@@ -178,6 +196,20 @@ async function proveComposedFinanceReview(fixtures) {
     if (summaryMode === 'abort') return route.abort('failed');
     if (summaryMode === '500') {
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'read failed' }) });
+    }
+    if (summaryHold) {
+      await new Promise((resolve) => heldSummaries.push({ route, url, resolve }));
+      return;
+    }
+    if (summaryMode === 'week') {
+      const gran = new URL(url).searchParams.get('granularity');
+      if (gran === 'week') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(weekEnvelope),
+        });
+      }
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summaryBody) });
   });
@@ -324,8 +356,57 @@ async function proveComposedFinanceReview(fixtures) {
   assert.equal(missingVersion.includes('888'), false, `R8 painted an unversioned amount: ${missingVersion}`);
   console.log('PASS R8 composed version reject');
 
+  summaryMode = 'week';
+  const beforeWeek = summaryCount();
+  await page.locator('#wh-admin-finance-body [data-finance-gran="week"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="11100"]', { timeout: 10000 });
+  assert.equal(await page.locator('#wh-admin-finance-body [data-finance-gran="week"]').getAttribute('aria-selected'), 'true', 'week did not become the current result');
+  assert.equal(summaryCount() > beforeWeek, true, 'week click made no request');
+  summaryHold = true;
+  const beforeMonth = summaryCount();
+  await page.locator('#wh-admin-finance-body [data-finance-gran="month"]').click();
+  await page.waitForSelector('#wh-admin-finance-body .portal-admin-finance-loading', { timeout: 10000 });
+  assert.equal(heldSummaries.length, 1, 'month refresh was not held');
+  assert.equal(heldSummaries[0].url.includes('granularity=month'), true, `held request was not month: ${heldSummaries[0].url}`);
+  assert.equal(heldSummaries[0].url.includes('creator_detail='), false, `held request was a detail: ${heldSummaries[0].url}`);
+  assert.equal(summaryCount(), beforeMonth + 1, 'month click did not start exactly one read');
+  const beforePendingLang = summaryCount();
+  const pendingLangClicked = await page.locator('.staff-lang-btn[data-lang="es"]').count();
+  if (pendingLangClicked) await page.locator('.staff-lang-btn[data-lang="es"]').click();
+  else await page.evaluate(() => window.setStaffLocale('es'));
+  const pendingLangStart = Date.now();
+  while (Date.now() - pendingLangStart < 400) await page.waitForTimeout(50);
+  const duringPending = await page.locator('#wh-admin-finance-body').innerText();
+  assert.equal(summaryCount(), beforePendingLang, 'R2 language change during a pending refresh started a new read');
+  assert.equal(await page.locator('#wh-admin-finance-body .portal-admin-finance-loading').count(), 1, `R2 language change dropped loading: ${duringPending.slice(0, 220)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-cents="11100"]').count(), 0, 'R2 language change restored the older week figures');
+  assert.equal(duringPending.includes('Completo'), false, `R2 language change marked the older week result complete: ${duringPending.slice(0, 220)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-state="complete"]').count(), 0, 'R2 language change restored a complete summary');
+  const heldMonth = heldSummaries.shift();
+  await heldMonth.route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(monthEnvelope),
+  });
+  heldMonth.resolve();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="22200"]', { timeout: 10000 });
+  const releasedMonth = await page.locator('#wh-admin-finance-body').innerText();
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-cents="11100"]').count(), 0, 'released month response kept week figures');
+  assert.equal(releasedMonth.includes('Completo'), true, `released month response did not paint in Spanish: ${releasedMonth.slice(0, 180)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-finance-gran="month"]').getAttribute('aria-selected'), 'true', 'released response did not show month');
+  console.log('PASS R2 language change during a pending refresh keeps loading');
+  summaryHold = false;
+  summaryMode = 'ok';
+  await page.locator('#wh-admin-finance-body [data-finance-gran="month"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-headline="luna"] [data-wh-fin-cents="10000"]', { timeout: 10000 });
+  if (await page.locator('.staff-lang-btn[data-lang="en"]').count()) await page.locator('.staff-lang-btn[data-lang="en"]').click();
+  else await page.evaluate(() => window.setStaffLocale('en'));
+  await page.waitForFunction(() => {
+    const host = document.querySelector('#wh-admin-finance-body');
+    return !!(host && host.innerText.includes('Complete') && !host.innerText.includes('Completo'));
+  }, null, { timeout: 10000 });
+
   summaryMode = 'abort';
-  const summaryCount = () => requests.filter((url) => !url.includes('creator_detail=')).length;
   const beforeFail = summaryCount();
   await page.locator('#wh-admin-finance-body [data-finance-nav="today"]').click();
   await page.waitForSelector('#wh-admin-finance-body [role="alert"]', { timeout: 10000 });
@@ -351,6 +432,11 @@ async function proveComposedFinanceReview(fixtures) {
 
   while (held.length) {
     const late = held.shift();
+    await late.route.abort('failed').catch(() => {});
+    late.resolve();
+  }
+  while (heldSummaries.length) {
+    const late = heldSummaries.shift();
     await late.route.abort('failed').catch(() => {});
     late.resolve();
   }
