@@ -358,6 +358,8 @@ def _guest_count_label(count, language='en'):
 
 
 def _join_names(names, language='en'):
+    if not names:
+        return ''
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
@@ -470,16 +472,20 @@ def _guest_room_lines(plan, offer, language='en'):
         for item in same:
             who = _join_names(item['names'], language)
             beds = len(item['names'])
+            if not beds:
+                beds = sum(1 for code in selected_bed_codes
+                           if rooms.get(code, {}).get('room_code') == item['room'])
             n = _count_word(beds, language)
             # Room and bed codes are Staff internals, never guest-facing copy.
             room_suffix = ''
+            prefix = f'{who}: ' if who else ''
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{who}: una cama en la {kind}.', 'fr': f'{who} : un lit dans la {kind}.',
-                            'de': f'{who}: ein Bett im {kind}.'}[language]
+                    line = {'es': f'{prefix}una cama en la {kind}.', 'fr': f'{prefix}un lit dans la {kind}.',
+                            'de': f'{prefix}ein Bett im {kind}.'}[language]
                 else:
-                    line = {'es': f'{who}: {n} camas en la misma {kind}.', 'fr': f'{who} : {n} lits dans la même {kind}.',
-                            'de': f'{who}: {n} Betten im selben {kind}.'}[language]
+                    line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
+                            'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
                 if len(same) > 1 and not first:
                     line = {'es': f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.',
                             'fr': f'{who} : {n if beds > 1 else "un"} lit' + ('s' if beds > 1 else '') + f' dans une autre {kind}.',
@@ -488,9 +494,9 @@ def _guest_room_lines(plan, offer, language='en'):
                 first = False
                 continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{who}: a bed in the {kind}{room_suffix}.")
+                lines.append(f"{prefix}a bed in the {kind}{room_suffix}.")
             elif len(same) == 1:
-                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}{room_suffix}.")
+                lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:
                 where = f"the {kind}" if first else f"a separate {kind}"
                 lines.append(f"{who}: a bed in {where}{room_suffix}.")
@@ -524,6 +530,22 @@ _FINAL_COPY = {
 
 def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
+
+
+def _localized_eligibility_question(question, language):
+    """Retain Staff's eligibility meaning without leaking its English wording."""
+    low = str(question or '').casefold()
+    female = bool(re.search(r'\b(?:women|woman|female)\b', low))
+    male = bool(re.search(r'\b(?:men|man|male)\b', low))
+    if not (female ^ male) or language == 'en':
+        return str(question).strip()
+    questions = {
+        'es': ('¿Son mujeres las dos huéspedes?', '¿Son hombres los dos huéspedes?'),
+        'fr': ('Les deux personnes sont-elles des femmes ?', 'Les deux personnes sont-elles des hommes ?'),
+        'de': ('Sind beide Gäste Frauen?', 'Sind beide Gäste Männer?'),
+    }
+    pair = questions.get(language)
+    return pair[0 if female else 1] if pair else str(question).strip()
 
 
 def _evidence_in_current_turn(raw, evidence):
@@ -2238,7 +2260,8 @@ def finalize_offer_response(result):
                 and any(term in next_action.casefold() for term in eligibility_terms))
             # Preserve a concrete Staff eligibility clarification. Other Staff
             # prose is not language-authoritative and must not leak into copy.
-            text = str(next_action).strip() if valid_eligibility_question else _final_copy(language, 'refusal')
+            text = (_localized_eligibility_question(next_action, language)
+                    if valid_eligibility_question else _final_copy(language, 'refusal'))
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')

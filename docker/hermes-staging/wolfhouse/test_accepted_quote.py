@@ -2308,6 +2308,21 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertEqual(question, shown['final_response'])
 
+    def test_sim19_spanish_eligibility_question_keeps_meaning_in_spanish(self):
+        self.agent.session_id = 'sim19-spanish-eligibility'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim19-spanish-eligibility-turn',
+                  'Hola, quiero reservar dos camas en la habitación femenina')
+        self.ledger.record_quote(self.plan, {
+            'success': False,
+            'quote_status': 'needs_guest_clarification',
+            'guest_safe_next_action': 'Are both guests women?',
+            'offer_revision': None,
+        })
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertEqual('¿Son mujeres las dos huéspedes?', shown['final_response'])
+
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json
         import wolfhouse_staff_api as plugin

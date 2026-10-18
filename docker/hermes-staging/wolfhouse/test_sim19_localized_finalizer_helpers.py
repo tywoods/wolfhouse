@@ -2,9 +2,61 @@
 import unittest
 
 from wolfhouse import accepted_quote as owner
+from wolfhouse import output_guard
 
 
 class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
+    def test_two_unnamed_guests_in_one_room_render_without_crashing(self):
+        plan = {
+            "guest_count": 2,
+            "guests": [{"name": ""}, {"name": ""}],
+            "selected_bed_codes": ["R4-B1", "R4-B2"],
+        }
+        offer = {
+            "room_type": "shared",
+            "room_arrangement": [
+                {"room_code": "R4", "bed_code": "R4-B1", "gender_strategy": "mixed"},
+                {"room_code": "R4", "bed_code": "R4-B2", "gender_strategy": "mixed"},
+            ],
+        }
+        self.assertEqual(
+            ["two beds in the same mixed room."],
+            owner._guest_room_lines(plan, offer, "en"),
+        )
+
+    def test_three_unnamed_guests_in_three_rooms_still_render(self):
+        plan = {
+            "guest_count": 3,
+            "guests": [{"name": ""}, {"name": ""}, {"name": ""}],
+            "selected_bed_codes": ["R4-B1", "R5-B1", "R6-B1"],
+        }
+        offer = {
+            "room_type": "shared",
+            "room_arrangement": [
+                {"room_code": code[:2], "bed_code": code, "gender_strategy": "mixed"}
+                for code in plan["selected_bed_codes"]
+            ],
+        }
+        self.assertEqual(
+            ["beds in three separate mixed rooms."],
+            owner._guest_room_lines(plan, offer, "en"),
+        )
+
+    def test_reused_language_detector_recognizes_french_german_and_italian(self):
+        cases = {
+            "Bonjour, je voudrais réserver une chambre pour deux personnes.": "fr",
+            "Hallo, ich möchte ein Zimmer für zwei Personen buchen.": "de",
+            "Ciao, vorrei prenotare una camera per due persone.": "it",
+        }
+        for opening, expected in cases.items():
+            with self.subTest(language=expected):
+                self.assertEqual(
+                    expected,
+                    output_guard._guest_lang_from_history(
+                        [{"role": "user", "content": opening}]
+                    ),
+                )
+
     def test_split_room_copy_is_localized_and_hides_internal_codes(self):
         plan = {
             "guest_count": 2,
