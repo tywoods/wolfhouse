@@ -7,7 +7,7 @@ assert.match(unit,/^User=luna-routing$/m); assert.match(unit,/^ReadWritePaths=\/
 assert.match(unit,/^CapabilityBoundingSet=$/m);
 assert.equal(fs.existsSync(path.join(root,'luna-routing.sudoers')),false,'obsolete controller sudoers source must not exist');
 assert.match(installer,/--update-contract/); assert.match(installer,/Root config is intentionally the final filesystem mutation/); assert.doesNotMatch(env,/ROOT_CADDY|CADDY_BIN|TLS_(?:CERT|KEY)/);
-assert.match(installer,/NODE_BIN=\/usr\/bin\/node/); assert.doesNotMatch(installer,/(^|[;&|]\s*)node\s/m,'installer must not resolve Node through PATH');
+assert.match(installer,/NODE_BIN=\/usr\/bin\/node/); assert.doesNotMatch(installer,/LUNA_ROUTING_TEST_NODE_BIN/,'shipped installer must not allow its systemd Node runtime to be overridden'); assert.doesNotMatch(installer,/(^|[;&|]\s*)node\s/m,'installer must not resolve Node through PATH');
 assert.match(controller,/http\.createServer/); assert.doesNotMatch(controller,/ROOT_CADDY|rootContract|rootCaddy/); assert.match(controller,/const caddyBin = '\/usr\/bin\/caddy'/);
 assert.match(env,/^LUNA_ROUTING_SITE=lunabox\.lunafrontdesk\.com$/m); assert.match(env,/^LUNA_ROUTING_MUTATIONS_ENABLED=false$/m); assert.match(installer,/validate-controller-env\.js" "\$CONTROLLER_ENV"/); assert.doesNotMatch(installer,/grep -c '\^LUNA_ROUTING_MUTATIONS_ENABLED='/);
 assert.match(controller,/run\(caddyBin, \['reload', '--config', '\/etc\/caddy\/Caddyfile', '--adapter', 'caddyfile'\]\)/);
@@ -131,17 +131,24 @@ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'routing-install-')); const caddy
 const installerPath=path.join(root,'install-luna-routing.sh');
 const runtimeDir=path.join(dir,'runtime'); fs.mkdirSync(runtimeDir);
 const goodNode=path.join(runtimeDir,'good-node'); fs.writeFileSync(goodNode,`#!/bin/sh\n[ "$1" != --version ] || { echo v22.23.3; exit 0; }\nexec ${process.execPath} "$@"\n`); fs.chmodSync(goodNode,0o755);
-const testRuntimeEnv={LUNA_ROUTING_TEST_NODE_BIN:goodNode};
-const run=cp.spawnSync(installerPath,['--dry-run'],{env:{...process.env,...testRuntimeEnv,CADDYFILE:caddy},encoding:'utf8'}); assert.equal(run.status,0,run.stderr); assert.match(run.stdout,/no host caddy required/);
-const missingRuntime=cp.spawnSync(installerPath,['--dry-run'],{env:{...process.env,CADDYFILE:caddy,LUNA_ROUTING_TEST_NODE_BIN:path.join(runtimeDir,'missing-node')},encoding:'utf8'});
+const runInstallerWithNode=(nodeBin,args=['--dry-run'],extraEnv={})=>{
+  const testInstaller=path.join(root,`.install-luna-routing.test-${process.pid}-${Math.random().toString(16).slice(2)}.sh`);
+  const emulated=installer.replace('NODE_BIN=/usr/bin/node',`NODE_BIN=${nodeBin}`);
+  assert.notEqual(emulated,installer,'test harness must replace the fixed runtime assignment');
+  fs.writeFileSync(testInstaller,emulated,{mode:0o755});
+  try { return cp.spawnSync(testInstaller,args,{env:{...process.env,...extraEnv},encoding:'utf8'}); }
+  finally { fs.rmSync(testInstaller,{force:true}); }
+};
+const run=runInstallerWithNode(goodNode,['--dry-run'],{CADDYFILE:caddy}); assert.equal(run.status,0,run.stderr); assert.match(run.stdout,/no host caddy required/);
+const missingRuntime=runInstallerWithNode(path.join(runtimeDir,'missing-node'),['--dry-run'],{CADDYFILE:caddy});
 assert.notEqual(missingRuntime.status,0); assert.match(missingRuntime.stderr,/required Node runtime is missing or not executable/);
 const wrongNode=path.join(runtimeDir,'wrong-node'); fs.writeFileSync(wrongNode,'#!/bin/sh\nprintf "v20.0.0\\n"\n'); fs.chmodSync(wrongNode,0o755);
-const wrongRuntime=cp.spawnSync(installerPath,['--dry-run'],{env:{...process.env,CADDYFILE:caddy,LUNA_ROUTING_TEST_NODE_BIN:wrongNode},encoding:'utf8'});
+const wrongRuntime=runInstallerWithNode(wrongNode,['--dry-run'],{CADDYFILE:caddy});
 assert.notEqual(wrongRuntime.status,0); assert.match(wrongRuntime.stderr,/requires Node 22\.23\.3/);
 const shadowDir=path.join(dir,'shadow'); fs.mkdirSync(shadowDir); const shadowNode=path.join(shadowDir,'node'); fs.writeFileSync(shadowNode,'#!/bin/sh\necho PATH_NODE_USED >&2\nexit 99\n'); fs.chmodSync(shadowNode,0o755);
-const shadowRun=cp.spawnSync(installerPath,['--dry-run'],{env:{...process.env,...testRuntimeEnv,CADDYFILE:caddy,PATH:`${shadowDir}:${process.env.PATH}`},encoding:'utf8'});
+const shadowRun=runInstallerWithNode(goodNode,['--dry-run'],{CADDYFILE:caddy,PATH:`${shadowDir}:${process.env.PATH}`});
 assert.equal(shadowRun.status,0,shadowRun.stderr); assert.doesNotMatch(shadowRun.stderr,/PATH_NODE_USED/);
-const franceCaddy=path.join(dir,'FranceCaddyfile'); fs.writeFileSync(franceCaddy,freshFrance); const franceRun=cp.spawnSync(installerPath,['--dry-run'],{env:{...process.env,...testRuntimeEnv,CADDYFILE:franceCaddy,LUNA_ROUTING_SITE:franceSite},encoding:'utf8'}); assert.equal(franceRun.status,0,franceRun.stderr);
+const franceCaddy=path.join(dir,'FranceCaddyfile'); fs.writeFileSync(franceCaddy,freshFrance); const franceRun=runInstallerWithNode(goodNode,['--dry-run'],{CADDYFILE:franceCaddy,LUNA_ROUTING_SITE:franceSite}); assert.equal(franceRun.status,0,franceRun.stderr);
 const envValidator=path.join(root,'validate-controller-env.js');
 const validEnv=['LUNA_ROUTING_CONTROLLER_PORT=8096','LUNA_ROUTING_CONTROLLER_HMAC_KEY='+('a'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_KEY='+('b'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_URL=https://staging.example.invalid/proof','LUNA_ROUTING_MUTATIONS_ENABLED=false',`LUNA_ROUTING_SITE=${franceSite}`,''].join('\n');
 for (const [name, extra] of [

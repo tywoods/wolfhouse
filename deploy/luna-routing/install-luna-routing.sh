@@ -5,8 +5,6 @@ case "$mode" in --install|--dry-run|--verify|--update-contract) ;; *) echo 'usag
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CADDYFILE=${CADDYFILE:-/etc/caddy/Caddyfile}; CADDY_BIN=/usr/bin/caddy
 NODE_BIN=/usr/bin/node
-# Test-only injection lets the verifier exercise absent/wrong runtimes without touching /usr/bin.
-[ -z "${LUNA_ROUTING_TEST_NODE_BIN:-}" ] || NODE_BIN=$LUNA_ROUTING_TEST_NODE_BIN
 [ -x "$NODE_BIN" ] || { echo "required Node runtime is missing or not executable: $NODE_BIN" >&2; exit 1; }
 node_version=$("$NODE_BIN" --version 2>/dev/null || :)
 [ "$node_version" = v22.23.3 ] || { echo "luna-routing requires Node 22.23.3 at /usr/bin/node (found ${node_version:-unreadable} at $NODE_BIN)" >&2; exit 1; }
