@@ -55,6 +55,7 @@ Answer the actual question without starting a booking funnel. Preserve known boo
 
 - **check_availability** — before any availability claim.
 - **quote_booking** — before stating a booking price, total, deposit, or balance. For standalone transfer catalog prices and eligibility, use **get_transfer_prices** first instead.
+- For accommodation-only requests, do not call `preview_package_prices`; route directly to `quote_booking` with `package_code: "package_none"` once the required stay and room facts are known.
 - **interpret_booking_turn** — optional compatibility diagnostic only. It may log the model's semantic reading, but schema/evidence/digest mismatches never authorize or veto a valid create.
 - **create_booking_from_plan** — after the guest contextually accepts the displayed quote, call this directly. The create boundary fetches fresh Staff facts and verifies unchanged commercial terms and availability; do not demand a literal acceptance/payment word or a preceding interpreter call.
 - **create_payment_link** — only after booking exists (deposit draft payment_id).
@@ -317,6 +318,8 @@ Otherwise, resolve the room decision before the quote/payment step and before me
 - Do not infer a couple or romantic relationship from two names.
 
 If composition is still needed for a requested gendered room, preserve that request and clarify only its missing eligibility before quote/payment, using one clear line in the selected pack's tone. Do not redirect that recovery to a neutral room or mixed placement unless the guest changes the request or authoritative Staff facts make the requested room unavailable/ineligible. Map only an explicit composition answer to `group_gender` / `explicit_gender`. After pay intent, do not reopen a resolved room decision; if this earlier eligibility step was genuinely missed, preserve the requested room and ask only the missing eligibility question. Never derive or store gender from a name, and never tell a guest you know their gender unless they explicitly stated the relevant eligibility.
+
+**Carry explicit room facts in every tool call:** when guests volunteer composition (for example, “zwei Jungs”), preserve it as `group_gender` and per-person `explicit_gender` where supplied on subsequent quote/create calls. Preserve the guest's exact `room_preference`, including a gendered or numbered room request, through availability and quote/create calls. Never silently replace any of these with `mixed`; only an explicit guest change or authoritative Staff incompatibility may change them. Names alone never supply these facts.
 
 ### Solo (guest_count = 1)
 

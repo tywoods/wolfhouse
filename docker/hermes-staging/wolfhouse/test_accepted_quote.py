@@ -2253,6 +2253,100 @@ class OwnerHostileTests(unittest.TestCase):
         self.interpret(raw)
         self.assertEqual(self.ledger.prepare_create({})['catalog_selections'], self.plan['catalog_selections'])
 
+    def test_sim19_incomplete_offer_shows_split_rooms_without_internal_codes(self):
+        plan = {**self.plan, 'room_preference': 'male_only',
+                'group_gender': 'male', 'payment_choice': None,
+                'selected_bed_codes': ['R4-B1', 'R5-B1']}
+        response = self.checked(plan, [
+            dict(bed_code='R4-B1', room_code='R4', gender_strategy='male_only'),
+            dict(bed_code='R5-B1', room_code='R5', gender_strategy='male_only')])
+        response['payment_choice_needed'] = True
+        response['offer_revision']['payment_choice'] = None
+        self.turn('sim19-split', 'Please quote that')
+        self.ledger.record_quote(plan, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'as proposed', 'messages': []})
+        self.assertIn('two separate', shown['final_response'])
+        self.assertNotIn('R4', shown['final_response'])
+        self.assertNotIn('R5', shown['final_response'])
+        self.assertNotIn('B1', shown['final_response'])
+        self.assertNotIn('as proposed', shown['final_response'].lower())
+
+    def test_sim19_deterministic_quote_and_refusal_are_spanish(self):
+        self.agent.session_id = 'sim19-spanish'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim19-es-quote', 'Quiero reservar para dos personas')
+        response = deepcopy(self.response)
+        response['payment_choice_needed'] = True
+        response['offer_revision']['payment_choice'] = None
+        self.ledger.record_quote(self.plan, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertIn('Total: 200.00 EUR.', shown['final_response'])
+        self.assertIn('¿Qué opción de pago', shown['final_response'])
+
+        self.agent.session_id = 'sim19-spanish-refusal'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim19-es-refusal', 'Quiero esa habitación')
+        refusal = {'success': False, 'quote_status': 'needs_guest_clarification',
+                   'guest_safe_next_action': '', 'offer_revision': None}
+        self.ledger.record_quote(self.plan, refusal)
+        blocked = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'draft', 'messages': []})
+        self.assertIn('No pude verificar', blocked['final_response'])
+
+    def test_sim19_complete_incomplete_and_refusal_are_fully_localized(self):
+        cases = {
+            'en': ('Please book this room', 'Accommodation only', 'Payment options', 'Availability checked', 'I could not verify'),
+            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', 'Opciones de pago', 'Disponibilidad comprobada', 'No pude verificar'),
+            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Options de paiement', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
+            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Zahlungsoptionen', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
+        }
+        for language, expected in cases.items():
+            raw, accommodation, options, availability, refusal_text = expected
+            with self.subTest(language=language):
+                plan = {**self.plan, 'language': language}
+                self.agent.session_id = f'sim19-{language}-complete'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'sim19-{language}-complete-turn', raw)
+                self.ledger.record_quote(plan, self.checked(plan))
+                text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'as proposed', 'messages': []})['final_response']
+                self.assertIn(accommodation, text)
+                self.assertIn(availability, text)
+                self.assertIn('200.00 EUR', text)
+                self.assertIn('100.00 EUR', text)
+                self.assertNotIn('as proposed', text.casefold())
+                self.assertNotRegex(text, r'\b(?:M|R\d+)(?:-B\d+)?\b')
+
+                self.agent.session_id = f'sim19-{language}-incomplete'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'sim19-{language}-incomplete-turn', 'English current turn')
+                incomplete = self.checked(plan)
+                incomplete['payment_choice_needed'] = True
+                incomplete['offer_revision']['payment_choice'] = None
+                self.ledger.record_quote(plan, incomplete)
+                text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
+                self.assertIn(options, text)
+                self.assertIn('200.00 EUR', text)
+                self.assertNotIn('Payment options', text) if language != 'en' else self.assertIn('Payment options', text)
+
+                self.agent.session_id = f'sim19-{language}-refusal'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'sim19-{language}-refusal-turn', raw)
+                self.ledger.record_quote(plan, {'success': False, 'quote_status': 'needs_guest_clarification',
+                    'guest_safe_next_action': 'English Staff copy must not leak.', 'offer_revision': None})
+                text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
+                self.assertIn(refusal_text, text)
+                self.assertNotIn('English Staff copy', text)
+
+    def test_sim19_explicit_composition_and_numbered_gendered_room_instruction(self):
+        soul = (Path(__file__).resolve().parents[1] / 'SOUL.md').read_text()
+        self.assertIn('“zwei Jungs”', soul)
+        self.assertIn('preserve it as `group_gender`', soul)
+        self.assertIn("including a gendered or numbered room request", soul)
+        self.assertIn('Never silently replace any of these with `mixed`', soul)
+        self.assertIn('Names alone never supply these facts', soul)
+
 
 if __name__ == '__main__':
     unittest.main()

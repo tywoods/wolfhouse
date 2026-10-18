@@ -48,7 +48,8 @@ _PREFIX = 'wolfhouse.accepted_quote.v1:'
 _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner', default=None)
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
-           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
+           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
+           'language')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
 _registered_quote = None
 _registered_create = None
@@ -324,7 +325,7 @@ def _transaction(fn):
         return db._execute_write(work)
 
 
-def _plain_stay_date(value):
+def _plain_stay_date(value, language='en'):
     """Guest date only. Invalid values stay unchanged; never invent a date."""
     text = str(value or '').strip()
     match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
@@ -334,48 +335,91 @@ def _plain_stay_date(value):
         day = date(int(match[1]), int(match[2]), int(match[3]))
     except ValueError:
         return text
-    weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
-    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+    weekdays = {
+        'en': ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'),
+        'es': ('lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'),
+        'fr': ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'),
+        'de': ('Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'),
+    }.get(language, ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'))
+    months = {
+        'en': ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'),
+        'es': ('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'),
+        'fr': ('janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'),
+        'de': ('Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'),
+    }.get(language, ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'))
     return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
 
 
-def _guest_count_label(count):
-    return '1 guest' if count == 1 else f'{count} guests'
+def _guest_count_label(count, language='en'):
+    labels = {'en': ('guest', 'guests'), 'es': ('huésped', 'huéspedes'),
+              'fr': ('personne', 'personnes'), 'de': ('Gast', 'Gäste')}
+    one, many = labels.get(language, labels['en'])
+    return f'{count} {one if count == 1 else many}'
 
 
-def _join_names(names):
+def _join_names(names, language='en'):
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
-        return f'{names[0]} and {names[1]}'
-    return ', '.join(names[:-1]) + f', and {names[-1]}'
+        return f"{names[0]} { {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and') } {names[1]}"
+    conjunction = {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and')
+    return ', '.join(names[:-1]) + f', {conjunction} {names[-1]}'
 
 
-def _count_word(count):
+def _count_word(count, language='en'):
     words = ('two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten')
+    translated = {'es': ('dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'),
+                  'fr': ('deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'),
+                  'de': ('zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn')}
+    words = translated.get(language, words)
     return words[count - 2] if 2 <= count <= 10 else str(count)
 
 
-def _room_kind(offer, room):
+def _room_kind(offer, room, language='en'):
     if offer.get('room_type') == 'private':
-        return 'private room'
-    labels = {'female_only': "women's room", 'male_only': "men's room",
-              'mixed': 'mixed room', 'flexible': 'shared room'}
+        return {'es': 'habitación privada', 'fr': 'chambre privée',
+                'de': 'Privatzimmer'}.get(language, 'private room')
+    labels_by_language = {
+        'en': {'female_only': "women's room", 'male_only': "men's room", 'mixed': 'mixed room', 'flexible': 'shared room'},
+        'es': {'female_only': 'habitación femenina', 'male_only': 'habitación masculina', 'mixed': 'habitación mixta', 'flexible': 'habitación compartida'},
+        'fr': {'female_only': 'chambre pour femmes', 'male_only': 'chambre pour hommes', 'mixed': 'chambre mixte', 'flexible': 'chambre partagée'},
+        'de': {'female_only': 'Frauenzimmer', 'male_only': 'Männerzimmer', 'mixed': 'gemischten Zimmer', 'flexible': 'Mehrbettzimmer'},
+    }
+    labels = labels_by_language.get(language, labels_by_language['en'])
     return labels.get(room.get('gender_strategy'), 'room')
 
 
-def _guest_room_lines(plan, offer):
-    """Group people by frozen room without showing bed or room codes."""
+def _plural_room_kind(kind, language='en'):
+    """Pluralize only our fixed guest-facing room labels."""
+    plurals = {
+        'en': {"women's room": "women's rooms", "men's room": "men's rooms",
+               'mixed room': 'mixed rooms', 'shared room': 'shared rooms'},
+        'es': {'habitación femenina': 'habitaciones femeninas',
+               'habitación masculina': 'habitaciones masculinas',
+               'habitación mixta': 'habitaciones mixtas',
+               'habitación compartida': 'habitaciones compartidas'},
+        'fr': {'chambre pour femmes': 'chambres pour femmes',
+               'chambre pour hommes': 'chambres pour hommes',
+               'chambre mixte': 'chambres mixtes',
+               'chambre partagée': 'chambres partagées'},
+        'de': {'Frauenzimmer': 'Frauenzimmern', 'Männerzimmer': 'Männerzimmern',
+               'gemischten Zimmer': 'gemischten Zimmern', 'Mehrbettzimmer': 'Mehrbettzimmern'},
+    }
+    return plurals.get(language, plurals['en']).get(kind, kind)
+
+
+def _guest_room_lines(plan, offer, language='en'):
+    """Group people by frozen room and disclose an authoritative room split."""
     rooms = {row['bed_code']: row for row in offer['room_arrangement']}
     groups = []
     index = {}
     for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
         room = rooms[code]
-        kind = _room_kind(offer, room)
+        kind = _room_kind(offer, room, language)
         key = (room.get('room_code'), kind)
         if key not in index:
             index[key] = len(groups)
-            groups.append({'kind': kind, 'names': []})
+            groups.append({'kind': kind, 'room': room.get('room_code'), 'names': []})
         groups[index[key]]['names'].append(guest['name'])
     by_kind = {}
     for group in groups:
@@ -390,24 +434,80 @@ def _guest_room_lines(plan, offer):
         emitted.add(kind)
         if len(same) > 1 and all(len(item['names']) == 1 for item in same):
             names = [name for item in same for name in item['names']]
-            lines.append(f"{_join_names(names)}: beds in {_count_word(len(same))} separate {kind}s.")
+            who = _join_names(names, language)
+            count = _count_word(len(same), language)
+            plural_kind = _plural_room_kind(kind, language)
+            templates = {'en': f'{who}: beds in {count} separate {plural_kind}.',
+                         'es': f'{who}: camas en {count} {plural_kind} separadas.',
+                         'fr': f'{who} : lits dans {count} {plural_kind} séparées.',
+                         'de': f'{who}: Betten in {count} getrennten {plural_kind}.'}
+            lines.append(templates.get(language, templates['en']))
             continue
         first = True
         for item in same:
-            who = _join_names(item['names'])
+            who = _join_names(item['names'], language)
             beds = len(item['names'])
+            n = _count_word(beds, language)
+            # Room and bed codes are Staff internals, never guest-facing copy.
+            room_suffix = ''
+            if language != 'en':
+                if beds == 1:
+                    line = {'es': f'{who}: una cama en la {kind}.', 'fr': f'{who} : un lit dans la {kind}.',
+                            'de': f'{who}: ein Bett im {kind}.'}[language]
+                else:
+                    line = {'es': f'{who}: {n} camas en la misma {kind}.', 'fr': f'{who} : {n} lits dans la même {kind}.',
+                            'de': f'{who}: {n} Betten im selben {kind}.'}[language]
+                if len(same) > 1 and not first:
+                    line = {'es': f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.',
+                            'fr': f'{who} : {n if beds > 1 else "un"} lit' + ('s' if beds > 1 else '') + f' dans une autre {kind}.',
+                            'de': f'{who}: {n if beds > 1 else "ein"} Bett' + ('en' if beds > 1 else '') + f' in einem anderen {kind}.'}[language]
+                lines.append(line)
+                first = False
+                continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{who}: a bed in the {kind}.")
+                lines.append(f"{who}: a bed in the {kind}{room_suffix}.")
             elif len(same) == 1:
-                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}.")
+                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:
                 where = f"the {kind}" if first else f"a separate {kind}"
-                lines.append(f"{who}: a bed in {where}.")
+                lines.append(f"{who}: a bed in {where}{room_suffix}.")
             else:
                 where = f"the same {kind}" if first else f"a separate {kind}"
-                lines.append(f"{who}: {_count_word(beds)} beds in {where}.")
+                lines.append(f"{who}: {_count_word(beds)} beds in {where}{room_suffix}.")
             first = False
     return lines
+
+
+def _guest_language(state):
+    """Prefer authoritative quote-plan language, otherwise inspect this guest turn."""
+    plan = _presentation_plan(state)
+    authoritative = str(plan.get('language') or '').strip().casefold() if isinstance(plan, dict) else ''
+    aliases = {'english': 'en', 'spanish': 'es', 'español': 'es', 'french': 'fr',
+               'français': 'fr', 'german': 'de', 'deutsch': 'de'}
+    authoritative = aliases.get(authoritative, authoritative.split('-', 1)[0])
+    if authoritative in ('en', 'es', 'fr', 'de'):
+        return authoritative
+    raw = str((state.get('current_turn') or {}).get('raw') or '').casefold()
+    markers = {
+        'es': ('quiero', 'reservar', 'habitación', 'personas', 'precio', 'pago', 'reserva', 'huésped'),
+        'fr': ('bonjour', 'réserver', 'chambre', 'personnes', 'prix', 'paiement', 'séjour', 'je voudrais'),
+        'de': ('hallo', 'buchen', 'zimmer', 'personen', 'preis', 'zahlung', 'aufenthalt', 'ich möchte'),
+    }
+    return next((language for language, words in markers.items() if any(word in raw for word in words)), 'en')
+
+
+_FINAL_COPY = {
+    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': 'Availability checked, subject to confirmation when booking.', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Shall I check this exact offer for booking?', 'which_payment': 'Which payment option would you like me to check for this booking?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
+    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': 'Disponibilidad comprobada, sujeta a confirmación al reservar.', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Compruebo esta oferta exacta para reservar?', 'which_payment': '¿Qué opción de pago quieres que compruebe para esta reserva?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
+    'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': 'Disponibilité vérifiée, sous réserve de confirmation lors de la réservation.', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
+    'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': 'Verfügbarkeit geprüft, vorbehaltlich der Bestätigung bei der Buchung.', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
+}
+
+
+def _final_copy(language, key, **values):
+    return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
+
+
 def _evidence_in_current_turn(raw, evidence):
     """Require interpreter evidence to be literal current-ingress text."""
     if not isinstance(raw, str) or not isinstance(evidence, str):
@@ -2087,10 +2187,9 @@ def finalize_offer_response(result):
             and state.get('offer_message') == ingress['MESSAGE_ID']
         )
         if unresolved_presentable:
-            text = unresolved.get('guest_safe_next_action')
-            if not isinstance(text, str) or not text.strip():
-                text = ('I could not verify an eligible bed for this stay yet. '
-                        'Would you like me to check another room option?')
+            language = _guest_language(state)
+            # Staff next-action prose is not language-authoritative.
+            text = _final_copy(language, 'refusal')
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -2191,25 +2290,29 @@ def finalize_offer_response(result):
             def quoted_money(cents):
                 return f"{cents // 100}.{cents % 100:02d} {currency}"
             lines = []
+            language = _guest_language(state)
             if plan.get('check_in') and plan.get('check_out') and type(plan.get('guest_count')) is int:
-                lines.append(f"{_plain_stay_date(plan['check_in'])} to {_plain_stay_date(plan['check_out'])} — {_guest_count_label(plan['guest_count'])}.")
-            lines.append(f"Total: {quoted_money(total)}.")
+                lines.append(f"{_plain_stay_date(plan['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(plan['check_out'], language)} — {_guest_count_label(plan['guest_count'], language)}.")
+            lines.append(f"{_final_copy(language, 'total')}: {quoted_money(total)}.")
             if quote.get('full_payment_only') is True:
-                lines.append(f"Full payment required: {quoted_money(total)}.")
+                lines.append(f"{_final_copy(language, 'full_required')}: {quoted_money(total)}.")
             elif chosen_full_names_missing:
-                lines.append(f"Full payment: {quoted_money(total)}.")
+                lines.append(f"{_final_copy(language, 'full')}: {quoted_money(total)}.")
             elif choices:
-                labels = {'deposit': 'deposit', 'full': 'full payment'}
+                labels = {'deposit': _final_copy(language, 'deposit'), 'full': _final_copy(language, 'full').lower()}
                 option_labels = [labels[item] for item in choices]
                 if ('deposit' in choices
                         and type(quote.get('deposit_required_cents')) is int):
                     option_labels[choices.index('deposit')] += (
                         f" ({quoted_money(quote['deposit_required_cents'])})")
-                lines.append('Payment options: ' + ' or '.join(option_labels) + '.')
-            lines.append("What are the guests' full names?" if chosen_full_names_missing else
-                         ('Shall I check this exact offer for booking?'
-                          if quote.get('full_payment_only') is True else
-                          'Which payment option would you like me to check for this booking?'))
+                lines.append(_final_copy(language, 'options') + ': ' + (' ' + _final_copy(language, 'or') + ' ').join(option_labels) + '.')
+            lines.extend(_guest_room_lines(plan, quote.get('offer_revision') or {}, language)
+                         if isinstance((quote.get('offer_revision') or {}).get('room_arrangement'), list)
+                         and isinstance(plan.get('guests'), list)
+                         and isinstance(plan.get('selected_bed_codes'), list) else [])
+            lines.append(_final_copy(language, 'names') if chosen_full_names_missing else
+                         (_final_copy(language, 'check_exact') if quote.get('full_payment_only') is True
+                          else _final_copy(language, 'which_payment')))
             text = '\n'.join(lines)
             output = deepcopy(result)
             output['final_response'] = text
@@ -2229,18 +2332,19 @@ def finalize_offer_response(result):
         def money(cents):
             return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
         plan = state['plan']
-        lines = [f"{_plain_stay_date(offer['check_in'])} to {_plain_stay_date(offer['check_out'])} — {_guest_count_label(offer['guest_count'])}."]
-        lines.extend(_guest_room_lines(plan, offer))
+        language = _guest_language(state)
+        lines = [f"{_plain_stay_date(offer['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(offer['check_out'], language)} — {_guest_count_label(offer['guest_count'], language)}."]
+        lines.extend(_guest_room_lines(plan, offer, language))
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
-                return 'Accommodation only'
+                return _final_copy(language, 'accommodation')
             return str(code).removeprefix('package_').replace('_', ' ').capitalize()
 
         lines.append(label(offer['package_code']) + '.')
         for item in offer['guest_packages']:
             number = item.get('guest_number')
             who = (plan['guests'][number - 1]['name'] if type(number) is int
-                   and 1 <= number <= len(plan['guests']) else f'Guest {number}')
+                   and 1 <= number <= len(plan['guests']) else f"{_final_copy(language, 'guest')} {number}")
             lines.append(f"{who}: {label(item['package_code'])}.")
         if offer['add_ons']:
             extras = []
@@ -2249,27 +2353,28 @@ def finalize_offer_response(result):
                 duration = accepted.get('days') if isinstance(accepted, dict) else None
                 text = f"{label(item['code'])} × {item['quantity']}"
                 if duration is not None:
-                    text += f" for {duration} days"
+                    text += ' ' + _final_copy(language, 'for_days', days=duration)
                 extras.append(text)
-            lines.append('Extras: ' + '; '.join(extras) + '.')
-        lines.append(f"Total: {money(offer['total_cents'])} "
-                     f"(deposit: {money(offer['deposit_required_cents'])}).")
-        payment = {'full': 'Full payment', 'deposit': 'Deposit',
-                   'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
+            lines.append(_final_copy(language, 'extras') + ': ' + '; '.join(extras) + '.')
+        lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
+                     f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
+        payment = {'full': _final_copy(language, 'full'), 'deposit': _final_copy(language, 'payment_deposit'),
+                   'pay_on_arrival': _final_copy(language, 'arrival_payment'),
+                   'per_guest': _final_copy(language, 'individual')}
         if offer['payment_link_amount_cents']:
             lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
-        if not offer['payment_link_amount_cents']: lines.append(f"Due now: {money(0)}.")
+        if not offer['payment_link_amount_cents']: lines.append(f"{_final_copy(language, 'due_now')}: {money(0)}.")
         due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']
         if due_on_arrival:
-            lines.append(f"Due on arrival: {money(due_on_arrival)}.")
+            lines.append(f"{_final_copy(language, 'due_arrival')}: {money(due_on_arrival)}.")
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
-        lines.append('Availability checked, subject to confirmation when booking.')
+        lines.append(_final_copy(language, 'availability'))
         prior = state.get('accepted_offer_snapshot')
-        question = ('Shall I create this updated booking?'
+        question = (_final_copy(language, 'create_updated')
                     if isinstance(prior, dict) and prior != offer
-                    else 'Shall I create this booking?')
+                    else _final_copy(language, 'create'))
         lines.append(question)
         text = '\n'.join(lines)
         output = deepcopy(result)
