@@ -207,6 +207,22 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      assert.match(result.stderr, /group collision/);
    }
  });
+ await test('Captain R10 chained rewrite cross-handler consumer is rejected in both CLI modes', () => {
+   const name = 'cross-handler-rewrite-chain-consumer.json';
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision/);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /group collision/);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, /group collision/);
+   }
+ });
  for (const name of ['cross-handler-disjoint-control.json', 'cross-handler-different-group-control.json']) await test(`Captain R9 exact control ${name} passes in both CLI modes`, () => {
    const file = path.join(fixtures, name);
    const cfg = load(name);

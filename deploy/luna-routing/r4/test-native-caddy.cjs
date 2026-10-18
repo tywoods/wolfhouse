@@ -202,6 +202,10 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
       { method: 'GET', url: inspector.CONTROLLER },
       { method: 'GET', url: inspector.PROOF }
     ]),
+    await runCaptainR8(root, 'cross-handler-rewrite-chain-consumer', true, [
+      { method: 'GET', url: '/x' },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
     await runCaptainR8(root, 'cross-handler-disjoint-control', false, [
       { method: 'GET', url: inspector.CONTROLLER_REWRITE },
       { method: 'GET', url: inspector.PROOF }

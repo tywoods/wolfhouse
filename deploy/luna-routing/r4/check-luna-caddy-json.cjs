@@ -88,7 +88,9 @@ function effectiveLeaves(cfg) {
           if (typeof handler.uri !== 'string' || handler.uri.includes('{')) return true;
           currentPath = handler.uri;
         } else if (handler.handler === 'subroute') {
-          if (!Array.isArray(handler.routes) || handler.routes.some(child => routeMayConsumeGroup(child, group, host, currentPath))) return true;
+          if (!Array.isArray(handler.routes)
+            || hasEscapingRewrite(handler.routes, host, currentPath)
+            || handler.routes.some(child => routeMayConsumeGroup(child, group, host, currentPath))) return true;
         }
       }
       return false;
