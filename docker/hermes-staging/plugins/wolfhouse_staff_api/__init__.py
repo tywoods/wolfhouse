@@ -454,6 +454,23 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     preference = {"male_dorm": "male_only", "guys_dorm": "male_only",
                   "female_dorm": "female_only", "girls_dorm": "female_only"}.get(
                       preference, preference)
+    named_room = re.fullmatch(r"(?:room_?|r)(\d+)", preference)
+    if named_room and isinstance(availability, dict):
+        requested_room = f"R{int(named_room.group(1))}"
+        selected_codes = set(availability.get("selected_bed_codes") or [])
+        selected_types = {
+            _clean(bed.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+            for bed in (availability.get("available_beds") or [])
+            if isinstance(bed, dict) and bed.get("bed_code") in selected_codes
+            and _clean(bed.get("room_code")).upper() == requested_room
+        }
+        # A Staff-selected named room whose category has mixed/shared allocation
+        # semantics already answers the generic mixed eligibility question.
+        # Gendered and private named rooms retain their existing person gates.
+        mixed_semantics = {"mixed", "matrimonial_or_mixed", "operator_surfweek"}
+        if (availability.get("selected_room_code") == requested_room
+                and len(selected_types) == 1 and selected_types <= mixed_semantics):
+            preference = "mixed"
     if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
         preference = room_type
     raw_travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else []
@@ -542,14 +559,15 @@ def _suppress_gender_handoff(result, decision):
     result["next_action"] = "ask_room_eligibility"
     result["reply_draft"] = decision.get("clarification_prompt") or result.get("reply_draft")
     excluded = set(decision.get("excluded_room_preferences") or [])
-    if "female_only" in excluded:
-        result["girls_room_available"] = False
-        if isinstance(result.get("room_options"), dict):
-            result["room_options"] = {**result["room_options"], "girls_room_available": False}
-    if "male_only" in excluded and "guys_room_available" in result:
-        result["guys_room_available"] = False
-        if isinstance(result.get("room_options"), dict):
-            result["room_options"] = {**result["room_options"], "male_only": False}
+    if not (decision.get("clarification_needed") and not decision.get("conflict")):
+        if "female_only" in excluded:
+            result["girls_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "girls_room_available": False}
+        if "male_only" in excluded and "guys_room_available" in result:
+            result["guys_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "male_only": False}
     return result
 
 

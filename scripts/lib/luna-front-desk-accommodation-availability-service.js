@@ -42,6 +42,19 @@ const OFFER_REVISION_VERSION = 1;
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
+const ROOM_CATEGORY_ALLOCATION_PREFERENCES = Object.freeze({
+  female_only: 'female_only',
+  male_only: 'male_only',
+  mixed: 'mixed',
+  matrimonial_or_mixed: 'mixed',
+  matrimonial_private_couple: 'private',
+  operator_surfweek: 'mixed',
+});
+
+function allocationPreferenceForRoomCategory(category) {
+  return ROOM_CATEGORY_ALLOCATION_PREFERENCES[category] || null;
+}
+
 function accommodationApplicationHelpers() {
   return require('./wolfhouse-accommodation-application');
 }
@@ -157,6 +170,11 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
   };
 }
 
+function explicitRoomCodeFromPreference(value) {
+  const match = String(value || '').trim().match(/^(?:room\s+|r)(\d+)$/i);
+  return match ? `R${Number(match[1])}` : null;
+}
+
 function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, roomFillRanking = null) {
   const {
     guestCount,
@@ -270,7 +288,15 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     }
   } else if (hasEnoughBeds) {
     const { resolveRoomCategory } = require('./luna-bed-allocator');
+    const explicitRoomCode = explicitRoomCodeFromPreference(roomPreference);
+    const explicitRoomBeds = explicitRoomCode
+      ? bedsForPool.filter(bed => String(bed.room_code || '').toUpperCase() === explicitRoomCode)
+      : [];
+    const explicitRoomCategories = new Set(explicitRoomBeds.map(resolveRoomCategory));
+    const explicitRoomPreference = explicitRoomCategories.size === 1
+      ? allocationPreferenceForRoomCategory([...explicitRoomCategories][0]) : null;
     const allowedBedCodes = new Set(bedsForPool.filter((bed) => {
+      if (explicitRoomCode && String(bed.room_code || '').toUpperCase() !== explicitRoomCode) return false;
       if (requestedPool === 'private') return true;
       const category = resolveRoomCategory(bed);
       if (!['female_only', 'male_only'].includes(category)) return true;
@@ -285,7 +311,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       guestCount,
       guestName,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
-      roomPreference: roomPreference || roomType || genderPreference || null,
+      roomPreference: explicitRoomPreference || roomPreference || roomType || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
       capacityOnly: ((roomPreference || roomType) === 'shared' && !genderPreference && !canonicalGender)
         || requestedPool === 'any' || requestedPool == null,
@@ -818,6 +844,8 @@ function wolfhouseOfferPayload(offer) {
     room_type: src.room_type || null,
     room_preference: src.room_preference || null,
     gender_preference: src.gender_preference || null,
+    // Informational allocator/group classification only. It remains in the
+    // revision for diagnostics but is removed from the identity projection.
     resolved_room_claim: src.resolved_room_claim || null,
     room_name_hints: Array.isArray(src.room_name_hints)
       ? src.room_name_hints.map((row) => ({
@@ -849,8 +877,26 @@ function wolfhouseOfferPayload(offer) {
   return bound;
 }
 
+function wolfhouseOfferIdentityPayload(offer) {
+  const identity = wolfhouseOfferPayload(offer);
+  // This tag is derived allocator bookkeeping, not a guest-accepted term. The
+  // same explicit beds can legitimately be tagged between quote and commit
+  // after names/group facts are completed.
+  const selected = Array.isArray(identity.selected_bed_codes) ? identity.selected_bed_codes : [];
+  const assignments = Array.isArray(identity.guest_bed_assignments) ? identity.guest_bed_assignments : [];
+  const arrangement = Array.isArray(identity.room_arrangement) ? identity.room_arrangement : [];
+  const arrangedBeds = new Set(arrangement.map((row) => row && row.bed_code).filter(Boolean));
+  const assignedBedsAreConcrete = assignments.length > 0
+    && assignments.every((row) => row && row.bed_code);
+  const selectedBedsAreConcrete = selected.length > 0
+    && selected.every((bedCode) => arrangedBeds.has(bedCode));
+  const hasExplicitBeds = assignedBedsAreConcrete || selectedBedsAreConcrete;
+  if (hasExplicitBeds) delete identity.resolved_room_claim;
+  return identity;
+}
+
 function computeWolfhouseOfferFingerprint(offer) {
-  return crypto.createHash('sha256').update(JSON.stringify(wolfhouseOfferPayload(offer))).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify(wolfhouseOfferIdentityPayload(offer))).digest('hex');
 }
 
 function buildWolfhouseOfferRevision(offer) {
