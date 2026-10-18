@@ -114,20 +114,37 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         repo = Path(__file__).resolve().parents[4]
         script = r"""
 const pref = process.argv[1];
-const {computeWolfhouseAvailabilityInventory: inventory} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const {
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  mapBotHttpAvailabilityResponse,
+} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const {getBedCalendarRoomsQuery, getBedCalendarBlocksQuery} = require('./scripts/lib/staff-bed-calendar-queries');
 const beds = [
   {bed_code:'R1-B1', room_code:'R1', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:9},
+  {bed_code:'R3-B1', room_code:'R3', room_type:'matrimonial_or_mixed', bed_active:true, bed_sellable:true, fill_priority:5},
   {bed_code:'R9-B1', room_code:'R9', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:1},
 ];
-const got = inventory(beds, [], {guestCount:1, roomType:'shared', roomPreference:pref,
-  genderPreference:null, groupGender:null, guestName:'Raj', assignmentMode:false, guests:[],
-  transportBody:{room_preference:pref}});
-process.stdout.write(JSON.stringify({success:true, has_enough_beds:got.hasEnoughBeds,
-  selected_bed_codes:got.selectedBedCodes, selected_room_code:got.selectedRoomCode,
-  available_count:got.availableCount, blockers:got.blockers,
-  available_beds:got.availableBeds.map(b => ({bed_code:b.bed_code, room_code:b.room_code, room_type:b.room_type}))}));
+(async () => {
+  const built = buildWolfhouseAvailabilityCommand({
+    channel:'bot_http', trustedClientSlug:'wolfhouse-somo', assignmentMode:false,
+    demoCalendarEnrichment:false, transportBody:{check_in:'2027-07-05', check_out:'2027-07-12',
+      guest_count:1, room_type:'shared', room_preference:pref, guest_name:'Raj'},
+  });
+  const pg = {query: async sql => {
+    if (sql === getBedCalendarRoomsQuery()) return {rows:beds};
+    if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return {rows:[]};
+    throw Error('Unexpected SQL ' + sql);
+  }};
+  const checked = await executeWolfhouseAvailabilityCheck(pg, built.command);
+  process.stdout.write(JSON.stringify(mapBotHttpAvailabilityResponse(checked.body)));
+})().catch(error => { console.error(error); process.exitCode = 1; });
 """
-        expected = {'room 1': 'R1', 'R1': 'R1', 'mixed': 'R9'}
+        expected = {
+            'room 1': 'R1', 'R1': 'R1',
+            'room 3': 'R3', 'R3': 'R3',
+            'mixed': 'R9',
+        }
         for preference, room_code in expected.items():
             with self.subTest(preference=preference):
                 completed = subprocess.run(

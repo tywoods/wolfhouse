@@ -464,9 +464,12 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
             if isinstance(bed, dict) and bed.get("bed_code") in selected_codes
             and _clean(bed.get("room_code")).upper() == requested_room
         }
-        # A Staff-selected named mixed room already answers the generic mixed
-        # eligibility question. Gendered named rooms retain the existing person gate.
-        if availability.get("selected_room_code") == requested_room and selected_types == {"mixed"}:
+        # A Staff-selected named room whose category has mixed/shared allocation
+        # semantics already answers the generic mixed eligibility question.
+        # Gendered and private named rooms retain their existing person gates.
+        mixed_semantics = {"mixed", "matrimonial_or_mixed", "operator_surfweek"}
+        if (availability.get("selected_room_code") == requested_room
+                and len(selected_types) == 1 and selected_types <= mixed_semantics):
             preference = "mixed"
     if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
         preference = room_type

@@ -42,6 +42,19 @@ const OFFER_REVISION_VERSION = 1;
 
 const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 
+const ROOM_CATEGORY_ALLOCATION_PREFERENCES = Object.freeze({
+  female_only: 'female_only',
+  male_only: 'male_only',
+  mixed: 'mixed',
+  matrimonial_or_mixed: 'mixed',
+  matrimonial_private_couple: 'private',
+  operator_surfweek: 'mixed',
+});
+
+function allocationPreferenceForRoomCategory(category) {
+  return ROOM_CATEGORY_ALLOCATION_PREFERENCES[category] || null;
+}
+
 function accommodationApplicationHelpers() {
   return require('./wolfhouse-accommodation-application');
 }
@@ -281,7 +294,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       : [];
     const explicitRoomCategories = new Set(explicitRoomBeds.map(resolveRoomCategory));
     const explicitRoomPreference = explicitRoomCategories.size === 1
-      ? [...explicitRoomCategories][0] : null;
+      ? allocationPreferenceForRoomCategory([...explicitRoomCategories][0]) : null;
     const allowedBedCodes = new Set(bedsForPool.filter((bed) => {
       if (explicitRoomCode && String(bed.room_code || '').toUpperCase() !== explicitRoomCode) return false;
       if (requestedPool === 'private') return true;
