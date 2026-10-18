@@ -198,6 +198,18 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
       { method: 'GET', url: inspector.CONTROLLER_REWRITE },
       { method: 'GET', url: inspector.PROOF }
     ]),
+    await runCaptainR8(root, 'cross-handler-consumer', true, [
+      { method: 'GET', url: inspector.CONTROLLER },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'cross-handler-disjoint-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'cross-handler-different-group-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
     await runCaptainR8(root, 'uppercase-nested-delivery', true, [
       { method: 'GET', url: inspector.CONTROLLER_REWRITE },
       { method: 'GET', url: inspector.PROOF },

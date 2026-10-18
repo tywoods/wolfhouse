@@ -80,6 +80,19 @@ function effectiveLeaves(cfg) {
       }
       return false;
     }
+    function handlersMayConsumeGroup(handlers, group, host, requestPath) {
+      let currentPath = requestPath;
+      for (const handler of handlers) {
+        if (!handler || typeof handler !== 'object' || Array.isArray(handler)) return true;
+        if (handler.handler === 'rewrite') {
+          if (typeof handler.uri !== 'string' || handler.uri.includes('{')) return true;
+          currentPath = handler.uri;
+        } else if (handler.handler === 'subroute') {
+          if (!Array.isArray(handler.routes) || handler.routes.some(child => routeMayConsumeGroup(child, group, host, currentPath))) return true;
+        }
+      }
+      return false;
+    }
     function routeMayConsumeGroup(route, group, host, requestPath) {
       if (!route || typeof route !== 'object' || Array.isArray(route)) return true;
       const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
@@ -179,6 +192,12 @@ function effectiveLeaves(cfg) {
             rewrites = rewrites.concat(handler.uri);
           } else if (handler.handler === 'subroute') {
             if (Object.keys(handler).some(k => !['handler', 'routes', 'errors'].includes(k)) || handler.errors !== undefined) fail('unsupported subroute handler');
+            const possibleApproved = [...APPROVED.keys()].filter(requestPath => canMatch(branch.paths, requestPath));
+            for (const group of (handler.routes || []).flatMap(child => [...routeGroups(child)])) {
+              if (possibleApproved.some(requestPath => handlersMayConsumeGroup(handlers.slice(0, handlerOrder), group, SITE, requestPath))) {
+                fail('preceding handler group collision');
+              }
+            }
             routes(handler.routes, { ...branch, rewrites: rewrites.slice(), order: branch.order.concat(handlerOrder) });
           } else if (handler.handler === 'reverse_proxy') {
             leaves.push({ ...branch, rewrites: rewrites.slice(), handler, handlerOrder });

@@ -191,6 +191,37 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      assert.match(result.stdout, /^PASS /);
    }
  });
+ await test('Captain R9 cross-handler group consumer is rejected in both CLI modes', () => {
+   const name = 'cross-handler-consumer.json';
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision/);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /group collision/);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, /group collision/);
+   }
+ });
+ for (const name of ['cross-handler-disjoint-control.json', 'cross-handler-different-group-control.json']) await test(`Captain R9 exact control ${name} passes in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   inspector.verifyInactiveObject(cfg);
+   inspector.compareProtectedObjects(baseline, cfg);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
+     assert.match(result.stdout, /^PASS /);
+   }
+ });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes.splice(1, 0, { handle: [{ handler: 'static_response', status_code: 204 }] });
