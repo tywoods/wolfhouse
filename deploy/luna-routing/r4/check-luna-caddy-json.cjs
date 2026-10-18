@@ -45,15 +45,38 @@ function effectiveLeaves(cfg) {
   const leaves = [];
   function routes(list, state) {
     if (!Array.isArray(list)) fail('routes must be an array');
-    function siblingCanConsumeGroup(route, group) {
-      if (!route || route.group !== group) return false;
+    function nativeStaticMatch(pattern, value, host) {
+      if (typeof pattern !== 'string' || /[?\[\]{}%\\]/.test(pattern)) return null;
+      const escaped = pattern.replace(/[.+^$()|[\]\\]/g, '\\$&').replaceAll('*', host ? '[^.]+' : '.*');
+      return new RegExp(`^${escaped}$`, 'i').test(value);
+    }
+    function alternativeMayApply(match, host, requestPath) {
+      if (!match || typeof match !== 'object' || Array.isArray(match)) return true;
+      if (Object.keys(match).some(key => !['host', 'path'].includes(key))) return true;
+      const hosts = patterns(match, 'host');
+      const paths = patterns(match, 'path');
+      const hostApplies = hosts === null || hosts.some(pattern => nativeStaticMatch(pattern, host, true) !== false);
+      const pathApplies = paths === null || paths.some(pattern => nativeStaticMatch(pattern, requestPath, false) !== false);
+      return hostApplies && pathApplies;
+    }
+    function routeMayConsumeGroup(route, group, host, requestPath) {
+      if (!route || typeof route !== 'object' || Array.isArray(route)) return true;
       const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
       return alternatives.some(match => {
-        if (!match || typeof match !== 'object' || Array.isArray(match)) return true;
-        if (Object.keys(match).some(key => !['host', 'path'].includes(key))) return true;
-        const hosts = intersect(state.hosts, patterns(match, 'host'), true);
-        const paths = intersect(state.paths, patterns(match, 'path'), false);
-        return (!hosts || hosts.length > 0) && (!paths || paths.length > 0);
+        if (!alternativeMayApply(match, host, requestPath)) return false;
+        if (route.group === group) return true;
+        let currentPath = requestPath;
+        const handlers = Array.isArray(route.handle) ? route.handle : [];
+        for (const handler of handlers) {
+          if (!handler || typeof handler !== 'object' || Array.isArray(handler)) return true;
+          if (handler.handler === 'rewrite') {
+            if (typeof handler.uri !== 'string' || handler.uri.includes('{')) return true;
+            currentPath = handler.uri;
+          } else if (handler.handler === 'subroute') {
+            if (!Array.isArray(handler.routes) || handler.routes.some(child => routeMayConsumeGroup(child, group, host, currentPath))) return true;
+          }
+        }
+        return false;
       });
     }
     const normalized = [];
@@ -69,7 +92,7 @@ function effectiveLeaves(cfg) {
         && !state.groups.includes(route.group)
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
-      if (nativeSequential && list.slice(0, i).some(sibling => siblingCanConsumeGroup(sibling, route.group))) fail('preceding sibling group collision');
+      if (nativeSequential && list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, route.group, SITE, CONTROLLER))) fail('preceding sibling group collision');
       if (matchedSequential || nativeSequential) {
         if (route.terminal || next.terminal || next.group || matchedSequential && route.group) fail('unsupported sequential rewrite control');
         if (matchedSequential && Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');

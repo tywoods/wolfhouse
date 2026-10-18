@@ -33,7 +33,7 @@ async function request(port) {
     req.on('error', reject);
   });
 }
-async function runCase(root, name, mutate, expectedPath, inspectorRejects) {
+async function runCase(root, name, mutate, expectedPath, inspectorRejects, expectedStatus = 204) {
   const seen = [];
   const cfg = structuredClone(fixture);
   mutate(controllerRoutes(cfg));
@@ -60,8 +60,8 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects) {
       if (child.exitCode !== null) throw new Error(`Caddy exited ${child.exitCode} in ${name}`);
       try { status = await request(listenPort); break; } catch { await new Promise(resolve => setTimeout(resolve, 40)); }
     }
-    assert.strictEqual(status, 204, `${name} response`);
-    assert.deepStrictEqual(seen, [expectedPath], `${name} upstream URI`);
+    assert.strictEqual(status, expectedStatus, `${name} response`);
+    assert.deepStrictEqual(seen, expectedPath === null ? [] : [expectedPath], `${name} upstream URI`);
   } finally {
     child.kill('SIGTERM');
     const exit = await new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
@@ -74,13 +74,20 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects) {
 (async () => {
   const version = cp.execFileSync(caddy, ['version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^v2\.6\.2\b/, 'native regression requires exact Caddy 2.6.2');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-r5-native-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-r6-native-'));
   const cases = [
     await runCase(root, 'authentic-control', () => {}, inspector.CONTROLLER_REWRITE, false),
     await runCase(root, 'earlier-different-group', routes => routes.unshift({ group: 'other-group', handle: [] }), inspector.CONTROLLER_REWRITE, false),
     await runCase(root, 'earlier-same-group-nonmatching', routes => routes.unshift({ group: routes[0].group, match: [{ path: ['/different'] }], handle: [] }), inspector.CONTROLLER_REWRITE, false),
-    await runCase(root, 'earlier-same-group-matching', routes => routes.unshift({ group: routes[0].group, handle: [] }), inspector.CONTROLLER, true)
+    await runCase(root, 'earlier-same-group-alias-disjoint-rewrite', routes => routes.unshift({ group: routes[0].group, match: [{ path: ['/alias'] }], handle: [{ handler: 'rewrite', uri: inspector.CONTROLLER }] }), inspector.CONTROLLER_REWRITE, false),
+    await runCase(root, 'earlier-same-group-matching', routes => routes.unshift({ group: routes[0].group, handle: [] }), inspector.CONTROLLER, true),
+    await runCase(root, 'earlier-same-group-uppercase-path', routes => routes.unshift({ group: routes[0].group, match: [{ path: [inspector.CONTROLLER.toUpperCase()] }], handle: [] }), inspector.CONTROLLER, true),
+    await runCase(root, 'earlier-same-group-placeholder-path', routes => routes.unshift({ group: routes[0].group, match: [{ path: ['{http.request.uri.path}'] }], handle: [] }), inspector.CONTROLLER, true),
+    await runCase(root, 'earlier-nested-same-group', routes => routes.unshift({ handle: [{ handler: 'subroute', routes: [{ group: routes[0].group, handle: [] }] }] }), inspector.CONTROLLER, true),
+    await runCase(root, 'earlier-outer-same-group', routes => routes.unshift({ group: routes[0].group, handle: [{ handler: 'subroute', routes: [{ handle: [] }] }] }), inspector.CONTROLLER, true),
+    await runCase(root, 'earlier-rewrite-reaches-same-group', routes => routes.unshift({ handle: [{ handler: 'rewrite', uri: '/rewritten-before-group' }, { handler: 'subroute', routes: [{ group: routes[0].group, match: [{ path: ['/rewritten-before-group'] }], handle: [] }] }] }), '/rewritten-before-group', true),
+    await runCase(root, 'earlier-empty-terminal-same-group', routes => routes.unshift({ group: routes[0].group, terminal: true, handle: [] }), null, true, 200)
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);
-  process.stdout.write(`PASS native Caddy sibling-group regression ${root}\n${JSON.stringify(cases)}\n`);
+  process.stdout.write(`PASS native Caddy nested-group regression ${root}\n${JSON.stringify(cases)}\n`);
 })().catch(error => { process.stderr.write(`${error.stack}\n`); process.exitCode = 1; });
