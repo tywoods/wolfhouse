@@ -27,7 +27,8 @@ fetch_active(){ curl --fail --silent --show-error --connect-timeout 3 --max-time
 require_unauthorized(){ local url=$1 body=$2 status; status=$(curl --silent --show-error --connect-timeout 3 --max-time 8 -o "$body" -w '%{http_code}' "$url")||return 1; [[ $status == 401 ]]||return 1; node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1]));if(b.ok!==false||b.code!=="unauthorized")process.exit(1)' "$body"; }
 capture_public_contract(){ local out=$1 url; : >"$out"; for url in "https://$SITE/" "https://$SITE/whatsapp/webhook";do curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null -w '%{url_effective}\t%{http_code}\t%{ssl_verify_result}\t%{redirect_url}\n' "$url" >>"$out"||return 1;done; }
 backup_controller(){
-  mkdir -p "$BACKUP/controller/files"; : >"$BACKUP/controller/manifest"
+  mkdir -p "$BACKUP/controller/files" || return 1
+  : >"$BACKUP/controller/manifest" || return 1
   local i=0 p
   for p in /var/lib/luna-routing/luna-number-route.caddy /etc/luna-routing/controller.env /opt/luna-routing/luna-number-routing-controller.js /etc/systemd/system/luna-routing-controller.service /etc/sudoers.d/luna-routing /etc/tmpfiles.d/luna-routing.conf; do
     [[ ! -L $p ]]||return 1
@@ -91,15 +92,19 @@ PHASE=node
 if [[ -z $node_state ]];then must apt-get -s install "$DEB">"$BACKUP/apt.sim"; require verify_apt_simulation_shell "$BACKUP/apt.sim"; NODE_INSTALL_ATTEMPTED=1; must apt-get install -y "$DEB";fi
 [[ $(/usr/bin/node --version) == v22.23.3 ]]||die 1 'Node runtime mismatch'
 PHASE=inventory
-must node "$BUNDLE/caddy-import-inventory.cjs" /etc/caddy/Caddyfile /etc/caddy "$BACKUP/prewrite.identity.json"; must cp "$BACKUP/prewrite.identity.json" "$BACKUP/restore-content.json"; CADDY_SNAPSHOT_READY=1
-mkdir "$BACKUP/caddy-tree"; cp -a /etc/caddy/Caddyfile "$BACKUP/caddy-tree/Caddyfile"; WRITTEN_CADDY=(Caddyfile)
+must node "$BUNDLE/caddy-import-inventory.cjs" /etc/caddy/Caddyfile /etc/caddy "$BACKUP/prewrite.identity.json"; must cp "$BACKUP/prewrite.identity.json" "$BACKUP/restore-content.json"
+must mkdir "$BACKUP/caddy-tree"
+must cp -a /etc/caddy/Caddyfile "$BACKUP/caddy-tree/Caddyfile"
+require regular_nolink "$BACKUP/caddy-tree/Caddyfile"
+require cmp -s /etc/caddy/Caddyfile "$BACKUP/caddy-tree/Caddyfile"
+WRITTEN_CADDY=(Caddyfile); CADDY_SNAPSHOT_READY=1
 backup_controller||die 1 'controller artifact inventory failed'; CONTROLLER_SNAPSHOT_READY=1
 /usr/bin/systemctl is-active --quiet luna-routing-controller.service&&CONTROLLER_WAS_ACTIVE=1||:; /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service&&CONTROLLER_WAS_ENABLED=1||:
 CROWSNEST_ID=$(docker ps --filter name=crowsnest --format '{{.ID}}'|head -n1); [[ -n $CROWSNEST_ID ]]||die 1 'Crow’s Nest not running'; CROWSNEST_BASE=$(crowsnest_state "$CROWSNEST_ID")||die 1 'Crow’s Nest identity/image/running/URL state invalid'; CROWSNEST_SNAPSHOT_READY=1
 must fetch_active "$BACKUP/active.before.json"; must node "$BUNDLE/check-luna-caddy-json.cjs" snapshot-protected "$BACKUP/active.before.json" >"$BACKUP/protected.before"; PROTECTED_SNAPSHOT_READY=1
 must capture_public_contract "$BACKUP/public.before"
 PHASE=source
-mkdir "$TX/work"; tar -xf "$SOURCE_ARCHIVE" -C "$TX/work"; src="$TX/work/source"; [[ $(<"$src/SOURCE_COMMIT") == "$SOURCE_COMMIT" ]]||die 1 'source commit mismatch'; must node "$src/scripts/verify-luna-routing-deployment.js"; must mv "$src" "$RELEASE"; RELEASE_CREATED=1; RELEASE_ID=$(stat -c '%d:%i' "$RELEASE"); INSTALLER="$RELEASE/deploy/luna-routing/install-luna-routing.sh"
+must mkdir "$TX/work"; must tar -xf "$SOURCE_ARCHIVE" -C "$TX/work"; src="$TX/work/source"; [[ $(<"$src/SOURCE_COMMIT") == "$SOURCE_COMMIT" ]]||die 1 'source commit mismatch'; must node "$src/scripts/verify-luna-routing-deployment.js"; must mv "$src" "$RELEASE"; RELEASE_CREATED=1; RELEASE_ID=$(stat -c '%d:%i' "$RELEASE"); INSTALLER="$RELEASE/deploy/luna-routing/install-luna-routing.sh"
 must env LUNA_ROUTING_SITE=$SITE CADDYFILE=/etc/caddy/Caddyfile "$INSTALLER" --dry-run
 PHASE=prewrite
 must node "$BUNDLE/caddy-import-inventory.cjs" /etc/caddy/Caddyfile /etc/caddy "$BACKUP/prewrite.now.json"; cmp -s "$BACKUP/prewrite.identity.json" "$BACKUP/prewrite.now.json"||die 1 'Caddy imports drifted'

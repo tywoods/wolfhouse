@@ -52,9 +52,14 @@ function effectiveLeaves(cfg) {
       const nextProxy = Array.isArray(next?.handle) && next.handle.length === 1 && next.handle[0]?.handler === 'reverse_proxy' ? next.handle[0] : null;
       const rewritePath = rewrite?.uri;
       const nextPaths = Array.isArray(next?.match) && next.match.length === 1 ? patterns(next.match[0], 'path') : null;
-      if (rewrite && nextProxy && typeof rewritePath === 'string' && exact(nextPaths, rewritePath)) {
-        if (route.terminal || route.group || next.terminal || next.group) fail('unsupported sequential rewrite control');
-        if (Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');
+      const matchedSequential = rewrite && nextProxy && typeof rewritePath === 'string' && exact(nextPaths, rewritePath);
+      const nativeSequential = rewrite && nextProxy && rewritePath === CONTROLLER_REWRITE && exact(state.paths, CONTROLLER)
+        && next.match === undefined && typeof route.group === 'string'
+        && Object.keys(route).every(key => ['group', 'handle'].includes(key))
+        && Object.keys(next).every(key => key === 'handle');
+      if (matchedSequential || nativeSequential) {
+        if (route.terminal || next.terminal || next.group || matchedSequential && route.group) fail('unsupported sequential rewrite control');
+        if (matchedSequential && Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');
         normalized.push({ ...route, handle: [rewrite, nextProxy] }); i++; continue;
       }
       normalized.push(route);

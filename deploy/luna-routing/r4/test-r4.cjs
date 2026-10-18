@@ -6,6 +6,7 @@ const http = require('http');
 const path = require('path');
 const inspector = require('./check-luna-caddy-json.cjs');
 const probe = require('./probe-luna-routing-get.cjs');
+const caddyContract = require('../caddy-contract.js');
 const controllerModule = require('../../../scripts/luna-number-routing-controller.js');
 const fixtures = path.join(__dirname, 'fixtures');
 const load = name => JSON.parse(fs.readFileSync(path.join(fixtures, name), 'utf8'));
@@ -37,16 +38,21 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
  });
  await test('unknown handler is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle.unshift({ handler: 'headers' })));
  await test('OR-match bypass is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].match.push({ path: ['/whatsapp/webhook'] })));
- await test('native Caddy 2.6.2 sequential rewrite route passes', () => {
-   const cfg = valid();
-   cfg.apps.http.servers.one.routes[0] = {
-     match: [{ host: [inspector.SITE] }],
-     handle: [{ handler: 'subroute', routes: [
-       { match: [{ path: [inspector.CONTROLLER] }], handle: [{ handler: 'rewrite', uri: inspector.CONTROLLER_REWRITE }] },
-       { match: [{ path: [inspector.CONTROLLER_REWRITE] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8096' }] }] }
-     ] }]
-   };
-   inspector.verifyInactiveObject(cfg);
+ await test('real generator output adapted by Caddy 2.6.2 passes', () => inspector.verifyInactiveObject(load('native-actual-canonical.json')));
+ await test('native fixture input is exact production generator output', () => {
+   const empty = fs.readFileSync(path.join(fixtures, 'canonical-empty.Caddyfile'), 'utf8');
+   const generated = fs.readFileSync(path.join(fixtures, 'canonical-generated.Caddyfile'), 'utf8');
+   assert.strictEqual(caddyContract.transform(empty, { site: inspector.SITE }), generated);
+ });
+ await test('native unmatched proxy with added matcher is rejected', () => {
+   const cfg = load('native-actual-canonical.json');
+   cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes[1].match = [{ method: ['POST'] }];
+   assert.throws(() => inspector.verifyInactiveObject(cfg));
+ });
+ await test('native rewrite/proxy precedence interruption is rejected', () => {
+   const cfg = load('native-actual-canonical.json');
+   cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes.splice(1, 0, { handle: [{ handler: 'static_response', status_code: 204 }] });
+   assert.throws(() => inspector.verifyInactiveObject(cfg));
  });
  await test('protected snapshot removes only the intended France addition', () => assert.deepStrictEqual(inspector.snapshotProtectedObject(load('intended-nested.json')), load('protected-baseline.json')));
  await test('protected comparison accepts exact addition', () => inspector.compareProtectedObjects(load('protected-baseline.json'), load('intended-nested.json')));

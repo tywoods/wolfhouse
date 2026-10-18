@@ -1,0 +1,11 @@
+whatsapp-staging.lunafrontdesk.com {
+  # BEGIN luna-routing-contract
+  handle /_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook {
+    rewrite * /v1/routes/meta-whatsapp-verified-webhook
+    reverse_proxy 127.0.0.1:8096
+  }
+  handle /whatsapp/routing-proof {
+    reverse_proxy 127.0.0.1:8094
+  }
+  # END luna-routing-contract
+}

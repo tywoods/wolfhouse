@@ -1,0 +1,18 @@
+{
+  "caddy_version": "v2.6.2 h1:wKoFIxpmOJLGl3QXoo6PNbYvGW4xLEgo32GPBEjWL8o=",
+  "release_archive": "caddy_2.6.2_linux_amd64.tar.gz",
+  "release_archive_sha512": "ae18c0facae7c8ee872492a1ba63a4c7608915d6d9fe267aef4f869cf65ebd4b7f9ff57f609aff2bd52db98c761d877b574aea2c0c9ddc2ec53d0d5e174cb542",
+  "source": "canonical-empty.Caddyfile",
+  "generated": "canonical-generated.Caddyfile",
+  "adapted": "native-actual-canonical.json",
+  "sha256": {
+    "canonical-empty.Caddyfile": "81da50abd0cf1cb592b2a8456162fce18ad7da21fcf84f7cb349f9b0b651571a",
+    "canonical-generated.Caddyfile": "938d14459b8ce58e9ccc8c9e47ec91cdd41bddea8004092e4913214b806f9461",
+    "native-actual-canonical.json": "08fa7d5981579a938e5b12d7712d22d67aae7105a4a1d22740876571bd1bb799"
+  },
+  "commands": [
+    "node deploy/luna-routing/caddy-contract.js install canonical-empty.Caddyfile canonical-generated.Caddyfile whatsapp-staging.lunafrontdesk.com",
+    "caddy adapt --adapter caddyfile --config canonical-generated.Caddyfile --pretty"
+  ],
+  "service_started": false
+}
