@@ -545,21 +545,27 @@ def _localized_eligibility_question(question, language):
     everyone_stay = bool(re.search(r'\b(?:everyone|everybody|all guests)\b', low)
                          and re.search(r'\b(?:stay|sleep|accommodat\w*)\b', low)
                          and re.search(r'\b(?:room|dorm)\b', low))
-    female_room_negated = bool(
-        female and everyone_stay
-        and re.search(r"\bnot\b[^?]*(?:female|women|woman|girls?|lad(?:y|ies))", low))
-    uncomfortable_female_room = bool(
-        female and re.search(r'\bany\b', low)
+    gender_room_negated = bool(
+        everyone_stay
+        and re.search(r"\bnot\b[^?]*(?:female|women|woman|girls?|lad(?:y|ies)|male|men|man|boys?|guys?)", low))
+    uncomfortable_gender_room = bool(
+        re.search(r'\bany\b', low)
         and re.search(r"\bnot\s+comfortable\b", low)
         and re.search(r'\b(?:stay|staying|sleep|sleeping)\b', low)
         and re.search(r'\b(?:room|dorm)\b', low))
     semantic_questions = {
-        ('es', 'female_room_negated'): '¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?',
-        ('fr', 'female_room_negated'): "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?",
-        ('de', 'female_room_negated'): 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?',
-        ('es', 'uncomfortable_female_room'): '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?',
-        ('fr', 'uncomfortable_female_room'): "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?",
-        ('de', 'uncomfortable_female_room'): 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?',
+        ('es', 'gender_room_negated'): ('¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?' if female
+                                        else '¿Pueden todas las personas alojarse en una habitación que no sea solo para hombres?'),
+        ('fr', 'gender_room_negated'): ("Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?" if female
+                                        else "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux hommes ?"),
+        ('de', 'gender_room_negated'): ('Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?' if female
+                                        else 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Männer ist?'),
+        ('es', 'uncomfortable_gender_room'): ('¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?' if female
+                                               else '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para hombres?'),
+        ('fr', 'uncomfortable_gender_room'): ("Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?" if female
+                                               else "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux hommes ?"),
+        ('de', 'uncomfortable_gender_room'): ('Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?' if female
+                                               else 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Männerzimmer zu übernachten?'),
         ('es', 'any_not'): ('¿Hay alguna huésped que no sea mujer?' if female
                             else '¿Hay algún huésped que no sea hombre?'),
         ('fr', 'any_not'): ('Y a-t-il une personne qui ne soit pas une femme ?' if female
@@ -573,13 +579,14 @@ def _localized_eligibility_question(question, language):
         ('de', 'everyone_stay'): ('Können alle Gäste in einem Frauenzimmer übernachten?' if female
                                   else 'Können alle Gäste in einem Männerzimmer übernachten?'),
     }
-    semantic = ('female_room_negated' if female_room_negated
-                else 'uncomfortable_female_room' if uncomfortable_female_room
+    semantic = ('gender_room_negated' if gender_room_negated
+                else 'uncomfortable_gender_room' if uncomfortable_gender_room
                 else 'any_not' if any_not
                 else 'everyone_stay' if everyone_stay else None)
     if semantic:
         return semantic_questions.get((language, semantic), text)
-    count = (3 if re.search(r'\b(?:three|3)\b', low)
+    count = (4 if re.search(r'\b(?:four|4)\b', low)
+             else 3 if re.search(r'\b(?:three|3)\b', low)
              else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
     negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))
     questions = {
@@ -589,18 +596,24 @@ def _localized_eligibility_question(question, language):
         ('es', 2, True): '¿No son mujeres las dos huéspedes?' if female else '¿No son hombres los dos huéspedes?',
         ('es', 3, False): '¿Son mujeres las tres huéspedes?' if female else '¿Son hombres los tres huéspedes?',
         ('es', 3, True): '¿No son mujeres las tres huéspedes?' if female else '¿No son hombres los tres huéspedes?',
+        ('es', 4, False): '¿Son mujeres las cuatro huéspedes?' if female else '¿Son hombres los cuatro huéspedes?',
+        ('es', 4, True): '¿No son mujeres las cuatro huéspedes?' if female else '¿No son hombres los cuatro huéspedes?',
         ('fr', 1, False): 'La personne est-elle une femme ?' if female else 'La personne est-elle un homme ?',
         ('fr', 1, True): "La personne n'est-elle pas une femme ?" if female else "La personne n'est-elle pas un homme ?",
         ('fr', 2, False): 'Les deux personnes sont-elles des femmes ?' if female else 'Les deux personnes sont-elles des hommes ?',
         ('fr', 2, True): 'Les deux personnes ne sont-elles pas des femmes ?' if female else 'Les deux personnes ne sont-elles pas des hommes ?',
         ('fr', 3, False): 'Les trois personnes sont-elles des femmes ?' if female else 'Les trois personnes sont-elles des hommes ?',
         ('fr', 3, True): 'Les trois personnes ne sont-elles pas des femmes ?' if female else 'Les trois personnes ne sont-elles pas des hommes ?',
+        ('fr', 4, False): 'Les quatre personnes sont-elles des femmes ?' if female else 'Les quatre personnes sont-elles des hommes ?',
+        ('fr', 4, True): 'Les quatre personnes ne sont-elles pas des femmes ?' if female else 'Les quatre personnes ne sont-elles pas des hommes ?',
         ('de', 1, False): 'Ist der Gast eine Frau?' if female else 'Ist der Gast ein Mann?',
         ('de', 1, True): 'Ist der Gast keine Frau?' if female else 'Ist der Gast kein Mann?',
         ('de', 2, False): 'Sind beide Gäste Frauen?' if female else 'Sind beide Gäste Männer?',
         ('de', 2, True): 'Sind nicht beide Gäste Frauen?' if female else 'Sind nicht beide Gäste Männer?',
         ('de', 3, False): 'Sind alle drei Gäste Frauen?' if female else 'Sind alle drei Gäste Männer?',
         ('de', 3, True): 'Sind nicht alle drei Gäste Frauen?' if female else 'Sind nicht alle drei Gäste Männer?',
+        ('de', 4, False): 'Sind alle vier Gäste Frauen?' if female else 'Sind alle vier Gäste Männer?',
+        ('de', 4, True): 'Sind nicht alle vier Gäste Frauen?' if female else 'Sind nicht alle vier Gäste Männer?',
     }
     return questions.get((language, count, negated), text)
 

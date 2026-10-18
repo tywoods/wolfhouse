@@ -1,9 +1,14 @@
 """Captain R1-R5 source-bound regressions; offline and transport-free."""
 import json
+import tempfile
 import unittest
 from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from gateway.session_context import clear_session_vars, set_session_vars
+from hermes_state import SessionDB
 from wolfhouse import accepted_quote, output_guard
 import wolfhouse_staff_api as plugin
 
@@ -113,6 +118,96 @@ class CaptainR1R5Tests(unittest.TestCase):
                             })
                         self.assertEqual(expected, shown['final_response'])
                         self.assertEqual(expected, shown['messages'][-1]['content'])
+
+    def test_r4_registered_quote_persists_exact_question_meaning_for_all_party_sizes(self):
+        cases = {
+            'Are all four guests women?': {
+                'en': 'Are all four guests women?',
+                'es': '¿Son mujeres las cuatro huéspedes?',
+                'fr': 'Les quatre personnes sont-elles des femmes ?',
+                'de': 'Sind alle vier Gäste Frauen?',
+            },
+            'Can everyone stay in a room that is not female-only?': {
+                'en': 'Can everyone stay in a room that is not female-only?',
+                'es': '¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?',
+                'fr': "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?",
+                'de': 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?',
+            },
+            'Are any guests not comfortable staying in a female-only room?': {
+                'en': 'Are any guests not comfortable staying in a female-only room?',
+                'es': '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?',
+                'fr': "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?",
+                'de': 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?',
+            },
+            'Can everyone stay in a room that is not male-only?': {
+                'en': 'Can everyone stay in a room that is not male-only?',
+                'es': '¿Pueden todas las personas alojarse en una habitación que no sea solo para hombres?',
+                'fr': "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux hommes ?",
+                'de': 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Männer ist?',
+            },
+            'Are any guests not comfortable staying in a male-only room?': {
+                'en': 'Are any guests not comfortable staying in a male-only room?',
+                'es': '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para hombres?',
+                'fr': "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux hommes ?",
+                'de': 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Männerzimmer zu übernachten?',
+            },
+        }
+        ingresses = {
+            'en': 'Please check this room.',
+            'es': 'Hola, quiero comprobar esta habitación.',
+            'fr': 'Bonjour, je voudrais vérifier cette chambre.',
+            'de': 'Hallo, ich möchte dieses Zimmer prüfen.',
+        }
+        with tempfile.TemporaryDirectory() as root, \
+                patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
+            db = SessionDB(Path(root) / 'state.db')
+            try:
+                for question, translations in cases.items():
+                    for language, expected in translations.items():
+                        for guest_count in (1, 2, 3, 4):
+                            with self.subTest(question=question, language=language,
+                                              guest_count=guest_count):
+                                session_id = f'r2-r4-{len(question)}-{language}-{guest_count}'
+                                db.create_session(session_id, source='whatsapp')
+                                agent = SimpleNamespace(_session_db=db, session_id=session_id)
+                                tokens = set_session_vars(
+                                    platform='whatsapp', source='whatsapp', chat_id=session_id,
+                                    user_id='france-wolfhouse-test', session_key=session_id,
+                                    session_id=session_id, message_id=session_id + '-turn')
+                                try:
+                                    accepted_quote.observe_owner_turn(agent, ingresses[language])
+                                    response = {
+                                        'success': False,
+                                        'needs_clarification': True,
+                                        'selected_bed_codes': [],
+                                        'guest_safe_next_action': question,
+                                    }
+                                    params = {
+                                        'check_in': '2026-11-09',
+                                        'check_out': '2026-11-12',
+                                        'guest_count': guest_count,
+                                        'room_type': 'shared',
+                                        'room_preference': ('female_only' if 'female' in question
+                                                            or 'women' in question else 'male_only'),
+                                        'package_code': 'package_none',
+                                        'language': language,
+                                    }
+                                    with patch.object(plugin, '_post_bot', return_value=response):
+                                        tool_result = json.loads(plugin.quote_booking(params))
+                                    self.assertEqual(question,
+                                                     tool_result['guest_safe_next_action'])
+                                    shown = accepted_quote.finalize_offer_response({
+                                        'completed': True,
+                                        'final_response': 'draft',
+                                        'messages': [{'role': 'assistant', 'content': 'draft'}],
+                                    })
+                                    self.assertEqual(expected, shown['final_response'])
+                                    self.assertEqual(expected, shown['messages'][-1]['content'])
+                                finally:
+                                    clear_session_vars(tokens)
+                                    accepted_quote._current.set(None)
+            finally:
+                db.close()
 
     def test_r4_two_and_three_name_completions_compare_atomically(self):
         before = {"offer_fingerprint": "old", "guest_bed_assignments": [
