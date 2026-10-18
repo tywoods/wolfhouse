@@ -127,6 +127,30 @@ class CaptainR1R5Tests(unittest.TestCase):
                 'fr': 'Les quatre personnes sont-elles des femmes ?',
                 'de': 'Sind alle vier Gäste Frauen?',
             },
+            'Are all guests women?': {
+                'en': 'Are all guests women?',
+                'es': '¿Son mujeres todas las huéspedes?',
+                'fr': 'Toutes les personnes sont-elles des femmes ?',
+                'de': 'Sind alle Gäste Frauen?',
+            },
+            'Are all guests men?': {
+                'en': 'Are all guests men?',
+                'es': '¿Son hombres todos los huéspedes?',
+                'fr': 'Toutes les personnes sont-elles des hommes ?',
+                'de': 'Sind alle Gäste Männer?',
+            },
+            'Are all five guests women?': {
+                'en': 'Are all five guests women?',
+                'es': '¿Son mujeres las 5 huéspedes?',
+                'fr': 'Les 5 personnes sont-elles des femmes ?',
+                'de': 'Sind alle 5 Gäste Frauen?',
+            },
+            'Are all five guests men?': {
+                'en': 'Are all five guests men?',
+                'es': '¿Son hombres los 5 huéspedes?',
+                'fr': 'Les 5 personnes sont-elles des hommes ?',
+                'de': 'Sind alle 5 Gäste Männer?',
+            },
             'Can everyone stay in a room that is not female-only?': {
                 'en': 'Can everyone stay in a room that is not female-only?',
                 'es': '¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?',
@@ -158,16 +182,22 @@ class CaptainR1R5Tests(unittest.TestCase):
             'fr': 'Bonjour, je voudrais vérifier cette chambre.',
             'de': 'Hallo, ich möchte dieses Zimmer prüfen.',
         }
+        case_guest_counts = {
+            'Are all guests women?': (4,),
+            'Are all guests men?': (4,),
+            'Are all five guests women?': (5,),
+            'Are all five guests men?': (5,),
+        }
         with tempfile.TemporaryDirectory() as root, \
                 patch.dict('os.environ', {'LUNA_CLIENT_SLUG': 'wolfhouse-somo'}):
             db = SessionDB(Path(root) / 'state.db')
             try:
-                for question, translations in cases.items():
+                for case_index, (question, translations) in enumerate(cases.items()):
                     for language, expected in translations.items():
-                        for guest_count in (1, 2, 3, 4):
+                        for guest_count in case_guest_counts.get(question, (1, 2, 3, 4)):
                             with self.subTest(question=question, language=language,
                                               guest_count=guest_count):
-                                session_id = f'r2-r4-{len(question)}-{language}-{guest_count}'
+                                session_id = f'r2-r4-{case_index}-{language}-{guest_count}'
                                 db.create_session(session_id, source='whatsapp')
                                 agent = SimpleNamespace(_session_db=db, session_id=session_id)
                                 tokens = set_session_vars(

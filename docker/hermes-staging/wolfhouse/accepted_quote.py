@@ -585,10 +585,46 @@ def _localized_eligibility_question(question, language):
                 else 'everyone_stay' if everyone_stay else None)
     if semantic:
         return semantic_questions.get((language, semantic), text)
-    count = (4 if re.search(r'\b(?:four|4)\b', low)
-             else 3 if re.search(r'\b(?:three|3)\b', low)
-             else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
+    explicit_count_match = re.search(
+        r'\ball\s+(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten|'
+        r'eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|'
+        r'nineteen|twenty)\s+guests?\b', low)
+    count_words = {
+        word: number for number, word in enumerate((
+            'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+            'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen',
+            'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen',
+            'nineteen', 'twenty'))
+    }
+    if explicit_count_match:
+        count_token = explicit_count_match.group('count')
+        count = int(count_token) if count_token.isdigit() else count_words[count_token]
+    else:
+        count = (4 if re.search(r'\b(?:four|4)\b', low)
+                 else 3 if re.search(r'\b(?:three|3)\b', low)
+                 else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
+    all_group = bool(re.search(r'\ball\s+guests?\b', low))
     negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))
+    if all_group:
+        all_group_questions = {
+            ('es', False): '¿Son mujeres todas las huéspedes?' if female else '¿Son hombres todos los huéspedes?',
+            ('es', True): '¿No son mujeres todas las huéspedes?' if female else '¿No son hombres todos los huéspedes?',
+            ('fr', False): 'Toutes les personnes sont-elles des femmes ?' if female else 'Toutes les personnes sont-elles des hommes ?',
+            ('fr', True): 'Toutes les personnes ne sont-elles pas des femmes ?' if female else 'Toutes les personnes ne sont-elles pas des hommes ?',
+            ('de', False): 'Sind alle Gäste Frauen?' if female else 'Sind alle Gäste Männer?',
+            ('de', True): 'Sind nicht alle Gäste Frauen?' if female else 'Sind nicht alle Gäste Männer?',
+        }
+        return all_group_questions.get((language, negated), text)
+    if explicit_count_match and count > 4:
+        generic_questions = {
+            ('es', False): f'¿Son mujeres las {count} huéspedes?' if female else f'¿Son hombres los {count} huéspedes?',
+            ('es', True): f'¿No son mujeres las {count} huéspedes?' if female else f'¿No son hombres los {count} huéspedes?',
+            ('fr', False): f'Les {count} personnes sont-elles des femmes ?' if female else f'Les {count} personnes sont-elles des hommes ?',
+            ('fr', True): f'Les {count} personnes ne sont-elles pas des femmes ?' if female else f'Les {count} personnes ne sont-elles pas des hommes ?',
+            ('de', False): f'Sind alle {count} Gäste Frauen?' if female else f'Sind alle {count} Gäste Männer?',
+            ('de', True): f'Sind nicht alle {count} Gäste Frauen?' if female else f'Sind nicht alle {count} Gäste Männer?',
+        }
+        return generic_questions.get((language, negated), text)
     questions = {
         ('es', 1, False): '¿Es la huésped una mujer?' if female else '¿Es el huésped un hombre?',
         ('es', 1, True): '¿No es la huésped una mujer?' if female else '¿No es el huésped un hombre?',
