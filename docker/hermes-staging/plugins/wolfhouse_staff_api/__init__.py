@@ -542,14 +542,15 @@ def _suppress_gender_handoff(result, decision):
     result["next_action"] = "ask_room_eligibility"
     result["reply_draft"] = decision.get("clarification_prompt") or result.get("reply_draft")
     excluded = set(decision.get("excluded_room_preferences") or [])
-    if "female_only" in excluded:
-        result["girls_room_available"] = False
-        if isinstance(result.get("room_options"), dict):
-            result["room_options"] = {**result["room_options"], "girls_room_available": False}
-    if "male_only" in excluded and "guys_room_available" in result:
-        result["guys_room_available"] = False
-        if isinstance(result.get("room_options"), dict):
-            result["room_options"] = {**result["room_options"], "male_only": False}
+    if not (decision.get("clarification_needed") and not decision.get("conflict")):
+        if "female_only" in excluded:
+            result["girls_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "girls_room_available": False}
+        if "male_only" in excluded and "guys_room_available" in result:
+            result["guys_room_available"] = False
+            if isinstance(result.get("room_options"), dict):
+                result["room_options"] = {**result["room_options"], "male_only": False}
     return result
 
 

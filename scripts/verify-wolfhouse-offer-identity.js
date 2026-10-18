@@ -750,6 +750,37 @@ assert('whole-booking payment is not the same as per-guest distribution',
     booked.offer_fingerprint === rechecked.offer_fingerprint
     && compareAcceptedWolfhouseOffer(booked, rechecked).ok === true);
 
+  const explicitBedQuote = {
+    ...booked,
+    resolved_room_claim: null,
+  };
+  explicitBedQuote.offer_fingerprint = computeWolfhouseOfferFingerprint(explicitBedQuote);
+  const createWithDerivedGroupTag = {
+    ...explicitBedQuote,
+    resolved_room_claim: 'male_shared',
+  };
+  createWithDerivedGroupTag.offer_fingerprint = computeWolfhouseOfferFingerprint(createWithDerivedGroupTag);
+  assert('explicit-bed quote/create identity ignores derived group room tags',
+    explicitBedQuote.offer_fingerprint === createWithDerivedGroupTag.offer_fingerprint
+    && compareAcceptedWolfhouseOffer(explicitBedQuote, createWithDerivedGroupTag).ok === true);
+
+  const unresolvedQuote = {
+    ...explicitBedQuote,
+    guest_bed_assignments: [],
+    room_arrangement: [],
+    selected_bed_codes: [],
+    resolved_room_claim: null,
+  };
+  unresolvedQuote.offer_fingerprint = computeWolfhouseOfferFingerprint(unresolvedQuote);
+  const unresolvedCreate = {
+    ...unresolvedQuote,
+    resolved_room_claim: 'male_shared',
+  };
+  unresolvedCreate.offer_fingerprint = computeWolfhouseOfferFingerprint(unresolvedCreate);
+  assert('derived room claim remains material without explicit beds',
+    unresolvedQuote.offer_fingerprint !== unresolvedCreate.offer_fingerprint
+    && compareAcceptedWolfhouseOffer(unresolvedQuote, unresolvedCreate).ok === false);
+
   const withEmail = wolfhouseOperationFingerprint({
     clientSlug: 'wolfhouse-somo',
     checkIn: '2026-10-10',

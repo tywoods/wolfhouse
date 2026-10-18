@@ -1,4 +1,4 @@
-# Sim13–20 accepted-quote decision replay
+# Sim13–21 accepted-quote decision replay
 
 This fixture implements Chief ruling **JW1628**: replay only the real accepted-quote decision owner, not a complete booking flow.
 
@@ -13,6 +13,12 @@ This fixture implements Chief ruling **JW1628**: replay only the real accepted-q
 - captured beds, total, and currency used to freeze the Staff response.
 
 The generated, reviewable expected table is `expected_cases.json`. Captures without the arguments required for a decision are explicitly classified as `not_replayable` with a reason; they do not block the replay.
+
+`sim21_cases.json` appends the three Sim21 booking regressions while retaining this
+directory name for compatibility with existing commands: explicit-bed offer identity,
+women-only stock plus corrected dates during eligibility clarification, and preservation
+and disclosure of a specific room request. The tests assert room/bed correctness, not
+only booking references.
 
 ## Run
 

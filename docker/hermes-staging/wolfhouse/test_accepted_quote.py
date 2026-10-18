@@ -2253,6 +2253,32 @@ class OwnerHostileTests(unittest.TestCase):
                                     '^quote_owner_presented_offer_required$'):
             self.ledger.prepare_create({})
 
+    def test_sim21_specific_room_preference_survives_generic_requote_and_change_is_disclosed(self):
+        plan = {**deepcopy(self.plan), 'room_preference': 'room 1'}
+        beds = [dict(bed_code='R9-B1', room_code='R9', gender_strategy='flexible')]
+        response = self.checked(plan, beds)
+        self.agent.session_id = 'sim21-room-preference'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim21-room-quote', 'Could I get room 1 again?')
+        self.present(plan, response)
+        self.turn('sim21-room-requote', 'Yes, book it')
+        prepared = self.ledger.prepare_quote({'room_type': 'shared', 'room_preference': 'shared'})
+        self.assertEqual(prepared['room_preference'], 'room 1')
+        notice = self.ledger._requested_room_change_line(plan, response['offer_revision'], 'en')
+        self.assertIn('Room 1 is not available', notice)
+        self.assertIn('Room 9', notice)
+
+    def test_sim21_deliberate_gendered_to_shared_change_is_not_overridden(self):
+        plan = {**deepcopy(self.plan), 'room_preference': 'female_only'}
+        response = self.checked(plan)
+        self.agent.session_id = 'sim21-deliberate-room-change'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('sim21-gendered-quote', 'A women-only dorm, please.')
+        self.present(plan, response)
+        self.turn('sim21-shared-requote', 'Actually, a shared dorm is fine.')
+        prepared = self.ledger.prepare_quote({'room_type': 'shared', 'room_preference': 'shared'})
+        self.assertEqual(prepared['room_preference'], 'shared')
+
     def test_sim20_four_fact_material_contract_and_stable_operation_key(self):
         self.accept()
         carried = self.ledger.prepare_create({
@@ -2364,6 +2390,22 @@ class OwnerHostileTests(unittest.TestCase):
         })
         self.assertEqual(rendered['final_response'], 'Would a mixed dorm work for you?')
         self.assertNotIn('unavailable', rendered['messages'][-1]['content'])
+
+    def test_sim21_successful_handoff_tells_guest_it_happened_without_retry_request(self):
+        import json
+        receipt = {'success': True, 'tool': 'flag_needs_human', 'needs_human': True,
+                   'handoff_persisted': True}
+        rendered = self.ledger.finalize_offer_response({
+            'completed': True,
+            'final_response': 'I could not verify that. Please ask again.',
+            'messages': [
+                {'role': 'user', 'content': 'Yes, please book.'},
+                {'role': 'tool', 'content': json.dumps(receipt)},
+                {'role': 'assistant', 'content': 'I could not verify that. Please ask again.'},
+            ],
+        })
+        self.assertIn('handed this to the team', rendered['final_response'])
+        self.assertNotIn('ask again', rendered['final_response'].casefold())
 
     def test_sim20_legacy_pending_and_completed_operation_keys_remain_compatible(self):
         import hashlib

@@ -109,6 +109,30 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
 
+    def test_unknown_women_room_eligibility_preserves_positive_inventory_fact(self):
+        params = {
+            **self.params,
+            "check_in": "2026-11-18", "check_out": "2026-11-21",
+            "guest_count": 1, "room_type": "shared",
+            "room_preference": "female_only", "guests": [{"name": "Emma"}],
+        }
+        receipt = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_bed_codes": ["F1"],
+            "available_beds": [
+                {"bed_code": "F1", "room_code": "F", "room_type": "female_only"},
+            ],
+        }
+        result, sent = self.invoke("check_availability", params, receipt)
+        self.assertEqual(sent["check_in"], "2026-11-18")
+        self.assertEqual(sent["check_out"], "2026-11-21")
+        self.assertEqual(sent["room_preference"], "female_only")
+        self.assertEqual(result["availability_status"], "eligibility_required", result)
+        self.assertEqual(result["next_action"], "ask_room_eligibility")
+        self.assertIs(result["girls_room_available"], True)
+        self.assertNotIn("mixed", result["reply_draft"].casefold())
+
     def test_mixed_gendered_selection_is_never_relabelled_from_filtered_subset(self):
         receipt = {'success': True, 'has_enough_beds': True,
                    'selected_bed_codes': ['A1', 'B1'],

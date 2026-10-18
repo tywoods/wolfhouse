@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "source": "Sim21 raw tool arguments supplied with SKIP-SIM21-BOOKING-FIX-20261018T2230",
+  "cases": [
+    {
+      "id": "sim21-g3-becker-explicit-beds",
+      "kind": "explicit_bed_identity",
+      "check_in": "2026-11-11",
+      "check_out": "2026-11-14",
+      "guest_count": 2,
+      "guests": [{"name": "Jonas Becker"}, {"name": "Felix Becker"}],
+      "selected_bed_codes": ["R4-B1", "R4-B2"],
+      "total_cents": 24000,
+      "deposit_required_cents": 20000,
+      "quoted_resolved_room_claim": null,
+      "create_resolved_room_claim": "male_shared",
+      "expected": "same_offer_identity"
+    },
+    {
+      "id": "sim21-g4-emma-women-room",
+      "kind": "unknown_room_eligibility",
+      "check_in": "2026-11-18",
+      "check_out": "2026-11-21",
+      "room_preference": "female_only",
+      "girls_room_available": true,
+      "expected_next_action": "ask_room_eligibility",
+      "expected": "preserve_women_stock_and_dates"
+    },
+    {
+      "id": "sim21-g5-raj-room-preference",
+      "kind": "specific_room_preference",
+      "check_in": "2026-11-20",
+      "check_out": "2026-11-22",
+      "room_preference": "room 1",
+      "allocated_bed_codes": ["R9-B1"],
+      "allocated_room_codes": ["R9"],
+      "expected": "preserve_preference_and_disclose_room_change"
+    }
+  ]
+}

@@ -484,6 +484,31 @@ def _plural_room_kind(kind, language='en'):
     return plurals.get(language, plurals['en']).get(kind, kind)
 
 
+def _requested_room_change_line(plan, offer, language='en'):
+    preference = str(plan.get('room_preference') or '').strip()
+    match = re.fullmatch(r'(?:room|r)\s*[-_ ]?\s*(\d+)', preference, re.IGNORECASE)
+    if not match:
+        return None
+    requested = f'R{int(match.group(1))}'
+    allocated = []
+    for row in offer.get('room_arrangement') or []:
+        code = str((row or {}).get('room_code') or '').strip().upper()
+        if code and code not in allocated:
+            allocated.append(code)
+    if not allocated or requested in allocated:
+        return None
+    requested_label = f'Room {int(match.group(1))}'
+    allocated_labels = ', '.join(f'Room {code[1:]}' if re.fullmatch(r'R\d+', code) else code
+                                 for code in allocated)
+    templates = {
+        'en': f'{requested_label} is not available for these dates, so this quote is for {allocated_labels}.',
+        'es': f'{requested_label} no está disponible para estas fechas, así que este presupuesto es para {allocated_labels}.',
+        'fr': f'{requested_label} n’est pas disponible à ces dates, donc ce devis est pour {allocated_labels}.',
+        'de': f'{requested_label} ist für diese Daten nicht verfügbar, daher gilt dieses Angebot für {allocated_labels}.',
+    }
+    return templates.get(language, templates['en'])
+
+
 def _guest_room_lines(plan, offer, language='en'):
     """Group people by frozen room and disclose an authoritative room split."""
     rooms = {row['bed_code']: row for row in offer['room_arrangement']}
@@ -1600,6 +1625,16 @@ def prepare_quote(params):
         result = deepcopy(normalized_params)
         preserved = deepcopy(state.get('plan') or {})
         preserved.update(deepcopy(state.get('completion_plan') or {}))
+        prior_room_preference = str(preserved.get('room_preference') or '').strip()
+        new_room_preference = str(result.get('room_preference') or '').strip().casefold()
+        explicit_prior_room = re.fullmatch(
+            r'(?:room|r)\s*[-_ ]?\s*\d+', prior_room_preference, re.IGNORECASE)
+        if (explicit_prior_room
+                and new_room_preference in {'shared', 'mixed'}):
+            # A generic model restatement must not erase a guest's specific room
+            # preference during re-quote/create. Staff can still allocate another
+            # room, but the rendered quote must disclose that before acceptance.
+            result['room_preference'] = prior_room_preference
         for key in _FIELDS + _CHECKED_FIELDS:
             if key not in result and key in preserved:
                 result[key] = preserved[key]
@@ -2514,6 +2549,25 @@ def finalize_offer_response(result):
                 except (TypeError, ValueError):
                     continue
                 if (isinstance(tool_result, dict)
+                        and tool_result.get('tool') == 'flag_needs_human'
+                        and tool_result.get('success') is True
+                        and tool_result.get('needs_human') is True
+                        and tool_result.get('handoff_persisted') is True):
+                    language = _guest_language(state)
+                    text = {
+                        'en': "I've handed this to the team to check. They'll take it from here.",
+                        'es': 'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.',
+                        'fr': "Je l’ai transmis à l’équipe pour vérification. Elle prend le relais.",
+                        'de': 'Ich habe das zur Prüfung an das Team weitergegeben. Das Team übernimmt ab hier.',
+                    }.get(language, "I've handed this to the team to check. They'll take it from here.")
+                    output = deepcopy(result)
+                    output['final_response'] = text
+                    output_messages = output.get('messages')
+                    if (output_messages and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = text
+                    return output
+                if (isinstance(tool_result, dict)
                         and tool_result.get('availability_status') == 'eligibility_required'
                         and tool_result.get('next_action') == 'ask_room_eligibility'
                         and isinstance(tool_result.get('reply_draft'), str)
@@ -2673,6 +2727,9 @@ def finalize_offer_response(result):
                     option_labels[choices.index('deposit')] += (
                         f" ({quoted_money(quote['deposit_required_cents'])})")
                 lines.append(_final_copy(language, 'options') + ': ' + (' ' + _final_copy(language, 'or') + ' ').join(option_labels) + '.')
+            room_change = _requested_room_change_line(plan, quote.get('offer_revision') or {}, language)
+            if room_change:
+                lines.append(room_change)
             lines.extend(_guest_room_lines(plan, quote.get('offer_revision') or {}, language)
                          if isinstance((quote.get('offer_revision') or {}).get('room_arrangement'), list)
                          else [])
@@ -2700,6 +2757,9 @@ def finalize_offer_response(result):
         plan = state['plan']
         language = _guest_language(state)
         lines = [f"{_plain_stay_date(offer['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(offer['check_out'], language)} — {_guest_count_label(offer['guest_count'], language)}."]
+        room_change = _requested_room_change_line(plan, offer, language)
+        if room_change:
+            lines.append(room_change)
         lines.extend(_guest_room_lines(plan, offer, language))
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
