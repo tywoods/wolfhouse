@@ -24,6 +24,22 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             owner._guest_room_lines(plan, offer, "en"),
         )
 
+    def test_named_guest_does_not_claim_unnamed_guests_bed(self):
+        plan = {"guests": [{"name": "Alex"}, {"name": ""}]}
+        offer = {
+            "room_arrangement": [
+                {"bed_code": "M1", "room_code": "M", "room_type": "mixed"},
+                {"bed_code": "M2", "room_code": "M", "room_type": "mixed"},
+            ],
+            "guest_bed_assignments": [
+                {"guest_index": 0, "guest_name": "Alex", "bed_code": "M1"},
+                {"guest_index": 1, "guest_name": "", "bed_code": "M2"},
+            ],
+        }
+        lines = owner._guest_room_lines(plan, offer, "en")
+        self.assertIn("Alex: a bed in the room.", lines)
+        self.assertNotIn("Alex: two beds in the same mixed room.", lines)
+
     def test_three_unnamed_guests_in_three_rooms_still_render(self):
         plan = {
             "guest_count": 3,

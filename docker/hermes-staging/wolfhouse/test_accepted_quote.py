@@ -2323,6 +2323,27 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertEqual('¿Son mujeres las dos huéspedes?', shown['final_response'])
 
+    def test_sim19_multilingual_eligibility_questions_remain_supported(self):
+        cases = (
+            ('en', 'Are both guests girls?'),
+            ('es', '¿Sois dos chicos?'),
+            ('de', 'Seid ihr beide Jungs?'),
+        )
+        for language, question in cases:
+            with self.subTest(language=language):
+                self.agent.session_id = f'sim19-eligibility-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                self.turn(f'sim19-eligibility-{language}-turn', question)
+                self.ledger.record_quote({**self.plan, 'language': language}, {
+                    'success': False,
+                    'quote_status': 'needs_guest_clarification',
+                    'guest_safe_next_action': question,
+                    'offer_revision': None,
+                })
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'draft', 'messages': []})
+                self.assertEqual(question, shown['final_response'])
+
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json
         import wolfhouse_staff_api as plugin
@@ -2330,6 +2351,8 @@ class OwnerHostileTests(unittest.TestCase):
         cases = (
             ('explicit-unnamed', {'group_gender': 'male'}, 'male'),
             ('unknown-unnamed', {}, None),
+            ('explicit-partial-roster', {'group_gender': 'male',
+                                         'guests': [{'name': 'Alex'}]}, 'male-partial'),
             ('explicit-named', {'group_gender': 'male',
                                 'guests': [{'name': 'Sam Example'},
                                            {'name': 'Dan Example'}]}, 'named'),
@@ -2356,6 +2379,10 @@ class OwnerHostileTests(unittest.TestCase):
                 if expected == 'male':
                     self.assertEqual('male', payload.get('group_gender'))
                     self.assertNotIn('guests', payload)
+                elif expected == 'male-partial':
+                    self.assertEqual('male', payload.get('group_gender'))
+                    self.assertEqual(['Alex'], [guest.get('name')
+                                                for guest in payload.get('guests', [])])
                 elif expected == 'named':
                     self.assertNotIn('group_gender', payload)
                     self.assertEqual(['male', 'male'],

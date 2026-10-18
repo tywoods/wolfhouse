@@ -1521,16 +1521,15 @@ def validated_guest_eligibility(prepared):
 
 
 def validated_unnamed_group_composition(prepared):
-    """Return explicit whole-party composition only before a roster exists."""
+    """Return whole-party composition while any roster slots remain unnamed."""
     def read(state, _ingress):
         if (not isinstance(prepared, PreparedPlan)
                 or prepared.capability is not _current.get()
                 or prepared.epoch != state['epoch']):
             raise QuoteBoundaryError('quote_response_superseded')
         guests = prepared.get('guests')
-        if isinstance(guests, list) and any(
-                isinstance(guest, dict) and str(guest.get('name') or '').strip()
-                for guest in guests):
+        if (isinstance(guests, list)
+                and len(guests) >= prepared.get('guest_count', 0)):
             return None
         group = prepared.get('group_gender')
         return group if group in ('male', 'female') else None
@@ -2252,9 +2251,11 @@ def finalize_offer_response(result):
         if unresolved_presentable:
             language = _guest_language(state)
             next_action = unresolved.get('guest_safe_next_action')
-            eligibility_terms = ('women', 'woman', 'female', 'men', 'man', 'male',
-                                 'gender', 'chicas', 'mujeres', 'femenin', 'hombres',
-                                 'masculin', 'femmes', 'hommes', 'frauen', 'männer')
+            eligibility_terms = ('women', 'woman', 'female', 'girls', 'girl',
+                                 'men', 'man', 'male', 'boys', 'boy', 'gender',
+                                 'chicas', 'chicos', 'mujeres', 'femenin', 'hombres',
+                                 'masculin', 'femmes', 'hommes', 'frauen', 'männer',
+                                 'jungs', 'mädchen')
             valid_eligibility_question = (
                 isinstance(next_action, str) and next_action.strip().endswith('?')
                 and any(term in next_action.casefold() for term in eligibility_terms))

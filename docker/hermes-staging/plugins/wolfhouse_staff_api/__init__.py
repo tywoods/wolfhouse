@@ -776,8 +776,7 @@ def quote_booking(params, **kwargs):
         payload.pop('group_gender', None)
         payload.pop('gender_preference', None)
         payload.pop('explicit_gender', None)
-        if (owner_validated_group_composition in ('male', 'female')
-                and not payload.get('guests')):
+        if owner_validated_group_composition in ('male', 'female'):
             payload['group_gender'] = owner_validated_group_composition
     # Staff hints must be regenerated from owner-proven per-person guest fields.
     payload.pop("room_name_hints", None)
