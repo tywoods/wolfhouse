@@ -59,6 +59,28 @@ effective admin JSON.
 
 ## Installation
 
+### Host Node runtime
+
+The controller is pinned to **Node.js 22.23.3**, installed from the signed NodeSource apt
+repository. The runtime and systemd path are both `/usr/bin/node`; the installer never
+resolves `node` through `PATH`. Every installer mode, including `--dry-run`, fails before
+other checks when that exact executable is absent, non-executable, or reports another
+version.
+
+Verify the prerequisite without installing or changing the controller:
+
+```sh
+test -x /usr/bin/node
+/usr/bin/node --version   # must print exactly v22.23.3
+readlink -f /usr/bin/node
+```
+
+For an approved runtime upgrade, update the signed NodeSource apt source/key through the
+host's package-management procedure, pin the approved package version, install it, then
+repeat the checks above. Update this runtime contract, the systemd unit, installer
+preflight, and deployment verifier in the same reviewed PR before running the installer.
+Do not use `nvm`, a user-local binary, or a `PATH` override for this service.
+
 Review all files and prepare `/root/luna-routing.env` from `controller.env.example` with
 real 32+ byte HMAC/proof keys and the HTTPS proof URL. Set `LUNA_ROUTING_SITE`
 to the exact selected allowlisted site (`lunabox.lunafrontdesk.com` by default, or
