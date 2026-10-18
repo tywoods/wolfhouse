@@ -1,12 +1,11 @@
 # FINANCE-UI-01 contract gaps
 
-Frozen contract: `3f43f179` `docs/WOLFHOUSE-FINANCE-CREATOR-CONTRACT.md`
-WIP checkpoint (not the contract): `a62a699a`
+Contract head: `3d77117f4c111f3d31e5fb8a816d7fdc973be087`
+Schema: `wolfhouse.creator-finance.v1`
+Addendum A closed the five parked gaps. None remain for this screen.
 
-These are not filled in the browser.
-
-1. `arrival_date_report` has no field list (example `{}`). Arrival detail rows are not in the allowed row fields. The screen keeps the label "Booking value by arrival date" and the date basis `arrival_or_service_date`. It does not invent amounts or columns.
-2. `full_cohort_totals` names only `gross_receipts_cents` and `deposits_received_cents` on the payments example. Other detail kinds do not name their complete-total keys. The screen shows those named keys and never sums a page into a total.
-3. Summary `warnings` items have no schema. The screen shows metric `reason_codes`, which are specified.
-4. `detail_queries` is an empty object. Detail requests use the documented query parameters.
-5. Producer fixtures are not in the freeze commit. The WIP copies are stubs. They are not consumed.
+1. `arrival_date_report.date_basis` is `arrival_or_service_date`. Arrival rows use `booking_id`, `check_in`, `check_out`, `current_saved_total_cents`, `creator`.
+2. `full_cohort_totals` keys are named per detail kind. The screen shows only those keys and never sums a page.
+3. Summary `warnings[]` items are reason-code strings. Warning rows use `row_id`, `component`, `reason_code`, plus the named optional ids.
+4. `detail_queries` booleans gate drill-down. A false kind is not a link.
+5. Producer fixtures in `fixtures/wolfhouse-finance-creator-data/` are consumed. The presentation stub is not.

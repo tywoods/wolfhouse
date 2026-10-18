@@ -3423,9 +3423,12 @@ function wireWolfhouseCreatorFinanceDetails(body) {
   body.addEventListener('click', function (ev) {
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-open], [data-wh-fin-cursor]') : null;
     if (!btn || !body.contains(btn)) return;
+    var kind = btn.getAttribute('data-wh-fin-open') || financeDetailKind;
+    var queries = financeLastCreator && financeLastCreator.detail_queries;
+    if (btn.hasAttribute('data-wh-fin-open') && !(queries && queries[kind] === true)) return;
     if (ev.preventDefault) ev.preventDefault();
     loadWolfhouseCreatorFinanceDetail({
-      kind: btn.getAttribute('data-wh-fin-open') || financeDetailKind,
+      kind: kind,
       creator: btn.getAttribute('data-wh-fin-creator'),
       cursor: btn.getAttribute('data-wh-fin-cursor'),
     });
