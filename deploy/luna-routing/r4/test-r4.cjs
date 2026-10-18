@@ -49,6 +49,12 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes[1].match = [{ method: ['POST'] }];
    assert.throws(() => inspector.verifyInactiveObject(cfg));
  });
+ await test('native rewrite group collision with enclosing route is rejected', () => {
+   const cfg = load('native-actual-canonical.json');
+   const outer = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0];
+   outer.handle[0].routes[0].group = outer.group;
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision/);
+ });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes.splice(1, 0, { handle: [{ handler: 'static_response', status_code: 204 }] });

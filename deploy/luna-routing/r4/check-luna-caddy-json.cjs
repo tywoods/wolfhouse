@@ -55,6 +55,7 @@ function effectiveLeaves(cfg) {
       const matchedSequential = rewrite && nextProxy && typeof rewritePath === 'string' && exact(nextPaths, rewritePath);
       const nativeSequential = rewrite && nextProxy && rewritePath === CONTROLLER_REWRITE && exact(state.paths, CONTROLLER)
         && next.match === undefined && typeof route.group === 'string'
+        && !state.groups.includes(route.group)
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
       if (matchedSequential || nativeSequential) {
@@ -70,7 +71,8 @@ function effectiveLeaves(cfg) {
       alternatives.forEach((match, alternative) => {
         if (!match || typeof match !== 'object' || Array.isArray(match)) fail('invalid match');
         if (Object.keys(match).some(key => !['host', 'path'].includes(key))) fail('unsupported matcher constraint');
-        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group };
+        if (typeof route.group === 'string' && state.groups.includes(route.group)) fail('nested route group collision');
+        const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group, groups: typeof route.group === 'string' ? state.groups.concat(route.group) : state.groups };
         if (branch.hosts && !branch.hosts.length || branch.paths && !branch.paths.length) return;
         let rewrites = state.rewrites.slice();
         const handlers = Array.isArray(route.handle) ? route.handle : [];
@@ -91,7 +93,7 @@ function effectiveLeaves(cfg) {
       });
     });
   }
-  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, rewrites: [], order: [] });
+  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, rewrites: [], order: [], groups: [] });
   return leaves;
 }
 
