@@ -45,6 +45,17 @@ function effectiveLeaves(cfg) {
   const leaves = [];
   function routes(list, state) {
     if (!Array.isArray(list)) fail('routes must be an array');
+    function siblingCanConsumeGroup(route, group) {
+      if (!route || route.group !== group) return false;
+      const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
+      return alternatives.some(match => {
+        if (!match || typeof match !== 'object' || Array.isArray(match)) return true;
+        if (Object.keys(match).some(key => !['host', 'path'].includes(key))) return true;
+        const hosts = intersect(state.hosts, patterns(match, 'host'), true);
+        const paths = intersect(state.paths, patterns(match, 'path'), false);
+        return (!hosts || hosts.length > 0) && (!paths || paths.length > 0);
+      });
+    }
     const normalized = [];
     for (let i = 0; i < list.length; i++) {
       const route = list[i], next = list[i + 1];
@@ -58,6 +69,7 @@ function effectiveLeaves(cfg) {
         && !state.groups.includes(route.group)
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
+      if (nativeSequential && list.slice(0, i).some(sibling => siblingCanConsumeGroup(sibling, route.group))) fail('preceding sibling group collision');
       if (matchedSequential || nativeSequential) {
         if (route.terminal || next.terminal || next.group || matchedSequential && route.group) fail('unsupported sequential rewrite control');
         if (matchedSequential && Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');

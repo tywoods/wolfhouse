@@ -55,6 +55,24 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    outer.handle[0].routes[0].group = outer.group;
    assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision/);
  });
+ await test('native rewrite group consumed by an earlier matching sibling is rejected', () => {
+   const cfg = load('native-actual-canonical.json');
+   const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
+   routes.unshift({ group: routes[0].group, handle: [] });
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+ });
+ await test('native rewrite group reuse by an earlier path-disjoint sibling passes', () => {
+   const cfg = load('native-actual-canonical.json');
+   const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
+   routes.unshift({ group: routes[0].group, match: [{ path: ['/different'] }], handle: [] });
+   inspector.verifyInactiveObject(cfg);
+ });
+ await test('native rewrite group reuse by an earlier matching sibling in another group passes', () => {
+   const cfg = load('native-actual-canonical.json');
+   const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
+   routes.unshift({ group: 'other-group', handle: [] });
+   inspector.verifyInactiveObject(cfg);
+ });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes.splice(1, 0, { handle: [{ handler: 'static_response', status_code: 204 }] });
