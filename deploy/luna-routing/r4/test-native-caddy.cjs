@@ -23,9 +23,9 @@ async function freePort() {
   await close(server);
   return port;
 }
-async function request(port) {
+async function request(port, requestPath = inspector.CONTROLLER) {
   return new Promise((resolve, reject) => {
-    const req = http.get({ host: '127.0.0.1', port, path: inspector.CONTROLLER, headers: { host: inspector.SITE }, timeout: 2000 }, res => {
+    const req = http.get({ host: '127.0.0.1', port, path: requestPath, headers: { host: inspector.SITE }, timeout: 2000 }, res => {
       res.resume();
       res.on('end', () => resolve(res.statusCode));
     });
@@ -37,7 +37,7 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects, expec
   const seen = [];
   const cfg = structuredClone(fixture);
   mutate(controllerRoutes(cfg));
-  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+  if (inspectorRejects) assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision|intercepting empty terminal route/);
   else inspector.verifyInactiveObject(cfg);
   const upstream = http.createServer((req, res) => { seen.push(req.url); res.writeHead(204); res.end(); });
   const upstreamPort = await listen(upstream);
@@ -71,6 +71,57 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects, expec
   }
   return { name, inspector: inspectorRejects ? 'REJECT' : 'PASS', upstreamPath: seen[0] };
 }
+function replaceDials(value, controllerDial, proofDial) {
+  if (Array.isArray(value)) return value.forEach(item => replaceDials(item, controllerDial, proofDial));
+  if (!value || typeof value !== 'object') return;
+  if (value.dial === '127.0.0.1:8096') value.dial = controllerDial;
+  if (value.dial === '127.0.0.1:8094') value.dial = proofDial;
+  for (const child of Object.values(value)) replaceDials(child, controllerDial, proofDial);
+}
+async function runExactLead(root, name, expectedController, expectedProof, expectedAlias) {
+  const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${name}.json`), 'utf8'));
+  assert.throws(() => inspector.verifyInactiveObject(cfg));
+  const controllerSeen = [], proofSeen = [];
+  const controllerUpstream = http.createServer((req, res) => { controllerSeen.push(req.url); res.writeHead(204); res.end(); });
+  const proofUpstream = http.createServer((req, res) => { proofSeen.push(req.url); res.writeHead(204); res.end(); });
+  const controllerPort = await listen(controllerUpstream);
+  const proofPort = await listen(proofUpstream);
+  const listenPort = await freePort();
+  replaceDials(cfg, `127.0.0.1:${controllerPort}`, `127.0.0.1:${proofPort}`);
+  cfg.admin = { disabled: true };
+  cfg.apps.http.servers.srv0.automatic_https = { disable: true };
+  cfg.apps.http.servers.srv0.listen = [`127.0.0.1:${listenPort}`];
+  const config = path.join(root, `${name}.json`);
+  const stdout = fs.openSync(path.join(root, `${name}.stdout.log`), 'w');
+  const stderr = fs.openSync(path.join(root, `${name}.stderr.log`), 'w');
+  fs.writeFileSync(config, `${JSON.stringify(cfg, null, 2)}\n`);
+  const child = cp.spawn(caddy, ['run', '--config', config], {
+    env: { ...process.env, XDG_CONFIG_HOME: path.join(root, `${name}-config`), XDG_DATA_HOME: path.join(root, `${name}-data`) },
+    stdio: ['ignore', stdout, stderr]
+  });
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (child.exitCode !== null) throw new Error(`Caddy exited ${child.exitCode} in ${name}`);
+      try { await request(listenPort, '/ready-probe'); ready = true; break; } catch { await new Promise(resolve => setTimeout(resolve, 40)); }
+    }
+    assert(ready, `${name} Caddy readiness`);
+    await request(listenPort, inspector.CONTROLLER);
+    await request(listenPort, inspector.PROOF);
+    await request(listenPort, inspector.CONTROLLER_REWRITE);
+    assert.deepStrictEqual(controllerSeen, expectedController, `${name} controller upstream calls`);
+    assert.deepStrictEqual(proofSeen, expectedProof, `${name} proof upstream calls`);
+    const aliasSeen = controllerSeen.filter(uri => uri === inspector.CONTROLLER_REWRITE).length;
+    assert.strictEqual(aliasSeen, expectedAlias, `${name} direct alias reachability`);
+  } finally {
+    child.kill('SIGTERM');
+    const exit = await new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+    fs.closeSync(stdout); fs.closeSync(stderr);
+    await close(controllerUpstream); await close(proofUpstream);
+    assert.deepStrictEqual(exit, { code: 0, signal: null }, `${name} Caddy exit`);
+  }
+  return { name, inspector: 'REJECT', controllerSeen, proofSeen };
+}
 (async () => {
   const version = cp.execFileSync(caddy, ['version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^v2\.6\.2\b/, 'native regression requires exact Caddy 2.6.2');
@@ -86,8 +137,11 @@ async function runCase(root, name, mutate, expectedPath, inspectorRejects, expec
     await runCase(root, 'earlier-nested-same-group', routes => routes.unshift({ handle: [{ handler: 'subroute', routes: [{ group: routes[0].group, handle: [] }] }] }), inspector.CONTROLLER, true),
     await runCase(root, 'earlier-outer-same-group', routes => routes.unshift({ group: routes[0].group, handle: [{ handler: 'subroute', routes: [{ handle: [] }] }] }), inspector.CONTROLLER, true),
     await runCase(root, 'earlier-rewrite-reaches-same-group', routes => routes.unshift({ handle: [{ handler: 'rewrite', uri: '/rewritten-before-group' }, { handler: 'subroute', routes: [{ group: routes[0].group, match: [{ path: ['/rewritten-before-group'] }], handle: [] }] }] }), '/rewritten-before-group', true),
-    await runCase(root, 'earlier-empty-terminal-same-group', routes => routes.unshift({ group: routes[0].group, terminal: true, handle: [] }), null, true, 200)
+    await runCase(root, 'earlier-empty-terminal-same-group', routes => routes.unshift({ group: routes[0].group, terminal: true, handle: [] }), null, true, 200),
+    await runExactLead(root, 'lead-outer-group2', [], [], 0),
+    await runExactLead(root, 'lead-ungrouped-terminal', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'lead-matched-alias', [inspector.CONTROLLER_REWRITE, inspector.CONTROLLER_REWRITE], [inspector.PROOF], 2)
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);
-  process.stdout.write(`PASS native Caddy nested-group regression ${root}\n${JSON.stringify(cases)}\n`);
+  process.stdout.write(`PASS native Caddy routing regression ${root}\n${JSON.stringify(cases)}\n`);
 })().catch(error => { process.stderr.write(`${error.stack}\n`); process.exitCode = 1; });

@@ -82,20 +82,27 @@ function effectiveLeaves(cfg) {
     const normalized = [];
     for (let i = 0; i < list.length; i++) {
       const route = list[i], next = list[i + 1];
-      const rewrite = Array.isArray(route?.handle) && route.handle.length === 1 && route.handle[0]?.handler === 'rewrite' ? route.handle[0] : null;
+      const routeAlternatives = Array.isArray(route?.match) && route.match.length ? route.match : [{}];
+      const relevantApproved = [...APPROVED.keys()].filter(requestPath =>
+        routeAlternatives.some(match => alternativeMayApply(match, SITE, requestPath)));
+      if (typeof route?.group === 'string' && relevantApproved.some(requestPath =>
+        list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, route.group, SITE, requestPath)))) {
+        fail('preceding sibling group collision');
+      }
+      const handlers = Array.isArray(route?.handle) ? route.handle : [];
+      if (route?.terminal === true && handlers.length === 0 && relevantApproved.length) {
+        fail('intercepting empty terminal route');
+      }
+      const rewrite = handlers.length === 1 && handlers[0]?.handler === 'rewrite' ? handlers[0] : null;
       const nextProxy = Array.isArray(next?.handle) && next.handle.length === 1 && next.handle[0]?.handler === 'reverse_proxy' ? next.handle[0] : null;
       const rewritePath = rewrite?.uri;
-      const nextPaths = Array.isArray(next?.match) && next.match.length === 1 ? patterns(next.match[0], 'path') : null;
-      const matchedSequential = rewrite && nextProxy && typeof rewritePath === 'string' && exact(nextPaths, rewritePath);
       const nativeSequential = rewrite && nextProxy && rewritePath === CONTROLLER_REWRITE && exact(state.paths, CONTROLLER)
         && next.match === undefined && typeof route.group === 'string'
         && !state.groups.includes(route.group)
         && Object.keys(route).every(key => ['group', 'handle'].includes(key))
         && Object.keys(next).every(key => key === 'handle');
-      if (nativeSequential && list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, route.group, SITE, CONTROLLER))) fail('preceding sibling group collision');
-      if (matchedSequential || nativeSequential) {
-        if (route.terminal || next.terminal || next.group || matchedSequential && route.group) fail('unsupported sequential rewrite control');
-        if (matchedSequential && Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');
+      if (nativeSequential) {
+        if (route.terminal || next.terminal || next.group) fail('unsupported sequential rewrite control');
         normalized.push({ ...route, handle: [rewrite, nextProxy] }); i++; continue;
       }
       normalized.push(route);

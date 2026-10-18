@@ -95,7 +95,7 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const cfg = load('native-actual-canonical.json');
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: routes[0].group, terminal: true, handle: [] });
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /preceding sibling group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /intercepting empty terminal route/);
  });
  await test('native rewrite group reuse by an earlier path-disjoint sibling passes', () => {
    const cfg = load('native-actual-canonical.json');
@@ -108,6 +108,15 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const routes = cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes;
    routes.unshift({ group: 'other-group', handle: [] });
    inspector.verifyInactiveObject(cfg);
+ });
+ for (const [name, message] of [
+   ['lead-outer-group2.json', /preceding sibling group collision/],
+   ['lead-ungrouped-terminal.json', /intercepting empty terminal route/],
+   ['lead-matched-alias.json', /unapproved or delivery proxy/]
+ ]) await test(`Captain exact native lead ${name} is rejected`, () => {
+   const cfg = load(name);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), message);
+   assert.throws(() => inspector.compareProtectedObjects(load('protected-baseline.json'), cfg), message);
  });
  await test('native rewrite/proxy precedence interruption is rejected', () => {
    const cfg = load('native-actual-canonical.json');
