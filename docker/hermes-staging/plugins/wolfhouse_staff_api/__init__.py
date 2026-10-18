@@ -465,6 +465,12 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         for item in raw_travelers
         if isinstance(item, dict)
     ] or None
+    group_gender = params.get("group_gender")
+    known_genders = {item["explicit_gender"] for item in (travelers or [])
+                     if item.get("explicit_gender") in {"female", "male"}}
+    if (_clean(group_gender).lower() in {"female", "male"}
+            and any(value != _clean(group_gender).lower() for value in known_genders)):
+        group_gender = None
     if not payment_intent and not preference and not travelers and not any(
             params.get(key) not in (None, "", []) for key in (
                 "name_hint", "name_confidence", "room_name_hints", "name_ambiguous",
@@ -488,7 +494,7 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
         # person-bound fact gender_preference.  Omitting guests/names must not
         # discard it before a gendered-bed eligibility decision.
         explicit_gender=params.get("explicit_gender") or params.get("gender_preference"),
-        group_gender=params.get("group_gender"),
+        group_gender=group_gender,
         room_preference=preference,
         private_room_chosen=preference in {"private", "couple_private", "private_room"},
         available=available or None,
@@ -571,6 +577,21 @@ def _intentional_block_result(data):
     }
 
 
+def _strip_group_gender_conflicting_with_person_facts(payload):
+    """Never let an aggregate guess override a known occupant fact."""
+    if not isinstance(payload, dict):
+        return
+    group_gender = _clean(payload.get("group_gender")).lower()
+    if group_gender not in {"female", "male"}:
+        return
+    rows = payload.get("room_name_hints") or payload.get("guests") or []
+    known = {_clean(row.get("explicit_gender")).lower() for row in rows
+             if isinstance(row, dict)
+             and _clean(row.get("explicit_gender")).lower() in {"female", "male"}}
+    if any(value != group_gender for value in known):
+        payload.pop("group_gender", None)
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -601,6 +622,7 @@ def check_availability(params, **kwargs):
              and guest.get("explicit_gender") in ("male", "female")]
     if hints:
         payload["room_name_hints"] = hints
+    _strip_group_gender_conflicting_with_person_facts(payload)
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
@@ -797,6 +819,7 @@ def quote_booking(params, **kwargs):
              and guest.get("explicit_gender") in ("male", "female")]
     if hints:
         payload["room_name_hints"] = hints
+    _strip_group_gender_conflicting_with_person_facts(payload)
     # The quote shown to the guest must itself carry Staff's ordered bed pick.
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.

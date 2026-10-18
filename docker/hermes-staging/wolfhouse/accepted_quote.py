@@ -441,7 +441,8 @@ def _guest_room_lines(plan, offer, language='en'):
         key = (room.get('room_code'), kind)
         if key not in index:
             index[key] = len(groups)
-            groups.append({'kind': kind, 'room': room.get('room_code'), 'names': []})
+            groups.append({'kind': kind, 'room': room.get('room_code'), 'names': [], 'beds': 0})
+        groups[index[key]]['beds'] += 1
         name = guest.get('name') if isinstance(guest, dict) else ''
         if isinstance(name, str) and name.strip():
             groups[index[key]]['names'].append(name.strip())
@@ -471,10 +472,7 @@ def _guest_room_lines(plan, offer, language='en'):
         first = True
         for item in same:
             who = _join_names(item['names'], language)
-            beds = len(item['names'])
-            if not beds:
-                beds = sum(1 for code in selected_bed_codes
-                           if rooms.get(code, {}).get('room_code') == item['room'])
+            beds = item['beds']
             n = _count_word(beds, language)
             # Room and bed codes are Staff internals, never guest-facing copy.
             room_suffix = ''
@@ -533,19 +531,37 @@ def _final_copy(language, key, **values):
 
 
 def _localized_eligibility_question(question, language):
-    """Retain Staff's eligibility meaning without leaking its English wording."""
-    low = str(question or '').casefold()
-    female = bool(re.search(r'\b(?:women|woman|female)\b', low))
-    male = bool(re.search(r'\b(?:men|man|male)\b', low))
+    """Retain Staff's eligibility meaning, including subject count and negation."""
+    text = str(question or '').strip()
+    low = text.casefold()
+    female = bool(re.search(r'\b(?:women|woman|female|girls?|lad(?:y|ies))\b', low))
+    male = bool(re.search(r'\b(?:men|man|male|boys?|guys?)\b', low))
     if not (female ^ male) or language == 'en':
-        return str(question).strip()
+        return text
+    count = (3 if re.search(r'\b(?:three|3)\b', low)
+             else 2 if re.search(r'\b(?:both|two|2)\b', low) else 1)
+    negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))
     questions = {
-        'es': ('¿Son mujeres las dos huéspedes?', '¿Son hombres los dos huéspedes?'),
-        'fr': ('Les deux personnes sont-elles des femmes ?', 'Les deux personnes sont-elles des hommes ?'),
-        'de': ('Sind beide Gäste Frauen?', 'Sind beide Gäste Männer?'),
+        ('es', 1, False): '¿Es la huésped una mujer?' if female else '¿Es el huésped un hombre?',
+        ('es', 1, True): '¿No es la huésped una mujer?' if female else '¿No es el huésped un hombre?',
+        ('es', 2, False): '¿Son mujeres las dos huéspedes?' if female else '¿Son hombres los dos huéspedes?',
+        ('es', 2, True): '¿No son mujeres las dos huéspedes?' if female else '¿No son hombres los dos huéspedes?',
+        ('es', 3, False): '¿Son mujeres las tres huéspedes?' if female else '¿Son hombres los tres huéspedes?',
+        ('es', 3, True): '¿No son mujeres las tres huéspedes?' if female else '¿No son hombres los tres huéspedes?',
+        ('fr', 1, False): 'La personne est-elle une femme ?' if female else 'La personne est-elle un homme ?',
+        ('fr', 1, True): "La personne n'est-elle pas une femme ?" if female else "La personne n'est-elle pas un homme ?",
+        ('fr', 2, False): 'Les deux personnes sont-elles des femmes ?' if female else 'Les deux personnes sont-elles des hommes ?',
+        ('fr', 2, True): 'Les deux personnes ne sont-elles pas des femmes ?' if female else 'Les deux personnes ne sont-elles pas des hommes ?',
+        ('fr', 3, False): 'Les trois personnes sont-elles des femmes ?' if female else 'Les trois personnes sont-elles des hommes ?',
+        ('fr', 3, True): 'Les trois personnes ne sont-elles pas des femmes ?' if female else 'Les trois personnes ne sont-elles pas des hommes ?',
+        ('de', 1, False): 'Ist der Gast eine Frau?' if female else 'Ist der Gast ein Mann?',
+        ('de', 1, True): 'Ist der Gast keine Frau?' if female else 'Ist der Gast kein Mann?',
+        ('de', 2, False): 'Sind beide Gäste Frauen?' if female else 'Sind beide Gäste Männer?',
+        ('de', 2, True): 'Sind nicht beide Gäste Frauen?' if female else 'Sind nicht beide Gäste Männer?',
+        ('de', 3, False): 'Sind alle drei Gäste Frauen?' if female else 'Sind alle drei Gäste Männer?',
+        ('de', 3, True): 'Sind nicht alle drei Gäste Frauen?' if female else 'Sind nicht alle drei Gäste Männer?',
     }
-    pair = questions.get(language)
-    return pair[0 if female else 1] if pair else str(question).strip()
+    return questions.get((language, count, negated), text)
 
 
 def _evidence_in_current_turn(raw, evidence):

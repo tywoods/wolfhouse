@@ -42,6 +42,24 @@ class CaptainR1R5Tests(unittest.TestCase):
         decision = plugin._room_decision_for_tool(payload)
         self.assertFalse(decision.get("clarification_needed"), decision)
 
+    def test_r3_partial_female_roster_overrides_stale_male_group_guess(self):
+        decision = plugin._room_decision_for_tool({
+            "guest_count": 2,
+            "group_gender": "male",
+            "room_name_hints": [{"name": "Alex", "explicit_gender": "female"}],
+        }, {"girls_room_available": True, "guys_room_available": True})
+        self.assertEqual(decision["resolved_composition"], "unknown", decision)
+        self.assertTrue(decision["clarification_needed"], decision)
+        self.assertNotIn("male_only", decision["allowed_room_preferences"], decision)
+        self.assertNotIn("female_only", decision["allowed_room_preferences"], decision)
+        allocator_payload = {
+            "guest_count": 2,
+            "group_gender": "male",
+            "room_name_hints": [{"name": "Alex", "explicit_gender": "female"}],
+        }
+        plugin._strip_group_gender_conflicting_with_person_facts(allocator_payload)
+        self.assertNotIn("group_gender", allocator_payload)
+
     def test_r4_two_and_three_name_completions_compare_atomically(self):
         before = {"offer_fingerprint": "old", "guest_bed_assignments": [
             {"guest_index": i, "guest_name": name, "bed_code": f"B{i}"}

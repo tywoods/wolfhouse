@@ -24,7 +24,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             owner._guest_room_lines(plan, offer, "en"),
         )
 
-    def test_named_guest_does_not_claim_unnamed_guests_bed(self):
+    def test_named_guest_discloses_unnamed_guests_bed_without_inventing_a_name(self):
         plan = {"guests": [{"name": "Alex"}, {"name": ""}]}
         offer = {
             "room_arrangement": [
@@ -37,8 +37,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         lines = owner._guest_room_lines(plan, offer, "en")
-        self.assertIn("Alex: a bed in the room.", lines)
-        self.assertNotIn("Alex: two beds in the same mixed room.", lines)
+        self.assertEqual(["Alex: two beds in the same room."], lines)
 
     def test_three_unnamed_guests_in_three_rooms_still_render(self):
         plan = {
@@ -122,6 +121,40 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
         for language, phrase in expected.items():
             with self.subTest(language=language):
                 self.assertEqual(phrase, owner._final_copy(language, "refusal"))
+
+        cases = {
+            "Is the guest a woman?": {
+                "en": "Is the guest a woman?",
+                "es": "¿Es la huésped una mujer?",
+                "fr": "La personne est-elle une femme ?",
+                "de": "Ist der Gast eine Frau?",
+            },
+            "Are both guests women?": {
+                "en": "Are both guests women?",
+                "es": "¿Son mujeres las dos huéspedes?",
+                "fr": "Les deux personnes sont-elles des femmes ?",
+                "de": "Sind beide Gäste Frauen?",
+            },
+            "Are all three guests girls?": {
+                "en": "Are all three guests girls?",
+                "es": "¿Son mujeres las tres huéspedes?",
+                "fr": "Les trois personnes sont-elles des femmes ?",
+                "de": "Sind alle drei Gäste Frauen?",
+            },
+            "Are both guests not women?": {
+                "en": "Are both guests not women?",
+                "es": "¿No son mujeres las dos huéspedes?",
+                "fr": "Les deux personnes ne sont-elles pas des femmes ?",
+                "de": "Sind nicht beide Gäste Frauen?",
+            },
+        }
+        for question, translations in cases.items():
+            for language, expected in translations.items():
+                with self.subTest(question=question, language=language):
+                    self.assertEqual(
+                        expected,
+                        owner._localized_eligibility_question(question, language),
+                    )
 
 
 if __name__ == "__main__":
