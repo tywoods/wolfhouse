@@ -365,7 +365,7 @@ const LODGING_BOOKINGS_SQL = `
          b.check_out::text AS check_out,
          b.guest_count,
          b.created_at,
-         b.status::text AS status, b.record_source::text AS record_source,
+         b.status::text AS status, b.booking_source::text AS record_source,
          b.metadata,
          NULLIF(upper(b.metadata->>'currency'), '') AS currency
     FROM bookings b
@@ -415,7 +415,7 @@ const LODGING_PAYMENTS_SQL = `
   SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at,
          p.payment_kind::text AS payment_kind, p.metadata,
          p.metadata->>'paid_amount_type' AS paid_amount_type,
-         COALESCE(NULLIF(upper(p.metadata->>'currency'), ''), NULLIF(upper(b.metadata->>'currency'), '')) AS currency,
+         NULLIF(upper(p.currency), '') AS currency,
          b.metadata AS booking_metadata, b.status::text AS booking_status, b.created_at AS booking_created_at,
          b.total_amount_cents AS booking_total_amount_cents
     FROM payments p JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
@@ -460,9 +460,9 @@ const LODGING_REFUNDS_SQL = `
          r.effective_date::text AS effective_date,
          r.location_id,
          r.source,
-         NULLIF(upper(b.metadata->>'currency'), '') AS currency,
+         NULLIF(upper(r.currency), '') AS currency,
          b.metadata AS booking_metadata,
-         b.record_source::text AS booking_record_source
+         b.booking_source::text AS booking_record_source
     FROM booking_refund_records r
     JOIN clients c ON c.id = r.client_id
     JOIN bookings b ON b.id = r.booking_id AND b.client_id = r.client_id

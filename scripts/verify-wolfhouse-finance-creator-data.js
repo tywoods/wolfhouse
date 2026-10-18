@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const summaryLib = require('./lib/sunset-finance-summary');
@@ -64,17 +65,54 @@ assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'products',
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'products',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows.find(row=>row.row_id==='product-2').creator,'staff','product contributor retains booking creator despite service-row source');
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'warnings',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].reason_code,'malformed_money');
 assert.equal(summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'arrival',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail.rows[0].booking_id,'luna');
+const scopedDetailInput = {
+  ...input,
+  bookings:[...input.bookings,
+    {booking_id:'outside-arrival',created_at:'2026-10-01',check_in:'2026-11-02',check_out:'2026-11-03',total_amount_cents:111,currency:'EUR',metadata:{}},
+    {booking_id:'usd-product',created_at:'2026-10-01',check_in:'2026-10-12',check_out:'2026-10-13',total_amount_cents:222,currency:'USD',metadata:{}}],
+  bsr:[...input.bsr,
+    {service_record_id:'outside-product',booking_id:'luna',service_date:'2026-11-02',service_type:'accommodation',amount_due_cents:111,metadata:{}},
+    {service_record_id:'usd-product-row',booking_id:'usd-product',service_date:'2026-10-12',service_type:'accommodation',amount_due_cents:222,metadata:{}}],
+};
+const scopedDetailProjection=summaryLib.computeWolfhouseCreatorFinance({...scopedDetailInput,now,view:{granularity:'month',anchor:'2026-10-17'},clientSlug:'wolfhouse-somo'});
+const scopedProducts=summaryLib.pageWolfhouseCreatorFinance(scopedDetailProjection,{kind:'products',currency:'EUR',cohort_id:scopedDetailProjection.cohort_id}).detail;
+const scopedArrival=summaryLib.pageWolfhouseCreatorFinance(scopedDetailProjection,{kind:'arrival',currency:'EUR',cohort_id:scopedDetailProjection.cohort_id}).detail;
+assert.deepEqual(scopedProducts.rows.map(r=>r.row_id),['product-1','product-2'],'product rows are period/currency scoped');
+assert.deepEqual(scopedProducts.full_cohort_totals,{product_amount_cents:30000,row_count:2},'product totals use the same scoped cohort');
+assert.deepEqual(scopedArrival.rows.map(r=>r.booking_id),['luna'],'arrival rows are check-in-period/currency scoped');
+assert.equal(scopedArrival.page.matched_count,1,'arrival paging count uses the scoped cohort');
 const outsidePeriodPayment = summaryLib.computeWolfhouseCreatorFinance({ ...input,
   payments:[...input.payments,{payment_id:'outside',booking_id:'staff',amount_paid_cents:1000,paid_at:'2026-09-20T10:00:00Z',payment_kind:'balance',metadata:{},currency:'EUR',booking_metadata:{created_by_staff:true}}],
   now, view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
 assert.notEqual(outsidePeriodPayment.cohort_id,projection.cohort_id,'all-active outstanding input change invalidates cohort even outside selected receipt range');
+const reordered = summaryLib.computeWolfhouseCreatorFinance({ ...input,
+  bookings:[...input.bookings].reverse(), payments:[...input.payments].reverse(), bsr:[...input.bsr].reverse(),
+  now, view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
+assert.equal(reordered.cohort_id,projection.cohort_id,'cohort fingerprint is independent of database row order');
+for (const [label, patch] of [
+  ['arrival checkout', {bookings:input.bookings.map(b=>b.booking_id==='luna'?{...b,check_out:'2026-10-18'}:b)}],
+  ['booking creator evidence', {bookings:input.bookings.map(b=>b.booking_id==='staff'?{...b,metadata:{source:'import'}}:b)}],
+  ['product service date', {bsr:input.bsr.map(r=>r.service_record_id==='product-1'?{...r,service_date:'2026-10-04'}:r)}],
+  ['refund effective date', {refund_records:input.refund_records.map(r=>({...r,effective_date:'2026-10-07'}))}],
+  ['refund ledger availability', {refund_ledger_unavailable:true}],
+]) {
+  const changed=summaryLib.computeWolfhouseCreatorFinance({...input,...patch,now,view:{granularity:'month',anchor:'2026-10-17'},clientSlug:'wolfhouse-somo',locationId:''});
+  assert.notEqual(changed.cohort_id,projection.cohort_id,`${label} invalidates cohort`);
+}
 assert.throws(()=>summaryLib.pageWolfhouseCreatorFinance(projection,{kind:'payments',currency:'EUR',cohort_id:'stale',limit:2}),e=>e&&e.code==='FINANCE_COHORT_STALE');
 const sql = dataLib.LODGING_PAYMENTS_SQL;
 assert(/payment_kind/.test(sql) && /paid_amount_type|metadata/.test(sql) && /booking_metadata/.test(sql), 'query projects purpose and creator evidence');
 assert(/created_at/.test(dataLib.LODGING_BOOKINGS_SQL) && /metadata/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking query projects creation evidence');
+assert(/b\.booking_source::text AS record_source/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking query aliases the migration-backed booking_source column');
+assert(!/b\.record_source/.test(dataLib.LODGING_BOOKINGS_SQL + dataLib.LODGING_REFUNDS_SQL), 'lodging SQL never references nonexistent bookings.record_source');
+const initMigration=fs.readFileSync(path.join(ROOT,'database/migrations/001_init.sql'),'utf8');
+const refundMigration=fs.readFileSync(path.join(ROOT,'database/migrations/056_booking_refund_records.sql'),'utf8');
+assert(/booking_source\s+booking_source/.test(initMigration) && /currency\s+CHAR\(3\)/.test(refundMigration), 'queried booking/refund columns exist in migrations');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund SQL does not invent EUR');
+assert(/NULLIF\(upper\(p\.currency/.test(dataLib.LODGING_PAYMENTS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment currency comes only from payments.currency');
+assert(/NULLIF\(upper\(r\.currency/.test(dataLib.LODGING_REFUNDS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund currency comes only from booking_refund_records.currency');
 assert.throws(()=>summaryLib.computeWolfhouseCreatorFinance({...input,currency:'USD',now,view:{granularity:'month',anchor:'2026-10-17'}}),e=>e&&e.code==='FINANCE_INVALID_CURRENCY');
 const bad = summaryLib.computeWolfhouseCreatorFinance({...input,payments:[...input.payments,{...input.payments[0],amount_paid_cents:3001}],now,view:{granularity:'month',anchor:'2026-10-17'}});
 assert(bad.metrics.gross_receipts.reason_codes.includes('conflicting_payment_identity'));

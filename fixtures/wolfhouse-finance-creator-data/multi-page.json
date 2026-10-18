@@ -141,7 +141,7 @@
         },
         "generated_at": "2026-10-17T12:00:00.000Z",
         "as_of": "2026-10-17T12:00:00.000Z",
-        "cohort_id": "whcf1_98a4891f4fe029e3d3463179",
+        "cohort_id": "whcf1_1360cef2ef9ab1093c34ce36",
         "metrics": {
           "gross_receipts": {
             "state": "complete",
@@ -762,7 +762,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_98a4891f4fe029e3d3463179",
+        "cohort_id": "whcf1_1360cef2ef9ab1093c34ce36",
         "limit": 2
       },
       "response": {
@@ -771,7 +771,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_98a4891f4fe029e3d3463179",
+            "cohort_id": "whcf1_1360cef2ef9ab1093c34ce36",
             "detail": {
               "kind": "payments",
               "creator": null,
@@ -814,7 +814,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_98a4891f4fe029e3d3463179",
+        "cohort_id": "whcf1_1360cef2ef9ab1093c34ce36",
         "limit": 2,
         "cursor": "Mg"
       },
@@ -824,7 +824,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_98a4891f4fe029e3d3463179",
+            "cohort_id": "whcf1_1360cef2ef9ab1093c34ce36",
             "detail": {
               "kind": "payments",
               "creator": null,

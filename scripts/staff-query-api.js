@@ -48355,8 +48355,15 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     // Wolfhouse projection is tenant-wide; never accept an arbitrary label that could
     // make the same rows appear location-scoped.
     if (locationId) return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
-    const iso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
-      && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
+    const iso = value => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const [year, month, day] = value.split('-').map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      return !Number.isNaN(parsed.getTime())
+        && parsed.getUTCFullYear() === year
+        && parsed.getUTCMonth() === month - 1
+        && parsed.getUTCDate() === day;
+    };
     if ((query.granularity != null && !['day','week','month','year','custom'].includes(String(query.granularity).toLowerCase()))
       || (query.anchor != null && !iso(query.anchor)) || (query.start != null && !iso(query.start))
       || (query.end != null && !iso(query.end)) || ((query.start == null) !== (query.end == null))

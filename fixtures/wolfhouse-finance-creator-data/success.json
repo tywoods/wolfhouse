@@ -147,7 +147,7 @@
         },
         "generated_at": "2026-10-17T12:00:00.000Z",
         "as_of": "2026-10-17T12:00:00.000Z",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "metrics": {
           "gross_receipts": {
             "state": "complete",
@@ -768,7 +768,7 @@
       "request": {
         "kind": "payments",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -777,7 +777,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "payments",
               "creator": null,
@@ -828,7 +828,7 @@
       "request": {
         "kind": "bookings",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -837,7 +837,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "bookings",
               "creator": null,
@@ -876,7 +876,7 @@
       "request": {
         "kind": "outstanding",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -885,7 +885,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "outstanding",
               "creator": null,
@@ -917,7 +917,7 @@
       "request": {
         "kind": "refunds",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -926,7 +926,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "refunds",
               "creator": null,
@@ -959,7 +959,7 @@
       "request": {
         "kind": "products",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -968,7 +968,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "products",
               "creator": null,
@@ -1015,7 +1015,7 @@
       "request": {
         "kind": "warnings",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -1024,7 +1024,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "warnings",
               "creator": null,
@@ -1056,7 +1056,7 @@
       "request": {
         "kind": "arrival",
         "currency": "EUR",
-        "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+        "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
         "limit": 100
       },
       "response": {
@@ -1065,7 +1065,7 @@
           "success": true,
           "wolfhouse_creator_finance": {
             "schema_version": "wolfhouse.creator-finance.v1",
-            "cohort_id": "whcf1_c0ddc770b9f58c4b6b0bfd80",
+            "cohort_id": "whcf1_a18e9b6f0f3b9faf8c03be6f",
             "detail": {
               "kind": "arrival",
               "creator": null,

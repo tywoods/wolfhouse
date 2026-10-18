@@ -1925,6 +1925,22 @@ function wolfMetric(valueKey, value, state, dateBasis, coverage, reasons, extra)
     }, ...(extra || {}) };
 }
 
+// Database result ordering is not contractual. Canonicalize object keys and
+// set-like arrays before hashing so identical finance facts have one cohort ID.
+function canonicalFinanceFacts(value) {
+  if (Array.isArray(value)) {
+    return value.map(canonicalFinanceFacts)
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  }
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((out, key) => {
+      out[key] = canonicalFinanceFacts(value[key]);
+      return out;
+    }, {});
+  }
+  return value;
+}
+
 function computeWolfhouseCreatorFinance(args) {
   const now = args && args.now ? new Date(args.now) : new Date();
   const timeZone = 'Europe/Madrid';
@@ -2068,17 +2084,23 @@ function computeWolfhouseCreatorFinance(args) {
     return { date, gross_receipts_cents:rg, recorded_refunds_cents:refundState==='complete'?dayRefunds:null,
       net_receipts_cents:refundState==='complete'?checkedSubtract(rg,dayRefunds):null,
       state:refundState==='complete'&&paymentState==='complete'?'complete':'partial', reason_codes:[...new Set([...reasons,...refundReasons])] }; });
-  const bookingCreatorById = new Map(bookings
+  const bookingById = new Map(bookings
     .filter(b => b && b.booking_id != null)
-    .map(b => [String(b.booking_id), wolfhouseCreator(b.metadata, b.record_source)]));
+    .map(b => [String(b.booking_id), b]));
+  const bookingCreatorById = new Map([...bookingById]
+    .map(([id, b]) => [id, wolfhouseCreator(b.metadata, b.record_source)]));
   const productRows = (Array.isArray(args && args.bsr) ? args.bsr : []).map(r => {
     const amount=parseCanonicalIntCents(effectiveServiceDueCents(r));
     if (!amount.ok) return null;
     const md=r.metadata||{};
     const bookingId=String(r.booking_id);
+    const booking=bookingById.get(bookingId);
+    const serviceDate=r.service_date?String(r.service_date).slice(0,10):null;
+    if (!serviceDate || !inRange(serviceDate,range)
+        || !booking || String(booking.currency||'').toUpperCase()!==currency) return null;
     return { row_id:String(r.service_record_id||r.id||''), booking_id:bookingId,
       product_code:String(md.package_code||r.service_type||'unclassified'), product_label:String(md.package_name||md.package_code||r.service_type||'Unclassified'),
-      service_date:r.service_date?String(r.service_date).slice(0,10):null, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
+      service_date:serviceDate, quantity:Number.isSafeInteger(Number(r.quantity))?Number(r.quantity):1,
       amount_cents:amount.value, creator:bookingCreatorById.get(bookingId)||'unattributed' };
   }).filter(r=>r&&r.row_id).sort((a,b)=>String(a.service_date||'').localeCompare(String(b.service_date||''))||a.row_id.localeCompare(b.row_id));
   const warningRows = [];
@@ -2089,15 +2111,23 @@ function computeWolfhouseCreatorFinance(args) {
       ...(item.refund_id!=null?{refund_id:String(item.refund_id)}:{}), ...(item.service_record_id!=null?{service_record_id:String(item.service_record_id)}:{}),
     });
   }
-  const arrivalRows = bookings.filter(b=>b.check_in||b.check_out).map(b=>({ booking_id:String(b.booking_id),
+  const arrivalRows = bookings.filter(b=>{
+    const checkIn=b&&b.check_in?String(b.check_in).slice(0,10):null;
+    return checkIn && inRange(checkIn,range) && String(b.currency||'').toUpperCase()===currency;
+  }).map(b=>({ booking_id:String(b.booking_id),
     check_in:b.check_in?String(b.check_in).slice(0,10):null, check_out:b.check_out?String(b.check_out).slice(0,10):null,
     current_saved_total_cents:parseCanonicalIntCents(b.total_amount_cents).ok?parseCanonicalIntCents(b.total_amount_cents).value:null,
     creator:wolfhouseCreator(b.metadata,b.record_source) })).sort((a,b)=>String(a.check_in||'').localeCompare(String(b.check_in||''))||a.booking_id.localeCompare(b.booking_id));
-  const fingerprint = JSON.stringify({ client:String(args.clientSlug||''),location:String(args.locationId||''),range,currency,
-    paidLedger:[...paymentMap.values()].map(r=>[r.payment_id,r.booking_id,r.amount_cents,r.receipt_date,r.payment_kind,r.paid_amount_type,r.creator]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
-    payments:receiptRows.map(r=>[r.payment_id,r.amount_cents]),bookings:bookingRows.map(r=>[r.booking_id,r.current_saved_total_cents]),
-    outstanding:outstandingRows.map(r=>[r.booking_id,r.current_balance_cents]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
-    refunds:refundRows.map(r=>[r.refund_id,r.amount_cents]),products:productRows.map(r=>[r.row_id,r.amount_cents]),warnings:warningRows.map(r=>[r.row_id,r.reason_code]),arrival:arrivalRows.map(r=>[r.booking_id,r.check_in]) });
+  const fingerprint = JSON.stringify(canonicalFinanceFacts({
+    scope:{client:String(args.clientSlug||''),location:String(args.locationId||''),range,currency},
+    availability:{paymentState,depositState,bookingState,refundState,refundLedgerUnavailable:refundUnavailable,
+      occupancyDataUnavailable:!!(args&&args.occupancy_data_unavailable)},
+    reasonCodes:{payments:reasons,bookings:bookingReasons,outstanding:outstandingReasons,refunds:refundReasons},
+    paidLedger:[...paymentMap.values()].map(r=>({payment_id:r.payment_id,booking_id:String(r.booking_id),amount_cents:r.amount_cents,
+      receipt_date:r.receipt_date,payment_kind:r.payment_kind||null,paid_amount_type:r.paid_amount_type||(r.metadata||{}).paid_amount_type||null,creator:r.creator})),
+    payments:receiptRows.map(r=>({payment_id:r.payment_id,booking_id:String(r.booking_id),amount_cents:r.amount_cents,receipt_date:r.receipt_date,creator:r.creator})),
+    bookings:bookingRows,outstanding:outstandingRows,refunds:refundRows,products:productRows,warnings:warningRows,arrival:arrivalRows,
+  }));
   const crypto = require('crypto'); const cohortId = `whcf1_${crypto.createHash('sha256').update(fingerprint).digest('hex').slice(0,24)}`;
   const projection = { schema_version:WOLFHOUSE_CREATOR_SCHEMA, scope:{client:String(args.clientSlug||'wolfhouse-somo'),location_id:String(args.locationId||''),timezone:timeZone,currency,
       range:{start:range.start,end:range.end,granularity:primary.granularity,anchor:(args.view||{}).anchor||primary.today}}, generated_at:now.toISOString(),as_of:now.toISOString(),cohort_id:cohortId,
