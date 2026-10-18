@@ -26,8 +26,28 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
  await test('changed rewrite is rejected', () => rejects(c => c.apps.http.servers.one.routes[0].handle[0].uri = '/changed'));
  await test('changed upstream is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle[0].upstreams[0].dial = '127.0.0.1:8095'));
  await test('changed proxy handler fields are rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle[0].transport = {}));
+ await test('additional method matcher is rejected', () => rejects(c => c.apps.http.servers.one.routes[0].match[0].method = ['POST']));
+ await test('additional matcher on sequential proxy route is rejected', () => {
+   const cfg = valid();
+   cfg.apps.http.servers.one.routes[0] = { match: [{ host: [inspector.SITE] }], handle: [{ handler: 'subroute', routes: [
+     { match: [{ path: [inspector.CONTROLLER] }], handle: [{ handler: 'rewrite', uri: inspector.CONTROLLER_REWRITE }] },
+     { match: [{ path: [inspector.CONTROLLER_REWRITE], method: ['POST'] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8096' }] }] }
+   ] }] };
+   assert.throws(() => inspector.verifyInactiveObject(cfg));
+ });
  await test('unknown handler is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle.unshift({ handler: 'headers' })));
  await test('OR-match bypass is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].match.push({ path: ['/whatsapp/webhook'] })));
+ await test('native Caddy 2.6.2 sequential rewrite route passes', () => {
+   const cfg = valid();
+   cfg.apps.http.servers.one.routes[0] = {
+     match: [{ host: [inspector.SITE] }],
+     handle: [{ handler: 'subroute', routes: [
+       { match: [{ path: [inspector.CONTROLLER] }], handle: [{ handler: 'rewrite', uri: inspector.CONTROLLER_REWRITE }] },
+       { match: [{ path: [inspector.CONTROLLER_REWRITE] }], handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: '127.0.0.1:8096' }] }] }
+     ] }]
+   };
+   inspector.verifyInactiveObject(cfg);
+ });
  await test('protected snapshot removes only the intended France addition', () => assert.deepStrictEqual(inspector.snapshotProtectedObject(load('intended-nested.json')), load('protected-baseline.json')));
  await test('protected comparison accepts exact addition', () => inspector.compareProtectedObjects(load('protected-baseline.json'), load('intended-nested.json')));
  for (const [name, mutate] of [
@@ -41,6 +61,16 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const key = 'k'.repeat(48); const handler = controllerModule.makeHandler({ key, state: async () => { const e = new Error(); e.code = 'route_readback_failed'; throw e; } });
    const server = http.createServer(handler); await new Promise(r => server.listen(0, '127.0.0.1', r));
    try { const got = await probe.request(`http://127.0.0.1:${server.address().port}${controllerModule.ROUTE_PATH}`, key, { deadlineMs: 1000 }); assert.deepStrictEqual(got, { status: 503, body: { ok: false, code: 'route_readback_failed' } }); } finally { await new Promise(r => server.close(r)); }
+ });
+ await test('helper reads HMAC key from controller env without putting it in argv', () => {
+   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'r4-key-'));
+   try {
+     const envFile = path.join(dir, 'controller.env');
+     fs.writeFileSync(envFile, `LUNA_ROUTING_CONTROLLER_HMAC_KEY=${'z'.repeat(48)}\n`, { mode: 0o600 });
+     assert.strictEqual(probe.readKeyFile(envFile), 'z'.repeat(48));
+     fs.appendFileSync(envFile, `LUNA_ROUTING_CONTROLLER_HMAC_KEY=${'y'.repeat(48)}\n`);
+     assert.throws(() => probe.readKeyFile(envFile), /exactly one/);
+   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
  });
  await test('trickle cannot extend absolute deadline', async () => {
    const server = http.createServer((req, res) => { res.writeHead(503, { 'content-type': 'application/json' }); const timer = setInterval(() => res.write(' '), 15); req.on('close', () => clearInterval(timer)); });

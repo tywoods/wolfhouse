@@ -24,11 +24,23 @@ const root = path.join(tmp, 'etc', 'caddy'); fs.mkdirSync(path.join(root, 'sub')
 const main = path.join(root, 'Caddyfile'); const imported = path.join(root, 'sub', 'routes.caddy');
 fs.writeFileSync(main, 'import sub/routes.caddy\n'); fs.writeFileSync(imported, 'example.test { respond "ok" }\n');
 const before = enumerate(main, root); assert.equal(before.length, 2);
+assert.notEqual(before[0].mtime_ns, 'undefined');
 const untouchedInode = fs.statSync(imported).ino; const oldRootInode = fs.statSync(main).ino;
-const backup = path.join(tmp, 'backup'); fs.mkdirSync(backup); fs.cpSync(main, path.join(backup, 'Caddyfile'), { preserveTimestamps: true });
+const backup = path.join(tmp, 'backup'); fs.mkdirSync(backup); assert.equal(cp.spawnSync('cp', ['--archive', '--', main, path.join(backup, 'Caddyfile')]).status, 0);
 fs.writeFileSync(main, 'changed\n'); restoreAtomic(path.join(backup, 'Caddyfile'), main);
 assert.notEqual(fs.statSync(main).ino, oldRootInode); verifyRestore(before, enumerate(main, root), new Set(['Caddyfile']));
 assert.equal(fs.statSync(imported).ino, untouchedInode);
+const timestampBefore = enumerate(main, root);
+const importedTimes = fs.statSync(imported);
+fs.utimesSync(imported, importedTimes.atime, new Date(importedTimes.mtimeMs + 5000));
+assert.throws(() => verifyRestore(timestampBefore, enumerate(main, root), new Set(['Caddyfile'])), /mtime_ns drift/);
+fs.utimesSync(imported, importedTimes.atime, importedTimes.mtime);
+const external = path.join(tmp, 'external'); fs.mkdirSync(external);
+fs.writeFileSync(path.join(external, 'escaped.caddy'), 'escaped.test { respond "no" }\n');
+const linkedDir = path.join(root, 'linked'); fs.symlinkSync(external, linkedDir, 'dir');
+fs.writeFileSync(main, 'import linked/escaped.caddy\n');
+assert.throws(() => enumerate(main, root), /symlink|outside root/);
+fs.rmSync(linkedDir); fs.writeFileSync(main, 'import sub/routes.caddy\n');
 for (const mutate of [
   () => fs.writeFileSync(imported, 'drift\n'),
   () => fs.chmodSync(imported, 0o600),

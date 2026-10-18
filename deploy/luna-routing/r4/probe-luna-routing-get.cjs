@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
 const ROUTE_PATH = '/v1/routes/meta-whatsapp-verified-webhook';
 const MAX_RESPONSE_BYTES = 8192;
 function canonical(method, path, timestamp, nonce, body) { return [method, path, timestamp, nonce, body].join('\n'); }
@@ -53,11 +54,18 @@ function request(url, key, options = {}) {
     } catch (error) { if (req && typeof req.destroy === 'function') req.destroy(); finish(reject, error); }
   });
 }
+function readKeyFile(file) {
+  const matches = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(line => line.startsWith('LUNA_ROUTING_CONTROLLER_HMAC_KEY='));
+  if (matches.length !== 1) throw new Error('controller env must contain exactly one HMAC key');
+  const key = matches[0].slice(matches[0].indexOf('=') + 1);
+  if (key.length < 32 || /[\r\n]/.test(key)) throw new Error('invalid HMAC key');
+  return key;
+}
 async function main(argv) {
-  if (argv.length !== 2) throw new Error('usage: probe-luna-routing-get.cjs URL HMAC_KEY');
-  const result = await request(argv[0], argv[1], { deadlineMs: process.env.LUNA_ROUTING_PROBE_DEADLINE_MS ? Number(process.env.LUNA_ROUTING_PROBE_DEADLINE_MS) : 8000 });
+  if (argv.length !== 3 || argv[0] !== '--env-file') throw new Error('usage: probe-luna-routing-get.cjs --env-file URL CONTROLLER_ENV');
+  const result = await request(argv[1], readKeyFile(argv[2]), { deadlineMs: process.env.LUNA_ROUTING_PROBE_DEADLINE_MS ? Number(process.env.LUNA_ROUTING_PROBE_DEADLINE_MS) : 8000 });
   process.stdout.write(`${JSON.stringify(result)}\n`);
   if (result.status !== 503) throw new Error('authenticated route is not inactive');
 }
 if (require.main === module) main(process.argv.slice(2)).catch(error => { process.stderr.write(`FAIL ${error.message}\n`); process.exitCode = 1; });
-module.exports = { ROUTE_PATH, MAX_RESPONSE_BYTES, canonical, parseAllowlistedResult, request };
+module.exports = { ROUTE_PATH, MAX_RESPONSE_BYTES, canonical, parseAllowlistedResult, request, readKeyFile };

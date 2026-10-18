@@ -45,11 +45,26 @@ function effectiveLeaves(cfg) {
   const leaves = [];
   function routes(list, state) {
     if (!Array.isArray(list)) fail('routes must be an array');
-    list.forEach((route, order) => {
+    const normalized = [];
+    for (let i = 0; i < list.length; i++) {
+      const route = list[i], next = list[i + 1];
+      const rewrite = Array.isArray(route?.handle) && route.handle.length === 1 && route.handle[0]?.handler === 'rewrite' ? route.handle[0] : null;
+      const nextProxy = Array.isArray(next?.handle) && next.handle.length === 1 && next.handle[0]?.handler === 'reverse_proxy' ? next.handle[0] : null;
+      const rewritePath = rewrite?.uri;
+      const nextPaths = Array.isArray(next?.match) && next.match.length === 1 ? patterns(next.match[0], 'path') : null;
+      if (rewrite && nextProxy && typeof rewritePath === 'string' && exact(nextPaths, rewritePath)) {
+        if (route.terminal || route.group || next.terminal || next.group) fail('unsupported sequential rewrite control');
+        if (Object.keys(next.match[0]).some(key => key !== 'path')) fail('unsupported matcher constraint');
+        normalized.push({ ...route, handle: [rewrite, nextProxy] }); i++; continue;
+      }
+      normalized.push(route);
+    }
+    normalized.forEach((route, order) => {
       if (!route || typeof route !== 'object' || Array.isArray(route)) fail('invalid route');
       const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
       alternatives.forEach((match, alternative) => {
         if (!match || typeof match !== 'object' || Array.isArray(match)) fail('invalid match');
+        if (Object.keys(match).some(key => !['host', 'path'].includes(key))) fail('unsupported matcher constraint');
         const branch = { ...state, hosts: intersect(state.hosts, patterns(match, 'host'), true), paths: intersect(state.paths, patterns(match, 'path'), false), order: state.order.concat(order), alternative, terminal: route.terminal, group: route.group };
         if (branch.hosts && !branch.hosts.length || branch.paths && !branch.paths.length) return;
         let rewrites = state.rewrites.slice();
