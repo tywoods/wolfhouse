@@ -648,23 +648,23 @@ function whFinReasons(metric) {
   var codes = metric && Array.isArray(metric.reason_codes) ? metric.reason_codes : [];
   if (!codes.length) return '';
   var labels = {
-    malformed_money: 'admin.finance.wh.reason.malformed_money',
-    unsafe_integer: 'admin.finance.wh.reason.unsafe_integer',
-    unknown_currency: 'admin.finance.wh.reason.unknown_currency',
-    mixed_currency: 'admin.finance.wh.reason.mixed_currency',
-    creator_unresolved: 'admin.finance.wh.reason.creator_unresolved',
-    refund_ledger_unavailable: 'admin.finance.wh.reason.refund_ledger_unavailable',
-    refund_row_unreadable: 'admin.finance.wh.reason.refund_row_unreadable',
-    payment_identity_missing: 'admin.finance.wh.reason.payment_identity_missing',
-    creation_date_missing: 'admin.finance.wh.reason.creation_date_missing',
-    saved_total_unreadable: 'admin.finance.wh.reason.saved_total_unreadable',
-    balance_reconciliation_unavailable: 'admin.finance.wh.reason.balance_reconciliation_unavailable',
-    stale_generation: 'admin.finance.wh.reason.stale_generation',
+    malformed_money: ['admin.finance.wh.reason.malformed_money', 'A payment amount could not be read.'],
+    unsafe_integer: ['admin.finance.wh.reason.unsafe_integer', 'A number was too large to report safely.'],
+    unknown_currency: ['admin.finance.wh.reason.unknown_currency', 'An unknown currency was excluded.'],
+    mixed_currency: ['admin.finance.wh.reason.mixed_currency', 'Another currency was excluded.'],
+    creator_unresolved: ['admin.finance.wh.reason.creator_unresolved', 'The booking creator could not be resolved.'],
+    refund_ledger_unavailable: ['admin.finance.wh.reason.refund_ledger_unavailable', 'Refund records could not be read.'],
+    refund_row_unreadable: ['admin.finance.wh.reason.refund_row_unreadable', 'A refund row could not be read.'],
+    payment_identity_missing: ['admin.finance.wh.reason.payment_identity_missing', 'A payment had no stable identity.'],
+    creation_date_missing: ['admin.finance.wh.reason.creation_date_missing', 'A booking had no creation date.'],
+    saved_total_unreadable: ['admin.finance.wh.reason.saved_total_unreadable', 'A saved total could not be read.'],
+    balance_reconciliation_unavailable: ['admin.finance.wh.reason.balance_reconciliation_unavailable', 'The balance could not be reconciled.'],
+    stale_generation: ['admin.finance.wh.reason.stale_generation', 'These figures are from an older refresh.'],
   };
   return '<ul class="wh-fin-reasons">' + codes.map(function (code) {
-    var key = labels[code] || 'admin.finance.wh.reason.other';
+    var spec = labels[code] || ['admin.finance.wh.reason.other', code];
     return '<li data-wh-fin-reason="' + financeRedesignEsc(code) + '">' +
-      financeRedesignEsc(financeRedesignT(key, code)) + '</li>';
+      financeRedesignEsc(financeRedesignT(spec[0], spec[1])) + '</li>';
   }).join('') + '</ul>';
 }
 
@@ -717,6 +717,53 @@ function whFinCreatorLabel(key) {
   return financeRedesignT('admin.finance.wh.creator.' + key, labels[key] || key);
 }
 
+function whFinFieldLabel(field) {
+  var labels = {
+    payment_id: ['admin.finance.wh.field.paymentId', 'Payment'],
+    booking_id: ['admin.finance.wh.field.bookingId', 'Booking'],
+    receipt_date: ['admin.finance.wh.field.receiptDate', 'Receipt date'],
+    amount_cents: ['admin.finance.wh.field.amount', 'Amount'],
+    purpose: ['admin.finance.wh.field.purpose', 'Purpose'],
+    creator: ['admin.finance.wh.creatorLabel', 'Creator'],
+    created_date: ['admin.finance.wh.field.createdDate', 'Created'],
+    current_saved_total_cents: ['admin.finance.wh.field.savedTotal', 'Saved total'],
+    current_balance_cents: ['admin.finance.wh.field.balance', 'Balance'],
+    as_of: ['admin.finance.wh.field.asOf', 'As of'],
+    refund_id: ['admin.finance.wh.field.refundId', 'Refund'],
+    effective_date: ['admin.finance.wh.field.effectiveDate', 'Effective date'],
+    row_id: ['admin.finance.wh.field.rowId', 'Row'],
+    product_code: ['admin.finance.wh.field.productCode', 'Product code'],
+    product_label: ['admin.finance.wh.field.productLabel', 'Product'],
+    service_date: ['admin.finance.wh.field.serviceDate', 'Service date'],
+    quantity: ['admin.finance.wh.field.quantity', 'Quantity'],
+    component: ['admin.finance.wh.component', 'Component'],
+    reason_code: ['admin.finance.wh.field.reason', 'Reason'],
+    service_record_id: ['admin.finance.wh.field.serviceRecord', 'Service record'],
+    check_in: ['admin.finance.wh.checkIn', 'Check-in'],
+    check_out: ['admin.finance.wh.checkOut', 'Check-out'],
+  };
+  var spec = labels[field] || ['admin.finance.wh.field.' + field, field];
+  return financeRedesignT(spec[0], spec[1]);
+}
+
+function whFinTrendPartialNote(bucket) {
+  if (!bucket || bucket.state !== 'partial') return '';
+  return '<p class="wh-fin-trend-note" data-wh-fin-trend-note="partial" role="note">' +
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartial', 'This period is partial.')) +
+    '</p>' + whFinReasons({ reason_codes: bucket.reason_codes || [] });
+}
+
+function whFinAcceptedDetail(envelope) {
+  if (!envelope || typeof envelope !== 'object') return null;
+  var proj = envelope.schema_version ? envelope : null;
+  if (!proj && envelope.wolfhouse_creator_finance && envelope.wolfhouse_creator_finance.schema_version) {
+    proj = envelope.wolfhouse_creator_finance;
+  }
+  if (!proj || proj.schema_version !== WH_FIN_VERSION) return null;
+  if (!proj.detail || typeof proj.detail !== 'object' || proj.detail.kind == null) return null;
+  return proj;
+}
+
 function whFinCanOpen(proj, kind) {
   var queries = proj && proj.detail_queries;
   return !!(queries && queries[kind] === true);
@@ -749,21 +796,23 @@ function whFinOpenButton(label, amountHtml, attrs) {
 function whFinStyles() {
   return '<style>' +
     '#wh-admin-finance-body .wh-fin{color:var(--text);max-width:100%;min-width:0}' +
-    '#wh-admin-finance-body .wh-fin-card,#wh-admin-finance-body .wh-fin-panel{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0;text-align:left}#wh-admin-finance-body .wh-fin-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px}#wh-admin-finance-body .wh-fin-kicker,#wh-admin-finance-body .wh-fin-amt{display:block;max-width:100%}' +
+    '#wh-admin-finance-body .wh-fin-card,#wh-admin-finance-body .wh-fin-panel{background:var(--surface);color:var(--text);border:1px solid var(--border,#D2D2D7);border-radius:8px;padding:12px;min-width:0;text-align:left}#wh-admin-finance-body .wh-fin-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px}#wh-admin-finance-body .wh-fin-kicker,#wh-admin-finance-body .wh-fin-amt{display:block;max-width:100%}' +
     '#wh-admin-finance-body .wh-fin-headlines{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:8px 0 12px}' +
     '#wh-admin-finance-body .wh-fin-headline{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-height:128px}' +
-    '#wh-admin-finance-body .wh-fin-headline--luna{border-top:4px solid var(--green)}' +
+    '#wh-admin-finance-body .wh-fin-headline--luna{border-top:4px solid var(--finance-bar-green,#1B4D3E)}' +
     '#wh-admin-finance-body .wh-fin-headline--staff{border-top:4px solid var(--text)}' +
     '#wh-admin-finance-body .wh-fin-kicker{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}' +
     '#wh-admin-finance-body .wh-fin-hero{margin:4px 0 0;font-size:15px;font-weight:700}' +
     '#wh-admin-finance-body .wh-fin-secondary,#wh-admin-finance-body .wh-fin-also{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}' +
     '#wh-admin-finance-body .wh-fin-amt{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;max-width:100%}' +
     '#wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:40px;line-height:1.05}' +
-    '#wh-admin-finance-body .wh-fin button:focus-visible{outline:2px solid var(--green);outline-offset:2px}' +
+    '#wh-admin-finance-body .wh-fin button:focus-visible{outline:2px solid var(--finance-bar-green,#1B4D3E);outline-offset:2px}' +
     '#wh-admin-finance-body .wh-fin-table-wrap{max-width:100%;overflow-x:auto}' +
     '#wh-admin-finance-body .wh-fin-table{width:100%;border-collapse:collapse}' +
-    '#wh-admin-finance-body .wh-fin-table th,#wh-admin-finance-body .wh-fin-table td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}' +
-    '#wh-admin-finance-body .wh-fin-bar{display:block;height:8px;background:var(--green);border-radius:4px;max-width:100%}' +
+    '#wh-admin-finance-body .wh-fin-table th,#wh-admin-finance-body .wh-fin-table td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--border,#D2D2D7);white-space:nowrap}' +
+    '#wh-admin-finance-body .wh-fin-chart-row{display:grid;grid-template-columns:minmax(6.5em,auto) minmax(0,1fr);gap:8px;align-items:center;margin:2px 0;width:100%}' +
+    '#wh-admin-finance-body .wh-fin-bar{display:block;height:8px;min-height:8px;justify-self:start;background:var(--finance-bar-green,#1B4D3E);border-radius:4px;max-width:100%}' +
+    '#wh-admin-finance-body .wh-fin-trend-note{display:block;margin:4px 0;color:var(--text);font-size:13px}' +
     '@media(max-width:640px){#wh-admin-finance-body .wh-fin-headlines,#wh-admin-finance-body .wh-fin-secondary,#wh-admin-finance-body .wh-fin-also{grid-template-columns:minmax(0,1fr)}#wh-admin-finance-body .wh-fin-headline .wh-fin-amt{font-size:32px}}' +
     '@media(prefers-reduced-motion:reduce){#wh-admin-finance-body .wh-fin *{transition:none!important;animation:none!important}}' +
     '</style>';
@@ -937,32 +986,49 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
 
   var trend = Array.isArray(proj.trend) ? proj.trend : [];
   var max = 0;
+  var trendPartial = false;
   trend.forEach(function (bucket) {
     var n = Number(bucket && bucket.gross_receipts_cents);
     if (Number.isFinite(n) && n > max) max = n;
+    if (bucket && bucket.state === 'partial') trendPartial = true;
   });
+  var trendLabel = financeRedesignT('admin.finance.wh.trend', 'Receipts over time');
+  if (trendPartial) {
+    trendLabel += '. ' + financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial.');
+  }
   html += '<div class="wh-fin-panel" data-wh-fin-trend="1"><h3>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.trend', 'Receipts over time')) + '</h3>';
-  html += '<div class="wh-fin-chart" role="img" aria-label="' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.trend', 'Receipts over time')) + '">';
+  if (trendPartial) {
+    html += '<p class="wh-fin-trend-note" data-wh-fin-trend-partial="1" role="note">' +
+      financeRedesignEsc(financeRedesignT('admin.finance.wh.trendPartialSummary', 'Some periods are partial.')) +
+      '</p>';
+  }
+  html += '<div class="wh-fin-chart" role="img" aria-label="' + financeRedesignEsc(trendLabel) + '">';
   trend.forEach(function (bucket) {
     var n = bucket ? bucket.gross_receipts_cents : null;
     var width = (max > 0 && n != null && Number.isFinite(Number(n))) ? Math.round((100 * Number(n)) / max) : 0;
-    html += '<div class="wh-fin-chart-row"><span>' + financeRedesignEsc(bucket && bucket.date || '') + '</span>' +
+    var state = bucket && bucket.state || '';
+    html += '<div class="wh-fin-chart-row" data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><span>' +
+      financeRedesignEsc(bucket && bucket.date || '') + '</span>' +
       (n == null ? '<span class="wh-fin-unknown">—</span>' : '<span class="wh-fin-bar" style="width:' + width + '%"></span>') +
       '</div>';
+    if (state === 'partial') html += whFinTrendPartialNote(bucket);
   });
   html += '</div><div class="wh-fin-table-wrap"><table class="wh-fin-table"><caption>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.trendTable', 'Receipts over time, table')) +
     '</caption><thead><tr><th>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.date', 'Date')) + '</th><th>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.receipts', 'Receipts')) + '</th><th>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.refunds', 'Refunds')) + '</th><th>' +
-    financeRedesignEsc(financeRedesignT('admin.finance.wh.net', 'Refund-adjusted')) + '</th></tr></thead><tbody>';
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.net', 'Refund-adjusted')) + '</th><th>' +
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.field.status', 'Status')) + '</th></tr></thead><tbody>';
   trend.forEach(function (bucket) {
-    html += '<tr data-wh-fin-trend-state="' + financeRedesignEsc(bucket && bucket.state || '') + '"><td>' +
+    var state = bucket && bucket.state || '';
+    html += '<tr data-wh-fin-trend-state="' + financeRedesignEsc(state) + '"><td>' +
       financeRedesignEsc(bucket && bucket.date || '') + '</td><td>' + whFinMoneyHtml(bucket && bucket.gross_receipts_cents, currency) +
       '</td><td>' + whFinMoneyHtml(bucket && bucket.recorded_refunds_cents, currency) + '</td><td>' +
-      whFinMoneyHtml(bucket && bucket.net_receipts_cents, currency) + '</td></tr>';
+      whFinMoneyHtml(bucket && bucket.net_receipts_cents, currency) + '</td><td>' +
+      (state === 'partial' ? whFinTrendPartialNote(bucket) : financeRedesignEsc(whFinStateLabel(state))) +
+      '</td></tr>';
   });
   html += '</tbody></table></div></div>';
 
@@ -971,13 +1037,15 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
     financeRedesignEsc(financeRedesignT('admin.finance.wh.creatorLabel', 'Creator')) + '</th><th>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.receipts', 'Receipts')) + '</th><th>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.deposits', 'Deposits received')) + '</th><th>' +
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.newBookingCount', 'New bookings')) + '</th><th>' +
     financeRedesignEsc(financeRedesignT('admin.finance.wh.newBookingValue', 'New booking value')) + '</th></tr></thead><tbody>';
   WH_FIN_CREATORS.forEach(function (key) {
     var row = whFinCreatorRow(proj.creators, key) || {};
     html += '<tr data-wh-fin-creator-row="' + key + '"><th scope="row">' +
       financeRedesignEsc(whFinCreatorLabel(key)) + ' ' + whFinShare(row.receipt_share_bps) +
       '</th><td>' + whFinMetricHtml(row.gross_receipts, currency, { receipts: true }) + '</td><td>' +
-      whFinMetricHtml(row.deposits_received, currency, { receipts: true }) + '</td><td>' +
+      whFinMetricHtml(row.deposits_received, currency, { receipts: true }) + '</td><td data-wh-fin-booking-count="1">' +
+      whFinMetricHtml(row.new_booking_count, currency, { count: true }) + '</td><td>' +
       whFinMetricHtml(row.new_booking_value, currency) + '</td></tr>';
   });
   html += '</tbody></table></div></div>';
@@ -1029,16 +1097,21 @@ function renderWolfhouseCreatorFinanceHtml(envelope) {
   return html;
 }
 
-function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope) {
-  var body = detailEnvelope && detailEnvelope.detail ? detailEnvelope : (detailEnvelope || {});
-  var detail = body.detail || body;
-  if (!detail || detail.kind == null) {
-    return '<div class="wh-fin-detail" data-wh-fin-detail-state="missing"></div>';
+function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope, opts) {
+  var accepted = whFinAcceptedDetail(detailEnvelope);
+  if (!accepted) {
+    return '<div class="wh-fin-detail" data-wh-fin-detail-state="unsupported" role="status"><p>' +
+      financeRedesignEsc(financeRedesignT('admin.finance.wh.unsupported', 'This finance version is not supported.')) +
+      '</p></div>';
   }
+  var detail = accepted.detail;
   var page = detail.page || {};
   var totals = detail.full_cohort_totals || {};
   var currency = detail.currency;
+  var echoed = typeof detail.creator === 'string' ? detail.creator : '';
+  var creator = echoed || (opts && typeof opts.creator === 'string' ? opts.creator : '');
   var html = '<div class="wh-fin-detail" data-wh-fin-detail-kind="' + financeRedesignEsc(detail.kind) + '"' +
+    ' data-wh-fin-detail-creator="' + financeRedesignEsc(creator) + '"' +
     ' data-wh-fin-matched="' + financeRedesignEsc(page.matched_count == null ? '' : String(page.matched_count)) + '"' +
     ' data-wh-fin-page-complete="' + (page.complete === true ? 'true' : 'false') + '">';
   html += '<p>' + financeRedesignEsc(financeRedesignT('admin.finance.wh.matched', 'Matched')) + ' ' +
@@ -1061,20 +1134,27 @@ function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope) {
       financeRedesignEsc(financeRedesignT(spec[1], spec[2])) + ' ' + valueHtml + '</p>';
   });
   var fields = WH_FIN_ROW_FIELDS[detail.kind] || [];
-  html += '<div class="wh-fin-table-wrap"><table class="wh-fin-table"><tbody>';
+  html += '<div class="wh-fin-table-wrap"><table class="wh-fin-table"><caption>' +
+    financeRedesignEsc(financeRedesignT('admin.finance.wh.detailTable', 'Contributing rows')) +
+    '</caption><thead><tr>';
+  fields.forEach(function (field) {
+    html += '<th scope="col" data-wh-fin-col="' + field + '">' + financeRedesignEsc(whFinFieldLabel(field)) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
   (detail.rows || []).forEach(function (row) {
     html += '<tr data-wh-fin-row="' + financeRedesignEsc(row.payment_id || row.booking_id || row.refund_id || row.row_id || '') + '">';
     fields.forEach(function (field) {
-      if (!Object.prototype.hasOwnProperty.call(row, field)) return;
-      var value = row[field];
-      var cell = WH_FIN_MONEY_FIELDS[field] ? whFinMoneyHtml(value, currency) : financeRedesignEsc(value == null ? '' : String(value));
+      var present = row && Object.prototype.hasOwnProperty.call(row, field);
+      var value = present ? row[field] : '';
+      var cell = !present ? '' : (WH_FIN_MONEY_FIELDS[field] ? whFinMoneyHtml(value, currency) : financeRedesignEsc(value == null ? '' : String(value)));
       html += '<td data-wh-fin-field="' + field + '">' + cell + '</td>';
     });
     html += '</tr>';
   });
   html += '</tbody></table></div>';
   if (page.next_cursor) {
-    html += '<button type="button" data-wh-fin-cursor="' + financeRedesignEsc(page.next_cursor) + '">' +
+    html += '<button type="button" data-wh-fin-cursor="' + financeRedesignEsc(page.next_cursor) + '"' +
+      (creator ? ' data-wh-fin-creator="' + financeRedesignEsc(creator) + '"' : '') + '>' +
       financeRedesignEsc(financeRedesignT('admin.finance.wh.nextPage', 'Next page')) + '</button>';
   }
   html += '</div>';

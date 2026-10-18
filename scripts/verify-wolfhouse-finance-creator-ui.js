@@ -134,6 +134,27 @@ check('closed detail query does not fetch', ui.includes('queries[kind] === true'
 check('sunset load string remains', /getClient\(\) === 'sunset' \|\| getClient\(\) === 'wolfhouse-somo'/.test(ui));
 check('stub presentation fixture is gone', !fs.existsSync(path.join(ROOT, 'fixtures/wolfhouse-finance-creator-ui/success.json')));
 
+check('R1 keeps creator on the next page request', ui.includes("paging ? (financeDetailCreator || '')") && ui.includes("if (creator) q += '&creator='"));
+check('R2 language change after a failed refresh refetches', ui.includes('financeWolfhouseLoadFailed') && ui.includes("getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed"));
+check('R3 chart uses a portal colour, not an undefined token', html.includes('var(--finance-bar-green,#1B4D3E)') && html.includes('var(--border,#D2D2D7)') && !html.includes('var(--green)') && !html.includes('var(--line)'));
+check('R4 partial trend buckets have a visible named note', partialHtml.includes('data-wh-fin-trend-partial="1"') && partialHtml.includes('role="note"') && partialHtml.includes('Some periods are partial.') && partialHtml.includes('This period is partial.') && partialHtml.includes('data-wh-fin-trend-note="partial"') && partialHtml.includes('Another currency was excluded.') && !/wh-fin-trend-note[^>]*aria-hidden="true"/.test(partialHtml) && !/wh-fin-trend-note\{[^}]*display:\s*none/.test(partialHtml));
+check('R5 creator comparison shows booking counts', /data-wh-fin-creator-row="luna"[\s\S]*?data-wh-fin-booking-count="1"[\s\S]*?data-wh-fin-count="1"/.test(html) && /data-wh-fin-creator-row="staff"[\s\S]*?data-wh-fin-count="1"/.test(html) && /data-wh-fin-creator-row="total"[\s\S]*?data-wh-fin-count="2"/.test(html) && html.includes('New bookings'));
+const paymentsDetail = renderWolfhouseCreatorFinanceDetailHtml(detailOf(successFixture.detail_examples.payments));
+check('R6 drilldown table has column headers', paymentsDetail.includes('<thead>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="payment_id">Payment</th>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="amount_cents">Amount</th>') && paymentsDetail.includes('data-wh-fin-field="amount_cents"'));
+check('R7 detail failure is selection-bound with retry', ui.includes('data-wh-fin-detail-retry="1"') && ui.includes("financeDetailStatusHtml('loading'") && ui.includes('res.status >= 400') && ui.includes("financeDetailStatusHtml('error'"));
+const rejectedVersions = [
+  { schema_version: 'wolfhouse.creator-finance.v0', marker: '99999' },
+  { schema_version: 'wolfhouse.creator-finance.v1-extra', marker: '77777' },
+  { schema_version: 'wolfhouse.creator-finance.v10', marker: '66666' },
+];
+check('R8 rejects a detail that is not the exact contract version', rejectedVersions.every((bad) => {
+  const rendered = renderWolfhouseCreatorFinanceDetailHtml({
+    schema_version: bad.schema_version,
+    detail: { kind: 'payments', currency: 'EUR', rows: [{ payment_id: 'x', amount_cents: Number(bad.marker) }], full_cohort_totals: { gross_receipts_cents: Number(bad.marker) } },
+  });
+  return rendered.includes('data-wh-fin-detail-state="unsupported"') && !rendered.includes(bad.marker) && !rendered.includes('data-wh-fin-row=');
+}) && renderWolfhouseCreatorFinanceDetailHtml({ detail: { kind: 'payments', rows: [{ amount_cents: 88888 }] } }).includes('unsupported') && !renderWolfhouseCreatorFinanceDetailHtml({ detail: { kind: 'payments', rows: [{ amount_cents: 88888 }] } }).includes('88888'));
+
 async function paint() {
   const { chromium } = require('playwright');
   const browser = await chromium.launch({ headless: true });
@@ -212,6 +233,9 @@ async function paint() {
 }
 
 paint().then(() => {
+  const { proveComposedFinanceReview } = require('./verify-wolfhouse-finance-creator-ui-review');
+  return proveComposedFinanceReview({ success, partial });
+}).then(() => {
   console.log('PASS verify-wolfhouse-finance-creator-ui');
 }).catch((err) => {
   console.error(err);
