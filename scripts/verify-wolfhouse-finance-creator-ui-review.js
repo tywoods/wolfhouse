@@ -369,6 +369,65 @@ async function proveComposedFinanceReview(fixtures) {
   console.log('PASS R1 creator scope and unchanged cohort total');
   console.log('PASS R6 composed column headers');
 
+  async function clickFinanceLang(lang, title) {
+    const clicked = await page.locator(`.staff-lang-btn[data-lang="${lang}"]`).count();
+    if (clicked) await page.locator(`.staff-lang-btn[data-lang="${lang}"]`).click();
+    else await page.evaluate((next) => window.setStaffLocale(next), lang);
+    await page.waitForFunction((expected) => {
+      const heading = document.querySelector('#wh-admin-finance-body h2');
+      return !!(heading && heading.textContent === expected);
+    }, title, { timeout: 10000 });
+  }
+
+  // Cap witness: page two + Spanish keeps page two, with no new Finance request.
+  const beforePageLocale = requests.length;
+  await clickFinanceLang('es', 'Finanzas · Wolfhouse');
+  assert.equal(requests.length, beforePageLocale, 'page-two language change started a Finance request');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-row="p-next"]').count(), 1, 'Spanish dropped page two');
+  const spanishDetail = await page.locator('#wh-admin-finance-body [data-wh-fin-detail]').innerText();
+  assert.equal(spanishDetail.includes('Total completo'), true, `page two was not repainted in Spanish: ${spanishDetail.slice(0, 240)}`);
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail] [data-wh-fin-cents="15000"]').count(), 1, 'page two lost the server cohort total');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-creator="luna"]').count(), 1, 'page two lost Luna');
+  await clickFinanceLang('en', 'Finance · Wolfhouse');
+  assert.equal(requests.length, beforePageLocale, 'restoring English refetched page two');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-row="p-next"]').count(), 1, 'English dropped page two');
+  console.log('PASS locale change keeps loaded page two');
+
+  // Cap witness: a pending detail keeps its loading indicator across a language change.
+  detailMode = 'hold';
+  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="luna"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-detail-state="loading"][data-wh-fin-detail-creator="luna"]', { timeout: 10000 });
+  const beforePendingDetail = requests.length;
+  await clickFinanceLang('it', 'Finanze · Wolfhouse');
+  assert.equal(requests.length, beforePendingDetail, 'pending detail language change started a Finance request');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="loading"]').count(), 1, 'pending detail language change dropped the loading indicator');
+  const pendingText = await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="loading"]').innerText();
+  assert.equal(pendingText.includes('Caricamento'), true, `loading indicator was not translated: ${pendingText}`);
+  const heldDetail = held.shift();
+  assert.equal(!!heldDetail, true, 'pending detail was not held');
+  detailMode = 'page1';
+  await heldDetail.route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageOne) });
+  heldDetail.resolve();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-row="p-page"]', { timeout: 10000 });
+  console.log('PASS locale change keeps a pending detail loading');
+
+  // Cap correction: an error detail stays, translated, and does not refetch.
+  detailMode = '500';
+  await page.locator('#wh-admin-finance-body [data-wh-fin-headline="staff"]').click();
+  await page.waitForSelector('#wh-admin-finance-body [data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]', { timeout: 10000 });
+  const beforeErrorLocale = requests.length;
+  await clickFinanceLang('es', 'Finanzas · Wolfhouse');
+  assert.equal(requests.length, beforeErrorLocale, 'error detail language change started a Finance request');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]').count(), 1, 'language change dropped the detail error');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-retry="1"]').count(), 1, 'language change dropped the detail retry');
+  const errorText = await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"]').innerText();
+  assert.equal(errorText.includes('No se pudieron cargar'), true, `detail error was not translated: ${errorText}`);
+  detailMode = 'page1';
+  await clickFinanceLang('en', 'Finance · Wolfhouse');
+  assert.equal(requests.length, beforeErrorLocale, 'restoring English refetched the detail error');
+  assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="staff"]').count(), 1, 'English dropped the detail error');
+  console.log('PASS locale change keeps a detail error');
+
   detailMode = 'abort';
   await page.locator('[data-wh-fin-headline="luna"]').click();
   await page.waitForSelector('[data-wh-fin-detail-state="error"][data-wh-fin-detail-creator="luna"]', { timeout: 10000 });

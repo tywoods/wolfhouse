@@ -149,6 +149,7 @@ check('R5 creator comparison shows booking counts', /data-wh-fin-creator-row="lu
 const paymentsDetail = renderWolfhouseCreatorFinanceDetailHtml(detailOf(successFixture.detail_examples.payments));
 check('R6 drilldown table has column headers', paymentsDetail.includes('<thead>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="payment_id">Payment</th>') && paymentsDetail.includes('<th scope="col" data-wh-fin-col="amount_cents">Amount</th>') && paymentsDetail.includes('data-wh-fin-field="amount_cents"'));
 check('R7 detail failure is selection-bound with retry', ui.includes('data-wh-fin-detail-retry="1"') && ui.includes("financeDetailStatusHtml('loading'") && ui.includes('res.status >= 400') && ui.includes("financeDetailStatusHtml('error'"));
+check('locale-only repaint keeps the open drilldown', ui.includes('function financeRepaintRetainedDetail') && ui.includes('financeRepaintRetainedDetail()') && ui.includes("financeRememberDetail('loading'") && ui.includes("financeRememberDetail('success'") && ui.includes("financeRememberDetail('error'") && summaryLoader.includes('financeClearRetainedDetail()'));
 const rejectedVersions = [
   { schema_version: 'wolfhouse.creator-finance.v0', marker: '99999' },
   { schema_version: 'wolfhouse.creator-finance.v1-extra', marker: '77777' },
