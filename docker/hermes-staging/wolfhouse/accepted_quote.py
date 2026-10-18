@@ -2063,6 +2063,7 @@ def record_quote(params, response):
         state.pop('receipt', None)
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
+        state.pop('dispatch_payload', None)
         state.pop('post_booking_contact', None)
         # This is a newly checked material offer; any prepared identity belonged
         # to the prior accepted offer and cannot authorize this one.
@@ -2094,6 +2095,10 @@ def record_quote(params, response):
 def prepare_create(params):
     params = deepcopy(params)
     def prepare(state, ingress):
+        frozen_dispatch = state.get('dispatch_payload')
+        if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
+                and isinstance(frozen_dispatch, dict)):
+            return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -2442,7 +2447,7 @@ def _revoke_checked_offer(state):
     # Retain immutable accepted authority for exact fresh revalidation. The
     # clarify status and cleared checked offer still deny every create retry.
     state['pending_fact_refresh'] = True
-    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending'):
+    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending', 'dispatch_payload'):
         state.pop(key, None)
 
 
@@ -2465,6 +2470,7 @@ def dispatch_create(prepared, transport):
     """
     def mark_pending(state, ingress):
         _validate_dispatch_ticket(prepared, state)
+        state['dispatch_payload'] = deepcopy(dict(prepared))
         state['dispatch_pending'] = True
     _transaction(mark_pending)
     invoked = False
