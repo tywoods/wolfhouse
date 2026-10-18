@@ -28,6 +28,7 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
  await test('changed proxy handler fields are rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle[0].transport = {}));
  await test('unknown handler is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].handle.unshift({ handler: 'headers' })));
  await test('OR-match bypass is rejected', () => rejects(c => c.apps.http.servers.one.routes[1].match.push({ path: ['/whatsapp/webhook'] })));
+ await test('protected snapshot removes only the intended France addition', () => assert.deepStrictEqual(inspector.snapshotProtectedObject(load('intended-nested.json')), load('protected-baseline.json')));
  await test('protected comparison accepts exact addition', () => inspector.compareProtectedObjects(load('protected-baseline.json'), load('intended-nested.json')));
  for (const [name, mutate] of [
    ['listener', c => c.apps.http.servers.main.listen[0] = ':80'],

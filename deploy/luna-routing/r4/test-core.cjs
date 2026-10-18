@@ -41,5 +41,10 @@ for (const mutate of [
 const shell = path.join(here, 'run-luna-routing-r4.sh');
 assert.equal(cp.spawnSync('bash', ['-n', shell]).status, 0);
 const source = fs.readFileSync(shell, 'utf8');
-assert.match(source, /trap on_exit EXIT/); assert.match(source, /CONTROLLER_STOP_UNCONFIRMED/); assert.match(source, /rollback_caddy/); assert.match(source, /parse-apt-simulation\.cjs/);
+assert.match(source, /trap on_exit EXIT/); assert.match(source, /CONTROLLER_STOP_UNCONFIRMED/); assert.match(source, /rollback_caddy/);
+const beforeNodeInstall = source.slice(source.indexOf('exec 9>'), source.indexOf('PHASE=node'));
+assert.doesNotMatch(beforeNodeInstall, /(^|[;&|]\s*)node\s/m, 'absent-Node preflight/inventory must not invoke Node');
+assert.doesNotMatch(beforeNodeInstall, /for x in [^\n]*\bnode\b/, 'preflight must not require Node');
+assert.match(source, /verify_apt_simulation_shell/);
+assert.match(source, /rollback_all\(\).*verify_full_baseline.*rollback_node/, 'baseline verification must precede Node purge');
 console.log('PASS R4 inventory, atomic restoration, apt parser, and transaction contracts');

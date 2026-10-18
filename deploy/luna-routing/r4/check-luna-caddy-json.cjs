@@ -108,6 +108,7 @@ function stripAddition(cfg) {
   }
   return copy;
 }
+function snapshotProtectedObject(cfg) { return stripAddition(cfg); }
 function stable(value) {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;
@@ -121,12 +122,13 @@ function compareProtectedObjects(baseline, candidate) {
 }
 function load(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function main(argv) {
+  if (argv[0] === 'snapshot-protected' && argv.length === 2) return snapshotProtectedObject(load(argv[1]));
   if (argv[0] === 'verify-inactive' && argv.length === 2) return verifyInactiveObject(load(argv[1]));
   if (argv[0] === 'compare-protected' && argv.length === 3) return compareProtectedObjects(load(argv[1]), load(argv[2]));
   fail('usage: check-luna-caddy-json.cjs verify-inactive FILE | compare-protected BASELINE CANDIDATE');
 }
 if (require.main === module) {
-  try { const result = main(process.argv.slice(2)); process.stdout.write(`PASS ${JSON.stringify(result)}\n`); }
+  try { const argv = process.argv.slice(2); const result = main(argv); process.stdout.write(argv[0] === 'snapshot-protected' ? `${JSON.stringify(result)}\n` : `PASS ${JSON.stringify(result)}\n`); }
   catch (error) { process.stderr.write(`FAIL ${error.message}\n`); process.exitCode = 1; }
 }
-module.exports = { SITE, CONTROLLER, CONTROLLER_REWRITE, PROOF, WEBHOOK, effectiveLeaves, verifyInactiveObject, compareProtectedObjects, stripAddition };
+module.exports = { SITE, CONTROLLER, CONTROLLER_REWRITE, PROOF, WEBHOOK, effectiveLeaves, verifyInactiveObject, compareProtectedObjects, stripAddition, snapshotProtectedObject };

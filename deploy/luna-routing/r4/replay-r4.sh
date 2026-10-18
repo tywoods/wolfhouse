@@ -10,4 +10,5 @@ node "$repo/scripts/verify-luna-routing-deployment.js"
 node "$here/test-installer-cleanup.cjs"
 node "$here/test-core.cjs"
 node "$here/test-r4.cjs"
+node "$here/test-absent-node-flow.cjs"
 printf 'PASS exact R4 offline replay; no host/service/network mutation\n'
