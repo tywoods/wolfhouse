@@ -90,12 +90,12 @@ fs.writeFileSync(live,'unknown route\n'); assert.throws(()=>stageFragment(live,s
 // the original exit status.
 assert.match(installer,/systemctl is-enabled --quiet[\s\S]*systemctl is-active --quiet/);
 const restoreLoop=installer.indexOf('for p in Caddyfile fragment env controller unit sudoers tmpfiles',installer.indexOf('cleanup(){'));
-const rollbackReload=installer.indexOf("rollback_run 'daemon-reload restored units'");
 const rollbackCaddy=installer.indexOf("rollback_run 'reload Caddy from restored configuration'");
+const rollbackReload=installer.indexOf("rollback_run 'daemon-reload restored units'");
 const rollbackEnable=installer.indexOf("rollback_run 're-enable prior controller service'");
 const rollbackRestart=installer.indexOf("rollback_run 'restart prior active controller service'");
-assert.ok(restoreLoop>0 && restoreLoop<rollbackReload && rollbackReload<rollbackCaddy && rollbackCaddy<rollbackEnable && rollbackEnable<rollbackRestart);
-const absentStop=installer.indexOf("rollback_run 'stop controller before artifact restore'");
+assert.ok(restoreLoop>0 && restoreLoop<rollbackCaddy && rollbackCaddy<rollbackReload && rollbackReload<rollbackEnable && rollbackEnable<rollbackRestart);
+const absentStop=installer.indexOf("systemctl stop luna-routing-controller.service");
 const absentDisable=installer.indexOf("rollback_run 'disable newly introduced controller service'");
 assert.ok(absentStop>0 && absentStop<absentDisable && absentDisable<restoreLoop); assert.match(installer,/unit_was_present.*-eq 0/);
 assert.match(installer,/ROLLBACK INCOMPLETE: manual recovery is required/); assert.match(installer,/RECOVERY BACKUP PRESERVED/); assert.match(installer,/\[ "\$rollback_failure" -ne 0 \] \|\| rm -rf "\$backup"/);
