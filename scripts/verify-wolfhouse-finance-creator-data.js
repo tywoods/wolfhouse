@@ -89,6 +89,16 @@ const reordered = summaryLib.computeWolfhouseCreatorFinance({ ...input,
   bookings:[...input.bookings].reverse(), payments:[...input.payments].reverse(), bsr:[...input.bsr].reverse(),
   now, view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
 assert.equal(reordered.cohort_id,projection.cohort_id,'cohort fingerprint is independent of database row order');
+const laterClockProjection = summaryLib.computeWolfhouseCreatorFinance({ ...input,
+  now:new Date('2026-10-17T12:05:00.000Z'), view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
+assert.equal(laterClockProjection.cohort_id,projection.cohort_id,'unchanged financial facts retain the cohort across request clocks');
+assert.doesNotThrow(()=>summaryLib.pageWolfhouseCreatorFinance(laterClockProjection,{kind:'outstanding',currency:'EUR',cohort_id:projection.cohort_id,limit:100}),
+  'unchanged data with a different request clock keeps detail eligible for HTTP 200');
+const changedFinancialProjection = summaryLib.computeWolfhouseCreatorFinance({ ...input,
+  bookings:input.bookings.map(b=>b.booking_id==='staff'?{...b,total_amount_cents:20001}:b),
+  now:new Date('2026-10-17T12:05:00.000Z'), view:{granularity:'month',anchor:'2026-10-17'}, clientSlug:'wolfhouse-somo', locationId:'' });
+assert.throws(()=>summaryLib.pageWolfhouseCreatorFinance(changedFinancialProjection,{kind:'outstanding',currency:'EUR',cohort_id:projection.cohort_id,limit:100}),
+  e=>e&&e.code==='FINANCE_COHORT_STALE','real financial changes invalidate detail for HTTP 409');
 for (const [label, patch] of [
   ['arrival checkout', {bookings:input.bookings.map(b=>b.booking_id==='luna'?{...b,check_out:'2026-10-18'}:b)}],
   ['booking creator evidence', {bookings:input.bookings.map(b=>b.booking_id==='staff'?{...b,metadata:{source:'import'}}:b)}],

@@ -2126,7 +2126,9 @@ function computeWolfhouseCreatorFinance(args) {
     paidLedger:[...paymentMap.values()].map(r=>({payment_id:r.payment_id,booking_id:String(r.booking_id),amount_cents:r.amount_cents,
       receipt_date:r.receipt_date,payment_kind:r.payment_kind||null,paid_amount_type:r.paid_amount_type||(r.metadata||{}).paid_amount_type||null,creator:r.creator})),
     payments:receiptRows.map(r=>({payment_id:r.payment_id,booking_id:String(r.booking_id),amount_cents:r.amount_cents,receipt_date:r.receipt_date,creator:r.creator})),
-    bookings:bookingRows,outstanding:outstandingRows,refunds:refundRows,products:productRows,warnings:warningRows,arrival:arrivalRows,
+    bookings:bookingRows,
+    outstanding:outstandingRows.map(({ as_of: _asOf, ...financialFacts }) => financialFacts),
+    refunds:refundRows,products:productRows,warnings:warningRows,arrival:arrivalRows,
   }));
   const crypto = require('crypto'); const cohortId = `whcf1_${crypto.createHash('sha256').update(fingerprint).digest('hex').slice(0,24)}`;
   const projection = { schema_version:WOLFHOUSE_CREATOR_SCHEMA, scope:{client:String(args.clientSlug||'wolfhouse-somo'),location_id:String(args.locationId||''),timezone:timeZone,currency,
