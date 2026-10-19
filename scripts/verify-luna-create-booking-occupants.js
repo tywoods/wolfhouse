@@ -235,7 +235,35 @@ const allowedSql = new Map([
   ['begin', 'BEGIN'], ['commit', 'COMMIT'], ['rollback', 'ROLLBACK'],
 ].map(([kind, sql]) => [normalizeSql(sql), kind]));
 
-async function seed(db, payload) {
+// Deliberately unreachable from CLI/environment. Registered tests must pass this
+// opaque process-local capability; transport JSON cannot enable the fixture.
+const sim23Fixtures = new WeakMap();
+function createSim23Fixture(registeredCreateBody) {
+  assert.ok(registeredCreateBody && typeof registeredCreateBody === 'object');
+  const offer = registeredCreateBody.accepted_offer;
+  assert.ok(offer && offer.availability_checked === true,
+    'Sim23 fixture requires the checked registered accepted_offer');
+  assert.equal(registeredCreateBody.package_code, 'package_none');
+  const nights = (Date.parse(`${registeredCreateBody.check_out}T00:00:00Z`)
+    - Date.parse(`${registeredCreateBody.check_in}T00:00:00Z`)) / 86400000;
+  const guests = Number(registeredCreateBody.guest_count);
+  const nightlyPerGuest = offer.total_cents / nights / guests;
+  assert.ok(Number.isInteger(nightlyPerGuest) && nightlyPerGuest > 0,
+    'Sim23 accommodation price must be an integral per-person nightly fixture');
+  const capability = Object.freeze({});
+  sim23Fixtures.set(capability, {
+    body: structuredClone(registeredCreateBody),
+    weeklyCents: nightlyPerGuest * 7,
+    depositPerGuestCents: offer.deposit_required_cents / guests,
+    rooms: (offer.room_arrangement || []).map((room) => ({
+      room_code: room.room_code,
+      gender_strategy: room.gender_strategy,
+    })),
+  });
+  return capability;
+}
+
+async function seed(db, payload, fixtureCapability = null) {
   await db.exec(SCHEMA);
   for (const migration of ['010_booking_service_records.sql', '018_booking_service_records_nullable_service_date.sql', '024_booking_guests.sql', '031_customers.sql', '111_room_selling_mode.sql']) {
     await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
@@ -268,6 +296,25 @@ async function seed(db, payload) {
       VALUES ($1,(SELECT id FROM rooms WHERE room_code=$2),$3,$4,$5,$6,$7,$8)`,
     [CLIENT_ID, bed.room_code, bed.bed_code, bed.bed_label, bed.bed_number,
       bed.planning_row_label, bed.active, bed.sellable]);
+  }
+  if (fixtureCapability != null) {
+    const fixture = sim23Fixtures.get(fixtureCapability);
+    assert.ok(fixture, 'unrecognized test fixture capability');
+    assert.deepEqual(payload, fixture.body,
+      'fixture is bound to the exact registered /booking-create-from-plan body');
+    await db.query(`UPDATE wh_pricing_rules SET amount_cents=$1
+      WHERE client_slug=$2 AND item_type='package' AND item_code='malibu'`,
+    [fixture.weeklyCents, WOLFHOUSE_CLIENT_SLUG]);
+    assert.ok(Number.isInteger(fixture.depositPerGuestCents));
+    await db.query(`INSERT INTO wh_pricing_rules
+      (client_slug, item_type, item_code, season_code, unit, amount_cents, currency, active)
+      VALUES ($1, 'deposit', 'custom_or_short_stay', 'all_year', 'per_person', $2, 'EUR', true)`,
+    [WOLFHOUSE_CLIENT_SLUG, fixture.depositPerGuestCents]);
+    for (const room of fixture.rooms) {
+      await db.query(`UPDATE rooms SET gender_strategy=$1
+        WHERE client_id=$2 AND room_code=$3`,
+      [room.gender_strategy, CLIENT_ID, room.room_code]);
+    }
   }
   // Existing WhatsApp contact; migration 031, not the harness, creates its CRM row.
   await db.query(`INSERT INTO conversations (client_id, phone, display_name, language)
@@ -328,7 +375,7 @@ async function runPayload(payload, hooks = {}) {
   const db = new PGlite();
   const pg = makePg(db);
   try {
-    await seed(db, payload);
+    await seed(db, payload, hooks.sim23Fixture || null);
     if (hooks.beforeBuild) await hooks.beforeBuild(db);
     const before = (await db.query('SELECT id, full_name, phone FROM customers')).rows;
     const built = await buildWolfhouseBookingCreateCommand({
@@ -471,7 +518,7 @@ async function main() {
 }
 
 // Reuse this network-fenced, in-memory schema/inventory fixture in handler regressions.
-module.exports = { runPayload, seedOfflineBookingDb: seed };
+module.exports = { runPayload, seedOfflineBookingDb: seed, createSim23Fixture };
 
 if (require.main === module) main().catch((error) => {
   if (process.argv.includes('--payload')) {

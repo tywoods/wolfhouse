@@ -237,7 +237,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
         self.loop.call("check_availability", {
             "client_slug": None, "check_in": "2026-11-11", "check_out": "2026-11-14",
-            "guest_count": 2, "room_type": "shared", "room_preference": "male_dorm",
+            "guest_count": 2, "room_type": "shared", "room_preference": "male dorm",
         }, {"/availability-check": availability})
         self.loop.call("check_availability", offered, {"/availability-check": availability})
         self.loop.call("quote_booking", first_quote, {"/booking-preview": first})
