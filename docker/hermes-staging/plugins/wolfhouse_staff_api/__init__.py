@@ -541,6 +541,20 @@ def _room_recovery_result(tool, decision):
 def _suppress_gender_handoff(result, decision):
     if not isinstance(result, dict) or not isinstance(decision, dict):
         return result
+    if decision.get("structured") is True:
+        status = decision.get("status")
+        result["needs_human"] = False
+        result["staff_review_needed"] = False
+        result["do_not_escalate"] = True
+        result["room_decision"] = decision
+        if status in {"no", "unsure"}:
+            result["next_action"] = "ask_room_eligibility"
+            result["reply_draft"] = (
+                "Are all guests eligible for the requested women-only room?"
+                if status == "unsure" else
+                "The requested women-only room is not compatible with the guest details provided. Would you like to see other room options?"
+            )
+        return result
     if not (decision.get("clarification_needed") or decision.get("conflict")):
         excluded = set(decision.get("excluded_room_preferences") or [])
         if "female_only" in excluded:
@@ -655,7 +669,7 @@ def check_availability(params, **kwargs):
     decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
     if structured_eligibility is not None:
         eligibility_status = structured_eligibility["status"]
-        if eligibility_status != "yes" and status != "unavailable":
+        if eligibility_status != "yes":
             status = "eligibility_required"
         decision = {
             "structured": True,
@@ -674,7 +688,8 @@ def check_availability(params, **kwargs):
     if status != "unavailable" and isinstance(decision, dict) and (
             decision.get("clarification_needed") or decision.get("conflict")):
         status = "eligibility_required"
-    excluded = set((decision or {}).get("excluded_room_preferences") or [])
+    excluded = (set() if structured_eligibility is not None else
+                set((decision or {}).get("excluded_room_preferences") or []))
     available_beds = []
     excluded_room_codes = set()
     raw_beds = data.get("available_beds")
@@ -881,7 +896,10 @@ def quote_booking(params, **kwargs):
             if len(rows) == payload.get("guest_count") and all(
                     isinstance(row, dict) and _clean(row.get("bed_code")) for row in rows):
                 picked = [row["bed_code"] for row in rows]
+        structured = availability.get("room_eligibility") if isinstance(availability, dict) else None
+        structured_yes = (not isinstance(structured, dict) or structured.get("status") == "yes")
         if (availability.get("success") is True
+                and structured_yes
                 and availability.get("needs_clarification") is not True
                 and availability.get("has_enough_beds") is not False
                 and isinstance(picked, list) and len(picked) == payload.get("guest_count")):
@@ -890,11 +908,18 @@ def quote_booking(params, **kwargs):
             # Eligibility is not consent and prices alone are not an offer. Let
             # Staff's room-resolution response drive the next guest question;
             # do not call pricing or give the owner a non-bed-backed quote.
+            structured_decision = ({"structured": True, **structured}
+                                   if isinstance(structured, dict) else None)
             return _json_result({
                 **availability, "success": False, "tool": "quote_booking",
                 "quote_status": "needs_guest_clarification",
                 "offer_revision": None, "total_cents": None,
                 "deposit_required_cents": None, "write_performed": False,
+                **({"room_decision": structured_decision,
+                    "reply_draft": ("Are all guests eligible for the requested women-only room?"
+                                    if structured_decision.get("status") == "unsure" else
+                                    "The requested room is incompatible with the guest details provided. Would you like to see other room options?")}
+                   if structured_decision else {}),
             })
     data = _post_bot("/booking-preview", payload)
     # Price fields without Staff's checked revision are not an offer. The

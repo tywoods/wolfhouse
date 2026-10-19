@@ -478,7 +478,9 @@ def _room_kind(offer, room, language='en'):
         'de': {'female_only': 'Frauenzimmer', 'male_only': 'Männerzimmer', 'mixed': 'gemischten Zimmer', 'flexible': 'Mehrbettzimmer'},
     }
     labels = labels_by_language.get(language, labels_by_language['en'])
-    return labels.get(room.get('gender_strategy'), 'room')
+    strategy = str(room.get('gender_strategy') or '').strip().lower().replace(' ', '_')
+    strategy = {'female_preferred': 'female_only', 'male_preferred': 'male_only'}.get(strategy, strategy)
+    return labels.get(strategy, {'es': 'habitación', 'fr': 'chambre', 'de': 'Zimmer'}.get(language, 'room'))
 
 
 def _plural_room_kind(kind, language='en'):
@@ -2629,16 +2631,13 @@ def finalize_offer_response(result):
         if unresolved_presentable:
             language = _guest_language(state)
             next_action = unresolved.get('guest_safe_next_action')
-            eligibility_terms = ('women', 'woman', 'female', 'girls', 'girl',
-                                 'men', 'man', 'male', 'boys', 'boy', 'gender',
-                                 'chicas', 'chicos', 'mujeres', 'femenin', 'hombres',
-                                 'masculin', 'femmes', 'hommes', 'frauen', 'männer',
-                                 'jungs', 'mädchen')
+            structured_eligibility = unresolved.get('room_eligibility')
             valid_eligibility_question = (
-                isinstance(next_action, str) and next_action.strip().endswith('?')
-                and any(term in next_action.casefold() for term in eligibility_terms))
-            # Preserve a concrete Staff eligibility clarification. Other Staff
-            # prose is not language-authoritative and must not leak into copy.
+                isinstance(structured_eligibility, dict)
+                and structured_eligibility.get('status') == 'unsure'
+                and structured_eligibility.get('question_kind') == 'confirm_room_eligibility')
+            # Structured Staff meaning selects the localized question. Never
+            # classify arbitrary Staff wording to infer eligibility.
             plan = state.get('plan') or {}
             text = (_localized_eligibility_question(
                         next_action, language, guest_count=plan.get('guest_count'))
@@ -2827,12 +2826,21 @@ def finalize_offer_response(result):
                     text += ' ' + _final_copy(language, 'for_days', days=duration)
                 extras.append(text)
             lines.append(_final_copy(language, 'extras') + ': ' + '; '.join(extras) + '.')
-        lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
-                     f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
+        equality_full = (type(offer.get('deposit_required_cents')) is int
+                         and offer['deposit_required_cents'] > 0
+                         and offer['deposit_required_cents'] == offer['total_cents'])
+        if equality_full:
+            equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
+                               'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
+            lines.append(f"{equality_labels.get(language, equality_labels['en'])}: "
+                         f"{money(offer['total_cents'])} ({_final_copy(language, 'full').lower()}).")
+        else:
+            lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
+                         f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
         payment = {'full': _final_copy(language, 'full'), 'deposit': _final_copy(language, 'payment_deposit'),
                    'pay_on_arrival': _final_copy(language, 'arrival_payment'),
                    'per_guest': _final_copy(language, 'individual')}
-        if offer['payment_link_amount_cents']:
+        if offer['payment_link_amount_cents'] and not equality_full:
             lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
         if not offer['payment_link_amount_cents']: lines.append(f"{_final_copy(language, 'due_now')}: {money(0)}.")
         due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']

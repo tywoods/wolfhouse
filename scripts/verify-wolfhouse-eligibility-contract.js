@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 const assert = require('node:assert/strict');
-const { buildCanonicalAvailabilityBody, AVAILABILITY_CHANNELS } = require('./lib/luna-front-desk-accommodation-availability-service');
+const { buildCanonicalAvailabilityBody, mapBotHttpAvailabilityResponse, AVAILABILITY_CHANNELS } = require('./lib/luna-front-desk-accommodation-availability-service');
 
 function project(guests, roomPreference = 'female_only') {
   const command = {
@@ -17,7 +17,11 @@ function project(guests, roomPreference = 'female_only') {
     hasEnoughBeds: true, availableCount: 2, availableBeds: [], occupiedBedCodes: new Set(),
     warnings: [], blockers: [], roomingHandoff: false, selectedPrivateRoom: false,
   };
-  return buildCanonicalAvailabilityBody(command, inventory, null).room_eligibility;
+  const canonical = buildCanonicalAvailabilityBody(command, inventory, null);
+  const mapped = mapBotHttpAvailabilityResponse(canonical);
+  assert.deepEqual(mapped.room_eligibility, canonical.room_eligibility,
+    'bot HTTP projection must forward Staff room_eligibility unchanged');
+  return canonical.room_eligibility;
 }
 assert.deepEqual(project([{ name: 'Emma' }]), {
   status: 'unsure', requested_room_preference: 'female_only', affected_guest_indices: [0],

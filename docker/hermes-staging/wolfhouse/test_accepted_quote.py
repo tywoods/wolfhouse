@@ -2531,6 +2531,10 @@ class OwnerHostileTests(unittest.TestCase):
             'success': False,
             'quote_status': 'needs_guest_clarification',
             'guest_safe_next_action': question,
+            'room_eligibility': {'status': 'unsure', 'requested_room_preference': 'female_only',
+                                 'affected_guest_indices': [0, 1],
+                                 'reason_code': 'room_eligibility_unknown',
+                                 'question_kind': 'confirm_room_eligibility'},
             'offer_revision': None,
         })
         shown = self.ledger.finalize_offer_response(
@@ -2546,6 +2550,10 @@ class OwnerHostileTests(unittest.TestCase):
             'success': False,
             'quote_status': 'needs_guest_clarification',
             'guest_safe_next_action': 'Are both guests women?',
+            'room_eligibility': {'status': 'unsure', 'requested_room_preference': 'female_only',
+                                 'affected_guest_indices': [0, 1],
+                                 'reason_code': 'room_eligibility_unknown',
+                                 'question_kind': 'confirm_room_eligibility'},
             'offer_revision': None,
         })
         shown = self.ledger.finalize_offer_response(
@@ -2567,6 +2575,10 @@ class OwnerHostileTests(unittest.TestCase):
                     'success': False,
                     'quote_status': 'needs_guest_clarification',
                     'guest_safe_next_action': question,
+                    'room_eligibility': {'status': 'unsure', 'requested_room_preference': 'male_only',
+                                         'affected_guest_indices': [0, 1],
+                                         'reason_code': 'room_eligibility_unknown',
+                                         'question_kind': 'confirm_room_eligibility'},
                     'offer_revision': None,
                 })
                 shown = self.ledger.finalize_offer_response(
