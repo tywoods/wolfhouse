@@ -42,6 +42,22 @@ capture_public_contract(){
     curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null -w '%{url_effective}\t%{http_code}\t%{ssl_verify_result}\t%{redirect_url}\n' "$url" >>"$out"||return 1
   done
 }
+wait_for_certificate(){
+  local deadline=$((SECONDS + 120)) remaining attempt_timeout
+  while (( SECONDS < deadline )); do
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
+    (( remaining < 8 )) && attempt_timeout=$remaining || attempt_timeout=8
+    if curl --silent --show-error --connect-timeout 3 --max-time "$attempt_timeout" -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"; then
+      (( SECONDS < deadline )) && return 0
+      break
+    fi
+    (( SECONDS < deadline )) || break
+    remaining=$((deadline - SECONDS))
+    (( remaining < 2 )) && sleep "$remaining" || sleep 2
+  done
+  return 1
+}
 backup_controller(){
   mkdir -p "$BACKUP/controller/files" || return 1
   : >"$BACKUP/controller/manifest" || return 1
@@ -142,7 +158,7 @@ require /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service
 must fetch_active "$BACKUP/active.after.json"
 must node "$BUNDLE/check-luna-caddy-json.cjs" verify-inactive "$BACKUP/active.after.json"
 must node "$BUNDLE/check-luna-caddy-json.cjs" compare-protected "$BACKUP/protected.before" "$BACKUP/active.after.json"
-must curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+must wait_for_certificate
 require require_unauthorized http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook "$BACKUP/local.unauth.json"
 require require_unauthorized "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" "$BACKUP/public.unauth.json"
 must node "$BUNDLE/probe-luna-routing-get.cjs" --env-file http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook /root/luna-routing.env >"$BACKUP/local.auth.json"

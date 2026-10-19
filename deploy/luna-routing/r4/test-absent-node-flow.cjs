@@ -38,7 +38,7 @@ function makeArchive(root, failInstall, realChild = false) {
   assert.equal(run('tar', ['-cf', archive, '-C', tree, 'source']).status, 0);
   return archive;
 }
-function fixture() {
+function fixture(options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'r4-absent-node-'));
   const bundle = path.join(root, 'bundle'); fs.cpSync(here, bundle, { recursive: true });
   for (const p of ['etc/caddy', 'var/lib/caddy/.config/caddy', 'var/backups', 'root', 'opt', 'etc', 'etc/systemd/system', 'etc/sudoers.d', 'etc/tmpfiles.d', 'run/lock', 'usr/bin', 'bin', 'tx']) fs.mkdirSync(path.join(root, p), { recursive: true });
@@ -87,6 +87,7 @@ if [[ $1 == purge ]]; then [[ $* == 'purge -y nodejs' ]] || exit 91; rm -f "$R4_
   let shell = fs.readFileSync(path.join(bundle, 'run-luna-routing-r4.sh'), 'utf8');
   for (const prefix of ['/var/', '/etc/', '/root/', '/opt/', '/run/', '/usr/bin/']) shell = shell.split(prefix).join(`${root}${prefix}`);
   shell = shell.replace(/NODE_SHA=[0-9a-f]+/, `NODE_SHA=${sha(deb)}`);
+  if (options.faultNewTls) shell = shell.replace('local deadline=$((SECONDS + 120)) remaining attempt_timeout', 'local deadline=$((SECONDS + 1)) remaining attempt_timeout');
   shell = shell.replace("(( EUID == 0 ))||die 1 'root required';", ': # root requirement covered by production source; sandbox harness is unprivileged;');
   shell = shell.replace('== 0:600', `== ${process.getuid()}:600`);
   fs.writeFileSync(path.join(bundle, 'run-luna-routing-r4.sh'), shell, { mode: 0o755 });
@@ -96,7 +97,7 @@ if [[ $1 == purge ]]; then [[ $* == 'purge -y nodejs' ]] || exit 91; rm -f "$R4_
 }
 function executeCase(input = {}) {
   const options = typeof input === 'boolean' ? { failInstall: input } : input;
-  const f = fixture();
+  const f = fixture(options);
   try {
     const archive = makeArchive(f.root, Boolean(options.failInstall), Boolean(options.realChild));
     const release = path.join(f.root, options.failInstall ? 'release-fail' : 'release-ok');
@@ -152,7 +153,7 @@ for (const [name, options, expected] of [
   ['inventory failure after Node install', { inventoryFail: true }, 57],
   ['partial package install failure', { aptPartialFail: true }, 42],
   ['required Caddy backup copy failure', { faultBackupCopy: true }, 59],
-  ['new-host TLS failure after reload', { faultNewTls: true }, 35],
+  ['new-host TLS failure after bounded wait', { faultNewTls: true }, 1],
   ['protected-site drift after reload', { faultProtectedDrift: true }, 1],
 ]) {
   const result = executeCase(options);
