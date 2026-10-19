@@ -32,7 +32,7 @@ function makeArchive(root, failInstall, realChild = false) {
       fs.writeFileSync(file, text, { mode: relative.endsWith('.sh') ? 0o755 : 0o644 });
     }
   } else {
-    writeExecutable(path.join(source, 'deploy/luna-routing/install-luna-routing.sh'), `#!/usr/bin/env bash\nprintf 'INSTALLER %s\\n' "$1" >>"$R4_TEST_LOG"\n${failInstall ? '[[ $1 != --install ]] || exit 42' : 'if [[ $1 == --install ]];then : >"$R4_ROOT/controller.active"; : >"$R4_ROOT/controller.enabled";fi'}\n`);
+    writeExecutable(path.join(source, 'deploy/luna-routing/install-luna-routing.sh'), `#!/usr/bin/env bash\nprintf 'INSTALLER %s\\n' "$1" >>"$R4_TEST_LOG"\n${failInstall ? '[[ $1 != --install ]] || exit 42' : 'if [[ $1 == --install ]];then : >"$R4_ROOT/etc/systemd/system/luna-routing-controller.service"; : >"$R4_ROOT/controller.active"; : >"$R4_ROOT/controller.enabled";fi'}\n`);
   }
   const archive = path.join(root, failInstall ? 'source-fail.tar' : 'source-ok.tar');
   assert.equal(run('tar', ['-cf', archive, '-C', tree, 'source']).status, 0);
@@ -82,7 +82,7 @@ NODE
 fi
 if [[ $1 == purge ]]; then [[ $* == 'purge -y nodejs' ]] || exit 91; rm -f "$R4_ROOT/usr/bin/node"; exit 0; fi
 [[ $1 == update ]]`);
-  writeExecutable(path.join(root, 'usr/bin/systemctl'), `#!/usr/bin/env bash\nprintf 'SYSTEMCTL %s\\n' "$*" >>"$R4_TEST_LOG"\ncase "$1" in is-active) [[ $* == *caddy* ]]&&exit 0;[[ -e "$R4_ROOT/controller.active" ]]&&exit 0; echo inactive;exit 3;; is-enabled) [[ -e "$R4_ROOT/controller.enabled" ]];; stop) [[ \${R4_FAULT_STOP:-0} != 1 ]]||exit 55;rm -f "$R4_ROOT/controller.active";; start) : >"$R4_ROOT/controller.active";; restart) : >"$R4_ROOT/controller.active";[[ \${R4_REAL_CHILD_FAIL:-0} != 1 ]]||exit 42;; enable) : >"$R4_ROOT/controller.enabled";; disable) rm -f "$R4_ROOT/controller.enabled";; esac\n`);
+  writeExecutable(path.join(root, 'usr/bin/systemctl'), `#!/usr/bin/env bash\nprintf 'SYSTEMCTL %s\\n' "$*" >>"$R4_TEST_LOG"\ncase "$1" in is-active) [[ $* == *caddy* ]]&&exit 0;[[ -e "$R4_ROOT/controller.active" ]]&&exit 0; echo inactive;exit 3;; is-enabled) [[ -e "$R4_ROOT/etc/systemd/system/luna-routing-controller.service" && -e "$R4_ROOT/controller.enabled" ]];; stop) [[ \${R4_FAULT_STOP:-0} != 1 ]]||exit 55;rm -f "$R4_ROOT/controller.active";; start) : >"$R4_ROOT/controller.active";; restart) : >"$R4_ROOT/controller.active";[[ \${R4_REAL_CHILD_FAIL:-0} != 1 ]]||exit 42;; enable) : >"$R4_ROOT/controller.enabled";; disable) rm -f "$R4_ROOT/controller.enabled";; esac\n`);
   writeExecutable(path.join(root, 'usr/bin/caddy'), `#!/usr/bin/env bash\nprintf 'CADDY-ABS %s\\n' "$*" >>"$R4_TEST_LOG"\n`);
   let shell = fs.readFileSync(path.join(bundle, 'run-luna-routing-r4.sh'), 'utf8');
   for (const prefix of ['/var/', '/etc/', '/root/', '/opt/', '/run/', '/usr/bin/']) shell = shell.split(prefix).join(`${root}${prefix}`);
@@ -132,6 +132,7 @@ try {
   const purgeAt = rollback.operations.indexOf('APT purge -y nodejs');
   assert(purgeAt > baselineAt, `baseline must precede purge: ${rollback.operations.join(' | ')}`);
   assert.deepEqual(rollback.operations.filter(x => x.startsWith('APT purge')), ['APT purge -y nodejs']);
+  assert.equal(rollback.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'), false, 'rollback must not disable a unit that was absent at baseline');
   assert.equal(fs.existsSync(path.join(rollback.root, 'usr/bin/node')), false, 'transaction-installed Node must be purged');
   assert.equal(fs.existsSync(rollback.release), false, 'transaction release must be removed');
   console.log(`TRACE absent-Node rollback: ${rollback.operations.join(' -> ')}`);

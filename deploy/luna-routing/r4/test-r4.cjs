@@ -45,6 +45,18 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const generated = fs.readFileSync(path.join(fixtures, 'canonical-generated.Caddyfile'), 'utf8');
    assert.strictEqual(caddyContract.transform(empty, { site: inspector.SITE }), generated);
  });
+ await test('real France baseline without staging site gains one canonical non-delivery site', () => {
+   const baseline = fs.readFileSync(path.join(fixtures, 'france-baseline-20261019.Caddyfile'), 'utf8');
+   const candidate = caddyContract.transform(baseline, { site: inspector.SITE });
+   assert.strictEqual(candidate.split(`${inspector.SITE} {`).length - 1, 1);
+   assert.doesNotMatch(candidate, /handle \/whatsapp\/webhook(?:\s|\{)/);
+   assert.doesNotMatch(candidate, /import \/var\/lib\/luna-routing\/luna-number-route\.caddy/);
+   assert.strictEqual(caddyContract.verify(candidate, { site: inspector.SITE }), true);
+ });
+ await test('ambiguous or duplicate France site remains rejected', () => {
+   assert.throws(() => caddyContract.transform(`${inspector.SITE}, alias.example.test {\n}\n`, { site: inspector.SITE }), /exactly one unambiguous/);
+   assert.throws(() => caddyContract.transform(`${inspector.SITE} {\n}\n${inspector.SITE} {\n}\n`, { site: inspector.SITE }), /exactly one unambiguous/);
+ });
  await test('native unmatched proxy with added matcher is rejected', () => {
    const cfg = load('native-actual-canonical.json');
    cfg.apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].routes[1].match = [{ method: ['POST'] }];

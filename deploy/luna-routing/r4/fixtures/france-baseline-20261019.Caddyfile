@@ -1,0 +1,32 @@
+# Existing default France route retained.
+:80 {
+	root * /usr/share/caddy
+	file_server
+}
+
+staff-staging.lunafrontdesk.com {
+	reverse_proxy 127.0.0.1:3036 {
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 240s
+		}
+	}
+}
+
+sunset-staging.lunafrontdesk.com {
+	reverse_proxy 127.0.0.1:3037 {
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 240s
+		}
+	}
+}
+
+crowsnest.lunafrontdesk.com {
+	reverse_proxy 127.0.0.1:3040 {
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 240s
+		}
+	}
+}
