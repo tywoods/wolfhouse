@@ -121,6 +121,7 @@ class DeterministicRegisteredLoop:
         self.trace.append({"kind": "raw_user", "text": raw})
 
     def call(self, name, args, responses):
+        self.trace.append({"kind": "tool_call", "tool": name})
         def post(route, body):
             self.staff.append({"route": route, "body": deepcopy(body)})
             response = responses(route, body) if callable(responses) else responses[route]
@@ -216,6 +217,195 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertEqual([t for t in self.loop.trace if t["kind"] == "rendered_reply"],
                          [{"kind": "rendered_reply", "text": rendered}],
                          "no second confirmation was rendered")
+
+    def test_sim22_becker_captured_registered_sequence_reaches_create(self):
+        """Replay captured G3 check/quote/check/create args through registered tools."""
+        # Committed R4 inventory stores the eligibility label as ``male preferred``;
+        # the guest-facing request remains the canonical ``male_only`` preference.
+        beds = self.beds(2, "male preferred")
+        for row in beds:
+            row["room_type"] = "shared"
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared",
+                   "room_preference": "male_only", "group_gender": "male"}
+        availability = availability_receipt(beds)
+        availability["selected_bed_codes"] = ["R4-B1", "R4-B2"]
+        first_quote = {**offered, "package_code": "package_none",
+                       "source": "agent_luna_whatsapp",
+                       "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        first = checked_staff_quote(first_quote, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
+        self.loop.call("check_availability", {
+            "client_slug": None, "check_in": "2026-11-11", "check_out": "2026-11-14",
+            "guest_count": 2, "room_type": "shared", "room_preference": "male_dorm",
+        }, {"/availability-check": availability})
+        self.loop.call("check_availability", offered, {"/availability-check": availability})
+        self.loop.call("quote_booking", first_quote, {"/booking-preview": first})
+        self.loop.present()
+
+        names = [{"name": "Jonas Becker", "explicit_gender": "male"},
+                 {"name": "Felix Becker", "explicit_gender": "male"}]
+        accepted = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                    "guest_count": 2, "package_code": "package_none",
+                    "room_preference": "male_only", "room_type": "shared",
+                    "guests": names, "payment_choice": "deposit", "language": "de",
+                    "source": "agent_luna_whatsapp", "guest_name": "Jonas Becker",
+                    "room_name_hints": names,
+                    "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        second = checked_staff_quote(accepted, beds, total=24000, deposit=20000)
+        acceptance_text = "Jonas Becker und Felix Becker. Anzahlung. Ja, bitte buchen."
+        self.loop.turn("g3-accept", acceptance_text)
+        self.loop.interpret("accept", acceptance_text, completions={
+            "guests": [{"guest_index": i, "name": guest["name"],
+                        "evidence": guest["name"]}
+                       for i, guest in enumerate(names)],
+        })
+        self.loop.call("check_availability", {
+            "check_in": "2026-11-11", "check_out": "2026-11-14", "guest_count": 2,
+            "room_type": "shared", "room_preference": "male_only", "guests": names,
+            "room_name_hints": names}, {"/availability-check": availability})
+        self.loop.call("quote_booking", accepted, {"/booking-preview": second})
+        recheck = {**accepted, "client_slug": None}
+        self.loop.call("check_availability", recheck, {"/availability-check": availability})
+
+        create_args = {"add_ons": [], "check_in": "2026-11-11",
+            "check_out": "2026-11-14", "gender_preference": None,
+            "group_gender": "male", "guest_count": 2, "guest_packages": [],
+            "guests": names, "language": "de", "package_code": "package_none",
+            "payment_choice": "deposit", "per_guest_payment_links": False,
+            "room_name_hints": names, "room_preference": "male_only",
+            "room_type": "shared", "selected_bed_codes": ["R4-B1", "R4-B2"],
+            "source": "agent_luna_whatsapp", "confirm": True,
+            "phone": "+99900002399", "guest_phone": "+99900002399",
+            "guest_name": "Jonas Becker", "idempotency_key": "luna-66d43aca141f6dff"}
+        sql_proofs = []
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                run = subprocess.run(
+                    ["node", "scripts/verify-luna-create-booking-occupants.js", "--payload"],
+                    input=json.dumps(body), text=True, cwd=ROOT,
+                    capture_output=True, timeout=90)
+                self.assertTrue(run.stdout.strip(), {"returncode": run.returncode, "stderr": run.stderr})
+                proof = json.loads(run.stdout)
+                self.assertEqual(run.returncode, 0, {"proof": proof, "stderr": run.stderr})
+                sql_proofs.append(proof)
+                raise RuntimeError("isolated Staff SQL create/readback complete")
+            self.fail(f"unexpected route {route}")
+        with self.assertRaisesRegex(RuntimeError, "isolated Staff SQL create/readback complete"):
+            self.loop.call("create_booking_from_plan", create_args, responses)
+        self.assertEqual(len(sql_proofs), 1)
+        self.assertTrue(sql_proofs[0]["ok"], sql_proofs[0])
+        self.assertEqual(len(sql_proofs[0]["bookings"]), 1, sql_proofs[0])
+        self.assertEqual([row["guest_name"] for row in sql_proofs[0]["occupants"]],
+                         ["Jonas Becker", "Felix Becker"])
+        self.assertEqual(sum(call["kind"] == "booking_create"
+                             for call in sql_proofs[0]["sql_calls"]), 1)
+        self.assertEqual(sql_proofs[0]["network_attempts"], [])
+        self.assertEqual([row["tool"] for row in self.loop.trace
+                          if row["kind"] == "tool_call"], [
+            "check_availability", "check_availability", "quote_booking",
+            "check_availability", "quote_booking", "check_availability",
+            "create_booking_from_plan",
+        ])
+
+    def test_fact_equivalent_second_staff_revision_promotes_checked_authority(self):
+        """A checked payment completion advances Staff authority without minting consent."""
+        beds = self.beds(2)
+        names = [{"name": "Jonas Becker"}, {"name": "Felix Becker"}]
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared", "room_preference": "mixed",
+                   "package_code": "package_none",
+                   "selected_bed_codes": [row["bed_code"] for row in beds],
+                   "guests": names}
+        first = checked_staff_quote(offered, beds, total=24000, deposit=20000)
+        self.loop.turn("authority-q", "Quote this exact stay for Jonas Becker and Felix Becker")
+        self.loop.call("quote_booking", offered, {"/booking-preview": first})
+        self.loop.present()
+        self.loop.turn("authority-accept", "Yes, please book that exact offer.")
+        decision = self.loop.interpret("accept", "Yes, please book that exact offer.", completions={})
+        self.assertFalse(decision["create_ready"], decision)
+
+        completed = {**offered, "payment_choice": "deposit"}
+        second = checked_staff_quote(completed, beds, total=24000, deposit=20000)
+        second_result = self.loop.call("quote_booking", completed, {"/booking-preview": second})
+        self.assertTrue(second_result.get("success"), second_result)
+        authority = owner._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual((authority.get("presentation") or {}).get("quote_revision"),
+                         authority.get("checked_offer"), authority)
+
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], second["offer_revision"])
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "authority-one", "booking_code": "WH-AUTH"}
+            self.fail(f"unexpected route {route}")
+
+        created = self.loop.call("create_booking_from_plan", completed, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+
+    def test_sim22_becker_second_good_quote_carries_offer_into_registered_create(self):
+        """Replay G3: quote -> accepted completion quote -> omitted-identity create."""
+        beds = self.beds(2, "male_only", "R4")
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared",
+                   "room_preference": "male_only", "group_gender": "male",
+                   "package_code": "package_none", "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        first = checked_staff_quote(offered, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
+        self.loop.call("quote_booking", offered, {"/booking-preview": first})
+        self.loop.present()
+
+        names = [{"name": "Jonas Becker", "explicit_gender": "male"},
+                 {"name": "Felix Becker", "explicit_gender": "male"}]
+        accepted = {**offered, "guest_name": "Jonas Becker", "guests": names,
+                    "payment_choice": "deposit", "language": "de"}
+        second = checked_staff_quote(accepted, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-accept", "Jonas Becker und Felix Becker. Anzahlung. Ja, bitte buchen.")
+        self.loop.call("quote_booking", accepted, {"/booking-preview": second})
+
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], second["offer_revision"])
+                self.assertIs(body["require_offer_identity"], True)
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "g3-one", "booking_code": "WH-G3"}
+            self.fail(f"unexpected route {route}")
+
+        # Exact captured failure shape: the model omits both owner-only fields.
+        created = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        first_key = self.loop.create_dispatches[0]["idempotency_key"]
+        replay = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(replay.get("idempotent"), replay)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        self.assertEqual(self.loop.create_dispatches[0]["idempotency_key"], first_key)
+
+        changed_cases = {
+            "checkout": {**accepted, "check_out": "2026-11-15"},
+            "payment": {**accepted, "payment_choice": "full"},
+            "occupant": {**accepted, "guests": [names[0],
+                {"name": "Karl Becker", "explicit_gender": "male"}]},
+            "occupant_order": {**accepted, "guests": list(reversed(names))},
+        }
+        for label, changed in changed_cases.items():
+            with self.subTest(label=label):
+                refused = self.loop.call("create_booking_from_plan", changed, responses)
+                self.assertFalse(refused["success"], refused)
+                self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
 
     def test_r1_names_after_quote_with_chosen_full_payment_dispatches_once(self):
         """Chosen full payment survives late name completion, not only full-only tariffs."""

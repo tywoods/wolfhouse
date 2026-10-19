@@ -127,8 +127,8 @@ def _normalized_selection_rows(rows, *, catalog=False):
     return sorted(set(normalized), key=lambda item: _encode(item))
 
 
-def _material_projection(plan, revision=None):
-    """Canonical shown-offer identity; occupant slots bind beds, not names."""
+def _material_projection(plan, revision=None, *, include_personal=False):
+    """Canonical shown-offer identity, optionally including retry-bound people."""
     plan = plan if isinstance(plan, dict) else {}
     revision = revision if isinstance(revision, dict) else {}
     value = lambda key: plan[key] if key in plan else revision.get(key)
@@ -150,7 +150,7 @@ def _material_projection(plan, revision=None):
             packages.append((index, row))
     services = set(_normalized_selection_rows(value('add_ons')))
     services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
-    return {
+    projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
         'guest_count': value('guest_count'), 'room_type': value('room_type'),
         'allocation': allocation, 'package_code': value('package_code'),
@@ -160,11 +160,27 @@ def _material_projection(plan, revision=None):
         'total_cents': revision.get('total_cents'),
         'currency': revision.get('currency'),
     }
+    if include_personal:
+        people = value('guests')
+        if not isinstance(people, list):
+            people = [{'name': row.get('guest_name')}
+                      for row in assignments if isinstance(row, dict)]
+        projection.update(
+            payment_choice=value('payment_choice'),
+            occupants=[(
+                ' '.join(str(guest.get('name') or '').split()).casefold(),
+                str(guest.get('explicit_gender') or '').strip().casefold() or None,
+            ) for guest in people if isinstance(guest, dict)],
+        )
+    return projection
 
 
-def _same_material_offer(left_plan, right_plan, left_revision=None, right_revision=None):
-    return (_material_projection(left_plan, left_revision)
-            == _material_projection(right_plan, right_revision))
+def _same_material_offer(left_plan, right_plan, left_revision=None, right_revision=None,
+                         *, include_personal=False):
+    return (_material_projection(left_plan, left_revision,
+                                 include_personal=include_personal)
+            == _material_projection(right_plan, right_revision,
+                                    include_personal=include_personal))
 
 
 def _frozen_recovery(state, *, session_key, session_id, identity, message_id, raw):
@@ -2068,13 +2084,18 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
-                if presentation.get('create_ready') is True:
+                completed_authority = (completed_named_revision
+                    and bool(revision.get('payment_choice'))
+                    and revision.get('availability_checked') is True
+                    and response.get('payment_choice_needed') is not True
+                    and not response.get('missing_fields'))
+                if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
                     state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
-                if state.get('status') == 'accepted' and presentation.get('create_ready') is True:
+                if state.get('status') == 'accepted' and completed_authority:
                     # A fact-equivalent Staff re-quote advances the authority
                     # already accepted for this same person/conversation.  Do
                     # not leave the acceptance snapshots pointing at the prior
@@ -2133,6 +2154,17 @@ def prepare_create(params):
         frozen_dispatch = state.get('dispatch_payload')
         if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
                 and isinstance(frozen_dispatch, dict)):
+            # Recovery reuses the owner-frozen operation only when any restated
+            # business fields still describe that operation. Omitted fields are
+            # recovered; changed dates/people/beds/terms cannot ride its receipt.
+            candidate = deepcopy(frozen_dispatch)
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready', 'accepted_offer',
+                                             'require_offer_identity', 'idempotency_key')})
+            if not _same_material_offer(frozen_dispatch, candidate,
+                                        state['checked_offer'], state['checked_offer'],
+                                        include_personal=True):
+                raise QuoteBoundaryError('accepted_quote_changed')
             return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.

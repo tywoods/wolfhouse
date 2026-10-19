@@ -56,6 +56,7 @@ const {
   loadWolfhouseInventoryFromCsv, WOLFHOUSE_CLIENT_SLUG,
 } = require('./lib/wolfhouse-inventory-source');
 
+
 const CLIENT_ID = '00000000-0000-4000-8000-000000000001';
 const DEFAULT_PAYLOAD = {
   confirm: true,
@@ -85,6 +86,18 @@ CREATE TABLE clients (id uuid PRIMARY KEY, slug text NOT NULL UNIQUE);
 CREATE TABLE wh_pricing_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text, item_type text,
   item_code text, season_code text, unit text, amount_cents int, currency text, active boolean
+);
+CREATE TABLE wh_pricing_seasons (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text NOT NULL,
+  code text NOT NULL, label text NOT NULL, priority int NOT NULL DEFAULT 0,
+  bookable boolean NOT NULL DEFAULT true, active boolean NOT NULL DEFAULT true,
+  sort_order int NOT NULL DEFAULT 0
+);
+CREATE TABLE wh_pricing_season_ranges (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  season_id uuid NOT NULL REFERENCES wh_pricing_seasons(id) ON DELETE CASCADE,
+  client_slug text NOT NULL, start_month smallint NOT NULL, start_day smallint NOT NULL,
+  end_month smallint NOT NULL, end_day smallint NOT NULL, sort_order int NOT NULL DEFAULT 0
 );
 CREATE TABLE wh_pricing_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text, item_type text,
@@ -123,7 +136,7 @@ CREATE TABLE payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid REFERENCES clients,
   booking_id uuid REFERENCES bookings, status payment_record_status,
   payment_kind payment_kind, currency text, amount_due_cents int,
-  metadata jsonb NOT NULL DEFAULT '{}'
+  metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz DEFAULT now()
 );
 CREATE TABLE workflow_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid REFERENCES clients,
@@ -141,6 +154,20 @@ const normalizeSql = (sql) => String(sql).replace(/\s+/g, ' ').trim();
 // Explicit allowlist: new/unexpected SQL fails, even if a production catch would
 // otherwise downgrade a missing table or availability error to a warning.
 const allowedSql = new Map([
+  ['pricing_seasons_read', `SELECT s.id, s.code, s.label, s.priority, s.bookable, s.active, s.sort_order,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'start_month', rg.start_month, 'start_day', rg.start_day,
+                  'end_month', rg.end_month, 'end_day', rg.end_day
+                ) ORDER BY rg.sort_order, rg.start_month, rg.start_day
+              ) FILTER (WHERE rg.id IS NOT NULL), '[]'
+            ) AS ranges
+       FROM wh_pricing_seasons s
+       LEFT JOIN wh_pricing_season_ranges rg ON rg.season_id = s.id
+      WHERE s.client_slug = $1 AND s.active = true
+      GROUP BY s.id
+      ORDER BY s.priority DESC, s.sort_order, s.code`],
   ['pricing_items_read', `SELECT id, item_type, item_code, label, description,
     metadata, active, sort_order FROM wh_pricing_items
     WHERE client_slug = $1 AND active = true ORDER BY item_type, sort_order, label`],
@@ -148,8 +175,39 @@ const allowedSql = new Map([
     amount_cents, currency, active FROM wh_pricing_rules
     WHERE client_slug = $1 AND active = true
     ORDER BY item_type, item_code, season_code NULLS FIRST`],
+  ['offer_idempotency_lookup', `/* offer_idempotency_lookup */
+    SELECT bk.id AS booking_id, bk.booking_code, bk.status, bk.metadata,
+           bk.check_in::text AS check_in, bk.check_out::text AS check_out,
+           bk.guest_name, bk.guest_count, bk.package_code,
+           (SELECT p.id FROM payments p WHERE p.booking_id = bk.id ORDER BY p.created_at LIMIT 1) AS payment_id
+      FROM bookings bk
+      JOIN clients c ON c.id = bk.client_id
+     WHERE c.slug = $1 AND bk.metadata->>'idempotency_key' = $2
+     LIMIT 1`],
+  ['selling_mode_lock', `SELECT r.id, r.selling_mode FROM rooms r JOIN clients c ON c.id=r.client_id
+          WHERE c.slug=$1 AND r.id IN (
+            SELECT bd.room_id FROM beds bd WHERE bd.client_id=c.id AND bd.bed_code=ANY($2::text[])
+          ) ORDER BY r.id FOR UPDATE OF r`],
+  ['offer_season_lock', `/* offer_season_lock */ SELECT id FROM wh_pricing_seasons WHERE client_slug = $1 FOR UPDATE`],
+  ['offer_price_rule_lock', `/* offer_price_lock */ SELECT id FROM wh_pricing_rules WHERE client_slug = $1 FOR UPDATE`],
+  ['offer_price_item_lock', `/* offer_price_lock */ SELECT id FROM wh_pricing_items WHERE client_slug = $1 FOR UPDATE`],
+  ['offer_room_lock', `/* offer_room_lock */
+    SELECT bd.id
+      FROM beds bd
+      JOIN rooms r ON r.id = bd.room_id AND r.client_id = bd.client_id
+      JOIN clients c ON c.id = bd.client_id
+     WHERE c.slug = $1 AND bd.bed_code = ANY($2::text[])
+     FOR UPDATE OF bd, r`],
+  ['room_archive_codes', `SELECT r.room_code
+       FROM rooms r
+       INNER JOIN clients c ON c.id = r.client_id
+       WHERE c.slug = $1
+         AND COALESCE(to_jsonb(r)->>'archived_at', '') <> ''
+       /* room-archive-codes */`],
   ['inventory_read', getBedCalendarRoomsQuery()],
+  ['offer_commit_reread', `/* offer_commit_reread */\n${getBedCalendarRoomsQuery()}`],
   ['availability_read', getBedCalendarBlocksQuery()],
+  ['offer_commit_blocks', `/* offer_commit_reread */\n${getBedCalendarBlocksQuery()}`],
   ['booking_create', buildManualBookingCreateSql()],
   ['booking_update', `UPDATE bookings
     SET total_amount_cents = $1, deposit_required_cents = $2,
@@ -183,6 +241,17 @@ async function seed(db, payload) {
     await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations', migration), 'utf8'));
   }
   await db.query('INSERT INTO clients VALUES ($1, $2)', [CLIENT_ID, WOLFHOUSE_CLIENT_SLUG]);
+  const season = await db.query(`INSERT INTO wh_pricing_seasons
+    (client_slug, code, label, priority, bookable, active, sort_order)
+    VALUES ($1, 'all_year', 'All year', 1, true, true, 1) RETURNING id`,
+  [WOLFHOUSE_CLIENT_SLUG]);
+  await db.query(`INSERT INTO wh_pricing_season_ranges
+    (season_id, client_slug, start_month, start_day, end_month, end_day, sort_order)
+    VALUES ($1, $2, 1, 1, 12, 31, 1)`, [season.rows[0].id, WOLFHOUSE_CLIENT_SLUG]);
+  await db.query(`INSERT INTO wh_pricing_rules
+    (client_slug, item_type, item_code, season_code, unit, amount_cents, currency, active)
+    VALUES ($1, 'package', 'malibu', 'all_year', 'weekly_per_person', 28000, 'EUR', true)`,
+  [WOLFHOUSE_CLIENT_SLUG]);
   const inventory = loadWolfhouseInventoryFromCsv();
   assert.ok(inventory.rooms.length >= 10, 'committed inventory must be available');
   for (const room of inventory.rooms) {
@@ -342,7 +411,7 @@ async function runPayload(payload, hooks = {}) {
         'Occupants are matched to accepted bed-code order, not booking_beds row order.',
         'Create-only draft payment coverage; no payment collection, checkout, or messaging.',
       ],
-      occupants, services,
+      occupants, services, bookings,
       contact: { crm_customer_count: customers.length, conversation_count: conversations.length,
         customer: customers[0], booking_guest_name: bookings[0].guest_name,
         booking_customer_id: bookings[0].customer_id, reused_existing_identity: true },
