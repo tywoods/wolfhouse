@@ -50,6 +50,9 @@ rollback_controller(){
   (( CONTROLLER_SNAPSHOT_READY ))||return 0
   if (( CONTROLLER_STARTED )); then /usr/bin/systemctl stop luna-routing-controller.service || CONTROLLER_STOP_UNCONFIRMED=1; controller_inactive || CONTROLLER_STOP_UNCONFIRMED=1; fi
   if (( CONTROLLER_STOP_UNCONFIRMED )); then printf 'controller stop unconfirmed; retaining controller files/backups/release/Node/runtime dependencies\n' >&2; return 1; fi
+  if (( ! CONTROLLER_UNIT_WAS_PRESENT )) && /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service; then
+    /usr/bin/systemctl disable luna-routing-controller.service || return 1
+  fi
   local state slot dest
   while IFS=$'\t' read -r state slot dest; do [[ ! -L $dest ]]||return 1; if [[ $state == PRESENT ]];then cp -a "$BACKUP/controller/files/$slot" "$dest"||return 1;else rm -f "$dest"||return 1;fi; done <"$BACKUP/controller/manifest"
   /usr/bin/systemctl daemon-reload||return 1

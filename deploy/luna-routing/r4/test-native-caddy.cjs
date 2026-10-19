@@ -17,6 +17,12 @@ const listen = server => new Promise((resolve, reject) => {
   server.listen(0, '127.0.0.1', () => resolve(server.address().port));
 });
 const close = server => new Promise(resolve => server.close(resolve));
+function adapt(caddyfile, output) {
+  const out = cp.spawnSync(caddy, ['adapt', '--config', caddyfile, '--adapter', 'caddyfile', '--validate'], { encoding: 'utf8' });
+  assert.strictEqual(out.status, 0, out.stderr);
+  fs.writeFileSync(output, out.stdout);
+  return JSON.parse(out.stdout);
+}
 async function freePort() {
   const server = http.createServer();
   const port = await listen(server);
@@ -169,6 +175,28 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
   const version = cp.execFileSync(caddy, ['version'], { encoding: 'utf8' }).trim();
   assert.match(version, /^v2\.6\.2\b/, 'native regression requires exact Caddy 2.6.2');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-r6-native-'));
+  const franceBaselineFile = path.join(__dirname, 'fixtures/france-baseline-20261019.Caddyfile');
+  const franceWorkingFile = path.join(root, 'Caddyfile');
+  const franceBaseline = fs.readFileSync(franceBaselineFile, 'utf8');
+  fs.writeFileSync(franceWorkingFile, franceBaseline);
+  const franceBaselineJson = adapt(franceWorkingFile, path.join(root, 'france-baseline.json'));
+  fs.writeFileSync(franceWorkingFile, require('../caddy-contract.js').transform(franceBaseline, { site: inspector.SITE }));
+  const franceCandidateJson = adapt(franceWorkingFile, path.join(root, 'france-candidate.json'));
+  inspector.verifyInactiveObject(franceCandidateJson);
+  inspector.compareProtectedObjects(inspector.snapshotProtectedObject(franceBaselineJson), franceCandidateJson);
+  const staticServer = Object.values(franceCandidateJson.apps.http.servers).find(server => server.listen?.[0] === ':80');
+  for (const mutate of [
+    server => server.routes[0].handle.pop(),
+    server => server.routes[0].handle.reverse(),
+    server => { server.routes[0].handle[1].hide = ['/arbitrary/not-native-or-baseline']; },
+    server => { server.routes[0].match = [{ host: [inspector.SITE] }]; }
+  ]) {
+    const changed = structuredClone(franceCandidateJson);
+    mutate(Object.values(changed.apps.http.servers).find(server => server.listen?.[0] === ':80'));
+    assert.throws(() => inspector.verifyInactiveObject(changed));
+  }
+  assert(staticServer, 'native France fixture must contain the canonical :80 baseline server');
+  process.stdout.write('PASS native France fixture acceptance checker preserves baseline and accepts inactive routes\n');
   const cases = [
     await runCase(root, 'authentic-control', () => {}, inspector.CONTROLLER_REWRITE, false),
     await runCase(root, 'earlier-different-group', routes => routes.unshift({ group: 'other-group', handle: [] }), inspector.CONTROLLER_REWRITE, false),
