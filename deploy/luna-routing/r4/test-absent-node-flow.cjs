@@ -100,6 +100,7 @@ function executeCase(input = {}) {
   try {
     const archive = makeArchive(f.root, Boolean(options.failInstall), Boolean(options.realChild));
     const release = path.join(f.root, options.failInstall ? 'release-fail' : 'release-ok');
+    if (options.priorActive || options.priorUnit) fs.writeFileSync(path.join(f.root, 'etc/systemd/system/luna-routing-controller.service'), 'baseline unit\n');
     if (options.priorActive) { fs.writeFileSync(path.join(f.root, 'controller.active'), ''); fs.writeFileSync(path.join(f.root, 'controller.enabled'), ''); }
     const env = { ...process.env, PATH: `${f.root}/bin:${f.root}/usr/bin:/usr/bin:/bin`, R4_ROOT: f.root, R4_HOST_NODE: hostNode, R4_TEST_LOG: f.log, TX: path.join(f.root, 'tx'), SOURCE_ARCHIVE: archive, SOURCE_SHA256: sha(archive), SOURCE_COMMIT: 'fixture-commit', DEB: f.deb, RELEASE: release,
       R4_FAULT_ROUTE: options.faultRoute ? '1' : '0', R4_FAULT_CURL: options.faultCurl ? '1' : '0', R4_FAULT_NEW_TLS: options.faultNewTls ? '1' : '0', R4_FAULT_PROTECTED_DRIFT: options.faultProtectedDrift ? '1' : '0', R4_APT_SIM_FAIL: options.aptSimFail ? '1' : '0', R4_APT_PARTIAL_FAIL: options.aptPartialFail ? '1' : '0', R4_INVENTORY_FAIL: options.inventoryFail ? '1' : '0', R4_FAULT_STOP: options.faultStop ? '1' : '0', R4_FAULT_BACKUP_COPY: options.faultBackupCopy ? '1' : '0', R4_REAL_CHILD_FAIL: options.realChild ? '1' : '0' };
@@ -179,9 +180,19 @@ try {
   assert.equal(priorActive.out.status, 42, priorActive.out.stderr);
   assert.equal(fs.existsSync(path.join(priorActive.root, 'controller.active')), true, 'prior active controller must be restarted');
   assert.equal(fs.existsSync(path.join(priorActive.root, 'controller.enabled')), true, 'prior enabled controller must be restored');
+  assert(priorActive.operations.some(x => x === 'SYSTEMCTL enable luna-routing-controller.service'));
   assert(priorActive.operations.some(x => x === 'SYSTEMCTL start luna-routing-controller.service'));
   console.log('PASS prior active/enabled controller state is restored');
 } finally { fs.rmSync(priorActive.root, { recursive: true, force: true }); }
+
+const priorDisabled = executeCase({ failInstall: true, priorUnit: true });
+try {
+  assert.equal(priorDisabled.out.status, 42, priorDisabled.out.stderr);
+  assert.equal(fs.existsSync(path.join(priorDisabled.root, 'etc/systemd/system/luna-routing-controller.service')), true, 'prior unit file must be restored');
+  assert.equal(fs.existsSync(path.join(priorDisabled.root, 'controller.enabled')), false, 'prior disabled state must be restored');
+  assert(priorDisabled.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'));
+  console.log('PASS prior present/disabled controller state is restored');
+} finally { fs.rmSync(priorDisabled.root, { recursive: true, force: true }); }
 
 const stopFailure = executeCase({ failInstall: true, faultStop: true });
 try {
