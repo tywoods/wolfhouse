@@ -24,14 +24,68 @@ function glob(pattern, value, host) {
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', host ? '[^.]+' : '.*');
   return new RegExp(`^${escaped}$`, 'i').test(value);
 }
+function globTokens(pattern, host) {
+  if (typeof pattern !== 'string' || /[?{}%\\]/.test(pattern)) return null;
+  const tokens = [];
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern[i] === '*') { tokens.push({ star: true, host }); continue; }
+    if (pattern[i] === '[') {
+      const end = pattern.indexOf(']', i + 1);
+      if (end < 0) return null;
+      let body = pattern.slice(i + 1, end), negate = false;
+      if (body[0] === '!' || body[0] === '^') { negate = true; body = body.slice(1); }
+      if (!body) return null;
+      const chars = new Set();
+      for (let j = 0; j < body.length; j++) {
+        if (j + 2 < body.length && body[j + 1] === '-') {
+          for (let code = body.charCodeAt(j); code <= body.charCodeAt(j + 2); code++) chars.add(String.fromCharCode(code).toLowerCase());
+          j += 2;
+        } else chars.add(body[j].toLowerCase());
+      }
+      tokens.push({ chars, negate, host }); i = end; continue;
+    }
+    tokens.push({ chars: new Set([pattern[i].toLowerCase()]), negate: false, host });
+  }
+  return tokens;
+}
+function tokenAllows(token, char) {
+  if (token.star) return !token.host || char !== '.';
+  return (!token.host || char !== '.') && (token.negate ? !token.chars.has(char) : token.chars.has(char));
+}
+function globTokenMatch(pattern, value, host) {
+  const tokens = globTokens(pattern, host);
+  if (!tokens) return null;
+  const queue = [[0, 0]], seen = new Set();
+  value = value.toLowerCase();
+  while (queue.length) {
+    const [i, j] = queue.shift(), key = `${i}:${j}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (i === tokens.length && j === value.length) return true;
+    if (tokens[i]?.star) queue.push([i + 1, j]);
+    if (i < tokens.length && j < value.length && tokenAllows(tokens[i], value[j])) {
+      queue.push([tokens[i].star ? i : i + 1, j + 1]);
+    }
+  }
+  return false;
+}
 function intersect(a, b, host) {
   if (a === null) return b;
   if (b === null) return a;
   const out = [];
   for (const x of a) for (const y of b) {
     if (x === y) out.push(x);
-    else if (glob(x, y, host)) out.push(y);
-    else if (glob(y, x, host)) out.push(x);
+    else if (!/[*\[]/.test(y) && glob(x, y, host)) out.push(y);
+    else if (!/[*\[]/.test(x) && glob(y, x, host)) out.push(x);
+    else {
+      const candidates = host ? [SITE] : [...APPROVED.keys(), WEBHOOK];
+      const relevant = candidates.filter(value => {
+        const left = globTokenMatch(x, value, host), right = globTokenMatch(y, value, host);
+        if (left === null || right === null) fail('unresolved matcher overlap');
+        return left && right;
+      });
+      out.push(...relevant);
+    }
   }
   return [...new Set(out)];
 }
@@ -85,6 +139,18 @@ function effectiveLeaves(cfg) {
         }
       }
       return false;
+    }
+    function hasTerminatingRoute(list, host, requestPath) {
+      if (!Array.isArray(list)) return true;
+      return list.some(route => {
+        if (!route || typeof route !== 'object' || Array.isArray(route)) return true;
+        const alternatives = Array.isArray(route.match) && route.match.length ? route.match : [{}];
+        if (!alternatives.some(match => alternativeMayApply(match, host, requestPath))) return false;
+        if (route.terminal === true) return true;
+        const handlers = Array.isArray(route.handle) ? route.handle : [];
+        return handlers.some(handler => handler?.handler === 'subroute'
+          && hasTerminatingRoute(handler.routes, host, requestPath));
+      });
     }
     function handlersMayConsumeGroup(handlers, group, host, requestPath) {
       let currentPath = requestPath;
@@ -213,6 +279,10 @@ function effectiveLeaves(cfg) {
               }
             }
             const returnPaths = concreteCurrentPaths(currentPaths, possibleApproved);
+            if (handlerOrder < handlers.length - 1
+              && returnPaths.some(requestPath => hasTerminatingRoute(handler.routes, SITE, requestPath))) {
+              fail('nested subroute termination effect reaches later handler');
+            }
             if (handlerOrder < handlers.length - 1
               && returnPaths.some(requestPath => hasEscapingRewrite(handler.routes, SITE, requestPath))) {
               fail('nested subroute rewrite effect reaches later handler');

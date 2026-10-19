@@ -243,6 +243,37 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
     await runCaptainR8(root, 'disjoint-nested-delivery-control', false, [
       { method: 'GET', url: inspector.CONTROLLER_REWRITE },
       { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-handler-terminal', true, [
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-handler-nonterminal-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-handler-disjoint-terminal-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'character-class-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'crossing-wildcard-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'exact-inner-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'literal-equivalent-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'disjoint-wildcard-delivery-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
     ])
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);

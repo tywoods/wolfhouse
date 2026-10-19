@@ -298,6 +298,47 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      assert.match(result.stdout, /^PASS /);
    }
  });
+ const r14Rejections = new Map([
+   ['nested-handler-terminal.json', /nested subroute termination effect reaches later handler/],
+   ['character-class-delivery.json', /unapproved or delivery proxy/],
+   ['crossing-wildcard-delivery.json', /unapproved or delivery proxy/],
+   ['exact-inner-delivery.json', /unapproved or delivery proxy/],
+   ['literal-equivalent-delivery.json', /unapproved or delivery proxy/]
+ ]);
+ for (const [name, expectedError] of r14Rejections) await test(`Captain R14 overlap/termination witness ${name} is rejected in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg), expectedError);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), expectedError);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, expectedError);
+   }
+ });
+ for (const name of [
+   'disjoint-wildcard-delivery-control.json',
+   'nested-handler-disjoint-terminal-control.json',
+   'nested-handler-nonterminal-control.json'
+ ]) await test(`Captain R14 overlap/termination control ${name} passes in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   inspector.verifyInactiveObject(cfg);
+   inspector.compareProtectedObjects(baseline, cfg);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
+     assert.match(result.stdout, /^PASS /);
+   }
+ });
  for (const name of ['cross-handler-disjoint-control.json', 'cross-handler-different-group-control.json']) await test(`Captain R9 exact control ${name} passes in both CLI modes`, () => {
    const file = path.join(fixtures, name);
    const cfg = load(name);
