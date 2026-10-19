@@ -32,7 +32,7 @@ function makeArchive(root, failInstall, realChild = false) {
       fs.writeFileSync(file, text, { mode: relative.endsWith('.sh') ? 0o755 : 0o644 });
     }
   } else {
-    writeExecutable(path.join(source, 'deploy/luna-routing/install-luna-routing.sh'), `#!/usr/bin/env bash\nprintf 'INSTALLER %s\\n' "$1" >>"$R4_TEST_LOG"\n${failInstall ? '[[ $1 != --install ]] || exit 42' : 'if [[ $1 == --install ]];then : >"$R4_ROOT/controller.active"; : >"$R4_ROOT/controller.enabled";fi'}\n`);
+    writeExecutable(path.join(source, 'deploy/luna-routing/install-luna-routing.sh'), `#!/usr/bin/env bash\nprintf 'INSTALLER %s\\n' "$1" >>"$R4_TEST_LOG"\n${failInstall ? '[[ $1 != --install ]] || exit 42' : 'if [[ $1 == --install ]];then : >"$R4_ROOT/etc/systemd/system/luna-routing-controller.service"; systemctl enable luna-routing-controller.service; systemctl start luna-routing-controller.service;fi'}\n`);
   }
   const archive = path.join(root, failInstall ? 'source-fail.tar' : 'source-ok.tar');
   assert.equal(run('tar', ['-cf', archive, '-C', tree, 'source']).status, 0);
@@ -82,7 +82,7 @@ NODE
 fi
 if [[ $1 == purge ]]; then [[ $* == 'purge -y nodejs' ]] || exit 91; rm -f "$R4_ROOT/usr/bin/node"; exit 0; fi
 [[ $1 == update ]]`);
-  writeExecutable(path.join(root, 'usr/bin/systemctl'), `#!/usr/bin/env bash\nprintf 'SYSTEMCTL %s\\n' "$*" >>"$R4_TEST_LOG"\ncase "$1" in is-active) [[ $* == *caddy* ]]&&exit 0;[[ -e "$R4_ROOT/controller.active" ]]&&exit 0; echo inactive;exit 3;; is-enabled) [[ -e "$R4_ROOT/controller.enabled" ]];; stop) [[ \${R4_FAULT_STOP:-0} != 1 ]]||exit 55;rm -f "$R4_ROOT/controller.active";; start) : >"$R4_ROOT/controller.active";; restart) : >"$R4_ROOT/controller.active";[[ \${R4_REAL_CHILD_FAIL:-0} != 1 ]]||exit 42;; enable) : >"$R4_ROOT/controller.enabled";; disable) rm -f "$R4_ROOT/controller.enabled";; esac\n`);
+  writeExecutable(path.join(root, 'usr/bin/systemctl'), `#!/usr/bin/env bash\nprintf 'SYSTEMCTL %s\\n' "$*" >>"$R4_TEST_LOG"\nwants="$R4_ROOT/etc/systemd/system/multi-user.target.wants"\nunit="$R4_ROOT/etc/systemd/system/luna-routing-controller.service"\ncase "$1" in is-active) [[ $* == *caddy* ]]&&exit 0;[[ -e "$R4_ROOT/controller.active" ]]&&exit 0; echo inactive;exit 3;; is-enabled) count_file="$R4_ROOT/is-enabled.count";count=0;[[ ! -e $count_file ]]||count=$(<"$count_file");((count+=1));printf '%s\\n' "$count">"$count_file";if [[ \${R4_FAULT_ENABLE_QUERY:-0} == 1 && $count == 3 ]];then exit 55;fi;if [[ \${R4_UNIT_AWARE_ENABLE_ADAPTER:-0} == 1 && ! -e $unit ]];then echo disabled;exit 1;fi;if [[ -L "$wants/luna-routing-controller.service" ]];then echo enabled;exit 0;fi;if [[ -e $unit ]];then echo disabled;exit 1;fi;echo not-found;exit 4;; stop) [[ \${R4_FAULT_STOP:-0} != 1 ]]||exit 55;rm -f "$R4_ROOT/controller.active";; start) : >"$R4_ROOT/controller.active";; restart) : >"$R4_ROOT/controller.active";[[ \${R4_REAL_CHILD_FAIL:-0} != 1 ]]||exit 42;; enable) mkdir -p "$wants";ln -sfn ../luna-routing-controller.service "$wants/luna-routing-controller.service";; disable) rm -f "$wants/luna-routing-controller.service";; esac\n`);
   writeExecutable(path.join(root, 'usr/bin/caddy'), `#!/usr/bin/env bash\nprintf 'CADDY-ABS %s\\n' "$*" >>"$R4_TEST_LOG"\n`);
   let shell = fs.readFileSync(path.join(bundle, 'run-luna-routing-r4.sh'), 'utf8');
   for (const prefix of ['/var/', '/etc/', '/root/', '/opt/', '/run/', '/usr/bin/']) shell = shell.split(prefix).join(`${root}${prefix}`);
@@ -100,9 +100,15 @@ function executeCase(input = {}) {
   try {
     const archive = makeArchive(f.root, Boolean(options.failInstall), Boolean(options.realChild));
     const release = path.join(f.root, options.failInstall ? 'release-fail' : 'release-ok');
-    if (options.priorActive) { fs.writeFileSync(path.join(f.root, 'controller.active'), ''); fs.writeFileSync(path.join(f.root, 'controller.enabled'), ''); }
+    if (options.priorActive || options.priorUnit) fs.writeFileSync(path.join(f.root, 'etc/systemd/system/luna-routing-controller.service'), 'baseline unit\n');
+    if (options.priorActive) {
+      fs.writeFileSync(path.join(f.root, 'controller.active'), '');
+      const wants = path.join(f.root, 'etc/systemd/system/multi-user.target.wants');
+      fs.mkdirSync(wants, { recursive: true });
+      fs.symlinkSync('../luna-routing-controller.service', path.join(wants, 'luna-routing-controller.service'));
+    }
     const env = { ...process.env, PATH: `${f.root}/bin:${f.root}/usr/bin:/usr/bin:/bin`, R4_ROOT: f.root, R4_HOST_NODE: hostNode, R4_TEST_LOG: f.log, TX: path.join(f.root, 'tx'), SOURCE_ARCHIVE: archive, SOURCE_SHA256: sha(archive), SOURCE_COMMIT: 'fixture-commit', DEB: f.deb, RELEASE: release,
-      R4_FAULT_ROUTE: options.faultRoute ? '1' : '0', R4_FAULT_CURL: options.faultCurl ? '1' : '0', R4_FAULT_NEW_TLS: options.faultNewTls ? '1' : '0', R4_FAULT_PROTECTED_DRIFT: options.faultProtectedDrift ? '1' : '0', R4_APT_SIM_FAIL: options.aptSimFail ? '1' : '0', R4_APT_PARTIAL_FAIL: options.aptPartialFail ? '1' : '0', R4_INVENTORY_FAIL: options.inventoryFail ? '1' : '0', R4_FAULT_STOP: options.faultStop ? '1' : '0', R4_FAULT_BACKUP_COPY: options.faultBackupCopy ? '1' : '0', R4_REAL_CHILD_FAIL: options.realChild ? '1' : '0' };
+      R4_FAULT_ROUTE: options.faultRoute ? '1' : '0', R4_FAULT_CURL: options.faultCurl ? '1' : '0', R4_FAULT_NEW_TLS: options.faultNewTls ? '1' : '0', R4_FAULT_PROTECTED_DRIFT: options.faultProtectedDrift ? '1' : '0', R4_APT_SIM_FAIL: options.aptSimFail ? '1' : '0', R4_APT_PARTIAL_FAIL: options.aptPartialFail ? '1' : '0', R4_INVENTORY_FAIL: options.inventoryFail ? '1' : '0', R4_FAULT_STOP: options.faultStop ? '1' : '0', R4_FAULT_BACKUP_COPY: options.faultBackupCopy ? '1' : '0', R4_REAL_CHILD_FAIL: options.realChild ? '1' : '0', R4_FAULT_ENABLE_QUERY: options.faultEnableQuery ? '1' : '0', R4_UNIT_AWARE_ENABLE_ADAPTER: options.unitAwareEnableAdapter ? '1' : '0' };
 
     const out = run('bash', [path.join(f.bundle, 'run-luna-routing-r4.sh'), '--execute'], { env, cwd: f.bundle });
     return { ...f, release, out, operations: fs.readFileSync(f.log, 'utf8').trim().split('\n').filter(Boolean) };
@@ -132,6 +138,7 @@ try {
   const purgeAt = rollback.operations.indexOf('APT purge -y nodejs');
   assert(purgeAt > baselineAt, `baseline must precede purge: ${rollback.operations.join(' | ')}`);
   assert.deepEqual(rollback.operations.filter(x => x.startsWith('APT purge')), ['APT purge -y nodejs']);
+  assert.equal(rollback.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'), false, 'rollback must not disable a unit that was absent at baseline');
   assert.equal(fs.existsSync(path.join(rollback.root, 'usr/bin/node')), false, 'transaction-installed Node must be purged');
   assert.equal(fs.existsSync(rollback.release), false, 'transaction release must be removed');
   console.log(`TRACE absent-Node rollback: ${rollback.operations.join(' -> ')}`);
@@ -167,6 +174,8 @@ for (const [name, options, expected] of [
         : result.operations.map((x, i) => [x, i]).filter(([x]) => x.includes('https://staff-staging.lunafrontdesk.com/'))[1][1];
       const rollbackReloadAt = result.operations.findIndex((x, i) => i > failureProbeAt && x === 'SYSTEMCTL reload caddy');
       assert(failureProbeAt >= 0 && rollbackReloadAt > failureProbeAt, `${name}: rollback must reload original Caddy config after the failing acceptance probe`);
+      assert.equal(fs.existsSync(path.join(result.root, 'etc/systemd/system/multi-user.target.wants/luna-routing-controller.service')), false, `${name}: rollback must remove transaction-created enablement link`);
+      assert(result.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'), `${name}: rollback must disable transaction-created unit before deleting it`);
     }
     if (options.aptSimFail) assert.equal(result.operations.some(x => x.startsWith('APT install ')), false);
     console.log(`PASS ${name} fails closed with rollback discipline`);
@@ -177,10 +186,20 @@ const priorActive = executeCase({ failInstall: true, priorActive: true });
 try {
   assert.equal(priorActive.out.status, 42, priorActive.out.stderr);
   assert.equal(fs.existsSync(path.join(priorActive.root, 'controller.active')), true, 'prior active controller must be restarted');
-  assert.equal(fs.existsSync(path.join(priorActive.root, 'controller.enabled')), true, 'prior enabled controller must be restored');
+  assert.equal(fs.existsSync(path.join(priorActive.root, 'etc/systemd/system/multi-user.target.wants/luna-routing-controller.service')), true, 'prior enabled controller must be restored');
+  assert(priorActive.operations.some(x => x === 'SYSTEMCTL enable luna-routing-controller.service'));
   assert(priorActive.operations.some(x => x === 'SYSTEMCTL start luna-routing-controller.service'));
   console.log('PASS prior active/enabled controller state is restored');
 } finally { fs.rmSync(priorActive.root, { recursive: true, force: true }); }
+
+const priorDisabled = executeCase({ failInstall: true, priorUnit: true });
+try {
+  assert.equal(priorDisabled.out.status, 42, priorDisabled.out.stderr);
+  assert.equal(fs.existsSync(path.join(priorDisabled.root, 'etc/systemd/system/luna-routing-controller.service')), true, 'prior unit file must be restored');
+  assert.equal(fs.existsSync(path.join(priorDisabled.root, 'etc/systemd/system/multi-user.target.wants/luna-routing-controller.service')), false, 'prior disabled state must be restored');
+  assert(priorDisabled.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'));
+  console.log('PASS prior present/disabled controller state is restored');
+} finally { fs.rmSync(priorDisabled.root, { recursive: true, force: true }); }
 
 const stopFailure = executeCase({ failInstall: true, faultStop: true });
 try {
@@ -191,6 +210,23 @@ try {
   assert.match(stopFailure.out.stderr, /backup=/);
   console.log('PASS stop failure retains release/runtime and emits bounded recovery evidence');
 } finally { fs.rmSync(stopFailure.root, { recursive: true, force: true }); }
+
+for (const [name, unitAwareEnableAdapter] of [
+  ['link-only adapter', false],
+  ['unit-aware adapter', true],
+]) {
+  const queryFailure = executeCase({ faultNewTls: true, faultEnableQuery: true, unitAwareEnableAdapter });
+  try {
+    const unit = path.join(queryFailure.root, 'etc/systemd/system/luna-routing-controller.service');
+    const link = path.join(queryFailure.root, 'etc/systemd/system/multi-user.target.wants/luna-routing-controller.service');
+    assert.equal(queryFailure.out.status, 2, `${name}: ${queryFailure.out.stderr}`);
+    assert.match(queryFailure.out.stderr, /ROLLBACK INCOMPLETE/);
+    assert.equal(fs.existsSync(unit), true, `${name}: uncertain enablement must retain the installed unit`);
+    assert.equal(fs.existsSync(link), true, `${name}: uncertain enablement must retain the enablement link`);
+    assert.equal(queryFailure.operations.some(x => x === 'SYSTEMCTL disable luna-routing-controller.service'), false, `${name}: failed query must not be treated as authority to disable`);
+    console.log(`PASS enablement query failure fails closed with ${name}`);
+  } finally { fs.rmSync(queryFailure.root, { recursive: true, force: true }); }
+}
 
 const composed = executeCase({ realChild: true });
 try {

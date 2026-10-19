@@ -23,6 +23,7 @@ function settings(options = {}) {
   return { site, policy, update: options.update === true };
 }
 function locate(text, options = {}) {
+  const allowAbsent = options.allowAbsent === true;
   const { site: siteName, policy } = settings(options);
   const lines = String(text).split('\n');
   const escapedSite = siteName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -45,6 +46,7 @@ function locate(text, options = {}) {
     depth += opens - closes;
     if (active && depth === 0) { active.end = i; sites.push(active); active = null; }
   }
+  if (!active && sites.length === 0 && selectedLabels === 0 && allowAbsent) return null;
   if (active || sites.length !== 1 || selectedLabels !== 1) throw new Error(`expected exactly one unambiguous ${siteName} site block`);
   const site = sites[0];
   const rows = lines.slice(site.start + 1, site.end);
@@ -112,7 +114,11 @@ function transform(text, options = {}) {
     || new RegExp(PROOF.replaceAll('/', '\\/')).test(source)
     || source.includes(IMPORT)
     || /^\s*# (?:BEGIN|END) luna-routing-contract/m.test(source)) throw new Error('partial or misleading routing contract');
-  const found = locate(source, resolved);
+  const found = locate(source, { ...resolved, allowAbsent: resolved.site === FRANCE_STAGING_SITE });
+  if (!found) {
+    const separator = source.length === 0 || source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n';
+    return `${source}${separator}${resolved.site} {\n${block('  ', resolved)}\n}\n`;
+  }
   const indent = `${/^\s*/.exec(found.lines[found.site.start])[0]}  `;
   found.lines.splice(found.index, 0, ...block(indent, resolved).split('\n'));
   return found.lines.join('\n');
