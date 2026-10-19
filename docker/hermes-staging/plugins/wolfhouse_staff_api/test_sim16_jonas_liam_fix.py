@@ -717,8 +717,9 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.call("quote_booking", plan, {"/availability-check": availability_receipt(beds),
                                                "/booking-preview": quote})
         rendered = self.loop.present()
-        self.assertIn("im selben Männerzimmer", rendered)
+        self.assertIn("im selben Mehrbettzimmer", rendered)
         self.assertNotIn("im selben room", rendered)
+        self.assertNotIn("Männerzimmer", rendered)
 
 
 class OrdinaryCurrentPromptAcceptanceEvidence(unittest.TestCase):

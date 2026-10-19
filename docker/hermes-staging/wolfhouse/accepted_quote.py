@@ -479,8 +479,11 @@ def _room_kind(offer, room, language='en'):
     }
     labels = labels_by_language.get(language, labels_by_language['en'])
     strategy = str(room.get('gender_strategy') or '').strip().lower().replace(' ', '_')
-    strategy = {'female_preferred': 'female_only', 'male_preferred': 'male_only'}.get(strategy, strategy)
-    return labels.get(strategy, {'es': 'habitación', 'fr': 'chambre', 'de': 'Zimmer'}.get(language, 'room'))
+    # Staff gender_strategy is free text. A preference is not an exclusivity
+    # guarantee, so localize it as a neutral shared room rather than overstating
+    # it as women-only or men-only.
+    strategy = {'female_preferred': 'flexible', 'male_preferred': 'flexible'}.get(strategy, strategy)
+    return labels.get(strategy, labels['flexible'])
 
 
 def _plural_room_kind(kind, language='en'):
