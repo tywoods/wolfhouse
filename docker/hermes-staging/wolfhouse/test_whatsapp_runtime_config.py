@@ -76,8 +76,29 @@ class RuntimeConfigTests(unittest.TestCase):
         twice = module.install_hook(once)
         self.assertEqual(once, twice)
         self.assertEqual(once.count(module.MARKER), 1)
+        compile(once, "<column0>", "exec")
         self.assertNotIn("sentinel", once)
         self.assertNotIn("keyvault", once.lower())
+        indented = (
+            "import os\n"
+            "def load():\n"
+            "    whatsapp_cloud_phone_id = os.getenv(\"WHATSAPP_CLOUD_PHONE_NUMBER_ID\")\n"
+            "    return whatsapp_cloud_phone_id\n"
+        )
+        patched = module.install_hook(indented)
+        compile(patched, "<indented>", "exec")
+        self.assertEqual(module.install_hook(patched), patched)
+        try_line = next(line for line in patched.splitlines() if line.strip() == "try:")
+        import_line = next(line for line in patched.splitlines() if "import wolfhouse.whatsapp_runtime_config" in line)
+        anchor_line = next(line for line in patched.splitlines() if line.strip() == module.ANCHOR)
+        self.assertEqual(len(try_line) - len(try_line.lstrip(" ")), 4)
+        self.assertEqual(len(import_line) - len(import_line.lstrip(" ")), 8)
+        self.assertTrue(anchor_line.startswith("    "))
+        self.assertLess(patched.index("try:"), patched.index(module.ANCHOR))
+        with self.assertRaises(SystemExit):
+            module.install_hook("no anchor here\n")
+        with self.assertRaises(SystemExit):
+            module.install_hook(indented + indented)
         text = Path(__file__).with_name("whatsapp_runtime_config.py").read_text(encoding="utf-8")
         self.assertNotIn("keyvault", text.lower())
         self.assertNotIn("graph.facebook.com", text)
