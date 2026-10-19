@@ -142,6 +142,26 @@ report `ROLLBACK INCOMPLETE` if any restoration command fails. Do not copy a pri
 journal or ledger. Meta callback changes, webhook activation, Luna restarts, guest sends,
 and a second active receiver remain separate prohibited operations.
 
+### France public identity (not an install)
+
+France TEST reads public IDs from the controller environment and does not
+embed a phone number. Router delivery stays OFF: `LUNA_ROUTING_MUTATIONS_ENABLED`
+remains false, and this repository change does not authorize `--install`, a
+gateway restart, a callback change, or any send.
+
+The operator-owned file `/root/wa-luna-ar.env` (root:root 0600) is loaded by
+compose `env_file` or systemd `EnvironmentFile` for TEST Luna and Staff. Its
+variable names are `WA_PHONE_NUMBER_ID`, `WA_BUSINESS_ACCOUNT_ID`, `WA_APP_ID`,
+`WA_ACCESS_TOKEN`, and `WA_APP_SECRET`. The controller env file may contain
+only the three public IDs. It must reject the token and app secret. See
+`controller.france.env.example`. Missing or empty values fail closed. There is
+no fallback to an old number, an old token, or a vault name.
+
+Staff for the selected profile starts with
+`npm run staff:api:selected-whatsapp` so the mapping runs before
+`staff-query-api.js`. The existing `staff:api` script is unchanged for Sunset
+and other roles. Do not run that start command as part of this change.
+
 ## Database order (Azure PostgreSQL)
 
 Azure live acceptance is a deployment prerequisite; static SQL checks cannot prove the

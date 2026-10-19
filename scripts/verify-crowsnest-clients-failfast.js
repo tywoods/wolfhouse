@@ -138,7 +138,7 @@ async function test(name, fn) {
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 200));
         inFlight -= 1;
-        return { configured: true, number_display: '+34 663 43 94 19', route: { client_slug: 'sunset' } };
+        return { configured: true, number_display: 'configured ···0101', route: { client_slug: 'sunset' } };
       },
       staffOrigins: {
         'wolfhouse-somo': { staging: 'https://staff-staging.lunafrontdesk.com' },

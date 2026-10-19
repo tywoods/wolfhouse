@@ -31,7 +31,11 @@ function request(port, path, { method = 'GET', body } = {}) {
 
 (async () => {
   const seen = [];
-  let effective = { number_id: 'staging-es-34663439419', target_id: 'sunset' };
+  const SYNTHETIC_NUMBER_ID = '2000000000000001';
+  process.env.WA_PHONE_NUMBER_ID = SYNTHETIC_NUMBER_ID;
+  process.env.WA_BUSINESS_ACCOUNT_ID = '2000000000000002';
+  process.env.WA_APP_ID = '2000000000000003';
+  let effective = { number_id: SYNTHETIC_NUMBER_ID, target_id: 'sunset' };
   let latest = { event_id: 'event-initial', number_id: effective.number_id, old_target_id: 'sunset', new_target_id: 'sunset', changed_by: 'fixture', changed_at: '2026-09-19T20:00:00Z' };
   const upstream = http.createServer((req, res) => {
     let raw = '';
@@ -65,7 +69,7 @@ function request(port, path, { method = 'GET', body } = {}) {
     assert.equal((await request(port, '/api/staging/luna-routing/effective')).body.binding.target_id, 'sunset');
     assert.equal((await request(port, '/api/staging/luna-routing/audit')).status, 200);
     assert.equal((await request(port, '/api/staging/luna-routing/confirm', { method: 'GET' })).status, 405);
-    const base = { number_id: 'staging-es-34663439419', target_id: 'wolfhouse', expected_old_target_id: 'sunset' };
+    const base = { number_id: SYNTHETIC_NUMBER_ID, target_id: 'wolfhouse', expected_old_target_id: 'sunset' };
     assert.equal((await request(port, '/api/staging/luna-routing/confirm', { method: 'POST', body: base })).body.confirmation_token, 'fixture-confirmation-token');
     const applyResponse = await request(port, '/api/staging/luna-routing/apply', { method: 'POST', body: { ...base, confirmation_token: 'fixture-confirmation-token' } });
     assert.equal(applyResponse.status, 200);

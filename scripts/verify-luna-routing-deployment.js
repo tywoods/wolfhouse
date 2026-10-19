@@ -89,7 +89,7 @@ fs.writeFileSync(live,'unknown route\n'); assert.throws(()=>stageFragment(live,s
 // reloads restored systemd/Caddy state, and restores prior enable/active booleans while retaining
 // the original exit status.
 assert.match(installer,/systemctl is-enabled --quiet[\s\S]*systemctl is-active --quiet/);
-const restoreLoop=installer.indexOf('for p in Caddyfile fragment env controller unit sudoers tmpfiles',installer.indexOf('cleanup(){'));
+const restoreLoop=installer.indexOf('for p in Caddyfile fragment env controller identity unit sudoers tmpfiles',installer.indexOf('cleanup(){'));
 const rollbackCaddy=installer.indexOf("rollback_run 'reload Caddy from restored configuration'");
 const rollbackReload=installer.indexOf("rollback_run 'daemon-reload restored units'");
 const rollbackEnable=installer.indexOf("rollback_run 're-enable prior controller service'");
@@ -150,7 +150,7 @@ const shadowRun=runInstallerWithNode(goodNode,['--dry-run'],{CADDYFILE:caddy,PAT
 assert.equal(shadowRun.status,0,shadowRun.stderr); assert.doesNotMatch(shadowRun.stderr,/PATH_NODE_USED/);
 const franceCaddy=path.join(dir,'FranceCaddyfile'); fs.writeFileSync(franceCaddy,freshFrance); const franceRun=runInstallerWithNode(goodNode,['--dry-run'],{CADDYFILE:franceCaddy,LUNA_ROUTING_SITE:franceSite}); assert.equal(franceRun.status,0,franceRun.stderr);
 const envValidator=path.join(root,'validate-controller-env.js');
-const validEnv=['LUNA_ROUTING_CONTROLLER_PORT=8096','LUNA_ROUTING_CONTROLLER_HMAC_KEY='+('a'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_KEY='+('b'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_URL=https://staging.example.invalid/proof','LUNA_ROUTING_MUTATIONS_ENABLED=false',`LUNA_ROUTING_SITE=${franceSite}`,''].join('\n');
+const validEnv=['LUNA_ROUTING_CONTROLLER_PORT=8096','LUNA_ROUTING_CONTROLLER_HMAC_KEY='+('a'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_KEY='+('b'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_URL=https://staging.example.invalid/proof','LUNA_ROUTING_MUTATIONS_ENABLED=false',`LUNA_ROUTING_SITE=${franceSite}`,'WA_PHONE_NUMBER_ID=2000000000000001','WA_BUSINESS_ACCOUNT_ID=2000000000000002','WA_APP_ID=2000000000000003',''].join('\n');
 for (const [name, extra] of [
   ['leading whitespace override',' LUNA_ROUTING_MUTATIONS_ENABLED=true\n'],
   ['key whitespace override','LUNA_ROUTING_MUTATIONS_ENABLED =true\n'],
@@ -165,6 +165,17 @@ for (const [name, extra] of [
 }
 const validEnvFile=path.join(dir,'valid.env'); fs.writeFileSync(validEnvFile,validEnv);
 assert.equal(cp.spawnSync(process.execPath,[envValidator,validEnvFile,franceSite],{encoding:'utf8'}).status,0);
+const legacyOnly=['LUNA_ROUTING_CONTROLLER_PORT=8096','LUNA_ROUTING_CONTROLLER_HMAC_KEY='+('a'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_KEY='+('b'.repeat(32)),'LUNA_ROUTING_INGRESS_PROOF_URL=https://staging.example.invalid/proof','LUNA_ROUTING_MUTATIONS_ENABLED=false','LUNA_ROUTING_SITE=lunabox.lunafrontdesk.com',''].join('\n');
+const legacyFile=path.join(dir,'legacy.env'); fs.writeFileSync(legacyFile,legacyOnly);
+assert.equal(cp.spawnSync(process.execPath,[envValidator,legacyFile,'lunabox.lunafrontdesk.com'],{encoding:'utf8'}).status,0,'legacy six-key contract must remain valid');
+const franceWithoutIdentity=path.join(dir,'france-no-identity.env'); fs.writeFileSync(franceWithoutIdentity,legacyOnly.replace('lunabox.lunafrontdesk.com',franceSite));
+assert.notEqual(cp.spawnSync(process.execPath,[envValidator,franceWithoutIdentity,franceSite],{encoding:'utf8'}).status,0,'France config must require the public identity');
+const secretEnv=path.join(dir,'france-secret.env'); fs.writeFileSync(secretEnv,validEnv+'WA_ACCESS_TOKEN=not-a-secret-value\n');
+assert.notEqual(cp.spawnSync(process.execPath,[envValidator,secretEnv,franceSite],{encoding:'utf8'}).status,0,'controller env must reject Meta secrets');
+const franceExample=fs.readFileSync(path.join(root,'controller.france.env.example'),'utf8');
+assert.match(franceExample,/^WA_PHONE_NUMBER_ID=/m); assert.match(franceExample,/^LUNA_ROUTING_MUTATIONS_ENABLED=false$/m);
+assert.doesNotMatch(franceExample,/WA_ACCESS_TOKEN|WA_APP_SECRET|WHATSAPP_CLOUD_ACCESS_TOKEN|WHATSAPP_CLOUD_APP_SECRET/);
+assert.match(installer,/whatsapp-runtime-identity\.js/); assert.match(readme,/\/root\/wa-luna-ar\.env/); assert.match(readme,/router stays OFF|Router delivery stays OFF|mutations remain false/i);
 assert.match(installer,/fragment\.validation/,'staged fragment needs an isolated Caddy validation wrapper');
 assert.match(installer,/systemctl restart luna-routing-controller\.service/,'installed controller generation must be restarted');
 assert.match(installer,/systemctl is-active --quiet caddy/,'Caddy must be an active precondition');

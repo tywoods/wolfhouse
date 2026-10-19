@@ -87,6 +87,17 @@ def _detect_language(text: str, hint: Optional[str]) -> str:
     return "en"
 
 
+def _configured_business_phone_number_id() -> str:
+    selected = (os.getenv("WA_PHONE_NUMBER_ID") or "").strip()
+    adapter = (os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") or "").strip()
+    if selected and adapter and selected != adapter:
+        raise RuntimeError("whatsapp_phone_id_conflict")
+    value = selected or adapter
+    if not value.isdigit():
+        raise RuntimeError("whatsapp_phone_id_unconfigured")
+    return value
+
+
 def build_meta_webhook_payload(
     *,
     digits: str,
@@ -94,7 +105,7 @@ def build_meta_webhook_payload(
     contact_name: str = "Simulate Guest",
     message_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    phone_number_id = (os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") or "1152900101233109").strip()
+    phone_number_id = _configured_business_phone_number_id()
     msg_id = message_id or f"wamid.simulate.{uuid.uuid4().hex[:16]}"
     ts = str(int(time.time()))
     return {

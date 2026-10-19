@@ -5,10 +5,20 @@ const fs = require('fs');
 const path = require('path');
 const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 
-const html = renderCrowsnestPage({ view: 'communications', cspNonce: 'test-nonce' });
+const html = renderCrowsnestPage({
+  view: 'communications',
+  cspNonce: 'test-nonce',
+  whatsappIdentity: {
+    ok: true,
+    profileId: '2000000000000001',
+    numberDisplay: 'configured ···0001',
+  },
+});
 
 assert.match(html, /Current binding/i);
-assert.match(html, /\+34 663 43 94 19/);
+assert.match(html, /configured ···0001/);
+assert.match(html, /router off/i);
+assert.doesNotMatch(html, /staging-es-34663439419|\+34 663 43 94 19/);
 assert.match(html, /Sunset/);
 assert.match(html, /Wolfhouse/);
 assert.match(html, /Save routing/i);

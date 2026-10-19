@@ -93,6 +93,7 @@
     "verify:portal-template-escapes": "node scripts/verify-portal-template-escapes.js",
     "verify:staff-write-api": "node scripts/verify-staff-write-api.js",
     "staff:api": "node scripts/staff-query-api.js",
+    "staff:api:selected-whatsapp": "node --import ./scripts/lib/whatsapp-runtime-bootstrap.mjs scripts/staff-query-api.js",
     "crowsnest:start": "node scripts/crowsnest-api.js",
     "verify:crowsnest-luna-number-routing": "node scripts/verify-crowsnest-luna-number-routing.js",
     "verify:luna-routing-deployment": "node scripts/verify-luna-routing-deployment.js && deploy/luna-routing/install-luna-routing.sh --dry-run",

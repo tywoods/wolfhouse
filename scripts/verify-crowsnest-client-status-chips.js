@@ -102,7 +102,7 @@ async function main() {
   const calls = [];
   const statuses = await collectClientConnectionStatuses({
     clients: getCrowsnestClients(),
-    readWhatsApp: async () => ({ configured: true, number_e164: '+346****9419', number_display: '+34 663 43 94 19', route: { client_slug: 'sunset' } }),
+    readWhatsApp: async () => ({ configured: true, number_e164: '+15550100101', number_display: 'configured ···0101', route: { client_slug: 'sunset' } }),
     readLunaEvidence: async (client, environment, whatsapp) => ({
       identity: client.client_slug === 'sunset',
       routing: whatsapp.route.client_slug === client.client_slug,
@@ -120,7 +120,7 @@ async function main() {
   assert.ok(calls.every((url) => url.startsWith('https://sunset-staging.lunafrontdesk.com/staff/admin/')));
   assert.equal(statuses['sunset-somo'].staging.Email, STATUS.CONNECTED);
   assert.equal(statuses['sunset-somo'].staging.EmailDetail, 'hello@sunsetsurfschool.com');
-  assert.equal(statuses['sunset-somo'].staging.WhatsAppDetail, '+34 663 43 94 19');
+  assert.equal(statuses['sunset-somo'].staging.WhatsAppDetail, 'configured ···0101');
   assert.equal(statuses['sunset-somo'].staging.WhatsApp, STATUS.CONNECTED);
   assert.equal(statuses['wolfhouse-somo'].staging.WhatsApp, STATUS.NOT_CONNECTED);
   assert.equal(statuses['wolfhouse-somo'].staging.WhatsAppDetail, '');
@@ -148,13 +148,13 @@ async function main() {
     clients: getCrowsnestClients(),
     readWhatsApp: async () => ({
       configured: true,
-      number_e164: '+346****9419',
-      number_display: '+34 663 43 94 19',
+      number_e164: '+15550100101',
+      number_display: 'configured ···0101',
       route: { client_slug: 'wolfhouse' },
     }),
   });
   assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsApp, STATUS.CONNECTED);
-  assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsAppDetail, '+34 663 43 94 19');
+  assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsAppDetail, 'configured ···0101');
   assert.equal(wolfhouseRoutedStatuses['sunset-somo'].staging.WhatsApp, STATUS.NOT_CONNECTED);
   assert.equal(wolfhouseRoutedStatuses['sunset-somo'].staging.WhatsAppDetail, '');
 
@@ -190,7 +190,7 @@ async function main() {
   assert.match(html, /Wolfhouse Somo[\s\S]*?Connections[\s\S]*?Staff portals/);
   assert.doesNotMatch(html, /Live connections|Staging connections/);
   assert.match(html, /hello@sunsetsurfschool\.com/);
-  assert.match(html, /\+34 663 43 94 19/);
+  assert.match(html, /configured ···0101/);
   assert.doesNotMatch(html, /Configured|Configured-test|Needs attention|live status unknown|>Off</);
   assert.doesNotMatch(html, /Production and staging staff portals are available\./);
   assert.match(html, /status-dot--live[^>]*aria-label="Live"[\s\S]*?Sunset Somo/);

@@ -13,6 +13,8 @@ FRAGMENT=/var/lib/luna-routing/luna-number-route.caddy
 files='luna-routing-controller.service controller.env.example luna-routing.tmpfiles.conf luna-number-route.caddy caddy-contract.js stage-route-fragment.js validate-controller-env.js validate-systemd-unit.js'
 for f in $files; do [ -f "$base/$f" ] || { echo "missing: $f" >&2; exit 1; }; done
 [ -f "$base/../../scripts/luna-number-routing-controller.js" ] || exit 1
+IDENTITY_SRC="$base/../../scripts/lib/whatsapp-runtime-identity.js"
+if [ -f "$IDENTITY_SRC" ]; then "$NODE_BIN" --check "$IDENTITY_SRC"; fi
 # Source/static validation deliberately has no host Caddy dependency.
 "$NODE_BIN" --check "$base/caddy-contract.js"; "$NODE_BIN" --check "$base/stage-route-fragment.js"; "$NODE_BIN" --check "$base/validate-controller-env.js"; "$NODE_BIN" --check "$base/validate-systemd-unit.js"; "$NODE_BIN" --check "$base/../../scripts/luna-number-routing-controller.js"; sh -n "$0"
 
@@ -48,6 +50,7 @@ verify() {
   check_effective_unit
   "$NODE_BIN" "$base/validate-controller-env.js" /etc/luna-routing/controller.env "$ROUTING_SITE"
   cmp -s "$base/../../scripts/luna-number-routing-controller.js" /opt/luna-routing/luna-number-routing-controller.js
+  if [ -f "$IDENTITY_SRC" ]; then cmp -s "$IDENTITY_SRC" /opt/luna-routing/lib/whatsapp-runtime-identity.js; fi
   cmp -s "$base/luna-routing-controller.service" /etc/systemd/system/luna-routing-controller.service
   /usr/bin/systemctl is-active --quiet luna-routing-controller.service
   "$NODE_BIN" "$base/caddy-contract.js" verify "$CADDYFILE" /dev/null "$ROUTING_SITE"
@@ -68,7 +71,7 @@ check_existing_dir /var/lib/luna-routing luna-routing:luna-routing:750
 check_existing_dir /etc/luna-routing root:luna-routing:750
 check_existing_dir /opt/luna-routing root:root:755
 stage=$(mktemp -d); backup=$(mktemp -d); committed=0; mutations_started=0; service_commands_started=0
-for p in Caddyfile fragment env controller unit sudoers tmpfiles; do eval dest_$p=; eval backup_$p=; done
+for p in Caddyfile fragment env controller identity unit sudoers tmpfiles; do eval dest_$p=; eval backup_$p=; done
 rollback_failure=0; controller_stop_unconfirmed=0
 rollback_run(){ description=$1; shift; if ! "$@"; then echo "ROLLBACK FAILED: $description" >&2; rollback_failure=1; fi; }
 cleanup(){
@@ -96,7 +99,7 @@ cleanup(){
     fi
     caddyfile_restored=1
     # Caddy restoration is independent. Controller artifacts are touched only after confirmed stop.
-    for p in Caddyfile fragment env controller unit sudoers tmpfiles; do
+    for p in Caddyfile fragment env controller identity unit sudoers tmpfiles; do
       if [ "$p" != Caddyfile ] && [ "$controller_stop_unconfirmed" -ne 0 ]; then continue; fi
       eval src=\"\$backup_$p\"; eval dst=\"\$dest_$p\"
       if [ -e "$src" ]; then
@@ -129,6 +132,7 @@ trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TER
 # replacing it with the repository's first-install Wolfhouse seed.
 "$NODE_BIN" "$base/stage-route-fragment.js" "$FRAGMENT" "$base/luna-number-route.caddy" "$stage/fragment"
 cp "$CONTROLLER_ENV" "$stage/env"; cp "$base/../../scripts/luna-number-routing-controller.js" "$stage/controller"; cp "$base/luna-routing-controller.service" "$stage/unit"; cp "$base/luna-routing.tmpfiles.conf" "$stage/tmpfiles"
+if [ -f "$IDENTITY_SRC" ]; then cp "$IDENTITY_SRC" "$stage/identity"; fi
 # Validate the staged fragment in an isolated, non-public wrapper even when the selected
 # site's candidate deliberately has no fragment import (France no-send staging).
 printf 'http://127.0.0.1:18096 {\n  import %s\n}\n' "$stage/fragment" >"$stage/fragment.validation"
@@ -147,11 +151,11 @@ unit_was_present=0; [ ! -e /etc/systemd/system/luna-routing-controller.service ]
 unit_was_enabled=0; /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service >/dev/null 2>&1 && unit_was_enabled=1 || :
 unit_was_active=0; /usr/bin/systemctl is-active --quiet luna-routing-controller.service >/dev/null 2>&1 && unit_was_active=1 || :
 backup_one(){ eval dest_$1=\"$2\"; eval backup_$1=\"$backup/$1\"; [ ! -e "$2" ] || cp -a "$2" "$backup/$1"; }
-backup_one Caddyfile "$CADDYFILE"; backup_one fragment "$FRAGMENT"; backup_one env /etc/luna-routing/controller.env; backup_one controller /opt/luna-routing/luna-number-routing-controller.js; backup_one unit /etc/systemd/system/luna-routing-controller.service; backup_one sudoers /etc/sudoers.d/luna-routing; backup_one tmpfiles /etc/tmpfiles.d/luna-routing.conf
+backup_one Caddyfile "$CADDYFILE"; backup_one fragment "$FRAGMENT"; backup_one env /etc/luna-routing/controller.env; backup_one controller /opt/luna-routing/luna-number-routing-controller.js; if [ -f "$stage/identity" ]; then backup_one identity /opt/luna-routing/lib/whatsapp-runtime-identity.js; fi; backup_one unit /etc/systemd/system/luna-routing-controller.service; backup_one sudoers /etc/sudoers.d/luna-routing; backup_one tmpfiles /etc/tmpfiles.d/luna-routing.conf
 mutations_started=1
 getent group luna-routing >/dev/null || groupadd --system luna-routing; getent passwd luna-routing >/dev/null || useradd --system --gid luna-routing --home-dir /var/lib/luna-routing --shell /usr/sbin/nologin luna-routing
 install -d -o luna-routing -g luna-routing -m 0750 /var/lib/luna-routing; install -d -o root -g luna-routing -m 0750 /etc/luna-routing; install -d -m 0755 /opt/luna-routing
-install -o luna-routing -g luna-routing -m 0640 "$stage/fragment" "$FRAGMENT"; install -o root -g luna-routing -m 0640 "$stage/env" /etc/luna-routing/controller.env; install -m 0755 "$stage/controller" /opt/luna-routing/luna-number-routing-controller.js; install -m 0644 "$stage/unit" /etc/systemd/system/luna-routing-controller.service; rm -f /etc/sudoers.d/luna-routing; install -m 0644 "$stage/tmpfiles" /etc/tmpfiles.d/luna-routing.conf
+install -o luna-routing -g luna-routing -m 0640 "$stage/fragment" "$FRAGMENT"; install -o root -g luna-routing -m 0640 "$stage/env" /etc/luna-routing/controller.env; install -m 0755 "$stage/controller" /opt/luna-routing/luna-number-routing-controller.js; if [ -f "$stage/identity" ]; then install -d -m 0755 /opt/luna-routing/lib; install -m 0644 "$stage/identity" /opt/luna-routing/lib/whatsapp-runtime-identity.js; fi; install -m 0644 "$stage/unit" /etc/systemd/system/luna-routing-controller.service; rm -f /etc/sudoers.d/luna-routing; install -m 0644 "$stage/tmpfiles" /etc/tmpfiles.d/luna-routing.conf
 # The final canonical candidate is valid now that its final fragment has been installed.
 "$CADDY_BIN" validate --config "$stage/Caddyfile" --adapter caddyfile >/dev/null
 # Root config is intentionally the final filesystem mutation.
