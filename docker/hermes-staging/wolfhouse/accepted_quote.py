@@ -2602,11 +2602,15 @@ def finalize_offer_response(result):
                 and structured_eligibility.get('status') in ('unsure', 'no')
                 and (structured_eligibility.get('status') == 'no'
                      or structured_eligibility.get('question_kind') == 'confirm_room_eligibility'))
+            # Known inventory unavailability wins over room eligibility: there
+            # is no useful eligibility question to ask when Staff found no bed.
+            known_unavailable = (unresolved.get('unavailable') is True
+                                 or unresolved.get('availability_status') == 'unavailable')
             # Structured Staff meaning selects the localized question. Never
             # classify arbitrary Staff wording to infer eligibility.
             plan = _presentation_plan(state)
             text = (_structured_eligibility_copy(structured_eligibility, plan, language)
-                    if valid_eligibility_question else None)
+                    if valid_eligibility_question and not known_unavailable else None)
             text = text or _final_copy(language, 'refusal')
             output = deepcopy(result)
             output['final_response'] = text

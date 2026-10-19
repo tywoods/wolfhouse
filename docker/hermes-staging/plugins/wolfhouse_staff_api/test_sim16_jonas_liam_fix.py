@@ -650,27 +650,49 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                 self.assertFalse(quoted["unavailable"], quoted)
 
     def test_r5_zero_stock_remains_unavailable_with_structured_unsure_or_no(self):
-        common = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
-                  "room_type": "shared", "room_preference": "female_only",
-                  "package_code": "package_none", "guests": [{"name": "Emma"}]}
-        for status, question_kind in (("unsure", "confirm_room_eligibility"), ("no", None)):
-            receipt = {**availability_receipt([], enough=False),
-                       "room_eligibility": {"status": status,
-                           "requested_room_preference": "female_only",
-                           "affected_guest_indices": [0],
-                           "reason_code": ("room_eligibility_unknown" if status == "unsure"
-                                           else "room_eligibility_incompatible"),
-                           "question_kind": question_kind}}
-            with self.subTest(status=status):
-                available = self.loop.call("check_availability", common,
-                    {"/availability-check": receipt})
-                self.assertEqual(available["availability_status"], "unavailable", available)
-                self.assertTrue(available["unavailable"], available)
-                self.loop.turn(f"zero-stock-{status}", "Please quote the requested room")
-                quoted = self.loop.call("quote_booking", common,
-                    {"/availability-check": receipt})
-                self.assertEqual(quoted["availability_status"], "unavailable", quoted)
-                self.assertTrue(quoted["unavailable"], quoted)
+        openings = {"en": "Please quote the requested room",
+                    "es": "Quiero reservar la habitación solicitada",
+                    "fr": "Je voudrais réserver la chambre demandée",
+                    "de": "Ich möchte das gewünschte Zimmer buchen"}
+        for language, opening in openings.items():
+            for status, question_kind in (("unsure", "confirm_room_eligibility"), ("no", None)):
+                for with_tool_message in (False, True):
+                    with self.subTest(language=language, status=status,
+                                      with_tool_message=with_tool_message):
+                        loop = DeterministicRegisteredLoop(
+                            self, f"zero-stock-{language}-{status}-{with_tool_message}")
+                        try:
+                            common = {"check_in": "2026-11-18", "check_out": "2026-11-21",
+                                      "guest_count": 1, "room_type": "shared",
+                                      "room_preference": "female_only",
+                                      "package_code": "package_none", "language": language,
+                                      "guests": [{"name": "Emma"}]}
+                            receipt = {**availability_receipt([], enough=False),
+                                       "room_eligibility": {"status": status,
+                                           "requested_room_preference": "female_only",
+                                           "affected_guest_indices": [0],
+                                           "reason_code": ("room_eligibility_unknown"
+                                                           if status == "unsure"
+                                                           else "room_eligibility_incompatible"),
+                                           "question_kind": question_kind}}
+                            loop.turn(f"zero-stock-{language}-{status}", opening)
+                            quoted = loop.call("quote_booking", common,
+                                {"/availability-check": receipt})
+                            self.assertEqual(quoted["availability_status"], "unavailable", quoted)
+                            self.assertTrue(quoted["unavailable"], quoted)
+                            messages = [{"role": "assistant",
+                                         "content": "There are no beds available for those dates."}]
+                            if with_tool_message:
+                                messages.insert(0, {"role": "tool", "content": json.dumps(quoted)})
+                            rendered = owner.finalize_offer_response({
+                                "completed": True,
+                                "final_response": "There are no beds available for those dates.",
+                                "messages": messages})
+                            expected = owner._final_copy(language, "refusal")
+                            self.assertEqual(rendered["final_response"], expected)
+                            self.assertEqual(rendered["messages"][-1]["content"], expected)
+                        finally:
+                            loop.close()
 
     def test_r5_successful_quote_carries_structured_yes_from_staff(self):
         bed = self.beds(1, "female_only", "F")

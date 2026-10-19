@@ -44,7 +44,7 @@ first-yes owner/persistence **68/68**, eligibility/localized **19/19**, decision
 | `test_unchanged_registered_revalidation_still_reaches_sql_without_reconfirm` | supported unchanged registered revalidation | PASS; the registered create wrapper's real quote boundary performs the second preview, then one create reaches SQL without reconfirmation |
 | Remaining 11 persistence tests | supported positive/negative persistence controls | 11/11 PASS; presentation, replay, reset, occupied-bed, changed-room-rule, catalog duration and unrelated-yes controls remain intact |
 | First-yes owner tests | supported owner unit contracts | 54/54 PASS; combined with persistence, 68/68 PASS |
-| Registered boundary tests | supported registered acquisition/create contracts; historical copy expectations updated to authoritative room disclosure | 20/20 PASS |
+| Registered boundary tests | supported registered acquisition/create contracts; historical copy expectations updated to authoritative room disclosure | 24/24 PASS |
 
 | Gate | Result | Guarantees |
 |---|---|---|
