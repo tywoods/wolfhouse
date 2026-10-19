@@ -85,7 +85,11 @@ const {
 } = require('./lib/staff-inbox-helpers');
 const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
 const { fetchSunsetFinanceData, fetchLodgingFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
-const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
+const {
+  computeSunsetFinanceSummary,
+  computeWolfhouseCreatorFinance,
+  pageWolfhouseCreatorFinance,
+} = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
 const {
   READYZ_PATH,
@@ -48353,6 +48357,9 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
 // (pure lib); browser only renders. Fails closed on any other tenant/location.
 async function handleAdminFinanceSummaryGet(query, req, res, user) {
   const started = Date.now();
+  const allowed = new Set(['client','client_slug','location','granularity','anchor','start','end','creator_detail','creator','currency','cohort_id','cursor','limit']);
+  if (!query || Object.keys(query).some(key => !allowed.has(key) || Array.isArray(query[key]))) return send400(res, 'invalid request');
+  if (query.client != null && query.client_slug != null) return send400(res, 'invalid request');
   const rawClient = query.client != null ? query.client : query.client_slug;
   const clientSlug = typeof rawClient === 'string' ? rawClient.trim() : '';
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid request');
@@ -48362,9 +48369,26 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
   }
   const locationId = typeof query.location === 'string' ? query.location.trim() : '';
   if (lodging) {
-    if (locationId && locationId.indexOf('sunset-') === 0) {
-      return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
-    }
+    // Wolfhouse projection is tenant-wide; never accept an arbitrary label that could
+    // make the same rows appear location-scoped.
+    if (locationId) return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
+    const iso = value => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const [year, month, day] = value.split('-').map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      return !Number.isNaN(parsed.getTime())
+        && parsed.getUTCFullYear() === year
+        && parsed.getUTCMonth() === month - 1
+        && parsed.getUTCDate() === day;
+    };
+    if ((query.granularity != null && !['day','week','month','year','custom'].includes(String(query.granularity).toLowerCase()))
+      || (query.anchor != null && !iso(query.anchor)) || (query.start != null && !iso(query.start))
+      || (query.end != null && !iso(query.end)) || ((query.start == null) !== (query.end == null))
+      || (query.start != null && query.start > query.end)
+      || (query.currency != null && String(query.currency).toUpperCase() !== 'EUR')) return send400(res, 'invalid request');
+    const detailKeysPresent = ['creator','cohort_id','cursor','limit'].some(k => query[k] != null);
+    if ((query.creator_detail == null && detailKeysPresent)
+      || (query.creator_detail != null && (typeof query.currency !== 'string' || typeof query.cohort_id !== 'string' || !query.cohort_id))) return send400(res, 'invalid request');
   } else if (locationId !== 'sunset-somo') {
     return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
@@ -48400,11 +48424,37 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
       // Wolfhouse lodging: package-name product rows. Sunset keeps F2 surf shape.
       productMode: lodging ? 'lodging_packages' : 'surf_f2',
     });
+    let wolfhouseCreatorFinance;
+    if (lodging) {
+      wolfhouseCreatorFinance = computeWolfhouseCreatorFinance({
+        ...data, now: new Date(), view, clientSlug, locationId,
+        currency: typeof query.currency === 'string' && query.currency.trim()
+          ? query.currency.trim().toUpperCase() : 'EUR',
+      });
+      if (query.creator_detail != null) {
+        try {
+          wolfhouseCreatorFinance = pageWolfhouseCreatorFinance(wolfhouseCreatorFinance, {
+            kind: typeof query.creator_detail === 'string' ? query.creator_detail : '',
+            creator: typeof query.creator === 'string' && query.creator ? query.creator : null,
+            currency: typeof query.currency === 'string' ? query.currency.trim().toUpperCase() : '',
+            cohort_id: typeof query.cohort_id === 'string' ? query.cohort_id : '',
+            cursor: typeof query.cursor === 'string' ? query.cursor : null,
+            limit: query.limit == null ? 100 : query.limit,
+          });
+        } catch (detailErr) {
+          if (detailErr && detailErr.code === 'FINANCE_COHORT_STALE') {
+            return sendJSON(res, 409, { success: false, error: 'finance summary refresh required', code: 'FINANCE_COHORT_STALE' });
+          }
+          return send400(res, 'invalid request');
+        }
+      }
+    }
     return sendJSON(res, 200, {
       success: true,
       client: clientSlug,
       location_id: locationId,
       summary,
+      ...(lodging ? { wolfhouse_creator_finance: wolfhouseCreatorFinance } : {}),
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
