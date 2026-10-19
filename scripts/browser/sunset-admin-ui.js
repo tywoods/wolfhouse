@@ -2559,7 +2559,13 @@ function adminRefreshOnLocaleChange(){
   if (adminRoot && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(adminRoot);
   var fin = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
   if (!fin && typeof el === 'function') fin = el('admin-finance-body');
-  if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
+  if (fin && getClient() === 'wolfhouse-somo' && financeSummaryPhase === 'pending') {
+    financePaintSummaryPending(fin);
+  } else if (fin && getClient() === 'wolfhouse-somo' && financeWolfhouseLoadFailed && typeof loadAdminFinanceSummary === 'function') {
+    loadAdminFinanceSummary();
+  } else if (fin && typeof financeLastCreator !== 'undefined' && typeof financePaintStored === 'function' && financePaintStored()) {
+    /* Wolfhouse v1 projection owns this host. */
+  } else if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
     fin.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(fin);
   }
@@ -3286,6 +3292,10 @@ function financeRedesignNavClick(ev){
       loadAdminFinanceSummary();
       return;
     }
+    if (getClient() === 'wolfhouse-somo' && typeof financeLastCreator !== 'undefined' && typeof wolfhouseCreatorFinanceIsV1 === 'function' && wolfhouseCreatorFinanceIsV1(financeLastCreator) && typeof financePaintStored === 'function') {
+      financePaintStored();
+      return;
+    }
     if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     else loadAdminFinanceSummary();
     return;
@@ -3390,10 +3400,332 @@ function financeSummaryHost(){
   return el('admin-finance-body');
 }
 
+var financeLastCreator = null;
+var financeDetailSeq = 0;
+var financeDetailKind = null;
+var financeDetailCreator = '';
+var financeDetailCursor = '';
+var financeDetailPhase = 'idle';
+var financeDetailEnvelope = null;
+var financeDetailScope = null;
+var financeWolfhouseLoadFailed = false;
+var financeSummaryPhase = 'idle';
+// Set only for a real FINANCE_COHORT_STALE. A later request clock is not a new cohort.
+var financeDetailResume = null;
+
+function financeMarkSummaryPhase(phase) {
+  financeSummaryPhase = phase;
+  var body = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
+  if (body && body.dataset) body.dataset.whFinSummaryState = phase;
+}
+
+function financePaintSummaryPending(body) {
+  if (!body) return;
+  financeMarkSummaryPhase('pending');
+  body.innerHTML = '<div class="portal-admin-finance-loading" role="status" data-wh-fin-summary-state="pending">' +
+    escHtml(portalT('admin.finance.loading')) + '</div>';
+}
+
+function wolfhouseCreatorFinanceIsV1(proj) {
+  return !!(proj && proj.schema_version === 'wolfhouse.creator-finance.v1');
+}
+
+function financePaintStored() {
+  var body = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
+  if (!body || getClient() !== 'wolfhouse-somo' || !wolfhouseCreatorFinanceIsV1(financeLastCreator)) return false;
+  if (typeof renderWolfhouseCreatorFinanceHtml !== 'function') return false;
+  body.innerHTML = renderWolfhouseCreatorFinanceHtml({
+    summary: financeLastSummary,
+    wolfhouse_creator_finance: financeLastCreator,
+  });
+  if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(body);
+  wireWolfhouseCreatorFinanceDetails(body);
+  // Locale and chart repaints replace the host, including its empty detail slot.
+  // Put the same page, spinner, or error back. Do not refetch.
+  financeRepaintRetainedDetail();
+  return true;
+}
+
+function financeDetailSelection() {
+  return {
+    kind: financeDetailKind || '',
+    creator: financeDetailCreator || '',
+    cursor: financeDetailCursor || '',
+  };
+}
+
+function financeClearRetainedDetail() {
+  financeDetailPhase = 'idle';
+  financeDetailEnvelope = null;
+  financeDetailScope = null;
+  financeDetailKind = null;
+  financeDetailCreator = '';
+  financeDetailCursor = '';
+}
+
+function financeRememberDetail(phase, envelope) {
+  financeDetailPhase = phase || 'idle';
+  financeDetailEnvelope = envelope || null;
+  financeDetailScope = {
+    client: (typeof getClient === 'function') ? getClient() : '',
+    cohort: (financeLastCreator && financeLastCreator.cohort_id) || '',
+    kind: financeDetailKind || '',
+    creator: financeDetailCreator || '',
+    cursor: financeDetailCursor || '',
+  };
+}
+
+function financeRetainedDetailCurrent() {
+  if (!financeDetailScope || !financeDetailPhase || financeDetailPhase === 'idle') return false;
+  if (financeDetailScope.client !== getClient()) return false;
+  var cohort = (financeLastCreator && financeLastCreator.cohort_id) || '';
+  if (financeDetailScope.cohort !== cohort) return false;
+  if ((financeDetailScope.kind || '') !== (financeDetailKind || '')) return false;
+  if ((financeDetailScope.creator || '') !== (financeDetailCreator || '')) return false;
+  if ((financeDetailScope.cursor || '') !== (financeDetailCursor || '')) return false;
+  return financeDetailPhase === 'loading' || financeDetailPhase === 'error' ||
+    financeDetailPhase === 'success' || financeDetailPhase === 'unsupported';
+}
+
+function financeRepaintRetainedDetail() {
+  if (!financeRetainedDetailCurrent()) return false;
+  var sel = financeDetailSelection();
+  if (financeDetailPhase === 'loading' || financeDetailPhase === 'error') {
+    return financePaintDetail(financeDetailStatusHtml(financeDetailPhase, sel));
+  }
+  if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return false;
+  if (financeDetailPhase === 'success' && !financeDetailEnvelope) return false;
+  return financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(financeDetailEnvelope, { creator: sel.creator }));
+}
+
+function financeDetailCopy(key, fallback) {
+  if (typeof financeRedesignT === 'function') return financeRedesignT(key, fallback);
+  if (typeof portalT === 'function') {
+    var translated = portalT(key);
+    if (translated && translated !== key) return translated;
+  }
+  return fallback;
+}
+
+function financeDetailStatusHtml(state, sel) {
+  sel = sel || {};
+  var kind = sel.kind || '';
+  var creator = sel.creator || '';
+  var cursor = sel.cursor || '';
+  var role = state === 'error' ? 'alert' : 'status';
+  var message = state === 'error'
+    ? financeDetailCopy('admin.finance.wh.detailFailed', 'These rows could not be loaded.')
+    : financeDetailCopy('admin.finance.wh.detailLoading', 'Loading these rows…');
+  var retry = '';
+  if (state === 'error') {
+    retry = '<button type="button" data-wh-fin-detail-retry="1" data-wh-fin-detail-kind="' + escHtml(kind) + '"' +
+      ' data-wh-fin-detail-creator="' + escHtml(creator) + '"' +
+      (cursor ? ' data-wh-fin-detail-cursor="' + escHtml(cursor) + '"' : '') + '>' +
+      escHtml(financeDetailCopy('admin.finance.retry', 'Retry')) + '</button>';
+  }
+  return '<div class="wh-fin-detail" role="' + role + '" data-wh-fin-detail-state="' + state + '"' +
+    ' data-wh-fin-detail-kind="' + escHtml(kind) + '" data-wh-fin-detail-creator="' + escHtml(creator) + '"' +
+    (cursor ? ' data-wh-fin-detail-cursor="' + escHtml(cursor) + '"' : '') + '><p>' + escHtml(message) + '</p>' + retry + '</div>';
+}
+
+function financePaintDetail(html) {
+  var host = financeSummaryHost();
+  var slot = host && host.querySelector('[data-wh-fin-detail]');
+  if (slot) slot.innerHTML = html;
+  return !!slot;
+}
+
+function wireWolfhouseCreatorFinanceDetails(body) {
+  if (!body || body.dataset.whFinDetailWired === '1') return;
+  body.dataset.whFinDetailWired = '1';
+  body.addEventListener('click', function (ev) {
+    var retry = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-detail-retry]') : null;
+    if (retry && body.contains(retry)) {
+      if (ev.preventDefault) ev.preventDefault();
+      loadWolfhouseCreatorFinanceDetail({
+        kind: retry.getAttribute('data-wh-fin-detail-kind') || financeDetailKind,
+        creator: retry.getAttribute('data-wh-fin-detail-creator') || '',
+        cursor: retry.getAttribute('data-wh-fin-detail-cursor') || '',
+      });
+      return;
+    }
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-wh-fin-open], [data-wh-fin-cursor]') : null;
+    if (!btn || !body.contains(btn)) return;
+    var paging = btn.hasAttribute('data-wh-fin-cursor') && !btn.hasAttribute('data-wh-fin-open');
+    var kind = btn.getAttribute('data-wh-fin-open') || financeDetailKind;
+    var queries = financeLastCreator && financeLastCreator.detail_queries;
+    if (!paging && !(queries && queries[kind] === true)) return;
+    if (ev.preventDefault) ev.preventDefault();
+    var creator = btn.hasAttribute('data-wh-fin-creator')
+      ? (btn.getAttribute('data-wh-fin-creator') || '')
+      : (paging ? (financeDetailCreator || '') : '');
+    loadWolfhouseCreatorFinanceDetail({
+      kind: kind,
+      creator: creator,
+      cursor: paging ? (btn.getAttribute('data-wh-fin-cursor') || '') : '',
+    });
+  });
+}
+
+function loadWolfhouseCreatorFinanceDetail(opts) {
+  opts = opts || {};
+  if (!wolfhouseCreatorFinanceIsV1(financeLastCreator)) return;
+  var kind = opts.kind || financeDetailKind || '';
+  var creator = opts.creator || '';
+  var cursor = opts.cursor || '';
+  if (!kind) return;
+  var seq = ++financeDetailSeq;
+  financeDetailKind = kind;
+  financeDetailCreator = creator;
+  financeDetailCursor = cursor;
+  var sel = { kind: kind, creator: creator, cursor: cursor };
+  var cohort = financeLastCreator.cohort_id;
+  var currency = financeLastCreator.scope && financeLastCreator.scope.currency;
+  var originClient = getClient();
+  financeRememberDetail('loading', null);
+  financePaintDetail(financeDetailStatusHtml('loading', sel));
+  // cohort_id is the only generation key. Do not send as_of or a cache-bust the contract rejects.
+  var q = adminClientQuery() + financeViewQuery() +
+    '&creator_detail=' + encodeURIComponent(kind) +
+    '&currency=' + encodeURIComponent(currency || '') +
+    '&cohort_id=' + encodeURIComponent(cohort || '') +
+    '&limit=100';
+  if (creator) q += '&creator=' + encodeURIComponent(creator);
+  if (cursor) q += '&cursor=' + encodeURIComponent(cursor);
+  function stillCurrent() {
+    return seq === financeDetailSeq && getClient() === originClient &&
+      financeDetailKind === kind && (financeDetailCreator || '') === creator && (financeDetailCursor || '') === cursor;
+  }
+  fetch('/staff/admin/finance/summary' + q, {
+    credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' },
+  }).then(function (r) {
+    return r.text().then(function (text) {
+      var data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_parse) { data = null; }
+      return { status: r.status, ok: r.ok, data: data };
+    });
+  }).then(function (res) {
+    if (!stillCurrent()) return;
+    if (!financeLastCreator || financeLastCreator.cohort_id !== cohort) return;
+    if (res.status === 409 && res.data && res.data.code === 'FINANCE_COHORT_STALE') {
+      // A clock-only response is HTTP 200 with the same cohort_id. This 409 is a real balance change.
+      // Refresh the summary, then retry this selection once against the new cohort. Do not paint a stale error.
+      if (opts.cohortRefresh) {
+        financeRememberDetail('error', null);
+        financePaintDetail(financeDetailStatusHtml('error', sel));
+        return;
+      }
+      financeDetailResume = { kind: kind, creator: creator };
+      loadAdminFinanceSummary();
+      return;
+    }
+    if (!res.ok || res.status >= 400 || !res.data) {
+      financeRememberDetail('error', null);
+      financePaintDetail(financeDetailStatusHtml('error', sel));
+      return;
+    }
+    var projection = res.data.wolfhouse_creator_finance || res.data;
+    if (projection && projection.cohort_id && projection.cohort_id !== cohort) return;
+    if (!projection || projection.schema_version !== 'wolfhouse.creator-finance.v1') {
+      financeRememberDetail('unsupported', projection);
+      financePaintDetail(typeof renderWolfhouseCreatorFinanceDetailHtml === 'function'
+        ? renderWolfhouseCreatorFinanceDetailHtml(projection)
+        : financeDetailStatusHtml('error', sel));
+      return;
+    }
+    if (typeof renderWolfhouseCreatorFinanceDetailHtml !== 'function') return;
+    financeRememberDetail('success', projection);
+    financePaintDetail(renderWolfhouseCreatorFinanceDetailHtml(projection, { creator: creator }));
+  }).catch(function () {
+    if (!stillCurrent()) return;
+    financeRememberDetail('error', null);
+    financePaintDetail(financeDetailStatusHtml('error', sel));
+  });
+}
+
+function loadWolfhouseFinanceSummary(body) {
+  var pendingResume = financeDetailResume;
+  financeDetailResume = null;
+  var seq = ++financeLoadSeq;
+  var originClient = getClient();
+  financeDetailSeq += 1;
+  financeClearRetainedDetail();
+  financePaintSummaryPending(body);
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
+  fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
+    .then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; })
+        .catch(function () { return { ok: false, status: r.status, data: null }; });
+    })
+    .then(function (res) {
+      if (seq !== financeLoadSeq || getClient() !== originClient) return;
+      var data = res.data || {};
+      if (res.status === 503 || data.code === 'FINANCE_DATA_QUALITY') {
+        financeWolfhouseLoadFailed = true;
+        financeMarkSummaryPhase('error');
+        body.innerHTML = '<div class="portal-admin-finance-error" data-wh-fin-state="request-failed" data-wh-fin-summary-state="error" role="alert"><p>' +
+          escHtml(portalT('admin.finance.wh.requestFailed')) + '</p><button type="button" id="admin-finance-retry" class="portal-admin-finance-retry">' +
+          escHtml(portalT('admin.finance.retry')) + '</button></div>';
+        wireFinanceRetry();
+        return;
+      }
+      if (!res.ok || data.success !== true || !data.summary) {
+        financeWolfhouseLoadFailed = true;
+        financeMarkSummaryPhase('error');
+        body.innerHTML = renderFinanceErrorHtml();
+        wireFinanceRetry();
+        return;
+      }
+      financeWolfhouseLoadFailed = false;
+      financeMarkSummaryPhase('success');
+      financeLastSummary = data.summary;
+      financeLastCreator = data.wolfhouse_creator_finance || null;
+      if (wolfhouseCreatorFinanceIsV1(financeLastCreator)) {
+        var range = financeLastCreator.scope && financeLastCreator.scope.range;
+        if (range) {
+          financeViewState.granularity = range.granularity || financeViewState.granularity || 'month';
+          financeViewState.anchor = range.start || financeViewState.anchor;
+          if (financeViewState.granularity === 'custom' || financeViewState.granularity === 'year') {
+            financeViewState.start = range.start || null;
+            financeViewState.end = range.end || null;
+          } else {
+            financeViewState.start = null;
+            financeViewState.end = null;
+          }
+        }
+        body.innerHTML = renderWolfhouseCreatorFinanceHtml(data);
+        wireFinanceRedesignNav(body);
+        wireWolfhouseCreatorFinanceDetails(body);
+        if (pendingResume && pendingResume.kind) {
+          loadWolfhouseCreatorFinanceDetail({
+            kind: pendingResume.kind,
+            creator: pendingResume.creator || '',
+            cursor: '',
+            cohortRefresh: true,
+          });
+        }
+        return;
+      }
+      var state = financeLastCreator && financeLastCreator.schema_version ? 'unsupported' : 'missing';
+      body.innerHTML = '<div class="wh-fin-missing" data-wh-fin-state="' + state + '" role="status">' +
+        escHtml(portalT(state === 'unsupported' ? 'admin.finance.wh.unsupported' : 'admin.finance.wh.missingProjection')) +
+        '</div>' + renderFinanceSummaryHtml(data.summary);
+      wireFinanceRedesignNav(body);
+    })
+    .catch(function () {
+      if (seq !== financeLoadSeq || getClient() !== originClient) return;
+      financeWolfhouseLoadFailed = true;
+      financeMarkSummaryPhase('error');
+      body.innerHTML = renderFinanceErrorHtml();
+      wireFinanceRetry();
+    });
+}
+
 function loadAdminFinanceSummary(opts){
   opts = opts || {};
   var body = financeSummaryHost();
   if (!body) return;
+  if (getClient() === 'wolfhouse-somo') return loadWolfhouseFinanceSummary(body);
   var seq = ++financeLoadSeq;
   var originClient = getClient();
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
@@ -3451,6 +3783,9 @@ function loadAdminFinanceForCurrentScope(){
   // Scope changes invalidate any in-flight response even when the destination
   // tenant has no Finance endpoint. This request is separate from config loads.
   ++financeLoadSeq;
+  financeLastCreator = null;
+  financeDetailSeq += 1;
+  financeClearRetainedDetail();
   if (getClient() === 'sunset' || getClient() === 'wolfhouse-somo') loadAdminFinanceSummary();
 }
 
