@@ -6,6 +6,37 @@ from wolfhouse import output_guard
 
 
 class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
+    def test_partial_multi_guest_eligibility_uses_plural_localized_scope(self):
+        eligibility = {
+            "requested_room_preference": "female_only",
+            "affected_guest_indices": [0, 1],
+            "question_kind": "confirm_room_eligibility",
+        }
+        plan = {"guests": [{"name": ""}, {"name": ""}, {"name": "Cara"}]}
+        expected = {
+            "en": (
+                "Are guests 1 and 2 eligible for the requested women-only room?",
+                "The requested women-only room is not compatible with the guest details for guests 1 and 2. Would you like to see other room options?",
+            ),
+            "es": (
+                "¿Pueden las personas 1 y 2 alojarse en la habitación solicitada solo para mujeres?",
+                "La habitación solicitada solo para mujeres no es compatible con los datos de las personas 1 y 2. ¿Quieres ver otras opciones de habitación?",
+            ),
+            "fr": (
+                "Les personnes 1 et 2 peuvent-elles séjourner dans la chambre demandée réservée aux femmes ?",
+                "La chambre demandée réservée aux femmes n’est pas compatible avec les informations des personnes 1 et 2. Voulez-vous voir d’autres options de chambre ?",
+            ),
+            "de": (
+                "Können Gäste 1 und 2 im gewünschten Frauenzimmer übernachten?",
+                "Das gewünschte Frauenzimmer ist mit den Angaben zu den Gästen 1 und 2 nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
+            ),
+        }
+        for language, copies in expected.items():
+            for status, text in zip(("unsure", "no"), copies):
+                with self.subTest(language=language, status=status):
+                    eligibility["status"] = status
+                    self.assertEqual(text, owner._structured_eligibility_copy(eligibility, plan, language))
+
     def test_two_unnamed_guests_in_one_room_render_without_crashing(self):
         plan = {
             "guest_count": 2,
@@ -37,7 +68,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         lines = owner._guest_room_lines(plan, offer, "en")
-        self.assertEqual(["two beds in the same room."], lines)
+        self.assertEqual(["two beds in the same shared room."], lines)
         self.assertNotIn("Alex:", "\n".join(lines))
 
     def test_partially_named_party_uses_neutral_room_copy_for_same_and_split_rooms(self):
@@ -148,63 +179,25 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             with self.subTest(language=language):
                 self.assertEqual(phrase, owner._final_copy(language, "refusal"))
 
-        cases = {
-            "Is the guest a woman?": {
-                "en": "Is the guest a woman?",
-                "es": "¿Es la huésped una mujer?",
-                "fr": "La personne est-elle une femme ?",
-                "de": "Ist der Gast eine Frau?",
-            },
-            "Are both guests women?": {
-                "en": "Are both guests women?",
-                "es": "¿Son mujeres las dos huéspedes?",
-                "fr": "Les deux personnes sont-elles des femmes ?",
-                "de": "Sind beide Gäste Frauen?",
-            },
-            "Are all three guests girls?": {
-                "en": "Are all three guests girls?",
-                "es": "¿Son mujeres las tres huéspedes?",
-                "fr": "Les trois personnes sont-elles des femmes ?",
-                "de": "Sind alle drei Gäste Frauen?",
-            },
-            "Are both guests not women?": {
-                "en": "Are both guests not women?",
-                "es": "¿No son mujeres las dos huéspedes?",
-                "fr": "Les deux personnes ne sont-elles pas des femmes ?",
-                "de": "Sind nicht beide Gäste Frauen?",
-            },
-            "Is the guest not a woman?": {
-                "en": "Is the guest not a woman?",
-                "es": "¿No es la huésped una mujer?",
-                "fr": "La personne n'est-elle pas une femme ?",
-                "de": "Ist der Gast keine Frau?",
-            },
-            "Are all three guests not women?": {
-                "en": "Are all three guests not women?",
-                "es": "¿No son mujeres las tres huéspedes?",
-                "fr": "Les trois personnes ne sont-elles pas des femmes ?",
-                "de": "Sind nicht alle drei Gäste Frauen?",
-            },
-            "Are any guests not women?": {
-                "en": "Are any guests not women?",
-                "es": "¿Hay alguna huésped que no sea mujer?",
-                "fr": "Y a-t-il une personne qui ne soit pas une femme ?",
-                "de": "Gibt es Gäste, die keine Frauen sind?",
-            },
-            "Can everyone stay in a female-only room?": {
-                "en": "Can everyone stay in a female-only room?",
-                "es": "¿Pueden todas las personas alojarse en una habitación solo para mujeres?",
-                "fr": "Tout le monde peut-il séjourner dans une chambre réservée aux femmes ?",
-                "de": "Können alle Gäste in einem Frauenzimmer übernachten?",
-            },
+        structured = {"status": "unsure", "requested_room_preference": "female_only",
+                      "affected_guest_indices": [1],
+                      "question_kind": "confirm_room_eligibility"}
+        plan = {"guests": [{"name": "Ana"}, {"name": "Bea"}]}
+        expected = {
+            "en": "Is Bea eligible for the requested women-only room?",
+            "es": "¿Puede Bea alojarse en la habitación solicitada solo para mujeres?",
+            "fr": "Bea peut-elle séjourner dans la chambre demandée réservée aux femmes ?",
+            "de": "Kann Bea im gewünschten Frauenzimmer übernachten?",
         }
-        for question, translations in cases.items():
-            for language, expected in translations.items():
-                with self.subTest(question=question, language=language):
-                    self.assertEqual(
-                        expected,
-                        owner._localized_eligibility_question(question, language),
-                    )
+        for language, phrase in expected.items():
+            with self.subTest(language=language):
+                self.assertEqual(phrase, owner._structured_eligibility_copy(
+                    structured, plan, language))
+        all_party = {**structured, "affected_guest_indices": [0, 1]}
+        self.assertEqual(
+            "Are all guests eligible for the requested women-only room?",
+            owner._structured_eligibility_copy(all_party, plan, "en"),
+        )
 
 
 if __name__ == "__main__":

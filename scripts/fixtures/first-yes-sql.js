@@ -27,7 +27,21 @@ async function main() {
   }};
   try {
     await seedOfflineBookingDb(db, { phone: '+999000000001', guest_name: 'Riley' });
-    await db.exec(`ALTER TABLE payments ADD created_at timestamptz DEFAULT now();
+    // seedOfflineBookingDb owns the shared payment schema, including created_at.
+    await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS settings jsonb DEFAULT '{}'::jsonb;
+      UPDATE clients SET settings=COALESCE(settings,'{}'::jsonb) ||
+        '{"inbox_channel_modes":{"whatsapp":"auto"}}'::jsonb
+        WHERE slug='wolfhouse-somo';
+      CREATE TABLE IF NOT EXISTS conversations (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_id uuid NOT NULL,
+        phone text, needs_human boolean NOT NULL DEFAULT false);
+      ALTER TABLE conversations ADD COLUMN IF NOT EXISTS phone text;
+      ALTER TABLE conversations ADD COLUMN IF NOT EXISTS needs_human boolean NOT NULL DEFAULT false;
+      CREATE TABLE IF NOT EXISTS bot_pause_states (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(), client_slug text NOT NULL,
+        guest_phone text, conversation_id text, paused boolean NOT NULL DEFAULT true);
+      INSERT INTO conversations(client_id,phone,needs_human)
+        SELECT id,'+99900000001',false FROM clients WHERE slug='wolfhouse-somo';
       UPDATE rooms SET room_type='mixed', gender_strategy='Flexible', capacity=2,
         can_be_matrimonial=false, often_used_by_operator=false, selling_mode='shared',
         fill_priority=1 WHERE room_code='R1';
@@ -35,6 +49,7 @@ async function main() {
     let requestBody;
     const context = {
       ...lib('bot-booking-package-normalize'), ...lib('staff-manual-booking-payment'),
+      ...lib('staff-manual-booking-create-sql'), ...lib('staff-booking-portal-policy'),
       ...lib('wolfhouse-room-options'), ...lib('wolfhouse-quote-calculator'),
       ...lib('guest-addon-pricing'), ...lib('bot-quote-included-items'),
       ...lib('wolfhouse-package-night-rules'), ...lib('booking-guests'),
@@ -66,8 +81,9 @@ async function main() {
           const record = { path: cmd.path, body: requestBody };
           calls.push(record);
           let result;
-          if (cmd.path === '/booking-preview') result = await context.handleBotBookingPreview({}, {}, null, 'offline');
-          else if (cmd.path === '/booking-create-from-plan') result = await context.handleBotBookingCreate({}, {}, null, 'offline');
+          const req = { headers: { 'x-luna-guest-phone': cmd.guest_phone || '' } };
+          if (cmd.path === '/booking-preview') result = await context.handleBotBookingPreview(req, {}, null, 'bot_token');
+          else if (cmd.path === '/booking-create-from-plan') result = await context.handleBotBookingCreate(req, {}, null, 'bot_token');
           else if (cmd.path === '/availability-check') {
             const built = offer.buildWolfhouseAvailabilityCommand({ channel: 'bot_http',
               trustedClientSlug: 'wolfhouse-somo', transportBody: requestBody,
