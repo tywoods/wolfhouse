@@ -750,6 +750,37 @@ assert('whole-booking payment is not the same as per-guest distribution',
     booked.offer_fingerprint === rechecked.offer_fingerprint
     && compareAcceptedWolfhouseOffer(booked, rechecked).ok === true);
 
+  const explicitBedQuote = {
+    ...booked,
+    resolved_room_claim: null,
+  };
+  explicitBedQuote.offer_fingerprint = computeWolfhouseOfferFingerprint(explicitBedQuote);
+  const createWithDerivedGroupTag = {
+    ...explicitBedQuote,
+    resolved_room_claim: 'male_shared',
+  };
+  createWithDerivedGroupTag.offer_fingerprint = computeWolfhouseOfferFingerprint(createWithDerivedGroupTag);
+  assert('explicit-bed quote/create identity ignores derived group room tags',
+    explicitBedQuote.offer_fingerprint === createWithDerivedGroupTag.offer_fingerprint
+    && compareAcceptedWolfhouseOffer(explicitBedQuote, createWithDerivedGroupTag).ok === true);
+
+  const unresolvedQuote = {
+    ...explicitBedQuote,
+    guest_bed_assignments: [],
+    room_arrangement: [],
+    selected_bed_codes: [],
+    resolved_room_claim: null,
+  };
+  unresolvedQuote.offer_fingerprint = computeWolfhouseOfferFingerprint(unresolvedQuote);
+  const unresolvedCreate = {
+    ...unresolvedQuote,
+    resolved_room_claim: 'male_shared',
+  };
+  unresolvedCreate.offer_fingerprint = computeWolfhouseOfferFingerprint(unresolvedCreate);
+  assert('derived room claim remains material without explicit beds',
+    unresolvedQuote.offer_fingerprint !== unresolvedCreate.offer_fingerprint
+    && compareAcceptedWolfhouseOffer(unresolvedQuote, unresolvedCreate).ok === false);
+
   const withEmail = wolfhouseOperationFingerprint({
     clientSlug: 'wolfhouse-somo',
     checkIn: '2026-10-10',
@@ -888,7 +919,11 @@ assert('whole-booking payment is not the same as per-guest distribution',
   assert('real command accepts the issued offer without a room-rule rejection',
     realDecision.ok === true && realDecision.detail !== 'room_eligibility_changed');
 
-  await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler();
+  // Offline synthetic principal: bind the same trusted header context required
+  // by the production handler.  This is not a live-auth relaxation.
+  await require('./verify-wolfhouse-offer-retry-handler').verifyWolfhouseOfferRetryHandler({
+    trustedGuestPhone: '+34912345678',
+  });
   assert('ordinary create handler retries preserve person-to-bed pairs and fail closed for legacy rows', true);
 
   console.log(`\n${pass} passed, ${fail} failed`);

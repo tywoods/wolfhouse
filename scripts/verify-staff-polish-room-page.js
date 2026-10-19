@@ -25,7 +25,7 @@ try{for(const width of [390,1280])for(const theme of ['light','dark']){
  });
  try{
   await page.reload();await settings(page);await page.locator('#staff-room-setup-toggle').click();await page.locator('.rf-row').first().waitFor();
-  const gender=page.getByRole('combobox',{name:'Gender for Room 1',exact:true});
+  const gender=page.getByRole('combobox',{name:'Who can book for Room 1',exact:true});
   check(tag,'only ordinary room has gender editor',await page.locator('.rf-gender-edit select').count()===1);
   check(tag,'special room displays explanatory note',await page.locator('#staff-room-fill').getByText('Read-only: private/couple/operator restrictions are preserved.').count()===1);
   await gender.selectOption('female');await page.locator('#staff-room-setup-toggle').click();await page.locator('#staff-room-setup-toggle').click();

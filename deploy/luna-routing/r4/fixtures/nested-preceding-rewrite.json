@@ -1,0 +1,123 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "srv0": {
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "match": [
+                {
+                  "host": [
+                    "whatsapp-staging.lunafrontdesk.com"
+                  ]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "handle": [
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "match": [
+                                {
+                                  "path": [
+                                    "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+                                  ]
+                                }
+                              ],
+                              "handle": [
+                                {
+                                  "handler": "rewrite",
+                                  "uri": "/review/diverted"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "group": "group2",
+                      "handle": [
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "group": "group0",
+                              "handle": [
+                                {
+                                  "handler": "rewrite",
+                                  "uri": "/v1/routes/meta-whatsapp-verified-webhook"
+                                }
+                              ]
+                            },
+                            {
+                              "handle": [
+                                {
+                                  "handler": "reverse_proxy",
+                                  "upstreams": [
+                                    {
+                                      "dial": "127.0.0.1:8096"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "match": [
+                        {
+                          "path": [
+                            "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "group": "group2",
+                      "handle": [
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "handle": [
+                                {
+                                  "handler": "reverse_proxy",
+                                  "upstreams": [
+                                    {
+                                      "dial": "127.0.0.1:8094"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "match": [
+                        {
+                          "path": [
+                            "/whatsapp/routing-proof"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}

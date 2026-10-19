@@ -115,13 +115,13 @@ async function resolveAndMarkConversationNeedsHuman(pg, input) {
     const key = trimStr(env.STRIPE_SECRET_KEY);
     const modes = [env.WOLFHOUSE_STRIPE_MODE, env.STRIPE_MODE].map(v => trimStr(v).toLowerCase());
     if (inp.client_slug !== 'wolfhouse-somo'
-      || trimStr(env.DEFAULT_CLIENT_SLUG) !== 'wolfhouse-somo'
+      || trimStr(env.LUNA_BOT_CLIENT_SLUG) !== 'wolfhouse-somo'
       || trimStr(env.PUBLIC_PAYMENT_BASE_URL).replace(/\/+$/, '').toLowerCase() !== 'https://staff-staging.lunafrontdesk.com'
       || key.startsWith('sk_live_') || modes.includes('live')
       || (!key.startsWith('sk_test_') && !modes.includes('test'))
       || inp.wolfhouse_staging_capability !== 'wolfhouse_staging_booking_test_link'
       || inp.simulator_synthetic !== true || inp.source_owner !== 'crowsnest-guest-door'
-      || inp.suppress_notifications !== true
+      || inp.suppress_notifications !== true || inp.suppress_approvals !== true
       || typeof inp.phone !== 'string' || !/^\+999[0-9]{12}$/.test(inp.phone)
       || (inp.guest_phone !== undefined && inp.guest_phone !== inp.phone)
       || (inp.conversation_id !== undefined && inp.conversation_id !== '')) {

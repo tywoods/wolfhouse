@@ -1,0 +1,39 @@
+{
+  "provenance": "synthetic Staff variations; not historical outcomes",
+  "base": {
+    "shown_plan": {
+      "check_in": "2027-02-01",
+      "check_out": "2027-02-04",
+      "guest_count": 2,
+      "package_code": "package_none",
+      "room_type": "shared",
+      "room_preference": "mixed",
+      "selected_bed_codes": ["M1", "M2"],
+      "guests": [{"name": "Alex"}, {"name": "Sam"}],
+      "room_name_hints": [{"name": "Alex", "hint": "unknown"}, {"name": "Sam", "hint": "unknown"}],
+      "payment_choice": "full"
+    },
+    "shown_staff": {
+      "beds": [
+        {"bed_code": "M1", "room_code": "M", "gender_strategy": "mixed"},
+        {"bed_code": "M2", "room_code": "M", "gender_strategy": "mixed"}
+      ],
+      "total_cents": 24000,
+      "deposit_required_cents": 20000,
+      "payment_link_amount_cents": 24000,
+      "currency": "EUR"
+    }
+  },
+  "cases": [
+    {"id": "synthetic-refusal-changed-dates", "kind": "refusal", "refresh_plan_changes": {"check_in": "2027-02-02", "check_out": "2027-02-05"}, "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-changed-count", "kind": "refusal", "refresh_plan_changes": {"guest_count": 3, "selected_bed_codes": ["M1", "M2", "M3"], "guests": [{"name": "Alex"}, {"name": "Sam"}, {"name": "Jo"}]}, "refresh_beds": [{"bed_code": "M1", "room_code": "M", "gender_strategy": "mixed"}, {"bed_code": "M2", "room_code": "M", "gender_strategy": "mixed"}, {"bed_code": "M3", "room_code": "M", "gender_strategy": "mixed"}], "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-changed-bed", "kind": "refusal", "refresh_plan_changes": {"selected_bed_codes": ["M1", "M9"]}, "refresh_beds": [{"bed_code": "M1", "room_code": "M", "gender_strategy": "mixed"}, {"bed_code": "M9", "room_code": "N", "gender_strategy": "mixed"}], "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-changed-price", "kind": "refusal", "refresh_amount_changes": {"total_cents": 25000, "payment_link_amount_cents": 25000}, "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-changed-package", "kind": "refusal", "refresh_plan_changes": {"package_code": "surf_week"}, "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-unavailable-bed", "kind": "refusal", "availability": "unavailable", "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-refusal-conflicting-bed", "kind": "refusal", "refresh_beds": [{"bed_code": "M1", "room_code": "F", "gender_strategy": "female_only"}, {"bed_code": "M2", "room_code": "M", "gender_strategy": "mixed"}], "expected": "quote_owner_presented_offer_required"},
+    {"id": "synthetic-control-unchanged", "kind": "control", "expected": "allowed"},
+    {"id": "synthetic-control-name-completion", "kind": "control", "create_args": {"guests": [{"name": "Alex Rivera"}, {"name": "Sam Lee"}], "room_name_hints": [{"name": "Alex Rivera", "hint": "unknown"}, {"name": "Sam Lee", "hint": "unknown"}]}, "expected": "allowed"},
+    {"id": "synthetic-control-payment-completion", "kind": "control", "create_args": {"payment_choice": "full"}, "expected": "allowed"}
+  ]
+}
