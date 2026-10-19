@@ -22,7 +22,7 @@ from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
 
 class StructuredRoomClarificationTests(unittest.TestCase):
     @staticmethod
-    def _run_occupants(body, *, sim23_fixture=False, recompute_offer=False):
+    def _run_occupants(body, *, scenario_facts=None, recompute_offer=False):
         script = """
 const fs = require('node:fs');
 const h = require('./scripts/verify-luna-create-booking-occupants');
@@ -31,9 +31,10 @@ if (%s) {
   const offers = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
   body.accepted_offer = offers.buildWolfhouseOfferRevision(body.accepted_offer);
 }
-const options = %s ? {sim23Fixture: h.createSim23Fixture(body)} : {};
+const facts = JSON.parse(%r);
+const options = facts ? {sim23Fixture: h.createSim23Fixture(body, facts)} : {};
 h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(result)));
-""" % ("true" if recompute_offer else "false", "true" if sim23_fixture else "false")
+""" % ("true" if recompute_offer else "false", json.dumps(scenario_facts))
         run = subprocess.run(["node", "-e", script], input=json.dumps(body), text=True,
                              cwd=ROOT, capture_output=True, timeout=90)
         if run.returncode:
@@ -52,7 +53,7 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
         expected = {
             "en": "Is Emma eligible for the requested women-only room?",
             "es": "¿Puede Emma alojarse en la habitación solicitada solo para mujeres?",
-            "fr": "Emma peut-elle séjourner dans la chambre demandée réservée aux femmes ?",
+            "fr": "Est-ce que Emma peut séjourner dans la chambre demandée réservée aux femmes ?",
             "de": "Kann Emma im gewünschten Frauenzimmer übernachten?",
         }
         for language, copy in expected.items():
@@ -92,29 +93,60 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                 self.assertIn(phrase, text)
             self.assertNotEqual(owner._final_copy(language, "refusal"), text)
 
+    def test_package_choice_and_no_stock_renders_inventory_refusal_first(self):
+        result = {"success": False, "package_choice_needed": True,
+                  "availability_status": "unavailable", "unavailable": True}
+        text = owner._blocked_clarification_copy(result, {}, "en")
+        self.assertEqual(owner._final_copy("en", "refusal"), text)
+        self.assertNotIn("Which package", text)
+
+    def test_corrected_dates_are_acknowledged_before_eligibility_question(self):
+        state = {"authorized_revision_changes": [
+            {"field": "check_in", "value": "2026-11-04", "evidence": "4 November"},
+            {"field": "check_out", "value": "2026-11-07", "evidence": "7 November"},
+        ]}
+        question = "Is Emma eligible for the requested women-only room?"
+        self.assertEqual(
+            "Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n" + question,
+            owner._prepend_revision_acknowledgement(state, question, "en"))
+
+    def test_french_singleton_eligibility_is_neutral_for_named_and_unnamed_guests(self):
+        for room, name, expected in (
+            ("male_only", "Hugo", "Est-ce que Hugo peut séjourner dans la chambre demandée réservée aux hommes ?"),
+            ("female_only", "Hugo", "Est-ce que Hugo peut séjourner dans la chambre demandée réservée aux femmes ?"),
+            ("male_only", "", "Est-ce que la personne 1 peut séjourner dans la chambre demandée réservée aux hommes ?"),
+            ("female_only", "", "Est-ce que la personne 1 peut séjourner dans la chambre demandée réservée aux femmes ?"),
+        ):
+            eligibility = {"status": "unsure", "requested_room_preference": room,
+                           "affected_guest_indices": [0],
+                           "question_kind": "confirm_room_eligibility"}
+            self.assertEqual(expected, owner._structured_eligibility_copy(
+                eligibility, {"guests": [{"name": name}]}, "fr"))
+
     def test_sim23_five_capture_outcomes_registered_render_create_and_sql(self):
         """Each immutable Sim23 outcome crosses registered quote/create and PGlite."""
         cases = (
             {"label": "lucia", "dates": ("2026-11-04", "2026-11-07"),
              "names": ("Lucía",), "beds": ("R3-B1",), "payment": "deposit",
-             "total": 12000, "deposit": 10000, "room": "mixed", "preference": "mixed"},
-            {"label": "french-group", "dates": ("2026-11-04", "2026-11-07"),
-             "names": ("Camille Laurent", "Hugo Laurent"),
-             "beds": ("R3-B1", "R3-B2"), "payment": "full",
-             "total": 24000, "deposit": 24000, "room": "mixed", "preference": "mixed",
+             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "mixed", "preference": "mixed"},
+            {"label": "french-group", "dates": ("2026-11-06", "2026-11-08"),
+             "names": ("Camille Martin", "Léa Dubois", "Hugo Bernard"),
+             "genders": ("female", "female", "male"), "group_gender": "mixed",
+             "beds": ("R1-B1", "R1-B2", "R1-B3"), "payment": "full",
+             "total": 24000, "deposit": 24000, "weekly": 28000, "room": "mixed", "preference": "mixed",
              "language": "fr"},
             {"label": "becker", "dates": ("2026-11-11", "2026-11-14"),
              "names": ("Jonas Becker", "Felix Becker"),
              "beds": ("R4-B1", "R4-B2"), "payment": "deposit",
-             "total": 24000, "deposit": 20000, "room": "male preferred",
+             "total": 24000, "deposit": 20000, "weekly": 28000, "room": "male preferred",
              "preference": "male_only", "language": "de", "gender": "male"},
             {"label": "emma", "dates": ("2026-11-04", "2026-11-07"),
-             "names": ("Emma Clarke",), "beds": ("R5-B1",), "payment": "full",
-             "total": 12000, "deposit": 12000, "room": "female preferred",
+             "names": ("Emma Clarke",), "beds": ("R8-B4",), "payment": "full",
+             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "female_only",
              "preference": "female_only", "gender": "female"},
             {"label": "raj", "dates": ("2026-11-20", "2026-11-22"),
              "names": ("Raj Patel",), "beds": ("R1-B4",), "payment": "full",
-             "total": 8000, "deposit": 8000, "room": "Flexible",
+             "total": 8000, "deposit": 8000, "weekly": 28000, "room": "Flexible",
              "preference": "room 1", "gender": "male"},
         )
         for case in cases:
@@ -128,8 +160,12 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                                      "room_type": "shared",
                                      "gender_strategy": case["room"],
                                      "selected_selling_mode": "bed"})
-                    guests = [{"name": name, **({"explicit_gender": case["gender"]}
-                               if case.get("gender") else {})} for name in case["names"]]
+                    guests = []
+                    for index, name in enumerate(case["names"]):
+                        explicit_gender = ((case.get("genders") or ())[index]
+                                           if case.get("genders") else case.get("gender"))
+                        guests.append({"name": name, **({"explicit_gender": explicit_gender}
+                                      if explicit_gender else {})})
                     plan = {"check_in": case["dates"][0], "check_out": case["dates"][1],
                             "guest_count": len(guests), "room_type": "shared",
                             "room_preference": case["preference"],
@@ -137,8 +173,8 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                             "language": case.get("language", "en"), "guests": guests,
                             "guest_name": guests[0]["name"],
                             "selected_bed_codes": list(case["beds"])}
-                    if case.get("gender"):
-                        plan["group_gender"] = case["gender"]
+                    if case.get("group_gender") or case.get("gender"):
+                        plan["group_gender"] = case.get("group_gender") or case["gender"]
                     raw_quote = checked_staff_quote(
                         plan, beds, total=case["total"], deposit=case["deposit"],
                         full_payment_only=(case["payment"] == "full"))
@@ -200,7 +236,12 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                     # Send the exact registered request, including accepted_offer, through the
                     # ordinary builder/executor in one isolated PGlite operation. The opaque
                     # in-process fixture capability aligns only this test DB's room/price rows.
-                    proof = self._run_occupants(sent, sim23_fixture=True)
+                    facts = {"weekly_cents": case["weekly"],
+                             "deposit_per_guest_cents": case["deposit"] // len(case["names"]),
+                             "rooms": [{"room_code": code.split("-B", 1)[0],
+                                        "gender_strategy": case["room"]}
+                                       for code in case["beds"]]}
+                    proof = self._run_occupants(sent, scenario_facts=facts)
                     self.assertTrue(proof["ok"], proof)
                     self.assertEqual(len(proof["bookings"]), 1, proof)
                     self.assertEqual([row["assigned_bed_code"] for row in proof["occupants"]],
@@ -208,6 +249,23 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                     self.assertEqual(sum(row["kind"] == "booking_create"
                                          for row in proof["sql_calls"]), 1)
                     self.assertEqual(proof["network_attempts"], [])
+                    if case["label"] == "lucia":
+                        for label, mutation, detail in (
+                            ("price", {"total_cents": case["total"] + 100}, "payment_terms_changed"),
+                            ("deposit", {"deposit_required_cents": case["deposit"] + 100}, "payment_terms_changed"),
+                        ):
+                            changed = json.loads(json.dumps(sent))
+                            changed["accepted_offer"].update(mutation)
+                            rejected = self._run_occupants(
+                                changed, scenario_facts=facts, recompute_offer=True)
+                            self.assertFalse(rejected["ok"], {"control": label, "result": rejected})
+                            self.assertEqual(rejected["body"]["detail"], detail)
+                        changed = json.loads(json.dumps(sent))
+                        changed["accepted_offer"]["room_arrangement"][0]["gender_strategy"] = "male_only"
+                        rejected = self._run_occupants(
+                            changed, scenario_facts=facts, recompute_offer=True)
+                        self.assertFalse(rejected["ok"], rejected)
+                        self.assertEqual(rejected["body"]["detail"], "room_eligibility_changed")
                 finally:
                     loop.close()
 

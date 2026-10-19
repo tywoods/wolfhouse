@@ -92,6 +92,20 @@ Candidate results:
 
 The historical G3 full package-preview response remains unavailable. The package-failure test is explicitly synthetic and does not claim the historical cause. The registered Becker/SQL control preserves the two-stage captured argument shape (`male dorm`, no roster/group; then `male_only`, `group_gender=male`). The focused entrypoint now passes **9/9**, adding genuine package-policy ineligibility copy and immutable assertions for all five positive Sim23 scenario amounts/outcomes; the existing registered controls remain the executable continuation/stock/eligibility/SQL evidence. Retained matching probe 4019 room-mode/rank/occupancy data was not available, so Lucía remains audit-only; allocator sources and policy were unchanged.
 
+### R3 review corrections
+
+The Sim23 French fixture now carries the supplied historical facts independently of the
+request under test: 6–8 November 2026, Camille Martin / Léa Dubois / Hugo Bernard,
+mixed R1-B1/R1-B2/R1-B3, package none, French, and one full €240 payment line. Enabled
+fixture-capability controls mutate price, deposit, and room strategy and must reject with
+zero booking writes. Emma retains 4–7 November, R8-B4, €100 required deposit, and the
+chosen €120 full payment.
+
+The localized helper's stale French expectation changed only from
+`Bea peut-elle séjourner…` to neutral named wording `Est-ce que Bea peut séjourner…`.
+This prevents grammatical gender from being inferred from a guest name or room while
+retaining the same eligibility question and women-only room fact.
+
 ### Sim23 test-only PGlite seam follow-up
 
 The occupants verifier exports an opaque, process-local fixture capability; no CLI flag or

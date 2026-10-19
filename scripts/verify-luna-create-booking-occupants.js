@@ -238,27 +238,27 @@ const allowedSql = new Map([
 // Deliberately unreachable from CLI/environment. Registered tests must pass this
 // opaque process-local capability; transport JSON cannot enable the fixture.
 const sim23Fixtures = new WeakMap();
-function createSim23Fixture(registeredCreateBody) {
+function createSim23Fixture(registeredCreateBody, scenarioFacts) {
   assert.ok(registeredCreateBody && typeof registeredCreateBody === 'object');
   const offer = registeredCreateBody.accepted_offer;
   assert.ok(offer && offer.availability_checked === true,
     'Sim23 fixture requires the checked registered accepted_offer');
   assert.equal(registeredCreateBody.package_code, 'package_none');
-  const nights = (Date.parse(`${registeredCreateBody.check_out}T00:00:00Z`)
-    - Date.parse(`${registeredCreateBody.check_in}T00:00:00Z`)) / 86400000;
-  const guests = Number(registeredCreateBody.guest_count);
-  const nightlyPerGuest = offer.total_cents / nights / guests;
-  assert.ok(Number.isInteger(nightlyPerGuest) && nightlyPerGuest > 0,
-    'Sim23 accommodation price must be an integral per-person nightly fixture');
+  assert.ok(scenarioFacts && typeof scenarioFacts === 'object',
+    'Sim23 fixture requires independent scenario facts');
+  assert.ok(Number.isInteger(scenarioFacts.weekly_cents) && scenarioFacts.weekly_cents > 0,
+    'Sim23 fixture requires an independent weekly price');
+  assert.ok(Number.isInteger(scenarioFacts.deposit_per_guest_cents)
+    && scenarioFacts.deposit_per_guest_cents > 0,
+  'Sim23 fixture requires an independent deposit');
+  assert.ok(Array.isArray(scenarioFacts.rooms) && scenarioFacts.rooms.length,
+    'Sim23 fixture requires independent room facts');
   const capability = Object.freeze({});
   sim23Fixtures.set(capability, {
     body: structuredClone(registeredCreateBody),
-    weeklyCents: nightlyPerGuest * 7,
-    depositPerGuestCents: offer.deposit_required_cents / guests,
-    rooms: (offer.room_arrangement || []).map((room) => ({
-      room_code: room.room_code,
-      gender_strategy: room.gender_strategy,
-    })),
+    weeklyCents: scenarioFacts.weekly_cents,
+    depositPerGuestCents: scenarioFacts.deposit_per_guest_cents,
+    rooms: structuredClone(scenarioFacts.rooms),
   });
   return capability;
 }

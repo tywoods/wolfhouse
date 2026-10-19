@@ -666,6 +666,10 @@ def _final_copy(language, key, **values):
 def _blocked_clarification_copy(result, plan, language):
     """Render typed offerless outcomes without conflating package, room or stock."""
     result = result if isinstance(result, dict) else {}
+    known_unavailable = (result.get('unavailable') is True
+                         or result.get('availability_status') == 'unavailable')
+    if known_unavailable:
+        return _final_copy(language, 'refusal')
     if result.get('package_choice_needed') is True:
         if (result.get('next_action') == 'offer_accommodation_or_change_dates'
                 and result.get('package_eligible') is False):
@@ -689,10 +693,7 @@ def _blocked_clarification_copy(result, plan, language):
             'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
         }[language]
     eligibility = result.get('room_eligibility') or result.get('room_decision')
-    known_unavailable = (result.get('unavailable') is True
-                         or result.get('availability_status') == 'unavailable')
-    text = (_structured_eligibility_copy(eligibility, plan, language)
-            if not known_unavailable else None)
+    text = _structured_eligibility_copy(eligibility, plan, language)
     return text or _final_copy(language, 'refusal')
 
 
@@ -753,7 +754,7 @@ def _structured_eligibility_copy(eligibility, plan, language):
         return {
             'en': f'Is {subject} eligible for the requested {room_label}?',
             'es': f'¿Puede {subject} alojarse en la {room_label}?',
-            'fr': f'{subject} peut-elle séjourner dans la {room_label} ?',
+            'fr': f'Est-ce que {subject} peut séjourner dans la {room_label} ?',
             'de': f'Kann {subject} im {room_label} übernachten?',
         }[language]
     if all_party:
@@ -783,6 +784,24 @@ def _structured_eligibility_copy(eligibility, plan, language):
         'fr': f'La {room_label} n’est pas compatible avec {details}. Voulez-vous voir d’autres options de chambre ?',
         'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
     }[language]
+
+
+def _prepend_revision_acknowledgement(state, text, language):
+    """Acknowledge a same-turn date correction before the one needed question."""
+    changes = state.get('authorized_revision_changes') if isinstance(state, dict) else None
+    values = {row.get('field'): row.get('value') for row in changes or []
+              if isinstance(row, dict)}
+    if not values.get('check_in') or not values.get('check_out'):
+        return text
+    start = _plain_stay_date(values['check_in'], language)
+    end = _plain_stay_date(values['check_out'], language)
+    acknowledgements = {
+        'en': f'Thanks — I’ve updated the stay to {start} to {end}.',
+        'es': f'Gracias — he actualizado la estancia del {start} al {end}.',
+        'fr': f'Merci — j’ai mis à jour le séjour du {start} au {end}.',
+        'de': f'Danke — ich habe den Aufenthalt auf {start} bis {end} aktualisiert.',
+    }
+    return acknowledgements.get(language, acknowledgements['en']) + '\n' + text
 
 
 def _evidence_in_current_turn(raw, evidence):
@@ -2623,7 +2642,8 @@ def finalize_offer_response(result):
                         and tool_result.get('next_action') == 'ask_room_eligibility'
                         and (structured_text or legacy_draft)):
                     output = deepcopy(result)
-                    text = structured_text or legacy_draft
+                    text = _prepend_revision_acknowledgement(
+                        state, structured_text or legacy_draft, _guest_language(state))
                     output['final_response'] = text
                     output_messages = output.get('messages')
                     if (output_messages and isinstance(output_messages[-1], dict)
