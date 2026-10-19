@@ -1,0 +1,138 @@
+{
+  "version": "v2.6.2 h1:wKoFIxpmOJLGl3QXoo6PNbYvGW4xLEgo32GPBEjWL8o=",
+  "cases": [
+    {
+      "name": "authentic-control",
+      "inspector": "PASS",
+      "upstreamPath": "/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-different-group",
+      "inspector": "PASS",
+      "upstreamPath": "/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-same-group-nonmatching",
+      "inspector": "PASS",
+      "upstreamPath": "/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-same-group-alias-disjoint-rewrite",
+      "inspector": "PASS",
+      "upstreamPath": "/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-same-group-matching",
+      "inspector": "REJECT",
+      "upstreamPath": "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-same-group-uppercase-path",
+      "inspector": "REJECT",
+      "upstreamPath": "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-same-group-placeholder-path",
+      "inspector": "REJECT",
+      "upstreamPath": "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-nested-same-group",
+      "inspector": "REJECT",
+      "upstreamPath": "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-outer-same-group",
+      "inspector": "REJECT",
+      "upstreamPath": "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+    },
+    {
+      "name": "earlier-rewrite-reaches-same-group",
+      "inspector": "REJECT",
+      "upstreamPath": "/rewritten-before-group"
+    },
+    {
+      "name": "earlier-empty-terminal-same-group",
+      "inspector": "REJECT"
+    },
+    {
+      "name": "lead-outer-group2",
+      "inspector": "REJECT",
+      "controllerSeen": [],
+      "proofSeen": []
+    },
+    {
+      "name": "lead-ungrouped-terminal",
+      "inspector": "REJECT",
+      "controllerSeen": [],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "lead-matched-alias",
+      "inspector": "REJECT",
+      "controllerSeen": [
+        "/v1/routes/meta-whatsapp-verified-webhook",
+        "/v1/routes/meta-whatsapp-verified-webhook"
+      ],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "terminal-inert-subroute",
+      "inspector": "REJECT",
+      "controllerSeen": [],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "nonterminal-inert-subroute-control",
+      "inspector": "PASS",
+      "controllerSeen": [
+        "/v1/routes/meta-whatsapp-verified-webhook"
+      ],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "preceding-rewrite",
+      "inspector": "REJECT",
+      "controllerSeen": [],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "preceding-disjoint-rewrite-control",
+      "inspector": "PASS",
+      "controllerSeen": [
+        "/v1/routes/meta-whatsapp-verified-webhook"
+      ],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "nested-preceding-rewrite",
+      "inspector": "REJECT",
+      "controllerSeen": [],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    },
+    {
+      "name": "nested-preceding-disjoint-rewrite-control",
+      "inspector": "PASS",
+      "controllerSeen": [
+        "/v1/routes/meta-whatsapp-verified-webhook"
+      ],
+      "proofSeen": [
+        "/whatsapp/routing-proof"
+      ]
+    }
+  ]
+}
