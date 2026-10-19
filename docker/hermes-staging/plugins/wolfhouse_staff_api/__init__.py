@@ -642,12 +642,35 @@ def check_availability(params, **kwargs):
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
     data = _post_bot("/availability-check", payload)
+    structured_eligibility = data.get("room_eligibility") if isinstance(data, dict) else None
+    if not (isinstance(structured_eligibility, dict)
+            and structured_eligibility.get("status") in {"yes", "no", "unsure"}
+            and isinstance(structured_eligibility.get("affected_guest_indices"), list)):
+        structured_eligibility = None
     status = _availability_status(data)
     eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
     if (status != "unavailable"
             and eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}):
         status = "eligibility_required"
-    decision = _room_decision_for_tool(payload, data)
+    decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
+    if structured_eligibility is not None:
+        eligibility_status = structured_eligibility["status"]
+        if eligibility_status != "yes" and status != "unavailable":
+            status = "eligibility_required"
+        decision = {
+            "structured": True,
+            "status": eligibility_status,
+            "requested_room_preference": structured_eligibility.get("requested_room_preference"),
+            "affected_guest_indices": structured_eligibility["affected_guest_indices"],
+            "reason_code": structured_eligibility.get("reason_code"),
+            "question_kind": structured_eligibility.get("question_kind"),
+            "clarification_needed": eligibility_status == "unsure",
+            "conflict": structured_eligibility.get("reason_code") if eligibility_status == "no" else None,
+            "needs_human": False, "do_not_escalate": True,
+            "allowed_room_preferences": [],
+            "excluded_room_preferences": ([structured_eligibility.get("requested_room_preference")]
+                                           if eligibility_status == "no" else []),
+        }
     if status != "unavailable" and isinstance(decision, dict) and (
             decision.get("clarification_needed") or decision.get("conflict")):
         status = "eligibility_required"
@@ -753,6 +776,7 @@ def check_availability(params, **kwargs):
         "next_action": data.get("next_action"),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
         "room_decision": decision,
+        "room_eligibility": structured_eligibility,
     }
     return _json_result(_suppress_gender_handoff(avail_result, avail_result.get("room_decision")))
 

@@ -62,14 +62,14 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
       );
       INSERT INTO wh_pricing_seasons
         (id, client_slug, code, label, priority, bookable, active, sort_order)
-      VALUES ('season-all-year', 'wolfhouse-somo', 'spring_autumn', 'Test season', 0, true, true, 1);
+      VALUES ('00000000-0000-4000-8000-000000000101', 'wolfhouse-somo', 'spring_autumn', 'Test season', 0, true, true, 1);
       INSERT INTO wh_pricing_season_ranges
         (id, season_id, client_slug, start_month, start_day, end_month, end_day, sort_order)
-      VALUES ('range-all-year', 'season-all-year', 'wolfhouse-somo', 1, 1, 12, 31, 1);
+      VALUES ('00000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000101', 'wolfhouse-somo', 1, 1, 12, 31, 1);
     `);
     // The minimal occupants fixture omits this real payments column; recovery
     // orders saved payments by it. This is test schema, not a product migration.
-    await db.exec('ALTER TABLE payments ADD COLUMN created_at timestamptz DEFAULT now()');
+    // payments.created_at is owned by the shared occupants fixture.
     let requestBody;
     const lib = name => require('./lib/' + name);
     const context = {

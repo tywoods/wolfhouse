@@ -127,8 +127,8 @@ def _normalized_selection_rows(rows, *, catalog=False):
     return sorted(set(normalized), key=lambda item: _encode(item))
 
 
-def _material_projection(plan, revision=None):
-    """Canonical shown-offer identity; occupant slots bind beds, not names."""
+def _material_projection(plan, revision=None, *, include_personal=False):
+    """Canonical shown-offer identity, optionally including retry-bound people."""
     plan = plan if isinstance(plan, dict) else {}
     revision = revision if isinstance(revision, dict) else {}
     value = lambda key: plan[key] if key in plan else revision.get(key)
@@ -150,7 +150,7 @@ def _material_projection(plan, revision=None):
             packages.append((index, row))
     services = set(_normalized_selection_rows(value('add_ons')))
     services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
-    return {
+    projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
         'guest_count': value('guest_count'), 'room_type': value('room_type'),
         'allocation': allocation, 'package_code': value('package_code'),
@@ -160,11 +160,27 @@ def _material_projection(plan, revision=None):
         'total_cents': revision.get('total_cents'),
         'currency': revision.get('currency'),
     }
+    if include_personal:
+        people = value('guests')
+        if not isinstance(people, list):
+            people = [{'name': row.get('guest_name')}
+                      for row in assignments if isinstance(row, dict)]
+        projection.update(
+            payment_choice=value('payment_choice'),
+            occupants=[(
+                ' '.join(str(guest.get('name') or '').split()).casefold(),
+                str(guest.get('explicit_gender') or '').strip().casefold() or None,
+            ) for guest in people if isinstance(guest, dict)],
+        )
+    return projection
 
 
-def _same_material_offer(left_plan, right_plan, left_revision=None, right_revision=None):
-    return (_material_projection(left_plan, left_revision)
-            == _material_projection(right_plan, right_revision))
+def _same_material_offer(left_plan, right_plan, left_revision=None, right_revision=None,
+                         *, include_personal=False):
+    return (_material_projection(left_plan, left_revision,
+                                 include_personal=include_personal)
+            == _material_projection(right_plan, right_revision,
+                                    include_personal=include_personal))
 
 
 def _frozen_recovery(state, *, session_key, session_id, identity, message_id, raw):
@@ -2068,13 +2084,18 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
-                if presentation.get('create_ready') is True:
+                completed_authority = (completed_named_revision
+                    and bool(revision.get('payment_choice'))
+                    and revision.get('availability_checked') is True
+                    and response.get('payment_choice_needed') is not True
+                    and not response.get('missing_fields'))
+                if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
                     state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
-                if state.get('status') == 'accepted' and presentation.get('create_ready') is True:
+                if state.get('status') == 'accepted' and completed_authority:
                     # A fact-equivalent Staff re-quote advances the authority
                     # already accepted for this same person/conversation.  Do
                     # not leave the acceptance snapshots pointing at the prior
@@ -2133,6 +2154,17 @@ def prepare_create(params):
         frozen_dispatch = state.get('dispatch_payload')
         if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
                 and isinstance(frozen_dispatch, dict)):
+            # Recovery reuses the owner-frozen operation only when any restated
+            # business fields still describe that operation. Omitted fields are
+            # recovered; changed dates/people/beds/terms cannot ride its receipt.
+            candidate = deepcopy(frozen_dispatch)
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready', 'accepted_offer',
+                                             'require_offer_identity', 'idempotency_key')})
+            if not _same_material_offer(frozen_dispatch, candidate,
+                                        state['checked_offer'], state['checked_offer'],
+                                        include_personal=True):
+                raise QuoteBoundaryError('accepted_quote_changed')
             return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
@@ -2678,6 +2710,11 @@ def finalize_offer_response(result):
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
             choices.append('full')
+        elif (quote.get('payment_choice_needed') is True
+              and type(quote.get('deposit_required_cents')) is int
+              and type(quote.get('total_cents')) is int
+              and quote.get('deposit_required_cents') == quote.get('total_cents')):
+            choices.append('full')
         elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
                 choices.append('deposit')
@@ -2714,12 +2751,20 @@ def finalize_offer_response(result):
             language = _guest_language(state)
             if plan.get('check_in') and plan.get('check_out') and type(plan.get('guest_count')) is int:
                 lines.append(f"{_plain_stay_date(plan['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(plan['check_out'], language)} — {_guest_count_label(plan['guest_count'], language)}.")
-            lines.append(f"{_final_copy(language, 'total')}: {quoted_money(total)}.")
-            if quote.get('full_payment_only') is True:
+            equality_full = (type(quote.get('deposit_required_cents')) is int
+                             and quote.get('deposit_required_cents') > 0
+                             and quote.get('deposit_required_cents') == total)
+            if equality_full:
+                equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
+                                   'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
+                lines.append(f"{equality_labels.get(language, equality_labels['en'])}: {quoted_money(total)} ({_final_copy(language, 'full').lower()}).")
+            else:
+                lines.append(f"{_final_copy(language, 'total')}: {quoted_money(total)}.")
+            if quote.get('full_payment_only') is True and not equality_full:
                 lines.append(f"{_final_copy(language, 'full_required')}: {quoted_money(total)}.")
-            elif chosen_full_names_missing:
+            elif chosen_full_names_missing and not equality_full:
                 lines.append(f"{_final_copy(language, 'full')}: {quoted_money(total)}.")
-            elif choices:
+            elif choices and not equality_full:
                 labels = {'deposit': _final_copy(language, 'deposit'), 'full': _final_copy(language, 'full').lower()}
                 option_labels = [labels[item] for item in choices]
                 if ('deposit' in choices

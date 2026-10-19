@@ -508,6 +508,30 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
         : [],
     }
     : null;
+  // Eligibility is Staff-owned meaning, independent from stock. Only explicit,
+  // person-bound facts can answer a gendered-room request.
+  const requestedEligibility = String(command.roomPreference || '').trim().toLowerCase().replace(/[- ]/g, '_');
+  const genderedRequest = requestedEligibility === 'female_only' || requestedEligibility === 'male_only';
+  const expectedGender = requestedEligibility === 'female_only' ? 'female' : 'male';
+  const suppliedGuests = Array.isArray(command.transportBody && command.transportBody.guests)
+    ? command.transportBody.guests : [];
+  const unknownIndices = [];
+  const incompatibleIndices = [];
+  if (genderedRequest) {
+    for (let index = 0; index < command.guestCount; index += 1) {
+      const fact = String((suppliedGuests[index] && suppliedGuests[index].explicit_gender) || '').trim().toLowerCase();
+      if (!fact) unknownIndices.push(index);
+      else if (fact !== expectedGender) incompatibleIndices.push(index);
+    }
+  }
+  const roomEligibility = genderedRequest ? {
+    status: incompatibleIndices.length ? 'no' : (unknownIndices.length ? 'unsure' : 'yes'),
+    requested_room_preference: requestedEligibility,
+    affected_guest_indices: incompatibleIndices.length ? incompatibleIndices : unknownIndices,
+    reason_code: incompatibleIndices.length ? 'room_eligibility_incompatible'
+      : (unknownIndices.length ? 'room_eligibility_unknown' : 'room_eligibility_confirmed'),
+    question_kind: unknownIndices.length && !incompatibleIndices.length ? 'confirm_room_eligibility' : null,
+  } : null;
   const canonical = {
     ...DRY_RUN_SAFETY_FLAGS,
     client_slug: command.clientSlug,
@@ -517,6 +541,7 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
     room_type: command.roomType,
     gender_preference: command.genderPreference || null,
     room_preference: command.roomPreference || null,
+    room_eligibility: roomEligibility,
     group_gender: inventory.groupGenderResolved,
     allocation_reason: inventory.allocationReason,
     allocation_split: inventory.allocationSplit,
@@ -1398,6 +1423,7 @@ module.exports = {
   computeWolfhouseAvailabilityInventory,
   computeAvailabilityFingerprint,
   buildAvailabilityProvenance,
+  buildCanonicalAvailabilityBody,
   mapBotHttpAvailabilityResponse,
   buildAvailabilityRecheckCommandFromBooking,
   validateAvailabilityProvenanceForCreate,
