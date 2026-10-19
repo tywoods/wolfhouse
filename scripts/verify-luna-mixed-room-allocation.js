@@ -70,6 +70,32 @@ test('male dorm aliases the canonical male-only restriction', () => {
   assert.equal(alias.allocationReason, canonical.allocationReason);
 });
 
+test('explicit Room N and RN requests select the free eligible named room', () => {
+  const bedRows = [
+    ...rows('R1', 'mixed', 1, { fill_priority: 9 }),
+    ...rows('R9', 'mixed', 1, { fill_priority: 1 }),
+  ];
+  for (const roomPreference of ['room 1', 'R1']) {
+    const result = inventory(bedRows, [], { ...command, assignmentMode: false, guestCount: 1,
+      roomPreference, genderPreference: null, transportBody: { room_preference: roomPreference } });
+    assert.deepEqual(result.selectedBedCodes, ['R1-B1'], roomPreference);
+    assert.equal(result.selectedRoomCode, 'R1', roomPreference);
+    assert.equal(result.hasEnoughBeds, true, roomPreference);
+    assert.ok(!result.blockers.includes('requested_room_unavailable'), roomPreference);
+  }
+  const missingNamed = inventory(rows('R9', 'mixed', 1), [], { ...command, assignmentMode: false,
+    guestCount: 1, roomPreference: 'R1', genderPreference: null, transportBody: { room_preference: 'R1' } });
+  assert.equal(missingNamed.hasEnoughBeds, true, 'absence of R1 inventory is not proof that R1 is full');
+  assert.equal(missingNamed.needsClarification, true);
+  assert.deepEqual(missingNamed.selectedBedCodes, []);
+  assert.ok(!missingNamed.blockers.includes('requested_room_unavailable'));
+
+  const mixed = inventory(bedRows, [], { ...command, assignmentMode: false, guestCount: 1,
+    roomPreference: 'mixed', genderPreference: null, transportBody: { room_preference: 'mixed' } });
+  assert.deepEqual(mixed.selectedBedCodes, ['R9-B1']);
+  assert.equal(mixed.selectedRoomCode, 'R9');
+});
+
 test('unknown specific room restriction cannot broaden to capacity-only', () => {
   const result = inventory(rows('R1', 'mixed', 1), [], { ...command, guestCount: 1,
     roomPreference: 'unrecognized_specific_dorm', genderPreference: 'male' });

@@ -1,0 +1,5978 @@
+{
+  "schema": 1,
+  "ruling": "JW1628 decision-only",
+  "cases": [
+    {
+      "case": "sim13-32d0789b-20261016/guest1",
+      "capture": "sim13-32d0789b-20261016/guest1.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "guest_count": 1,
+        "guest_name": "Emre Yilmaz",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guest_packages": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "per_guest_payment_links": false,
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "add_ons": [],
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "client_slug": "wolfhouse-somo",
+        "confirm": true,
+        "gender_preference": "male",
+        "guest_count": 1,
+        "guest_name": "Emre Yilmaz",
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Mon 19 Oct to Fri 23 Oct — 1 guest.\nEmre Yilmaz: a bed in the room.\nAccommodation only.\nTotal: 160.00 EUR.\nDeposit: 100.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B5",
+            "room_code": "R4",
+            "gender_strategy": "male_only"
+          }
+        ],
+        "total_cents": 16000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim13-32d0789b-20261016/guest2",
+      "capture": "sim13-32d0789b-20261016/guest2.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "guest_name": "Nora Lefevre",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R9-B4"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "Fri 23 Oct to Sun 25 Oct — 1 guest.\nNora Lefevre: a bed in the shared room.\nAccommodation only.\nTotal: 80.00 EUR.\nDeposit: 80.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim13-32d0789b-20261016/guest3",
+      "capture": "sim13-32d0789b-20261016/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3"
+        ],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah"
+          },
+          {
+            "name": "Leila Hassan"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Aisha Rahman",
+        "room_name_hints": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "guest_name": "Aisha Rahman",
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah"
+          },
+          {
+            "name": "Leila Hassan"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "group_gender": "female",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "aisha rahman"
+            },
+            {
+              "bed_code": "R1-B2",
+              "guest_index": 1,
+              "guest_name": "priya shah"
+            },
+            {
+              "bed_code": "R1-B3",
+              "guest_index": 2,
+              "guest_name": "leila hassan"
+            }
+          ],
+          "guest_count": 3,
+          "guest_packages": [],
+          "offer_fingerprint": "8de5bd292d6304553881cd478ff7eb583ed85432963dab3923a270ec0330c2ff",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 30000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B2",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B3",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Priya Shah"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Leila Hassan"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 36000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-a8e5b677b7fd9ffa6ac73c69af3663f7",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999798305546249",
+        "guest_phone": "+999798305546249"
+      },
+      "shown_offer_text": "Your booking is created, **pending deposit payment** 😊\n\n**3–6 November 2026 · 3 guests · mixed dorm · bed-only**\n\nPay the **€300 deposit for all three** here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261103-00058792\n\n**Total: €360** · Remaining after the deposit: **€60**\n\nBooking reference: **WH-20261103-00058792**",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B2",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B3",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 36000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim13-32d0789b-20261016/guest4",
+      "capture": "sim13-32d0789b-20261016/guest4.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "guest_name": "Mateo Ríos",
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guest_packages": [],
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "per_guest_payment_links": false,
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "confirm": true,
+        "gender_preference": "male",
+        "group_gender": "male",
+        "guest_count": 1,
+        "guest_name": "Mateo Ríos",
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Wed 21 Oct to Sat 24 Oct — 1 guest.\nMateo Ríos: a bed in the room.\nAccommodation only.\nTotal: 120.00 EUR.\nDeposit: 100.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B5",
+            "room_code": "R4",
+            "gender_strategy": "male_only"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim13-32d0789b-20261016/guest5",
+      "capture": "sim13-32d0789b-20261016/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "mixed"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim13-32d0789b-20261016/guest9",
+      "capture": "sim13-32d0789b-20261016/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male dorm",
+        "gender_preference": "male"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest1",
+      "capture": "sim14-d06ab84f-20261017/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Emre Yilmaz",
+        "room_name_hints": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B5"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "Emre Yilmaz",
+        "package_code": "package_none",
+        "add_ons": [],
+        "payment_choice": "deposit",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "selected_bed_codes": [
+          "R4-B5"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "df88226e3bed2694f0cba8719e96919850be82f92d740301901a16fab065e15f",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-575b47c6018155998f9aaa02fd4739d3",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999274975947537",
+        "guest_phone": "+999274975947537"
+      },
+      "shown_offer_text": "All set, Emre! Your booking has been created **pending your €100 deposit**:\n\n- **Name:** Emre Yilmaz\n- **Dates:** October 19–23, 2026 — 4 nights\n- **Room:** one male-only dorm bed\n- **Total:** €160, accommodation only\n- **Remaining after deposit:** €60, payable on arrival\n- **Booking reference:** WH-20261019-01426865\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261019-01426865",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 16000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest2",
+      "capture": "sim14-d06ab84f-20261017/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "selected_bed_codes": [
+          "R5-B4"
+        ],
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Nora Lefevre"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "female_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Nora Lefevre",
+        "room_name_hints": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R5-B4"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "guest_name": "Nora Lefevre",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R5-B4"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Nora Lefevre"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R5-B4",
+              "guest_index": 0,
+              "guest_name": "nora lefevre"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "5292144e2b77b5e530e607a5585bde86d9454d537a1ef849313f70958d566f01",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 8000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R5-B4",
+              "gender_strategy": "female preferred",
+              "room_code": "R5"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ],
+          "room_preference": "female_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-93aeabe7069621c577441b999a4d8ecb",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999543570206087",
+        "guest_phone": "+999543570206087"
+      },
+      "shown_offer_text": "Your booking is set up under **Nora Lefevre**, pending payment 😊\n\n- **Women-only dorm bed**\n- **23–25 October 2026 · 2 nights**\n- Booking reference: **WH-20261023-10981527**\n\nFor this stay, the required upfront payment is the **full €80**, rather than a smaller deposit.\n\nPay securely by card here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261023-10981527",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R5-B4",
+            "gender_strategy": "female preferred",
+            "room_code": "R5"
+          }
+        ],
+        "total_cents": 8000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest3",
+      "capture": "sim14-d06ab84f-20261017/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R3-B1",
+          "R3-B2",
+          "R3-B3"
+        ],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah"
+          },
+          {
+            "name": "Leila Hassan"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R3-B1",
+          "R3-B2",
+          "R3-B3"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Aisha Rahman",
+        "room_name_hints": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "group_gender": "female",
+        "package_code": "package_none",
+        "guest_name": "Aisha Rahman",
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah"
+          },
+          {
+            "name": "Leila Hassan"
+          }
+        ],
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R3-B1",
+          "R3-B2",
+          "R3-B3"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R3-B1",
+              "guest_index": 0,
+              "guest_name": "aisha rahman"
+            },
+            {
+              "bed_code": "R3-B2",
+              "guest_index": 1,
+              "guest_name": "priya shah"
+            },
+            {
+              "bed_code": "R3-B3",
+              "guest_index": 2,
+              "guest_name": "leila hassan"
+            }
+          ],
+          "guest_count": 3,
+          "guest_packages": [],
+          "offer_fingerprint": "6f832d22c657acda16339070cc1e2adde69c4b9a43db60d9770781287cee4ff9",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 30000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R3-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            },
+            {
+              "bed_code": "R3-B2",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            },
+            {
+              "bed_code": "R3-B3",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Priya Shah"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Leila Hassan"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 36000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-0a121d620b0cd5e18362908f9b0b0c22",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999558920679249",
+        "guest_phone": "+999558920679249"
+      },
+      "shown_offer_text": "Your booking has been created, pending payment 😊\n\n**3–6 November 2026 · 3 guests · mixed shared room**\n- Total: **€360**\n- Combined deposit for all three: **€300**\n- Remaining after deposit: **€60**\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261103-00999395\n\nBooking reference: **WH-20261103-00999395**\n\nNo payment has been received yet.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R3-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          },
+          {
+            "bed_code": "R3-B2",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          },
+          {
+            "bed_code": "R3-B3",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          }
+        ],
+        "total_cents": 36000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest4",
+      "capture": "sim14-d06ab84f-20261017/guest4.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Mateo",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Mateo",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "guest_name": "Mateo Ríos",
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "pay_on_arrival",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guest_packages": [],
+        "add_ons": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R4-B6"
+        ],
+        "per_guest_payment_links": false,
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "confirm": true,
+        "gender_preference": "male",
+        "guest_count": 1,
+        "guest_name": "Mateo Ríos",
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "pay_on_arrival",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Wed 21 Oct to Sat 24 Oct — 1 guest.\nMateo Ríos: a bed in the room.\nAccommodation only.\nTotal: 120.00 EUR.\nPayment on arrival: 0.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B6",
+            "room_code": "R4",
+            "gender_strategy": "male_only"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest5",
+      "capture": "sim14-d06ab84f-20261017/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "shared",
+        "selected_bed_codes": [
+          "R10-B5",
+          "R10-B6"
+        ],
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 2,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "shared",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R10-B5",
+          "R10-B6"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Holly Bennett"
+      },
+      "create_args": {
+        "confirm": true,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "shared",
+        "package_code": "package_none",
+        "add_ons": [],
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ],
+        "guest_name": "Holly Bennett",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R10-B5",
+          "R10-B6"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "catalog_selections": [],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-25",
+          "check_out": "2026-10-28",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 20000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R10-B5",
+              "guest_index": 0,
+              "guest_name": "holly bennett"
+            },
+            {
+              "bed_code": "R10-B6",
+              "guest_index": 1,
+              "guest_name": "jake bennett"
+            }
+          ],
+          "guest_count": 2,
+          "guest_packages": [],
+          "offer_fingerprint": "6f66242d861178d6f07365805e845ff7ffa7929b715bb1365741da8e781be348",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 20000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R10-B5",
+              "gender_strategy": "flexible",
+              "room_code": "R10"
+            },
+            {
+              "bed_code": "R10-B6",
+              "gender_strategy": "flexible",
+              "room_code": "R10"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "shared",
+          "room_type": "shared",
+          "total_cents": 24000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-4da2d680053ebf0bb98b19c5d5fa5dc1",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999789088956341",
+        "guest_phone": "+999789088956341"
+      },
+      "shown_offer_text": "Your booking is created, pending deposit 😊\n\n**Holly Bennett & Jake Bennett**\n25–28 October 2026 · shared room · accommodation only\n\n- **Total:** €240\n- **Deposit to pay now:** €200\n- **Remaining after deposit:** €40\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261025-01713383\n\n**Booking reference:** WH-20261025-01713383",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R10-B5",
+            "gender_strategy": "flexible",
+            "room_code": "R10"
+          },
+          {
+            "bed_code": "R10-B6",
+            "gender_strategy": "flexible",
+            "room_code": "R10"
+          }
+        ],
+        "total_cents": 24000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim14-d06ab84f-20261017/guest9",
+      "capture": "sim14-d06ab84f-20261017/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-17",
+        "check_out": "2026-11-20",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "female_only"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest1",
+      "capture": "sim15-2f8aa2b1-20261017/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R4-B6"
+        ],
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Emre Yilmaz",
+        "room_name_hints": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B6"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-23",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Emre Yilmaz",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "Emre Yilmaz",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R4-B6"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Emre Yilmaz"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-23",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B6",
+              "guest_index": 0,
+              "guest_name": "emre yilmaz"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "d8fc94a4023f711b826dced38fd3742585afcb60c3c9cd5f0db8ffa6ea809b3f",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B6",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Emre Yilmaz"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-65d27c493e147cc3e661acb64c340584",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999959434876686",
+        "guest_phone": "+999959434876686"
+      },
+      "shown_offer_text": "All set, Emre! Your booking is created **pending the €100 deposit**:\n\n- **Name:** Emre Yilmaz\n- **Dates:** October 19–23, 2026\n- **Stay:** one male-only dorm bed, accommodation only\n- **Total:** €160 — €60 remaining after the deposit, payable on arrival\n- **Booking reference:** WH-20261019-11988397\n\n**Pay your €100 deposit securely here:**\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261019-11988397",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B6",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 16000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest2",
+      "capture": "sim15-2f8aa2b1-20261017/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "selected_bed_codes": [
+          "R5-B5"
+        ],
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Nora Lefevre"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "female_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Nora Lefevre",
+        "room_name_hints": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R5-B5"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "guest_name": "Nora Lefevre",
+        "guests": [
+          {
+            "name": "Nora Lefevre",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R5-B5"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Nora Lefevre"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R5-B5",
+              "guest_index": 0,
+              "guest_name": "nora lefevre"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "60f82529f318be12ecbbdd59dfe2a80342f4b8569243423ab0bcf8fe57af2bdd",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 8000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R5-B5",
+              "gender_strategy": "female preferred",
+              "room_code": "R5"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Nora Lefevre"
+            }
+          ],
+          "room_preference": "female_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-3bf3dc9d5800c1dd5050ef0c6b6360d3",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999221053147560",
+        "guest_phone": "+999221053147560"
+      },
+      "shown_offer_text": "Merci, Nora! 😊 Your booking is created and awaiting **€80 full payment**.\n\n- **Name:** Nora Lefevre\n- **Dates:** 23–25 October 2026 · 2 nights\n- **Room:** Women-only dorm bed\n- **Reference:** WH-20261023-08049371\n\nPay securely by card here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261023-08049371\n\n📍 Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R5-B5",
+            "gender_strategy": "female preferred",
+            "room_code": "R5"
+          }
+        ],
+        "total_cents": 8000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest3",
+      "capture": "sim15-2f8aa2b1-20261017/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B4",
+          "R1-B5",
+          "R3-B4"
+        ],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R1-B4",
+          "R1-B5",
+          "R3-B4"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Aisha Rahman",
+        "room_name_hints": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-03",
+        "check_out": "2026-11-06",
+        "guest_count": 3,
+        "guest_name": "Aisha Rahman",
+        "guests": [
+          {
+            "name": "Aisha Rahman",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Priya Shah",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Leila Hassan",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "group_gender": "female",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R1-B4",
+          "R1-B5",
+          "R3-B4"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Aisha Rahman"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Priya Shah"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Leila Hassan"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-03",
+          "check_out": "2026-11-06",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B4",
+              "guest_index": 0,
+              "guest_name": "aisha rahman"
+            },
+            {
+              "bed_code": "R1-B5",
+              "guest_index": 1,
+              "guest_name": "priya shah"
+            },
+            {
+              "bed_code": "R3-B4",
+              "guest_index": 2,
+              "guest_name": "leila hassan"
+            }
+          ],
+          "guest_count": 3,
+          "guest_packages": [],
+          "offer_fingerprint": "f50b3900c47a0ad0a24519b4966e50453781fa504559c0b710109175d5933b6d",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 30000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B4",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B5",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R3-B4",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Aisha Rahman"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Priya Shah"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Leila Hassan"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 36000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-21cc3944fbf31cdd72193416e5259d64",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999176425530972",
+        "guest_phone": "+999176425530972"
+      },
+      "shown_offer_text": "Your booking is created, **pending payment** 🌊\n\n**3–6 November 2026 · 3 guests**\nMixed shared accommodation, split across two rooms.\n\nPay the **€300 deposit for all three** here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261103-04548729\n\n**Total: €360** · Remaining after the deposit: **€60**\n\nBooking reference: **WH-20261103-04548729**",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B4",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B5",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R3-B4",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          }
+        ],
+        "total_cents": 36000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest4",
+      "capture": "sim15-2f8aa2b1-20261017/guest4.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R4-B7"
+        ],
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Mateo Ríos",
+        "room_name_hints": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B7"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "guest_name": "Mateo Ríos",
+        "guests": [
+          {
+            "name": "Mateo Ríos",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R4-B7"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Mateo Ríos"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B7",
+              "guest_index": 0,
+              "guest_name": "mateo ríos"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "df90a681e1ede64cc18449afe15b8dd51c5079c7fe53a4d5339141010c5e3a23",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B7",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Mateo Ríos"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-311850b4b6cdbb2163f7b9d2d7333b3a",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999094558294814",
+        "guest_phone": "+999094558294814"
+      },
+      "shown_offer_text": "All set, Mateo Ríos! Your booking has been created, **awaiting the €100 deposit**.\n\n- **October 21–24, 2026:** male-only dorm, bed only\n- **Total:** €120\n- **Remaining after the deposit is paid:** €20, payable on arrival\n- **Booking reference:** WH-20261021-03145088\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261021-03145088\n\nNo payment has been recorded yet.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B7",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest5",
+      "capture": "sim15-2f8aa2b1-20261017/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 2,
+        "room_type": "private",
+        "room_preference": "couple_private"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest6",
+      "capture": "sim15-2f8aa2b1-20261017/guest6.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-10",
+        "check_out": "2026-11-13",
+        "guest_count": 2,
+        "room_type": "private",
+        "room_preference": "couple_private",
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ],
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-10",
+        "check_out": "2026-11-13",
+        "guest_count": 2,
+        "package_code": "package_none",
+        "room_preference": "couple_private",
+        "room_type": "private",
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ],
+        "payment_choice": "deposit",
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Holly Bennett",
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-10",
+        "check_out": "2026-11-13",
+        "guest_count": 2,
+        "room_type": "private",
+        "room_preference": "couple_private",
+        "package_code": "package_none",
+        "add_ons": [],
+        "guest_name": "Holly Bennett",
+        "guests": [
+          {
+            "name": "Holly Bennett"
+          },
+          {
+            "name": "Jake Bennett"
+          }
+        ],
+        "language": "en",
+        "payment_choice": "deposit",
+        "guest_packages": [],
+        "gender_preference": null,
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-10",
+          "check_out": "2026-11-13",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 20000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R6-B1",
+              "guest_index": 0,
+              "guest_name": "holly bennett"
+            },
+            {
+              "bed_code": "R6-B2",
+              "guest_index": 1,
+              "guest_name": "jake bennett"
+            }
+          ],
+          "guest_count": 2,
+          "guest_packages": [],
+          "offer_fingerprint": "6657ebf514c0309a1f34058006a8ef791339c297f2ce9607aa42e03dbafa0ddd",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 20000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R6-B1",
+              "gender_strategy": "private",
+              "room_code": "R6"
+            },
+            {
+              "bed_code": "R6-B2",
+              "gender_strategy": "private",
+              "room_code": "R6"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "couple_private",
+          "room_type": "private",
+          "total_cents": 27000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-b301803402676db537a589adb5b3acaa",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999953935967803",
+        "guest_phone": "+999953935967803"
+      },
+      "shown_offer_text": "All set, Holly! Your booking has been created, **awaiting the deposit** 😊\n\n- **Holly Bennett & Jake Bennett**\n- **10–13 November 2026 · 3 nights**\n- Private couples’ room, accommodation only\n- **Total: €270 · Deposit: €200**\n- Remaining after the deposit: **€70**, payable on arrival\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261110-04924006\n\nBooking reference: **WH-20261110-04924006**\n\n📍 Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R6-B1",
+            "gender_strategy": "private",
+            "room_code": "R6"
+          },
+          {
+            "bed_code": "R6-B2",
+            "gender_strategy": "private",
+            "room_code": "R6"
+          }
+        ],
+        "total_cents": 27000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim15-2f8aa2b1-20261017/guest9",
+      "capture": "sim15-2f8aa2b1-20261017/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "gender_preference": "female"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest1",
+      "capture": "sim16-2f8aa2b1-20261017/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-27",
+        "check_out": "2026-10-30",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R9-B3"
+        ],
+        "guests": [
+          {
+            "name": "Lucía Fernández",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Lucía Fernández"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-27",
+        "check_out": "2026-10-30",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Lucía Fernández",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R9-B3"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Lucía Fernández",
+        "room_name_hints": [
+          {
+            "name": "Lucía Fernández",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-10-27",
+        "check_out": "2026-10-30",
+        "confirm": true,
+        "guest_count": 1,
+        "guest_name": "Lucía Fernández",
+        "guests": [
+          {
+            "name": "Lucía Fernández",
+            "explicit_gender": "female"
+          }
+        ],
+        "language": "es",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R9-B3"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Lucía Fernández"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-27",
+          "check_out": "2026-10-30",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R9-B3",
+              "guest_index": 0,
+              "guest_name": "lucía fernández"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "c6ceaaf0113d0ee4ae6d0525770f8b2c921dc78c0ce57c3e605a6eae603d3d5d",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R9-B3",
+              "gender_strategy": "flexible",
+              "room_code": "R9"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Lucía Fernández"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-a963c90f336033ac316c4407456c48fa",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999367316336769",
+        "guest_phone": "+999367316336769"
+      },
+      "shown_offer_text": "¡Listo, Lucía! 😊 He creado tu reserva **pendiente del pago del depósito**: una cama en dormitorio mixto del **27 al 30 de octubre de 2026**.\n\nPuedes pagar el **depósito de 100 €** aquí:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261027-10733087\n\nDel total de **120 €**, quedarán **20 €** por abonar a la llegada una vez pagado el depósito.\n\nTu referencia: **WH-20261027-10733087**.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R9-B3",
+            "gender_strategy": "flexible",
+            "room_code": "R9"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest2",
+      "capture": "sim16-2f8aa2b1-20261017/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-27",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R12-B1"
+        ],
+        "guests": [
+          {
+            "name": "Jonas Weber",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Jonas"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-27",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Jonas Weber",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "per_guest_payment_links": false,
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R12-B1"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Jonas Weber",
+        "room_name_hints": [
+          {
+            "name": "Jonas Weber",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-27",
+        "confirm": true,
+        "guest_count": 1,
+        "guest_name": "Jonas Weber",
+        "guests": [
+          {
+            "name": "Jonas Weber",
+            "explicit_gender": "male"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R12-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Jonas"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-25",
+          "check_out": "2026-10-27",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R12-B1",
+              "guest_index": 0,
+              "guest_name": "jonas weber"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "9779c1b2bc7b37ef51c373168ed67498d7c82cbab9f79b8ab6a00d6c4eba2404",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 8000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R12-B1",
+              "gender_strategy": "male preferred",
+              "room_code": "R12"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Jonas Weber"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-94d62d2ecac82833036cf6e266ec08ae",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999989753917015",
+        "guest_phone": "+999989753917015"
+      },
+      "shown_offer_text": "I couldn't verify that just now. Give me a moment and please ask me again.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R12-B1",
+            "gender_strategy": "male preferred",
+            "room_code": "R12"
+          }
+        ],
+        "total_cents": 8000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest3",
+      "capture": "sim16-2f8aa2b1-20261017/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "selected_bed_codes": [
+          "R5-B1",
+          "R5-B3",
+          "R5-B4"
+        ],
+        "guests": [
+          {
+            "name": "Ana Souza",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Beatriz Lima",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Carolina Alves",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Ana Souza"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Beatriz Lima"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Carolina Alves"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 3,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Ana Souza",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Beatriz Lima",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Carolina Alves",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "female_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R5-B1",
+          "R5-B3",
+          "R5-B4"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Ana Souza",
+        "room_name_hints": [
+          {
+            "name": "Ana Souza",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Beatriz Lima",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Carolina Alves",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-25",
+        "check_out": "2026-10-28",
+        "guest_count": 3,
+        "guest_name": "Ana Souza",
+        "guests": [
+          {
+            "name": "Ana Souza",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Beatriz Lima",
+            "explicit_gender": "female"
+          },
+          {
+            "name": "Carolina Alves",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "group_gender": "female",
+        "package_code": "package_none",
+        "add_ons": [],
+        "payment_choice": "deposit",
+        "language": "pt",
+        "selected_bed_codes": [
+          "R5-B1",
+          "R5-B3",
+          "R5-B4"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Ana Souza"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Beatriz Lima"
+          },
+          {
+            "explicit_gender": "female",
+            "name": "Carolina Alves"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-25",
+          "check_out": "2026-10-28",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R5-B1",
+              "guest_index": 0,
+              "guest_name": "ana souza"
+            },
+            {
+              "bed_code": "R5-B3",
+              "guest_index": 1,
+              "guest_name": "beatriz lima"
+            },
+            {
+              "bed_code": "R5-B4",
+              "guest_index": 2,
+              "guest_name": "carolina alves"
+            }
+          ],
+          "guest_count": 3,
+          "guest_packages": [],
+          "offer_fingerprint": "b0cccdcf60b81d0f771d4792b0ef330c6be06fa07620da361bc026739260fcdf",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 30000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R5-B1",
+              "gender_strategy": "female preferred",
+              "room_code": "R5"
+            },
+            {
+              "bed_code": "R5-B3",
+              "gender_strategy": "female preferred",
+              "room_code": "R5"
+            },
+            {
+              "bed_code": "R5-B4",
+              "gender_strategy": "female preferred",
+              "room_code": "R5"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Ana Souza"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Beatriz Lima"
+            },
+            {
+              "explicit_gender": "female",
+              "name": "Carolina Alves"
+            }
+          ],
+          "room_preference": "female_only",
+          "room_type": "shared",
+          "total_cents": 36000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-d48f959a1ff0a9215e39f41cc2092d86",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999850194271642",
+        "guest_phone": "+999850194271642"
+      },
+      "shown_offer_text": "Pronto, Ana! 😊 Reserva criada, **aguardando o pagamento do depósito**.\n\n- **25 a 28 de outubro de 2026**\n- 3 camas no dormitório feminino\n- Total: **€360**\n- Depósito para as três: **€300**\n- Restante após o depósito: **€60**, a pagar na chegada\n\nPaguem o depósito pelo link seguro:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261025-00218588\n\nCódigo da reserva: **WH-20261025-00218588**",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R5-B1",
+            "gender_strategy": "female preferred",
+            "room_code": "R5"
+          },
+          {
+            "bed_code": "R5-B3",
+            "gender_strategy": "female preferred",
+            "room_code": "R5"
+          },
+          {
+            "bed_code": "R5-B4",
+            "gender_strategy": "female preferred",
+            "room_code": "R5"
+          }
+        ],
+        "total_cents": 36000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest4",
+      "capture": "sim16-2f8aa2b1-20261017/guest4.jsonl",
+      "check_availability_args": {
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 2,
+        "room_type": "private",
+        "room_preference": "couple_private",
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ],
+        "guests": [
+          {
+            "name": "Giulia Romano"
+          },
+          {
+            "name": "Marco Romano"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 2,
+        "package_code": "package_none",
+        "room_preference": "couple_private",
+        "room_type": "private",
+        "guests": [
+          {
+            "name": "Giulia Romano"
+          },
+          {
+            "name": "Marco Romano"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Giulia Romano",
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "client_slug": "wolfhouse-somo",
+        "check_in": "2026-10-23",
+        "check_out": "2026-10-25",
+        "guest_count": 2,
+        "room_type": "private",
+        "room_preference": "couple_private",
+        "package_code": "package_none",
+        "guest_name": "Giulia Romano",
+        "guests": [
+          {
+            "name": "Giulia Romano"
+          },
+          {
+            "name": "Marco Romano"
+          }
+        ],
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R6-B1",
+          "R6-B2"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-23",
+          "check_out": "2026-10-25",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 18000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R6-B1",
+              "guest_index": 0,
+              "guest_name": "giulia romano"
+            },
+            {
+              "bed_code": "R6-B2",
+              "guest_index": 1,
+              "guest_name": "marco romano"
+            }
+          ],
+          "guest_count": 2,
+          "guest_packages": [],
+          "offer_fingerprint": "b642539ca9dd9211d96c83dad53ae8ff76ee200705db2de4e19b3c19e1cda0cc",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 18000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R6-B1",
+              "gender_strategy": "private",
+              "room_code": "R6"
+            },
+            {
+              "bed_code": "R6-B2",
+              "gender_strategy": "private",
+              "room_code": "R6"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "couple_private",
+          "room_type": "private",
+          "total_cents": 18000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-08ebd9726d604e57b516923393d5815c",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999083485896421",
+        "guest_phone": "+999083485896421"
+      },
+      "shown_offer_text": "Perfetto! 😊 Your booking has been created **pending payment**:\n\n- **Guests:** Giulia Romano and Marco Romano\n- **Dates:** 23–25 October 2026 · 2 nights\n- **Room:** Private double, room only—no package\n- **Total to pay:** €180, including the private-room supplement. Breakfast isn’t included.\n- **Booking reference:** WH-20261023-12795315\n\nPay in full securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261023-12795315\n\n📍 Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R6-B1",
+            "gender_strategy": "private",
+            "room_code": "R6"
+          },
+          {
+            "bed_code": "R6-B2",
+            "gender_strategy": "private",
+            "room_code": "R6"
+          }
+        ],
+        "total_cents": 18000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest5",
+      "capture": "sim16-2f8aa2b1-20261017/guest5.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-10-18",
+        "check_out": "2026-10-21",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim16-2f8aa2b1-20261017/guest9",
+      "capture": "sim16-2f8aa2b1-20261017/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-18",
+        "check_out": "2026-10-20",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "female"
+          }
+        ],
+        "guest_name": "",
+        "room_name_hints": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-27",
+        "check_out": "2026-10-30",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R9-B3"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "Tue 27 Oct to Fri 30 Oct — 1 guest.\nTotal: 120.00 EUR.\nPayment options: deposit (100.00 EUR) or full payment.\nWhich payment option would you like me to check for this booking?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest1",
+      "capture": "sim17-2f8aa2b1-20261017/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-28",
+        "check_out": "2026-10-31",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R9-B4"
+        ],
+        "guests": [
+          {
+            "name": "Chloe Martin",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Chloe Martin"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-28",
+        "check_out": "2026-10-31",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Chloe Martin",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R9-B4"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Chloe Martin",
+        "room_name_hints": [
+          {
+            "name": "Chloe Martin",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-28",
+        "check_out": "2026-10-31",
+        "guest_count": 1,
+        "guest_name": "Chloe Martin",
+        "guests": [
+          {
+            "name": "Chloe Martin",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R9-B4"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Chloe Martin"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-28",
+          "check_out": "2026-10-31",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R9-B4",
+              "guest_index": 0,
+              "guest_name": "chloe martin"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "f69e2528237fe991430ab29f5105813fb5e2feb90334b5b889ad3b8993d6c052",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R9-B4",
+              "gender_strategy": "flexible",
+              "room_code": "R9"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Chloe Martin"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-052bc06ddc61d093752c1dde3acc311f",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999481188750976",
+        "guest_phone": "+999481188750976"
+      },
+      "shown_offer_text": "Here you go, Chloe! 🙌 Pay your **€100 deposit** securely here:\n\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261028-11963221\n\nYour mixed-dorm stay is **28–31 October 2026**, with **€20 remaining on arrival** after the deposit is paid.\n\nBooking reference: **WH-20261028-11963221**\n\n📍 Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R9-B4",
+            "gender_strategy": "flexible",
+            "room_code": "R9"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest2",
+      "capture": "sim17-2f8aa2b1-20261017/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-21",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R4-B1"
+        ],
+        "guests": [
+          {
+            "name": "Hugo",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Hugo"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-21",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Hugo",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Hugo",
+        "room_name_hints": [
+          {
+            "name": "Hugo",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-21",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Hugo",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "Hugo",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R4-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Hugo"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-19",
+          "check_out": "2026-10-21",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B1",
+              "guest_index": 0,
+              "guest_name": "hugo"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "788efd80954d37de5a2c615d02e0d0117a30805b7efb6b25a3c3aecc8809649b",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 8000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B1",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Hugo"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-efecef52360008698d1c7dc0061ed15e",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999105462821473",
+        "guest_phone": "+999105462821473"
+      },
+      "shown_offer_text": "Of course, Hugo — English it is! 😊 Yes, that’s **one bed in the male dorm, 19–21 October 2026 (2 nights)**.\n\nYou can pay the **full €80 now**. Here’s your secure payment link:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261019-14383756\n\nYour booking is pending payment.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B1",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 8000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest3",
+      "capture": "sim17-2f8aa2b1-20261017/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-26",
+        "check_out": "2026-10-29",
+        "guest_count": 4,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R12-B1",
+          "R4-B5",
+          "R4-B6",
+          "R2-B5"
+        ],
+        "guests": [
+          {
+            "name": "Finn Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Lukas Hoffmann",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Jan Schulz",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Max Braun",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Finn Becker"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Lukas Hoffmann"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Jan Schulz"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Max Braun"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-10-26",
+        "check_out": "2026-10-29",
+        "guest_count": 4,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Finn Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Lukas Hoffmann",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Jan Schulz",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Max Braun",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "per_guest_payment_links": false,
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R12-B1",
+          "R4-B5",
+          "R4-B6",
+          "R2-B5"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Finn Becker",
+        "room_name_hints": [
+          {
+            "name": "Finn Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Lukas Hoffmann",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Jan Schulz",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Max Braun",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-26",
+        "check_out": "2026-10-29",
+        "guest_count": 4,
+        "guest_name": "Finn Becker",
+        "guests": [
+          {
+            "name": "Finn Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Lukas Hoffmann",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Jan Schulz",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Max Braun",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "group_gender": "male",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "selected_bed_codes": [
+          "R12-B1",
+          "R4-B5",
+          "R4-B6",
+          "R2-B5"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Finn Becker"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Lukas Hoffmann"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Jan Schulz"
+          },
+          {
+            "explicit_gender": "male",
+            "name": "Max Braun"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-26",
+          "check_out": "2026-10-29",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 40000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R12-B1",
+              "guest_index": 0,
+              "guest_name": "finn becker"
+            },
+            {
+              "bed_code": "R4-B5",
+              "guest_index": 1,
+              "guest_name": "lukas hoffmann"
+            },
+            {
+              "bed_code": "R4-B6",
+              "guest_index": 2,
+              "guest_name": "jan schulz"
+            },
+            {
+              "bed_code": "R2-B5",
+              "guest_index": 3,
+              "guest_name": "max braun"
+            }
+          ],
+          "guest_count": 4,
+          "guest_packages": [],
+          "offer_fingerprint": "43b4e560e5b596e62459f3dea54faa085eb6df4ab475702d998c99e64bc9dc02",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 40000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R12-B1",
+              "gender_strategy": "male preferred",
+              "room_code": "R12"
+            },
+            {
+              "bed_code": "R2-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R2"
+            },
+            {
+              "bed_code": "R4-B5",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            },
+            {
+              "bed_code": "R4-B6",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Finn Becker"
+            },
+            {
+              "explicit_gender": "male",
+              "name": "Lukas Hoffmann"
+            },
+            {
+              "explicit_gender": "male",
+              "name": "Jan Schulz"
+            },
+            {
+              "explicit_gender": "male",
+              "name": "Max Braun"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 48000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-e0d6db9cb9982f6e06402b81d6da8d10",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999488792232315",
+        "guest_phone": "+999488792232315"
+      },
+      "shown_offer_text": "I couldn't verify that just now. Give me a moment and please ask me again.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R12-B1",
+            "gender_strategy": "male preferred",
+            "room_code": "R12"
+          },
+          {
+            "bed_code": "R2-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R2"
+          },
+          {
+            "bed_code": "R4-B5",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          },
+          {
+            "bed_code": "R4-B6",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 48000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest4",
+      "capture": "sim17-2f8aa2b1-20261017/guest4.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "selected_bed_codes": [
+          "R4-B8"
+        ],
+        "guests": [
+          {
+            "name": "Diego Ramírez",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Diego Ramírez"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Diego Ramírez",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Diego Ramírez",
+        "room_name_hints": [
+          {
+            "name": "Diego Ramírez",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B8"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-21",
+        "check_out": "2026-10-24",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Diego Ramírez",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "Diego Ramírez",
+        "package_code": "package_none",
+        "add_ons": [],
+        "language": "en",
+        "payment_choice": "deposit",
+        "guest_packages": [],
+        "gender_preference": null,
+        "selected_bed_codes": [
+          "R4-B8"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Diego Ramírez"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-21",
+          "check_out": "2026-10-24",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R4-B8",
+              "guest_index": 0,
+              "guest_name": "diego ramírez"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "62a84939a6a800d57ebc067eaf5c5f510b32c07b508e129982a521579b955681",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R4-B8",
+              "gender_strategy": "male preferred",
+              "room_code": "R4"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Diego Ramírez"
+            }
+          ],
+          "room_preference": "male_only",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-5d99f0fd537031e81f5df378b05ba265",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999746258259927",
+        "guest_phone": "+999746258259927"
+      },
+      "shown_offer_text": "¡Dale, Diego! 😊 Your booking is created, **awaiting the deposit**:\n\n- **Diego Ramírez** — 1 bed in the male-only dorm\n- **21–24 October 2026**, 3 nights\n- **Total: €120** — bed only\n- **Deposit: €100**, then **€20 payable on arrival**\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261021-05935351\n\nBooking reference: **WH-20261021-05935351**",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R4-B8",
+            "gender_strategy": "male preferred",
+            "room_code": "R4"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest5",
+      "capture": "sim17-2f8aa2b1-20261017/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-22",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R7-B4"
+        ],
+        "guests": [
+          {
+            "name": "Emma Lindqvist"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-10-22",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Emma Lindqvist"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Emma Lindqvist",
+        "selected_bed_codes": [
+          "R7-B4"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-10-22",
+        "check_out": "2026-10-25",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "guest_name": "Emma Lindqvist",
+        "guests": [
+          {
+            "name": "Emma Lindqvist"
+          }
+        ],
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R7-B4"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-10-22",
+          "check_out": "2026-10-25",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R7-B4",
+              "guest_index": 0,
+              "guest_name": "emma lindqvist"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "758b1f7b5c59197311985a38c83616c6ef0a0d61b89f713b41466c41751304a7",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 12000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R7-B4",
+              "gender_strategy": "flexible",
+              "room_code": "R7"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-8003a1eb3b5187375ebac0f850c02e64",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999825041359547",
+        "guest_phone": "+999825041359547"
+      },
+      "shown_offer_text": "Thanks, Ravi! Emma’s booking is set up for **1 mixed-dorm bed, 22–25 October 2026 (3 nights)**. 😊\n\nHere’s the secure link to pay the **full €120**:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261022-08656892\n\n**Booking reference:** WH-20261022-08656892  \nPayment is still pending.",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R7-B4",
+            "gender_strategy": "flexible",
+            "room_code": "R7"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim17-2f8aa2b1-20261017/guest9",
+      "capture": "sim17-2f8aa2b1-20261017/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-10-19",
+        "check_out": "2026-10-22",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "",
+        "room_name_hints": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest1",
+      "capture": "sim18-c959fee9-20261017/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-20",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guests": [
+          {
+            "name": "Ingrid Solberg",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Ingrid Solberg"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-20",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Ingrid Solberg",
+            "explicit_gender": "female"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Ingrid Solberg",
+        "room_name_hints": [
+          {
+            "name": "Ingrid Solberg",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R1-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-20",
+        "guest_count": 1,
+        "guest_name": "Ingrid Solberg",
+        "guests": [
+          {
+            "name": "Ingrid Solberg",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "add_ons": [],
+        "guest_packages": [],
+        "gender_preference": null,
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Ingrid Solberg"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-16",
+          "check_out": "2026-11-20",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "ingrid solberg"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "aa0f6407da4abdcfadcafa6bdba11cb5f45860be3fc1d8b7173a55b14946cd8b",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Ingrid Solberg"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 16000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-355689e771cc9eb8e6b7e34d0a9ada73",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999806699259779",
+        "guest_phone": "+999806699259779"
+      },
+      "shown_offer_text": "Fint, Ingrid! 😊 Your booking has been created, pending the **€100 deposit**.\n\n- **Ingrid Solberg · 1 mixed-dorm bed**\n- **16–20 November 2026 · 4 nights**\n- Total: **€160** · Remaining after deposit: **€60**\n- Booking reference: **WH-20261116-09690542**\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261116-09690542",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 16000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest2",
+      "capture": "sim18-c959fee9-20261017/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "guest_count": 4,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3",
+          "R1-B4"
+        ],
+        "guests": [
+          {
+            "name": "Aoife Byrne"
+          },
+          {
+            "name": "Ciara Walsh"
+          },
+          {
+            "name": "Sean Murphy"
+          },
+          {
+            "name": "Niall Kelly"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "guest_count": 4,
+        "guest_name": "Aoife Byrne",
+        "guests": [
+          {
+            "name": "Aoife Byrne"
+          },
+          {
+            "name": "Ciara Walsh"
+          },
+          {
+            "name": "Sean Murphy"
+          },
+          {
+            "name": "Niall Kelly"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3",
+          "R1-B4"
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "confirm": true,
+        "group_gender": "mixed",
+        "guest_count": 4,
+        "guest_name": "Aoife Byrne",
+        "guests": [
+          {
+            "name": "Aoife Byrne"
+          },
+          {
+            "name": "Ciara Walsh"
+          },
+          {
+            "name": "Sean Murphy"
+          },
+          {
+            "name": "Niall Kelly"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3",
+          "R1-B4"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-23",
+          "check_out": "2026-11-26",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 40000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "aoife byrne"
+            },
+            {
+              "bed_code": "R1-B2",
+              "guest_index": 1,
+              "guest_name": "ciara walsh"
+            },
+            {
+              "bed_code": "R1-B3",
+              "guest_index": 2,
+              "guest_name": "sean murphy"
+            },
+            {
+              "bed_code": "R1-B4",
+              "guest_index": 3,
+              "guest_name": "niall kelly"
+            }
+          ],
+          "guest_count": 4,
+          "guest_packages": [],
+          "offer_fingerprint": "eed993dff00907238d9a1243363646b0f4808c0dda6824fa03d26ef4f3052ce6",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 48000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B2",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B3",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            },
+            {
+              "bed_code": "R1-B4",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 48000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-8936e30992b78b279f29ebaeed19b22d",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999483412146954",
+        "guest_phone": "+999483412146954"
+      },
+      "shown_offer_text": "Mon 23 Nov to Thu 26 Nov — 4 guests.\nAoife Byrne, Ciara Walsh, Sean Murphy, and Niall Kelly: four beds in the same shared room.\nAccommodation only.\nTotal: 480.00 EUR (deposit: 400.00 EUR).\nFull payment: 480.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B2",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B3",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          },
+          {
+            "bed_code": "R1-B4",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 48000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest3",
+      "capture": "sim18-c959fee9-20261017/guest3.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-11",
+        "check_out": "2026-11-14",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "male dorm",
+        "gender_preference": "male"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest4",
+      "capture": "sim18-c959fee9-20261017/guest4.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-19",
+        "check_out": "2026-11-22",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R3-B1"
+        ],
+        "guests": [
+          {
+            "name": "Kenji Watanabe",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Kenji Watanabe"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-19",
+        "check_out": "2026-11-22",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Kenji Watanabe",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Kenji Watanabe",
+        "room_name_hints": [
+          {
+            "name": "Kenji Watanabe",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R3-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-19",
+        "check_out": "2026-11-22",
+        "guest_count": 1,
+        "guest_name": "Kenji Watanabe",
+        "guests": [
+          {
+            "name": "Kenji Watanabe",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R3-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Kenji Watanabe"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-19",
+          "check_out": "2026-11-22",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R3-B1",
+              "guest_index": 0,
+              "guest_name": "kenji watanabe"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "0a608e10c09c37d6695f92f7fc20632e863d24524ed18f97c841e8925818d3f8",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 12000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R3-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Kenji Watanabe"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-4980eb558cce700a645e37a4a72bad59",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999943765600741",
+        "guest_phone": "+999943765600741"
+      },
+      "shown_offer_text": "Thanks, Kenji! Your booking has been created, pending payment:\n\n- **Name:** Kenji Watanabe\n- **Dates:** 19–22 November 2026\n- **Room:** 1 mixed-dorm bed\n- **Full payment:** €120\n- **Booking reference:** WH-20261119-13975655\n\nComplete your payment securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261119-13975655\n\n📍 Location: https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R3-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest5",
+      "capture": "sim18-c959fee9-20261017/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-27",
+        "check_out": "2026-11-30",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guests": [
+          {
+            "name": "Zanele Dlamini",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Zanele Dlamini"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-27",
+        "check_out": "2026-11-30",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Zanele Dlamini",
+            "explicit_gender": "female"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Zanele Dlamini",
+        "room_name_hints": [
+          {
+            "name": "Zanele Dlamini",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R1-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-27",
+        "check_out": "2026-11-30",
+        "guest_count": 1,
+        "guest_name": "Zanele Dlamini",
+        "guests": [
+          {
+            "name": "Zanele Dlamini",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "payment_choice": "deposit",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Zanele Dlamini"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-27",
+          "check_out": "2026-11-30",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "zanele dlamini"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "47c4a3edfda841bcc736ef5909dbf3755f724188ba6fcbb6bb449af902f8b2e7",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Zanele Dlamini"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-bf0d4f549b1fa30cf8a59b6bc22f6a1a",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999372778540420",
+        "guest_phone": "+999372778540420"
+      },
+      "shown_offer_text": "Lekker, Zanele 🤙 Your booking is created, awaiting your **€100 deposit**.\n\n• **27–30 November 2026**\n• **1 bed in the mixed dorm**\n• **Total: €120** — €20 remaining after the deposit\n• Reference: **WH-20261127-02408892**\n\nPay securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261127-02408892",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim18-c959fee9-20261017/guest9",
+      "capture": "sim18-c959fee9-20261017/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-27",
+        "check_out": "2026-11-30",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "",
+        "room_name_hints": [
+          {
+            "name": "",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest1",
+      "capture": "sim19-03962a75-20261018/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-09",
+        "check_out": "2026-11-12",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guests": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Lucía Fernández Ruiz"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-09",
+        "check_out": "2026-11-12",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Lucía Fernández Ruiz",
+        "room_name_hints": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R1-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-09",
+        "check_out": "2026-11-12",
+        "guest_count": 1,
+        "guest_name": "Lucía Fernández Ruiz",
+        "guests": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "payment_choice": "deposit",
+        "language": "es",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "female",
+            "name": "Lucía Fernández Ruiz"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-09",
+          "check_out": "2026-11-12",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "lucía fernández ruiz"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "780e165adab5911e71d1bd9611ae7deea2684c1564f46942d9c600ffbfddb8fd",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "female",
+              "name": "Lucía Fernández Ruiz"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-37537ac2c1bd9cb30d79e0fe5cc2b9ee",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999081475032255",
+        "guest_phone": "+999081475032255"
+      },
+      "shown_offer_text": "¡Listo, Lucía! 😊 He creado tu reserva a nombre de **Lucía Fernández Ruiz**, pendiente del pago del depósito.\n\n- **Estancia:** del 9 al 12 de noviembre de 2026 · 3 noches\n- **Alojamiento:** 1 cama en dormitorio mixto\n- **Total:** 120 €\n- **Depósito a pagar ahora:** 100 €\n- **Restante tras pagar el depósito:** 20 €\n- **Código de reserva:** WH-20261109-12900380\n\nPuedes pagar el depósito aquí:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261109-12900380",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest19",
+      "capture": "sim19-03962a75-20261018/guest19.jsonl",
+      "check_availability_args": null,
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest2",
+      "capture": "sim19-03962a75-20261018/guest2.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-02",
+        "check_out": "2026-11-05",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R9-B1",
+          "R10-B1",
+          "R7-B1"
+        ],
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-02",
+        "check_out": "2026-11-05",
+        "guest_count": 3,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "payment_choice": "full",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Camille Martin",
+        "selected_bed_codes": [
+          "R9-B1",
+          "R10-B1",
+          "R7-B1"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-02",
+        "check_out": "2026-11-05",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "group_gender": "mixed",
+        "package_code": "package_none",
+        "guest_name": "Camille Martin",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "payment_choice": "full",
+        "language": "fr",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R9-B1",
+          "R10-B1",
+          "R7-B1"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-02",
+          "check_out": "2026-11-05",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 30000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R9-B1",
+              "guest_index": 0,
+              "guest_name": "camille martin"
+            },
+            {
+              "bed_code": "R10-B1",
+              "guest_index": 1,
+              "guest_name": "léa dubois"
+            },
+            {
+              "bed_code": "R7-B1",
+              "guest_index": 2,
+              "guest_name": "hugo bernard"
+            }
+          ],
+          "guest_count": 3,
+          "guest_packages": [],
+          "offer_fingerprint": "c43c8fd7c22afa533775f06fcfcf62ae3b88fe8a23636e6016ce23e4d86e2a66",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 36000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R10-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R10"
+            },
+            {
+              "bed_code": "R7-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R7"
+            },
+            {
+              "bed_code": "R9-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R9"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 36000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-e26b1e0b62170babefce264097c0462d",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999970997738563",
+        "guest_phone": "+999970997738563"
+      },
+      "shown_offer_text": "Parfait ! Votre réservation est créée **en attente du paiement** 😊\n\n• **Camille Martin, Léa Dubois et Hugo Bernard**\n• Du **2 au 5 novembre 2026**\n• 3 lits répartis dans **trois dortoirs mixtes différents**, comme proposé\n• **Total à régler en une seule fois : 360 €**\n• Référence : **WH-20261102-08115541**\n\nVoici votre lien sécurisé pour le paiement complet :\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261102-08115541\n\n📍 Localisation : https://maps.app.goo.gl/oPRckhqozVBvXxL16",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R10-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R10"
+          },
+          {
+            "bed_code": "R7-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R7"
+          },
+          {
+            "bed_code": "R9-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R9"
+          }
+        ],
+        "total_cents": 36000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest3",
+      "capture": "sim19-03962a75-20261018/guest3.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-04",
+        "check_out": "2026-11-07",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-04",
+        "check_out": "2026-11-07",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "guests": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "guest_name": "Jonas Becker",
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R9-B2",
+          "R10-B2"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "Wed 4 Nov to Sat 7 Nov — 2 guests.\nJonas Becker and Felix Becker: beds in two separate shared rooms.\nAccommodation only.\nTotal: 240.00 EUR (deposit: 200.00 EUR).\nDeposit: 200.00 EUR.\nDue on arrival: 40.00 EUR.\nAvailability checked, subject to confirmation when booking.\nShall I create this booking?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest4",
+      "capture": "sim19-03962a75-20261018/guest4.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-25",
+        "check_out": "2026-11-28",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R3-B1"
+        ],
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-25",
+        "check_out": "2026-11-28",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R3-B1"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Emma Clarke"
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-25",
+        "check_out": "2026-11-28",
+        "guest_count": 1,
+        "guest_name": "Emma Clarke",
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "selected_bed_codes": [
+          "R3-B1"
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-25",
+          "check_out": "2026-11-28",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R3-B1",
+              "guest_index": 0,
+              "guest_name": "emma clarke"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "a445d5d721be297db1dc6183ee2b1e51a1184fc3af11b6eb74b54ade36647f1a",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 12000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R3-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            }
+          ],
+          "room_name_hints": [],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-9165fd8408b048872a0ad5c6fa569ddb",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999647518357580",
+        "guest_phone": "+999647518357580"
+      },
+      "shown_offer_text": "Thanks, Emma! Your booking is created, with payment pending:\n\n- **25–28 November 2026**\n- **1 bed in a mixed dorm**\n- **Full payment: €120**\n- Booking reference: **WH-20261125-03738646**\n\nPay securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261125-03738646",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R3-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest5",
+      "capture": "sim19-03962a75-20261018/guest5.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-13",
+        "check_out": "2026-11-15",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Raj Patel"
+          }
+        ]
+      },
+      "quote_args": {
+        "add_ons": [],
+        "check_in": "2026-11-13",
+        "check_out": "2026-11-15",
+        "guest_count": 1,
+        "guest_packages": [],
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "per_guest_payment_links": false,
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "catalog_selections": [],
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Raj Patel",
+        "room_name_hints": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-13",
+        "check_out": "2026-11-15",
+        "guest_count": 1,
+        "guest_name": "Raj Patel",
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "catalog_selections": [],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Raj Patel"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-13",
+          "check_out": "2026-11-15",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 8000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R1-B1",
+              "guest_index": 0,
+              "guest_name": "raj patel"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "3368b2db1d57111295369bd6aa489292808736ffe25eede8ca29fef1ef61ecfc",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "full",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 8000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R1-B1",
+              "gender_strategy": "flexible",
+              "room_code": "R1"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Raj Patel"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 8000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-61e5508013226b5371861f86851ada8e",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999297754655945",
+        "guest_phone": "+999297754655945"
+      },
+      "shown_offer_text": "Your booking is created, Raj — **awaiting payment** 😊\n\n- **Room 1:** 13–15 November 2026\n- **Name:** Raj Patel\n- **Total to pay:** €80\n- **Booking reference:** WH-20261113-10497565\n\nComplete your payment here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261113-10497565",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R1-B1",
+            "gender_strategy": "flexible",
+            "room_code": "R1"
+          }
+        ],
+        "total_cents": 8000,
+        "currency": "EUR"
+      }
+    },
+    {
+      "case": "sim19-03962a75-20261018/guest9",
+      "capture": "sim19-03962a75-20261018/guest9.jsonl",
+      "check_availability_args": null,
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest1",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest1.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-12-07",
+        "check_out": "2026-12-10",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Lucía",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Lucía",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-12-07",
+        "check_out": "2026-12-10",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Lucía",
+            "explicit_gender": "female"
+          }
+        ],
+        "guest_name": "Lucía",
+        "package_code": "package_none",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Lucía",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R1-B1"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest2",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest2.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "guest_count": 3,
+        "guest_name": "Camille Martin",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3"
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "confirm": true,
+        "group_gender": "mixed",
+        "guest_count": 3,
+        "guest_name": "Camille Martin",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "language": "fr",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Merci Camille ! J’ai bien noté vos trois noms et votre choix de **paiement intégral de 360 €**.\n\nUn blocage technique empêche toutefois la création de la réservation : **aucune réservation n’a été créée et aucun paiement n’a été effectué**. Je n’ai donc pas de lien de paiement à vous transmettre.\n\nLa transmission à l’équipe a également échoué. Je suis désolée pour ce contretemps : merci de contacter directement Wolfhouse pour finaliser votre séjour du **30 novembre au 3 décembre 2026**, pour trois personnes en dortoir mixte.",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest3",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest3.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-12-02",
+        "check_out": "2026-12-05",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "group_gender": "male"
+      },
+      "quote_args": {
+        "check_in": "2026-12-02",
+        "check_out": "2026-12-05",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "package_code": "package_none",
+        "group_gender": "male",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R4-B1",
+          "R4-B2"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest4",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest4.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-12-16",
+        "check_out": "2026-12-19",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "guests": [
+          {
+            "name": "Emma"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-12-16",
+        "check_out": "2026-12-19",
+        "guest_count": 1,
+        "guest_name": "Emma",
+        "guests": [
+          {
+            "name": "Emma"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "female_only",
+        "package_code": "package_none",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R9-B1"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "I could not verify an eligible bed for this stay yet. Would you like me to check another room option?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest5",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest5.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-12-11",
+        "check_out": "2026-12-13",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "room 1",
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-12-11",
+        "check_out": "2026-12-13",
+        "guest_count": 1,
+        "guest_name": "Raj Patel",
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "room 1",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R9-B1"
+        ]
+      },
+      "create_args": null,
+      "shown_offer_text": "I could not verify an eligible bed for this stay yet. Would you like me to check another room option?",
+      "expected": "not_replayable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/attempt1-december-closed/guest9",
+      "capture": "sim20-b47d9e10-20261018/attempt1-december-closed/guest9.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-12-02",
+        "check_out": "2026-12-05",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "male_only"
+      },
+      "quote_args": null,
+      "create_args": null,
+      "shown_offer_text": null,
+      "expected": "not_replayable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/guest1",
+      "capture": "sim20-b47d9e10-20261018/guest1.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-19",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-19",
+        "guest_count": 1,
+        "guest_name": "Lucía Fernández Ruiz",
+        "guests": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Lucía Fernández Ruiz",
+            "explicit_gender": "female"
+          }
+        ],
+        "selected_bed_codes": [
+          "R3-B1"
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-16",
+        "check_out": "2026-11-19",
+        "confirm": true,
+        "guest_count": 1,
+        "guest_name": "Lucía Fernández Ruiz",
+        "guests": [
+          {
+            "explicit_gender": "female",
+            "name": "Lucía Fernández Ruiz"
+          }
+        ],
+        "language": "es",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "mixed",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Lucía, he actualizado tu nombre completo, pero un error del sistema ha impedido crear la reserva y generar el enlace para el depósito.\n\nEl precio sigue siendo **120 € en total**, con **100 € de depósito** y **20 € restantes**. **La reserva aún no está creada y no se ha realizado ningún cobro.**\n\nTambién he intentado pasar la incidencia al equipo, pero la derivación ha fallado. Lo siento: no puedo confirmarte la reserva en este momento.",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/guest2",
+      "capture": "sim20-b47d9e10-20261018/guest2.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "guest_count": 3,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "guest_count": 3,
+        "guest_name": "Camille Martin",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "selected_bed_codes": [
+          "R1-B1",
+          "R1-B2",
+          "R1-B3"
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-30",
+        "check_out": "2026-12-03",
+        "confirm": true,
+        "group_gender": "mixed",
+        "guest_count": 3,
+        "guest_name": "Camille Martin",
+        "guests": [
+          {
+            "name": "Camille Martin"
+          },
+          {
+            "name": "Léa Dubois"
+          },
+          {
+            "name": "Hugo Bernard"
+          }
+        ],
+        "language": "fr",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Merci, j’ai bien noté vos trois noms ! Le total reste **360 €**, en **un seul paiement complet**, pour vos 3 lits en dortoir mixte du 30 novembre au 3 décembre 2026.\n\nLe système demande une nouvelle validation avec ce mode de paiement ; **la réservation n’est pas encore créée**. Confirmez-vous cette offre à 360 € en paiement intégral ?",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/guest3",
+      "capture": "sim20-b47d9e10-20261018/guest3.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-11",
+        "check_out": "2026-11-14",
+        "guest_count": 2,
+        "room_type": "shared",
+        "room_preference": "male_only",
+        "guests": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-11",
+        "check_out": "2026-11-14",
+        "guest_count": 2,
+        "guest_name": "Jonas Becker",
+        "guests": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared",
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Jonas Becker",
+            "explicit_gender": "male"
+          },
+          {
+            "name": "Felix Becker",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R4-B1",
+          "R4-B2"
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-11",
+        "check_out": "2026-11-14",
+        "confirm": true,
+        "group_gender": "male",
+        "guest_count": 2,
+        "guest_name": "Jonas Becker",
+        "guests": [
+          {
+            "name": "Jonas Becker"
+          },
+          {
+            "name": "Felix Becker"
+          }
+        ],
+        "language": "de",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "room_preference": "male_only",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Danke, Jonas! Eure Namen und die gewünschte Anzahlung sind erfasst. Leider blockiert ein technischer Fehler den Buchungsabschluss – **es wurde noch keine Buchung erstellt und es gibt noch keinen Zahlungslink**.\n\nDer zuletzt bestätigte Preis bleibt **240 € insgesamt**, davon **200 € Anzahlung** und anschließend **40 € Restbetrag**.\n\nAuch die Weiterleitung ans Team hat technisch nicht funktioniert. Bitte kontaktiert Wolfhouse direkt, damit eure Buchung abgeschlossen werden kann. Entschuldigt die Umstände!",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/guest4",
+      "capture": "sim20-b47d9e10-20261018/guest4.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-18",
+        "check_out": "2026-11-21",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-18",
+        "check_out": "2026-11-21",
+        "guest_count": 1,
+        "guest_name": "Emma Clarke",
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guest_packages": [],
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R1-B2"
+        ],
+        "per_guest_payment_links": false,
+        "source": "agent_luna_whatsapp"
+      },
+      "create_args": {
+        "check_in": "2026-11-18",
+        "check_out": "2026-11-21",
+        "confirm": false,
+        "guest_count": 1,
+        "guest_name": "Emma Clarke",
+        "guests": [
+          {
+            "name": "Emma Clarke"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared"
+      },
+      "shown_offer_text": "Full payment noted, Emma—**€120** for one mixed-dorm bed, **18–21 November 2026**.\n\nSorry, a booking-system error stopped me from creating your reservation and payment link. **No booking has been made and no payment has been taken.** I also couldn’t complete the team handoff, so please contact Wolfhouse directly to finish booking.",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "sim20-b47d9e10-20261018/guest5",
+      "capture": "sim20-b47d9e10-20261018/guest5.jsonl",
+      "check_availability_args": {
+        "check_in": "2026-11-20",
+        "check_out": "2026-11-22",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-20",
+        "check_out": "2026-11-22",
+        "guest_count": 1,
+        "guest_name": "Raj Patel",
+        "guests": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ],
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guest_packages": [],
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R1-B1"
+        ],
+        "per_guest_payment_links": false,
+        "source": "agent_luna_whatsapp",
+        "room_name_hints": [
+          {
+            "name": "Raj Patel",
+            "explicit_gender": "male"
+          }
+        ]
+      },
+      "create_args": {
+        "check_in": "2026-11-20",
+        "check_out": "2026-11-22",
+        "confirm": true,
+        "guest_count": 1,
+        "guest_name": "Raj Patel",
+        "guests": [
+          {
+            "explicit_gender": "male",
+            "name": "Raj Patel"
+          }
+        ],
+        "language": "en",
+        "package_code": "package_none",
+        "payment_choice": "full",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "selected_bed_codes": [
+          "R1-B1"
+        ]
+      },
+      "shown_offer_text": "Sorry, Raj—the booking system is blocking the reservation, even though the refreshed quote still shows **€80 for room 1, 20–22 November**.\n\n**No booking has been created and no payment has been taken.** I also couldn’t send the issue through to the team, so please contact Wolfhouse directly to complete the reservation.",
+      "expected": "not_replayable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "case": "smoke-03962a75-20261018/guest1",
+      "capture": "smoke-03962a75-20261018/guest1.jsonl",
+      "check_availability_args": {
+        "client_slug": null,
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "guest_count": 1,
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "selected_bed_codes": [
+          "R3-B2"
+        ],
+        "guests": [
+          {
+            "name": "Sam Turner",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Sam Turner"
+          }
+        ]
+      },
+      "quote_args": {
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "guest_count": 1,
+        "package_code": "package_none",
+        "room_preference": "mixed",
+        "room_type": "shared",
+        "guests": [
+          {
+            "name": "Sam Turner",
+            "explicit_gender": "male"
+          }
+        ],
+        "payment_choice": "deposit",
+        "source": "agent_luna_whatsapp",
+        "guest_name": "Sam Turner",
+        "room_name_hints": [
+          {
+            "name": "Sam Turner",
+            "explicit_gender": "male"
+          }
+        ],
+        "selected_bed_codes": [
+          "R3-B2"
+        ]
+      },
+      "create_args": {
+        "confirm": true,
+        "check_in": "2026-11-23",
+        "check_out": "2026-11-26",
+        "guest_count": 1,
+        "guest_name": "Sam Turner",
+        "guests": [
+          {
+            "name": "Sam Turner",
+            "explicit_gender": "male"
+          }
+        ],
+        "room_type": "shared",
+        "room_preference": "mixed",
+        "package_code": "package_none",
+        "payment_choice": "deposit",
+        "language": "en",
+        "guest_packages": [],
+        "gender_preference": null,
+        "add_ons": [],
+        "selected_bed_codes": [
+          "R3-B2"
+        ],
+        "room_name_hints": [
+          {
+            "explicit_gender": "male",
+            "name": "Sam Turner"
+          }
+        ],
+        "per_guest_payment_links": false,
+        "accepted_offer": {
+          "add_ons": [],
+          "availability_checked": true,
+          "check_in": "2026-11-23",
+          "check_out": "2026-11-26",
+          "client_slug": "wolfhouse-somo",
+          "currency": "EUR",
+          "deposit_required_cents": 10000,
+          "gender_preference": null,
+          "guest_bed_assignments": [
+            {
+              "bed_code": "R3-B2",
+              "guest_index": 0,
+              "guest_name": "sam turner"
+            }
+          ],
+          "guest_count": 1,
+          "guest_packages": [],
+          "offer_fingerprint": "6310d5f33b627b9aa3a0245cfc66fc2507e579cb061771958180c3eef8dbcdde",
+          "offer_revision_version": 1,
+          "package_code": "package_none",
+          "payment_choice": "deposit",
+          "payment_distribution": [],
+          "payment_link_amount_cents": 10000,
+          "per_guest_payment_links": false,
+          "resolved_room_claim": null,
+          "room_arrangement": [
+            {
+              "bed_code": "R3-B2",
+              "gender_strategy": "flexible",
+              "room_code": "R3"
+            }
+          ],
+          "room_name_hints": [
+            {
+              "explicit_gender": "male",
+              "name": "Sam Turner"
+            }
+          ],
+          "room_preference": "mixed",
+          "room_type": "shared",
+          "total_cents": 12000,
+          "v": 1
+        },
+        "require_offer_identity": true,
+        "idempotency_key": "luna-owner-62cddc64d49dd0ba5974488c41b20eb2",
+        "source": "agent_luna_whatsapp",
+        "phone": "+999610404781502",
+        "guest_phone": "+999610404781502"
+      },
+      "shown_offer_text": "Thanks, Sam! Your booking has been created, pending deposit payment 😊\n\n- **Sam Turner — 1 mixed-dorm bed**\n- **23–26 November 2026**\n- Total: **€120**\n- Deposit now: **€100**, leaving **€20**\n- Booking reference: **WH-20261123-00254200**\n\nPay your deposit securely here:\nhttps://staff-staging.lunafrontdesk.com/pay/WH-20261123-00254200",
+      "expected": "booked",
+      "frozen_staff": {
+        "beds": [
+          {
+            "bed_code": "R3-B2",
+            "gender_strategy": "flexible",
+            "room_code": "R3"
+          }
+        ],
+        "total_cents": 12000,
+        "currency": "EUR"
+      }
+    }
+  ]
+}

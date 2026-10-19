@@ -39,7 +39,7 @@ const PAYLOAD = {
   reason: 'human_requested',
 };
 const ENV = {
-  DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+  LUNA_BOT_CLIENT_SLUG: 'wolfhouse-somo',
   PUBLIC_PAYMENT_BASE_URL: 'https://staff-staging.lunafrontdesk.com',
   STRIPE_SECRET_KEY: 'sk_test_offline_fixture', BOT_BOOKING_ENABLED: 'true',
 };
@@ -217,7 +217,8 @@ async function main() {
     });
     const denied = [
       ['foreign trusted tenant', {}, {}, 'sunset'],
-      ['foreign deployment tenant', {}, { DEFAULT_CLIENT_SLUG: 'sunset' }],
+      ['foreign authenticated bot tenant', {}, { LUNA_BOT_CLIENT_SLUG: 'sunset' }],
+      ['obsolete default tenant cannot substitute', {}, { LUNA_BOT_CLIENT_SLUG: '', DEFAULT_CLIENT_SLUG: 'wolfhouse-somo' }],
       ['missing staging origin', {}, { PUBLIC_PAYMENT_BASE_URL: '' }],
       ['live destination', {}, { PUBLIC_PAYMENT_BASE_URL: 'https://staff.lunafrontdesk.com' }],
       ['live Stripe key', {}, { STRIPE_SECRET_KEY: 'sk_' + 'live_offline_fixture' }],
@@ -231,6 +232,8 @@ async function main() {
       ['wrong source owner', { source_owner: 'model' }],
       ['missing notification suppression', { suppress_notifications: undefined }],
       ['false notification suppression', { suppress_notifications: false }],
+      ['missing approval suppression', { suppress_approvals: undefined }],
+      ['false approval suppression', { suppress_approvals: false }],
       ['live identity', { phone: ORD_PHONE, guest_phone: ORD_PHONE }],
       ['malformed synthetic identity', { phone: PHONE + 'x', guest_phone: PHONE + 'x' }],
       ['short synthetic identity', { phone: '+999123', guest_phone: '+999123' }],

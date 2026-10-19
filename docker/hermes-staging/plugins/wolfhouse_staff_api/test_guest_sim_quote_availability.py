@@ -7,6 +7,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -108,6 +109,82 @@ class GuestSimQuoteAvailabilityTests(unittest.TestCase):
         self.assertIn('female_only', result['room_decision']['excluded_room_preferences'])
         self.assertFalse(result['needs_human'])
         self.assertNotIn('PRIVATE', json.dumps(result))
+
+    def test_named_room_real_service_and_owner_renderer_keep_free_room_available(self):
+        repo = Path(__file__).resolve().parents[4]
+        script = r"""
+const pref = process.argv[1];
+const {
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  mapBotHttpAvailabilityResponse,
+} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const {getBedCalendarRoomsQuery, getBedCalendarBlocksQuery} = require('./scripts/lib/staff-bed-calendar-queries');
+const beds = [
+  {bed_code:'R1-B1', room_code:'R1', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:9},
+  {bed_code:'R3-B1', room_code:'R3', room_type:'matrimonial_or_mixed', bed_active:true, bed_sellable:true, fill_priority:5},
+  {bed_code:'R9-B1', room_code:'R9', room_type:'mixed', bed_active:true, bed_sellable:true, fill_priority:1},
+];
+(async () => {
+  const built = buildWolfhouseAvailabilityCommand({
+    channel:'bot_http', trustedClientSlug:'wolfhouse-somo', assignmentMode:false,
+    demoCalendarEnrichment:false, transportBody:{check_in:'2027-07-05', check_out:'2027-07-12',
+      guest_count:1, room_type:'shared', room_preference:pref, guest_name:'Raj'},
+  });
+  const pg = {query: async sql => {
+    if (sql === getBedCalendarRoomsQuery()) return {rows:beds};
+    if (sql === getBedCalendarBlocksQuery() || sql.includes('FROM wh_pricing_items')) return {rows:[]};
+    throw Error('Unexpected SQL ' + sql);
+  }};
+  const checked = await executeWolfhouseAvailabilityCheck(pg, built.command);
+  process.stdout.write(JSON.stringify(mapBotHttpAvailabilityResponse(checked.body)));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        expected = {
+            'room 1': 'R1', 'R1': 'R1',
+            'room 3': 'R3', 'R3': 'R3',
+            'mixed': 'R9',
+        }
+        for preference, room_code in expected.items():
+            with self.subTest(preference=preference):
+                completed = subprocess.run(
+                    ['node', '-e', script, preference], cwd=repo, check=True,
+                    text=True, capture_output=True,
+                )
+                receipt = json.loads(completed.stdout)
+                result, _ = self.invoke('check_availability', {
+                    **self.params, 'guest_count': 1, 'room_preference': preference,
+                    'guest_name': 'Raj',
+                }, receipt)
+                self.assertEqual(result['availability_status'], 'available', result)
+                self.assertFalse(result['unavailable'], result)
+                self.assertEqual(result['selected_room_code'], room_code, result)
+                self.assertEqual(result['selected_bed_codes'], [f'{room_code}-B1'], result)
+                self.assertNotIn('not available', str(result.get('reply_draft', '')).casefold())
+
+    def test_unknown_women_room_eligibility_preserves_positive_inventory_fact(self):
+        params = {
+            **self.params,
+            "check_in": "2026-11-18", "check_out": "2026-11-21",
+            "guest_count": 1, "room_type": "shared",
+            "room_preference": "female_only", "guests": [{"name": "Emma"}],
+        }
+        receipt = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_bed_codes": ["F1"],
+            "available_beds": [
+                {"bed_code": "F1", "room_code": "F", "room_type": "female_only"},
+            ],
+        }
+        result, sent = self.invoke("check_availability", params, receipt)
+        self.assertEqual(sent["check_in"], "2026-11-18")
+        self.assertEqual(sent["check_out"], "2026-11-21")
+        self.assertEqual(sent["room_preference"], "female_only")
+        self.assertEqual(result["availability_status"], "eligibility_required", result)
+        self.assertEqual(result["next_action"], "ask_room_eligibility")
+        self.assertIs(result["girls_room_available"], True)
+        self.assertNotIn("mixed", result["reply_draft"].casefold())
 
     def test_mixed_gendered_selection_is_never_relabelled_from_filtered_subset(self):
         receipt = {'success': True, 'has_enough_beds': True,

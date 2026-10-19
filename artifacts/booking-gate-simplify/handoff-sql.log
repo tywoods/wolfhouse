@@ -1,0 +1,46 @@
+PASS exact synthetic row wins over newer ordinary last9 collision
+PASS scoped simulator never calls the notification dispatcher
+PASS missing synthetic row cannot fall back to ordinary last9
+PASS identity changed after exact lookup cannot be mutated by UUID
+PASS reject foreign trusted tenant without writes or notifications
+PASS reject foreign authenticated bot tenant without writes or notifications
+PASS reject obsolete default tenant cannot substitute without writes or notifications
+PASS reject missing staging origin without writes or notifications
+PASS reject live destination without writes or notifications
+PASS reject live Stripe key without writes or notifications
+PASS reject live Stripe mode overrides test key without writes or notifications
+PASS reject conflicting live Stripe mode without writes or notifications
+PASS reject missing test payment config without writes or notifications
+PASS reject missing capability without writes or notifications
+PASS reject wrong capability without writes or notifications
+PASS reject missing simulator provenance without writes or notifications
+PASS reject string simulator provenance without writes or notifications
+PASS reject wrong source owner without writes or notifications
+PASS reject missing notification suppression without writes or notifications
+PASS reject false notification suppression without writes or notifications
+PASS reject missing approval suppression without writes or notifications
+PASS reject false approval suppression without writes or notifications
+PASS reject live identity without writes or notifications
+PASS reject malformed synthetic identity without writes or notifications
+PASS reject short synthetic identity without writes or notifications
+PASS reject formatted synthetic identity without writes or notifications
+PASS reject mismatched aliases without writes or notifications
+PASS reject ordinary UUID bypass without writes or notifications
+PASS reject malformed UUID must not be discarded without writes or notifications
+PASS reject stripped provenance before SQL
+PASS reject suppression-only synthetic before SQL
+PASS reject stripped provenance UUID override before SQL
+PASS reject hidden synthetic alias before SQL
+PASS reject partial suppression-only scope before SQL
+PASS reject partial approvals-only scope before SQL
+PASS ordinary handoff cannot select a newer synthetic suffix row
+PASS unscoped synthetic UUID cannot mutate or dispatch
+PASS ordinary phone preserves newest last9 resolution and notifications
+PASS ordinary UUID priority and malformed UUID phone fallback remain
+PASS ordinary Sunset handoff still not coupled to pause
+PASS same exact phone with ordinary metadata is not a simulator identity
+PASS same exact phone with foreign source owner is not a simulator identity
+PASS ordinary pause read cannot inherit synthetic last9 pause
+PASS synthetic pause read cannot inherit ordinary last9 pause
+PASS effective automation gate cannot inherit synthetic Needs Human fallback
+PASS effective synthetic gate cannot inherit ordinary Needs Human fallback
