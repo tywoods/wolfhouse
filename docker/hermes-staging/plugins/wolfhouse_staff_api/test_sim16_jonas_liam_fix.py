@@ -121,6 +121,7 @@ class DeterministicRegisteredLoop:
         self.trace.append({"kind": "raw_user", "text": raw})
 
     def call(self, name, args, responses):
+        self.trace.append({"kind": "tool_call", "tool": name})
         def post(route, body):
             self.staff.append({"route": route, "body": deepcopy(body)})
             response = responses(route, body) if callable(responses) else responses[route]
@@ -217,6 +218,200 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                          [{"kind": "rendered_reply", "text": rendered}],
                          "no second confirmation was rendered")
 
+    def test_sim22_becker_captured_registered_sequence_reaches_create(self):
+        """Replay captured G3 check/quote/check/create args through registered tools."""
+        # Committed R4 inventory stores the eligibility label as ``male preferred``;
+        # the guest-facing request remains the canonical ``male_only`` preference.
+        beds = self.beds(2, "male preferred")
+        for row in beds:
+            row["room_type"] = "shared"
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared",
+                   "room_preference": "male_only", "group_gender": "male"}
+        availability = availability_receipt(beds)
+        availability["selected_bed_codes"] = ["R4-B1", "R4-B2"]
+        first_quote = {**offered, "package_code": "package_none",
+                       "source": "agent_luna_whatsapp",
+                       "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        first = checked_staff_quote(first_quote, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
+        self.loop.call("check_availability", {
+            "client_slug": None, "check_in": "2026-11-11", "check_out": "2026-11-14",
+            "guest_count": 2, "room_type": "shared", "room_preference": "male_dorm",
+        }, {"/availability-check": availability})
+        self.loop.call("check_availability", offered, {"/availability-check": availability})
+        self.loop.call("quote_booking", first_quote, {"/booking-preview": first})
+        self.loop.present()
+
+        names = [{"name": "Jonas Becker", "explicit_gender": "male"},
+                 {"name": "Felix Becker", "explicit_gender": "male"}]
+        accepted = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                    "guest_count": 2, "package_code": "package_none",
+                    "room_preference": "male_only", "room_type": "shared",
+                    "guests": names, "payment_choice": "deposit", "language": "de",
+                    "source": "agent_luna_whatsapp", "guest_name": "Jonas Becker",
+                    "room_name_hints": names,
+                    "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        second = checked_staff_quote(accepted, beds, total=24000, deposit=20000)
+        acceptance_text = "Jonas Becker und Felix Becker. Anzahlung. Ja, bitte buchen."
+        self.loop.turn("g3-accept", acceptance_text)
+        semantic = {"action": "accept", "action_evidence": acceptance_text,
+                    "ambiguous": False, "negated": False, "conditional": False,
+                    "material_changes": [], "completions": {
+                        "guests": [{"guest_index": i, "name": guest["name"],
+                                    "evidence": guest["name"]}
+                                   for i, guest in enumerate(names)]}}
+        # Explicit deterministic model stand-in through the registered tool. This
+        # is the normal runtime boundary, not the harness interpret/state injector.
+        interpreted = self.loop.call("interpret_booking_turn", semantic, {})
+        self.assertTrue(interpreted["success"], interpreted)
+        self.loop.call("check_availability", {
+            "check_in": "2026-11-11", "check_out": "2026-11-14", "guest_count": 2,
+            "room_type": "shared", "room_preference": "male_only", "guests": names,
+            "room_name_hints": names}, {"/availability-check": availability})
+        self.loop.call("quote_booking", accepted, {"/booking-preview": second})
+        recheck = {**accepted, "client_slug": None}
+        self.loop.call("check_availability", recheck, {"/availability-check": availability})
+
+        create_args = {"add_ons": [], "check_in": "2026-11-11",
+            "check_out": "2026-11-14", "gender_preference": None,
+            "group_gender": "male", "guest_count": 2, "guest_packages": [],
+            "guests": names, "language": "de", "package_code": "package_none",
+            "payment_choice": "deposit", "per_guest_payment_links": False,
+            "room_name_hints": names, "room_preference": "male_only",
+            "room_type": "shared", "selected_bed_codes": ["R4-B1", "R4-B2"],
+            "source": "agent_luna_whatsapp", "confirm": True,
+            "phone": "+99900002399", "guest_phone": "+99900002399",
+            "guest_name": "Jonas Becker", "idempotency_key": "luna-66d43aca141f6dff"}
+        sql_proofs = []
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                run = subprocess.run(
+                    ["node", "scripts/verify-luna-create-booking-occupants.js", "--payload"],
+                    input=json.dumps(body), text=True, cwd=ROOT,
+                    capture_output=True, timeout=90)
+                self.assertTrue(run.stdout.strip(), {"returncode": run.returncode, "stderr": run.stderr})
+                proof = json.loads(run.stdout)
+                self.assertEqual(run.returncode, 0, {"proof": proof, "stderr": run.stderr})
+                sql_proofs.append(proof)
+                raise RuntimeError("isolated Staff SQL create/readback complete")
+            self.fail(f"unexpected route {route}")
+        with self.assertRaisesRegex(RuntimeError, "isolated Staff SQL create/readback complete"):
+            self.loop.call("create_booking_from_plan", create_args, responses)
+        self.assertEqual(len(sql_proofs), 1)
+        self.assertTrue(sql_proofs[0]["ok"], sql_proofs[0])
+        self.assertEqual(len(sql_proofs[0]["bookings"]), 1, sql_proofs[0])
+        self.assertEqual([row["guest_name"] for row in sql_proofs[0]["occupants"]],
+                         ["Jonas Becker", "Felix Becker"])
+        self.assertEqual(sum(call["kind"] == "booking_create"
+                             for call in sql_proofs[0]["sql_calls"]), 1)
+        self.assertEqual(sql_proofs[0]["network_attempts"], [])
+        self.assertEqual([row["tool"] for row in self.loop.trace
+                          if row["kind"] == "tool_call"], [
+            "check_availability", "check_availability", "quote_booking",
+            "interpret_booking_turn", "check_availability", "quote_booking",
+            "check_availability", "create_booking_from_plan",
+        ])
+
+    def test_fact_equivalent_second_staff_revision_promotes_checked_authority(self):
+        """A checked payment completion advances Staff authority without minting consent."""
+        beds = self.beds(2)
+        names = [{"name": "Jonas Becker"}, {"name": "Felix Becker"}]
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared", "room_preference": "mixed",
+                   "package_code": "package_none",
+                   "selected_bed_codes": [row["bed_code"] for row in beds],
+                   "guests": names}
+        first = checked_staff_quote(offered, beds, total=24000, deposit=20000)
+        self.loop.turn("authority-q", "Quote this exact stay for Jonas Becker and Felix Becker")
+        self.loop.call("quote_booking", offered, {"/booking-preview": first})
+        self.loop.present()
+        self.loop.turn("authority-accept", "Yes, please book that exact offer.")
+        decision = self.loop.interpret("accept", "Yes, please book that exact offer.", completions={})
+        self.assertFalse(decision["create_ready"], decision)
+
+        completed = {**offered, "payment_choice": "deposit"}
+        second = checked_staff_quote(completed, beds, total=24000, deposit=20000)
+        second_result = self.loop.call("quote_booking", completed, {"/booking-preview": second})
+        self.assertTrue(second_result.get("success"), second_result)
+        authority = owner._transaction(lambda state, _ingress: deepcopy(state))
+        self.assertEqual((authority.get("presentation") or {}).get("quote_revision"),
+                         authority.get("checked_offer"), authority)
+
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], second["offer_revision"])
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "authority-one", "booking_code": "WH-AUTH"}
+            self.fail(f"unexpected route {route}")
+
+        created = self.loop.call("create_booking_from_plan", completed, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+
+    def test_sim22_becker_second_good_quote_carries_offer_into_registered_create(self):
+        """Replay G3: quote -> accepted completion quote -> omitted-identity create."""
+        beds = self.beds(2, "male_only", "R4")
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared",
+                   "room_preference": "male_only", "group_gender": "male",
+                   "package_code": "package_none", "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        first = checked_staff_quote(offered, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
+        self.loop.call("quote_booking", offered, {"/booking-preview": first})
+        self.loop.present()
+
+        names = [{"name": "Jonas Becker", "explicit_gender": "male"},
+                 {"name": "Felix Becker", "explicit_gender": "male"}]
+        accepted = {**offered, "guest_name": "Jonas Becker", "guests": names,
+                    "payment_choice": "deposit", "language": "de"}
+        second = checked_staff_quote(accepted, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-accept", "Jonas Becker und Felix Becker. Anzahlung. Ja, bitte buchen.")
+        self.loop.call("quote_booking", accepted, {"/booking-preview": second})
+
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], second["offer_revision"])
+                self.assertIs(body["require_offer_identity"], True)
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "g3-one", "booking_code": "WH-G3"}
+            self.fail(f"unexpected route {route}")
+
+        # Exact captured failure shape: the model omits both owner-only fields.
+        created = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        first_key = self.loop.create_dispatches[0]["idempotency_key"]
+        replay = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(replay.get("idempotent"), replay)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        self.assertEqual(self.loop.create_dispatches[0]["idempotency_key"], first_key)
+
+        changed_cases = {
+            "checkout": {**accepted, "check_out": "2026-11-15"},
+            "payment": {**accepted, "payment_choice": "full"},
+            "occupant": {**accepted, "guests": [names[0],
+                {"name": "Karl Becker", "explicit_gender": "male"}]},
+            "occupant_order": {**accepted, "guests": list(reversed(names))},
+        }
+        for label, changed in changed_cases.items():
+            with self.subTest(label=label):
+                refused = self.loop.call("create_booking_from_plan", changed, responses)
+                self.assertFalse(refused["success"], refused)
+                self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+
     def test_r1_names_after_quote_with_chosen_full_payment_dispatches_once(self):
         """Chosen full payment survives late name completion, not only full-only tariffs."""
         beds = self.beds(2)
@@ -236,6 +431,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             "Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
             "Total: 240.00 EUR.\n"
             "Full payment: 240.00 EUR.\n"
+            "two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
         yes = "Yes — book that exact offer for Jonas Bergström and Mia Chen."
@@ -282,6 +478,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             "Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
             "Total: 240.00 EUR.\n"
             "Full payment: 240.00 EUR.\n"
+            "two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
         names = [{"name": "Aoife Byrne"}, {"name": "Ciara Walsh"}]
@@ -415,6 +612,286 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             {"/availability-check": availability_receipt(bed)})
         self.assertTrue(positive["available"], positive)
         self.assertEqual(positive["selected_bed_codes"], ["M-B1"])
+
+    def test_sim22_emma_structured_unsure_and_no_preserve_women_stock(self):
+        bed = self.beds(1, "female_only", "F")
+        common = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                  "room_type": "shared", "room_preference": "female_only",
+                  "package_code": "package_none", "guests": [{"name": "Emma"}]}
+        for status, reason in (("unsure", "room_eligibility_unknown"),
+                               ("no", "room_eligibility_incompatible")):
+            receipt = {**availability_receipt(bed), "girls_room_available": True,
+                       "room_options": {"girls_room_available": True},
+                       "room_eligibility": {"status": status,
+                           "requested_room_preference": "female_only",
+                           "affected_guest_indices": [0], "reason_code": reason,
+                           "question_kind": ("confirm_room_eligibility" if status == "unsure" else None)}}
+            with self.subTest(status=status):
+                result = self.loop.call("check_availability", common,
+                    {"/availability-check": deepcopy(receipt)})
+                self.assertEqual(result["availability_status"], "eligibility_required", result)
+                self.assertIs(result["girls_room_available"], True, result)
+                self.assertIs(result["room_options"]["girls_room_available"], True, result)
+                self.assertEqual(result["room_eligibility"]["status"], status)
+                self.assertEqual(result["next_action"], "ask_room_eligibility")
+                quote_calls = []
+                self.loop.turn(f"emma-{status}-quote", "Please quote the requested women-only room")
+                def quote_responses(route, body):
+                    quote_calls.append(route)
+                    if route == "/availability-check":
+                        return deepcopy(receipt)
+                    self.fail(f"structured {status} reached {route}")
+                quoted = self.loop.call("quote_booking", common, quote_responses)
+                self.assertFalse(quoted["success"], quoted)
+                self.assertEqual(quote_calls, ["/availability-check"])
+                self.assertEqual(quoted["room_eligibility"]["status"], status)
+                self.assertEqual(quoted["availability_status"], "eligibility_required", quoted)
+                self.assertFalse(quoted["available"], quoted)
+                self.assertFalse(quoted["unavailable"], quoted)
+
+    def test_r5_zero_stock_remains_unavailable_with_structured_unsure_or_no(self):
+        openings = {"en": "Please quote the requested room",
+                    "es": "Quiero reservar la habitación solicitada",
+                    "fr": "Je voudrais réserver la chambre demandée",
+                    "de": "Ich möchte das gewünschte Zimmer buchen"}
+        for language, opening in openings.items():
+            for status, question_kind in (("unsure", "confirm_room_eligibility"), ("no", None)):
+                for with_tool_message in (False, True):
+                    with self.subTest(language=language, status=status,
+                                      with_tool_message=with_tool_message):
+                        loop = DeterministicRegisteredLoop(
+                            self, f"zero-stock-{language}-{status}-{with_tool_message}")
+                        try:
+                            common = {"check_in": "2026-11-18", "check_out": "2026-11-21",
+                                      "guest_count": 1, "room_type": "shared",
+                                      "room_preference": "female_only",
+                                      "package_code": "package_none", "language": language,
+                                      "guests": [{"name": "Emma"}]}
+                            receipt = {**availability_receipt([], enough=False),
+                                       "room_eligibility": {"status": status,
+                                           "requested_room_preference": "female_only",
+                                           "affected_guest_indices": [0],
+                                           "reason_code": ("room_eligibility_unknown"
+                                                           if status == "unsure"
+                                                           else "room_eligibility_incompatible"),
+                                           "question_kind": question_kind}}
+                            loop.turn(f"zero-stock-{language}-{status}", opening)
+                            quoted = loop.call("quote_booking", common,
+                                {"/availability-check": receipt})
+                            self.assertEqual(quoted["availability_status"], "unavailable", quoted)
+                            self.assertTrue(quoted["unavailable"], quoted)
+                            messages = [{"role": "assistant",
+                                         "content": "There are no beds available for those dates."}]
+                            if with_tool_message:
+                                messages.insert(0, {"role": "tool", "content": json.dumps(quoted)})
+                            rendered = owner.finalize_offer_response({
+                                "completed": True,
+                                "final_response": "There are no beds available for those dates.",
+                                "messages": messages})
+                            expected = owner._final_copy(language, "refusal")
+                            self.assertEqual(rendered["final_response"], expected)
+                            self.assertEqual(rendered["messages"][-1]["content"], expected)
+                        finally:
+                            loop.close()
+
+    def test_r5_successful_quote_carries_structured_yes_from_staff(self):
+        bed = self.beds(1, "female_only", "F")
+        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                "room_type": "shared", "room_preference": "female_only",
+                "package_code": "package_none", "guests": [{"name": "Emma", "explicit_gender": "female"}]}
+        eligibility = {"status": "yes", "requested_room_preference": "female_only",
+                       "affected_guest_indices": [], "reason_code": "room_eligibility_confirmed",
+                       "question_kind": None}
+        receipt = {**availability_receipt(bed), "room_eligibility": eligibility}
+        quote = checked_staff_quote(plan, bed)
+        self.loop.turn("structured-yes-quote", "Please quote the requested room")
+        quoted = self.loop.call("quote_booking", plan,
+            {"/availability-check": receipt, "/booking-preview": quote})
+        self.assertTrue(quoted["success"], quoted)
+        self.assertEqual(quoted["room_eligibility"], eligibility)
+        self.assertEqual(quoted["room_decision"], {"structured": True, **eligibility})
+
+    def test_r5_finalizer_skips_non_object_json_tool_results(self):
+        self.loop.turn("non-object-tools", "Continue")
+        for value in ([], None, 7, "text"):
+            with self.subTest(value=value):
+                result = owner.finalize_offer_response({"completed": True,
+                    "final_response": "UNCHANGED",
+                    "messages": [{"role": "user", "content": "Continue"},
+                                 {"role": "tool", "content": json.dumps(value)},
+                                 {"role": "assistant", "content": "UNCHANGED"}]})
+                self.assertEqual(result["final_response"], "UNCHANGED")
+
+    def test_r5_offline_ingress_installed_owner_hook_skips_non_object_tool_results(self):
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        installed = conversation_loop.run_conversation
+        captured = []
+        try:
+            for index, value in enumerate(([], None, 7, "text")):
+                with self.subTest(value=value):
+                    def model(agent, text, *args, _value=value, **kwargs):
+                        return {"completed": True, "final_response": "UNCHANGED",
+                                "messages": [{"role": "user", "content": text},
+                                             {"role": "tool", "content": json.dumps(_value)},
+                                             {"role": "assistant", "content": "UNCHANGED"}]}
+                    conversation_loop.run_conversation = model
+                    owner.install_owner_hook()
+                    def call(text):
+                        result = conversation_loop.run_conversation(self.loop.agent, text)
+                        captured.append(result)
+                        return result
+                    gateway_ingress(self.loop.agent, "Continue", f"non-object-ingress-{index}", call)
+                    self.assertEqual(captured[-1]["final_response"], "UNCHANGED")
+                    self.assertTrue(owner.quote_owner_hook_ready(conversation_loop.run_conversation))
+        finally:
+            conversation_loop.run_conversation = installed
+
+    def test_r4_structured_eligibility_renders_from_status_room_and_affected_people(self):
+        expected = {
+            "en": ("Is Bea eligible for the requested women-only room?",
+                   "The requested women-only room is not compatible with Bea's guest details. Would you like to see other room options?"),
+            "es": ("¿Puede Bea alojarse en la habitación solicitada solo para mujeres?",
+                   "La habitación solicitada solo para mujeres no es compatible con los datos de Bea. ¿Quieres ver otras opciones de habitación?"),
+            "fr": ("Bea peut-elle séjourner dans la chambre demandée réservée aux femmes ?",
+                   "La chambre demandée réservée aux femmes n’est pas compatible avec les informations de Bea. Voulez-vous voir d’autres options de chambre ?"),
+            "de": ("Kann Bea im gewünschten Frauenzimmer übernachten?",
+                   "Das gewünschte Frauenzimmer ist mit den Angaben zu Bea nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?"),
+        }
+        openings = {"en": "Please quote this room", "es": "Quiero reservar esta habitación",
+                    "fr": "Je voudrais réserver cette chambre", "de": "Ich möchte dieses Zimmer buchen"}
+        for language, copies in expected.items():
+            for status, expected_copy in zip(("unsure", "no"), copies):
+                with self.subTest(language=language, status=status):
+                    loop = DeterministicRegisteredLoop(self, f"structured-{language}-{status}")
+                    try:
+                        beds = self.beds(2, "female_only", "F")
+                        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21",
+                                "guest_count": 2, "room_type": "shared",
+                                "room_preference": "female_only", "package_code": "package_none",
+                                "language": language, "guests": [{"name": "Ana"}, {"name": "Bea"}]}
+                        receipt = {**availability_receipt(beds), "girls_room_available": True,
+                                   "room_eligibility": {"status": status,
+                                       "requested_room_preference": "female_only",
+                                       "affected_guest_indices": [1],
+                                       "reason_code": ("room_eligibility_unknown" if status == "unsure"
+                                                       else "room_eligibility_incompatible"),
+                                       "question_kind": ("confirm_room_eligibility" if status == "unsure" else None)}}
+                        loop.turn(f"structured-{language}-{status}", openings[language])
+                        quoted = loop.call("quote_booking", plan, {"/availability-check": receipt})
+                        self.assertEqual(quoted["room_decision"]["affected_guest_indices"], [1])
+                        self.assertEqual(loop.present(), expected_copy)
+                    finally:
+                        loop.close()
+
+    def test_r4_real_no_stock_is_not_overwritten_by_eligibility_copy(self):
+        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                "room_type": "shared", "room_preference": "female_only",
+                "package_code": "package_none", "language": "en", "guests": [{"name": "Emma"}]}
+        self.loop.turn("no-stock", "Please check the women-only room")
+        quoted = self.loop.call("quote_booking", plan,
+            {"/availability-check": availability_receipt([], enough=False)})
+        self.assertEqual(quoted["availability_status"], "unavailable")
+        self.assertNotEqual(quoted.get("next_action"), "ask_room_eligibility")
+        self.assertEqual(self.loop.present(), owner._final_copy("en", "refusal"))
+
+    def test_r4_german_equal_total_uses_noun_capitalization_in_both_render_branches(self):
+        for complete in (False, True):
+            with self.subTest(complete=complete):
+                loop = DeterministicRegisteredLoop(self, f"german-equality-{complete}")
+                try:
+                    beds = self.beds(1)
+                    guests = [{"name": "Raj"}] if complete else []
+                    plan = {"check_in": "2026-11-18", "check_out": "2026-11-21",
+                            "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
+                            "package_code": "package_none", "payment_choice": "full",
+                            "language": "de", "guests": guests}
+                    quote = checked_staff_quote(plan, beds, total=8000, deposit=8000,
+                                                full_payment_only=True)
+                    loop.turn(f"german-equality-{complete}", "Vollständige Zahlung, bitte")
+                    loop.call("quote_booking", plan,
+                        {"/availability-check": availability_receipt(beds), "/booking-preview": quote})
+                    rendered = loop.present()
+                    self.assertIn("(vollständige Zahlung).", rendered)
+                    self.assertNotIn("vollständige zahlung", rendered)
+                    self.assertEqual(rendered.count("80.00 EUR"), 1, rendered)
+                finally:
+                    loop.close()
+
+    def test_sim22_emma_yes_registered_quote_render_and_isolated_persistence(self):
+        bed = self.beds(1, "female preferred", "R5")
+        bed[0]["room_type"] = "shared"
+        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                "room_type": "shared", "room_preference": "female_only", "package_code": "package_none",
+                "payment_choice": "full", "language": "en",
+                "guests": [{"name": "Emma", "explicit_gender": "female"}]}
+        receipt = {**availability_receipt(bed), "girls_room_available": True,
+                   "room_eligibility": {"status": "yes", "requested_room_preference": "female_only",
+                       "affected_guest_indices": [], "reason_code": "room_eligibility_confirmed",
+                       "question_kind": None}}
+        quote = checked_staff_quote(plan, bed, total=12000, deposit=10000)
+        quote["room_eligibility"] = receipt["room_eligibility"]
+        self.loop.turn("emma-yes-quote", "I am eligible for the women-only room; quote it")
+        quoted = self.loop.call("quote_booking", plan,
+            {"/availability-check": receipt, "/booking-preview": quote})
+        self.assertTrue(quoted["success"], quoted)
+        self.assertIn("emma", self.loop.present().casefold())
+        accepted = "Yes, create that exact booking for Emma."
+        self.loop.turn("emma-yes-accept", accepted)
+        interpreted = self.loop.call("interpret_booking_turn", {
+            "action": "accept", "action_evidence": accepted, "ambiguous": False,
+            "negated": False, "conditional": False, "material_changes": [], "completions": {}}, {})
+        self.assertTrue(interpreted["success"], interpreted)
+        proofs = []
+        def responses(route, body):
+            if route == "/availability-check":
+                return {**create_recheck_receipt(bed, body), "room_eligibility": receipt["room_eligibility"]}
+            if route == "/booking-create-from-plan":
+                run = subprocess.run(["node", "scripts/verify-luna-create-booking-occupants.js", "--payload"],
+                    input=json.dumps(body), text=True, cwd=ROOT, capture_output=True, timeout=90)
+                self.assertEqual(run.returncode, 0, {"stdout": run.stdout, "stderr": run.stderr})
+                proofs.append(json.loads(run.stdout))
+                raise RuntimeError("isolated Emma Staff SQL create/readback complete")
+            self.fail(f"unexpected route {route}")
+        with self.assertRaisesRegex(RuntimeError, "isolated Emma Staff SQL create/readback complete"):
+            self.loop.call("create_booking_from_plan", {}, responses)
+        self.assertEqual(len(proofs), 1)
+        self.assertEqual(len(proofs[0]["bookings"]), 1)
+        self.assertEqual(proofs[0]["occupants"][0]["guest_name"], "Emma")
+        self.assertEqual(proofs[0]["occupants"][0]["assigned_bed_code"], "R5-B1")
+        self.assertEqual(proofs[0]["network_attempts"], [])
+
+    def test_sim22_complete_offer_equal_total_has_one_payment_line(self):
+        bed = self.beds(1, "mixed", "R9")
+        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                "room_type": "shared", "room_preference": "mixed", "package_code": "package_none",
+                "payment_choice": "full", "language": "en", "guests": [{"name": "Raj"}]}
+        quote = checked_staff_quote(plan, bed, total=8000, deposit=8000, full_payment_only=True)
+        self.loop.turn("raj-equal", "Raj, full payment please")
+        self.loop.call("quote_booking", plan, {"/availability-check": availability_receipt(bed),
+                                               "/booking-preview": quote})
+        rendered = self.loop.present()
+        self.assertEqual(rendered.count("80.00 EUR"), 1, rendered)
+        self.assertIn("Total and due now: 80.00 EUR (full payment).", rendered)
+        self.assertNotIn("deposit", rendered.casefold())
+
+    def test_sim22_german_actual_male_preferred_label_is_localized(self):
+        beds = self.beds(2, "male preferred", "R4")
+        for row in beds:
+            row["room_type"] = "shared"
+        plan = {"check_in": "2026-11-11", "check_out": "2026-11-14", "guest_count": 2,
+                "room_type": "shared", "room_preference": "male_only", "package_code": "package_none",
+                "payment_choice": "deposit", "language": "de",
+                "guests": [{"name": "Jonas Becker", "explicit_gender": "male"},
+                           {"name": "Felix Becker", "explicit_gender": "male"}]}
+        quote = checked_staff_quote(plan, beds, total=24000, deposit=20000)
+        self.loop.turn("becker-de-copy", "Bitte zeigt das Angebot auf Deutsch")
+        self.loop.call("quote_booking", plan, {"/availability-check": availability_receipt(beds),
+                                               "/booking-preview": quote})
+        rendered = self.loop.present()
+        self.assertIn("im selben Mehrbettzimmer", rendered)
+        self.assertNotIn("im selben room", rendered)
+        self.assertNotIn("Männerzimmer", rendered)
 
 
 class OrdinaryCurrentPromptAcceptanceEvidence(unittest.TestCase):

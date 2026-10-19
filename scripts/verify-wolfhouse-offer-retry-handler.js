@@ -62,14 +62,14 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
       );
       INSERT INTO wh_pricing_seasons
         (id, client_slug, code, label, priority, bookable, active, sort_order)
-      VALUES ('season-all-year', 'wolfhouse-somo', 'spring_autumn', 'Test season', 0, true, true, 1);
+      VALUES ('00000000-0000-4000-8000-000000000101', 'wolfhouse-somo', 'spring_autumn', 'Test season', 0, true, true, 1);
       INSERT INTO wh_pricing_season_ranges
         (id, season_id, client_slug, start_month, start_day, end_month, end_day, sort_order)
-      VALUES ('range-all-year', 'season-all-year', 'wolfhouse-somo', 1, 1, 12, 31, 1);
+      VALUES ('00000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000101', 'wolfhouse-somo', 1, 1, 12, 31, 1);
     `);
     // The minimal occupants fixture omits this real payments column; recovery
     // orders saved payments by it. This is test schema, not a product migration.
-    await db.exec('ALTER TABLE payments ADD COLUMN created_at timestamptz DEFAULT now()');
+    // payments.created_at is owned by the shared occupants fixture.
     let requestBody;
     const lib = name => require('./lib/' + name);
     const context = {
@@ -120,6 +120,24 @@ async function verifyWolfhouseOfferRetryHandler({ trustedGuestPhone = '+34912345
       const req = { headers: { 'x-luna-guest-phone': trustedGuestPhone } };
       return context.handleBotBookingCreate(req, {}, null, 'bot_token');
     };
+    // Constructed guard test, not a reconstruction of the historical Becker
+    // failure: deliberately omit the checked revision at the real Staff handler.
+    const countsBeforeMissingRevision = {};
+    for (const table of ['bookings', 'payments']) {
+      countsBeforeMissingRevision[table] = Number((await db.query(`SELECT count(*) AS n FROM ${table}`)).rows[0].n);
+    }
+    const missingRevision = structuredClone(payload);
+    delete missingRevision.accepted_offer;
+    const missingRevisionRefusal = await invoke(missingRevision);
+    assert.equal(missingRevisionRefusal.status, 409, JSON.stringify(missingRevisionRefusal));
+    assert.equal(missingRevisionRefusal.body.error,
+      'A checked offer revision is required before this booking can be created.');
+    assert.equal(missingRevisionRefusal.body.write_performed, false);
+    for (const table of ['bookings', 'payments']) {
+      const after = Number((await db.query(`SELECT count(*) AS n FROM ${table}`)).rows[0].n);
+      assert.equal(after, countsBeforeMissingRevision[table], `${table} changed after missing-revision refusal`);
+    }
+    console.log('PASS constructed missing checked-revision guard: exact refusal, zero booking/payment writes');
     const original = await invoke(payload);
     assert.equal(original.status, 201, JSON.stringify(original));
     assert.equal(original.body.write_performed, true);
