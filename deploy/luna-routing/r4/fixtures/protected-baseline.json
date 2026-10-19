@@ -1,0 +1,12 @@
+{
+  "apps": {
+    "http": {"servers": {"main": {
+      "listen": [":443"],
+      "protocols": ["h1", "h2"],
+      "automatic_https": {"disable": false},
+      "routes": [{"match": [{"host": ["protected.example.com"]}], "terminal": true, "handle": [{"handler": "static_response", "status_code": 204}]}]
+    }}},
+    "tls": {"automation": {"policies": [{"subjects": ["protected.example.com"]}]}},
+    "logging": {"logs": {"default": {"level": "INFO"}}}
+  }
+}

@@ -69,28 +69,43 @@ check_existing_dir /etc/luna-routing root:luna-routing:750
 check_existing_dir /opt/luna-routing root:root:755
 stage=$(mktemp -d); backup=$(mktemp -d); committed=0; mutations_started=0; service_commands_started=0
 for p in Caddyfile fragment env controller unit sudoers tmpfiles; do eval dest_$p=; eval backup_$p=; done
-rollback_failure=0
+rollback_failure=0; controller_stop_unconfirmed=0
 rollback_run(){ description=$1; shift; if ! "$@"; then echo "ROLLBACK FAILED: $description" >&2; rollback_failure=1; fi; }
 cleanup(){
   rc=$?; trap - EXIT HUP INT TERM
   if [ "$committed" -eq 0 ] && [ "$mutations_started" -eq 1 ]; then
     echo "install failed (status $rc); restoring routing artifacts and runtime state" >&2
-    # Stop any newly loaded generation before restoring bytes. A prior active generation is
-    # restarted only after every prerequisite and daemon-reload have restored successfully.
-    if [ "$service_commands_started" -eq 1 ]; then rollback_run 'stop controller before artifact restore' /usr/bin/systemctl stop luna-routing-controller.service; fi
-    if [ "$service_commands_started" -eq 1 ] && [ "$unit_was_present" -eq 0 ]; then
+    # Never replace or remove executable/configuration bytes while a newly started process may
+    # still map them. Exact `inactive` output is required; command failure/unknown is unconfirmed.
+    if [ "$service_commands_started" -eq 1 ]; then
+      if ! /usr/bin/systemctl stop luna-routing-controller.service; then
+        echo 'ROLLBACK FAILED: stop controller before artifact restore' >&2
+        rollback_failure=1; controller_stop_unconfirmed=1
+      else
+        controller_state=$(/usr/bin/systemctl is-active luna-routing-controller.service 2>/dev/null || :)
+        if [ "$controller_state" != inactive ]; then
+          echo "ROLLBACK FAILED: controller inactive confirmation returned ${controller_state:-unavailable}" >&2
+          rollback_failure=1; controller_stop_unconfirmed=1
+        fi
+      fi
+    fi
+    if [ "$controller_stop_unconfirmed" -eq 1 ]; then
+      echo 'controller stop or inactive confirmation failed; retaining controller artifacts and runtime dependencies' >&2
+    elif [ "$service_commands_started" -eq 1 ] && [ "$unit_was_present" -eq 0 ]; then
       rollback_run 'disable newly introduced controller service' /usr/bin/systemctl disable luna-routing-controller.service
     fi
     caddyfile_restored=1
+    # Caddy restoration is independent. Controller artifacts are touched only after confirmed stop.
     for p in Caddyfile fragment env controller unit sudoers tmpfiles; do
+      if [ "$p" != Caddyfile ] && [ "$controller_stop_unconfirmed" -ne 0 ]; then continue; fi
       eval src=\"\$backup_$p\"; eval dst=\"\$dest_$p\"
       if [ -e "$src" ]; then
         if ! cp -a "$src" "$dst"; then echo "ROLLBACK FAILED: restore $dst" >&2; rollback_failure=1; [ "$p" != Caddyfile ] || caddyfile_restored=0; fi
       elif [ -n "$dst" ]; then rollback_run "remove newly installed $dst" rm -f "$dst"; fi
     done
-    if [ "$service_commands_started" -eq 1 ] && [ "$rollback_failure" -eq 0 ]; then
+    if [ "$caddyfile_restored" -eq 1 ]; then rollback_run 'reload Caddy from restored configuration' /usr/bin/systemctl reload caddy; fi
+    if [ "$service_commands_started" -eq 1 ] && [ "$controller_stop_unconfirmed" -eq 0 ]; then
       rollback_run 'daemon-reload restored units' /usr/bin/systemctl daemon-reload
-      if [ "$rollback_failure" -eq 0 ] && [ "$caddyfile_restored" -eq 1 ]; then rollback_run 'reload Caddy from restored configuration' /usr/bin/systemctl reload caddy; fi
       if [ "$rollback_failure" -eq 0 ] && [ "$unit_was_present" -eq 1 ]; then
         if [ "$unit_was_enabled" -eq 1 ]; then rollback_run 're-enable prior controller service' /usr/bin/systemctl enable luna-routing-controller.service; else rollback_run 'disable newly enabled controller service' /usr/bin/systemctl disable luna-routing-controller.service; fi
         if [ "$rollback_failure" -eq 0 ] && [ "$unit_was_active" -eq 1 ]; then rollback_run 'restart prior active controller service' /usr/bin/systemctl restart luna-routing-controller.service; fi
@@ -104,6 +119,7 @@ cleanup(){
   fi
   rm -rf "$stage"
   [ "$rollback_failure" -ne 0 ] || rm -rf "$backup"
+  [ "$rollback_failure" -eq 0 ] || exit 2
   exit "$rc"
 }
 trap cleanup EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM

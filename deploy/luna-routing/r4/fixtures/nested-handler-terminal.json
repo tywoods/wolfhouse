@@ -1,0 +1,95 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "srv0": {
+          "listen": [
+            ":443"
+          ],
+          "routes": [
+            {
+              "match": [
+                {
+                  "host": [
+                    "whatsapp-staging.lunafrontdesk.com"
+                  ]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "match": [
+                        {
+                          "path": [
+                            "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+                          ]
+                        }
+                      ],
+                      "handle": [
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "match": [
+                                {
+                                  "path": [
+                                    "/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+                                  ]
+                                }
+                              ],
+                              "terminal": true,
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": []
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "handler": "rewrite",
+                          "uri": "/v1/routes/meta-whatsapp-verified-webhook"
+                        },
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [
+                            {
+                              "dial": "127.0.0.1:8096"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "match": [
+                        {
+                          "path": [
+                            "/whatsapp/routing-proof"
+                          ]
+                        }
+                      ],
+                      "handle": [
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [
+                            {
+                              "dial": "127.0.0.1:8094"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}
