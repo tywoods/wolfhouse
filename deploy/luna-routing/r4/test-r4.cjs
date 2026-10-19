@@ -212,15 +212,15 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
    const file = path.join(fixtures, name);
    const cfg = load(name);
    const baseline = load('captain-r7-protected-baseline.json');
-   assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision/);
-   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /group collision/);
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /group collision|nested subroute rewrite effect/);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /group collision|nested subroute rewrite effect/);
    for (const args of [
      ['verify-inactive', file],
      ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
    ]) {
      const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
      assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
-     assert.match(result.stderr, /group collision/);
+     assert.match(result.stderr, /group collision|nested subroute rewrite effect/);
    }
  });
  for (const name of ['inline-rewrite-old-path.json', 'inline-rewrite-old-path-grouped.json']) await test(`Captain R11 stale nested path witness ${name} is rejected in both CLI modes`, () => {
@@ -251,6 +251,21 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
      assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
      assert.match(result.stdout, /^PASS /);
+   }
+ });
+ for (const name of ['nested-rewrite-return-later-handler.json', 'nested-rewrite-return-direct-proxy.json']) await test(`Captain R12 nested rewrite return witness ${name} is rejected in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /nested subroute rewrite effect/);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /nested subroute rewrite effect/);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, /nested subroute rewrite effect/);
    }
  });
  for (const name of ['cross-handler-disjoint-control.json', 'cross-handler-different-group-control.json']) await test(`Captain R9 exact control ${name} passes in both CLI modes`, () => {

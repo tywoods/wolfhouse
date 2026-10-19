@@ -204,6 +204,11 @@ function effectiveLeaves(cfg) {
                 fail('preceding handler group collision');
               }
             }
+            const returnPaths = currentPaths === null ? possibleApproved : currentPaths;
+            if (handlerOrder < handlers.length - 1
+              && returnPaths.some(requestPath => hasEscapingRewrite(handler.routes, SITE, requestPath))) {
+              fail('nested subroute rewrite effect reaches later handler');
+            }
             routes(handler.routes, { ...branch, currentPaths, rewrites: rewrites.slice(), order: branch.order.concat(handlerOrder) });
           } else if (handler.handler === 'reverse_proxy') {
             leaves.push({ ...branch, rewrites: rewrites.slice(), handler, handlerOrder });
