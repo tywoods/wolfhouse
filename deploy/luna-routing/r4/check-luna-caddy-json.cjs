@@ -59,6 +59,12 @@ function effectiveLeaves(cfg) {
       const pathApplies = paths === null || paths.some(pattern => nativeStaticMatch(pattern, requestPath, false) !== false);
       return hostApplies && pathApplies;
     }
+    function concreteCurrentPaths(constraint, authorizedPaths) {
+      if (constraint === null) return authorizedPaths;
+      const literal = constraint.filter(value => typeof value === 'string' && !/[?*\[\]{}%\\]/.test(value));
+      if (literal.length === constraint.length) return [...new Set(literal)];
+      return authorizedPaths.filter(requestPath => canMatch(constraint, requestPath));
+    }
     function hasEscapingRewrite(list, host, requestPath) {
       if (!Array.isArray(list)) return true;
       for (let i = 0; i < list.length; i++) {
@@ -131,22 +137,24 @@ function effectiveLeaves(cfg) {
     for (let i = 0; i < list.length; i++) {
       const route = list[i], next = list[i + 1];
       const routeAlternatives = Array.isArray(route?.match) && route.match.length ? route.match : [{}];
-      const relevantApproved = [...APPROVED.keys()].filter(requestPath =>
+      const authorizedPaths = [...APPROVED.keys()].filter(requestPath => canMatch(state.paths, requestPath));
+      const currentRequestPaths = concreteCurrentPaths(state.currentPaths, authorizedPaths);
+      const relevantCurrentPaths = currentRequestPaths.filter(requestPath =>
         routeAlternatives.some(match => alternativeMayApply(match, SITE, requestPath)));
       const priorConsumed = new Set(state.consumedGroups);
       for (const group of routeGroups(route)) {
-        if (relevantApproved.some(requestPath =>
+        if (relevantCurrentPaths.some(requestPath =>
           list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, group, SITE, requestPath)))) {
           priorConsumed.add(group);
         }
       }
       consumedBefore.set(route, priorConsumed);
-      if (typeof route?.group === 'string' && relevantApproved.some(requestPath =>
+      if (typeof route?.group === 'string' && relevantCurrentPaths.some(requestPath =>
         list.slice(0, i).some(sibling => routeMayConsumeGroup(sibling, route.group, SITE, requestPath)))) {
         fail('preceding sibling group collision');
       }
       const handlers = Array.isArray(route?.handle) ? route.handle : [];
-      if (route?.terminal === true && handlers.length === 0 && relevantApproved.length) {
+      if (route?.terminal === true && handlers.length === 0 && relevantCurrentPaths.length) {
         fail('intercepting empty terminal route');
       }
       const rewrite = handlers.length === 1 && handlers[0]?.handler === 'rewrite' ? handlers[0] : null;
@@ -163,13 +171,13 @@ function effectiveLeaves(cfg) {
         consumedBefore.set(combined, priorConsumed);
         normalized.push(combined); i++; continue;
       }
-      const affectedApproved = relevantApproved.filter(requestPath => list.slice(i + 1).some(sibling => {
+      const affectedCurrentPaths = relevantCurrentPaths.filter(requestPath => list.slice(i + 1).some(sibling => {
         const alternatives = Array.isArray(sibling?.match) && sibling.match.length ? sibling.match : [{}];
         return alternatives.some(match => alternativeMayApply(match, SITE, requestPath));
       }));
-      if (affectedApproved.length) {
+      if (affectedCurrentPaths.length) {
         if (route?.terminal === true) fail(handlers.length === 0 ? 'intercepting empty terminal route' : 'preceding route termination effect');
-        const hasUnresolvedRewrite = affectedApproved.some(requestPath => handlers.some(handler =>
+        const hasUnresolvedRewrite = affectedCurrentPaths.some(requestPath => handlers.some(handler =>
           handler?.handler === 'rewrite' && !sequentialShape
           || handler?.handler === 'subroute' && hasEscapingRewrite(handler.routes, SITE, requestPath)));
         if (hasUnresolvedRewrite) fail('preceding route rewrite effect');
@@ -204,7 +212,7 @@ function effectiveLeaves(cfg) {
                 fail('preceding handler group collision');
               }
             }
-            const returnPaths = currentPaths === null ? possibleApproved : currentPaths;
+            const returnPaths = concreteCurrentPaths(currentPaths, possibleApproved);
             if (handlerOrder < handlers.length - 1
               && returnPaths.some(requestPath => hasEscapingRewrite(handler.routes, SITE, requestPath))) {
               fail('nested subroute rewrite effect reaches later handler');

@@ -195,6 +195,13 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
     await runExactLead(root, 'path-disjoint-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runExactLead(root, 'nested-rewrite-return-later-handler', [], [inspector.PROOF], 0),
     await runExactLead(root, 'nested-rewrite-return-direct-proxy', ['/review-diverted'], [inspector.PROOF], 0),
+    await runExactLead(root, 'nested-last-handler-sibling', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'direct-sibling-rewrite', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'wildcard-current-path', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'pathless-rejection-control', [], [inspector.PROOF], 0),
+    await runExactLead(root, 'disjoint-sibling-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'wildcard-disjoint-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
+    await runExactLead(root, 'canonical-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runExactLead(root, 'nested-preceding-rewrite', [], [inspector.PROOF], 0),
     await runExactLead(root, 'nested-preceding-disjoint-rewrite-control', [inspector.CONTROLLER_REWRITE], [inspector.PROOF], 1, false),
     await runCaptainR8(root, 'cross-scope-group-consumer', true, [

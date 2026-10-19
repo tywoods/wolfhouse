@@ -268,6 +268,36 @@ function rejects(mutator) { const cfg = valid(); mutator(cfg); assert.throws(() 
      assert.match(result.stderr, /nested subroute rewrite effect/);
    }
  });
+ for (const name of ['nested-last-handler-sibling.json', 'direct-sibling-rewrite.json', 'wildcard-current-path.json', 'pathless-rejection-control.json']) await test(`Captain R13 current-path witness ${name} is rejected in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   assert.throws(() => inspector.verifyInactiveObject(cfg), /rewrite effect/);
+   assert.throws(() => inspector.compareProtectedObjects(baseline, cfg), /rewrite effect/);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 1, `${name} ${args[0]} exit`);
+     assert.match(result.stderr, /rewrite effect/);
+   }
+ });
+ for (const name of ['disjoint-sibling-control.json', 'wildcard-disjoint-control.json', 'canonical-control.json']) await test(`Captain R13 current-path control ${name} passes in both CLI modes`, () => {
+   const file = path.join(fixtures, name);
+   const cfg = load(name);
+   const baseline = load('captain-r7-protected-baseline.json');
+   inspector.verifyInactiveObject(cfg);
+   inspector.compareProtectedObjects(baseline, cfg);
+   for (const args of [
+     ['verify-inactive', file],
+     ['compare-protected', path.join(fixtures, 'captain-r7-protected-baseline.json'), file]
+   ]) {
+     const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'check-luna-caddy-json.cjs'), ...args], { encoding: 'utf8' });
+     assert.strictEqual(result.status, 0, `${name} ${args[0]}: ${result.stderr}`);
+     assert.match(result.stdout, /^PASS /);
+   }
+ });
  for (const name of ['cross-handler-disjoint-control.json', 'cross-handler-different-group-control.json']) await test(`Captain R9 exact control ${name} passes in both CLI modes`, () => {
    const file = path.join(fixtures, name);
    const cfg = load(name);
