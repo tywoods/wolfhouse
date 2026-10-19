@@ -15,6 +15,11 @@ rb_error(){ ROLLBACK_ERRORS+=("$*"); printf 'ROLLBACK FAILED — %s\n' "$*" >&2;
 regular_nolink(){ [[ -f $1 && ! -L $1 ]]; }
 atomic_restore(){ node "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
 controller_inactive(){ [[ $(/usr/bin/systemctl is-active luna-routing-controller.service 2>/dev/null || :) == inactive ]]; }
+controller_enabled_state(){
+  local state rc
+  state=$(/usr/bin/systemctl is-enabled luna-routing-controller.service 2>/dev/null); rc=$?
+  case "$state:$rc" in enabled:0) printf 'enabled\n';; disabled:1) printf 'disabled\n';; *) return 1;; esac
+}
 url_state(){ local line found=0 state=ABSENT; while IFS= read -r line;do case "$line" in CROWSNEST_LUNA_ROUTING_CONTROLLER_URL=*) ((found+=1)); [[ ${line#*=} ]]&&state=SET||state=EMPTY;; esac;done; ((found<=1))||return 1; printf '%s\n' "$state"; }
 crowsnest_state(){
   local id=$1 base env_state full image running
@@ -50,10 +55,19 @@ rollback_controller(){
   (( CONTROLLER_SNAPSHOT_READY ))||return 0
   if (( CONTROLLER_STARTED )); then /usr/bin/systemctl stop luna-routing-controller.service || CONTROLLER_STOP_UNCONFIRMED=1; controller_inactive || CONTROLLER_STOP_UNCONFIRMED=1; fi
   if (( CONTROLLER_STOP_UNCONFIRMED )); then printf 'controller stop unconfirmed; retaining controller files/backups/release/Node/runtime dependencies\n' >&2; return 1; fi
+  if (( ! CONTROLLER_UNIT_WAS_PRESENT )) && [[ -e /etc/systemd/system/luna-routing-controller.service ]]; then
+    local enabled_state
+    enabled_state=$(controller_enabled_state) || return 1
+    if [[ $enabled_state == enabled ]]; then /usr/bin/systemctl disable luna-routing-controller.service || return 1; fi
+  fi
   local state slot dest
   while IFS=$'\t' read -r state slot dest; do [[ ! -L $dest ]]||return 1; if [[ $state == PRESENT ]];then cp -a "$BACKUP/controller/files/$slot" "$dest"||return 1;else rm -f "$dest"||return 1;fi; done <"$BACKUP/controller/manifest"
   /usr/bin/systemctl daemon-reload||return 1
-  if (( CONTROLLER_WAS_ENABLED ));then /usr/bin/systemctl enable luna-routing-controller.service||return 1;else /usr/bin/systemctl disable luna-routing-controller.service||return 1;fi
+  if (( CONTROLLER_UNIT_WAS_PRESENT ));then
+    if (( CONTROLLER_WAS_ENABLED ));then /usr/bin/systemctl enable luna-routing-controller.service||return 1;else /usr/bin/systemctl disable luna-routing-controller.service||return 1;fi
+  else
+    [[ ! -e /etc/systemd/system/luna-routing-controller.service ]]||return 1
+  fi
   if (( CONTROLLER_WAS_ACTIVE ));then /usr/bin/systemctl start luna-routing-controller.service||return 1;else controller_inactive||return 1;fi
 }
 rollback_caddy(){
@@ -91,7 +105,7 @@ verify_full_baseline(){
 rollback_all(){ rollback_controller||rb_error 'controller/router artifact restoration failed'; rollback_caddy||rb_error 'Caddy/import/active-state restoration failed'; rollback_release||rb_error 'release restoration failed'; rollback_secret_and_temp||rb_error 'secret/temp restoration failed'; verify_full_baseline||rb_error 'full baseline verification failed'; rollback_node||rb_error 'Node/package/repository restoration failed'; ((${#ROLLBACK_ERRORS[@]}==0)); }
 on_exit(){ local rc=$?; trap - EXIT HUP INT TERM; ((COMMITTED==1))&&exit "$rc"; ((rc!=0))||rc=1; ((MUTATED==1))||{ printf 'STUCK — phase=%s — no host mutation occurred\n' "$PHASE" >&2; exit "$rc"; }; ROLLING_BACK=1; rollback_all||true; if((${#ROLLBACK_ERRORS[@]}));then printf 'ROLLBACK INCOMPLETE — %s — backup=%s\n' "$(IFS='; ';printf '%s' "${ROLLBACK_ERRORS[*]}")" "$BACKUP" >&2;exit 2;fi;printf 'ROLLBACK — failed phase=%s; full pre-job baseline restored and verified.\n' "$PHASE" >&2;exit "$rc"; }
 trap on_exit EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
-CONTROLLER_STARTED=0 CONTROLLER_WAS_ACTIVE=0 CONTROLLER_WAS_ENABLED=0 NODE_INSTALL_ATTEMPTED=0 RELEASE_CREATED=0 RELEASE_ID= INSTALLER= CROWSNEST_ID= CROWSNEST_BASE=
+CONTROLLER_STARTED=0 CONTROLLER_UNIT_WAS_PRESENT=0 CONTROLLER_WAS_ACTIVE=0 CONTROLLER_WAS_ENABLED=0 NODE_INSTALL_ATTEMPTED=0 RELEASE_CREATED=0 RELEASE_ID= INSTALLER= CROWSNEST_ID= CROWSNEST_BASE=
 exec 9>/run/lock/luna-routing-deploy.lock; must flock -n 9
 (( EUID == 0 ))||die 1 'root required'; for x in bash flock sha256sum stat cp mv curl caddy docker dpkg-query apt-get tar timeout;do command -v "$x">/dev/null||die 1 "missing tool $x";done
 regular_nolink "$SOURCE_ARCHIVE"||die 1 'source archive is not regular'; regular_nolink "$DEB"||die 1 'Node package is not regular'; require sha256sum -c "$BUNDLE/SUMS.txt"; [[ $(sha256sum "$SOURCE_ARCHIVE"|cut -d' ' -f1) == "$SOURCE_SHA256" ]]||die 1 'source archive hash mismatch'; [[ $(sha256sum "$DEB"|cut -d' ' -f1) == "$NODE_SHA" ]]||die 1 'Node package hash mismatch'
@@ -110,6 +124,7 @@ require regular_nolink "$BACKUP/caddy-tree/Caddyfile"
 require cmp -s /etc/caddy/Caddyfile "$BACKUP/caddy-tree/Caddyfile"
 WRITTEN_CADDY=(Caddyfile); CADDY_SNAPSHOT_READY=1
 backup_controller||die 1 'controller artifact inventory failed'; CONTROLLER_SNAPSHOT_READY=1
+[[ -e /etc/systemd/system/luna-routing-controller.service ]]&&CONTROLLER_UNIT_WAS_PRESENT=1||:
 /usr/bin/systemctl is-active --quiet luna-routing-controller.service&&CONTROLLER_WAS_ACTIVE=1||:; /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service&&CONTROLLER_WAS_ENABLED=1||:
 CROWSNEST_ID=$(docker ps --filter name=crowsnest --format '{{.ID}}'|head -n1); [[ -n $CROWSNEST_ID ]]||die 1 'Crow’s Nest not running'; CROWSNEST_BASE=$(crowsnest_state "$CROWSNEST_ID")||die 1 'Crow’s Nest identity/image/running/URL state invalid'; CROWSNEST_SNAPSHOT_READY=1
 must fetch_active "$BACKUP/active.before.json"; must node "$BUNDLE/check-luna-caddy-json.cjs" snapshot-protected "$BACKUP/active.before.json" >"$BACKUP/protected.before"; PROTECTED_SNAPSHOT_READY=1

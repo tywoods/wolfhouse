@@ -97,6 +97,23 @@ function effectiveLeaves(cfg) {
   const servers = cfg?.apps?.http?.servers;
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) fail('missing HTTP servers');
   const leaves = [];
+  function canonicalStaticBaseline(server) {
+    if (!server || Object.keys(server).some(key => !['listen', 'routes'].includes(key))) return false;
+    if (!Array.isArray(server.listen) || server.listen.length !== 1 || server.listen[0] !== ':80') return false;
+    if (!Array.isArray(server.routes) || server.routes.length !== 1) return false;
+    const route = server.routes[0];
+    if (!route || Object.keys(route).length !== 1 || !Array.isArray(route.handle) || route.handle.length !== 2) return false;
+    const [vars, files] = route.handle;
+    return vars?.handler === 'vars'
+      && Object.keys(vars).length === 2
+      && vars.root === '/usr/share/caddy'
+      && files?.handler === 'file_server'
+      && Object.keys(files).length === 2
+      && Array.isArray(files.hide)
+      && files.hide.length === 1
+      && typeof files.hide[0] === 'string'
+      && /^\/.*\/Caddyfile$/.test(files.hide[0]);
+  }
   function routes(list, state) {
     if (!Array.isArray(list)) fail('routes must be an array');
     function nativeStaticMatch(pattern, value, host) {
@@ -300,7 +317,10 @@ function effectiveLeaves(cfg) {
       });
     });
   }
-  for (const [server, value] of Object.entries(servers)) routes(value?.routes || [], { server, hosts: null, paths: null, currentPaths: null, rewrites: [], order: [], groups: [], consumedGroups: [] });
+  for (const [server, value] of Object.entries(servers)) {
+    if (canonicalStaticBaseline(value)) continue;
+    routes(value?.routes || [], { server, hosts: null, paths: null, currentPaths: null, rewrites: [], order: [], groups: [], consumedGroups: [] });
+  }
   return leaves;
 }
 
