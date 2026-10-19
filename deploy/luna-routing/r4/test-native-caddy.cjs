@@ -274,6 +274,29 @@ async function runCaptainR8(root, name, inspectorRejects, expectedCalls) {
     await runCaptainR8(root, 'disjoint-wildcard-delivery-control', false, [
       { method: 'GET', url: inspector.CONTROLLER_REWRITE },
       { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-terminal-later-sibling', true, [
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-nonterminal-sibling-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'nested-terminal-disjoint-sibling-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
+    ]),
+    await runCaptainR8(root, 'bang-class-delivery', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'positive-class-delivery-rejection', true, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE }, { method: 'GET', url: inspector.PROOF },
+      { method: 'GET', url: inspector.WEBHOOK }, { method: 'POST', url: inspector.WEBHOOK }
+    ]),
+    await runCaptainR8(root, 'bang-class-disjoint-control', false, [
+      { method: 'GET', url: inspector.CONTROLLER_REWRITE },
+      { method: 'GET', url: inspector.PROOF }
     ])
   ];
   fs.writeFileSync(path.join(root, 'results.json'), `${JSON.stringify({ version, cases }, null, 2)}\n`);

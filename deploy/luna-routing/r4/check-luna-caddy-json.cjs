@@ -33,7 +33,7 @@ function globTokens(pattern, host) {
       const end = pattern.indexOf(']', i + 1);
       if (end < 0) return null;
       let body = pattern.slice(i + 1, end), negate = false;
-      if (body[0] === '!' || body[0] === '^') { negate = true; body = body.slice(1); }
+      if (body[0] === '^') { negate = true; body = body.slice(1); }
       if (!body) return null;
       const chars = new Set();
       for (let j = 0; j < body.length; j++) {
@@ -243,6 +243,9 @@ function effectiveLeaves(cfg) {
       }));
       if (affectedCurrentPaths.length) {
         if (route?.terminal === true) fail(handlers.length === 0 ? 'intercepting empty terminal route' : 'preceding route termination effect');
+        const hasNestedTermination = affectedCurrentPaths.some(requestPath => handlers.some(handler =>
+          handler?.handler === 'subroute' && hasTerminatingRoute(handler.routes, SITE, requestPath)));
+        if (hasNestedTermination) fail('nested subroute termination effect reaches later sibling');
         const hasUnresolvedRewrite = affectedCurrentPaths.some(requestPath => handlers.some(handler =>
           handler?.handler === 'rewrite' && !sequentialShape
           || handler?.handler === 'subroute' && hasEscapingRewrite(handler.routes, SITE, requestPath)));
