@@ -13,7 +13,7 @@ must(){ "$@" || { local rc=$?; die "$rc" "$(safe_command "$@") — exit $rc"; };
 require(){ "$@" || die 1 "assertion failed: $(safe_command "$@")"; }
 rb_error(){ ROLLBACK_ERRORS+=("$*"); printf 'ROLLBACK FAILED — %s\n' "$*" >&2; }
 regular_nolink(){ [[ -f $1 && ! -L $1 ]]; }
-atomic_restore(){ node "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
+atomic_restore(){ node -- "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
 controller_inactive(){ [[ $(/usr/bin/systemctl is-active luna-routing-controller.service 2>/dev/null || :) == inactive ]]; }
 controller_enabled_state(){
   local state rc
@@ -161,8 +161,8 @@ must node "$BUNDLE/check-luna-caddy-json.cjs" compare-protected "$BACKUP/protect
 must wait_for_certificate
 require require_unauthorized http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook "$BACKUP/local.unauth.json"
 require require_unauthorized "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" "$BACKUP/public.unauth.json"
-must node "$BUNDLE/probe-luna-routing-get.cjs" --env-file http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook /root/luna-routing.env >"$BACKUP/local.auth.json"
-must node "$BUNDLE/probe-luna-routing-get.cjs" --env-file "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" /root/luna-routing.env >"$BACKUP/public.auth.json"
+must node -- "$BUNDLE/probe-luna-routing-get.cjs" --env-file http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook /root/luna-routing.env >"$BACKUP/local.auth.json"
+must node -- "$BUNDLE/probe-luna-routing-get.cjs" --env-file "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" /root/luna-routing.env >"$BACKUP/public.auth.json"
 must capture_public_contract "$BACKUP/public.after"; cmp -s "$BACKUP/public.before" "$BACKUP/public.after"||die 1 'protected HTTP/TLS/Location drifted'
 [[ $(crowsnest_state "$CROWSNEST_ID") == "$CROWSNEST_BASE" ]]||die 1 'Crow’s Nest identity/image/running/URL state drifted'
 COMMITTED=1; printf 'HOLD — France TEST controller installed inactive; activation remains HOLD.\n'

@@ -76,7 +76,7 @@ if [[ $1 == -s ]]; then printf 'Inst nodejs (22.23.3-1nodesource1 local-deb [amd
 if [[ $1 == install ]]; then
   cat >"$R4_ROOT/usr/bin/node" <<'NODE'
 #!/usr/bin/env bash
-if [[ \${1:-} == --version ]]; then echo v22.23.3; elif [[ \${R4_INVENTORY_FAIL:-0} == 1 && \${1:-} == */caddy-import-inventory.cjs && \${4:-} == *prewrite.identity.json ]];then exit 57; elif [[ \${1:-} == */probe-luna-routing-get.cjs ]];then printf '{"status":503,"body":{"ok":false,"code":"route_readback_failed"}}\\n'; else exec "\${R4_HOST_NODE:?}" "$@"; fi
+if [[ \${1:-} == --version ]]; then echo v22.23.3; elif [[ \${R4_INVENTORY_FAIL:-0} == 1 && \${1:-} == */caddy-import-inventory.cjs && \${4:-} == *prewrite.identity.json ]];then exit 57; elif [[ \${1:-} == -- && \${2:-} == */probe-luna-routing-get.cjs ]];then printf '{"status":503,"body":{"ok":false,"code":"route_readback_failed"}}\\n'; else exec "\${R4_HOST_NODE:?}" "$@"; fi
 NODE
   chmod 755 "$R4_ROOT/usr/bin/node"; [[ \${R4_APT_PARTIAL_FAIL:-0} != 1 ]]||exit 42; exit 0
 fi
