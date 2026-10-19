@@ -25,7 +25,18 @@ crowsnest_state(){
 }
 fetch_active(){ curl --fail --silent --show-error --connect-timeout 3 --max-time 8 http://127.0.0.1:2019/config/ -o "$1"; }
 require_unauthorized(){ local url=$1 body=$2 status; status=$(curl --silent --show-error --connect-timeout 3 --max-time 8 -o "$body" -w '%{http_code}' "$url")||return 1; [[ $status == 401 ]]||return 1; node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1]));if(b.ok!==false||b.code!=="unauthorized")process.exit(1)' "$body"; }
-capture_public_contract(){ local out=$1 url; : >"$out"; for url in "https://$SITE/" "https://$SITE/whatsapp/webhook";do curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null -w '%{url_effective}\t%{http_code}\t%{ssl_verify_result}\t%{redirect_url}\n' "$url" >>"$out"||return 1;done; }
+capture_public_contract(){
+  local out=$1 url
+  : >"$out"
+  for url in \
+    https://staff-staging.lunafrontdesk.com/ \
+    https://sunset-staging.lunafrontdesk.com/ \
+    https://crowsnest.lunafrontdesk.com/ \
+    http://127.0.0.1:8090/health
+  do
+    curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null -w '%{url_effective}\t%{http_code}\t%{ssl_verify_result}\t%{redirect_url}\n' "$url" >>"$out"||return 1
+  done
+}
 backup_controller(){
   mkdir -p "$BACKUP/controller/files" || return 1
   : >"$BACKUP/controller/manifest" || return 1
