@@ -64,8 +64,10 @@ exec /bin/cp "$@"`);
   mock('curl', `printf 'CURL %s\\n' "$*" >>"$R4_TEST_LOG"
 out=; write=; url=; while (($#));do case "$1" in -o) out=$2;shift 2;; -w) write=$2;shift 2;; http*) url=$1;shift;; *) shift;;esac;done
 if [[ $url == http://127.0.0.1:2019/config/ ]];then if [[ \${R4_FAULT_ROUTE:-0} == 1 && $out == *active.after.json ]];then cp "$R4_ROOT/bundle/fixtures/pathless-webhook-delivery.json" "$out";else cp "$R4_ROOT/var/lib/caddy/.config/caddy/autosave.json" "$out";fi;exit 0;fi
+if [[ $url == https://whatsapp-staging.lunafrontdesk.com/* && ! -e "$R4_ROOT/controller.active" ]];then exit 35;fi
+if [[ $url == https://whatsapp-staging.lunafrontdesk.com/* && \${R4_FAULT_NEW_TLS:-0} == 1 ]];then exit 35;fi
 if [[ $write == '%{http_code}' ]];then [[ \${R4_FAULT_CURL:-0} != 1 ]]||exit 7;printf '{"ok":false,"code":"unauthorized"}\\n' >"$out";printf 401;exit 0;fi
-if [[ -n $write ]];then printf '%s\\t200\\t0\\t\\n' "$url";exit 0;fi
+if [[ -n $write ]];then status=200; redirect=; case "$url" in https://staff-staging.lunafrontdesk.com/) status=302;redirect=https://staff-staging.lunafrontdesk.com/staff/login;; https://sunset-staging.lunafrontdesk.com/) status=302;redirect=https://sunset-staging.lunafrontdesk.com/staff/login;; https://crowsnest.lunafrontdesk.com/) status=302;redirect=https://crowsnest.lunafrontdesk.com/login;; esac; if [[ \${R4_FAULT_PROTECTED_DRIFT:-0} == 1 && -e "$R4_ROOT/controller.active" && $url == https://staff-staging.lunafrontdesk.com/ ]];then status=503;redirect=;fi; printf '%s\\t%s\\t0\\t%s\\n' "$url" "$status" "$redirect";exit 0;fi
 exit 0`);
   mock('docker', `printf 'DOCKER %s\\n' "$*" >>"$R4_TEST_LOG"\nif [[ $1 == ps ]]; then echo crowsnest-fixture; elif [[ $* == *Config.Env* ]];then exit 0; else echo 'container-fixture luna-local/crowsnest:998f962abcfaf09e7aa7435592d94eb34af27c97 true'; fi`);
   mock('caddy', `printf 'CADDY %s\\n' "$*" >>"$R4_TEST_LOG"`);
@@ -100,7 +102,7 @@ function executeCase(input = {}) {
     const release = path.join(f.root, options.failInstall ? 'release-fail' : 'release-ok');
     if (options.priorActive) { fs.writeFileSync(path.join(f.root, 'controller.active'), ''); fs.writeFileSync(path.join(f.root, 'controller.enabled'), ''); }
     const env = { ...process.env, PATH: `${f.root}/bin:${f.root}/usr/bin:/usr/bin:/bin`, R4_ROOT: f.root, R4_HOST_NODE: hostNode, R4_TEST_LOG: f.log, TX: path.join(f.root, 'tx'), SOURCE_ARCHIVE: archive, SOURCE_SHA256: sha(archive), SOURCE_COMMIT: 'fixture-commit', DEB: f.deb, RELEASE: release,
-      R4_FAULT_ROUTE: options.faultRoute ? '1' : '0', R4_FAULT_CURL: options.faultCurl ? '1' : '0', R4_APT_SIM_FAIL: options.aptSimFail ? '1' : '0', R4_APT_PARTIAL_FAIL: options.aptPartialFail ? '1' : '0', R4_INVENTORY_FAIL: options.inventoryFail ? '1' : '0', R4_FAULT_STOP: options.faultStop ? '1' : '0', R4_FAULT_BACKUP_COPY: options.faultBackupCopy ? '1' : '0', R4_REAL_CHILD_FAIL: options.realChild ? '1' : '0' };
+      R4_FAULT_ROUTE: options.faultRoute ? '1' : '0', R4_FAULT_CURL: options.faultCurl ? '1' : '0', R4_FAULT_NEW_TLS: options.faultNewTls ? '1' : '0', R4_FAULT_PROTECTED_DRIFT: options.faultProtectedDrift ? '1' : '0', R4_APT_SIM_FAIL: options.aptSimFail ? '1' : '0', R4_APT_PARTIAL_FAIL: options.aptPartialFail ? '1' : '0', R4_INVENTORY_FAIL: options.inventoryFail ? '1' : '0', R4_FAULT_STOP: options.faultStop ? '1' : '0', R4_FAULT_BACKUP_COPY: options.faultBackupCopy ? '1' : '0', R4_REAL_CHILD_FAIL: options.realChild ? '1' : '0' };
 
     const out = run('bash', [path.join(f.bundle, 'run-luna-routing-r4.sh'), '--execute'], { env, cwd: f.bundle });
     return { ...f, release, out, operations: fs.readFileSync(f.log, 'utf8').trim().split('\n').filter(Boolean) };
@@ -115,8 +117,11 @@ try {
   const firstNodeDependent = full.operations.findIndex(x => x.startsWith('DOCKER '));
   assert(installAt >= 0 && firstNodeDependent > installAt, `operations: ${full.operations.join(' | ')}`);
   assert(!full.operations.some(x => x.startsWith('APT purge')), 'successful full run must retain transaction-installed Node');
+  const installOp = full.operations.indexOf('INSTALLER --install');
+  const newHostCalls = full.operations.map((x, i) => [x, i]).filter(([x]) => x.includes('https://whatsapp-staging.lunafrontdesk.com/'));
+  assert(newHostCalls.length >= 2 && newHostCalls.every(([, i]) => i > installOp), `new host must only be probed after install: ${full.operations.join(' | ')}`);
   console.log(`TRACE absent-Node full: ${full.operations.join(' -> ')}`);
-  console.log('PASS absent-Node full run installs pinned Node before Node-dependent inventory');
+  console.log('PASS absent-Node full run tolerates missing pre-install TLS and probes the new host only after install');
 } finally { fs.rmSync(full.root, { recursive: true, force: true }); }
 
 const rollback = executeCase(true);
@@ -140,6 +145,8 @@ for (const [name, options, expected] of [
   ['inventory failure after Node install', { inventoryFail: true }, 57],
   ['partial package install failure', { aptPartialFail: true }, 42],
   ['required Caddy backup copy failure', { faultBackupCopy: true }, 59],
+  ['new-host TLS failure after reload', { faultNewTls: true }, 35],
+  ['protected-site drift after reload', { faultProtectedDrift: true }, 1],
 ]) {
   const result = executeCase(options);
   try {
@@ -152,6 +159,14 @@ for (const [name, options, expected] of [
     if (options.faultBackupCopy) {
       assert.equal(result.operations.some(x => x === 'INSTALLER --install'), false, 'child install must not begin without a validated backup');
       assert.equal(fs.existsSync(path.join(result.root, 'var/backups')), true);
+    }
+    if (options.faultNewTls || options.faultProtectedDrift) {
+      assert.match(result.out.stderr, /ROLLBACK — failed phase=acceptance/);
+      const failureProbeAt = options.faultNewTls
+        ? result.operations.findIndex(x => x.includes('https://whatsapp-staging.lunafrontdesk.com/'))
+        : result.operations.map((x, i) => [x, i]).filter(([x]) => x.includes('https://staff-staging.lunafrontdesk.com/'))[1][1];
+      const rollbackReloadAt = result.operations.findIndex((x, i) => i > failureProbeAt && x === 'SYSTEMCTL reload caddy');
+      assert(failureProbeAt >= 0 && rollbackReloadAt > failureProbeAt, `${name}: rollback must reload original Caddy config after the failing acceptance probe`);
     }
     if (options.aptSimFail) assert.equal(result.operations.some(x => x.startsWith('APT install ')), false);
     console.log(`PASS ${name} fails closed with rollback discipline`);
