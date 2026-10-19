@@ -2567,6 +2567,11 @@ def finalize_offer_response(result):
                                 if not isinstance(structured, dict)
                                 and isinstance(tool_result.get('reply_draft'), str)
                                 and tool_result['reply_draft'].strip().endswith('?') else None)
+                # Iteration is newest-first: a newer no-stock quote resolves any
+                # older eligibility uncertainty in this same guest turn.
+                if (tool_result.get('unavailable') is True
+                        or tool_result.get('availability_status') == 'unavailable'):
+                    break
                 if (isinstance(tool_result, dict)
                         and tool_result.get('availability_status') == 'eligibility_required'
                         and tool_result.get('next_action') == 'ask_room_eligibility'
@@ -2579,8 +2584,8 @@ def finalize_offer_response(result):
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = text
                     return output
-                # Iteration is newest-first: checked quote/create truth resolves
-                # any older eligibility uncertainty in this same guest turn.
+                # Checked quote/create truth also resolves any older eligibility
+                # uncertainty in this same guest turn.
                 if (isinstance(tool_result, dict) and tool_result.get('success') is True
                         and (isinstance(tool_result.get('offer_revision'), dict)
                              or tool_result.get('booking_id')

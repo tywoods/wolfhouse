@@ -1,4 +1,5 @@
 """Offline owner-ledger tracer bullet; real Hermes SessionDB, no business writes."""
+import json
 import tempfile
 import unittest
 from copy import deepcopy
@@ -2590,6 +2591,56 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 self.assertEqual(expected, shown['final_response'])
+
+    def test_same_turn_newer_unavailable_quote_wins_over_older_eligibility_receipt(self):
+        guest_turns = {
+            'en': 'Do you have those beds?',
+            'es': '¿Tenéis esas camas?',
+            'fr': 'Avez-vous ces lits ?',
+            'de': 'Habt ihr diese Betten?',
+        }
+        for language, guest_turn in guest_turns.items():
+            for status in ('unsure', 'no'):
+                with self.subTest(language=language, status=status):
+                    self.agent.session_id = f'same-turn-no-stock-{language}-{status}'
+                    self.db.create_session(self.agent.session_id, source='whatsapp')
+                    self.turn(f'same-turn-no-stock-{language}-{status}', guest_turn)
+                    eligibility = {
+                        'status': status,
+                        'requested_room_preference': 'female_only',
+                        'affected_guest_indices': [0, 1],
+                        'reason_code': ('room_eligibility_unknown' if status == 'unsure'
+                                        else 'room_eligibility_incompatible'),
+                        'question_kind': 'confirm_room_eligibility',
+                    }
+                    unavailable = {
+                        'success': False,
+                        'unavailable': True,
+                        'availability_status': 'unavailable',
+                        'quote_status': 'needs_guest_clarification',
+                        'room_eligibility': eligibility,
+                        'offer_revision': None,
+                    }
+                    self.ledger.record_quote({**self.plan, 'language': language}, unavailable)
+                    messages = [
+                        {'role': 'user', 'content': guest_turn},
+                        {'role': 'tool', 'content': json.dumps({
+                            'success': False,
+                            'availability_status': 'eligibility_required',
+                            'next_action': 'ask_room_eligibility',
+                            'room_eligibility': eligibility,
+                        })},
+                        {'role': 'tool', 'content': json.dumps(unavailable)},
+                        {'role': 'assistant', 'content': 'draft'},
+                    ]
+                    shown = self.ledger.finalize_offer_response({
+                        'completed': True,
+                        'final_response': 'draft',
+                        'messages': messages,
+                    })
+                    expected = self.ledger._final_copy(language, 'refusal')
+                    self.assertEqual(expected, shown['final_response'])
+                    self.assertEqual(expected, shown['messages'][-1]['content'])
 
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json
