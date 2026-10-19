@@ -46,8 +46,12 @@ wait_for_certificate(){
   local deadline=$((SECONDS + 120)) remaining attempt_timeout
   while (( SECONDS < deadline )); do
     remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
     (( remaining < 8 )) && attempt_timeout=$remaining || attempt_timeout=8
-    curl --silent --show-error --connect-timeout 3 --max-time "$attempt_timeout" -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" && return 0
+    if curl --silent --show-error --connect-timeout 3 --max-time "$attempt_timeout" -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"; then
+      (( SECONDS < deadline )) && return 0
+      break
+    fi
     (( SECONDS < deadline )) || break
     remaining=$((deadline - SECONDS))
     (( remaining < 2 )) && sleep "$remaining" || sleep 2
