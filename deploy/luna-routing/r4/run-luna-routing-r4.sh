@@ -15,6 +15,11 @@ rb_error(){ ROLLBACK_ERRORS+=("$*"); printf 'ROLLBACK FAILED — %s\n' "$*" >&2;
 regular_nolink(){ [[ -f $1 && ! -L $1 ]]; }
 atomic_restore(){ node "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
 controller_inactive(){ [[ $(/usr/bin/systemctl is-active luna-routing-controller.service 2>/dev/null || :) == inactive ]]; }
+controller_enabled_state(){
+  local state rc
+  state=$(/usr/bin/systemctl is-enabled luna-routing-controller.service 2>/dev/null); rc=$?
+  case "$state:$rc" in enabled:0) printf 'enabled\n';; disabled:1) printf 'disabled\n';; *) return 1;; esac
+}
 url_state(){ local line found=0 state=ABSENT; while IFS= read -r line;do case "$line" in CROWSNEST_LUNA_ROUTING_CONTROLLER_URL=*) ((found+=1)); [[ ${line#*=} ]]&&state=SET||state=EMPTY;; esac;done; ((found<=1))||return 1; printf '%s\n' "$state"; }
 crowsnest_state(){
   local id=$1 base env_state full image running
@@ -50,8 +55,10 @@ rollback_controller(){
   (( CONTROLLER_SNAPSHOT_READY ))||return 0
   if (( CONTROLLER_STARTED )); then /usr/bin/systemctl stop luna-routing-controller.service || CONTROLLER_STOP_UNCONFIRMED=1; controller_inactive || CONTROLLER_STOP_UNCONFIRMED=1; fi
   if (( CONTROLLER_STOP_UNCONFIRMED )); then printf 'controller stop unconfirmed; retaining controller files/backups/release/Node/runtime dependencies\n' >&2; return 1; fi
-  if (( ! CONTROLLER_UNIT_WAS_PRESENT )) && /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service; then
-    /usr/bin/systemctl disable luna-routing-controller.service || return 1
+  if (( ! CONTROLLER_UNIT_WAS_PRESENT )) && [[ -e /etc/systemd/system/luna-routing-controller.service ]]; then
+    local enabled_state
+    enabled_state=$(controller_enabled_state) || return 1
+    if [[ $enabled_state == enabled ]]; then /usr/bin/systemctl disable luna-routing-controller.service || return 1; fi
   fi
   local state slot dest
   while IFS=$'\t' read -r state slot dest; do [[ ! -L $dest ]]||return 1; if [[ $state == PRESENT ]];then cp -a "$BACKUP/controller/files/$slot" "$dest"||return 1;else rm -f "$dest"||return 1;fi; done <"$BACKUP/controller/manifest"
