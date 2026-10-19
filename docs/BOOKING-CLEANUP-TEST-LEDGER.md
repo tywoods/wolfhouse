@@ -16,6 +16,19 @@ The R2 review already established that its registered sequence passed base and h
 
 ## Candidate gates
 
+Candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay and real PGlite Staff handlers. The focused persistence suite passed **14/14**. The combined first-yes owner + persistence suite passed **68/68**. The registered boundary suite passed **13/13**.
+
+### Final persistence classifications
+
+| Test | Classification | Candidate result / contract |
+|---|---|---|
+| `test_enriched_yes_cannot_override_original_guest_refusal` | harness authority defect repaired | PASS; the scripted interpretation is bound to preserved raw `No thanks`, so enriched `yes` cannot mint acceptance or a SQL booking |
+| `test_lost_commit_reply_recovers_same_sql_booking_and_idempotency_key` | supported SQL idempotency retry | PASS; exact original ingress retry reaches Staff create a second time with the same owner key; Staff returns `idempotent:true`; one SQL booking remains |
+| `test_unchanged_registered_revalidation_still_reaches_sql_without_reconfirm` | supported unchanged registered revalidation | PASS; the registered create wrapper's real quote boundary performs the second preview, then one create reaches SQL without reconfirmation |
+| Remaining 11 persistence tests | supported positive/negative persistence controls | 11/11 PASS; presentation, replay, reset, occupied-bed, changed-room-rule, catalog duration and unrelated-yes controls remain intact |
+| First-yes owner tests | supported owner unit contracts | 54/54 PASS; combined with persistence, 68/68 PASS |
+| Registered boundary tests | supported registered acquisition/create contracts; two historical copy expectations updated to authoritative room disclosure | 13/13 PASS |
+
 | Gate | Result | Guarantees |
 |---|---|---|
 | `verify-wolfhouse-offer-identity.js` | 42/42 PASS | unchanged identity, retry/recovery, material-change negatives |
