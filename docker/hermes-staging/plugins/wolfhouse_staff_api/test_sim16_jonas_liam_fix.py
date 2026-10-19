@@ -217,6 +217,53 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                          [{"kind": "rendered_reply", "text": rendered}],
                          "no second confirmation was rendered")
 
+    def test_sim22_becker_second_good_quote_carries_offer_into_registered_create(self):
+        """Replay G3: quote -> accepted completion quote -> omitted-identity create."""
+        beds = self.beds(2, "male_only", "R4")
+        offered = {"check_in": "2026-11-11", "check_out": "2026-11-14",
+                   "guest_count": 2, "room_type": "shared",
+                   "room_preference": "male_only", "group_gender": "male",
+                   "package_code": "package_none", "selected_bed_codes": ["R4-B1", "R4-B2"]}
+        first = checked_staff_quote(offered, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
+        self.loop.call("quote_booking", offered, {"/booking-preview": first})
+        self.loop.present()
+
+        names = [{"name": "Jonas Becker", "explicit_gender": "male"},
+                 {"name": "Felix Becker", "explicit_gender": "male"}]
+        accepted = {**offered, "guest_name": "Jonas Becker", "guests": names,
+                    "payment_choice": "deposit", "language": "de"}
+        second = checked_staff_quote(accepted, beds, total=24000, deposit=20000)
+        self.loop.turn("g3-accept", "Jonas Becker und Felix Becker. Anzahlung. Ja, bitte buchen.")
+        self.loop.call("quote_booking", accepted, {"/booking-preview": second})
+
+        def responses(route, body):
+            if route == "/booking-preview":
+                return second
+            if route == "/availability-check":
+                return create_recheck_receipt(beds, body)
+            if route == "/booking-create-from-plan":
+                self.assertEqual(body["accepted_offer"], second["offer_revision"])
+                self.assertIs(body["require_offer_identity"], True)
+                return {"success": True, "created": True, "write_performed": True,
+                        "booking_id": "g3-one", "booking_code": "WH-G3"}
+            self.fail(f"unexpected route {route}")
+
+        # Exact captured failure shape: the model omits both owner-only fields.
+        created = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(created["success"], created)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        first_key = self.loop.create_dispatches[0]["idempotency_key"]
+        replay = self.loop.call("create_booking_from_plan", accepted, responses)
+        self.assertTrue(replay.get("idempotent"), replay)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+        self.assertEqual(self.loop.create_dispatches[0]["idempotency_key"], first_key)
+
+        changed = {**accepted, "check_out": "2026-11-15"}
+        refused = self.loop.call("create_booking_from_plan", changed, responses)
+        self.assertFalse(refused["success"], refused)
+        self.assertEqual(len(self.loop.create_dispatches), 1, self.loop.trace)
+
     def test_r1_names_after_quote_with_chosen_full_payment_dispatches_once(self):
         """Chosen full payment survives late name completion, not only full-only tariffs."""
         beds = self.beds(2)

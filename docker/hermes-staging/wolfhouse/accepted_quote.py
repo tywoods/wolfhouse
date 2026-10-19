@@ -2133,6 +2133,16 @@ def prepare_create(params):
         frozen_dispatch = state.get('dispatch_payload')
         if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
                 and isinstance(frozen_dispatch, dict)):
+            # Recovery reuses the owner-frozen operation only when any restated
+            # business fields still describe that operation. Omitted fields are
+            # recovered; changed dates/people/beds/terms cannot ride its receipt.
+            candidate = deepcopy(frozen_dispatch)
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready', 'accepted_offer',
+                                             'require_offer_identity', 'idempotency_key')})
+            if not _same_material_offer(frozen_dispatch, candidate,
+                                        state['checked_offer'], state['checked_offer']):
+                raise QuoteBoundaryError('accepted_quote_changed')
             return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
