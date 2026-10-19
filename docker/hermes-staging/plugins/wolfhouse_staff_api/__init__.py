@@ -549,11 +549,7 @@ def _suppress_gender_handoff(result, decision):
         result["room_decision"] = decision
         if status in {"no", "unsure"}:
             result["next_action"] = "ask_room_eligibility"
-            result["reply_draft"] = (
-                "Are all guests eligible for the requested women-only room?"
-                if status == "unsure" else
-                "The requested women-only room is not compatible with the guest details provided. Would you like to see other room options?"
-            )
+            result.pop("reply_draft", None)
         return result
     if not (decision.get("clarification_needed") or decision.get("conflict")):
         excluded = set(decision.get("excluded_room_preferences") or [])
@@ -915,10 +911,7 @@ def quote_booking(params, **kwargs):
                 "quote_status": "needs_guest_clarification",
                 "offer_revision": None, "total_cents": None,
                 "deposit_required_cents": None, "write_performed": False,
-                **({"room_decision": structured_decision,
-                    "reply_draft": ("Are all guests eligible for the requested women-only room?"
-                                    if structured_decision.get("status") == "unsure" else
-                                    "The requested room is incompatible with the guest details provided. Would you like to see other room options?")}
+                **({"room_decision": structured_decision}
                    if structured_decision else {}),
             })
     data = _post_bot("/booking-preview", payload)

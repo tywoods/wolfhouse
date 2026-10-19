@@ -14,6 +14,11 @@ The accommodation availability service is the producer. For a requested gendered
 * `requested_room_preference`, `reason_code`, and `question_kind` carry meaning without parsing prose.
 * Inventory (`has_enough_beds`, counts, selected beds) remains separate and authoritative.
 * The plugin preserves this object and does not run its legacy wording/name inference when a valid structured result exists. Unsupported structures fail back to the established policy safely.
+* Guest copy is composed from `status`, `requested_room_preference`, and the zero-based
+  `affected_guest_indices`. Partial-party questions identify only the affected occupants;
+  `no` remains a definite incompatibility and is never softened into an uncertainty question.
+  English, Spanish, French, and German copy is owner-rendered; producer prose is not parsed.
+* A real no-stock result remains `unavailable` and cannot be overwritten by eligibility copy.
 
 The model may collect explicit facts for affected occupants; Staff evaluates the next request. Payment intent and a room name are not eligibility facts.
 

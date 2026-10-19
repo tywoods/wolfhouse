@@ -1,6 +1,6 @@
 # Booking cleanup test ledger
 
-Base: `892cdafab900868a28909409ac70a469a6c1d18b`.
+R4 starting head: `660d49e46868ea39f9973cca56bf956712ea0926`.
 
 ## Evidence rule
 
@@ -16,7 +16,15 @@ The R2 review already established that its registered sequence passed base and h
 
 ## Candidate gates
 
-Candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay and real PGlite Staff handlers. The focused persistence suite passed **14/14**. The combined first-yes owner + persistence suite passed **68/68**. The registered boundary suite passed **13/13**.
+The R3 candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay and real PGlite Staff handlers. Its focused persistence suite passed **14/14**, combined first-yes owner + persistence suite passed **68/68**, and registered boundary suite passed **13/13** before the R4 controls below were added.
+
+R4 cleanup execution added three registered boundary tests (structured localized rendering,
+no-stock separation, and both German equal-total render branches) plus the partial multi-guest
+scope control. The directly affected R4 set passed **12/12** (3 registered tests plus 9
+localized-helper tests). With the repository's shared Node dependencies bound into the isolated
+worktree, the complete Sim16 module passed **20/20**. The owner/dispatch suite passed **112/112**,
+first-yes owner/persistence passed **68/68**, and eligibility/localized copy passed **19/19**. The
+producer contract gate passed separately.
 
 ### Final persistence classifications
 
@@ -27,7 +35,7 @@ Candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay
 | `test_unchanged_registered_revalidation_still_reaches_sql_without_reconfirm` | supported unchanged registered revalidation | PASS; the registered create wrapper's real quote boundary performs the second preview, then one create reaches SQL without reconfirmation |
 | Remaining 11 persistence tests | supported positive/negative persistence controls | 11/11 PASS; presentation, replay, reset, occupied-bed, changed-room-rule, catalog duration and unrelated-yes controls remain intact |
 | First-yes owner tests | supported owner unit contracts | 54/54 PASS; combined with persistence, 68/68 PASS |
-| Registered boundary tests | supported registered acquisition/create contracts; two historical copy expectations updated to authoritative room disclosure | 13/13 PASS |
+| Registered boundary tests | supported registered acquisition/create contracts; historical copy expectations updated to authoritative room disclosure | 20/20 PASS |
 
 | Gate | Result | Guarantees |
 |---|---|---|
@@ -43,7 +51,7 @@ Candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay
 
 ## Baseline/candidate classifications
 
-* Becker checked-revision refusal: **supported defect** under the completion continuity contract; fixed in the accepted-offer owner. Registered replacement preserves checked revision and real SQL controls.
+* Becker checked-revision refusal: **ruling-(b) continuity case** under the completion continuity contract. The registered replacement preserves checked revision and real SQL controls; this is not claimed as historical root-cause closure.
 * R2 UUID season/range and duplicate `payments.created_at`: **harness defects**; fixed by UUID-compatible seeds and one shared schema owner.
 * Automatic create without a model-issued registered create: **obsolete expectation** where encountered in the historical audit; no blanket skip was added. Registered model-issued create remains the replacement contract.
 * Emma historical unanswered eligibility: **supported no-booking outcome**, not rewritten as success. Structured continuations are separate controls.

@@ -2524,7 +2524,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertNotIn('R4', shown['final_response'])
         self.assertNotIn('R5', shown['final_response'])
 
-    def test_sim19_valid_eligibility_question_is_not_replaced(self):
+    def test_structured_eligibility_replaces_untrusted_producer_prose(self):
         self.turn('sim19-women-eligibility', "I'd like the women's dorm")
         question = 'Are both guests women?'
         self.ledger.record_quote(self.plan, {
@@ -2539,7 +2539,8 @@ class OwnerHostileTests(unittest.TestCase):
         })
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertEqual(question, shown['final_response'])
+        self.assertEqual('Are all guests eligible for the requested women-only room?',
+                         shown['final_response'])
 
     def test_sim19_spanish_eligibility_question_keeps_meaning_in_spanish(self):
         self.agent.session_id = 'sim19-spanish-eligibility'
@@ -2558,15 +2559,20 @@ class OwnerHostileTests(unittest.TestCase):
         })
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertEqual('¿Son mujeres las dos huéspedes?', shown['final_response'])
+        self.assertEqual(
+            '¿Pueden todas las personas alojarse en la habitación solicitada solo para mujeres?',
+            shown['final_response'])
 
     def test_sim19_multilingual_eligibility_questions_remain_supported(self):
         cases = (
-            ('en', 'Are both guests girls?'),
-            ('es', '¿Sois dos chicos?'),
-            ('de', 'Seid ihr beide Jungs?'),
+            ('en', 'Are both guests girls?',
+             'Are all guests eligible for the requested men-only room?'),
+            ('es', '¿Sois dos chicos?',
+             '¿Pueden todas las personas alojarse en la habitación solicitada solo para hombres?'),
+            ('de', 'Seid ihr beide Jungs?',
+             'Können alle Gäste im gewünschten Männerzimmer übernachten?'),
         )
-        for language, question in cases:
+        for language, question, expected in cases:
             with self.subTest(language=language):
                 self.agent.session_id = f'sim19-eligibility-{language}'
                 self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -2583,7 +2589,7 @@ class OwnerHostileTests(unittest.TestCase):
                 })
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
-                self.assertEqual(question, shown['final_response'])
+                self.assertEqual(expected, shown['final_response'])
 
     def test_sim19_owner_adapter_keeps_explicit_unnamed_party_composition(self):
         import json

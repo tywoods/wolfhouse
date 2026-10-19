@@ -652,137 +652,90 @@ def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
 
 
-def _localized_eligibility_question(question, language, guest_count=None):
-    """Retain Staff's eligibility meaning, including subject count and negation."""
-    text = str(question or '').strip()
-    low = text.casefold()
-    female = bool(re.search(r'\b(?:women|woman|female|girls?|lad(?:y|ies))\b', low))
-    male = bool(re.search(r'\b(?:men|man|male|boys?|guys?)\b', low))
-    if not (female ^ male) or language == 'en':
-        return text
-    any_not = bool(re.search(r'\bany\b', low) and re.search(
-        r"\b(?:not|isn't|aren't|isnt|arent)\b", low))
-    everyone_stay = bool(re.search(r'\b(?:everyone|everybody|all guests)\b', low)
-                         and re.search(r'\b(?:stay|sleep|accommodat\w*)\b', low)
-                         and re.search(r'\b(?:room|dorm)\b', low))
-    gender_room_negated = bool(
-        everyone_stay
-        and re.search(r"\bnot\b[^?]*(?:female|women|woman|girls?|lad(?:y|ies)|male|men|man|boys?|guys?)", low))
-    uncomfortable_gender_room = bool(
-        re.search(r'\bany\b', low)
-        and re.search(r"\bnot\s+comfortable\b", low)
-        and re.search(r'\b(?:stay|staying|sleep|sleeping)\b', low)
-        and re.search(r'\b(?:room|dorm)\b', low))
-    semantic_questions = {
-        ('es', 'gender_room_negated'): ('¿Pueden todas las personas alojarse en una habitación que no sea solo para mujeres?' if female
-                                        else '¿Pueden todas las personas alojarse en una habitación que no sea solo para hombres?'),
-        ('fr', 'gender_room_negated'): ("Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux femmes ?" if female
-                                        else "Tout le monde peut-il séjourner dans une chambre qui n'est pas réservée aux hommes ?"),
-        ('de', 'gender_room_negated'): ('Können alle Gäste in einem Zimmer übernachten, das nicht nur für Frauen ist?' if female
-                                        else 'Können alle Gäste in einem Zimmer übernachten, das nicht nur für Männer ist?'),
-        ('es', 'uncomfortable_gender_room'): ('¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para mujeres?' if female
-                                               else '¿Hay algún huésped que no se sienta cómodo alojándose en una habitación solo para hombres?'),
-        ('fr', 'uncomfortable_gender_room'): ("Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux femmes ?" if female
-                                               else "Y a-t-il des personnes qui ne sont pas à l'aise dans une chambre réservée aux hommes ?"),
-        ('de', 'uncomfortable_gender_room'): ('Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Frauenzimmer zu übernachten?' if female
-                                               else 'Gibt es Gäste, die sich nicht wohl dabei fühlen, in einem Männerzimmer zu übernachten?'),
-        ('es', 'any_not'): ('¿Hay alguna huésped que no sea mujer?' if female
-                            else '¿Hay algún huésped que no sea hombre?'),
-        ('fr', 'any_not'): ('Y a-t-il une personne qui ne soit pas une femme ?' if female
-                            else 'Y a-t-il une personne qui ne soit pas un homme ?'),
-        ('de', 'any_not'): ('Gibt es Gäste, die keine Frauen sind?' if female
-                            else 'Gibt es Gäste, die keine Männer sind?'),
-        ('es', 'everyone_stay'): ('¿Pueden todas las personas alojarse en una habitación solo para mujeres?' if female
-                                  else '¿Pueden todas las personas alojarse en una habitación solo para hombres?'),
-        ('fr', 'everyone_stay'): ('Tout le monde peut-il séjourner dans une chambre réservée aux femmes ?' if female
-                                  else 'Tout le monde peut-il séjourner dans une chambre réservée aux hommes ?'),
-        ('de', 'everyone_stay'): ('Können alle Gäste in einem Frauenzimmer übernachten?' if female
-                                  else 'Können alle Gäste in einem Männerzimmer übernachten?'),
-    }
-    semantic = ('gender_room_negated' if gender_room_negated
-                else 'uncomfortable_gender_room' if uncomfortable_gender_room
-                else 'any_not' if any_not
-                else 'everyone_stay' if everyone_stay else None)
-    if semantic:
-        return semantic_questions.get((language, semantic), text)
-    explicit_count_match = re.search(
-        r'\b(?:all\s+)?(?:the\s+)?(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten|'
-        r'eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|'
-        r'nineteen|twenty)\s+guests?\b', low)
-    count_words = {
-        word: number for number, word in enumerate((
-            'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
-            'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen',
-            'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen',
-            'nineteen', 'twenty'))
-    }
-    if explicit_count_match:
-        count_token = explicit_count_match.group('count')
-        count = int(count_token) if count_token.isdigit() else count_words[count_token]
+def _structured_eligibility_copy(eligibility, plan, language):
+    """Render Staff's structured room decision without classifying Staff prose."""
+    if not isinstance(eligibility, dict):
+        return None
+    status = eligibility.get('status')
+    room = eligibility.get('requested_room_preference')
+    indices = eligibility.get('affected_guest_indices')
+    if (status not in ('unsure', 'no') or room not in ('female_only', 'male_only')
+            or not isinstance(indices, list) or not indices
+            or eligibility.get('question_kind') != 'confirm_room_eligibility'):
+        return None
+    guests = plan.get('guests') if isinstance(plan, dict) else []
+    guests = guests if isinstance(guests, list) else []
+    names = []
+    for index in indices:
+        if type(index) is not int or index < 0:
+            return None
+        guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
+        names.append(str(guest.get('name') or '').strip())
+    all_party = bool(guests) and indices == list(range(len(guests)))
+    partial_group = not all_party and len(indices) > 1
+    partial_numbers = ''
+    if all_party:
+        subject = {'en': 'all guests', 'es': 'todas las personas', 'fr': 'toutes les personnes',
+                   'de': 'alle Gäste'}[language]
+    elif partial_group:
+        joiner = {'en': ' and ', 'es': ' y ', 'fr': ' et ', 'de': ' und '}[language]
+        partial_numbers = joiner.join(str(index + 1) for index in indices)
+        subject = {'en': f'guests {partial_numbers}', 'es': f'las personas {partial_numbers}',
+                   'fr': f'les personnes {partial_numbers}', 'de': f'Gäste {partial_numbers}'}[language]
+    elif len(names) == 1 and names[0]:
+        subject = names[0]
     else:
-        stored_count = (guest_count if isinstance(guest_count, int)
-                        and not isinstance(guest_count, bool) and guest_count > 0 else None)
-        singular_subject = bool(re.search(
-            r'\b(?:the|this|that|one|a)\s+(?:guest|person)\b', low))
-        singular_predicate = bool(re.search(
-            r'^is\s+\S+\s+(?:a|an)\s+(?:woman|man|female|male)\s*\?*$', low))
-        count = (4 if re.search(r'\b(?:four|4)\b', low)
-                 else 3 if re.search(r'\b(?:three|3)\b', low)
-                 else 2 if re.search(r'\b(?:both|two|2)\b', low)
-                 else 1 if singular_subject or singular_predicate
-                 else stored_count)
-        if count is None:
-            return text
-    all_group = bool(re.search(
-        r'\b(?:all(?:\s+the)?\s+guests?|everyone|everybody)\b', low))
-    negated = bool(re.search(r"\b(?:not|isn't|aren't|isnt|arent|neither)\b", low))
-    if all_group:
-        all_group_questions = {
-            ('es', False): '¿Son mujeres todas las huéspedes?' if female else '¿Son hombres todos los huéspedes?',
-            ('es', True): '¿No son mujeres todas las huéspedes?' if female else '¿No son hombres todos los huéspedes?',
-            ('fr', False): 'Toutes les personnes sont-elles des femmes ?' if female else 'Toutes les personnes sont-elles des hommes ?',
-            ('fr', True): 'Toutes les personnes ne sont-elles pas des femmes ?' if female else 'Toutes les personnes ne sont-elles pas des hommes ?',
-            ('de', False): 'Sind alle Gäste Frauen?' if female else 'Sind alle Gäste Männer?',
-            ('de', True): 'Sind nicht alle Gäste Frauen?' if female else 'Sind nicht alle Gäste Männer?',
-        }
-        return all_group_questions.get((language, negated), text)
-    if count > 4:
-        generic_questions = {
-            ('es', False): f'¿Son mujeres las {count} huéspedes?' if female else f'¿Son hombres los {count} huéspedes?',
-            ('es', True): f'¿No son mujeres las {count} huéspedes?' if female else f'¿No son hombres los {count} huéspedes?',
-            ('fr', False): f'Les {count} personnes sont-elles des femmes ?' if female else f'Les {count} personnes sont-elles des hommes ?',
-            ('fr', True): f'Les {count} personnes ne sont-elles pas des femmes ?' if female else f'Les {count} personnes ne sont-elles pas des hommes ?',
-            ('de', False): f'Sind alle {count} Gäste Frauen?' if female else f'Sind alle {count} Gäste Männer?',
-            ('de', True): f'Sind nicht alle {count} Gäste Frauen?' if female else f'Sind nicht alle {count} Gäste Männer?',
-        }
-        return generic_questions.get((language, negated), text)
-    questions = {
-        ('es', 1, False): '¿Es la huésped una mujer?' if female else '¿Es el huésped un hombre?',
-        ('es', 1, True): '¿No es la huésped una mujer?' if female else '¿No es el huésped un hombre?',
-        ('es', 2, False): '¿Son mujeres las dos huéspedes?' if female else '¿Son hombres los dos huéspedes?',
-        ('es', 2, True): '¿No son mujeres las dos huéspedes?' if female else '¿No son hombres los dos huéspedes?',
-        ('es', 3, False): '¿Son mujeres las tres huéspedes?' if female else '¿Son hombres los tres huéspedes?',
-        ('es', 3, True): '¿No son mujeres las tres huéspedes?' if female else '¿No son hombres los tres huéspedes?',
-        ('es', 4, False): '¿Son mujeres las cuatro huéspedes?' if female else '¿Son hombres los cuatro huéspedes?',
-        ('es', 4, True): '¿No son mujeres las cuatro huéspedes?' if female else '¿No son hombres los cuatro huéspedes?',
-        ('fr', 1, False): 'La personne est-elle une femme ?' if female else 'La personne est-elle un homme ?',
-        ('fr', 1, True): "La personne n'est-elle pas une femme ?" if female else "La personne n'est-elle pas un homme ?",
-        ('fr', 2, False): 'Les deux personnes sont-elles des femmes ?' if female else 'Les deux personnes sont-elles des hommes ?',
-        ('fr', 2, True): 'Les deux personnes ne sont-elles pas des femmes ?' if female else 'Les deux personnes ne sont-elles pas des hommes ?',
-        ('fr', 3, False): 'Les trois personnes sont-elles des femmes ?' if female else 'Les trois personnes sont-elles des hommes ?',
-        ('fr', 3, True): 'Les trois personnes ne sont-elles pas des femmes ?' if female else 'Les trois personnes ne sont-elles pas des hommes ?',
-        ('fr', 4, False): 'Les quatre personnes sont-elles des femmes ?' if female else 'Les quatre personnes sont-elles des hommes ?',
-        ('fr', 4, True): 'Les quatre personnes ne sont-elles pas des femmes ?' if female else 'Les quatre personnes ne sont-elles pas des hommes ?',
-        ('de', 1, False): 'Ist der Gast eine Frau?' if female else 'Ist der Gast ein Mann?',
-        ('de', 1, True): 'Ist der Gast keine Frau?' if female else 'Ist der Gast kein Mann?',
-        ('de', 2, False): 'Sind beide Gäste Frauen?' if female else 'Sind beide Gäste Männer?',
-        ('de', 2, True): 'Sind nicht beide Gäste Frauen?' if female else 'Sind nicht beide Gäste Männer?',
-        ('de', 3, False): 'Sind alle drei Gäste Frauen?' if female else 'Sind alle drei Gäste Männer?',
-        ('de', 3, True): 'Sind nicht alle drei Gäste Frauen?' if female else 'Sind nicht alle drei Gäste Männer?',
-        ('de', 4, False): 'Sind alle vier Gäste Frauen?' if female else 'Sind alle vier Gäste Männer?',
-        ('de', 4, True): 'Sind nicht alle vier Gäste Frauen?' if female else 'Sind nicht alle vier Gäste Männer?',
-    }
-    return questions.get((language, count, negated), text)
+        numbers = ', '.join(str(index + 1) for index in indices)
+        subject = {'en': f'guest {numbers}', 'es': f'la persona {numbers}',
+                   'fr': f'la personne {numbers}', 'de': f'Gast {numbers}'}[language]
+    female = room == 'female_only'
+    room_label = {
+        'en': 'women-only room' if female else 'men-only room',
+        'es': 'habitación solicitada solo para mujeres' if female else 'habitación solicitada solo para hombres',
+        'fr': 'chambre demandée réservée aux femmes' if female else 'chambre demandée réservée aux hommes',
+        'de': 'gewünschten Frauenzimmer' if female else 'gewünschten Männerzimmer',
+    }[language]
+    if status == 'unsure':
+        if all_party or partial_group:
+            return {
+                'en': f'Are {subject} eligible for the requested {room_label}?',
+                'es': f'¿Pueden {subject} alojarse en la {room_label}?',
+                'fr': f'{subject.capitalize()} peuvent-elles séjourner dans la {room_label} ?',
+                'de': f'Können {subject} im {room_label} übernachten?',
+            }[language]
+        return {
+            'en': f'Is {subject} eligible for the requested {room_label}?',
+            'es': f'¿Puede {subject} alojarse en la {room_label}?',
+            'fr': f'{subject} peut-elle séjourner dans la {room_label} ?',
+            'de': f'Kann {subject} im {room_label} übernachten?',
+        }[language]
+    if all_party:
+        details = {
+            'en': 'the guest details provided',
+            'es': 'los datos proporcionados de las personas',
+            'fr': 'les informations fournies sur les personnes',
+            'de': 'den angegebenen Gästedaten',
+        }[language]
+    elif partial_group:
+        details = {
+            'en': f'the guest details for guests {partial_numbers}',
+            'es': f'los datos de las personas {partial_numbers}',
+            'fr': f'les informations des personnes {partial_numbers}',
+            'de': f'den Angaben zu den Gästen {partial_numbers}',
+        }[language]
+    else:
+        details = {
+            'en': f"{subject}'s guest details",
+            'es': f'los datos de {subject}',
+            'fr': f'les informations de {subject}',
+            'de': f'den Angaben zu {subject}',
+        }[language]
+    return {
+        'en': f'The requested {room_label} is not compatible with {details}. Would you like to see other room options?',
+        'es': f'La {room_label} no es compatible con {details}. ¿Quieres ver otras opciones de habitación?',
+        'fr': f'La {room_label} n’est pas compatible avec {details}. Voulez-vous voir d’autres options de chambre ?',
+        'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
+    }[language]
 
 
 def _evidence_in_current_turn(raw, evidence):
@@ -2604,13 +2557,20 @@ def finalize_offer_response(result):
                             and output_messages[-1].get('role') == 'assistant'):
                         output_messages[-1]['content'] = text
                     return output
+                structured = (tool_result.get('room_decision') or tool_result.get('room_eligibility')
+                              if isinstance(tool_result, dict) else None)
+                structured_text = _structured_eligibility_copy(
+                    structured, _presentation_plan(state), _guest_language(state))
+                legacy_draft = (tool_result.get('reply_draft', '').strip()
+                                if not isinstance(structured, dict)
+                                and isinstance(tool_result.get('reply_draft'), str)
+                                and tool_result['reply_draft'].strip().endswith('?') else None)
                 if (isinstance(tool_result, dict)
                         and tool_result.get('availability_status') == 'eligibility_required'
                         and tool_result.get('next_action') == 'ask_room_eligibility'
-                        and isinstance(tool_result.get('reply_draft'), str)
-                        and tool_result['reply_draft'].strip().endswith('?')):
+                        and (structured_text or legacy_draft)):
                     output = deepcopy(result)
-                    text = tool_result['reply_draft'].strip()
+                    text = structured_text or legacy_draft
                     output['final_response'] = text
                     output_messages = output.get('messages')
                     if (output_messages and isinstance(output_messages[-1], dict)
@@ -2633,18 +2593,18 @@ def finalize_offer_response(result):
         )
         if unresolved_presentable:
             language = _guest_language(state)
-            next_action = unresolved.get('guest_safe_next_action')
-            structured_eligibility = unresolved.get('room_eligibility')
+            structured_eligibility = (unresolved.get('room_eligibility')
+                                      or unresolved.get('room_decision'))
             valid_eligibility_question = (
                 isinstance(structured_eligibility, dict)
-                and structured_eligibility.get('status') == 'unsure'
+                and structured_eligibility.get('status') in ('unsure', 'no')
                 and structured_eligibility.get('question_kind') == 'confirm_room_eligibility')
             # Structured Staff meaning selects the localized question. Never
             # classify arbitrary Staff wording to infer eligibility.
-            plan = state.get('plan') or {}
-            text = (_localized_eligibility_question(
-                        next_action, language, guest_count=plan.get('guest_count'))
-                    if valid_eligibility_question else _final_copy(language, 'refusal'))
+            plan = _presentation_plan(state)
+            text = (_structured_eligibility_copy(structured_eligibility, plan, language)
+                    if valid_eligibility_question else None)
+            text = text or _final_copy(language, 'refusal')
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -2759,7 +2719,9 @@ def finalize_offer_response(result):
             if equality_full:
                 equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
                                    'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
-                lines.append(f"{equality_labels.get(language, equality_labels['en'])}: {quoted_money(total)} ({_final_copy(language, 'full').lower()}).")
+                full_inline = {'de': 'vollständige Zahlung'}.get(
+                    language, _final_copy(language, 'full').lower())
+                lines.append(f"{equality_labels.get(language, equality_labels['en'])}: {quoted_money(total)} ({full_inline}).")
             else:
                 lines.append(f"{_final_copy(language, 'total')}: {quoted_money(total)}.")
             if quote.get('full_payment_only') is True and not equality_full:
@@ -2835,8 +2797,10 @@ def finalize_offer_response(result):
         if equality_full:
             equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
                                'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
+            full_inline = {'de': 'vollständige Zahlung'}.get(
+                language, _final_copy(language, 'full').lower())
             lines.append(f"{equality_labels.get(language, equality_labels['en'])}: "
-                         f"{money(offer['total_cents'])} ({_final_copy(language, 'full').lower()}).")
+                         f"{money(offer['total_cents'])} ({full_inline}).")
         else:
             lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
                          f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
