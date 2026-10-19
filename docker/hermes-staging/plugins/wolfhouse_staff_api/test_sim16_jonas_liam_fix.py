@@ -619,16 +619,16 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                   "room_type": "shared", "room_preference": "female_only",
                   "package_code": "package_none", "guests": [{"name": "Emma"}]}
         for status, reason in (("unsure", "room_eligibility_unknown"),
-                               ("no", "room_eligibility_policy_conflict")):
+                               ("no", "room_eligibility_incompatible")):
             receipt = {**availability_receipt(bed), "girls_room_available": True,
                        "room_options": {"girls_room_available": True},
                        "room_eligibility": {"status": status,
                            "requested_room_preference": "female_only",
                            "affected_guest_indices": [0], "reason_code": reason,
-                           "question_kind": "confirm_room_eligibility"}}
+                           "question_kind": ("confirm_room_eligibility" if status == "unsure" else None)}}
             with self.subTest(status=status):
                 result = self.loop.call("check_availability", common,
-                    {"/availability-check": receipt})
+                    {"/availability-check": deepcopy(receipt)})
                 self.assertEqual(result["availability_status"], "eligibility_required", result)
                 self.assertIs(result["girls_room_available"], True, result)
                 self.assertIs(result["room_options"]["girls_room_available"], True, result)
@@ -639,12 +639,91 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                 def quote_responses(route, body):
                     quote_calls.append(route)
                     if route == "/availability-check":
-                        return receipt
+                        return deepcopy(receipt)
                     self.fail(f"structured {status} reached {route}")
                 quoted = self.loop.call("quote_booking", common, quote_responses)
                 self.assertFalse(quoted["success"], quoted)
                 self.assertEqual(quote_calls, ["/availability-check"])
                 self.assertEqual(quoted["room_eligibility"]["status"], status)
+                self.assertEqual(quoted["availability_status"], "eligibility_required", quoted)
+                self.assertFalse(quoted["available"], quoted)
+                self.assertFalse(quoted["unavailable"], quoted)
+
+    def test_r5_zero_stock_remains_unavailable_with_structured_unsure_or_no(self):
+        common = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                  "room_type": "shared", "room_preference": "female_only",
+                  "package_code": "package_none", "guests": [{"name": "Emma"}]}
+        for status, question_kind in (("unsure", "confirm_room_eligibility"), ("no", None)):
+            receipt = {**availability_receipt([], enough=False),
+                       "room_eligibility": {"status": status,
+                           "requested_room_preference": "female_only",
+                           "affected_guest_indices": [0],
+                           "reason_code": ("room_eligibility_unknown" if status == "unsure"
+                                           else "room_eligibility_incompatible"),
+                           "question_kind": question_kind}}
+            with self.subTest(status=status):
+                available = self.loop.call("check_availability", common,
+                    {"/availability-check": receipt})
+                self.assertEqual(available["availability_status"], "unavailable", available)
+                self.assertTrue(available["unavailable"], available)
+                self.loop.turn(f"zero-stock-{status}", "Please quote the requested room")
+                quoted = self.loop.call("quote_booking", common,
+                    {"/availability-check": receipt})
+                self.assertEqual(quoted["availability_status"], "unavailable", quoted)
+                self.assertTrue(quoted["unavailable"], quoted)
+
+    def test_r5_successful_quote_carries_structured_yes_from_staff(self):
+        bed = self.beds(1, "female_only", "F")
+        plan = {"check_in": "2026-11-18", "check_out": "2026-11-21", "guest_count": 1,
+                "room_type": "shared", "room_preference": "female_only",
+                "package_code": "package_none", "guests": [{"name": "Emma", "explicit_gender": "female"}]}
+        eligibility = {"status": "yes", "requested_room_preference": "female_only",
+                       "affected_guest_indices": [], "reason_code": "room_eligibility_confirmed",
+                       "question_kind": None}
+        receipt = {**availability_receipt(bed), "room_eligibility": eligibility}
+        quote = checked_staff_quote(plan, bed)
+        self.loop.turn("structured-yes-quote", "Please quote the requested room")
+        quoted = self.loop.call("quote_booking", plan,
+            {"/availability-check": receipt, "/booking-preview": quote})
+        self.assertTrue(quoted["success"], quoted)
+        self.assertEqual(quoted["room_eligibility"], eligibility)
+        self.assertEqual(quoted["room_decision"], {"structured": True, **eligibility})
+
+    def test_r5_finalizer_skips_non_object_json_tool_results(self):
+        self.loop.turn("non-object-tools", "Continue")
+        for value in ([], None, 7, "text"):
+            with self.subTest(value=value):
+                result = owner.finalize_offer_response({"completed": True,
+                    "final_response": "UNCHANGED",
+                    "messages": [{"role": "user", "content": "Continue"},
+                                 {"role": "tool", "content": json.dumps(value)},
+                                 {"role": "assistant", "content": "UNCHANGED"}]})
+                self.assertEqual(result["final_response"], "UNCHANGED")
+
+    def test_r5_offline_ingress_installed_owner_hook_skips_non_object_tool_results(self):
+        from agent import conversation_loop
+        from wolfhouse.offline_ingress_harness import gateway_ingress
+        installed = conversation_loop.run_conversation
+        captured = []
+        try:
+            for index, value in enumerate(([], None, 7, "text")):
+                with self.subTest(value=value):
+                    def model(agent, text, *args, _value=value, **kwargs):
+                        return {"completed": True, "final_response": "UNCHANGED",
+                                "messages": [{"role": "user", "content": text},
+                                             {"role": "tool", "content": json.dumps(_value)},
+                                             {"role": "assistant", "content": "UNCHANGED"}]}
+                    conversation_loop.run_conversation = model
+                    owner.install_owner_hook()
+                    def call(text):
+                        result = conversation_loop.run_conversation(self.loop.agent, text)
+                        captured.append(result)
+                        return result
+                    gateway_ingress(self.loop.agent, "Continue", f"non-object-ingress-{index}", call)
+                    self.assertEqual(captured[-1]["final_response"], "UNCHANGED")
+                    self.assertTrue(owner.quote_owner_hook_ready(conversation_loop.run_conversation))
+        finally:
+            conversation_loop.run_conversation = installed
 
     def test_r4_structured_eligibility_renders_from_status_room_and_affected_people(self):
         expected = {
@@ -674,8 +753,8 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                                        "requested_room_preference": "female_only",
                                        "affected_guest_indices": [1],
                                        "reason_code": ("room_eligibility_unknown" if status == "unsure"
-                                                       else "room_eligibility_policy_conflict"),
-                                       "question_kind": "confirm_room_eligibility"}}
+                                                       else "room_eligibility_incompatible"),
+                                       "question_kind": ("confirm_room_eligibility" if status == "unsure" else None)}}
                         loop.turn(f"structured-{language}-{status}", openings[language])
                         quoted = loop.call("quote_booking", plan, {"/availability-check": receipt})
                         self.assertEqual(quoted["room_decision"]["affected_guest_indices"], [1])

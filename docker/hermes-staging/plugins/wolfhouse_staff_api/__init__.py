@@ -665,7 +665,7 @@ def check_availability(params, **kwargs):
     decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
     if structured_eligibility is not None:
         eligibility_status = structured_eligibility["status"]
-        if eligibility_status != "yes":
+        if eligibility_status != "yes" and status != "unavailable":
             status = "eligibility_required"
         decision = {
             "structured": True,
@@ -876,6 +876,7 @@ def quote_booking(params, **kwargs):
     # The quote shown to the guest must itself carry Staff's ordered bed pick.
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.
+    structured_eligibility = None
     if not payload.get("selected_bed_codes"):
         availability = _post_bot("/availability-check", {
             key: payload[key] for key in (
@@ -892,8 +893,10 @@ def quote_booking(params, **kwargs):
             if len(rows) == payload.get("guest_count") and all(
                     isinstance(row, dict) and _clean(row.get("bed_code")) for row in rows):
                 picked = [row["bed_code"] for row in rows]
-        structured = availability.get("room_eligibility") if isinstance(availability, dict) else None
-        structured_yes = (not isinstance(structured, dict) or structured.get("status") == "yes")
+        structured_eligibility = (availability.get("room_eligibility")
+                                  if isinstance(availability, dict) else None)
+        structured_yes = (not isinstance(structured_eligibility, dict)
+                          or structured_eligibility.get("status") == "yes")
         if (availability.get("success") is True
                 and structured_yes
                 and availability.get("needs_clarification") is not True
@@ -904,10 +907,19 @@ def quote_booking(params, **kwargs):
             # Eligibility is not consent and prices alone are not an offer. Let
             # Staff's room-resolution response drive the next guest question;
             # do not call pricing or give the owner a non-bed-backed quote.
-            structured_decision = ({"structured": True, **structured}
-                                   if isinstance(structured, dict) else None)
+            structured_decision = ({"structured": True, **structured_eligibility}
+                                   if isinstance(structured_eligibility, dict) else None)
+            availability_status = _availability_status(availability)
+            if (isinstance(structured_eligibility, dict)
+                    and structured_eligibility.get("status") != "yes"
+                    and availability_status != "unavailable"):
+                availability_status = "eligibility_required"
             return _json_result({
                 **availability, "success": False, "tool": "quote_booking",
+                "availability_status": availability_status,
+                "available": availability_status == "available",
+                "unavailable": availability_status == "unavailable",
+                "unclear": availability_status == "unclear",
                 "quote_status": "needs_guest_clarification",
                 "offer_revision": None, "total_cents": None,
                 "deposit_required_cents": None, "write_performed": False,
@@ -988,13 +1000,16 @@ def quote_booking(params, **kwargs):
             and not closed_season
         ),
         "guest_safe_next_action": data.get("guest_safe_next_action") or (data.get("reply_draft") if closed_season else None),
-        "room_decision": _room_decision_for_tool(
-            payload, data,
-            # The normalizer's default deposit is not evidence of guest pay intent.
-            payment_intent=isinstance(params.get("payment_choice"), str)
-            and bool(params["payment_choice"].strip())
-            and _normalize_payment_choice(params["payment_choice"]) in {"full", "deposit", "pay_on_arrival"},
-        ),
+        "room_eligibility": structured_eligibility,
+        "room_decision": ({"structured": True, **structured_eligibility}
+                          if isinstance(structured_eligibility, dict) else
+                          _room_decision_for_tool(
+                              payload, data,
+                              # The normalizer's default deposit is not evidence of guest pay intent.
+                              payment_intent=isinstance(params.get("payment_choice"), str)
+                              and bool(params["payment_choice"].strip())
+                              and _normalize_payment_choice(params["payment_choice"]) in {"full", "deposit", "pay_on_arrival"},
+                          )),
     }
     return _json_result(_suppress_gender_handoff(quote_result, quote_result.get("room_decision")))
 

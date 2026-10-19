@@ -16,7 +16,7 @@ The R2 review already established that its registered sequence passed base and h
 
 ## Candidate gates
 
-The R3 candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay and real PGlite Staff handlers. Its focused persistence suite passed **14/14**, combined first-yes owner + persistence suite passed **68/68**, and registered boundary suite passed **13/13** before the R4 controls below were added.
+The R3 candidate execution on 2026-10-19 used the pinned offline Hermes runtime overlay and real PGlite Staff handlers. Its focused persistence suite passed **14/14**, combined first-yes owner + persistence suite passed **68/68**, and registered boundary suite passed **17/17** before the R4 controls below were added.
 
 R4 cleanup execution added three registered boundary tests (structured localized rendering,
 no-stock separation, and both German equal-total render branches) plus the partial multi-guest
@@ -25,6 +25,15 @@ localized-helper tests). With the repository's shared Node dependencies bound in
 worktree, the complete Sim16 module passed **20/20**. The owner/dispatch suite passed **112/112**,
 first-yes owner/persistence passed **68/68**, and eligibility/localized copy passed **19/19**. The
 producer contract gate passed separately.
+
+R5 closes only Captain's three review findings. The actual JS producer→BOT_HTTP mapper
+contract proves canonical `no` carries `question_kind: null`; registered owner/plugin tests prove
+that `no` still renders as incompatibility, zero-stock `unsure`/`no` remains unavailable through
+availability and quote projection, successful quotes retain Staff's structured `yes`, and JSON
+tool results shaped as `[]`, `null`, numbers, or strings are skipped without crashing. The
+complete registered boundary suite passed **24/24**; owner/dispatch **112/112**,
+first-yes owner/persistence **68/68**, eligibility/localized **19/19**, decision replay **5/5**
+(31 replayed, 25 excluded, zero mismatches), and Sim22 outer tests **5/5**.
 
 ### Final persistence classifications
 
@@ -43,7 +52,7 @@ producer contract gate passed separately.
 | `verify-luna-create-booking-occupants.js` | PASS | real PGlite create, named people/beds, money, SQL fail-closed |
 | `verify-wolfhouse-offer-retry-handler.js` | PASS | exact retry and changed occupant/legacy refusal controls; shared UUID/schema fixed |
 | `verify-wolfhouse-eligibility-contract.js` | PASS | real producer yes/no/unsure, zero-based scope, inventory separation |
-| `test_sim22_cleanup.py` | 4/4 PASS | five-case accounting; Becker frozen terms; Emma no booking; Raj equality |
+| `test_sim22_cleanup.py` | 5/5 PASS | five outer tests including the executable wrapper; Becker frozen terms; Emma no booking; Raj equality |
 | exact-bed + mixed allocation | PASS (69/69 mixed) | eligibility/stock and placement controls |
 | needs-human isolation SQL | PASS | synthetic/ordinary isolation and no notification leakage |
 | Hermes send flags | 53/53 PASS | no live send; kill switches and pause checks |
@@ -51,7 +60,9 @@ producer contract gate passed separately.
 
 ## Baseline/candidate classifications
 
-* Becker checked-revision refusal: **ruling-(b) continuity case** under the completion continuity contract. The registered replacement preserves checked revision and real SQL controls; this is not claimed as historical root-cause closure.
+* Historical observation: the retained masked G3 capture records the checked-revision refusal; it is evidence from the supplied capture, not a newly reproduced base execution.
+* Accepted ruling-(b) constructed negative: the fact-equivalent refusal control establishes completion-continuity behavior, but is not labelled as the original G3 reproduction.
+* Shared-fixture continuity proof: the registered replacement preserves checked revision and real SQL controls independently of both historical evidence and the constructed negative.
 * R2 UUID season/range and duplicate `payments.created_at`: **harness defects**; fixed by UUID-compatible seeds and one shared schema owner.
 * Automatic create without a model-issued registered create: **obsolete expectation** where encountered in the historical audit; no blanket skip was added. Registered model-issued create remains the replacement contract.
 * Emma historical unanswered eligibility: **supported no-booking outcome**, not rewritten as success. Structured continuations are separate controls.

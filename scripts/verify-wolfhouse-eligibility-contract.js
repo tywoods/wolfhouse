@@ -27,8 +27,14 @@ assert.deepEqual(project([{ name: 'Emma' }]), {
   status: 'unsure', requested_room_preference: 'female_only', affected_guest_indices: [0],
   reason_code: 'room_eligibility_unknown', question_kind: 'confirm_room_eligibility',
 });
-assert.equal(project([{ name: 'Emma', explicit_gender: 'female' }]).status, 'yes');
-assert.equal(project([{ name: 'Emma', explicit_gender: 'male' }]).status, 'no');
+const yes = project([{ name: 'Emma', explicit_gender: 'female' }]);
+assert.equal(yes.status, 'yes');
+assert.equal(yes.question_kind, null);
+const no = project([{ name: 'Emma', explicit_gender: 'male' }]);
+assert.deepEqual(no, {
+  status: 'no', requested_room_preference: 'female_only', affected_guest_indices: [0],
+  reason_code: 'room_eligibility_incompatible', question_kind: null,
+});
 assert.deepEqual(project([{ name: 'A', explicit_gender: 'female' }, { name: 'B' }]).affected_guest_indices, [1]);
 assert.equal(project([{ name: 'A' }], 'mixed'), null);
 console.log('PASS Wolfhouse Staff room_eligibility producer contract: yes/no/unsure; person scope; inventory independent');

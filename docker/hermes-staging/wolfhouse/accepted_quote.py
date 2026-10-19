@@ -661,7 +661,8 @@ def _structured_eligibility_copy(eligibility, plan, language):
     indices = eligibility.get('affected_guest_indices')
     if (status not in ('unsure', 'no') or room not in ('female_only', 'male_only')
             or not isinstance(indices, list) or not indices
-            or eligibility.get('question_kind') != 'confirm_room_eligibility'):
+            or (status == 'unsure'
+                and eligibility.get('question_kind') != 'confirm_room_eligibility')):
         return None
     guests = plan.get('guests') if isinstance(plan, dict) else []
     guests = guests if isinstance(guests, list) else []
@@ -2538,8 +2539,9 @@ def finalize_offer_response(result):
                     tool_result = json.loads(item.get('content') or '{}')
                 except (TypeError, ValueError):
                     continue
-                if (isinstance(tool_result, dict)
-                        and tool_result.get('tool') == 'flag_needs_human'
+                if not isinstance(tool_result, dict):
+                    continue
+                if (tool_result.get('tool') == 'flag_needs_human'
                         and tool_result.get('success') is True
                         and tool_result.get('needs_human') is True
                         and tool_result.get('handoff_persisted') is True):
@@ -2598,7 +2600,8 @@ def finalize_offer_response(result):
             valid_eligibility_question = (
                 isinstance(structured_eligibility, dict)
                 and structured_eligibility.get('status') in ('unsure', 'no')
-                and structured_eligibility.get('question_kind') == 'confirm_room_eligibility')
+                and (structured_eligibility.get('status') == 'no'
+                     or structured_eligibility.get('question_kind') == 'confirm_room_eligibility'))
             # Structured Staff meaning selects the localized question. Never
             # classify arbitrary Staff wording to infer eligibility.
             plan = _presentation_plan(state)
