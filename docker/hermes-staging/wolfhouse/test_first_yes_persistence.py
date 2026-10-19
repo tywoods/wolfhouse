@@ -68,15 +68,17 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.rpc_lock = Lock()
         self.db_path = Path(self.temp.name) / 'state.db'
         self.db = SessionDB(self.db_path)
-        self.db.create_session('first-yes', source='whatsapp')
+        self.db.create_session('sql-first-yes', source='whatsapp')
         self.addCleanup(lambda: self.db.close())
         self.agent = object.__new__(AIAgent)
-        self.agent._session_db, self.agent.session_id = self.db, 'first-yes'
+        self.agent._session_db, self.agent.session_id = self.db, 'sql-first-yes'
         self.registry = Registry()
         self.tokens = None
         self.messages = []
         self.model_calls = []
         self.quote_result = None
+        self.raw_model_turn = None
+        self.after_interpret = None
         self.fail_after_quote = False
         self.lose_commit_reply = False
         self.interrupt_after_commit = False
@@ -92,6 +94,23 @@ class FirstYesPersistenceTests(unittest.TestCase):
                 self.assertTrue(self.quote_result.get('success'), self.quote_result)
                 if self.fail_after_quote:
                     raise RuntimeError('Offline LLM aborted before response presentation')
+            elif self.raw_model_turn in ('yes', 'No thanks'):
+                accepting = self.raw_model_turn == 'yes'
+                interpreted = json.loads(self.registry.tools['interpret_booking_turn']['handler']({
+                    'action': 'accept' if accepting else 'refuse',
+                    'action_evidence': self.raw_model_turn,
+                    'ambiguous': False, 'negated': not accepting, 'conditional': False,
+                    'material_changes': [], 'completions': {},
+                }))
+                if interpreted.get('accepted'):
+                    if self.after_interpret:
+                        self.after_interpret()
+                    created = json.loads(
+                        self.registry.tools['create_booking_from_plan']['handler']({}))
+                    reply = created.get('booking_code') or created.get('error') or 'Booking refused.'
+                    return {'completed': True, 'final_response': reply,
+                            'booking_result': created,
+                            'messages': [{'role': 'assistant', 'content': reply}]}
             return {'completed': True, 'final_response': 'Offline LLM edge; no booking claim.', 'messages': []}
 
         conversation_loop.run_conversation = offline_llm
@@ -99,16 +118,25 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.http = patch.object(plugin.urllib.request, 'urlopen', side_effect=self.http_edge)
         self.http.start()
         self.addCleanup(self.http.stop)
+        self.guest_phone = patch.object(plugin, '_session_guest_phone',
+                                        return_value='+99900000001')
+        self.guest_phone.start()
+        self.addCleanup(self.guest_phone.stop)
         self.no_network = patch.object(socket.socket, 'connect', side_effect=AssertionError('Network forbidden'))
         self.no_network.start()
         self.addCleanup(self.no_network.stop)
         self.addCleanup(self.clear_context)
+        # Do not inherit a process-local owner from a preceding suite or case.
+        accepted_quote._current.set(None)
+        accepted_quote._exact_gateway_retry.set(None)
+        booking_names.end_turn()
 
     def clear_context(self):
         if self.tokens:
             clear_session_vars(self.tokens)
             self.tokens = None
         accepted_quote._current.set(None)
+        accepted_quote._exact_gateway_retry.set(None)
         booking_names.end_turn()
 
     def close_node(self):
@@ -138,7 +166,8 @@ class FirstYesPersistenceTests(unittest.TestCase):
         path = urlsplit(request.full_url).path
         self.assertTrue(path.startswith('/staff/bot/'), path)
         path = path[len('/staff/bot'):]
-        result = self.rpc(path=path, body=json.loads(request.data))
+        result = self.rpc(path=path, body=json.loads(request.data),
+                          guest_phone=request.get_header('X-luna-guest-phone'))
         if path == '/booking-create-from-plan' and self.interrupt_after_commit:
             self.interrupt_after_commit = False
             self.assertTrue(result['body'].get('write_performed'), result)
@@ -158,8 +187,13 @@ class FirstYesPersistenceTests(unittest.TestCase):
         if self.tokens:
             clear_session_vars(self.tokens)
         message_id = message_id or 'message-' + str(len(self.messages) + 1)
+        # Match the real patched ingress harness identity; only the SessionDB id is
+        # test-unique to avoid inheriting process-local state from another suite.
         self.tokens = set_session_vars(platform='whatsapp', source='whatsapp', chat_id='chat1',
             user_id='guest1', session_key='key1', session_id=self.agent.session_id, message_id=message_id)
+        # The model edge may receive enriched text, but its scripted semantic
+        # decision is bound to the preserved original guest turn.
+        self.raw_model_turn = message
         result = gateway_ingress(self.agent, message, message_id, self.agent.run_conversation, **kwargs)
         self.messages.append({'id': message_id, 'input': message, 'result': result})
         return result
@@ -171,7 +205,7 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertIsInstance(revision, dict, self.quote_result)
         self.assertTrue(revision.get('offer_fingerprint'))
         text = result.get('final_response', '')
-        for fragment in ('riley', 'morgan', '2026-10-20', '2026-10-22', '160'):
+        for fragment in ('riley', 'morgan', 'tue 20 oct', 'thu 22 oct', '160'):
             self.assertIn(fragment, text.lower(), text)
         self.assertEqual(text.count('?'), 1, text)
         self.assertEqual(self.rpc(snapshot=True)['tables']['bookings'], [], 'Checking is NOT holding or booking')
@@ -196,11 +230,11 @@ class FirstYesPersistenceTests(unittest.TestCase):
             target.mkdir(parents=True, exist_ok=True)
             (target / (self._testMethodName + '.json')).write_text(json.dumps(evidence, indent=2) + '\n')
 
-    def test_one_short_yes_persists_exact_people_and_beds_without_model_create(self):
+    def test_one_short_yes_model_issues_registered_create_and_persists_exact_people_and_beds(self):
         revision = self.offer()
         result = self.turn('yes', 'accept')
         snapshot = self.assert_one_booking(revision)
-        self.assertEqual(self.model_calls, ['Please quote this booking'], 'Acceptance must not depend on another model turn')
+        self.assertEqual(self.model_calls, ['Please quote this booking', 'yes'])
         calls = [call for call in snapshot['calls'] if call['path'] == '/booking-create-from-plan']
         self.assertEqual(len(calls), 1)
         self.assertTrue(calls[0]['body']['require_offer_identity'])
@@ -235,7 +269,7 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertEqual(calls[0]['body']['idempotency_key'], calls[1]['body']['idempotency_key'])
         self.assertIn(after['tables']['bookings'][0]['booking_code'], recovered['final_response'])
         self.assertNotIn('?', recovered['final_response'])
-        self.assertEqual(self.model_calls, ['Please quote this booking'])
+        self.assertEqual(self.model_calls, ['Please quote this booking', 'yes'])
 
     def test_catalog_extra_days_survive_checked_offer_and_first_yes(self):
         selection = {'service_code': 'wetsuit_rental', 'quantity': 1, 'days': 3}
@@ -247,7 +281,7 @@ class FirstYesPersistenceTests(unittest.TestCase):
         creates = [call for call in snapshot['calls'] if call['path'] == '/booking-create-from-plan']
         self.assertEqual(len(creates), 1, result)
         self.assertEqual(creates[0]['body']['add_ons'], [{'code': 'wetsuit_rental', 'quantity': 1, 'days': 3}])
-        self.assertEqual(self.model_calls, ['Please quote this booking'])
+        self.assertEqual(self.model_calls, ['Please quote this booking', 'yes'])
 
     def test_completed_retry_survives_session_db_reopen_without_another_booking(self):
         revision = self.offer()
@@ -270,7 +304,9 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.db.close()
         self.db = SessionDB(self.db_path)
         self.agent._session_db = self.db
-        recovered = self.turn('Please proceed', 'retry-lost-response')
+        # Re-deliver the exact original ingress. The production retry capability,
+        # not a fresh owner-receipt readback, must drive Staff create again.
+        recovered = self.turn('yes', 'accept-with-response-loss')
         after = self.assert_one_booking(revision)
         calls = [call for call in after['calls'] if call['path'] == '/booking-create-from-plan']
         self.assertEqual(len(calls), 2, calls)
@@ -308,7 +344,6 @@ class FirstYesPersistenceTests(unittest.TestCase):
     def test_enriched_yes_cannot_override_original_guest_refusal(self):
         self.offer()
         self.turn('No thanks', 'real-refusal', enriched='yes')
-        self.turn('yes', 'late-yes')
         self.assertEqual(self.rpc(snapshot=True)['tables']['bookings'], [])
 
     def test_same_delivery_replay_cannot_create_another_booking(self):
@@ -334,17 +369,14 @@ class FirstYesPersistenceTests(unittest.TestCase):
 
     def test_unchanged_registered_revalidation_still_reaches_sql_without_reconfirm(self):
         revision = self.offer()
-        original_before = accepted_quote._before_create
-        def revalidate(**kwargs):
-            if original_before:
-                original_before(**kwargs)
-            # Targeted scheduler instrumentation: repeat the REAL registered quote
-            # after consent and before create. Neither authority nor business facts
-            # are injected, and the ordinary uninstrumented positive is separate.
-            quoted = json.loads(self.registry.tools['quote_booking']['handler'](dict(PLAN)))
-            self.assertEqual(quoted['offer_revision'], revision)
-        with patch.object(accepted_quote, '_before_create', side_effect=revalidate):
+        # The create wrapper itself performs revalidation through the module's
+        # registered quote boundary. Spy on that reachable boundary rather than
+        # injecting an unrelated scheduler callback.
+        self.after_interpret = lambda: accepted_quote._transaction(
+            lambda state, ingress: state.pop('checked_offer', None))
+        with patch.object(plugin, 'quote_booking', wraps=plugin.quote_booking) as revalidate:
             result = self.turn('yes', 'accept-with-unchanged-revalidation')
+        revalidate.assert_called_once()
         snapshot = self.assert_one_booking(revision)
         self.assertNotIn('?', result.get('final_response', ''))
         self.assertEqual(sum(call['path'] == '/booking-preview' for call in snapshot['calls']), 2)

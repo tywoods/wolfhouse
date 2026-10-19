@@ -219,6 +219,9 @@ const {
   createWolfhouseLocationBookingSettingsRoutes,
 } = require('./lib/wolfhouse-location-booking-settings');
 const {
+  createWolfhouseStaffPortalFieldRoutes,
+} = require('./lib/wolfhouse-staff-portal-fields');
+const {
   createLunaPersonalityRoutes,
   LUNA_PERSONALITY_PATH,
   LUNA_PERSONALITY_BOT_PATH,
@@ -2714,6 +2717,20 @@ const {
   handleLocationPut,
   handleBookingSettingsPut,
 } = createWolfhouseLocationBookingSettingsRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  assertStaffClientAccess,
+  appendAuditLog,
+  withPgClient,
+  SQL_INJECT_RE,
+});
+const {
+  handleWetsuitPromoGet,
+  handleWetsuitPromoPut,
+  handleStaffAccessCodeGet,
+  handleStaffAccessCodePut,
+} = createWolfhouseStaffPortalFieldRoutes({
   sendJSON,
   send400,
   readBody,
@@ -58090,6 +58107,26 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleBookingSettingsPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/wetsuit-promo' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleWetsuitPromoGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/wetsuit-promo' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleWetsuitPromoPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/staff-access-code' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleStaffAccessCodeGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/staff-access-code' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleStaffAccessCodePut(parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

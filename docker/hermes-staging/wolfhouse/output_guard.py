@@ -119,6 +119,8 @@ def outage_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
 _LANG_HINTS = {
     "it": ("ciao", "grazie", "prego", "prenotazione", "stanza", "notti",
            "preventivo", "lezione", "dispiace", "periodo", "tua", "sono", "siamo", "puoi"),
+    "fr": ("bonjour", "merci", "réserver", "réservation", "chambre", "nuits",
+           "personnes", "séjour", "voudrais", "pouvez", "prix", "paiement"),
     "es": ("hola", "gracias", "habitación", "reserva", "noches", "tu", "estás",
            "quiero", "entiendo", "español", "háblame", "puedes", "marea", "mareas"),
     "de": ("hallo", "danke", "zimmer", "buchung", "nächte", "system", "deine", "ist"),

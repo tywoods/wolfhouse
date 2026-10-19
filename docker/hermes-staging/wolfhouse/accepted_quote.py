@@ -48,8 +48,12 @@ _PREFIX = 'wolfhouse.accepted_quote.v1:'
 _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner', default=None)
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
            'room_type', 'room_preference', 'gender_preference', 'group_gender',
-           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email')
+           'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
+           'language')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
+_CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference',
+                   'room_name_hints', 'email', 'guests', 'payment_choice',
+                   'per_guest_payment_links')
 _registered_quote = None
 _registered_create = None
 _before_create = None
@@ -84,12 +88,99 @@ _RECOVERY_FIELDS = {
 
 
 def _owner_operation_key(state):
-    return 'luna-owner-' + hashlib.sha256(_encode({
-        'scope': state['scope'], 'incarnation': state['incarnation'],
-        'offer': state.get('offer_message'),
-        'acceptance': state['acceptance_message'],
-        'plan': state['plan'], 'quote': state['quote'],
-    }).encode()).hexdigest()[:32]
+    persisted = state.get('operation_key')
+    if isinstance(persisted, str) and persisted:
+        return persisted
+    # Never reinterpret a legacy operation which may already have reached Staff.
+    if state.get('dispatch_pending') or isinstance(state.get('receipt'), dict):
+        payload = {
+            'scope': state['scope'], 'incarnation': state['incarnation'],
+            'offer': state.get('offer_message'),
+            'acceptance': state['acceptance_message'],
+            'plan': state['plan'], 'quote': state['quote'],
+        }
+    else:
+        presentation = state.get('accepted_presentation') or state.get('presentation') or {}
+        payload = {
+            'scope': state['scope'], 'incarnation': state['incarnation'],
+            'material_offer': _material_projection(
+                presentation.get('plan') or state.get('plan') or {},
+                presentation.get('quote_revision') or state.get('checked_offer')),
+        }
+    return 'luna-owner-' + hashlib.sha256(_encode(payload).encode()).hexdigest()[:32]
+
+
+def _normalized_selection_rows(rows, *, catalog=False):
+    """Canonical actual services; missing and empty are equivalent."""
+    normalized = []
+    for row in rows or []:
+        if isinstance(row, str):
+            code, quantity, days = row.strip(), 1, None
+        elif isinstance(row, dict):
+            code = str(row.get('service_code' if catalog else 'code')
+                       or row.get('code') or row.get('item_code') or '').strip()
+            quantity, days = row.get('quantity') or 1, row.get('days')
+        else:
+            continue
+        if code:
+            normalized.append((code, quantity, days))
+    return sorted(set(normalized), key=lambda item: _encode(item))
+
+
+def _material_projection(plan, revision=None, *, include_personal=False):
+    """Canonical shown-offer identity, optionally including retry-bound people."""
+    plan = plan if isinstance(plan, dict) else {}
+    revision = revision if isinstance(revision, dict) else {}
+    value = lambda key: plan[key] if key in plan else revision.get(key)
+    assignments = revision.get('guest_bed_assignments') or []
+    rooms = {row.get('bed_code'): row for row in (revision.get('room_arrangement') or [])
+             if isinstance(row, dict) and row.get('bed_code')}
+    codes = value('selected_bed_codes')
+    if codes is None:
+        codes = [row.get('bed_code') for row in assignments if isinstance(row, dict)]
+    allocation = [(index, code, rooms.get(code, {}).get('room_code'),
+                   rooms.get(code, {}).get('gender_strategy'))
+                  for index, code in enumerate(codes or [])]
+    packages = []
+    for index, row in enumerate(value('guest_packages') or []):
+        if isinstance(row, dict):
+            packages.append((row.get('guest_index', index),
+                             row.get('package_code') or row.get('code')))
+        else:
+            packages.append((index, row))
+    services = set(_normalized_selection_rows(value('add_ons')))
+    services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
+    projection = {
+        'check_in': value('check_in'), 'check_out': value('check_out'),
+        'guest_count': value('guest_count'), 'room_type': value('room_type'),
+        'allocation': allocation, 'package_code': value('package_code'),
+        'guest_packages': packages,
+        'services': sorted(services, key=lambda item: _encode(item)),
+        # Price and currency are accepted Staff-owned commercial terms.
+        'total_cents': revision.get('total_cents'),
+        'currency': revision.get('currency'),
+    }
+    if include_personal:
+        people = value('guests')
+        if not isinstance(people, list):
+            people = [{'name': row.get('guest_name')}
+                      for row in assignments if isinstance(row, dict)]
+        projection.update(
+            payment_choice=value('payment_choice'),
+            occupants=[(
+                ' '.join(str(guest.get('name') or '').split()).casefold(),
+                str(guest.get('explicit_gender') or '').strip().casefold() or None,
+            ) for guest in people if isinstance(guest, dict)],
+        )
+    return projection
+
+
+def _same_material_offer(left_plan, right_plan, left_revision=None, right_revision=None,
+                         *, include_personal=False):
+    return (_material_projection(left_plan, left_revision,
+                                 include_personal=include_personal)
+            == _material_projection(right_plan, right_revision,
+                                    include_personal=include_personal))
 
 
 def _frozen_recovery(state, *, session_key, session_id, identity, message_id, raw):
@@ -324,7 +415,7 @@ def _transaction(fn):
         return db._execute_write(work)
 
 
-def _plain_stay_date(value):
+def _plain_stay_date(value, language='en'):
     """Guest date only. Invalid values stay unchanged; never invent a date."""
     text = str(value or '').strip()
     match = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', text)
@@ -334,49 +425,147 @@ def _plain_stay_date(value):
         day = date(int(match[1]), int(match[2]), int(match[3]))
     except ValueError:
         return text
-    weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
-    months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+    weekdays = {
+        'en': ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'),
+        'es': ('lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'),
+        'fr': ('lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim'),
+        'de': ('Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'),
+    }.get(language, ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'))
+    months = {
+        'en': ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'),
+        'es': ('ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'),
+        'fr': ('janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'),
+        'de': ('Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'),
+    }.get(language, ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'))
     return f'{weekdays[day.weekday()]} {day.day} {months[day.month - 1]}'
 
 
-def _guest_count_label(count):
-    return '1 guest' if count == 1 else f'{count} guests'
+def _guest_count_label(count, language='en'):
+    labels = {'en': ('guest', 'guests'), 'es': ('huésped', 'huéspedes'),
+              'fr': ('personne', 'personnes'), 'de': ('Gast', 'Gäste')}
+    one, many = labels.get(language, labels['en'])
+    return f'{count} {one if count == 1 else many}'
 
 
-def _join_names(names):
+def _join_names(names, language='en'):
+    if not names:
+        return ''
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
-        return f'{names[0]} and {names[1]}'
-    return ', '.join(names[:-1]) + f', and {names[-1]}'
+        return f"{names[0]} { {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and') } {names[1]}"
+    conjunction = {'es': 'y', 'fr': 'et', 'de': 'und'}.get(language, 'and')
+    return ', '.join(names[:-1]) + f', {conjunction} {names[-1]}'
 
 
-def _count_word(count):
+def _count_word(count, language='en'):
     words = ('two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten')
+    translated = {'es': ('dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'),
+                  'fr': ('deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'),
+                  'de': ('zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn')}
+    words = translated.get(language, words)
     return words[count - 2] if 2 <= count <= 10 else str(count)
 
 
-def _room_kind(offer, room):
+def _room_kind(offer, room, language='en'):
     if offer.get('room_type') == 'private':
-        return 'private room'
-    labels = {'female_only': "women's room", 'male_only': "men's room",
-              'mixed': 'mixed room', 'flexible': 'shared room'}
-    return labels.get(room.get('gender_strategy'), 'room')
+        return {'es': 'habitación privada', 'fr': 'chambre privée',
+                'de': 'Privatzimmer'}.get(language, 'private room')
+    labels_by_language = {
+        'en': {'female_only': "women's room", 'male_only': "men's room", 'mixed': 'mixed room', 'flexible': 'shared room'},
+        'es': {'female_only': 'habitación femenina', 'male_only': 'habitación masculina', 'mixed': 'habitación mixta', 'flexible': 'habitación compartida'},
+        'fr': {'female_only': 'chambre pour femmes', 'male_only': 'chambre pour hommes', 'mixed': 'chambre mixte', 'flexible': 'chambre partagée'},
+        'de': {'female_only': 'Frauenzimmer', 'male_only': 'Männerzimmer', 'mixed': 'gemischten Zimmer', 'flexible': 'Mehrbettzimmer'},
+    }
+    labels = labels_by_language.get(language, labels_by_language['en'])
+    strategy = str(room.get('gender_strategy') or '').strip().lower().replace(' ', '_')
+    # Staff gender_strategy is free text. A preference is not an exclusivity
+    # guarantee, so localize it as a neutral shared room rather than overstating
+    # it as women-only or men-only.
+    strategy = {'female_preferred': 'flexible', 'male_preferred': 'flexible'}.get(strategy, strategy)
+    return labels.get(strategy, labels['flexible'])
 
 
-def _guest_room_lines(plan, offer):
-    """Group people by frozen room without showing bed or room codes."""
+def _plural_room_kind(kind, language='en'):
+    """Pluralize only our fixed guest-facing room labels."""
+    plurals = {
+        'en': {"women's room": "women's rooms", "men's room": "men's rooms",
+               'mixed room': 'mixed rooms', 'shared room': 'shared rooms'},
+        'es': {'habitación femenina': 'habitaciones femeninas',
+               'habitación masculina': 'habitaciones masculinas',
+               'habitación mixta': 'habitaciones mixtas',
+               'habitación compartida': 'habitaciones compartidas'},
+        'fr': {'chambre pour femmes': 'chambres pour femmes',
+               'chambre pour hommes': 'chambres pour hommes',
+               'chambre mixte': 'chambres mixtes',
+               'chambre partagée': 'chambres partagées'},
+        'de': {'Frauenzimmer': 'Frauenzimmern', 'Männerzimmer': 'Männerzimmern',
+               'gemischten Zimmer': 'gemischten Zimmern', 'Mehrbettzimmer': 'Mehrbettzimmern'},
+    }
+    return plurals.get(language, plurals['en']).get(kind, kind)
+
+
+def _requested_room_change_line(plan, offer, language='en'):
+    preference = str(plan.get('room_preference') or '').strip()
+    match = re.fullmatch(r'(?:room|r)\s*[-_ ]?\s*(\d+)', preference, re.IGNORECASE)
+    if not match:
+        return None
+    requested = f'R{int(match.group(1))}'
+    allocated = []
+    for row in offer.get('room_arrangement') or []:
+        code = str((row or {}).get('room_code') or '').strip().upper()
+        if code and code not in allocated:
+            allocated.append(code)
+    if not allocated or requested in allocated:
+        return None
+    requested_label = f'Room {int(match.group(1))}'
+    allocated_labels = ', '.join(f'Room {code[1:]}' if re.fullmatch(r'R\d+', code) else code
+                                 for code in allocated)
+    templates = {
+        'en': f'{requested_label} is not available for these dates, so this quote is for {allocated_labels}.',
+        'es': f'{requested_label} no está disponible para estas fechas, así que este presupuesto es para {allocated_labels}.',
+        'fr': f'{requested_label} n’est pas disponible à ces dates, donc ce devis est pour {allocated_labels}.',
+        'de': f'{requested_label} ist für diese Daten nicht verfügbar, daher gilt dieses Angebot für {allocated_labels}.',
+    }
+    return templates.get(language, templates['en'])
+
+
+def _guest_room_lines(plan, offer, language='en'):
+    """Group people by frozen room and disclose an authoritative room split."""
     rooms = {row['bed_code']: row for row in offer['room_arrangement']}
+    assignments = offer.get('guest_bed_assignments')
+    if isinstance(assignments, list) and assignments:
+        guests = []
+        selected_bed_codes = []
+        plan_guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
+        for assignment in assignments:
+            if not isinstance(assignment, dict) or assignment.get('bed_code') not in rooms:
+                continue
+            guest_index = assignment.get('guest_index')
+            fallback_name = (plan_guests[guest_index].get('name')
+                             if type(guest_index) is int and 0 <= guest_index < len(plan_guests)
+                             and isinstance(plan_guests[guest_index], dict) else '')
+            guests.append({'name': assignment.get('guest_name') or fallback_name or ''})
+            selected_bed_codes.append(assignment['bed_code'])
+    else:
+        guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
+        selected_bed_codes = (plan.get('selected_bed_codes')
+                              if isinstance(plan.get('selected_bed_codes'), list) else [])
     groups = []
     index = {}
-    for guest, code in zip(plan['guests'], plan['selected_bed_codes']):
-        room = rooms[code]
-        kind = _room_kind(offer, room)
+    for guest, code in zip(guests, selected_bed_codes):
+        room = rooms.get(code)
+        if not isinstance(room, dict):
+            continue
+        kind = _room_kind(offer, room, language)
         key = (room.get('room_code'), kind)
         if key not in index:
             index[key] = len(groups)
-            groups.append({'kind': kind, 'names': []})
-        groups[index[key]]['names'].append(guest['name'])
+            groups.append({'kind': kind, 'room': room.get('room_code'), 'names': [], 'beds': 0})
+        groups[index[key]]['beds'] += 1
+        name = guest.get('name') if isinstance(guest, dict) else ''
+        if isinstance(name, str) and name.strip():
+            groups[index[key]]['names'].append(name.strip())
     by_kind = {}
     for group in groups:
         by_kind.setdefault(group['kind'], []).append(group)
@@ -388,26 +577,168 @@ def _guest_room_lines(plan, offer):
             continue
         same = by_kind[kind]
         emitted.add(kind)
-        if len(same) > 1 and all(len(item['names']) == 1 for item in same):
+        if len(same) > 1 and all(len(item['names']) <= 1 for item in same):
             names = [name for item in same for name in item['names']]
-            lines.append(f"{_join_names(names)}: beds in {_count_word(len(same))} separate {kind}s.")
+            all_guests_named = len(names) == sum(item['beds'] for item in same)
+            count = _count_word(len(same), language)
+            plural_kind = _plural_room_kind(kind, language)
+            who = _join_names(names, language) if all_guests_named else ''
+            prefix = (f'{who} : ' if language == 'fr' else f'{who}: ') if who else ''
+            templates = {'en': f'{prefix}beds in {count} separate {plural_kind}.',
+                         'es': f'{prefix}camas en {count} {plural_kind} separadas.',
+                         'fr': f'{prefix}lits dans {count} {plural_kind} séparées.',
+                         'de': f'{prefix}Betten in {count} getrennten {plural_kind}.'}
+            lines.append(templates.get(language, templates['en']))
             continue
         first = True
         for item in same:
-            who = _join_names(item['names'])
-            beds = len(item['names'])
+            names = item['names'] if len(item['names']) == item['beds'] else []
+            who = _join_names(names, language)
+            beds = item['beds']
+            n = _count_word(beds, language)
+            # Room and bed codes are Staff internals, never guest-facing copy.
+            room_suffix = ''
+            prefix = f'{who}: ' if who else ''
+            if language != 'en':
+                if beds == 1:
+                    line = {'es': f'{prefix}una cama en la {kind}.', 'fr': f'{prefix}un lit dans la {kind}.',
+                            'de': f'{prefix}ein Bett im {kind}.'}[language]
+                else:
+                    line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
+                            'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
+                if len(same) > 1 and not first:
+                    line = {'es': f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.',
+                            'fr': f'{who} : {n if beds > 1 else "un"} lit' + ('s' if beds > 1 else '') + f' dans une autre {kind}.',
+                            'de': f'{who}: {n if beds > 1 else "ein"} Bett' + ('en' if beds > 1 else '') + f' in einem anderen {kind}.'}[language]
+                lines.append(line)
+                first = False
+                continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{who}: a bed in the {kind}.")
+                lines.append(f"{prefix}a bed in the {kind}{room_suffix}.")
             elif len(same) == 1:
-                lines.append(f"{who}: {_count_word(beds)} beds in the same {kind}.")
+                lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:
                 where = f"the {kind}" if first else f"a separate {kind}"
-                lines.append(f"{who}: a bed in {where}.")
+                lines.append(f"{who}: a bed in {where}{room_suffix}.")
             else:
                 where = f"the same {kind}" if first else f"a separate {kind}"
-                lines.append(f"{who}: {_count_word(beds)} beds in {where}.")
+                lines.append(f"{who}: {_count_word(beds)} beds in {where}{room_suffix}.")
             first = False
     return lines
+
+
+def _guest_language(state):
+    """Use the owner-observed guest locale; explicit internal hints are fallback only."""
+    observed = str(state.get('guest_language') or '').strip().casefold()
+    if observed in ('en', 'es', 'fr', 'de'):
+        return observed
+    plan = _presentation_plan(state)
+    authoritative = str(plan.get('language') or '').strip().casefold() if isinstance(plan, dict) else ''
+    aliases = {'english': 'en', 'spanish': 'es', 'español': 'es', 'french': 'fr',
+               'français': 'fr', 'german': 'de', 'deutsch': 'de'}
+    authoritative = aliases.get(authoritative, authoritative.split('-', 1)[0])
+    return authoritative if authoritative in ('en', 'es', 'fr', 'de') else 'en'
+
+
+_FINAL_COPY = {
+    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': 'Availability checked, subject to confirmation when booking.', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Shall I check this exact offer for booking?', 'which_payment': 'Which payment option would you like me to check for this booking?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
+    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': 'Disponibilidad comprobada, sujeta a confirmación al reservar.', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Compruebo esta oferta exacta para reservar?', 'which_payment': '¿Qué opción de pago quieres que compruebe para esta reserva?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
+    'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': 'Disponibilité vérifiée, sous réserve de confirmation lors de la réservation.', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
+    'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': 'Verfügbarkeit geprüft, vorbehaltlich der Bestätigung bei der Buchung.', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
+}
+
+
+def _final_copy(language, key, **values):
+    return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
+
+
+def _structured_eligibility_copy(eligibility, plan, language):
+    """Render Staff's structured room decision without classifying Staff prose."""
+    if not isinstance(eligibility, dict):
+        return None
+    status = eligibility.get('status')
+    room = eligibility.get('requested_room_preference')
+    indices = eligibility.get('affected_guest_indices')
+    if (status not in ('unsure', 'no') or room not in ('female_only', 'male_only')
+            or not isinstance(indices, list) or not indices
+            or (status == 'unsure'
+                and eligibility.get('question_kind') != 'confirm_room_eligibility')):
+        return None
+    guests = plan.get('guests') if isinstance(plan, dict) else []
+    guests = guests if isinstance(guests, list) else []
+    names = []
+    for index in indices:
+        if type(index) is not int or index < 0:
+            return None
+        guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
+        names.append(str(guest.get('name') or '').strip())
+    all_party = bool(guests) and indices == list(range(len(guests)))
+    partial_group = not all_party and len(indices) > 1
+    partial_numbers = ''
+    if all_party:
+        subject = {'en': 'all guests', 'es': 'todas las personas', 'fr': 'toutes les personnes',
+                   'de': 'alle Gäste'}[language]
+    elif partial_group:
+        joiner = {'en': ' and ', 'es': ' y ', 'fr': ' et ', 'de': ' und '}[language]
+        partial_numbers = joiner.join(str(index + 1) for index in indices)
+        subject = {'en': f'guests {partial_numbers}', 'es': f'las personas {partial_numbers}',
+                   'fr': f'les personnes {partial_numbers}', 'de': f'Gäste {partial_numbers}'}[language]
+    elif len(names) == 1 and names[0]:
+        subject = names[0]
+    else:
+        numbers = ', '.join(str(index + 1) for index in indices)
+        subject = {'en': f'guest {numbers}', 'es': f'la persona {numbers}',
+                   'fr': f'la personne {numbers}', 'de': f'Gast {numbers}'}[language]
+    female = room == 'female_only'
+    room_label = {
+        'en': 'women-only room' if female else 'men-only room',
+        'es': 'habitación solicitada solo para mujeres' if female else 'habitación solicitada solo para hombres',
+        'fr': 'chambre demandée réservée aux femmes' if female else 'chambre demandée réservée aux hommes',
+        'de': 'gewünschten Frauenzimmer' if female else 'gewünschten Männerzimmer',
+    }[language]
+    if status == 'unsure':
+        if all_party or partial_group:
+            return {
+                'en': f'Are {subject} eligible for the requested {room_label}?',
+                'es': f'¿Pueden {subject} alojarse en la {room_label}?',
+                'fr': f'{subject.capitalize()} peuvent-elles séjourner dans la {room_label} ?',
+                'de': f'Können {subject} im {room_label} übernachten?',
+            }[language]
+        return {
+            'en': f'Is {subject} eligible for the requested {room_label}?',
+            'es': f'¿Puede {subject} alojarse en la {room_label}?',
+            'fr': f'{subject} peut-elle séjourner dans la {room_label} ?',
+            'de': f'Kann {subject} im {room_label} übernachten?',
+        }[language]
+    if all_party:
+        details = {
+            'en': 'the guest details provided',
+            'es': 'los datos proporcionados de las personas',
+            'fr': 'les informations fournies sur les personnes',
+            'de': 'den angegebenen Gästedaten',
+        }[language]
+    elif partial_group:
+        details = {
+            'en': f'the guest details for guests {partial_numbers}',
+            'es': f'los datos de las personas {partial_numbers}',
+            'fr': f'les informations des personnes {partial_numbers}',
+            'de': f'den Angaben zu den Gästen {partial_numbers}',
+        }[language]
+    else:
+        details = {
+            'en': f"{subject}'s guest details",
+            'es': f'los datos de {subject}',
+            'fr': f'les informations de {subject}',
+            'de': f'den Angaben zu {subject}',
+        }[language]
+    return {
+        'en': f'The requested {room_label} is not compatible with {details}. Would you like to see other room options?',
+        'es': f'La {room_label} no es compatible con {details}. ¿Quieres ver otras opciones de habitación?',
+        'fr': f'La {room_label} n’est pas compatible avec {details}. Voulez-vous voir d’autres options de chambre ?',
+        'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
+    }[language]
+
+
 def _evidence_in_current_turn(raw, evidence):
     """Require interpreter evidence to be literal current-ingress text."""
     if not isinstance(raw, str) or not isinstance(evidence, str):
@@ -696,6 +1027,24 @@ def _person_plan_does_not_contradict_hints(plan, hints):
     return True
 
 
+def _reconcile_carried_hint_order(supplied, canonical):
+    """Keep carried hint metadata in the canonical occupant-slot order."""
+    if not isinstance(supplied, list) or not isinstance(canonical, list):
+        return supplied
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+    supplied_by_name = {
+        normalize(row.get('name')): row for row in supplied if isinstance(row, dict)
+        and normalize(row.get('name'))
+    }
+    canonical_names = [normalize(row.get('name')) for row in canonical
+                       if isinstance(row, dict)]
+    if (len(supplied_by_name) != len(supplied) or len(canonical_names) != len(canonical)
+            or len(set(canonical_names)) != len(canonical_names)
+            or set(supplied_by_name) != set(canonical_names)):
+        return supplied
+    return [deepcopy(supplied_by_name[name]) for name in canonical_names]
+
+
 def _canonical_person_facts_consistent(revision):
     if not isinstance(revision, dict):
         return False
@@ -717,8 +1066,8 @@ def _canonical_person_facts_consistent(revision):
 
 
 def _request_plan_matches_canonical_people(expected, current, prior_revision, current_revision):
-    comparable = {key: expected.get(key) for key in _FIELDS if key in expected}
-    actual = {key: current.get(key) for key in _FIELDS if key in expected}
+    if not _same_material_offer(expected, current, prior_revision, current_revision):
+        return False
     expected_alias = expected.get('gender_preference')
     current_alias = current.get('gender_preference')
     hints = current_revision.get('room_name_hints') if isinstance(current_revision, dict) else None
@@ -739,15 +1088,16 @@ def _request_plan_matches_canonical_people(expected, current, prior_revision, cu
         and len(authoritative) == len(names)
         and all(authoritative.get(name) == expected_alias for name in names)
         and _person_plan_does_not_contradict_hints(current, hints))
-    if request_alias_redundant:
-        comparable['gender_preference'] = None
-    return comparable == actual
+    # Alias consistency remains a person-policy check, not offer identity.
+    return (expected_alias == current_alias or request_alias_redundant
+            or expected_alias is None or current_alias is None)
 
 
 def _completion_revision_matches(prior, current, *, payment_choice=None,
                                  guest_index=None, guest_name=None, guest_completions=None,
                                  eligibility_index=None, eligibility_value=None,
-                                 eligibility_completions=None, person_plan=None):
+                                 eligibility_completions=None, person_plan=None,
+                                 aggregate_group_fact=None):
     """Compare the complete Staff revision, ignoring only authorized completions."""
     if not isinstance(prior, dict) or not isinstance(current, dict):
         return False
@@ -759,6 +1109,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
     before, after = deepcopy(prior), deepcopy(current)
     before.pop('offer_fingerprint', None)
     after.pop('offer_fingerprint', None)
+    if (aggregate_group_fact in ('male', 'female', 'mixed')
+            and before.get('group_gender') is None
+            and after.get('group_gender') == aggregate_group_fact):
+        before.pop('group_gender', None)
+        after.pop('group_gender', None)
     # Staff's completed canonical offer may drop a redundant aggregate alias,
     # but only while the same person-bound authority remains in both revisions.
     if (_canonical_gender_alias_is_redundant(before, after)
@@ -860,7 +1215,11 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         for revision in (before, after):
             if not revision.get('room_name_hints'):
                 revision.pop('room_name_hints', None)
-    return before == after
+    return (_material_projection(before) == _material_projection(after)
+            and before.get('client_slug') == after.get('client_slug')
+            and before.get('total_cents') == after.get('total_cents')
+            and before.get('currency') == after.get('currency')
+            and before.get('availability_checked') == after.get('availability_checked'))
 
 
 def interpret_owner_turn(interpretation):
@@ -1158,6 +1517,12 @@ def observe_owner_turn(agent, raw):
             'raw': raw,
             'raw_digest': raw_digest,
         }
+        # Locale belongs to owner-observed ingress, not to quote_booking's model
+        # schema. A short acknowledgment retains the last resolved guest locale.
+        from .output_guard import _guest_lang_from_history
+        detected_language = _guest_lang_from_history([{'role': 'user', 'content': raw}])
+        if detected_language in ('en', 'es', 'fr', 'de'):
+            state['guest_language'] = detected_language
         # IDs stay durable for the incarnation; do not age out replay protection.
         # Raw text is provenance only. It never grants, revokes, or revises booking
         # authority: every response to an owner presentation must be adjudicated by
@@ -1235,6 +1600,16 @@ def prepare_quote(params):
         result = deepcopy(normalized_params)
         preserved = deepcopy(state.get('plan') or {})
         preserved.update(deepcopy(state.get('completion_plan') or {}))
+        prior_room_preference = str(preserved.get('room_preference') or '').strip()
+        new_room_preference = str(result.get('room_preference') or '').strip().casefold()
+        explicit_prior_room = re.fullmatch(
+            r'(?:room|r)\s*[-_ ]?\s*\d+', prior_room_preference, re.IGNORECASE)
+        if (explicit_prior_room
+                and new_room_preference in {'shared', 'mixed'}):
+            # A generic model restatement must not erase a guest's specific room
+            # preference during re-quote/create. Staff can still allocate another
+            # room, but the rendered quote must disclose that before acceptance.
+            result['room_preference'] = prior_room_preference
         for key in _FIELDS + _CHECKED_FIELDS:
             if key not in result and key in preserved:
                 result[key] = preserved[key]
@@ -1374,6 +1749,22 @@ def validated_guest_eligibility(prepared):
     return _transaction(read)
 
 
+def validated_unnamed_group_composition(prepared):
+    """Return whole-party composition while any roster slots remain unnamed."""
+    def read(state, _ingress):
+        if (not isinstance(prepared, PreparedPlan)
+                or prepared.capability is not _current.get()
+                or prepared.epoch != state['epoch']):
+            raise QuoteBoundaryError('quote_response_superseded')
+        guests = prepared.get('guests')
+        if (isinstance(guests, list)
+                and len(guests) >= prepared.get('guest_count', 0)):
+            return None
+        group = prepared.get('group_gender')
+        return group if group in ('male', 'female') else None
+    return _transaction(read)
+
+
 def _checked_plan(prepared, response, tenant):
     """Freeze Staff's revision, not any model-supplied offer/bed authority."""
     offer = response.get('offer_revision')
@@ -1456,29 +1847,39 @@ def _incomplete_payment_revision(response, tenant, plan=None):
     offer = response.get('offer_revision')
     availability = response.get('availability')
     requested_payment = (plan or {}).get('payment_choice')
+    assignments = offer.get('guest_bed_assignments') if isinstance(offer, dict) else None
+    count = offer.get('guest_count') if isinstance(offer, dict) else None
+    missing_names = (type(count) is int and count > 0 and isinstance(assignments, list)
+                     and len(assignments) == count and any(
+                         not isinstance(row, dict) or not row.get('guest_name')
+                         for row in assignments))
     full_only = (response.get('full_payment_only') is True
                  and response.get('payment_choice_needed') is False)
+    chosen_full_with_missing_names = (
+        requested_payment == 'full'
+        and response.get('payment_choice_needed') is False and missing_names)
+    expected_payment = ('full' if full_only or chosen_full_with_missing_names else 'deposit')
+    expected_amount = (offer.get('total_cents') if expected_payment == 'full' else
+                       offer.get('deposit_required_cents')) if isinstance(offer, dict) else None
     if (not isinstance(offer, dict) or not isinstance(availability, dict)
-            or (response.get('payment_choice_needed') is not True and not full_only)
+            or (response.get('payment_choice_needed') is not True
+                and not full_only and not chosen_full_with_missing_names)
             or (requested_payment in ('full', 'deposit', 'pay_on_arrival', 'per_guest')
-                and not full_only)
+                and not full_only and not chosen_full_with_missing_names)
             or offer.get('client_slug') != tenant
             or offer.get('availability_checked') is not True
             or availability.get('status') != 'checked'
-            or offer.get('payment_choice') != ('full' if full_only else 'deposit')
+            or offer.get('payment_choice') != expected_payment
             or not offer.get('offer_fingerprint')
             or any(not isinstance(offer.get(key), str) or not offer[key].strip()
                    for key in ('check_in', 'check_out', 'currency', 'room_type', 'package_code'))
             or any(type(offer.get(key)) is not int or offer[key] < 0 for key in
                    ('guest_count', 'total_cents', 'deposit_required_cents', 'payment_link_amount_cents'))
             or offer.get('total_cents') != response.get('total_cents')
-            or offer.get('payment_link_amount_cents') != (
-                offer.get('total_cents') if full_only else offer.get('deposit_required_cents'))
+            or offer.get('payment_link_amount_cents') != expected_amount
             or (full_only and offer.get('deposit_required_cents') != offer.get('total_cents'))):
         return False
-    assignments = offer.get('guest_bed_assignments')
     rooms = offer.get('room_arrangement')
-    count = offer.get('guest_count')
     return (isinstance(assignments, list) and len(assignments) == count
             and isinstance(rooms, list) and len(rooms) == count
             and availability.get('selected_bed_codes') == [row.get('bed_code') for row in assignments]
@@ -1509,6 +1910,9 @@ def record_quote(params, response):
         if prepared.capability is not _current.get() or prepared.epoch != state['epoch']:
             raise QuoteBoundaryError('quote_response_superseded')
         plan = {key: deepcopy(prepared[key]) for key in _FIELDS if key in prepared}
+        presentation_language = str(prepared.get('language') or '').strip().casefold()
+        if presentation_language in ('en', 'es', 'fr', 'de'):
+            state['guest_language'] = presentation_language
         completion_plan = {key: deepcopy(prepared[key]) for key in _CHECKED_FIELDS
                            if key in prepared}
         checked = _checked_plan(prepared, response, ingress['tenant'])
@@ -1559,7 +1963,8 @@ def record_quote(params, response):
                     eligibility_index=eligibility_index,
                     eligibility_value=eligibility_value,
                     eligibility_completions=state.get('pending_eligibility_completions'),
-                    person_plan=dict(prepared))
+                    person_plan=dict(prepared),
+                    aggregate_group_fact=state.get('pending_group_gender_fact'))
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
@@ -1588,6 +1993,7 @@ def record_quote(params, response):
                 state.pop('pending_name_completions', None)
                 state.pop('pending_eligibility_completion', None)
                 state.pop('pending_eligibility_completions', None)
+                state.pop('pending_group_gender_fact', None)
                 state.pop('pending_fact_refresh', None)
                 state['epoch'] += 1
                 prepared.capability.epoch = state['epoch']
@@ -1616,27 +2022,17 @@ def record_quote(params, response):
                                   else None)
             prior_quote = presentation.get('authoritative_quote') or {}
             prior_plan = presentation.get('plan') or {}
-            material_matches = True
-            for key in _FIELDS:
-                before, after = prior_plan.get(key), plan.get(key)
-                if key in ('add_ons', 'catalog_selections', 'guest_packages'):
-                    before, after = before or [], after or []
-                if key == 'selected_bed_codes' and before is None:
-                    before = [row.get('bed_code') for row in prior_rows]
-                    after = after if after is not None else before
-                if key == 'group_gender' and before != after:
-                    facts = {guest.get('explicit_gender') for guest in plan.get('guests', [])
-                             if isinstance(guest, dict) and guest.get('explicit_gender')}
-                    # A matching aggregate restatement adds no fact. A
-                    # contradiction remains material and clears the offer.
-                    if len(facts) == 1 and after in facts and before in (None, after):
-                        before = after
-                if (key == 'gender_preference'
-                        and _canonical_gender_alias_is_redundant(prior_plan, plan)):
-                    before = after
-                if before != after:
-                    material_matches = False
-            if (material_matches and same_people and (not payment or payment in presentation.get('payment_choices', []))
+            material_matches = _same_material_offer(
+                prior_plan, plan, prior_revision, revision)
+            completed_named_revision = (bool(rows)
+                and all(isinstance(row, dict) and str(row.get('guest_name') or '').strip()
+                        for row in rows))
+            payment_preserved_by_completed_revision = (
+                payment == prior_revision.get('payment_choice')
+                and completed_named_revision)
+            if (material_matches and same_people
+                    and (not payment or payment in presentation.get('payment_choices', [])
+                         or payment_preserved_by_completed_revision)
                     and _completion_revision_matches(prior_revision, revision,
                         payment_choice=payment_completion, guest_completions=names,
                         person_plan=plan)
@@ -1647,16 +2043,31 @@ def record_quote(params, response):
                 state['plan'] = deepcopy(plan)
                 state['completion_plan'] = deepcopy(completion_plan)
                 state['quote'] = deepcopy(response)
-                if presentation.get('create_ready') is True:
+                completed_authority = (completed_named_revision
+                    and bool(revision.get('payment_choice'))
+                    and revision.get('availability_checked') is True
+                    and response.get('payment_choice_needed') is not True
+                    and not response.get('missing_fields'))
+                if completed_authority:
                     state['checked_offer'] = deepcopy(revision)
                     state['presented_offer'] = deepcopy(revision)
                 presentation['plan'] = _presentation_plan(state)
                 presentation['quote_revision'] = deepcopy(revision)
                 presentation['authoritative_quote'] = deepcopy(response)
+                if state.get('status') == 'accepted' and completed_authority:
+                    # A fact-equivalent Staff re-quote advances the authority
+                    # already accepted for this same person/conversation.  Do
+                    # not leave the acceptance snapshots pointing at the prior
+                    # fingerprint and then refuse the exact refreshed offer.
+                    state['accepted_offer_snapshot'] = deepcopy(revision)
+                    state['accepted_presentation'] = deepcopy(presentation)
                 return
-        if (valid and checked is not None and state['status'] in ('offered', 'accepted')
+        if (valid and checked is not None and state['status'] == 'accepted'
                 and isinstance(state.get('presentation'), dict)
-                and previous_checked == response['offer_revision'] and state['plan'] == plan):
+                and _same_material_offer(state['plan'], plan, previous_checked,
+                                         response['offer_revision'])
+                and response.get('total_cents') == (state.get('quote') or {}).get('total_cents')
+                and response.get('currency') == (state.get('quote') or {}).get('currency')):
             # Cosmetic revalidation metadata must not mint a new operation or
             # erase consent. Keep the original snapshot, receipt and key inputs.
             return
@@ -1667,7 +2078,11 @@ def record_quote(params, response):
         state.pop('receipt', None)
         state.pop('completion', None)
         state.pop('dispatch_pending', None)
+        state.pop('dispatch_payload', None)
         state.pop('post_booking_contact', None)
+        # This is a newly checked material offer; any prepared identity belonged
+        # to the prior accepted offer and cannot authorize this one.
+        state.pop('operation_key', None)
         unresolved_eligibility = (
             response.get('success') is False
             and response.get('quote_status') == 'needs_guest_clarification'
@@ -1695,6 +2110,21 @@ def record_quote(params, response):
 def prepare_create(params):
     params = deepcopy(params)
     def prepare(state, ingress):
+        frozen_dispatch = state.get('dispatch_payload')
+        if (state.get('dispatch_pending') and isinstance(state.get('checked_offer'), dict)
+                and isinstance(frozen_dispatch, dict)):
+            # Recovery reuses the owner-frozen operation only when any restated
+            # business fields still describe that operation. Omitted fields are
+            # recovered; changed dates/people/beds/terms cannot ride its receipt.
+            candidate = deepcopy(frozen_dispatch)
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready', 'accepted_offer',
+                                             'require_offer_identity', 'idempotency_key')})
+            if not _same_material_offer(frozen_dispatch, candidate,
+                                        state['checked_offer'], state['checked_offer'],
+                                        include_personal=True):
+                raise QuoteBoundaryError('accepted_quote_changed')
+            return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)
@@ -1830,12 +2260,31 @@ def prepare_create(params):
             # The model owns the semantic decision to invoke create. Code owns the
             # facts: repeated arguments must match the shown offer; omitted values
             # come from that offer rather than model-created readiness state.
-            for key in _FIELDS + _CHECKED_FIELDS:
-                if key in params and params[key] != baseline.get(key):
-                    refusal = QuoteBoundaryError('accepted_quote_changed')
-                    refusal.add_note('comparison_key=' + key)
-                    raise refusal
+            new_group_fact = (params.get('group_gender')
+                              if baseline.get('group_gender') is None
+                              and params.get('group_gender') in ('male', 'female', 'mixed')
+                              else None)
+            candidate = deepcopy(baseline)
+            candidate.update({key: deepcopy(value) for key, value in params.items()
+                              if key not in ('confirm', 'ready')})
+            if not _same_material_offer(baseline, candidate, shown, shown):
+                raise QuoteBoundaryError('accepted_quote_changed')
+            if ('room_name_hints' in params
+                    and not _person_plan_does_not_contradict_hints(
+                        params, baseline.get('room_name_hints')
+                        or shown.get('room_name_hints') or [])):
+                raise QuoteBoundaryError('accepted_quote_changed')
+            # Carried hints follow frozen guest slots even when restated out of order.
+            if 'room_name_hints' in params:
+                params['room_name_hints'] = _reconcile_carried_hint_order(
+                    params['room_name_hints'], baseline.get('room_name_hints') or [])
             result = deepcopy(baseline)
+            for key in _CARRIED_FIELDS:
+                if key in params:
+                    result[key] = deepcopy(params[key])
+            if new_group_fact is not None:
+                result['group_gender'] = new_group_fact
+                state['pending_group_gender_fact'] = new_group_fact
             state['status'] = 'accepted'
             state['accepted_presentation'] = deepcopy(presentation)
             state['completion_plan'] = {key: deepcopy(result[key]) for key in _CHECKED_FIELDS
@@ -1854,18 +2303,44 @@ def prepare_create(params):
         if (not isinstance(state.get('presentation'), dict)
                 or not isinstance(state.get('accepted_presentation'), dict)
                 or not isinstance(state.get('checked_offer'), dict)
-                or state.get('accepted_offer_snapshot') != state.get('checked_offer')
-                or state['accepted_presentation'].get('quote_revision') != state.get('checked_offer')
-                or state['accepted_presentation'].get('plan') != _presentation_plan(state)):
+                or not _same_material_offer(
+                    state.get('plan'), _presentation_plan(state),
+                    state.get('accepted_offer_snapshot'), state.get('checked_offer'))
+                or not _same_material_offer(
+                    state['accepted_presentation'].get('plan'), state.get('plan'),
+                    state['accepted_presentation'].get('quote_revision'),
+                    state.get('checked_offer'))
+                or (state['accepted_presentation'].get('authoritative_quote') or {}).get('total_cents')
+                    != (state.get('quote') or {}).get('total_cents')
+                or (state['accepted_presentation'].get('authoritative_quote') or {}).get('currency')
+                    != (state.get('quote') or {}).get('currency')):
             # No phrase/confirm compatibility path may bypass owner presentation,
             # structural interpretation, and the exact Staff-checked revision.
             raise QuoteBoundaryError('quote_owner_acceptance_required')
         result = deepcopy(params)
         plan = state['plan']
-        for key in _FIELDS + (_CHECKED_FIELDS if state.get('checked_offer') else ()):
-            if key in result and result[key] != plan.get(key):
-                raise QuoteBoundaryError('accepted_quote_changed')
-            if key in plan:
+        candidate = deepcopy(plan)
+        candidate.update({key: deepcopy(value) for key, value in params.items()
+                          if key not in ('confirm', 'ready')})
+        if not _same_material_offer(plan, candidate, state.get('checked_offer'),
+                                    state.get('checked_offer')):
+            raise QuoteBoundaryError('accepted_quote_changed')
+        if ('room_name_hints' in params
+                and not _person_plan_does_not_contradict_hints(
+                    params, plan.get('room_name_hints')
+                    or state.get('checked_offer', {}).get('room_name_hints') or [])):
+            raise QuoteBoundaryError('accepted_quote_changed')
+        # Carried hints follow frozen guest slots even when restated out of order.
+        if 'room_name_hints' in params:
+            params['room_name_hints'] = _reconcile_carried_hint_order(
+                params['room_name_hints'], plan.get('room_name_hints') or [])
+        for key, value in plan.items():
+            if key not in _CARRIED_FIELDS:
+                result[key] = deepcopy(value)
+        for key in _CARRIED_FIELDS:
+            if key in params:
+                result[key] = deepcopy(params[key])
+            elif key in plan:
                 result[key] = deepcopy(plan[key])
         # Model-provided totals/quote IDs are not authority and never forwarded.
         for key in ('total_cents', 'quote_total_cents', 'accepted_quote_id',
@@ -1876,12 +2351,8 @@ def prepare_create(params):
             result['require_offer_identity'] = True
         # Replay/retry identity is owner-issued, never model-controlled. Keep
         # it stable across restart and omitted identities for this acceptance.
-        identity = {key: value for key, value in ingress.items() if key != 'MESSAGE_ID'}
-        result['idempotency_key'] = 'luna-owner-' + hashlib.sha256(_encode({
-            'scope': identity, 'incarnation': state['incarnation'],
-            'offer': state.get('offer_message'), 'acceptance': state['acceptance_message'],
-            'plan': plan, 'quote': state['quote'],
-        }).encode()).hexdigest()[:32]
+        result['idempotency_key'] = _owner_operation_key(state)
+        state.setdefault('operation_key', result['idempotency_key'])
         result['confirm'] = True
         return PreparedPlan(result, _current.get(), state['epoch'])
     return _transaction(prepare)
@@ -2002,7 +2473,7 @@ def _revoke_checked_offer(state):
     # Retain immutable accepted authority for exact fresh revalidation. The
     # clarify status and cleared checked offer still deny every create retry.
     state['pending_fact_refresh'] = True
-    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending'):
+    for key in ('presented_offer', 'auto_acceptance', 'dispatch_pending', 'dispatch_payload'):
         state.pop(key, None)
 
 
@@ -2025,6 +2496,7 @@ def dispatch_create(prepared, transport):
     """
     def mark_pending(state, ingress):
         _validate_dispatch_ticket(prepared, state)
+        state['dispatch_payload'] = deepcopy(dict(prepared))
         state['dispatch_pending'] = True
     _transaction(mark_pending)
     invoked = False
@@ -2054,6 +2526,71 @@ def finalize_offer_response(result):
         return result
     def present(state, ingress):
         messages = result.get('messages')
+        # Tool truth owns this copy boundary. eligibility_required means person
+        # eligibility is unknown, never that requested stock is unavailable.
+        if isinstance(messages, list):
+            last_user = max((index for index, item in enumerate(messages)
+                             if isinstance(item, dict) and item.get('role') == 'user'),
+                            default=-1)
+            for item in reversed(messages[last_user + 1:]):
+                if not isinstance(item, dict) or item.get('role') != 'tool':
+                    continue
+                try:
+                    tool_result = json.loads(item.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(tool_result, dict):
+                    continue
+                if (tool_result.get('tool') == 'flag_needs_human'
+                        and tool_result.get('success') is True
+                        and tool_result.get('needs_human') is True
+                        and tool_result.get('handoff_persisted') is True):
+                    language = _guest_language(state)
+                    text = {
+                        'en': "I've handed this to the team to check. They'll take it from here.",
+                        'es': 'Se lo he pasado al equipo para que lo revise. Ellos se encargarán a partir de aquí.',
+                        'fr': "Je l’ai transmis à l’équipe pour vérification. Elle prend le relais.",
+                        'de': 'Ich habe das zur Prüfung an das Team weitergegeben. Das Team übernimmt ab hier.',
+                    }.get(language, "I've handed this to the team to check. They'll take it from here.")
+                    output = deepcopy(result)
+                    output['final_response'] = text
+                    output_messages = output.get('messages')
+                    if (output_messages and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = text
+                    return output
+                structured = (tool_result.get('room_decision') or tool_result.get('room_eligibility')
+                              if isinstance(tool_result, dict) else None)
+                structured_text = _structured_eligibility_copy(
+                    structured, _presentation_plan(state), _guest_language(state))
+                legacy_draft = (tool_result.get('reply_draft', '').strip()
+                                if not isinstance(structured, dict)
+                                and isinstance(tool_result.get('reply_draft'), str)
+                                and tool_result['reply_draft'].strip().endswith('?') else None)
+                # Iteration is newest-first: a newer no-stock quote resolves any
+                # older eligibility uncertainty in this same guest turn.
+                if (tool_result.get('unavailable') is True
+                        or tool_result.get('availability_status') == 'unavailable'):
+                    break
+                if (isinstance(tool_result, dict)
+                        and tool_result.get('availability_status') == 'eligibility_required'
+                        and tool_result.get('next_action') == 'ask_room_eligibility'
+                        and (structured_text or legacy_draft)):
+                    output = deepcopy(result)
+                    text = structured_text or legacy_draft
+                    output['final_response'] = text
+                    output_messages = output.get('messages')
+                    if (output_messages and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = text
+                    return output
+                # Checked quote/create truth also resolves any older eligibility
+                # uncertainty in this same guest turn.
+                if (isinstance(tool_result, dict) and tool_result.get('success') is True
+                        and (isinstance(tool_result.get('offer_revision'), dict)
+                             or tool_result.get('booking_id')
+                             or tool_result.get('booking_code'))):
+                    break
         unresolved = state.get('quote') or {}
         unresolved_presentable = (
             state.get('status') == 'blocked'
@@ -2062,10 +2599,24 @@ def finalize_offer_response(result):
             and state.get('offer_message') == ingress['MESSAGE_ID']
         )
         if unresolved_presentable:
-            text = unresolved.get('guest_safe_next_action')
-            if not isinstance(text, str) or not text.strip():
-                text = ('I could not verify an eligible bed for this stay yet. '
-                        'Would you like me to check another room option?')
+            language = _guest_language(state)
+            structured_eligibility = (unresolved.get('room_eligibility')
+                                      or unresolved.get('room_decision'))
+            valid_eligibility_question = (
+                isinstance(structured_eligibility, dict)
+                and structured_eligibility.get('status') in ('unsure', 'no')
+                and (structured_eligibility.get('status') == 'no'
+                     or structured_eligibility.get('question_kind') == 'confirm_room_eligibility'))
+            # Known inventory unavailability wins over room eligibility: there
+            # is no useful eligibility question to ask when Staff found no bed.
+            known_unavailable = (unresolved.get('unavailable') is True
+                                 or unresolved.get('availability_status') == 'unavailable')
+            # Structured Staff meaning selects the localized question. Never
+            # classify arbitrary Staff wording to infer eligibility.
+            plan = _presentation_plan(state)
+            text = (_structured_eligibility_copy(structured_eligibility, plan, language)
+                    if valid_eligibility_question and not known_unavailable else None)
+            text = text or _final_copy(language, 'refusal')
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
@@ -2121,9 +2672,22 @@ def finalize_offer_response(result):
         assistant = next((item for item in reversed(messages or [])
                           if isinstance(item, dict) and item.get('role') == 'assistant'), {})
         quote = state['quote']
+        revision = quote.get('offer_revision') if isinstance(quote.get('offer_revision'), dict) else {}
+        assignments = revision.get('guest_bed_assignments')
+        chosen_full_names_missing = (
+            quote.get('full_payment_only') is not True
+            and quote.get('payment_choice_needed') is False
+            and revision.get('payment_choice') == 'full'
+            and isinstance(assignments, list) and assignments
+            and any(not isinstance(row, dict) or not row.get('guest_name') for row in assignments))
         choices = []
         if (quote.get('full_payment_only') is True
                 and quote.get('payment_choice_needed') is False):
+            choices.append('full')
+        elif (quote.get('payment_choice_needed') is True
+              and type(quote.get('deposit_required_cents')) is int
+              and type(quote.get('total_cents')) is int
+              and quote.get('deposit_required_cents') == quote.get('total_cents')):
             choices.append('full')
         elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
@@ -2158,22 +2722,41 @@ def finalize_offer_response(result):
             def quoted_money(cents):
                 return f"{cents // 100}.{cents % 100:02d} {currency}"
             lines = []
+            language = _guest_language(state)
             if plan.get('check_in') and plan.get('check_out') and type(plan.get('guest_count')) is int:
-                lines.append(f"{_plain_stay_date(plan['check_in'])} to {_plain_stay_date(plan['check_out'])} — {_guest_count_label(plan['guest_count'])}.")
-            lines.append(f"Total: {quoted_money(total)}.")
-            if quote.get('full_payment_only') is True:
-                lines.append(f"Full payment required: {quoted_money(total)}.")
-            elif choices:
-                labels = {'deposit': 'deposit', 'full': 'full payment'}
+                lines.append(f"{_plain_stay_date(plan['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(plan['check_out'], language)} — {_guest_count_label(plan['guest_count'], language)}.")
+            equality_full = (type(quote.get('deposit_required_cents')) is int
+                             and quote.get('deposit_required_cents') > 0
+                             and quote.get('deposit_required_cents') == total)
+            if equality_full:
+                equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
+                                   'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
+                full_inline = {'de': 'vollständige Zahlung'}.get(
+                    language, _final_copy(language, 'full').lower())
+                lines.append(f"{equality_labels.get(language, equality_labels['en'])}: {quoted_money(total)} ({full_inline}).")
+            else:
+                lines.append(f"{_final_copy(language, 'total')}: {quoted_money(total)}.")
+            if quote.get('full_payment_only') is True and not equality_full:
+                lines.append(f"{_final_copy(language, 'full_required')}: {quoted_money(total)}.")
+            elif chosen_full_names_missing and not equality_full:
+                lines.append(f"{_final_copy(language, 'full')}: {quoted_money(total)}.")
+            elif choices and not equality_full:
+                labels = {'deposit': _final_copy(language, 'deposit'), 'full': _final_copy(language, 'full').lower()}
                 option_labels = [labels[item] for item in choices]
                 if ('deposit' in choices
                         and type(quote.get('deposit_required_cents')) is int):
                     option_labels[choices.index('deposit')] += (
                         f" ({quoted_money(quote['deposit_required_cents'])})")
-                lines.append('Payment options: ' + ' or '.join(option_labels) + '.')
-            lines.append('Shall I check this exact offer for booking?'
-                         if quote.get('full_payment_only') is True else
-                         'Which payment option would you like me to check for this booking?')
+                lines.append(_final_copy(language, 'options') + ': ' + (' ' + _final_copy(language, 'or') + ' ').join(option_labels) + '.')
+            room_change = _requested_room_change_line(plan, quote.get('offer_revision') or {}, language)
+            if room_change:
+                lines.append(room_change)
+            lines.extend(_guest_room_lines(plan, quote.get('offer_revision') or {}, language)
+                         if isinstance((quote.get('offer_revision') or {}).get('room_arrangement'), list)
+                         else [])
+            lines.append(_final_copy(language, 'names') if chosen_full_names_missing else
+                         (_final_copy(language, 'check_exact') if quote.get('full_payment_only') is True
+                          else _final_copy(language, 'which_payment')))
             text = '\n'.join(lines)
             output = deepcopy(result)
             output['final_response'] = text
@@ -2193,18 +2776,22 @@ def finalize_offer_response(result):
         def money(cents):
             return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
         plan = state['plan']
-        lines = [f"{_plain_stay_date(offer['check_in'])} to {_plain_stay_date(offer['check_out'])} — {_guest_count_label(offer['guest_count'])}."]
-        lines.extend(_guest_room_lines(plan, offer))
+        language = _guest_language(state)
+        lines = [f"{_plain_stay_date(offer['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(offer['check_out'], language)} — {_guest_count_label(offer['guest_count'], language)}."]
+        room_change = _requested_room_change_line(plan, offer, language)
+        if room_change:
+            lines.append(room_change)
+        lines.extend(_guest_room_lines(plan, offer, language))
         def label(code):
             if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
-                return 'Accommodation only'
+                return _final_copy(language, 'accommodation')
             return str(code).removeprefix('package_').replace('_', ' ').capitalize()
 
         lines.append(label(offer['package_code']) + '.')
         for item in offer['guest_packages']:
             number = item.get('guest_number')
             who = (plan['guests'][number - 1]['name'] if type(number) is int
-                   and 1 <= number <= len(plan['guests']) else f'Guest {number}')
+                   and 1 <= number <= len(plan['guests']) else f"{_final_copy(language, 'guest')} {number}")
             lines.append(f"{who}: {label(item['package_code'])}.")
         if offer['add_ons']:
             extras = []
@@ -2213,27 +2800,39 @@ def finalize_offer_response(result):
                 duration = accepted.get('days') if isinstance(accepted, dict) else None
                 text = f"{label(item['code'])} × {item['quantity']}"
                 if duration is not None:
-                    text += f" for {duration} days"
+                    text += ' ' + _final_copy(language, 'for_days', days=duration)
                 extras.append(text)
-            lines.append('Extras: ' + '; '.join(extras) + '.')
-        lines.append(f"Total: {money(offer['total_cents'])} "
-                     f"(deposit: {money(offer['deposit_required_cents'])}).")
-        payment = {'full': 'Full payment', 'deposit': 'Deposit',
-                   'pay_on_arrival': 'Payment on arrival', 'per_guest': 'Individual payments'}
-        if offer['payment_link_amount_cents']:
+            lines.append(_final_copy(language, 'extras') + ': ' + '; '.join(extras) + '.')
+        equality_full = (type(offer.get('deposit_required_cents')) is int
+                         and offer['deposit_required_cents'] > 0
+                         and offer['deposit_required_cents'] == offer['total_cents'])
+        if equality_full:
+            equality_labels = {'en': 'Total and due now', 'es': 'Total y a pagar ahora',
+                               'fr': 'Total et à payer maintenant', 'de': 'Gesamtpreis und jetzt fällig'}
+            full_inline = {'de': 'vollständige Zahlung'}.get(
+                language, _final_copy(language, 'full').lower())
+            lines.append(f"{equality_labels.get(language, equality_labels['en'])}: "
+                         f"{money(offer['total_cents'])} ({full_inline}).")
+        else:
+            lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
+                         f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
+        payment = {'full': _final_copy(language, 'full'), 'deposit': _final_copy(language, 'payment_deposit'),
+                   'pay_on_arrival': _final_copy(language, 'arrival_payment'),
+                   'per_guest': _final_copy(language, 'individual')}
+        if offer['payment_link_amount_cents'] and not equality_full:
             lines.append(f"{payment[offer['payment_choice']]}: {money(offer['payment_link_amount_cents'])}.")
-        if not offer['payment_link_amount_cents']: lines.append(f"Due now: {money(0)}.")
+        if not offer['payment_link_amount_cents']: lines.append(f"{_final_copy(language, 'due_now')}: {money(0)}.")
         due_on_arrival = offer['total_cents'] - offer['payment_link_amount_cents']
         if due_on_arrival:
-            lines.append(f"Due on arrival: {money(due_on_arrival)}.")
+            lines.append(f"{_final_copy(language, 'due_arrival')}: {money(due_on_arrival)}.")
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
-        lines.append('Availability checked, subject to confirmation when booking.')
+        lines.append(_final_copy(language, 'availability'))
         prior = state.get('accepted_offer_snapshot')
-        question = ('Shall I create this updated booking?'
+        question = (_final_copy(language, 'create_updated')
                     if isinstance(prior, dict) and prior != offer
-                    else 'Shall I create this booking?')
+                    else _final_copy(language, 'create'))
         lines.append(question)
         text = '\n'.join(lines)
         output = deepcopy(result)

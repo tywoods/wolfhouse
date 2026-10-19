@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "source": "2026-10-19 masked Sim22 five-guest summary and G3/G4/G5 JSONL",
+  "cases": [
+    {"id":"sim22-g1-lucia","language":"es","expected":"historical_success_preserved","historical_booking":true},
+    {"id":"sim22-g2-french-group","language":"fr","expected":"historical_success_preserved","historical_booking":true},
+    {"id":"sim22-g3-becker","language":"de","expected":"registered_create_one_booking","dates":["2026-11-11","2026-11-14"],"beds":["R4-B1","R4-B2"],"total_cents":24000,"deposit_cents":20000},
+    {"id":"sim22-g4-emma-unanswered","language":"en","expected":"eligibility_unsure_no_booking","dates":["2026-11-18","2026-11-21"],"room_preference":"female_only"},
+    {"id":"sim22-g5-raj","language":"en","expected":"single_full_payment_line","total_cents":8000,"deposit_cents":8000,"historical_booking":true}
+  ]
+}

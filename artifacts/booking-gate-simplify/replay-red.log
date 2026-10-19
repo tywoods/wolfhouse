@@ -1,0 +1,14 @@
+test_all_recorded_decisions (__main__.DecisionReplayTests.test_all_recorded_decisions) ... ERROR
+
+======================================================================
+ERROR: test_all_recorded_decisions (__main__.DecisionReplayTests.test_all_recorded_decisions)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/opt/data/workspace/SIM20-BOOKING-FIX/fixtures/booking-replay-sim13-20/test_decision_replay.py", line 14, in test_all_recorded_decisions
+    from accepted_quote_replay import replay_table
+ModuleNotFoundError: No module named 'accepted_quote_replay'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (errors=1)

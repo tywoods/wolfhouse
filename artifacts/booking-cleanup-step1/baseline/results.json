@@ -1,0 +1,160 @@
+[
+  {
+    "name": "accepted-dispatch",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/accepted-dispatch.log",
+    "tail": [
+      "test_unknown_commercial_revision_stays_unresolved_on_neutral_turn (wolfhouse.test_accepted_quote.OwnerHostileTests.test_unknown_commercial_revision_stays_unresolved_on_neutral_turn) ... ok",
+      "test_pending_dispatch_recovery_freezes_email_first_supplied_at_create (wolfhouse.test_dispatch_payload_recovery.PendingDispatchPayloadRecoveryTests.test_pending_dispatch_recovery_freezes_email_first_supplied_at_create) ... ok",
+      "test_pending_dispatch_recovery_keeps_email_from_shown_plan (wolfhouse.test_dispatch_payload_recovery.PendingDispatchPayloadRecoveryTests.test_pending_dispatch_recovery_keeps_email_from_shown_plan) ... ok",
+      "",
+      "----------------------------------------------------------------------",
+      "Ran 112 tests in 128.319s",
+      "",
+      "OK"
+    ]
+  },
+  {
+    "name": "first-yes",
+    "exit": 1,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/first-yes.log",
+    "tail": [
+      "    at wasm://wasm/0267b22e:wasm-function[3636]:0x286baa",
+      "    at wasm://wasm/0267b22e:wasm-function[9913]:0x54fcc7",
+      "",
+      "",
+      "----------------------------------------------------------------------",
+      "Ran 68 tests in 107.617s",
+      "",
+      "FAILED (failures=31, errors=15)"
+    ]
+  },
+  {
+    "name": "eligibility-copy",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/eligibility-copy.log",
+    "tail": [
+      "test_three_unnamed_guests_in_three_rooms_still_render (wolfhouse.test_sim19_localized_finalizer_helpers.Sim19LocalizedFinalizerHelperTests.test_three_unnamed_guests_in_three_rooms_still_render) ... ok",
+      "test_two_unnamed_guests_in_one_room_render_without_crashing (wolfhouse.test_sim19_localized_finalizer_helpers.Sim19LocalizedFinalizerHelperTests.test_two_unnamed_guests_in_one_room_render_without_crashing) ... ok",
+      "test_unresolved_eligibility_refusal_is_localized (wolfhouse.test_sim19_localized_finalizer_helpers.Sim19LocalizedFinalizerHelperTests.test_unresolved_eligibility_refusal_is_localized) ... ok",
+      "",
+      "----------------------------------------------------------------------",
+      "Ran 18 tests in 0.009s",
+      "",
+      "OK"
+    ]
+  },
+  {
+    "name": "registered",
+    "exit": 1,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/registered.log",
+    "tail": [
+      "- two beds in the same mixed room.",
+      "  What are the guests' full names?",
+      "",
+      "",
+      "----------------------------------------------------------------------",
+      "Ran 13 tests in 11.319s",
+      "",
+      "FAILED (failures=2)"
+    ]
+  },
+  {
+    "name": "replay",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/replay.log",
+    "tail": [
+      "test_sim21_g4_preserves_women_stock_and_corrected_dates (fixtures.booking-replay-sim13-20.test_decision_replay.DecisionReplayTests.test_sim21_g4_preserves_women_stock_and_corrected_dates) ... ok",
+      "test_sim21_g5_checks_room_correctness_and_discloses_change (fixtures.booking-replay-sim13-20.test_decision_replay.DecisionReplayTests.test_sim21_g5_checks_room_correctness_and_discloses_change) ... ok",
+      "",
+      "----------------------------------------------------------------------",
+      "Ran 5 tests in 20.453s",
+      "",
+      "OK",
+      "{\"cases\": 56, \"failures\": 0, \"not_replayable\": 25, \"replayed\": 31}"
+    ]
+  },
+  {
+    "name": "offer-identity",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/offer-identity.log",
+    "tail": [
+      "  PASS  real command accepts the issued offer without a room-rule rejection",
+      "PASS ordinary HTTP exact retry: persisted outcome, no writes, occupied beds unchanged",
+      "PASS ordinary HTTP reversed person-to-bed pairs with the same accepted offer/key: typed 409, no write",
+      "PASS ordinary HTTP legacy recovery even with an identical request: typed 409, no write",
+      "PASS ordinary HTTP legacy recovery with changed second guest: typed 409, no write",
+      "  PASS  ordinary create handler retries preserve person-to-bed pairs and fail closed for legacy rows",
+      "",
+      "42 passed, 0 failed"
+    ]
+  },
+  {
+    "name": "occupants",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/occupants.log",
+    "tail": [
+      "verify:luna-create-booking-occupants \u2014 offline PGlite, real command + execute + SQL",
+      "PASS named occupants: Tom=R3-B1, Tyler=R3-B2, Koa=R3-B3, Kathy=R3-B4",
+      "PASS legacy omission: Tom (1)=R3-B1, Tom (2)=R3-B2, Tom (3)=R3-B3, Tom (4)=R3-B4",
+      "PASS unchanged money: {\"total_cents\":48000,\"deposit_required_cents\":40000,\"balance_due_cents\":48000,\"payment_link_amount_cents\":48000,\"payment_choice\":\"full\",\"per_guest_payment_links\":false,\"payments\":[{\"payment_kind\":\"full_amount\",\"amount_due_cents\":48000,\"status\":\"draft\",\"currency\":\"EUR\",\"booking_guest_id\":null,\"metadata\":{\"note\":\"Manual deposit recorded by staff \u2014 no Stripe charge\",\"source\":\"bot_booking_stage854\",\"payment_choice\":\"full\",\"quote_total_cents\":48000,\"total_amount_cents\":48000,\"deposit_requested_cents\":40000,\"payment_link_amount_cents\":48000}}],\"occupant_deposits_cents\":[10000,10000,10000,10000]}",
+      "PASS contact: one existing CRM identity shared by one conversation and one group booking; four occupants",
+      "PASS negative control: legacy rows fail the named-occupant assertion",
+      "PASS unexpected SQL fails closed; network attempts=0",
+      "PASSED: named + legacy ordinary create paths; real occupant insert/readback and customer triggers"
+    ]
+  },
+  {
+    "name": "exact-bed",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/exact-bed.log",
+    "tail": [
+      "PASS Staff-authoritative exact bed eligibility through HTTP mapper: valid with extra free bed, occupied, changed, private intent"
+    ]
+  },
+  {
+    "name": "mixed-room",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/mixed-room.log",
+    "tail": [
+      "PASS booking preflight shared: unsafe cached beds blocked, mixed availability=false",
+      "PASS booking preflight shared: unsafe cached beds blocked, mixed availability=true",
+      "PASS canonical availability exposes neutral room clarification, not handoff",
+      "PASS pre-commit recheck rejects a mixed room that becomes gendered",
+      "PASS SIM9 BOT_HTTP explicit female_only uses the requested pool",
+      "PASS SIM9 BOT_HTTP explicit male_only uses the requested pool",
+      "PASS SIM9 BOT_HTTP explicit mixed uses the requested pool",
+      "Mixed-room allocation: 69/69 passed (synthetic inventory; no DB or booking writes)."
+    ]
+  },
+  {
+    "name": "needs-human",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/needs-human.log",
+    "tail": [
+      "PASS ordinary UUID priority and malformed UUID phone fallback remain",
+      "PASS ordinary Sunset handoff still not coupled to pause",
+      "PASS same exact phone with ordinary metadata is not a simulator identity",
+      "PASS same exact phone with foreign source owner is not a simulator identity",
+      "PASS ordinary pause read cannot inherit synthetic last9 pause",
+      "PASS synthetic pause read cannot inherit ordinary last9 pause",
+      "PASS effective automation gate cannot inherit synthetic Needs Human fallback",
+      "PASS effective synthetic gate cannot inherit ordinary Needs Human fallback"
+    ]
+  },
+  {
+    "name": "send-flags",
+    "exit": 0,
+    "log": "/opt/data/workspace/BOOKING-CLEANUP-STEP1-20261019/artifacts/booking-cleanup-step1/baseline/send-flags.log",
+    "tail": [
+      "  PASS  needs_human_blocks_on_hermes_not_js status is ruled",
+      "  PASS  needs_human_blocks_on_hermes_not_js ruling is wolfhouse-quiet-sunset-review",
+      "  PASS  sunset_needs_human_carveout_defeated status is ruled",
+      "  PASS  sunset_needs_human_carveout_defeated ruling is honour-staff-api-carveout",
+      "  PASS  email_pause_advisory status is ruled",
+      "  PASS  email_pause_advisory ruling is fail-closed",
+      "",
+      "verify-hermes-send-flags: 53 passed, 0 failed"
+    ]
+  }
+]

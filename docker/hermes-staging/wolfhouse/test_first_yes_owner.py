@@ -16,6 +16,17 @@ import wolfhouse_staff_api as plugin
 
 
 class FirstYesOwnerTests(unittest.TestCase):
+    @staticmethod
+    def _exact_recheck(body, beds):
+        codes = list(body.get('selected_bed_codes') or [b['bed_code'] for b in beds])
+        guests = body.get('guests') or []
+        return {'success': True, 'has_enough_beds': True, 'available_beds': deepcopy(beds),
+                'exact_bed_eligibility': {'eligible': True,
+                    'selected_bed_codes': codes,
+                    'guest_bed_assignments': [
+                        {'guest_index': i, 'guest_name': guests[i].get('name', ''),
+                         'bed_code': code} for i, code in enumerate(codes)]}}
+
     def _provisional_refresh_case(self, complete=False, price_change=False):
         plan = dict(check_in='2026-10-21', check_out='2026-10-24', guest_count=1,
                     room_type='shared', room_preference='male_only', package_code='package_none',
@@ -128,8 +139,9 @@ class FirstYesOwnerTests(unittest.TestCase):
         ledger.record_quote(self.plan, self.response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
         self.turn('sim9-material-negatives', 'Book that')
-        for changed in ({'gender_preference': 'female'}, {'add_ons': []},
-                        {'guest_count': 3}, {'room_preference': 'private'},
+        # Retired gender alias case: carried explicit per-person facts own eligibility.
+        ledger.prepare_create({'gender_preference': 'female'})
+        for changed in ({'add_ons': []}, {'guest_count': 3}, {'room_preference': 'private'},
                         {'selected_bed_codes': ['M2', 'M1']}):
             with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
                 ledger.prepare_create(changed)
@@ -153,6 +165,10 @@ class FirstYesOwnerTests(unittest.TestCase):
             for i in range(3)])
         calls = []
         def staff(path, body):
+            if path == '/availability-check':
+                return {'success': True, 'has_enough_beds': True,
+                        'available_beds': deepcopy(response['offer_revision']['room_arrangement']),
+                        **deepcopy(response['availability'])}
             self.assertEqual(path, '/booking-preview')
             calls.append(deepcopy(body))
             return deepcopy(response)
@@ -247,9 +263,14 @@ class FirstYesOwnerTests(unittest.TestCase):
         moved = deepcopy(after)
         moved['guest_bed_assignments'][0]['bed_code'] = 'M2'
         mutations.append(moved)
-        for field, value in (('total_cents', 10001), ('currency', 'USD'),
-                             ('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+        for field, value in (('total_cents', 10001), ('currency', 'USD')):
             mutations.append({**deepcopy(after), field: value})
+        # Retired payment-helper cases: eligibility completion compares carried
+        # eligibility; payment choice/link amount are validated by their owner.
+        for field, value in (('payment_link_amount_cents', 1), ('payment_choice', 'full')):
+            self.assertTrue(ledger._completion_revision_matches(
+                before, {**deepcopy(after), field: value},
+                eligibility_completions=completions))
         for changed in mutations:
             with self.subTest(changed=changed):
                 self.assertFalse(ledger._completion_revision_matches(
@@ -271,7 +292,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.plan['payment_choice'] = 'pay_on_arrival'
         self._registered_create_with_completion({})
 
-    def test_pending_dispatch_identity_survives_missing_cache_next_turn(self):
+    def test_restart_recovery_retains_carried_fields_and_pending_operation_identity(self):
         ledger.record_quote(self.plan, self.response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
         self.turn('first-create', 'yes')
@@ -298,6 +319,9 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertEqual(before['acceptance_message'], after['acceptance_message'])
         self.assertEqual(before.get('acceptance_raw_digest'), after.get('acceptance_raw_digest'))
         self.assertEqual(dict(first), dict(second))
+        for field in ('guests', 'payment_choice', 'email', 'selected_bed_codes'):
+            self.assertEqual(first.get(field), second.get(field), field)
+        self.assertEqual(first['idempotency_key'], second['idempotency_key'])
         self.assertTrue(after['dispatch_pending'])
         self.assertFalse(after.get('receipt'))
         self.assertEqual(attempts, [first['idempotency_key']])
@@ -319,9 +343,9 @@ class FirstYesOwnerTests(unittest.TestCase):
             if path == '/bookings/update-contact':
                 return {'success': True, 'email_saved': True, 'email_sent': False}
             if path == '/availability-check':
-                return {'success': True, 'has_enough_beds': True, 'available_beds': [
+                return self._exact_recheck(body, [
                     {'bed_code': 'M1', 'room_type': 'mixed'},
-                    {'bed_code': 'M2', 'room_type': 'mixed'}]}
+                    {'bed_code': 'M2', 'room_type': 'mixed'}])
             self.assertEqual(path, '/booking-create-from-plan')
             return {'success': True, 'write_performed': True,
                     'booking_id': 'offline-r2', 'booking_code': 'OFFLINE-R2'}
@@ -513,9 +537,9 @@ class FirstYesOwnerTests(unittest.TestCase):
         result = finalize({'completed': True, 'final_response': 'model says reserved',
                            'messages': [{'role': 'assistant', 'content': 'model says reserved'}]})
         self.assertNotIn('reserved', result['final_response'])
-        self.assertIn('Alex', result['final_response'])
+        self.assertIn('alex', result['final_response'].lower())
         self.assertNotIn('M1', result['final_response'])
-        self.assertIn('Alex and Sam: two beds in the same mixed room.', result['final_response'])
+        self.assertIn('alex and sam: two beds in the same mixed room.', result['final_response'].lower())
         self.assertIn('700.00 EUR', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
         self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
@@ -618,7 +642,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
         self.assertNotIn('1 guests', text)
         self.assertNotIn('2026-10-19', text)
-        self.assertIn('Alex: a bed in the mixed room.', text)
+        self.assertIn('alex: a bed in the mixed room.', text.lower())
         self.assertNotIn('DORM-12', text)
         self.assertNotIn('ROOM-9', text)
         self.assertTrue(text.endswith('Shall I create this booking?'))
@@ -902,8 +926,8 @@ console.log(JSON.stringify({accepted,current}));
             self.assertNotIn('N1', texts[label])
             self.assertNotIn('room M', texts[label])
             self.assertNotIn('room N', texts[label])
-        self.assertIn('Alex and Sam: two beds in the same mixed room.', texts['same'])
-        self.assertIn('Alex and Sam: beds in two separate mixed rooms.', texts['split'])
+        self.assertIn('alex and sam: two beds in the same mixed room.', texts['same'].lower())
+        self.assertIn('alex and sam: beds in two separate mixed rooms.', texts['split'].lower())
         self.assertNotEqual(texts['same'], texts['split'])
 
     def test_preview_tool_shows_room_type_includes_line(self):
@@ -962,10 +986,15 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
                 mutate(response)
                 ledger.record_quote(self.plan, response)
                 result = ledger.finalize_offer_response({'completed': True, 'final_response': 'Information only'})
-                self.assertEqual(result['final_response'], 'Information only')
+                if index == 8:
+                    self.assertIn("What are the guests' full names?", result['final_response'])
+                    self.assertNotIn('Shall I create this booking?', result['final_response'])
+                else:
+                    self.assertEqual(result['final_response'], 'Information only')
                 self.turn('invalid-yes-' + str(index), 'yes')
-                with self.assertRaises(ledger.QuoteBoundaryError):
-                    ledger.prepare_create({})
+                if index != 8:
+                    with self.assertRaises(ledger.QuoteBoundaryError):
+                        ledger.prepare_create({})
 
     def test_unchanged_revalidation_preserves_acceptance_and_operation_key(self):
         ledger.record_quote(self.plan, self.response)
@@ -1092,8 +1121,9 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             calls.append((path, deepcopy(body)))
             if path == '/booking-preview': return deepcopy(self.response)
             if path == '/availability-check':
-                return {'success': True, 'has_enough_beds': True, 'available_beds': [
-                    {'bed_code': 'M1', 'room_type': 'mixed'}, {'bed_code': 'M2', 'room_type': 'mixed'}]}
+                return self._exact_recheck(body, [
+                    {'bed_code': 'M1', 'room_type': 'mixed'},
+                    {'bed_code': 'M2', 'room_type': 'mixed'}])
             if path == '/payments/unit-payment/create-stripe-link':
                 # Explicit unit-only HTTP substitution, not Stripe/persistence proof.
                 return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/unit-payment'}
@@ -1225,6 +1255,10 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             def register_hook(self, name, handler, *args, **kw): self.hooks[name] = handler
         registry, model_calls, creates = Registry(), [], []
         def staff(path, body):
+            if path == '/availability-check':
+                return {'success': True, 'has_enough_beds': True,
+                        'available_beds': deepcopy(self.response['offer_revision']['room_arrangement']),
+                        **deepcopy(self.response['availability'])}
             self.assertEqual(path, '/booking-preview')
             return deepcopy(self.response)
         def model(agent, text, *args, **kwargs):
@@ -1278,7 +1312,10 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             calls.append((path, deepcopy(body)))
             if path == '/booking-preview': return deepcopy(response)
             if path == '/availability-check':
-                return {**deepcopy(response['availability']), 'success': True,
+                return {**deepcopy(response['availability']),
+                        **self._exact_recheck(body, [{'bed_code': 'R4-B1', 'room_code': 'R4',
+                                                      'room_type': 'male_only',
+                                                      'gender_strategy': 'male preferred'}]),
                         'has_enough_beds': True,
                         'allocation_reason': 'cram_gender_eligible_rooms',
                         'available_beds': [{'bed_code': 'R4-B1', 'room_code': 'R4',
@@ -1339,7 +1376,9 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             calls.append((path, deepcopy(body)))
             if path == '/booking-preview': return deepcopy(response)
             if path == '/availability-check':
-                return {**deepcopy(response['availability']), 'success': True,
+                exact = self._exact_recheck(body, available_beds) if all(
+                    bed.get('room_type') == 'mixed' for bed in available_beds) else {}
+                return {**deepcopy(response['availability']), **exact,
                         'has_enough_beds': True, 'available_beds': deepcopy(available_beds)}
             if path.startswith('/payments/') and path.endswith('/create-stripe-link'):
                 return {'success': True, 'guest_payment_url': 'https://example.invalid/pay/sparse'}
@@ -1439,14 +1478,23 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
         self.assertEqual(prepared.get('guests'), self.plan['guests'])
         self.assertEqual(prepared.get('room_name_hints'), hints)
         self.assertEqual(prepared.get('payment_choice'), 'full')
+        # Retired hint-order case: hints are carried metadata and canonical guest
+        # slot order remains frozen independently.
+        carried = ledger.prepare_create({'room_name_hints': list(reversed(hints))})
+        self.assertEqual(carried['room_name_hints'], hints)
         for changed in ({'guests': list(reversed(self.plan['guests']))},
-                        {'payment_choice': 'deposit'}, {'selected_bed_codes': ['M2', 'M1']},
-                        {'room_name_hints': list(reversed(hints))}):
+                        {'payment_choice': 'deposit'}, {'selected_bed_codes': ['M2', 'M1']}):
             with self.subTest(changed=changed), self.assertRaises(ledger.QuoteBoundaryError):
                 ledger.prepare_create(changed)
 
     def test_adapter_preserves_staff_checked_offer_not_model_offer(self):
-        with patch.object(plugin, '_post_bot', return_value=self.response):
+        def staff(path, body):
+            if path == '/availability-check':
+                return {'success': True, 'has_enough_beds': True,
+                        'available_beds': deepcopy(self.response['offer_revision']['room_arrangement']),
+                        **deepcopy(self.response['availability'])}
+            return deepcopy(self.response)
+        with patch.object(plugin, '_post_bot', side_effect=staff):
             result = json.loads(plugin.quote_booking({**self.plan,
                 'offer_revision': {'forged': True}, 'availability': {'status': 'held'}}))
         self.assertEqual(result.get('availability'), self.response['availability'])

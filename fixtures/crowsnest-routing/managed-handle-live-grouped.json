@@ -5,14 +5,26 @@
         "staging": {
           "routes": [
             {
-              "match": [{ "host": ["lunabox.lunafrontdesk.com"] }],
+              "match": [
+                {
+                  "host": [
+                    "whatsapp-staging.lunafrontdesk.com"
+                  ]
+                }
+              ],
               "handle": [
                 {
                   "handler": "subroute",
                   "routes": [
                     {
                       "group": "group3",
-                      "match": [{ "path": ["/whatsapp/webhook"] }],
+                      "match": [
+                        {
+                          "path": [
+                            "/whatsapp/webhook"
+                          ]
+                        }
+                      ],
                       "handle": [
                         {
                           "handler": "subroute",
@@ -21,7 +33,11 @@
                               "handle": [
                                 {
                                   "handler": "reverse_proxy",
-                                  "upstreams": [{ "dial": "127.0.0.1:8090" }]
+                                  "upstreams": [
+                                    {
+                                      "dial": "127.0.0.1:8090"
+                                    }
+                                  ]
                                 }
                               ]
                             }

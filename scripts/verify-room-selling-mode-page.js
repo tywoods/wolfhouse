@@ -20,7 +20,7 @@ try {for(const width of [390,1280])for(const theme of ['light','dark']){
   await open();
   const mode=page.getByRole('combobox',{name:'Selling mode for Room 1',exact:true});
   assert.equal(await mode.count(),1,'ordinary emitted room row must expose native selling-mode dropdown');
-  const gender=page.getByRole('combobox',{name:'Gender for Room 1',exact:true});
+  const gender=page.getByRole('combobox',{name:'Who can book for Room 1',exact:true});
   assert.equal(await mode.inputValue(),'shared');
   for(const value of ['private','private_optional','shared']){
    await mode.selectOption(value);
