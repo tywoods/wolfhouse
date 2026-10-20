@@ -281,6 +281,34 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         plan, beds, total=case["total"], deposit=case["deposit"])
                     turns = case["turns"]
                     loop.turn(f"{case['label']}-initial", turns[0])
+                    acceptance_loaded = False
+                    if case["label"] in ("lucia", "french-group", "raj"):
+                        initial = {"check_in": case["dates"][0],
+                                   "check_out": case["dates"][1],
+                                   "guest_count": len(case["names"]),
+                                   "room_type": "shared",
+                                   "room_preference": case["preference"],
+                                   "package_code": "package_none",
+                                   "selected_bed_codes": list(case["beds"])}
+                        if case["label"] == "lucia":
+                            initial.update({"guest_name": "Lucía", "guests": [
+                                {"name": "Lucía", "explicit_gender": "female"}]})
+                        elif case["label"] == "raj":
+                            initial.update({"guest_name": "Raj Patel", "guests": [
+                                {"name": "Raj Patel", "explicit_gender": "male"}],
+                                "payment_choice": "deposit"})
+                        self.assertNotIn("payment_choice", initial) if case["label"] != "raj" \
+                            else self.assertEqual(initial["payment_choice"], "deposit")
+                        if case["label"] == "french-group":
+                            self.assertNotIn("guests", initial)
+                        initial_quote = checked_staff_quote(
+                            initial, beds, total=case["total"], deposit=case["deposit"])
+                        first = loop.call("quote_booking", initial, {
+                            "/availability-check": availability_receipt(beds),
+                            "/booking-preview": initial_quote})
+                        self.assertEqual(first["total_cents"], case["total"])
+                        loop.turn(f"{case['label']}-accept", turns[-1])
+                        acceptance_loaded = True
                     if case["label"] == "becker":
                         initial = {"check_in": case["dates"][0],
                                    "check_out": case["dates"][1], "guest_count": 2,
@@ -299,6 +327,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                    "guest_name": "Emma"}
                         initial.pop("selected_bed_codes", None)
                         initial.pop("group_gender", None)
+                        initial.pop("payment_choice", None)
                         for index, (raw, staged) in enumerate((
                             (turns[0], initial),
                             (turns[1], {**initial, "check_in": "2026-11-04",
@@ -306,8 +335,13 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             (turns[2], {**initial, "check_in": "2026-11-04",
                                         "check_out": "2026-11-07",
                                         "guests": [{"name": "Emma Clarke"}],
-                                        "guest_name": "Emma Clarke"}),
+                                        "guest_name": "Emma Clarke",
+                                        "payment_choice": "full"}),
                         )):
+                            if index < 2:
+                                self.assertNotIn("payment_choice", staged)
+                            else:
+                                self.assertEqual(staged["payment_choice"], "full")
                             if index:
                                 loop.turn(f"{case['label']}-blocked-{index}", raw)
                             blocked = loop.call("quote_booking", staged, {
@@ -321,6 +355,11 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     quoted = loop.call("quote_booking", plan, {
                         "/availability-check": availability_receipt(beds),
                         "/booking-preview": raw_quote})
+                    self.assertEqual(plan["payment_choice"], case["payment"])
+                    self.assertEqual([guest["name"] for guest in plan["guests"]],
+                                     list(case["names"]))
+                    if case["label"] == "raj":
+                        self.assertEqual(case["total"], case["deposit"])
                     self.assertEqual(quoted["total_cents"], case["total"])
                     self.assertEqual(quoted["deposit_required_cents"], case["deposit"])
                     rendered = loop.present()
@@ -329,7 +368,8 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         self.assertIn(f"{case['deposit'] / 100:.2f} EUR", rendered)
 
                     acceptance = turns[-1]
-                    loop.turn(f"{case['label']}-accept", acceptance)
+                    if not acceptance_loaded:
+                        loop.turn(f"{case['label']}-accept", acceptance)
                     interpreted = loop.call("interpret_booking_turn", {
                         "action": "accept", "action_evidence": acceptance,
                         "ambiguous": False, "negated": False, "conditional": False,
