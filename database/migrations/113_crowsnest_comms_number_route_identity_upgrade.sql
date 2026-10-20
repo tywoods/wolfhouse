@@ -6,7 +6,8 @@ BEGIN;
 -- performs this same upgrade; this file is the path when 103 will not be
 -- executed again.
 -- Historical rows stay all-null. Do not backfill an identity. A null tuple
--- is not a wildcard.
+-- is not a wildcard. A same-name weak check is replaced, not skipped:
+-- <> alone is UNKNOWN for NULL, and a CHECK accepts UNKNOWN.
 
 DO $$
 BEGIN
@@ -29,19 +30,17 @@ ALTER TABLE crowsnest_comms.number_route_operations
   ADD COLUMN IF NOT EXISTS phone_number_id text,
   ADD COLUMN IF NOT EXISTS number_e164 text;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'number_route_identity_complete'
-      AND conrelid = 'crowsnest_comms.number_route_operations'::regclass
-  ) THEN
-    ALTER TABLE crowsnest_comms.number_route_operations
-      ADD CONSTRAINT number_route_identity_complete CHECK (
-        (number_id IS NULL AND phone_number_id IS NULL AND number_e164 IS NULL)
-        OR (number_id <> '' AND phone_number_id <> '' AND number_e164 <> '')
-      );
-  END IF;
-END $$;
+ALTER TABLE crowsnest_comms.number_route_operations
+  DROP CONSTRAINT IF EXISTS number_route_identity_complete;
+
+ALTER TABLE crowsnest_comms.number_route_operations
+  ADD CONSTRAINT number_route_identity_complete CHECK (
+    (number_id IS NULL AND phone_number_id IS NULL AND number_e164 IS NULL)
+    OR (
+      number_id IS NOT NULL AND number_id <> ''
+      AND phone_number_id IS NOT NULL AND phone_number_id <> ''
+      AND number_e164 IS NOT NULL AND number_e164 <> ''
+    )
+  );
 
 COMMIT;
