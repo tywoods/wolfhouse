@@ -3,12 +3,22 @@
 These tests do not claim historical Staff response bodies.  They exercise the existing
 owner rendering path with offline, constructed receipts derived from the approved cases.
 """
+import json
+from pathlib import Path
 import unittest
 
 from wolfhouse import accepted_quote as owner
 
 
 class Sim24CheckedOfferContinuityTests(unittest.TestCase):
+    def test_committed_five_case_fixture_is_loaded(self):
+        fixture = json.loads((Path(__file__).parents[3] /
+            "fixtures/booking-cleanup-step3/sim24-cases.json").read_text())
+        self.assertEqual([case["case"] for case in fixture["sources"]],
+                         ["guest1", "guest2", "guest3", "guest4", "guest5"])
+        self.assertTrue(all(case["facts"]["create_and_link"]
+                            for case in fixture["sources"]))
+
     def test_trusted_slot_keeps_guest_spelling_without_moving_bed(self):
         plan = {"guests": [{"name": "Lucía Fernández Ruiz"}]}
         offer = {
@@ -37,13 +47,15 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
     def test_missing_package_selection_explains_staff_backed_options_before_question(self):
         result = {"success": False, "package_choice_needed": True,
                   "next_action": "explain_packages_then_ask_choice",
-                  "packages": {"malibu": {"total_cents": 12000},
-                               "uluwatu": {"total_cents": 18000}}}
+                  "packages": {"malibu": {"total_cents": 12000, "includes_line": "Breakfast and board hire"},
+                               "uluwatu": {"total_cents": 18000, "includes_line": "Breakfast, lessons and board hire"}}}
         text = owner._blocked_clarification_copy(result, {}, "en")
         self.assertIn("Malibu", text)
         self.assertIn("€120", text)
         self.assertIn("Uluwatu", text)
         self.assertIn("€180", text)
+        self.assertIn("Breakfast and board hire", text)
+        self.assertIn("Breakfast, lessons and board hire", text)
         self.assertEqual(text.count("?"), 1)
 
     def test_package_outcomes_remain_typed(self):

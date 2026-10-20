@@ -120,6 +120,30 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
         return json.loads(subprocess.check_output(
             ["node", "-e", script, json.dumps(plan)], cwd=ROOT, text=True))
 
+    def test_registered_availability_only_corrected_dates_keep_name(self):
+        loop = DeterministicRegisteredLoop(self, "availability-only-date-ack")
+        try:
+            first = {"check_in": "2026-11-03", "check_out": "2026-11-06",
+                     "guest_count": 1, "room_type": "shared",
+                     "room_preference": "female_only", "guests": [{"name": "Emma"}]}
+            loop.turn("availability-original", "3–6 November for Emma")
+            loop.call("check_availability", first,
+                      {"/availability-check": self._eligibility_receipt(first)})
+            corrected = {**first, "check_in": "2026-11-10", "check_out": "2026-11-13"}
+            loop.turn("availability-corrected", "Actually 10–13 November")
+            checked = loop.call("check_availability", corrected,
+                      {"/availability-check": self._eligibility_receipt(corrected)})
+            rendered = owner.finalize_offer_response({"completed": True,
+                "final_response": "MODEL DRAFT", "messages": [
+                    {"role": "user", "content": "Actually 10–13 November"},
+                    {"role": "tool", "content": json.dumps(checked)},
+                    {"role": "assistant", "content": "MODEL DRAFT"}]})
+            self.assertIn("Tue 10 Nov to Fri 13 Nov", rendered["final_response"])
+            self.assertIn("Emma", rendered["final_response"])
+            self.assertEqual(rendered["final_response"].count("?"), 1)
+        finally:
+            loop.close()
+
     def test_registered_corrected_dates_are_acknowledged_before_eligibility_question(self):
         for checkout_only in (False, True):
             with self.subTest(checkout_only=checkout_only):

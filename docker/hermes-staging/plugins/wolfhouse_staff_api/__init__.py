@@ -651,6 +651,13 @@ def check_availability(params, **kwargs):
     if hints:
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
+    try:
+        import sys
+        from wolfhouse import accepted_quote as ledger
+        if ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules:
+            ledger.record_availability_context(payload)
+    except (ImportError, RuntimeError):
+        pass
     data = _post_bot("/availability-check", payload)
     structured_eligibility = data.get("room_eligibility") if isinstance(data, dict) else None
     if not (isinstance(structured_eligibility, dict)

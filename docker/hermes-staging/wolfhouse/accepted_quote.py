@@ -695,7 +695,9 @@ def _blocked_clarification_copy(result, plan, language):
                 if (isinstance(code, str) and code.strip() and type(cents) is int
                         and cents >= 0):
                     amount = f'{cents / 100:.2f}'.rstrip('0').rstrip('.')
-                    options.append(f'{code.replace("_", " ").title()} (€{amount})')
+                    description = str(details.get('includes_line') or '').strip()
+                    label = f'{code.replace("_", " ").title()} (€{amount})'
+                    options.append(f'{label}: {description}' if description else label)
             if options:
                 intro = {
                     'en': 'The available Staff-checked options are ',
@@ -2212,8 +2214,15 @@ def record_quote(params, response):
             )
             if not same_current_dates:
                 state.pop('quote_date_acknowledgement', None)
+        typed_package_preview = (
+            response.get('quote_status') == 'needs_guest_clarification'
+            and response.get('offer_revision') is None
+            and response.get('package_choice_needed') is True
+            and response.get('next_action') in (
+                'explain_packages_then_ask_choice', 'offer_accommodation_or_change_dates',
+                'package_eligibility_unavailable'))
         state.update(plan=plan, completion_plan=completion_plan,
-                     quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
+                     quote=deepcopy(response) if (valid or unresolved_eligibility or typed_package_preview) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
@@ -2228,6 +2237,29 @@ def record_quote(params, response):
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
+    return _transaction(record)
+
+
+def record_availability_context(params):
+    """Retain trusted display/date input for an offerless availability clarification."""
+    plan = {key: deepcopy(params[key]) for key in (*_FIELDS, *_CHECKED_FIELDS)
+            if key in params}
+    def record(state, ingress):
+        previous = state.get('plan') if isinstance(state.get('plan'), dict) else {}
+        changed = (all(isinstance(plan.get(key), str) and plan[key]
+                       for key in ('check_in', 'check_out'))
+                   and all(isinstance(previous.get(key), str) and previous[key]
+                           for key in ('check_in', 'check_out'))
+                   and any(previous.get(key) != plan.get(key)
+                           for key in ('check_in', 'check_out')))
+        state['plan'] = plan
+        state['completion_plan'] = {}
+        if changed:
+            state['quote_date_acknowledgement'] = {
+                'message_id': ingress['MESSAGE_ID'], 'check_in': plan['check_in'],
+                'check_out': plan['check_out']}
+        else:
+            state.pop('quote_date_acknowledgement', None)
     return _transaction(record)
 
 
@@ -2772,6 +2804,48 @@ def finalize_offer_response(result):
                         and output_messages[-1].get('role') == 'assistant'):
                     output_messages[-1]['content'] = text
                 return output
+        current_create = False
+        if isinstance(messages, list) and isinstance(receipt, dict):
+            last_user = max((index for index, item in enumerate(messages)
+                             if isinstance(item, dict) and item.get('role') == 'user'),
+                            default=-1)
+            for item in messages[last_user + 1:]:
+                if not isinstance(item, dict) or item.get('role') != 'tool':
+                    continue
+                try:
+                    candidate = json.loads(item.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if (isinstance(candidate, dict)
+                        and candidate.get('tool') == 'create_booking_from_plan'
+                        and candidate.get('success') is True):
+                    current_create = True
+                    break
+        if (current_create and isinstance(receipt, dict)
+                and isinstance(state.get('checked_offer'), dict)):
+            completed_offer = state['checked_offer']
+            if isinstance(completed_offer.get('room_arrangement'), list):
+                room_lines = _guest_room_lines(_presentation_plan(state), completed_offer,
+                                               _guest_language(state))
+                if room_lines:
+                    reference = receipt.get('booking_code') or receipt.get('booking_id')
+                    heading = (f'Booking {reference} was created successfully.' if reference
+                               else 'Your booking was created successfully.')
+                    text = '\n'.join([heading, *room_lines])
+                    raw_booking_result = result.get('booking_result')
+                    booking_result = raw_booking_result if isinstance(raw_booking_result, dict) else {}
+                    link = (receipt.get('payment_link_url') or receipt.get('payment_url')
+                            or booking_result.get('secure_payment_url'))
+                    if isinstance(link, str) and link.strip():
+                        text += '\n' + link.strip()
+                    output = deepcopy(result)
+                    output['final_response'] = text
+                    output_messages = output.get('messages')
+                    if (isinstance(output_messages, list) and output_messages
+                            and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = text
+                    return output
         offer = state.get('checked_offer')
         incomplete = _incomplete_payment_revision(
             state.get('quote') or {}, ingress['tenant'], _presentation_plan(state))
