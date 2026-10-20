@@ -166,7 +166,8 @@ write_luna_env() {
     [ -n "${API_SERVER_KEY:-}" ]                           && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
     # Selected Wolfhouse TEST profile: phone ID, token, and app secret stay in
     # the operator env file / process memory. Do not persist them here.
-    if [ -z "${WA_PHONE_NUMBER_ID:-}" ] && [ -z "${WA_BUSINESS_ACCOUNT_ID:-}" ] && [ -z "${WA_APP_ID:-}" ] && [ -z "${WA_ACCESS_TOKEN:-}" ] && [ -z "${WA_APP_SECRET:-}" ]; then
+    # Presence, not a nonempty value. An empty-present key is the selected profile.
+    if [ -z "${WA_PHONE_NUMBER_ID+x}" ] && [ -z "${WA_BUSINESS_ACCOUNT_ID+x}" ] && [ -z "${WA_APP_ID+x}" ] && [ -z "${WA_ACCESS_TOKEN+x}" ] && [ -z "${WA_APP_SECRET+x}" ]; then
       [ -n "${WHATSAPP_CLOUD_ACCESS_TOKEN:-}" ]             && printf 'WHATSAPP_CLOUD_ACCESS_TOKEN=%s\n' "$WHATSAPP_CLOUD_ACCESS_TOKEN"
       [ -n "${WHATSAPP_CLOUD_PHONE_NUMBER_ID:-}" ]          && printf 'WHATSAPP_CLOUD_PHONE_NUMBER_ID=%s\n' "$WHATSAPP_CLOUD_PHONE_NUMBER_ID"
       [ -n "${WHATSAPP_CLOUD_APP_SECRET:-}" ]               && printf 'WHATSAPP_CLOUD_APP_SECRET=%s\n' "$WHATSAPP_CLOUD_APP_SECRET"

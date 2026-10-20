@@ -152,15 +152,24 @@ gateway restart, a callback change, or any send.
 The operator-owned file `/root/wa-luna-ar.env` (root:root 0600) is loaded by
 compose `env_file` or systemd `EnvironmentFile` for TEST Luna and Staff. Its
 variable names are `WA_PHONE_NUMBER_ID`, `WA_BUSINESS_ACCOUNT_ID`, `WA_APP_ID`,
-`WA_ACCESS_TOKEN`, and `WA_APP_SECRET`. The controller env file may contain
-only the three public IDs. It must reject the token and app secret. See
-`controller.france.env.example`. Missing or empty values fail closed. There is
-no fallback to an old number, an old token, or a vault name.
+`WA_ACCESS_TOKEN`, and `WA_APP_SECRET`. It has no telephone-number variable.
+The controller env file may contain the three public IDs plus
+`LUNA_STAGING_WHATSAPP_NUMBER_E164` and `LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY`.
+It must reject the token and app secret. See `controller.france.env.example`.
+Missing or empty values fail closed. There is no fallback to an old number,
+an old token, or a vault name once any WA key is present. An unselected
+process keeps the historical proof only; that is not a France fallback.
 
 Staff for the selected profile starts with
 `npm run staff:api:selected-whatsapp` so the mapping runs before
-`staff-query-api.js`. The existing `staff:api` script is unchanged for Sunset
-and other roles. Do not run that start command as part of this change.
+`staff-query-api.js`. France TEST Staff is the service that loads
+`/root/wa-luna-ar.env`. The checked-in unit name is unverified; the later
+landing must set that service's command to `staff:api:selected-whatsapp`.
+The existing `staff:api` script, the root image CMD, Sunset
+`luna-sunset-staging-staff-api`, and Azure `wh-staging-staff-api` stay on
+`npm run staff:api`. Do not run the selected start command as part of this
+change. Router policy stays off. Observed delivery is not reported as off
+when the route is active, missing, or failed.
 
 ## Database order (Azure PostgreSQL)
 

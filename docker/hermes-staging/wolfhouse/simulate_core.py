@@ -87,12 +87,26 @@ def _detect_language(text: str, hint: Optional[str]) -> str:
     return "en"
 
 
+def _profile_selected() -> bool:
+    return any(key in os.environ for key in (
+        "WA_PHONE_NUMBER_ID",
+        "WA_BUSINESS_ACCOUNT_ID",
+        "WA_APP_ID",
+        "WA_ACCESS_TOKEN",
+        "WA_APP_SECRET",
+    ))
+
+
 def _configured_business_phone_number_id() -> str:
-    selected = (os.getenv("WA_PHONE_NUMBER_ID") or "").strip()
-    adapter = (os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") or "").strip()
-    if selected and adapter and selected != adapter:
-        raise RuntimeError("whatsapp_phone_id_conflict")
-    value = selected or adapter
+    adapter = os.environ.get("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "")
+    if _profile_selected():
+        selected = os.environ.get("WA_PHONE_NUMBER_ID", "")
+        if selected != selected.strip() or not selected.strip().isdigit():
+            raise RuntimeError("whatsapp_phone_id_unconfigured")
+        if adapter.strip() and adapter.strip() != selected.strip():
+            raise RuntimeError("whatsapp_phone_id_conflict")
+        return selected.strip()
+    value = adapter.strip()
     if not value.isdigit():
         raise RuntimeError("whatsapp_phone_id_unconfigured")
     return value

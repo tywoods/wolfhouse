@@ -17,6 +17,8 @@ const FRANCE_PUBLIC = Object.freeze({
   WA_PHONE_NUMBER_ID: (value) => /^[0-9]{8,20}$/.test(value),
   WA_BUSINESS_ACCOUNT_ID: (value) => /^[0-9]{8,20}$/.test(value),
   WA_APP_ID: (value) => /^[0-9]{8,20}$/.test(value),
+  LUNA_STAGING_WHATSAPP_NUMBER_E164: (value) => /^\+[1-9][0-9]{7,14}$/.test(value),
+  LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: (value) => /^\+[0-9-]{8,32}$/.test(value) && !value.includes('--'),
 });
 const SECRET_KEYS = new Set([
   'WA_ACCESS_TOKEN',
@@ -49,6 +51,11 @@ function validateControllerEnv(text, expectedSite) {
   }
   for (const [key, accept] of Object.entries(accepts)) {
     if (!values.has(key) || !accept(values.get(key), expectedSite)) throw new Error(`invalid or missing ${key}`);
+  }
+  if (expectedSite === FRANCE_SITE) {
+    const e164 = String(values.get('LUNA_STAGING_WHATSAPP_NUMBER_E164') || '').replace(/\D/g, '');
+    const display = String(values.get('LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY') || '').replace(/\D/g, '');
+    if (!e164 || e164 !== display) throw new Error('invalid or missing LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY');
   }
   return true;
 }

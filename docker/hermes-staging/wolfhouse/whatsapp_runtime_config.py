@@ -28,7 +28,10 @@ PHONE_ALIASES = (
     "WHATSAPP_PHONE_NUMBER_ID",
     "OPEN_DEMO_WHATSAPP_PHONE_NUMBER_ID",
 )
+APP_ALIASES = ("WHATSAPP_CLOUD_APP_ID",)
+WABA_ALIASES = ("WHATSAPP_CLOUD_WABA_ID",)
 ID_RE = re.compile(r"^[0-9]{8,20}$")
+WS_RE = re.compile(r"\s")
 
 
 class WhatsAppRuntimeConfigError(RuntimeError):
@@ -56,9 +59,13 @@ def resolve_public_identity(env: dict | None = None) -> dict:
     app_id = _raw(source, "WA_APP_ID").strip()
     if not ID_RE.fullmatch(phone_number_id) or not ID_RE.fullmatch(waba_id) or not ID_RE.fullmatch(app_id):
         raise WhatsAppRuntimeConfigError("identity_malformed")
-    for alias in PHONE_ALIASES:
+    for alias, expected in (
+        *((alias, phone_number_id) for alias in PHONE_ALIASES),
+        *((alias, app_id) for alias in APP_ALIASES),
+        *((alias, waba_id) for alias in WABA_ALIASES),
+    ):
         value = _raw(source, alias).strip()
-        if value and value != phone_number_id:
+        if value and value != expected:
             raise WhatsAppRuntimeConfigError("identity_alias_conflict")
     return {
         "phone_number_id": phone_number_id,
@@ -71,7 +78,12 @@ def resolve_secrets(env: dict | None = None) -> dict:
     source = os.environ if env is None else env
     access_token = _raw(source, "WA_ACCESS_TOKEN")
     app_secret = _raw(source, "WA_APP_SECRET")
-    if not access_token.strip() or not app_secret.strip() or access_token != access_token.strip() or app_secret != app_secret.strip():
+    if (
+        not access_token.strip()
+        or not app_secret.strip()
+        or WS_RE.search(access_token)
+        or WS_RE.search(app_secret)
+    ):
         raise WhatsAppRuntimeConfigError("secret_missing")
     return {"access_token": access_token.strip(), "app_secret": app_secret.strip()}
 

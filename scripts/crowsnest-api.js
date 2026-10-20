@@ -186,6 +186,7 @@ const {
   readLunaNumberRoute,
   flipLunaNumberRoute,
   rollbackLunaNumberRoute,
+  identityConfirmationError,
   isStagingEnvironment: isLunaNumberRoutingStaging,
 } = require('./lib/crowsnest/crowsnest-luna-number-routing');
 
@@ -507,6 +508,8 @@ async function handleLunaNumberRoute(req, res, method, action) {
   try { raw = await readLimitedBody(req, 16 * 1024); } catch (_) { return sendPayloadTooLarge(res); }
   const parsed = parseJsonBody(raw);
   if (!parsed.ok) return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  const identityError = identityConfirmationError(parsed.body, process.env);
+  if (identityError) return sendJSON(res, 422, { ok: false, code: identityError }, { 'Cache-Control': 'no-store' });
   const result = action === 'flip'
     ? await flipLunaNumberRoute(parsed.body, actor)
     : await rollbackLunaNumberRoute(parsed.body, actor);

@@ -35,6 +35,8 @@ function request(port, path, { method = 'GET', body } = {}) {
   process.env.WA_PHONE_NUMBER_ID = SYNTHETIC_NUMBER_ID;
   process.env.WA_BUSINESS_ACCOUNT_ID = '2000000000000002';
   process.env.WA_APP_ID = '2000000000000003';
+  process.env.LUNA_STAGING_WHATSAPP_NUMBER_E164 = '+15550000001';
+  process.env.LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY = '+1-555-000-0001';
   let effective = { number_id: SYNTHETIC_NUMBER_ID, target_id: 'sunset' };
   let latest = { event_id: 'event-initial', number_id: effective.number_id, old_target_id: 'sunset', new_target_id: 'sunset', changed_by: 'fixture', changed_at: '2026-09-19T20:00:00Z' };
   const upstream = http.createServer((req, res) => {

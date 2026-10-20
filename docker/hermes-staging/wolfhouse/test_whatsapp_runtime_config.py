@@ -52,6 +52,16 @@ class RuntimeConfigTests(unittest.TestCase):
         with self.assertRaises(WhatsAppRuntimeConfigError) as conflict:
             apply_whatsapp_runtime_config(synthetic(WHATSAPP_PHONE_NUMBER_ID="2000000000000099"))
         self.assertEqual(conflict.exception.code, "identity_alias_conflict")
+        with self.assertRaises(WhatsAppRuntimeConfigError) as app_conflict:
+            apply_whatsapp_runtime_config(synthetic(WHATSAPP_CLOUD_APP_ID="2000000000000099"))
+        self.assertEqual(app_conflict.exception.code, "identity_alias_conflict")
+        with self.assertRaises(WhatsAppRuntimeConfigError) as waba_conflict:
+            apply_whatsapp_runtime_config(synthetic(WHATSAPP_CLOUD_WABA_ID="2000000000000099"))
+        self.assertEqual(waba_conflict.exception.code, "identity_alias_conflict")
+        for label, value in (("space", "synthetic value"), ("tab", "synthetic\tvalue"), ("newline", "synthetic\nvalue")):
+            with self.assertRaises(WhatsAppRuntimeConfigError) as whitespace:
+                apply_whatsapp_runtime_config(synthetic(WA_ACCESS_TOKEN=value))
+            self.assertEqual(whitespace.exception.code, "secret_missing", label)
 
     def test_apply_does_not_open_a_socket(self):
         def blocked(*_args, **_kwargs):
@@ -104,6 +114,8 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertNotIn("graph.facebook.com", text)
         self.assertNotIn("dotenv", text.lower())
         self.assertNotIn("print(", text)
+        self.assertNotIn("os.getenv(key) for key", Path(__file__).resolve().parents[1].joinpath("apply_whatsapp_runtime_config.py").read_text(encoding="utf-8"))
+        self.assertIn("key in os.environ", Path(__file__).resolve().parents[1].joinpath("apply_whatsapp_runtime_config.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

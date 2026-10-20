@@ -22,7 +22,7 @@ HOOK_BODY = (
     "    import wolfhouse.whatsapp_runtime_config as _wa_runtime_config",
     "    _wa_runtime_config.apply_whatsapp_runtime_config()",
     "except ModuleNotFoundError:",
-    '    if any(os.getenv(key) for key in ("WA_PHONE_NUMBER_ID", "WA_BUSINESS_ACCOUNT_ID", "WA_APP_ID", "WA_ACCESS_TOKEN", "WA_APP_SECRET")):',
+    '    if any(key in os.environ for key in ("WA_PHONE_NUMBER_ID", "WA_BUSINESS_ACCOUNT_ID", "WA_APP_ID", "WA_ACCESS_TOKEN", "WA_APP_SECRET")):',
     "        raise",
 )
 

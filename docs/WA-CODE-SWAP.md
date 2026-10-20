@@ -14,6 +14,14 @@ that the operator already placed in `/root/wa-luna-ar.env` (root:root 0600):
 - `WA_ACCESS_TOKEN`
 - `WA_APP_SECRET`
 
+The telephone number is not in that file and is not derived from the phone-number ID.
+Controller and Crow's Nest also need these separate nonsecret keys:
+
+- `LUNA_STAGING_WHATSAPP_NUMBER_E164`
+- `LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY`
+
+The display digits must match the E.164. A missing or conflicting value fails closed.
+
 Consuming services load that file with compose `env_file` or systemd
 `EnvironmentFile`. Application code does not read the file path and does not
 read Key Vault. There is no Azure secrets SDK and no `/register` step in this
@@ -36,15 +44,21 @@ is left alone.
 - TEST Luna: the image hook maps the five variables into the existing Cloud API
   adapter inputs in process memory, after normal configuration loading. Bootstrap
   does not persist the token, app secret, or phone ID when the profile is active.
-- Staff: `npm run staff:api:selected-whatsapp` maps the variables before
-  `staff-query-api.js` starts. The existing `staff:api` script is unchanged so
-  Sunset and other roles keep their start command. Do not run the selected
-  start command from this job.
-- France controller / Crow's Nest: public IDs only. The controller env file
-  must not contain the token or app secret. See
-  `deploy/luna-routing/controller.france.env.example`. Router mutations stay
-  false. Delivery stays off. A stale selector cannot authorize a different
-  identity.
+- Staff: the shared image and `npm run staff:api` stay the Sunset and shared default
+  (`Dockerfile` CMD). Attaching the five WA variables to that default entry does
+  not map them. France TEST Staff is the process that will load
+  `/root/wa-luna-ar.env`. Its start command must be overridden to
+  `npm run staff:api:selected-whatsapp` at the later authorized landing. Source
+  does not name a verified systemd unit for that process (historical `/srv/staff`
+  is unverified). Do not apply the override to Sunset
+  `luna-sunset-staging-staff-api` or Azure `wh-staging-staff-api`. Do not run
+  the selected start command from this job.
+- France controller / Crow's Nest: public IDs plus the separate E.164 and
+  display keys only. The controller env file must not contain the token or app
+  secret. See `deploy/luna-routing/controller.france.env.example`. Router
+  mutations stay false. Operating policy stays off. Observed delivery is
+  reported separately and is never labelled off when the route is active,
+  missing, or unread. A stale selector cannot authorize a different identity.
 
 ## Holds that remain
 
