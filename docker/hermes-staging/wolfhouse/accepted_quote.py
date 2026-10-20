@@ -686,6 +686,32 @@ def _blocked_clarification_copy(result, plan, language):
                 'fr': "Je n’ai pas pu obtenir les options de forfait pour le moment. Souhaitez-vous un devis d’hébergement seul ?",
                 'de': 'Ich konnte die Paketoptionen gerade nicht abrufen. Möchten Sie stattdessen ein Angebot nur für die Unterkunft?',
             }[language]
+        packages = result.get('packages')
+        if (result.get('next_action') == 'explain_packages_then_ask_choice'
+                and isinstance(packages, dict)):
+            options = []
+            for code, details in packages.items():
+                cents = details.get('total_cents') if isinstance(details, dict) else None
+                if (isinstance(code, str) and code.strip() and type(cents) is int
+                        and cents >= 0):
+                    amount = f'{cents / 100:.2f}'.rstrip('0').rstrip('.')
+                    description = str(details.get('includes_line') or '').strip()
+                    label = f'{code.replace("_", " ").title()} (€{amount})'
+                    options.append(f'{label}: {description}' if description else label)
+            if options:
+                intro = {
+                    'en': 'The available Staff-checked options are ',
+                    'es': 'Las opciones comprobadas disponibles son ',
+                    'fr': 'Les options vérifiées disponibles sont ',
+                    'de': 'Die verfügbaren geprüften Optionen sind ',
+                }[language]
+                question = {
+                    'en': 'Which package would you like for this stay?',
+                    'es': '¿Qué paquete quieres para esta estancia?',
+                    'fr': 'Quel forfait souhaitez-vous pour ce séjour ?',
+                    'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
+                }[language]
+                return intro + ', '.join(options) + '. ' + question
         return {
             'en': 'Which package would you like for this stay?',
             'es': '¿Qué paquete quieres para esta estancia?',
@@ -1992,8 +2018,16 @@ def record_quote(params, response):
         elif _incomplete_payment_revision(response, ingress['tenant'], prepared):
             assignments = response['offer_revision'].get('guest_bed_assignments') or []
             if len(assignments) == response['offer_revision'].get('guest_count'):
+                supplied = prepared.get('guests') if isinstance(prepared.get('guests'), list) else []
+                def display_name(index, row):
+                    canonical = row.get('guest_name') or ''
+                    candidate = (supplied[index].get('name') if index < len(supplied)
+                                 and isinstance(supplied[index], dict) else '')
+                    normalize = lambda value: unicodedata.normalize(
+                        'NFC', ' '.join(str(value or '').split())).casefold()
+                    return candidate if normalize(candidate) and normalize(candidate) == normalize(canonical) else canonical
                 completion_plan['guests'] = [
-                    {'name': row.get('guest_name') or ''} for row in assignments]
+                    {'name': display_name(index, row)} for index, row in enumerate(assignments)]
             if response.get('full_payment_only') is True:
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
@@ -2180,8 +2214,15 @@ def record_quote(params, response):
             )
             if not same_current_dates:
                 state.pop('quote_date_acknowledgement', None)
+        typed_package_preview = (
+            response.get('quote_status') == 'needs_guest_clarification'
+            and response.get('offer_revision') is None
+            and response.get('package_choice_needed') is True
+            and response.get('next_action') in (
+                'explain_packages_then_ask_choice', 'offer_accommodation_or_change_dates',
+                'package_eligibility_unavailable'))
         state.update(plan=plan, completion_plan=completion_plan,
-                     quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
+                     quote=deepcopy(response) if (valid or unresolved_eligibility or typed_package_preview) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
         state.pop('acceptance_message', None)
         state.pop('pending_name_completion', None)
@@ -2196,6 +2237,84 @@ def record_quote(params, response):
         state['delta'] = {}
         state['epoch'] += 1
         prepared.capability.epoch = state['epoch']
+    return _transaction(record)
+
+
+def record_availability_context(params):
+    """Merge trusted availability facts without replacing booking authority."""
+    projection = {key: deepcopy(params[key]) for key in (*_FIELDS, *_CHECKED_FIELDS)
+                  if key in params}
+    def record(state, ingress):
+        previous = _presentation_plan(state)
+        changed = (all(isinstance(projection.get(key), str) and projection[key]
+                       for key in ('check_in', 'check_out'))
+                   and all(isinstance(previous.get(key), str) and previous[key]
+                           for key in ('check_in', 'check_out'))
+                   and any(previous.get(key) != projection.get(key)
+                           for key in ('check_in', 'check_out')))
+        merged = deepcopy(previous)
+        known_guests = previous.get('guests')
+        old_size = previous.get('guest_count')
+        new_size = projection.get('guest_count')
+        retired = {index for index in state.get('retired_guest_indices') or []
+                   if type(index) is int and index >= 0}
+        newly_retired = set()
+        if type(old_size) is int and type(new_size) is int and new_size < old_size:
+            newly_retired.update(range(max(new_size, 0), old_size))
+            retired.update(newly_retired)
+        # An owner-evidenced completion is the only authority that may assign a
+        # previously retired/regrown slot again. A completion that predates this
+        # shrink cannot undo the retirement created by the same transition.
+        completion_guests = (state.get('completion_plan') or {}).get('guests')
+        if isinstance(completion_guests, list):
+            for index, guest in enumerate(completion_guests):
+                if (index not in newly_retired
+                        and isinstance(guest, dict)
+                        and isinstance(guest.get('name'), str)
+                        and guest['name'].strip()):
+                    retired.discard(index)
+        for key, value in projection.items():
+            if key == 'guests' and isinstance(value, list) and isinstance(known_guests, list):
+                roster = deepcopy(known_guests)
+                target_size = new_size if type(new_size) is int and new_size >= 0 else len(value)
+                roster = roster[:target_size]
+                while len(roster) < target_size:
+                    roster.append({})
+                for index, guest in enumerate(value[:target_size]):
+                    if not isinstance(guest, dict):
+                        continue
+                    current = roster[index] if isinstance(roster[index], dict) else {}
+                    current_name = current.get('name')
+                    incoming = deepcopy(guest)
+                    if ((isinstance(current_name, str) and current_name.strip())
+                            or index in retired):
+                        incoming.pop('name', None)
+                    roster[index] = {**current, **incoming}
+                merged[key] = roster
+            else:
+                merged[key] = deepcopy(value)
+        party_size = merged.get('guest_count')
+        if type(party_size) is int and party_size >= 0:
+            for key in ('guests', 'room_name_hints'):
+                if isinstance(merged.get(key), list):
+                    merged[key] = merged[key][:party_size]
+        state['retired_guest_indices'] = sorted(retired)
+        state['plan'] = merged
+        # Availability is a projection, not a new commercial/person owner.  Keep
+        # completions already accepted by the quote owner and fold them into the
+        # merged plan so a later create sees one coherent authoritative snapshot.
+        state['completion_plan'] = {}
+        acknowledgement = state.get('quote_date_acknowledgement')
+        same_retry = (isinstance(acknowledgement, dict)
+                      and acknowledgement.get('message_id') == ingress['MESSAGE_ID']
+                      and acknowledgement.get('check_in') == merged.get('check_in')
+                      and acknowledgement.get('check_out') == merged.get('check_out'))
+        if changed or same_retry:
+            state['quote_date_acknowledgement'] = {
+                'message_id': ingress['MESSAGE_ID'], 'check_in': merged['check_in'],
+                'check_out': merged['check_out']}
+        else:
+            state.pop('quote_date_acknowledgement', None)
     return _transaction(record)
 
 
@@ -2560,6 +2679,57 @@ def record_create_completion(prepared, response):
     _transaction(complete)
 
 
+def record_payment_completion(response):
+    """Retain only successful payment truth bound to this owner's receipt."""
+    def complete(state, ingress):
+        del ingress
+        if not isinstance(response, dict) or response.get('success') is not True:
+            return
+        receipt = state.get('completion') or state.get('receipt')
+        if not isinstance(receipt, dict):
+            return
+        compared_booking_keys = [key for key in ('booking_id', 'booking_code')
+                                 if receipt.get(key) is not None
+                                 and response.get(key) is not None]
+        if (not compared_booking_keys
+                or any(response.get(key) != receipt.get(key)
+                       for key in compared_booking_keys)):
+            return
+        completion = deepcopy(receipt)
+        if response.get('tool') == 'create_guest_payment_link':
+            guest_id = response.get('booking_guest_id')
+            known_guests = completion.get('booking_guests')
+            if not (isinstance(guest_id, str) and guest_id
+                    and isinstance(known_guests, list)
+                    and any(isinstance(row, dict)
+                            and row.get('booking_guest_id') == guest_id
+                            for row in known_guests)):
+                return
+            links = [deepcopy(row) for row in completion.get('guest_payment_links') or []
+                     if isinstance(row, dict)
+                     and row.get('booking_guest_id') != guest_id]
+            links.append({key: deepcopy(response.get(key)) for key in (
+                'booking_guest_id', 'guest_number', 'guest_name', 'payment_id',
+                'payment_target', 'amount_due_cents', 'currency',
+                'secure_payment_url', 'payment_status') if response.get(key) is not None})
+            completion['guest_payment_links'] = links
+        elif response.get('tool') == 'create_payment_link':
+            if (receipt.get('payment_id') is not None
+                    and response.get('payment_id') != receipt.get('payment_id')):
+                return
+            for key in ('payment_id', 'amount_due_cents', 'currency',
+                        'secure_payment_url', 'payment_status'):
+                if response.get(key) is not None:
+                    completion[key] = deepcopy(response[key])
+        else:
+            return
+        state['completion'] = completion
+    try:
+        _transaction(complete)
+    except QuoteBoundaryError:
+        return
+
+
 def _revoke_checked_offer(state):
     state.update(status='clarify', quote=None, checked_offer=None)
     # Retain immutable accepted authority for exact fresh revalidation. The
@@ -2707,6 +2877,7 @@ def finalize_offer_response(result):
                     and output_messages[-1].get('role') == 'assistant'):
                 output_messages[-1]['content'] = text
             return output
+        current_tools = []
         receipt = state.get('completion') or state.get('receipt')
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
@@ -2740,6 +2911,96 @@ def finalize_offer_response(result):
                         and output_messages[-1].get('role') == 'assistant'):
                     output_messages[-1]['content'] = text
                 return output
+        current_create = False
+        if isinstance(messages, list) and isinstance(receipt, dict):
+            last_user = max((index for index, item in enumerate(messages)
+                             if isinstance(item, dict) and item.get('role') == 'user'),
+                            default=-1)
+            for item in messages[last_user + 1:]:
+                if not isinstance(item, dict) or item.get('role') != 'tool':
+                    continue
+                try:
+                    candidate = json.loads(item.get('content') or '{}')
+                except (TypeError, ValueError):
+                    continue
+                if (isinstance(candidate, dict)
+                        and candidate.get('tool') == 'create_booking_from_plan'
+                        and candidate.get('success') is True):
+                    current_create = True
+                    break
+        if (current_create and isinstance(receipt, dict)
+                and isinstance(state.get('checked_offer'), dict)):
+            completed_offer = state['checked_offer']
+            if isinstance(completed_offer.get('room_arrangement'), list):
+                language = _guest_language(state)
+                room_lines = _guest_room_lines(_presentation_plan(state), completed_offer,
+                                               language)
+                if room_lines:
+                    reference = receipt.get('booking_code') or receipt.get('booking_id')
+                    headings = {
+                        'en': (f'Booking {reference} was created successfully.' if reference else 'Your booking was created successfully.'),
+                        'es': (f'La reserva {reference} se ha creado correctamente.' if reference else 'Tu reserva se ha creado correctamente.'),
+                        'fr': (f'La réservation {reference} a bien été créée.' if reference else 'Votre réservation a bien été créée.'),
+                        'de': (f'Die Buchung {reference} wurde erfolgreich erstellt.' if reference else 'Deine Buchung wurde erfolgreich erstellt.'),
+                    }
+                    text = '\n'.join([headings.get(language, headings['en']), *room_lines])
+                    # The registered create completion is the owner-retained source.
+                    # A current separate payment tool may add newer canonical payment
+                    # truth, but arbitrary model text/top-level metadata never does.
+                    payment = receipt
+                    for tool_message in current_tools:
+                        try:
+                            candidate = json.loads(tool_message.get('content') or '{}')
+                        except (TypeError, ValueError):
+                            continue
+                        if (isinstance(candidate, dict)
+                                and candidate.get('tool') == 'create_payment_link'
+                                and candidate.get('success') is True
+                                and (not reference or candidate.get('booking_code') in (None, reference)
+                                     or candidate.get('booking_id') in (None, reference))):
+                            payment = candidate
+                    split = payment.get('guest_payment_links')
+                    if not isinstance(split, list):
+                        split = receipt.get('guest_payment_links')
+                    currency = payment.get('currency') or receipt.get('currency') or completed_offer.get('currency')
+                    payment_lines = []
+                    if isinstance(split, list) and split:
+                        labels = {'en': 'Pay', 'es': 'Paga', 'fr': 'Paiement', 'de': 'Zahlung'}
+                        for row in split:
+                            if not isinstance(row, dict):
+                                continue
+                            url = row.get('secure_payment_url')
+                            amount = row.get('amount_due_cents')
+                            name = row.get('guest_name')
+                            if isinstance(url, str) and url.strip():
+                                prefix = labels.get(language, labels['en'])
+                                who = f' {name}' if isinstance(name, str) and name.strip() else ''
+                                value = (f' {amount / 100:.2f} {row.get("currency") or currency}'
+                                         if type(amount) is int and (row.get('currency') or currency) else '')
+                                payment_lines.append(f'{prefix}{who}:{value}\n{url.strip()}')
+                    else:
+                        url = payment.get('secure_payment_url') or receipt.get('secure_payment_url')
+                        amount = payment.get('amount_due_cents')
+                        if type(amount) is not int:
+                            amount = receipt.get('amount_due_cents')
+                        if isinstance(url, str) and url.strip():
+                            labels = {
+                                'en': 'Amount due now', 'es': 'Importe a pagar ahora',
+                                'fr': 'Montant à régler maintenant', 'de': 'Jetzt fälliger Betrag'}
+                            value = (f'{amount / 100:.2f} {currency}'
+                                     if type(amount) is int and currency else None)
+                            payment_lines.append((f'{labels.get(language, labels["en"])}: {value}\n'
+                                                  if value else '') + url.strip())
+                    if payment_lines:
+                        text += '\n' + '\n'.join(payment_lines)
+                    output = deepcopy(result)
+                    output['final_response'] = text
+                    output_messages = output.get('messages')
+                    if (isinstance(output_messages, list) and output_messages
+                            and isinstance(output_messages[-1], dict)
+                            and output_messages[-1].get('role') == 'assistant'):
+                        output_messages[-1]['content'] = text
+                    return output
         offer = state.get('checked_offer')
         incomplete = _incomplete_payment_revision(
             state.get('quote') or {}, ingress['tenant'], _presentation_plan(state))

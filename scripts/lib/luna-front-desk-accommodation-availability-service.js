@@ -519,7 +519,10 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
   const incompatibleIndices = [];
   if (genderedRequest) {
     for (let index = 0; index < command.guestCount; index += 1) {
-      const fact = String((suppliedGuests[index] && suppliedGuests[index].explicit_gender) || '').trim().toLowerCase();
+      // Whole-party authority fills only unknown slots; contradictory named facts win.
+      const personFact = String((suppliedGuests[index] && suppliedGuests[index].explicit_gender) || '').trim().toLowerCase();
+      const aggregateFact = String(command.groupGender || '').trim().toLowerCase();
+      const fact = personFact || (aggregateFact === 'female' || aggregateFact === 'male' ? aggregateFact : '');
       if (!fact) unknownIndices.push(index);
       else if (fact !== expectedGender) incompatibleIndices.push(index);
     }

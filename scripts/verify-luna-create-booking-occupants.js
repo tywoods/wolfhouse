@@ -433,7 +433,7 @@ async function runPayload(payload, hooks = {}) {
     assert.equal(customers[0].phone, built.command.phone);
     assert.equal(bookings[0].phone, built.command.phone);
 
-    const payments = (await db.query(`SELECT payment_kind, amount_due_cents, status,
+    const payments = (await db.query(`SELECT id, payment_kind, amount_due_cents, status,
       currency, booking_guest_id, metadata FROM payments`)).rows;
     assert.equal(payments.length, 1, 'create leaves one whole-booking payment, not four links');
     assert.equal(payments[0].booking_guest_id, null);
@@ -499,7 +499,11 @@ async function main() {
   const legacy = await runPayload(legacyPayload);
   assert.equal(legacy.ok, true, JSON.stringify(legacy));
   console.log('PASS legacy omission: ' + legacy.occupants.map((row) => `${row.guest_name}=${row.assigned_bed_code}`).join(', '));
-  assert.deepEqual(named.money, legacy.money, 'names must not change persisted money or whole-booking payment');
+  const stableMoney = money => ({ ...money,
+    payments: money.payments.map(({ id: _id, ...payment }) => payment),
+  });
+  assert.deepEqual(stableMoney(named.money), stableMoney(legacy.money),
+    'names must not change persisted money or whole-booking payment');
   assert.deepEqual(named.body.quote, legacy.body.quote, 'entire production quote unchanged');
   assert.equal(named.money.payment_choice, 'full');
   assert.equal(named.money.per_guest_payment_links, false);
