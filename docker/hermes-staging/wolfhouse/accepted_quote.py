@@ -2672,6 +2672,14 @@ def record_create_completion(prepared, response):
         receipt = state.get('receipt')
         if not receipt or not isinstance(response, dict) or response.get('success') is not True:
             return
+        # The Staff create receipt is durable independently of adapter follow-up.
+        # Do not freeze a failed/uncertain payment-link attempt as completion: a
+        # same-operation retry must retain the booking IDs and retry only that
+        # substep.  Link generation is not payment truth.
+        if (response.get('payment_link_error')
+                or any(isinstance(row, dict) for row in
+                       (response.get('payment_link_failures') or []))):
+            return
         if any(receipt.get(key) is not None and response.get(key) != receipt[key]
                for key in ('booking_id', 'booking_code', 'payment_id')):
             raise QuoteBoundaryError('create_completion_identity_mismatch')

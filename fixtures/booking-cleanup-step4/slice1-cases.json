@@ -1,0 +1,26 @@
+{
+  "evidence_classification": "Masked source provenance and captured argument chronology; Staff response bodies used by tests are constructed unless a real isolated SQL proof is explicitly identified.",
+  "sources": {
+    "guest1": {"sha256": "de36c2205e1e38aab8d6892b9eb28c6a9e87dee81ea18e1762570a026b2724fc", "case": "Lucía offer continuity and first-valid-yes"},
+    "guest2": {"sha256": "363433d7948df53b3e31cad32f989da74f7619064c190bcfb185d82d5da50349", "case": "Camille successful outcome control"},
+    "guest3": {"sha256": "08bb3eaf8a7648d11980cbf38d91d6e93a3b3b487e3858fdf86094d9cb324699", "case": "Becker successful outcome control"},
+    "guest4": {"sha256": "f931bee56308a6c245173030d87b1e91181fb5a4a638670490cf6a26a4acf1aa", "case": "Emma corrected dates/full payment control"},
+    "guest5": {"sha256": "56a0315d7703a790c316a748003ff34015c5e7282b6766ecd454fbf59bb8cf75", "case": "Raj Room 1 placement control"},
+    "guest9": {"sha256": "11a6b3b132e67e4a90061d413864f688d78ff5bdbfbbe043e0a4d938da383c31", "case": "availability-only no-write control"},
+    "sim24_guest1_control": {"sha256": "602b120368c1d8f87471a147e1dcfb3185c1e60ebd5a4840d1c5591e0518dbfa", "case": "passing Lucía control with optional interpretation"}
+  },
+  "lucia": {
+    "dates": ["2026-11-16", "2026-11-19"],
+    "guest_count": 1,
+    "short_name": "Lucía",
+    "completed_name": "Lucía Fernández Ruiz",
+    "bed": "R3-B3",
+    "room": "mixed",
+    "total_cents": 12000,
+    "deposit_cents": 10000,
+    "remainder_cents": 2000,
+    "currency": "EUR",
+    "payment_choice": "deposit",
+    "captured_failure": "quote_owner_presented_offer_required"
+  }
+}

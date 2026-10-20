@@ -1512,7 +1512,13 @@ def create_booking_from_plan(params, **kwargs):
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
     prior_receipt = ledger.dispatch_recovery(ticket).get("receipt") if ticket is not None else None
-    if ticket is None:
+    if prior_receipt is not None:
+        # Staff already acknowledged this exact owner-frozen operation.  A later
+        # adapter substep (normally payment-link creation) may have failed, but
+        # retrying it must not issue another booking create.  Lost create replies
+        # have no receipt and therefore still use Staff's idempotent create path.
+        data = dict(prior_receipt)
+    elif ticket is None:
         # Standalone offline handler compatibility only; real agent is failclosed.
         import sys
         if ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules:
