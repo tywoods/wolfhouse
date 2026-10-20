@@ -17,7 +17,7 @@ from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
 
 class Sim24CheckedOfferContinuityTests(unittest.TestCase):
     @staticmethod
-    def _run_occupants(payload, scenario_facts=None):
+    def _registered_sql_create(payload, scenario_facts=None):
         script = """
 const verify = require('./scripts/verify-luna-create-booking-occupants');
 const p = JSON.parse(process.argv[1]);
@@ -327,6 +327,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                            "gender_strategy": meta["room"]}
                                           for code in meta["beds"]]}
                     sql_proofs = []
+                    payment_link_ids = []
                     url = "https://payments.invalid/" + label
                     def receipts(route, body):
                         if route == "/availability-check":
@@ -334,15 +335,26 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         if route == "/booking-preview":
                             return quote
                         if route == "/booking-create-from-plan":
-                            proof = self._run_occupants(
+                            # This is the transport invoked by the registered owner
+                            # dispatch. Its response comes from the real Staff command,
+                            # execute path and committed isolated PGlite rows.
+                            proof = self._registered_sql_create(
                                 body, scenario_facts=scenario)
                             sql_proofs.append(proof)
+                            payment_id = proof["money"]["payments"][0]["id"]
                             return {**proof["body"], "success": proof["ok"],
-                                    "write_performed": proof["ok"]}
+                                    "write_performed": proof["ok"],
+                                    "payment_id": payment_id}
                         if route.endswith("/create-stripe-link"):
-                            return {"success": True, "booking_id": body.get("booking_id"),
+                            payment_id = route.split("/")[2]
+                            self.assertEqual(len(sql_proofs), 1)
+                            persisted = sql_proofs[0]["money"]["payments"]
+                            self.assertEqual([row["id"] for row in persisted], [payment_id])
+                            payment_link_ids.append(payment_id)
+                            return {"success": True,
+                                    "booking_id": sql_proofs[0]["bookings"][0]["id"],
                                     "booking_code": sql_proofs[0]["body"]["booking_code"],
-                                    "payment_id": body["payment_id"],
+                                    "payment_id": payment_id,
                                     "guest_payment_url": url,
                                     "amount_due_cents": facts["payment_amount_cents"],
                                     "currency": "EUR", "payment_status": "pending"}
@@ -350,10 +362,8 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
 
                     created = loop.call("create_booking_from_plan", {}, receipts)
                     self.assertTrue(created["success"], created)
-                    payment_id = "00000000-0000-0000-0000-00000000000" + label[-1]
-                    payment = loop.call("create_payment_link", {
-                        "payment_id": payment_id}, receipts)
-                    self.assertTrue(payment["success"], payment)
+                    self.assertEqual(payment_link_ids,
+                                     [sql_proofs[0]["money"]["payments"][0]["id"]])
                     self.assertEqual(len(loop.create_dispatches), 1)
                     self.assertEqual(len(sql_proofs), 1)
                     proof = sql_proofs[0]
@@ -372,9 +382,6 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     messages = [{"role": "tool", "name": "create_booking_from_plan",
                                  "content": json.dumps({**created,
                                      "tool": "create_booking_from_plan"})},
-                                {"role": "tool", "name": "create_payment_link",
-                                 "content": json.dumps({**payment,
-                                     "tool": "create_payment_link"})},
                                 {"role": "assistant", "content": "untrusted draft"}]
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": "untrusted draft", "messages": messages})
