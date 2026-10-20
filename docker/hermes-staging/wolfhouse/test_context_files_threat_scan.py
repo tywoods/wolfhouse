@@ -18,18 +18,24 @@ CONTEXT_FILES = (
 )
 
 
+def scan_context_content(content: str) -> list[str]:
+    return scan_for_threats(content, scope="context")
+
+
 class ContextFilesThreatScanTests(unittest.TestCase):
     def test_context_files_have_no_threat_findings(self) -> None:
         failures: list[str] = []
         for path in CONTEXT_FILES:
             content = path.read_text(encoding="utf-8")
-            for line_number, line in enumerate(content.splitlines(), start=1):
-                for finding in scan_for_threats(line, scope="context"):
-                    failures.append(
-                        f"{path.relative_to(REPO_ROOT)}:{line_number}: {finding}"
-                    )
+            for finding in scan_context_content(content):
+                failures.append(f"{path.relative_to(REPO_ROOT)}: {finding}")
 
         self.assertEqual([], failures, "\n" + "\n".join(failures))
+
+    def test_multiline_threat_is_detected(self) -> None:
+        content = "compare check-in\nwith today's date in Europe/Madrid."
+
+        self.assertIn("c2_heartbeat", scan_context_content(content))
 
 
 if __name__ == "__main__":
