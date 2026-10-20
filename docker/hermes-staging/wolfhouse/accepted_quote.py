@@ -2241,23 +2241,45 @@ def record_quote(params, response):
 
 
 def record_availability_context(params):
-    """Retain trusted display/date input for an offerless availability clarification."""
-    plan = {key: deepcopy(params[key]) for key in (*_FIELDS, *_CHECKED_FIELDS)
-            if key in params}
+    """Merge trusted availability facts without replacing booking authority."""
+    projection = {key: deepcopy(params[key]) for key in (*_FIELDS, *_CHECKED_FIELDS)
+                  if key in params}
     def record(state, ingress):
-        previous = state.get('plan') if isinstance(state.get('plan'), dict) else {}
-        changed = (all(isinstance(plan.get(key), str) and plan[key]
+        previous = _presentation_plan(state)
+        changed = (all(isinstance(projection.get(key), str) and projection[key]
                        for key in ('check_in', 'check_out'))
                    and all(isinstance(previous.get(key), str) and previous[key]
                            for key in ('check_in', 'check_out'))
-                   and any(previous.get(key) != plan.get(key)
+                   and any(previous.get(key) != projection.get(key)
                            for key in ('check_in', 'check_out')))
-        state['plan'] = plan
+        merged = deepcopy(previous)
+        incoming_guests = projection.get('guests')
+        known_guests = previous.get('guests')
+        for key, value in projection.items():
+            if key == 'guests' and isinstance(value, list) and isinstance(known_guests, list):
+                roster = deepcopy(known_guests)
+                for index, guest in enumerate(value):
+                    if index < len(roster) and isinstance(roster[index], dict) and isinstance(guest, dict):
+                        roster[index] = {**roster[index], **guest}
+                    elif index >= len(roster):
+                        roster.append(deepcopy(guest))
+                merged[key] = roster
+            else:
+                merged[key] = deepcopy(value)
+        state['plan'] = merged
+        # Availability is a projection, not a new commercial/person owner.  Keep
+        # completions already accepted by the quote owner and fold them into the
+        # merged plan so a later create sees one coherent authoritative snapshot.
         state['completion_plan'] = {}
-        if changed:
+        acknowledgement = state.get('quote_date_acknowledgement')
+        same_retry = (isinstance(acknowledgement, dict)
+                      and acknowledgement.get('message_id') == ingress['MESSAGE_ID']
+                      and acknowledgement.get('check_in') == merged.get('check_in')
+                      and acknowledgement.get('check_out') == merged.get('check_out'))
+        if changed or same_retry:
             state['quote_date_acknowledgement'] = {
-                'message_id': ingress['MESSAGE_ID'], 'check_in': plan['check_in'],
-                'check_out': plan['check_out']}
+                'message_id': ingress['MESSAGE_ID'], 'check_in': merged['check_in'],
+                'check_out': merged['check_out']}
         else:
             state.pop('quote_date_acknowledgement', None)
     return _transaction(record)
@@ -2771,6 +2793,7 @@ def finalize_offer_response(result):
                     and output_messages[-1].get('role') == 'assistant'):
                 output_messages[-1]['content'] = text
             return output
+        current_tools = []
         receipt = state.get('completion') or state.get('receipt')
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
@@ -2825,19 +2848,67 @@ def finalize_offer_response(result):
                 and isinstance(state.get('checked_offer'), dict)):
             completed_offer = state['checked_offer']
             if isinstance(completed_offer.get('room_arrangement'), list):
+                language = _guest_language(state)
                 room_lines = _guest_room_lines(_presentation_plan(state), completed_offer,
-                                               _guest_language(state))
+                                               language)
                 if room_lines:
                     reference = receipt.get('booking_code') or receipt.get('booking_id')
-                    heading = (f'Booking {reference} was created successfully.' if reference
-                               else 'Your booking was created successfully.')
-                    text = '\n'.join([heading, *room_lines])
-                    raw_booking_result = result.get('booking_result')
-                    booking_result = raw_booking_result if isinstance(raw_booking_result, dict) else {}
-                    link = (receipt.get('payment_link_url') or receipt.get('payment_url')
-                            or booking_result.get('secure_payment_url'))
-                    if isinstance(link, str) and link.strip():
-                        text += '\n' + link.strip()
+                    headings = {
+                        'en': (f'Booking {reference} was created successfully.' if reference else 'Your booking was created successfully.'),
+                        'es': (f'La reserva {reference} se ha creado correctamente.' if reference else 'Tu reserva se ha creado correctamente.'),
+                        'fr': (f'La réservation {reference} a bien été créée.' if reference else 'Votre réservation a bien été créée.'),
+                        'de': (f'Die Buchung {reference} wurde erfolgreich erstellt.' if reference else 'Deine Buchung wurde erfolgreich erstellt.'),
+                    }
+                    text = '\n'.join([headings.get(language, headings['en']), *room_lines])
+                    # The registered create completion is the owner-retained source.
+                    # A current separate payment tool may add newer canonical payment
+                    # truth, but arbitrary model text/top-level metadata never does.
+                    payment = receipt
+                    for tool_message in current_tools:
+                        try:
+                            candidate = json.loads(tool_message.get('content') or '{}')
+                        except (TypeError, ValueError):
+                            continue
+                        if (isinstance(candidate, dict)
+                                and candidate.get('tool') == 'create_payment_link'
+                                and candidate.get('success') is True
+                                and (not reference or candidate.get('booking_code') in (None, reference)
+                                     or candidate.get('booking_id') in (None, reference))):
+                            payment = candidate
+                    split = payment.get('guest_payment_links')
+                    if not isinstance(split, list):
+                        split = receipt.get('guest_payment_links')
+                    currency = payment.get('currency') or receipt.get('currency') or completed_offer.get('currency')
+                    payment_lines = []
+                    if isinstance(split, list) and split:
+                        labels = {'en': 'Pay', 'es': 'Paga', 'fr': 'Paiement', 'de': 'Zahlung'}
+                        for row in split:
+                            if not isinstance(row, dict):
+                                continue
+                            url = row.get('secure_payment_url')
+                            amount = row.get('amount_due_cents')
+                            name = row.get('guest_name')
+                            if isinstance(url, str) and url.strip():
+                                prefix = labels.get(language, labels['en'])
+                                who = f' {name}' if isinstance(name, str) and name.strip() else ''
+                                value = (f' {amount / 100:.2f} {row.get("currency") or currency}'
+                                         if type(amount) is int and (row.get('currency') or currency) else '')
+                                payment_lines.append(f'{prefix}{who}:{value}\n{url.strip()}')
+                    else:
+                        url = payment.get('secure_payment_url') or receipt.get('secure_payment_url')
+                        amount = payment.get('amount_due_cents')
+                        if type(amount) is not int:
+                            amount = receipt.get('amount_due_cents')
+                        if isinstance(url, str) and url.strip():
+                            labels = {
+                                'en': 'Amount due now', 'es': 'Importe a pagar ahora',
+                                'fr': 'Montant à régler maintenant', 'de': 'Jetzt fälliger Betrag'}
+                            value = (f'{amount / 100:.2f} {currency}'
+                                     if type(amount) is int and currency else None)
+                            payment_lines.append((f'{labels.get(language, labels["en"])}: {value}\n'
+                                                  if value else '') + url.strip())
+                    if payment_lines:
+                        text += '\n' + '\n'.join(payment_lines)
                     output = deepcopy(result)
                     output['final_response'] = text
                     output_messages = output.get('messages')

@@ -144,3 +144,14 @@ suites could not be matched to the repository runtime: no pinned overlay is pres
 available unrelated upstream checkout first lacked `ruamel.yaml`. Those are recorded as
 harness limitations, not product passes or waivers. No live service, DB, send, deploy, or guest
 operation was used.
+
+## Step 3 R3 review repairs — 2026-10-20
+
+Exact starting head `c8722884f906bbb14313fd6160a06c4aa2e4d84e` was repaired offline within the approved allowlist.
+
+- Captain's availability audit now proves unchanged accepted quote → standalone availability → one create dispatch; sparse rosters keep known names; changed dates still require fresh acceptance with zero dispatches; identical same-turn retries retain the date acknowledgement.
+- Captain's nine-case completion audit now retains canonical inline deposit/full, separate-payment and split-payment URLs plus selected amounts. EN/ES/FR/DE heading/payment copy follows owner language, and arbitrary model URLs/top-level metadata remain non-authoritative. Explicit SessionDB append/reopen retained final bytes in every case.
+- Registered Sim16 returned to **24/24 PASS** and Sim22 to **5/5 PASS**. Sim24 now executes all five derived cases through registered quote, acceptance, create, separate payment-link creation and final reply, with exactly one create dispatch each; **7/7 PASS**.
+- Structured-room plus eligibility/localized suites passed **33/33**. Owner/dispatch ran **112/113** from the staging subdirectory; the sole failure was the existing cwd-sensitive Node `require('./scripts/lib/...')` harness invocation and passed when rerun from repository root.
+
+No deploy, live DB, guest message, payment, or external send was performed.

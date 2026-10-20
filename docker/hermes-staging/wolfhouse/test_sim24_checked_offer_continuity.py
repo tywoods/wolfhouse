@@ -8,6 +8,10 @@ from pathlib import Path
 import unittest
 
 from wolfhouse import accepted_quote as owner
+from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
+    DeterministicRegisteredLoop, availability_receipt, checked_staff_quote,
+    create_recheck_receipt,
+)
 
 
 class Sim24CheckedOfferContinuityTests(unittest.TestCase):
@@ -73,6 +77,76 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "male preferred"}), "shared room")
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "female_only"}), "women's room")
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "male_only"}), "men's room")
+    def test_five_sim24_journeys_execute_registered_create_and_link(self):
+        cases = [
+            ("guest1", "es", "Lucía Fernández Ruiz", "deposit", "R1-B3"),
+            ("guest2", "fr", "Camille Martin", "full", "R3-B1"),
+            ("guest3", "de", "Jonas Becker", "deposit", "R2-B1"),
+            ("guest4", "en", "Emma Clarke", "full", "R5-B1"),
+            ("guest5", "en", "Raj Patel", "deposit", "R1-B2"),
+        ]
+        headings = {"es": "La reserva", "fr": "La réservation",
+                    "de": "Die Buchung", "en": "Booking"}
+        for label, language, name, payment_choice, bed_code in cases:
+            with self.subTest(case=label):
+                loop = DeterministicRegisteredLoop(self, "sim24-" + label)
+                try:
+                    beds = [{"bed_code": bed_code, "room_code": bed_code.split("-")[0],
+                             "room_type": "shared", "gender_strategy": "mixed",
+                             "selected_selling_mode": "bed"}]
+                    plan = {"check_in": "2026-11-10", "check_out": "2026-11-13",
+                            "guest_count": 1, "room_type": "shared",
+                            "room_preference": "mixed", "package_code": "package_none",
+                            "payment_choice": payment_choice, "guests": [{"name": name}],
+                            "guest_name": name, "selected_bed_codes": [bed_code],
+                            "language": language}
+                    quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
+                    loop.turn(label + "-quote", "show the checked price")
+                    self.assertTrue(loop.call("quote_booking", plan, {
+                        "/availability-check": availability_receipt(beds),
+                        "/booking-preview": quote})["success"])
+                    loop.present()
+                    loop.turn(label + "-accept", "yes, create this exact offer")
+                    consent = loop.call("interpret_booking_turn", {
+                        "action": "accept", "action_evidence": "yes, create this exact offer",
+                        "ambiguous": False, "negated": False, "conditional": False,
+                        "material_changes": [], "completions": {}}, {})
+                    self.assertTrue(consent["success"], consent)
+                    amount = 12000 if payment_choice == "full" else 10000
+                    url = "https://payments.invalid/" + label
+                    def receipts(route, body):
+                        if route == "/availability-check":
+                            return create_recheck_receipt(beds, body)
+                        if route == "/booking-preview":
+                            return quote
+                        if route == "/booking-create-from-plan":
+                            return {"success": True, "created": True, "write_performed": True,
+                                    "booking_id": "id-" + label, "booking_code": "WH-" + label,
+                                    "payment_id": "pay-" + label}
+                        if route == "/payments/pay-" + label + "/create-stripe-link":
+                            return {"success": True, "booking_id": "id-" + label,
+                                    "booking_code": "WH-" + label, "payment_id": "pay-" + label,
+                                    "guest_payment_url": url, "amount_due_cents": amount,
+                                    "currency": "EUR", "payment_status": "pending"}
+                        raise AssertionError((route, body))
+                    created = loop.call("create_booking_from_plan", {}, receipts)
+                    self.assertTrue(created["success"], created)
+                    payment = loop.call("create_payment_link", {"payment_id": "pay-" + label}, receipts)
+                    self.assertTrue(payment["success"], payment)
+                    messages = [{"role": "user", "content": "yes"},
+                                {"role": "tool", "name": "create_booking_from_plan",
+                                 "content": json.dumps({**created, "tool": "create_booking_from_plan"})},
+                                {"role": "tool", "name": "create_payment_link",
+                                 "content": json.dumps({**payment, "tool": "create_payment_link"})},
+                                {"role": "assistant", "content": "untrusted draft"}]
+                    final = owner.finalize_offer_response({"completed": True,
+                        "final_response": "untrusted draft", "messages": messages})
+                    self.assertIn(headings[language], final["final_response"])
+                    self.assertIn(url, final["final_response"])
+                    self.assertIn(f"{amount / 100:.2f} EUR", final["final_response"])
+                    self.assertEqual(len(loop.create_dispatches), 1)
+                finally:
+                    loop.close()
 
 
 if __name__ == "__main__":

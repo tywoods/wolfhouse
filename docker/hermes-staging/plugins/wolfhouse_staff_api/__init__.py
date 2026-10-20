@@ -652,9 +652,11 @@ def check_availability(params, **kwargs):
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
     try:
-        import sys
         from wolfhouse import accepted_quote as ledger
-        if ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules:
+        # Availability may also be used outside an initialized conversation
+        # (offline probes/retained registered fixtures).  Only write owner state
+        # when this invocation has an active owner turn.
+        if ledger._current.get() is not None:
             ledger.record_availability_context(payload)
     except (ImportError, RuntimeError):
         pass
