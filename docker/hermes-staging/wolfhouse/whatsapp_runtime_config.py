@@ -32,9 +32,10 @@ APP_ALIASES = ("WHATSAPP_CLOUD_APP_ID",)
 WABA_ALIASES = ("WHATSAPP_CLOUD_WABA_ID",)
 ID_RE = re.compile(r"^[0-9]{8,20}$")
 # Shared with scripts/lib/whatsapp-runtime-identity.js. Do not use \s:
-# Python and JavaScript disagree on U+FEFF and U+0085.
+# Python and JavaScript disagree on U+FEFF, U+0085, and U+001C-U+001F
+# (Python str.strip treats the file separators as whitespace; JavaScript trim does not).
 CREDENTIAL_REJECTED = re.compile(
-    r"[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+    r"[\t\n\v\f\r \u001c\u001d\u001e\u001f\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
 )
 
 

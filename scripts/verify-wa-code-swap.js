@@ -116,6 +116,35 @@ for (const [label, value] of [
     assert.equal(staffEnvRejected.META_APP_SECRET, 'stale-secret', `${key}:${label}:staff`);
   }
 }
+for (const point of [0x1c, 0x1d, 0x1e, 0x1f]) {
+  const control = String.fromCharCode(point);
+  for (const [position, value] of [
+    ['prefix', control + 'sentinel-access-token'],
+    ['infix', 'sentinel' + control + 'token'],
+    ['suffix', 'sentinel-access-token' + control],
+    ['only', control],
+  ]) {
+    for (const key of ['WA_ACCESS_TOKEN', 'WA_APP_SECRET']) {
+      const label = `U+${point.toString(16).padStart(4, '0')}:${position}:${key}`;
+      const lunaEnvRejected = synthetic({
+        [key]: value,
+        WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token',
+        WHATSAPP_CLOUD_APP_SECRET: 'stale-secret',
+      });
+      const lunaBefore = JSON.stringify(lunaEnvRejected);
+      assertClosed(() => identity.applyLunaProcessEnv(lunaEnvRejected), 'secret_missing');
+      assert.equal(JSON.stringify(lunaEnvRejected), lunaBefore, label + ':luna');
+      const staffEnvRejected = synthetic({
+        [key]: value,
+        WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token',
+        META_APP_SECRET: 'stale-secret',
+      });
+      const staffBefore = JSON.stringify(staffEnvRejected);
+      assertClosed(() => identity.applyStaffProcessEnv(staffEnvRejected), 'secret_missing');
+      assert.equal(JSON.stringify(staffEnvRejected), staffBefore, label + ':staff');
+    }
+  }
+}
 assert.equal(identity.applyLunaProcessEnv(synthetic({ WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token' })).applied, true);
 const lunaEnv = synthetic({ WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token', GUEST_PHONE: '+15550001111' });
 identity.applyLunaProcessEnv(lunaEnv);

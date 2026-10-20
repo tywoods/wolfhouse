@@ -37,6 +37,30 @@ CREATE TABLE IF NOT EXISTS crowsnest_comms.number_route_operations (
     OR (number_id <> '' AND phone_number_id <> '' AND number_e164 <> '')
   )
 );
+
+-- Forward upgrade for a table created by an earlier revision of this file.
+-- CREATE TABLE IF NOT EXISTS does not add columns. Existing rows stay all-null.
+-- Do not backfill an identity. A null tuple is not a wildcard.
+ALTER TABLE crowsnest_comms.number_route_operations
+  ADD COLUMN IF NOT EXISTS number_id text,
+  ADD COLUMN IF NOT EXISTS phone_number_id text,
+  ADD COLUMN IF NOT EXISTS number_e164 text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'number_route_identity_complete'
+      AND conrelid = 'crowsnest_comms.number_route_operations'::regclass
+  ) THEN
+    ALTER TABLE crowsnest_comms.number_route_operations
+      ADD CONSTRAINT number_route_identity_complete CHECK (
+        (number_id IS NULL AND phone_number_id IS NULL AND number_e164 IS NULL)
+        OR (number_id <> '' AND phone_number_id <> '' AND number_e164 <> '')
+      );
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS crowsnest_comms.number_route_events (
   event_id uuid PRIMARY KEY,
   operation_id uuid NOT NULL REFERENCES crowsnest_comms.number_route_operations(operation_id),

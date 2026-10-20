@@ -84,6 +84,29 @@ class RuntimeConfigTests(unittest.TestCase):
                 self.assertEqual(env["WHATSAPP_CLOUD_ACCESS_TOKEN"], "stale-token", f"{key}:{label}")
                 self.assertEqual(env["WHATSAPP_CLOUD_APP_SECRET"], "stale-secret", f"{key}:{label}")
 
+    def test_file_separator_controls_reject_without_mutation(self):
+        for point in (0x1C, 0x1D, 0x1E, 0x1F):
+            control = chr(point)
+            cases = (
+                ("prefix", control + "sentinel-access-token"),
+                ("infix", "sentinel" + control + "token"),
+                ("suffix", "sentinel-access-token" + control),
+                ("only", control),
+            )
+            for position, value in cases:
+                for key in ("WA_ACCESS_TOKEN", "WA_APP_SECRET"):
+                    env = synthetic(**{
+                        key: value,
+                        "WHATSAPP_CLOUD_ACCESS_TOKEN": "stale-token",
+                        "WHATSAPP_CLOUD_APP_SECRET": "stale-secret",
+                    })
+                    before = dict(env)
+                    with self.assertRaises(WhatsAppRuntimeConfigError) as rejected:
+                        apply_whatsapp_runtime_config(env)
+                    label = "U+%04X:%s:%s" % (point, position, key)
+                    self.assertEqual(rejected.exception.code, "secret_missing", label)
+                    self.assertEqual(env, before, label)
+
     def test_apply_does_not_open_a_socket(self):
         def blocked(*_args, **_kwargs):
             raise AssertionError("network_forbidden")

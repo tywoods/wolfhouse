@@ -181,7 +181,11 @@ the designated Azure admin principal:
    validates NOLOGIN owner/API roles and establishes explicit membership/admin options.
 2. Run canonical migration 103 with that admin/migration principal. It requires the
    roles, executes `SET LOCAL ROLE crowsnest_comms_owner`, creates objects directly under
-   that owner, and grants only API privileges.
+   that owner, and grants only API privileges. Re-running 103 upgrades an already-created
+   audit table: it adds `number_id`, `phone_number_id`, and `number_e164` plus the
+   all-null-or-all-present constraint, and does not rewrite historical rows. If 103 is
+   already recorded as applied and will not be executed again, run migration 113 instead.
+   Do not backfill an identity. A null tuple is not a wildcard.
 3. Create a distinct safe LOGIN using the platform process, then run
    `CROWSNEST_ADMIN_DSN=... CROWSNEST_RUNTIME_ROLE=... scripts/provision-crowsnest-comms-runtime-role.sh`.
    It validates LOGIN attributes, admin authority, API membership, and absence of direct
