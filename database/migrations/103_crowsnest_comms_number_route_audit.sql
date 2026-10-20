@@ -23,10 +23,19 @@ CREATE TABLE IF NOT EXISTS crowsnest_comms.number_route_operations (
   expected_revision text NOT NULL CHECK (expected_revision ~ '^[0-9a-fA-F]{64}$'),
   actor_account_id text NOT NULL CHECK (actor_account_id IN ('earthling','monshies')),
   actor_username text NOT NULL,
+  -- Selected confirmation tuple, written only on insert. All null means unselected.
+  -- Do not backfill or relabel existing rows; a missing tuple is not a wildcard.
+  number_id text,
+  phone_number_id text,
+  number_e164 text,
   state text NOT NULL CHECK (state IN ('requested','succeeded','rejected','indeterminate')),
   response jsonb,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-  updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT number_route_identity_complete CHECK (
+    (number_id IS NULL AND phone_number_id IS NULL AND number_e164 IS NULL)
+    OR (number_id <> '' AND phone_number_id <> '' AND number_e164 <> '')
+  )
 );
 CREATE TABLE IF NOT EXISTS crowsnest_comms.number_route_events (
   event_id uuid PRIMARY KEY,

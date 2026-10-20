@@ -43,11 +43,12 @@ function createAuditStore(dsn, poolFactory) {
       try {
         await client.query('BEGIN');
         await client.query('SET LOCAL ROLE crowsnest_api');
+        const identity = event.identity || { number_id: null, phone_number_id: null, number_e164: null };
         const inserted = await client.query(`INSERT INTO crowsnest_comms.number_route_operations
-          (operation_id,action,expected_revision,actor_account_id,actor_username,state)
-          VALUES ($1,$2,$3,$4,$5,'requested') ON CONFLICT (operation_id) DO NOTHING RETURNING operation_id`, [event.operation_id, event.action, event.expected_revision, event.actor.account_id, event.actor.username]);
-        const existing = inserted.rowCount ? null : (await client.query('SELECT action,expected_revision,actor_account_id,actor_username,state,response FROM crowsnest_comms.number_route_operations WHERE operation_id=$1', [event.operation_id])).rows[0];
-        if (existing && (existing.action !== event.action || existing.expected_revision !== event.expected_revision || existing.actor_account_id !== event.actor.account_id || existing.actor_username !== event.actor.username)) { await client.query('ROLLBACK'); return { conflict: true }; }
+          (operation_id,action,expected_revision,actor_account_id,actor_username,number_id,phone_number_id,number_e164,state)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'requested') ON CONFLICT (operation_id) DO NOTHING RETURNING operation_id`, [event.operation_id, event.action, event.expected_revision, event.actor.account_id, event.actor.username, identity.number_id, identity.phone_number_id, identity.number_e164]);
+        const existing = inserted.rowCount ? null : (await client.query('SELECT action,expected_revision,actor_account_id,actor_username,number_id,phone_number_id,number_e164,state,response FROM crowsnest_comms.number_route_operations WHERE operation_id=$1', [event.operation_id])).rows[0];
+        if (existing && (existing.action !== event.action || existing.expected_revision !== event.expected_revision || existing.actor_account_id !== event.actor.account_id || existing.actor_username !== event.actor.username || existing.number_id !== identity.number_id || existing.phone_number_id !== identity.phone_number_id || existing.number_e164 !== identity.number_e164)) { await client.query('ROLLBACK'); return { conflict: true }; }
         if (inserted.rowCount) await client.query(`INSERT INTO crowsnest_comms.number_route_events
           (event_id,operation_id,sequence_no,event_type,actor_account_id,actor_username,action,expected_revision,details)
           VALUES ($1,$2,1,'requested',$3,$4,$5,$6,'{}')`, [crypto.randomUUID(), event.operation_id, event.actor.account_id, event.actor.username, event.action, event.expected_revision]);
@@ -78,10 +79,17 @@ function identityConfirmationError(input, env = process.env) {
   const snapshot = waIdentity.publicSnapshot(env);
   if (!snapshot.active) return null;
   if (!snapshot.ok) return snapshot.code || 'identity_rejected';
-  if (!input || input.number_id !== snapshot.profileId) return 'stale_identity';
-  if (input.phone_number_id != null && input.phone_number_id !== '' && input.phone_number_id !== snapshot.phoneNumberId) return 'stale_identity';
-  if (input.number_e164 != null && input.number_e164 !== '' && input.number_e164 !== snapshot.numberE164) return 'stale_identity';
+  if (!input || input.number_id !== snapshot.profileId || input.phone_number_id !== snapshot.phoneNumberId || input.number_e164 !== snapshot.numberE164) return 'stale_identity';
   return null;
+}
+function confirmedIdentity(input, env = process.env) {
+  const snapshot = waIdentity.publicSnapshot(env);
+  if (!snapshot.active || !snapshot.ok) return { number_id: null, phone_number_id: null, number_e164: null };
+  return {
+    number_id: input.number_id,
+    phone_number_id: input.phone_number_id,
+    number_e164: input.number_e164,
+  };
 }
 function controllerIdentity(snapshot) {
   if (!snapshot || !snapshot.active || !snapshot.ok) return {};
@@ -104,7 +112,7 @@ async function mutate(action, input, actor, options = {}) {
   const identityError = identityConfirmationError(input, runtimeEnv);
   if (identityError) return { ok: false, status: 422, code: identityError };
   const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' };
-  const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); const base = { operation_id: operationId, actor, action, expected_revision: expected };
+  const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); const identity = confirmedIdentity(input, runtimeEnv); const base = { operation_id: operationId, actor, action, expected_revision: expected, identity };
   let begun; try { begun = await store.begin(base); } catch (_) { return { ok: false, status: 503, code: 'audit_unavailable' }; }
   if (begun.conflict) return { ok: false, status: 409, code: 'operation_id_conflict' };
   if (begun.response && ['succeeded', 'rejected'].includes(begun.state)) return begun.response;

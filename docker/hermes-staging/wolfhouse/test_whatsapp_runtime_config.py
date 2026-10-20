@@ -62,6 +62,27 @@ class RuntimeConfigTests(unittest.TestCase):
             with self.assertRaises(WhatsAppRuntimeConfigError) as whitespace:
                 apply_whatsapp_runtime_config(synthetic(WA_ACCESS_TOKEN=value))
             self.assertEqual(whitespace.exception.code, "secret_missing", label)
+        for label, value in (
+            ("bom-infix", "synthetic\ufeffvalue"),
+            ("bom-prefix", "\ufeffsentinel-access-token"),
+            ("bom-suffix", "sentinel-access-token\ufeff"),
+            ("next-line-infix", "synthetic\u0085value"),
+            ("next-line-prefix", "\u0085sentinel-access-token"),
+            ("next-line-suffix", "sentinel-access-token\u0085"),
+        ):
+            for key in ("WA_ACCESS_TOKEN", "WA_APP_SECRET"):
+                env = synthetic(
+                    **{
+                        key: value,
+                        "WHATSAPP_CLOUD_ACCESS_TOKEN": "stale-token",
+                        "WHATSAPP_CLOUD_APP_SECRET": "stale-secret",
+                    }
+                )
+                with self.assertRaises(WhatsAppRuntimeConfigError) as rejected:
+                    apply_whatsapp_runtime_config(env)
+                self.assertEqual(rejected.exception.code, "secret_missing", f"{key}:{label}")
+                self.assertEqual(env["WHATSAPP_CLOUD_ACCESS_TOKEN"], "stale-token", f"{key}:{label}")
+                self.assertEqual(env["WHATSAPP_CLOUD_APP_SECRET"], "stale-secret", f"{key}:{label}")
 
     def test_apply_does_not_open_a_socket(self):
         def blocked(*_args, **_kwargs):

@@ -88,6 +88,34 @@ assertClosed(() => identity.resolvePublicIdentity(synthetic({ WHATSAPP_CLOUD_APP
 assertClosed(() => identity.resolvePublicIdentity(synthetic({ WHATSAPP_CLOUD_WABA_ID: '2000000000000099' })), 'identity_alias_conflict');
 assertClosed(() => identity.resolveSecrets(synthetic({ WA_ACCESS_TOKEN: 'senti nel' })), 'secret_missing');
 assertClosed(() => identity.resolveSecrets(synthetic({ WA_ACCESS_TOKEN: '  sentinel-access-token' })), 'secret_missing');
+for (const [label, value] of [
+  ['bom-infix', 'sentinel\uFEFFtoken'],
+  ['bom-prefix', '\uFEFFsentinel-access-token'],
+  ['bom-suffix', 'sentinel-access-token\uFEFF'],
+  ['next-line-infix', 'sentinel\u0085token'],
+  ['next-line-prefix', '\u0085sentinel-access-token'],
+  ['next-line-suffix', 'sentinel-access-token\u0085'],
+]) {
+  for (const key of ['WA_ACCESS_TOKEN', 'WA_APP_SECRET']) {
+    assertClosed(() => identity.resolveSecrets(synthetic({ [key]: value })), 'secret_missing');
+    const lunaEnvRejected = synthetic({
+      [key]: value,
+      WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token',
+      WHATSAPP_CLOUD_APP_SECRET: 'stale-secret',
+    });
+    assertClosed(() => identity.applyLunaProcessEnv(lunaEnvRejected), 'secret_missing');
+    assert.equal(lunaEnvRejected.WHATSAPP_CLOUD_ACCESS_TOKEN, 'stale-token', `${key}:${label}:luna`);
+    assert.equal(lunaEnvRejected.WHATSAPP_CLOUD_APP_SECRET, 'stale-secret', `${key}:${label}:luna`);
+    const staffEnvRejected = synthetic({
+      [key]: value,
+      WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token',
+      META_APP_SECRET: 'stale-secret',
+    });
+    assertClosed(() => identity.applyStaffProcessEnv(staffEnvRejected), 'secret_missing');
+    assert.equal(staffEnvRejected.WHATSAPP_CLOUD_ACCESS_TOKEN, 'stale-token', `${key}:${label}:staff`);
+    assert.equal(staffEnvRejected.META_APP_SECRET, 'stale-secret', `${key}:${label}:staff`);
+  }
+}
 assert.equal(identity.applyLunaProcessEnv(synthetic({ WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token' })).applied, true);
 const lunaEnv = synthetic({ WHATSAPP_CLOUD_ACCESS_TOKEN: 'stale-token', GUEST_PHONE: '+15550001111' });
 identity.applyLunaProcessEnv(lunaEnv);
@@ -343,6 +371,30 @@ const retry = await routing.flipLunaNumberRoute({
 });
 assert.equal(retry.code, 'stale_identity');
 assert.equal(forwarded, 0);
+assert.equal(routing.identityConfirmationError({
+  number_id: identityA.WA_PHONE_NUMBER_ID,
+}, { ...routeEnv, ...identityA }), 'stale_identity');
+let sparseCalls = 0;
+const driftedE164 = '+15550000002';
+const sparseDrift = await routing.rollbackLunaNumberRoute({
+  operation_id: operationId,
+  expected_revision: 'a'.repeat(64),
+  number_id: identityA.WA_PHONE_NUMBER_ID,
+}, actor, {
+  env: {
+    ...routeEnv,
+    ...identityA,
+    LUNA_STAGING_WHATSAPP_NUMBER_E164: driftedE164,
+    LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: '+1-555-000-0002',
+  },
+  auditStore: {
+    begin: async () => ({ replay: true, response: { ok: true, idempotent: true }, state: 'succeeded' }),
+  },
+  transport: async () => { sparseCalls += 1; throw new Error('sparse retry must not call controller'); },
+});
+assert.equal(sparseDrift.code, 'stale_identity');
+assert.notEqual(sparseDrift.ok, true);
+assert.equal(sparseCalls, 0);
 let matchedBody = null;
 const matched = await routing.flipLunaNumberRoute({
   operation_id: '12345678-1234-4234-8234-123456789abd',

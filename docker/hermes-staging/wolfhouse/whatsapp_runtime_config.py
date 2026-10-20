@@ -31,7 +31,11 @@ PHONE_ALIASES = (
 APP_ALIASES = ("WHATSAPP_CLOUD_APP_ID",)
 WABA_ALIASES = ("WHATSAPP_CLOUD_WABA_ID",)
 ID_RE = re.compile(r"^[0-9]{8,20}$")
-WS_RE = re.compile(r"\s")
+# Shared with scripts/lib/whatsapp-runtime-identity.js. Do not use \s:
+# Python and JavaScript disagree on U+FEFF and U+0085.
+CREDENTIAL_REJECTED = re.compile(
+    r"[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+)
 
 
 class WhatsAppRuntimeConfigError(RuntimeError):
@@ -81,8 +85,8 @@ def resolve_secrets(env: dict | None = None) -> dict:
     if (
         not access_token.strip()
         or not app_secret.strip()
-        or WS_RE.search(access_token)
-        or WS_RE.search(app_secret)
+        or CREDENTIAL_REJECTED.search(access_token)
+        or CREDENTIAL_REJECTED.search(app_secret)
     ):
         raise WhatsAppRuntimeConfigError("secret_missing")
     return {"access_token": access_token.strip(), "app_secret": app_secret.strip()}

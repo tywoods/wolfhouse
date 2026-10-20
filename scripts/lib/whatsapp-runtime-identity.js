@@ -38,6 +38,9 @@ const WABA_ALIASES = Object.freeze([
 const NUMBER_E164_KEY = 'LUNA_STAGING_WHATSAPP_NUMBER_E164';
 const NUMBER_DISPLAY_KEY = 'LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY';
 const ID_RE = /^[0-9]{8,20}$/;
+// Shared with docker/hermes-staging/wolfhouse/whatsapp_runtime_config.py. Do not use \s:
+// Python and JavaScript disagree on U+FEFF and U+0085.
+const CREDENTIAL_REJECTED = /[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/;
 const E164_RE = /^\+[1-9][0-9]{7,14}$/;
 const UNAVAILABLE = 'Identity unavailable';
 const UNSELECTED_LEGACY = Object.freeze({
@@ -141,7 +144,7 @@ function resolvePublicIdentity(env = process.env) {
 function resolveSecrets(env = process.env) {
   const accessToken = raw(env, 'WA_ACCESS_TOKEN');
   const appSecret = raw(env, 'WA_APP_SECRET');
-  if (!accessToken.trim() || !appSecret.trim() || /\s/.test(accessToken) || /\s/.test(appSecret)) {
+  if (!accessToken.trim() || !appSecret.trim() || CREDENTIAL_REJECTED.test(accessToken) || CREDENTIAL_REJECTED.test(appSecret)) {
     throw fail('secret_missing');
   }
   return { accessToken: accessToken.trim(), appSecret: appSecret.trim() };
