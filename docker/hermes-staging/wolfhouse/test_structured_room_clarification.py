@@ -145,6 +145,11 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     loop.turn("corrected", raw)
                     result = loop.call("quote_booking", corrected,
                                        {"/availability-check": self._eligibility_receipt(corrected)})
+                    # A registered loop may re-quote the same corrected plan before
+                    # its first final response. That retry must not erase the
+                    # current-turn date acknowledgement.
+                    result = loop.call("quote_booking", corrected,
+                                       {"/availability-check": self._eligibility_receipt(corrected)})
                     reply = owner.finalize_offer_response({"completed": True,
                         "final_response": "model date acknowledgement must not be trusted",
                         "messages": [{"role": "user", "content": raw},
@@ -163,6 +168,35 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     self.assertFalse(loop.create_dispatches)
                 finally:
                     loop.close()
+
+    def test_persisted_blocked_state_prepends_current_turn_date_acknowledgement(self):
+        loop = DeterministicRegisteredLoop(self, "persisted-date-ack")
+        try:
+            corrected = {"check_in": "2026-11-04", "check_out": "2026-11-07",
+                         "guest_count": 1, "room_type": "shared",
+                         "room_preference": "female_only", "package_code": "package_none",
+                         "payment_choice": "full", "language": "en",
+                         "guests": [{"name": "Emma"}]}
+            raw = "Change the stay to 4–7 November."
+            loop.turn("corrected", raw)
+            result = loop.call("quote_booking", corrected,
+                               {"/availability-check": self._eligibility_receipt(corrected)})
+            owner._transaction(lambda state, ingress: state.update(
+                quote_date_acknowledgement={
+                    "message_id": ingress["MESSAGE_ID"],
+                    "check_in": corrected["check_in"],
+                    "check_out": corrected["check_out"],
+                }))
+            reply = owner.finalize_offer_response({"completed": True,
+                "final_response": "model draft",
+                "messages": [{"role": "user", "content": raw},
+                             {"role": "assistant", "content": "model draft"}]})
+            expected = ("Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n"
+                        "Is Emma eligible for the requested women-only room?")
+            self.assertEqual(reply["final_response"], expected)
+            self.assertEqual(reply["messages"][-1]["content"], expected)
+        finally:
+            loop.close()
 
     def test_french_singleton_eligibility_is_neutral_for_named_and_unnamed_guests(self):
         for room, name, expected in (
@@ -183,25 +217,39 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             {"label": "lucia", "dates": ("2026-11-09", "2026-11-12"),
              "names": ("Lucía Fernández Ruiz",), "beds": ("R3-B1",), "payment": "deposit",
              "total": 12000, "deposit": 10000, "weekly": 28000, "room": "flexible",
-             "preference": "mixed", "language": "es", "gender": "female"},
+             "preference": "mixed", "language": "es", "gender": "female",
+             "turns": ("¡Hola Luna! Soy Lucía, de Sevilla 🇪🇸 Busco 1 cama en el dormitorio mixto del lunes 9 al jueves 12 de noviembre de 2026 (3 noches). Soy mujer y viajo sola. ¿Cuánto cuesta?",
+                       "Perfecto. Me llamo Lucía Fernández Ruiz. Prefiero pagar el depósito. ¡Sí, resérvalo!")},
             {"label": "french-group", "dates": ("2026-11-06", "2026-11-08"),
              "names": ("Camille Martin", "Léa Dubois", "Hugo Bernard"),
              "beds": ("R1-B1", "R1-B2", "R1-B3"), "payment": "full",
              "total": 24000, "deposit": 24000, "weekly": 28000, "room": "flexible", "preference": "mixed",
-             "language": "fr"},
+             "language": "fr", "group_gender": "mixed",
+             "turns": ("Bonjour ! On est trois amis de Lyon (deux filles et un garçon) et on voudrait 3 lits en dortoir mixte du vendredi 6 au dimanche 8 novembre 2026. C'est combien pour nous trois ?",
+                       "Super ! Nos noms : Camille Martin, Léa Dubois et Hugo Bernard. On paie tout d'un coup, paiement complet s'il vous plaît. Oui, réservez !")},
             {"label": "becker", "dates": ("2026-11-23", "2026-11-26"),
              "names": ("Jonas Becker", "Felix Becker"),
              "beds": ("R4-B1", "R4-B2"), "payment": "deposit",
              "total": 24000, "deposit": 20000, "weekly": 28000, "room": "male preferred",
-             "preference": "male_only", "language": "de", "gender": "male"},
+             "preference": "male_only", "language": "de", "gender": "male",
+             "turns": ("Hallo Luna! Mein Bruder und ich (zwei Jungs aus München 😄) suchen 2 Betten im Männerschlafsaal, Montag 23. bis Donnerstag 26. November 2026. Was kostet das?",
+                       "Klingt gut. Jonas Becker und Felix Becker. Wir zahlen die Anzahlung. Ja, bitte buchen.",
+                       "die Anzahlung bitte")},
             {"label": "emma", "dates": ("2026-11-04", "2026-11-07"),
              "names": ("Emma Clarke",), "beds": ("R8-B4",), "payment": "full",
              "total": 12000, "deposit": 10000, "weekly": 28000, "room": "female preferred",
-             "preference": "female_only", "gender": "female"},
+             "preference": "female_only", "gender": "female",
+             "turns": ("Hi Luna, Emma from Manchester here. Do you have a girls-only dorm? I'd like 1 bed from Tue 3 Nov to Fri 6 Nov 2026. How much?",
+                       "Ugh, sorry, my train changed. Could we do Wed 4 Nov to Sat 7 Nov 2026 instead? Same thing, 1 bed in the women's dorm.",
+                       "Perfect, thanks! Emma Clarke, full payment please. Yes, book it.",
+                       "yes, I'm female, full payment please",
+                       "full payment please")},
             {"label": "raj", "dates": ("2026-11-06", "2026-11-08"),
              "names": ("Raj Patel",), "beds": ("R1-B4",), "payment": "full",
              "total": 8000, "deposit": 8000, "weekly": 28000, "room": "flexible",
-             "preference": "room 1", "gender": "male"},
+             "preference": "room 1", "gender": "male",
+             "turns": ("Hey! Raj Patel here, male, stayed with you last year. Could I get a bed in room 1 again if possible, Fri 6 Nov to Sun 8 Nov 2026? I'd pay the deposit. What would it come to?",
+                       "Cool, that works. Yes, book it please.")},
         )
         for case in cases:
             with self.subTest(case=case["label"]):
@@ -231,7 +279,45 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         plan["group_gender"] = case.get("group_gender") or case["gender"]
                     raw_quote = checked_staff_quote(
                         plan, beds, total=case["total"], deposit=case["deposit"])
-                    loop.turn(f"{case['label']}-quote", "Quote this exact captured stay")
+                    turns = case["turns"]
+                    loop.turn(f"{case['label']}-initial", turns[0])
+                    if case["label"] == "becker":
+                        initial = {"check_in": case["dates"][0],
+                                   "check_out": case["dates"][1], "guest_count": 2,
+                                   "room_type": "shared", "room_preference": "male_only",
+                                   "group_gender": "male"}
+                        blocked = loop.call("quote_booking", initial, {
+                            "/package-price-preview": {"success": False,
+                                "package_eligible": None, "packages": {},
+                                "next_action": "package_eligibility_unavailable"}})
+                        self.assertEqual(blocked["quote_status"], "needs_guest_clarification")
+                        self.assertEqual(blocked["next_action"], "package_eligibility_unavailable")
+                        loop.turn(f"{case['label']}-details", turns[1])
+                    elif case["label"] == "emma":
+                        initial = {**plan, "check_in": "2026-11-03",
+                                   "check_out": "2026-11-06", "guests": [{"name": "Emma"}],
+                                   "guest_name": "Emma"}
+                        initial.pop("selected_bed_codes", None)
+                        initial.pop("group_gender", None)
+                        for index, (raw, staged) in enumerate((
+                            (turns[0], initial),
+                            (turns[1], {**initial, "check_in": "2026-11-04",
+                                        "check_out": "2026-11-07"}),
+                            (turns[2], {**initial, "check_in": "2026-11-04",
+                                        "check_out": "2026-11-07",
+                                        "guests": [{"name": "Emma Clarke"}],
+                                        "guest_name": "Emma Clarke"}),
+                        )):
+                            if index:
+                                loop.turn(f"{case['label']}-blocked-{index}", raw)
+                            blocked = loop.call("quote_booking", staged, {
+                                "/availability-check": self._eligibility_receipt(staged)})
+                            self.assertEqual(blocked["availability_status"], "eligibility_required")
+                        loop.turn(f"{case['label']}-eligibility", turns[3])
+                    else:
+                        for index, raw in enumerate(turns[1:-1], start=1):
+                            loop.turn(f"{case['label']}-continuation-{index}", raw)
+
                     quoted = loop.call("quote_booking", plan, {
                         "/availability-check": availability_receipt(beds),
                         "/booking-preview": raw_quote})
@@ -242,7 +328,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     if case["payment"] == "deposit":
                         self.assertIn(f"{case['deposit'] / 100:.2f} EUR", rendered)
 
-                    acceptance = "Yes, create that exact displayed offer."
+                    acceptance = turns[-1]
                     loop.turn(f"{case['label']}-accept", acceptance)
                     interpreted = loop.call("interpret_booking_turn", {
                         "action": "accept", "action_evidence": acceptance,
@@ -270,6 +356,8 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
 
                     created = loop.call("create_booking_from_plan", {}, responses)
                     self.assertTrue(created["success"], created)
+                    self.assertEqual([event["text"] for event in loop.trace
+                                      if event["kind"] == "raw_user"], list(turns))
                     self.assertEqual(len(loop.create_dispatches), 1, loop.trace)
                     sent = loop.create_dispatches[0]
                     self.assertEqual((sent["check_in"], sent["check_out"]), case["dates"])

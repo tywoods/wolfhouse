@@ -111,8 +111,11 @@ retaining the same eligibility question and women-only room fact.
 
 The occupants verifier exports an opaque, process-local fixture capability; no CLI flag or
 environment variable enables it. It is bound to the exact registered create body and changes only
-the isolated PGlite room/pricing rows. Each of the five retained Sim23 inputs now preserves its
-captured dates, full names, language, explicit person facts, bed/room facts, and commercial terms.
+the isolated PGlite room/pricing rows. The five retained Sim23 cases preserve the captured
+final dates, full names, language, explicit person facts, bed/room facts, and commercial terms;
+the registered traces also load all 14 retained guest texts in order. Becker's package-preview
+block and Emma's eligibility/date-correction blocks are deterministic synthetic continuations of
+the captured chronology, not claims about historical Staff response bodies or backend causes.
 The registered `/booking-create-from-plan` dispatch executes the isolated SQL operation and returns
 that real result through owner completion before assertions cover the persisted booking, occupants,
 payment, and final reply. Missing historical backend receipts remain explicitly synthetic; the test

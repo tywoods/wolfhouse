@@ -2171,7 +2171,15 @@ def record_quote(params, response):
                 'check_out': plan['check_out'],
             }
         else:
-            state.pop('quote_date_acknowledgement', None)
+            acknowledgement = state.get('quote_date_acknowledgement')
+            same_current_dates = (
+                isinstance(acknowledgement, dict)
+                and acknowledgement.get('message_id') == ingress['MESSAGE_ID']
+                and acknowledgement.get('check_in') == plan.get('check_in')
+                and acknowledgement.get('check_out') == plan.get('check_out')
+            )
+            if not same_current_dates:
+                state.pop('quote_date_acknowledgement', None)
         state.update(plan=plan, completion_plan=completion_plan,
                      quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
@@ -2689,7 +2697,8 @@ def finalize_offer_response(result):
             # Package selection, room eligibility, and inventory are distinct
             # typed outcomes. A nested package-preview failure must never fall
             # through to the eligible-bed refusal copy.
-            text = _blocked_clarification_copy(unresolved, plan, language)
+            text = _prepend_revision_acknowledgement(
+                state, _blocked_clarification_copy(unresolved, plan, language), language)
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')
