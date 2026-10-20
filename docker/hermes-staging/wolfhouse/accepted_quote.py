@@ -545,7 +545,18 @@ def _guest_room_lines(plan, offer, language='en'):
             fallback_name = (plan_guests[guest_index].get('name')
                              if type(guest_index) is int and 0 <= guest_index < len(plan_guests)
                              and isinstance(plan_guests[guest_index], dict) else '')
-            guests.append({'name': assignment.get('guest_name') or fallback_name or ''})
+            authoritative_name = assignment.get('guest_name') or ''
+            # The checked offer binds the person to the bed by guest_index. Use
+            # the guest's spelling only while that same slot still identifies
+            # the authoritative person; stale rosters cannot relabel a bed.
+            normalized_fallback = unicodedata.normalize(
+                'NFC', ' '.join(str(fallback_name or '').split())).casefold()
+            normalized_authoritative = unicodedata.normalize(
+                'NFC', ' '.join(str(authoritative_name).split())).casefold()
+            display_name = (fallback_name if normalized_fallback
+                            and normalized_fallback == normalized_authoritative
+                            else authoritative_name)
+            guests.append({'name': display_name})
             selected_bed_codes.append(assignment['bed_code'])
     else:
         guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
@@ -601,8 +612,8 @@ def _guest_room_lines(plan, offer, language='en'):
             prefix = f'{who}: ' if who else ''
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{prefix}una cama en la {kind}.', 'fr': f'{prefix}un lit dans la {kind}.',
-                            'de': f'{prefix}ein Bett im {kind}.'}[language]
+                    line = {'es': f'{prefix}una cama en una {kind}.', 'fr': f'{prefix}un lit dans une {kind}.',
+                            'de': f'{prefix}ein Bett in einem {kind}.'}[language]
                 else:
                     line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
                             'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
@@ -614,7 +625,7 @@ def _guest_room_lines(plan, offer, language='en'):
                 first = False
                 continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{prefix}a bed in the {kind}{room_suffix}.")
+                lines.append(f"{prefix}one bed in a {kind}{room_suffix}.")
             elif len(same) == 1:
                 lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:
@@ -652,6 +663,40 @@ def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
 
 
+def _blocked_clarification_copy(result, plan, language):
+    """Render typed offerless outcomes without conflating package, room or stock."""
+    result = result if isinstance(result, dict) else {}
+    known_unavailable = (result.get('unavailable') is True
+                         or result.get('availability_status') == 'unavailable')
+    if known_unavailable:
+        return _final_copy(language, 'refusal')
+    if result.get('package_choice_needed') is True:
+        if (result.get('next_action') == 'offer_accommodation_or_change_dates'
+                and result.get('package_eligible') is False):
+            return {
+                'en': 'This stay is not eligible for the requested package. Would you like an accommodation-only quote, or would you like to change the dates?',
+                'es': 'Esta estancia no cumple los requisitos del paquete solicitado. ¿Quieres un presupuesto de solo alojamiento o prefieres cambiar las fechas?',
+                'fr': 'Ce séjour n’est pas éligible au forfait demandé. Souhaitez-vous un devis d’hébergement seul ou modifier les dates ?',
+                'de': 'Dieser Aufenthalt ist für das gewünschte Paket nicht berechtigt. Möchten Sie ein Angebot nur für die Unterkunft oder die Reisedaten ändern?',
+            }[language]
+        if result.get('next_action') == 'package_eligibility_unavailable':
+            return {
+                'en': "I couldn't retrieve the package options just now. Would you like an accommodation-only quote instead?",
+                'es': 'No pude obtener ahora las opciones de paquete. ¿Quieres un presupuesto de solo alojamiento?',
+                'fr': "Je n’ai pas pu obtenir les options de forfait pour le moment. Souhaitez-vous un devis d’hébergement seul ?",
+                'de': 'Ich konnte die Paketoptionen gerade nicht abrufen. Möchten Sie stattdessen ein Angebot nur für die Unterkunft?',
+            }[language]
+        return {
+            'en': 'Which package would you like for this stay?',
+            'es': '¿Qué paquete quieres para esta estancia?',
+            'fr': 'Quel forfait souhaitez-vous pour ce séjour ?',
+            'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
+        }[language]
+    eligibility = result.get('room_eligibility') or result.get('room_decision')
+    text = _structured_eligibility_copy(eligibility, plan, language)
+    return text or _final_copy(language, 'refusal')
+
+
 def _structured_eligibility_copy(eligibility, plan, language):
     """Render Staff's structured room decision without classifying Staff prose."""
     if not isinstance(eligibility, dict):
@@ -672,7 +717,9 @@ def _structured_eligibility_copy(eligibility, plan, language):
             return None
         guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
         names.append(str(guest.get('name') or '').strip())
-    all_party = bool(guests) and indices == list(range(len(guests)))
+    # A one-person party is still one person: address the affected slot rather
+    # than presenting the grammatically plural "all guests" question.
+    all_party = len(guests) > 1 and indices == list(range(len(guests)))
     partial_group = not all_party and len(indices) > 1
     partial_numbers = ''
     if all_party:
@@ -707,7 +754,7 @@ def _structured_eligibility_copy(eligibility, plan, language):
         return {
             'en': f'Is {subject} eligible for the requested {room_label}?',
             'es': f'¿Puede {subject} alojarse en la {room_label}?',
-            'fr': f'{subject} peut-elle séjourner dans la {room_label} ?',
+            'fr': f'Est-ce que {subject} peut séjourner dans la {room_label} ?',
             'de': f'Kann {subject} im {room_label} übernachten?',
         }[language]
     if all_party:
@@ -737,6 +784,29 @@ def _structured_eligibility_copy(eligibility, plan, language):
         'fr': f'La {room_label} n’est pas compatible avec {details}. Voulez-vous voir d’autres options de chambre ?',
         'de': f"Das {'gewünschte Frauenzimmer' if female else 'gewünschte Männerzimmer'} ist mit {details} nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
     }[language]
+
+
+def _prepend_revision_acknowledgement(state, text, language):
+    """Acknowledge a same-turn date correction before the one needed question."""
+    changes = state.get('authorized_revision_changes') if isinstance(state, dict) else None
+    values = {row.get('field'): row.get('value') for row in changes or []
+              if isinstance(row, dict)}
+    if not values.get('check_in') or not values.get('check_out'):
+        acknowledgement = state.get('quote_date_acknowledgement') if isinstance(state, dict) else None
+        current = state.get('current_turn') if isinstance(state, dict) else None
+        if (not isinstance(acknowledgement, dict) or not isinstance(current, dict)
+                or acknowledgement.get('message_id') != current.get('message_id')):
+            return text
+        values = acknowledgement
+    start = _plain_stay_date(values['check_in'], language)
+    end = _plain_stay_date(values['check_out'], language)
+    acknowledgements = {
+        'en': f'Thanks — I’ve updated the stay to {start} to {end}.',
+        'es': f'Gracias — he actualizado la estancia del {start} al {end}.',
+        'fr': f'Merci — j’ai mis à jour le séjour du {start} au {end}.',
+        'de': f'Danke — ich habe den Aufenthalt auf {start} bis {end} aktualisiert.',
+    }
+    return acknowledgements.get(language, acknowledgements['en']) + '\n' + text
 
 
 def _evidence_in_current_turn(raw, evidence):
@@ -1927,6 +1997,7 @@ def record_quote(params, response):
             if response.get('full_payment_only') is True:
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
+        previous_plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
         provisional = _incomplete_payment_revision(response, ingress['tenant'], prepared)
@@ -2088,6 +2159,27 @@ def record_quote(params, response):
             and response.get('quote_status') == 'needs_guest_clarification'
             and response.get('offer_revision') is None
         )
+        dates_changed = (all(isinstance(previous_plan.get(field), str) and previous_plan[field]
+                             for field in ('check_in', 'check_out'))
+                         and any(previous_plan.get(field) != plan.get(field)
+                                 for field in ('check_in', 'check_out')))
+        if (dates_changed and all(isinstance(plan.get(field), str) and plan[field]
+                                  for field in ('check_in', 'check_out'))):
+            state['quote_date_acknowledgement'] = {
+                'message_id': ingress['MESSAGE_ID'],
+                'check_in': plan['check_in'],
+                'check_out': plan['check_out'],
+            }
+        else:
+            acknowledgement = state.get('quote_date_acknowledgement')
+            same_current_dates = (
+                isinstance(acknowledgement, dict)
+                and acknowledgement.get('message_id') == ingress['MESSAGE_ID']
+                and acknowledgement.get('check_in') == plan.get('check_in')
+                and acknowledgement.get('check_out') == plan.get('check_out')
+            )
+            if not same_current_dates:
+                state.pop('quote_date_acknowledgement', None)
         state.update(plan=plan, completion_plan=completion_plan,
                      quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])
@@ -2577,7 +2669,8 @@ def finalize_offer_response(result):
                         and tool_result.get('next_action') == 'ask_room_eligibility'
                         and (structured_text or legacy_draft)):
                     output = deepcopy(result)
-                    text = structured_text or legacy_draft
+                    text = _prepend_revision_acknowledgement(
+                        state, structured_text or legacy_draft, _guest_language(state))
                     output['final_response'] = text
                     output_messages = output.get('messages')
                     if (output_messages and isinstance(output_messages[-1], dict)
@@ -2600,23 +2693,12 @@ def finalize_offer_response(result):
         )
         if unresolved_presentable:
             language = _guest_language(state)
-            structured_eligibility = (unresolved.get('room_eligibility')
-                                      or unresolved.get('room_decision'))
-            valid_eligibility_question = (
-                isinstance(structured_eligibility, dict)
-                and structured_eligibility.get('status') in ('unsure', 'no')
-                and (structured_eligibility.get('status') == 'no'
-                     or structured_eligibility.get('question_kind') == 'confirm_room_eligibility'))
-            # Known inventory unavailability wins over room eligibility: there
-            # is no useful eligibility question to ask when Staff found no bed.
-            known_unavailable = (unresolved.get('unavailable') is True
-                                 or unresolved.get('availability_status') == 'unavailable')
-            # Structured Staff meaning selects the localized question. Never
-            # classify arbitrary Staff wording to infer eligibility.
             plan = _presentation_plan(state)
-            text = (_structured_eligibility_copy(structured_eligibility, plan, language)
-                    if valid_eligibility_question and not known_unavailable else None)
-            text = text or _final_copy(language, 'refusal')
+            # Package selection, room eligibility, and inventory are distinct
+            # typed outcomes. A nested package-preview failure must never fall
+            # through to the eligible-bed refusal copy.
+            text = _prepend_revision_acknowledgement(
+                state, _blocked_clarification_copy(unresolved, plan, language), language)
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')

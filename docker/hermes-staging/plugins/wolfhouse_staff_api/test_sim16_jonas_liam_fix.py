@@ -237,7 +237,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.turn("g3-quote", "Zwei Betten im Männerschlafsaal. Was kostet das?")
         self.loop.call("check_availability", {
             "client_slug": None, "check_in": "2026-11-11", "check_out": "2026-11-14",
-            "guest_count": 2, "room_type": "shared", "room_preference": "male_dorm",
+            "guest_count": 2, "room_type": "shared", "room_preference": "male dorm",
         }, {"/availability-check": availability})
         self.loop.call("check_availability", offered, {"/availability-check": availability})
         self.loop.call("quote_booking", first_quote, {"/booking-preview": first})
@@ -753,7 +753,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                    "The requested women-only room is not compatible with Bea's guest details. Would you like to see other room options?"),
             "es": ("¿Puede Bea alojarse en la habitación solicitada solo para mujeres?",
                    "La habitación solicitada solo para mujeres no es compatible con los datos de Bea. ¿Quieres ver otras opciones de habitación?"),
-            "fr": ("Bea peut-elle séjourner dans la chambre demandée réservée aux femmes ?",
+            "fr": ("Est-ce que Bea peut séjourner dans la chambre demandée réservée aux femmes ?",
                    "La chambre demandée réservée aux femmes n’est pas compatible avec les informations de Bea. Voulez-vous voir d’autres options de chambre ?"),
             "de": ("Kann Bea im gewünschten Frauenzimmer übernachten?",
                    "Das gewünschte Frauenzimmer ist mit den Angaben zu Bea nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?"),
