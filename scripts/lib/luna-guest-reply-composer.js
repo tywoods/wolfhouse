@@ -1190,7 +1190,7 @@ function buildReplyForState(state, ctx) {
       msg += '. I\'ll send your full confirmation next.';
       return msg;
     },
-    confirmation_sent: 'Perfect — your Wolfhouse booking is confirmed 😊 I\'ve sent the details with the address, gate code, and room info.',
+    confirmation_sent: 'Your booking is confirmed 🌊 I have sent the details with the address, gate code, and room info.',
     clarify: 'Could you share your check-in and check-out dates, and how many guests?',
     contextual_when: 'Once you choose deposit or full payment, I\'ll line up the next step for your stay.',
     handoff: 'Thanks for your patience — I\'m looping in our team so they can help with the next step.',

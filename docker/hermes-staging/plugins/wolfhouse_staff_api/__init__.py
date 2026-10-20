@@ -995,7 +995,12 @@ def get_surf_report(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     day = str(payload.get("day") or "today").strip().lower()
-    payload["day"] = "tomorrow" if day == "tomorrow" else "today"
+    if day == "tomorrow":
+        payload["day"] = "tomorrow"
+    elif day == "week":
+        payload["day"] = "week"
+    else:
+        payload["day"] = "today"
     data = _post_bot("/surf-report", payload)
     reply = _clean(data.get("reply"))
     return _json_result({
