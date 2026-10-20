@@ -67,3 +67,58 @@ first-yes owner/persistence **68/68**, eligibility/localized **19/19**, decision
 * Automatic create without a model-issued registered create: **obsolete expectation** where encountered in the historical audit; no blanket skip was added. Registered model-issued create remains the replacement contract.
 * Emma historical unanswered eligibility: **supported no-booking outcome**, not rewritten as success. Structured continuations are separate controls.
 * Missing G1/G2 full Sim22 receipts and blocked local Python baseline: **missing evidence**.
+
+## Step 2 execution — 2026-10-19
+
+Pinned base was `f76c34f06c9395ad610625283b26959597523d25`, tree `f48a0fbe65bc7cac9914c694da300971c121663b`; the worktree was clean. Brief SHA-256 was `276ce42305d0f733627fc12059405b906a0e2a745f694d7890fdfc4b416e853c`.
+
+Baseline dependency-free eligibility/localizer tests passed **19/19**. The larger baseline first-yes run initially retained the established environment classification: missing worktree Node dependencies produced **14 failures + 15 errors**, while owner tests also exposed one cwd-sensitive subprocess path when run below repository root. These were harness/dependency failures, not product failures; `npm ci --ignore-scripts` installed the lockfile dependencies without tracked changes, and candidate commands were run from repository root.
+
+Focused RED witnesses on the unmodified product produced **5 failures + 4 errors** across singular one-person copy, package-failure domain copy, and validated display spelling. The bounded single-room-copy witness separately failed with old `Alex: a bed in the mixed room.` copy. The exact focused candidate entrypoint then passed **7/7**.
+
+Candidate results:
+
+| Gate | Result |
+|---|---|
+| `python -m unittest wolfhouse.test_structured_room_clarification -v` | 7/7 PASS |
+| focused structured + localized + room policy | 26/26 PASS |
+| complete Sim16 registered boundary | 24/24 PASS |
+| offer identity | 42/42 PASS |
+| real PGlite occupants/create/SQL | PASS |
+| eligibility producer + exact-bed + mixed-room + allocator | PASS; mixed 69/69, allocator 63/63 |
+| Sim13–21 decision replay | 5/5 PASS; 31 replayed, 25 explicitly unavailable, zero mismatches |
+| Hermes send flags | 53/53 PASS |
+| owner + focused order/composition regression | 118/118 PASS after isolating the plugin boundary witness from intentional module reloads in earlier owner tests |
+
+The historical G3 full package-preview response remains unavailable. The package-failure test is explicitly synthetic and does not claim the historical cause. The registered Becker/SQL control preserves the two-stage captured argument shape (`male dorm`, no roster/group; then `male_only`, `group_gender=male`). The focused entrypoint now passes **9/9**, adding genuine package-policy ineligibility copy and immutable assertions for all five positive Sim23 scenario amounts/outcomes; the existing registered controls remain the executable continuation/stock/eligibility/SQL evidence. Retained matching probe 4019 room-mode/rank/occupancy data was not available, so Lucía remains audit-only; allocator sources and policy were unchanged.
+
+### R3 review corrections
+
+The Sim23 French fixture now carries the supplied historical facts independently of the
+request under test: 6–8 November 2026, Camille Martin / Léa Dubois / Hugo Bernard,
+flexible R1-B1/R1-B2/R1-B3 with no invented per-person genders, package none, French,
+and one chosen full €240 payment line (not a derived full-payment-only policy). Enabled
+fixture-capability controls mutate price, deposit, and room strategy and must reject with
+zero booking writes. Emma retains 4–7 November, R8-B4 with `female preferred`, €100
+required deposit, and the chosen €120 full payment.
+
+The localized helper's stale French expectation changed only from
+`Bea peut-elle séjourner…` to neutral named wording `Est-ce que Bea peut séjourner…`.
+This prevents grammatical gender from being inferred from a guest name or room while
+retaining the same eligibility question and women-only room fact.
+
+### Sim23 test-only PGlite seam follow-up
+
+The occupants verifier exports an opaque, process-local fixture capability; no CLI flag or
+environment variable enables it. It is bound to the exact registered create body and changes only
+the isolated PGlite room/pricing rows. The five retained Sim23 cases preserve the captured
+final dates, full names, language, explicit person facts, bed/room facts, and commercial terms;
+the registered traces also load all 14 retained guest texts in order. Becker's package-preview
+block and Emma's eligibility/date-correction blocks are deterministic synthetic continuations of
+the captured chronology, not claims about historical Staff response bodies or backend causes.
+The registered `/booking-create-from-plan` dispatch executes the isolated SQL operation and returns
+that real result through owner completion before assertions cover the persisted booking, occupants,
+payment, and final reply. Missing historical backend receipts remain explicitly synthetic; the test
+does not invent a historical failure cause. Generic alternative-input failure controls are separately
+labelled and reject with zero booking writes. Committed inventory, tariffs, offer identity, and
+production validators are unchanged.

@@ -642,7 +642,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
         self.assertNotIn('1 guests', text)
         self.assertNotIn('2026-10-19', text)
-        self.assertIn('alex: a bed in the mixed room.', text.lower())
+        self.assertIn('alex: one bed in a mixed room.', text.lower())
         self.assertNotIn('DORM-12', text)
         self.assertNotIn('ROOM-9', text)
         self.assertTrue(text.endswith('Shall I create this booking?'))

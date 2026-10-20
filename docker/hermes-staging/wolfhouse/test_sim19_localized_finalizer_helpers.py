@@ -186,7 +186,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
         expected = {
             "en": "Is Bea eligible for the requested women-only room?",
             "es": "¿Puede Bea alojarse en la habitación solicitada solo para mujeres?",
-            "fr": "Bea peut-elle séjourner dans la chambre demandée réservée aux femmes ?",
+            "fr": "Est-ce que Bea peut séjourner dans la chambre demandée réservée aux femmes ?",
             "de": "Kann Bea im gewünschten Frauenzimmer übernachten?",
         }
         for language, phrase in expected.items():
