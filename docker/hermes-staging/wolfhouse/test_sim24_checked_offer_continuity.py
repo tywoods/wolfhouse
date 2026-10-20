@@ -241,17 +241,25 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         plan["group_gender"] = meta["gender"]
                     quote = checked_staff_quote(plan, beds, total=facts["total_cents"],
                                                 deposit=meta["deposit"])
+                    shown = ""
 
                     turn(0)
                     if label == "guest1":
                         initial = {**plan, "guests": meta["first_guests"],
                                    "guest_name": "Lucía"}
                         initial.pop("payment_choice")
-                        loop.call("quote_booking", initial, {
+                        initial_quote = checked_staff_quote(
+                            initial, beds, total=facts["total_cents"],
+                            deposit=meta["deposit"])
+                        first = loop.call("quote_booking", initial, {
                             "/availability-check": availability_receipt(beds),
-                            "/booking-preview": checked_staff_quote(
-                                initial, beds, total=facts["total_cents"],
-                                deposit=meta["deposit"])})
+                            "/booking-preview": initial_quote})
+                        self.assertTrue(first["success"], first)
+                        shown = loop.present()
+                        self.assertIn("120.00 EUR", shown)
+                        self.assertIn("100.00 EUR", shown)
+                        self.assertIn("depósito", shown.lower())
+                        self.assertIn("pago completo", shown.lower())
                         turn(1)
                     elif label == "guest2":
                         initial = {key: plan[key] for key in
@@ -299,12 +307,11 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         shown = loop.present()
                         turn(1)
 
-                    if label != "guest5":
+                    if label not in ("guest1", "guest5"):
                         quoted = loop.call("quote_booking", plan, {
                             "/availability-check": availability_receipt(beds),
                             "/booking-preview": quote})
                         self.assertTrue(quoted["success"], quoted)
-                    if label != "guest5":
                         shown = loop.present()
                     self.assertIn(f"{facts['total_cents'] / 100:.2f} EUR", shown)
                     self.assertEqual(quote["deposit_required_cents"], meta["deposit"])
@@ -315,11 +322,30 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         turn(2)
 
                     acceptance = meta["turns"][-1]
+                    completions = {}
+                    if label == "guest1":
+                        completions = {
+                            "guests": [{"guest_index": 0,
+                                        "name": "Lucía Fernández Ruiz",
+                                        "evidence": "Lucía Fernández Ruiz"}],
+                            "payment_choice": {"value": "deposit",
+                                               "evidence": "depósito"},
+                        }
                     interpreted = loop.call("interpret_booking_turn", {
                         "action": "accept", "action_evidence": acceptance,
                         "ambiguous": False, "negated": False, "conditional": False,
-                        "material_changes": [], "completions": {}}, {})
+                        "material_changes": [], "completions": completions}, {})
                     self.assertTrue(interpreted["success"], interpreted)
+                    if label == "guest1":
+                        completed = loop.call("quote_booking", plan, {
+                            "/availability-check": availability_receipt(beds),
+                            "/booking-preview": quote})
+                        self.assertTrue(completed["success"], completed)
+                        self.assertEqual(
+                            [entry["text"] for entry in loop.trace
+                             if entry["kind"] == "rendered_reply"],
+                            [shown],
+                            "completion/revalidation must not render a second offer")
 
                     scenario = {"weekly_cents": 28000,
                                 "deposit_per_guest_cents": meta["deposit"] // facts["party"],
