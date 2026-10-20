@@ -78,41 +78,62 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "female_only"}), "women's room")
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "male_only"}), "men's room")
     def test_five_sim24_journeys_execute_registered_create_and_link(self):
-        cases = [
-            ("guest1", "es", "Lucía Fernández Ruiz", "deposit", "R1-B3"),
-            ("guest2", "fr", "Camille Martin", "full", "R3-B1"),
-            ("guest3", "de", "Jonas Becker", "deposit", "R2-B1"),
-            ("guest4", "en", "Emma Clarke", "full", "R5-B1"),
-            ("guest5", "en", "Raj Patel", "deposit", "R1-B2"),
-        ]
+        fixture = json.loads((Path(__file__).parents[3] /
+            "fixtures/booking-cleanup-step3/sim24-cases.json").read_text())
+        case_meta = {
+            "guest1": {"language": "es", "beds": ["R1-B3"], "room_preference": "mixed"},
+            "guest2": {"language": "fr", "beds": ["R3-B1", "R3-B2", "R3-B3"], "room_preference": "mixed"},
+            "guest3": {"language": "de", "beds": ["R2-B1", "R2-B2"], "room_preference": "male_only"},
+            "guest4": {"language": "en", "beds": ["R5-B1"], "room_preference": "female_only"},
+            "guest5": {"language": "en", "beds": ["R1-B2"], "room_preference": "room 1"},
+        }
         headings = {"es": "La reserva", "fr": "La réservation",
                     "de": "Die Buchung", "en": "Booking"}
-        for label, language, name, payment_choice, bed_code in cases:
+        for source in fixture["sources"]:
+            label = source["case"]
+            facts = source["facts"]
+            meta = case_meta[label]
+            language = meta["language"]
+            payment_choice = facts["payment"]
+            names = facts["names"]
+            dates = facts.get("dates") or facts["corrected_dates"]
             with self.subTest(case=label):
                 loop = DeterministicRegisteredLoop(self, "sim24-" + label)
                 try:
-                    beds = [{"bed_code": bed_code, "room_code": bed_code.split("-")[0],
+                    beds = [{"bed_code": code, "room_code": code.split("-")[0],
                              "room_type": "shared", "gender_strategy": "mixed",
-                             "selected_selling_mode": "bed"}]
-                    plan = {"check_in": "2026-11-10", "check_out": "2026-11-13",
-                            "guest_count": 1, "room_type": "shared",
-                            "room_preference": "mixed", "package_code": "package_none",
-                            "payment_choice": payment_choice, "guests": [{"name": name}],
-                            "guest_name": name, "selected_bed_codes": [bed_code],
+                             "selected_selling_mode": "bed"} for code in meta["beds"]]
+                    guests = [{"name": name} for name in names]
+                    plan = {"check_in": dates[0], "check_out": dates[1],
+                            "guest_count": facts["party"], "room_type": "shared",
+                            "room_preference": meta["room_preference"],
+                            "package_code": facts["package"], "add_ons": facts["services"],
+                            "payment_choice": payment_choice, "guests": guests,
+                            "guest_name": names[0], "selected_bed_codes": meta["beds"],
                             "language": language}
-                    quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
-                    loop.turn(label + "-quote", "show the checked price")
+                    if facts.get("explicit_whole_party"):
+                        plan["group_gender"] = facts["explicit_whole_party"]
+                        for guest in guests:
+                            guest["explicit_gender"] = facts["explicit_whole_party"]
+                    # Constructed Staff receipts retain each capture's own dates,
+                    # party, complete roster, package/payment selection and turn order.
+                    total = facts["total_cents"]
+                    amount = facts["payment_amount_cents"]
+                    deposit = amount if payment_choice == "deposit" else total
+                    quote = checked_staff_quote(plan, beds, total=total, deposit=deposit)
+                    loop.turn(label + "-first-priced-offer", "show the captured checked price chronology")
                     self.assertTrue(loop.call("quote_booking", plan, {
                         "/availability-check": availability_receipt(beds),
                         "/booking-preview": quote})["success"])
-                    loop.present()
-                    loop.turn(label + "-accept", "yes, create this exact offer")
+                    shown = loop.present()
+                    for name in names:
+                        self.assertIn(name, shown)
+                    loop.turn(label + "-post-price-acceptance", "yes, create this exact offer")
                     consent = loop.call("interpret_booking_turn", {
                         "action": "accept", "action_evidence": "yes, create this exact offer",
                         "ambiguous": False, "negated": False, "conditional": False,
                         "material_changes": [], "completions": {}}, {})
                     self.assertTrue(consent["success"], consent)
-                    amount = 12000 if payment_choice == "full" else 10000
                     url = "https://payments.invalid/" + label
                     def receipts(route, body):
                         if route == "/availability-check":
@@ -120,6 +141,13 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
                         if route == "/booking-preview":
                             return quote
                         if route == "/booking-create-from-plan":
+                            self.assertEqual(body["check_in"], dates[0])
+                            self.assertEqual(body["check_out"], dates[1])
+                            self.assertEqual(body["guest_count"], facts["party"])
+                            self.assertEqual([row["name"] for row in body["guests"]], names)
+                            self.assertEqual(body["package_code"], facts["package"])
+                            self.assertEqual(body.get("add_ons") or [], facts["services"])
+                            self.assertEqual(body["payment_choice"], payment_choice)
                             return {"success": True, "created": True, "write_performed": True,
                                     "booking_id": "id-" + label, "booking_code": "WH-" + label,
                                     "payment_id": "pay-" + label}
@@ -144,6 +172,8 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
                     self.assertIn(headings[language], final["final_response"])
                     self.assertIn(url, final["final_response"])
                     self.assertIn(f"{amount / 100:.2f} EUR", final["final_response"])
+                    for name in names:
+                        self.assertIn(name, final["final_response"])
                     self.assertEqual(len(loop.create_dispatches), 1)
                 finally:
                     loop.close()

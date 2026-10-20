@@ -2253,19 +2253,48 @@ def record_availability_context(params):
                    and any(previous.get(key) != projection.get(key)
                            for key in ('check_in', 'check_out')))
         merged = deepcopy(previous)
-        incoming_guests = projection.get('guests')
         known_guests = previous.get('guests')
+        old_size = previous.get('guest_count')
+        new_size = projection.get('guest_count')
+        retired = {index for index in state.get('retired_guest_indices') or []
+                   if type(index) is int and index >= 0}
+        if type(old_size) is int and type(new_size) is int and new_size < old_size:
+            retired.update(range(max(new_size, 0), old_size))
+        # An owner-evidenced completion is the only authority that may assign a
+        # retired/regrown slot again. Availability itself cannot resurrect it.
+        completion_guests = (state.get('completion_plan') or {}).get('guests')
+        if isinstance(completion_guests, list):
+            for index, guest in enumerate(completion_guests):
+                if (isinstance(guest, dict)
+                        and isinstance(guest.get('name'), str)
+                        and guest['name'].strip()):
+                    retired.discard(index)
         for key, value in projection.items():
             if key == 'guests' and isinstance(value, list) and isinstance(known_guests, list):
                 roster = deepcopy(known_guests)
-                for index, guest in enumerate(value):
-                    if index < len(roster) and isinstance(roster[index], dict) and isinstance(guest, dict):
-                        roster[index] = {**roster[index], **guest}
-                    elif index >= len(roster):
-                        roster.append(deepcopy(guest))
+                target_size = new_size if type(new_size) is int and new_size >= 0 else len(value)
+                roster = roster[:target_size]
+                while len(roster) < target_size:
+                    roster.append({})
+                for index, guest in enumerate(value[:target_size]):
+                    if not isinstance(guest, dict):
+                        continue
+                    current = roster[index] if isinstance(roster[index], dict) else {}
+                    current_name = current.get('name')
+                    incoming = deepcopy(guest)
+                    if ((isinstance(current_name, str) and current_name.strip())
+                            or index in retired):
+                        incoming.pop('name', None)
+                    roster[index] = {**current, **incoming}
                 merged[key] = roster
             else:
                 merged[key] = deepcopy(value)
+        party_size = merged.get('guest_count')
+        if type(party_size) is int and party_size >= 0:
+            for key in ('guests', 'room_name_hints'):
+                if isinstance(merged.get(key), list):
+                    merged[key] = merged[key][:party_size]
+        state['retired_guest_indices'] = sorted(retired)
         state['plan'] = merged
         # Availability is a projection, not a new commercial/person owner.  Keep
         # completions already accepted by the quote owner and fold them into the
@@ -2644,6 +2673,57 @@ def record_create_completion(prepared, response):
             raise QuoteBoundaryError('create_completion_identity_mismatch')
         state['completion'] = deepcopy(response)
     _transaction(complete)
+
+
+def record_payment_completion(response):
+    """Retain only successful payment truth bound to this owner's receipt."""
+    def complete(state, ingress):
+        del ingress
+        if not isinstance(response, dict) or response.get('success') is not True:
+            return
+        receipt = state.get('completion') or state.get('receipt')
+        if not isinstance(receipt, dict):
+            return
+        compared_booking_keys = [key for key in ('booking_id', 'booking_code')
+                                 if receipt.get(key) is not None
+                                 and response.get(key) is not None]
+        if (not compared_booking_keys
+                or any(response.get(key) != receipt.get(key)
+                       for key in compared_booking_keys)):
+            return
+        completion = deepcopy(receipt)
+        if response.get('tool') == 'create_guest_payment_link':
+            guest_id = response.get('booking_guest_id')
+            known_guests = completion.get('booking_guests')
+            if not (isinstance(guest_id, str) and guest_id
+                    and isinstance(known_guests, list)
+                    and any(isinstance(row, dict)
+                            and row.get('booking_guest_id') == guest_id
+                            for row in known_guests)):
+                return
+            links = [deepcopy(row) for row in completion.get('guest_payment_links') or []
+                     if isinstance(row, dict)
+                     and row.get('booking_guest_id') != guest_id]
+            links.append({key: deepcopy(response.get(key)) for key in (
+                'booking_guest_id', 'guest_number', 'guest_name', 'payment_id',
+                'payment_target', 'amount_due_cents', 'currency',
+                'secure_payment_url', 'payment_status') if response.get(key) is not None})
+            completion['guest_payment_links'] = links
+        elif response.get('tool') == 'create_payment_link':
+            if (receipt.get('payment_id') is not None
+                    and response.get('payment_id') != receipt.get('payment_id')):
+                return
+            for key in ('payment_id', 'amount_due_cents', 'currency',
+                        'secure_payment_url', 'payment_status'):
+                if response.get(key) is not None:
+                    completion[key] = deepcopy(response[key])
+        else:
+            return
+        state['completion'] = completion
+    try:
+        _transaction(complete)
+    except QuoteBoundaryError:
+        return
 
 
 def _revoke_checked_offer(state):

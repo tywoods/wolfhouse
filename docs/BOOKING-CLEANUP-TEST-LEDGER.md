@@ -151,7 +151,20 @@ Exact starting head `c8722884f906bbb14313fd6160a06c4aa2e4d84e` was repaired offl
 
 - Captain's availability audit now proves unchanged accepted quote → standalone availability → one create dispatch; sparse rosters keep known names; changed dates still require fresh acceptance with zero dispatches; identical same-turn retries retain the date acknowledgement.
 - Captain's nine-case completion audit now retains canonical inline deposit/full, separate-payment and split-payment URLs plus selected amounts. EN/ES/FR/DE heading/payment copy follows owner language, and arbitrary model URLs/top-level metadata remain non-authoritative. Explicit SessionDB append/reopen retained final bytes in every case.
-- Registered Sim16 returned to **24/24 PASS** and Sim22 to **5/5 PASS**. Sim24 now executes all five derived cases through registered quote, acceptance, create, separate payment-link creation and final reply, with exactly one create dispatch each; **7/7 PASS**.
+- Registered Sim16 returned to **24/24 PASS** and Sim22 to **5/5 PASS**. Sim24 R3 returned **7/7 PASS**, but Captain's review later established that its five loops substituted generic solo dates/party facts; that result is retained here only as the historical R3 gate result and not as captured-journey coverage.
 - Structured-room plus eligibility/localized suites passed **33/33**. Owner/dispatch ran **112/113** from the staging subdirectory; the sole failure was the existing cwd-sensitive Node `require('./scripts/lib/...')` harness invocation and passed when rerun from repository root.
 
 No deploy, live DB, guest message, payment, or external send was performed.
+
+## Step 3 R4 review repairs — 2026-10-20
+
+Exact starting head `309cdc3e30ef0098f1b8f7b97e8cd67d5ed6005c` was repaired offline within the same approved allowlist.
+
+- Availability continuity: Captain's unchanged witness now dispatches `Emma Clarke` for omitted, stale `Emma`, and sparse `{}` availability rosters. The shrink/grow witness now asks about `guest 2`, never the removed `Liam`. The captured reviewer script exited 0 after all four outcomes were checked.
+- Payment continuity: successful current per-person recovery now contributes Emma's booking-and-person-bound `100.00 EUR` link; successful booking payment recovery remains in owner completion through SessionDB reopen and idempotent create retry. Captain's extra completion script exited 0 and retained both URLs/amounts; its other-booking and reversed-order controls also remained green. A follow-up independent review tightened binding so every shared booking identifier must agree.
+- Durable retirement and committed coverage: removed roster indices remain tombstoned across stale regrowth projections until an explicit owner completion reassigns them. Repository tests now cover stale names, shrink → stale-grow non-resurrection, owner reassignment, partial booking-identity mismatch rejection and booking/person-bound payment retention.
+- Sim24: each executable case now reads its preserved fixture facts and uses its own dates, party size, full roster, package, payment selection, bed count and first-price/post-price chronology. Constructed Staff receipts are explicitly labelled. Exact create payloads, all names, selected payment amount/link and one create dispatch are asserted; **7/7 PASS**.
+- Fresh focused results: accepted-quote plus dispatch recovery **113/113 PASS**; registered Sim16 plus Sim24 **31/31 PASS**; structured-room, localized and room-eligibility **33/33 PASS**. Initial runs lacking local `@electric-sql/pglite` failed only at the harness dependency boundary; after `npm ci --ignore-scripts`, the same suites passed.
+- The six supplied JSONL originals and `CHATS.md` were hash-checked before derived-fixture use; their bytes were not modified.
+
+No merge, deploy, live DB, guest message, payment, external send or runtime configuration change was performed. SEALED HOLD remains.

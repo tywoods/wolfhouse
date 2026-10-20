@@ -1712,6 +1712,16 @@ def _wolfhouse_guest_location_line(guest_url):
     return _WOLFHOUSE_GUEST_LOCATION_LINE if guest_url and _trusted_client_slug().lower() == "wolfhouse-somo" else None
 
 
+def _retain_owner_payment_completion(result):
+    try:
+        from wolfhouse import accepted_quote as ledger
+        if ledger._current.get() is not None:
+            ledger.record_payment_completion(result)
+    except (ImportError, RuntimeError):
+        pass
+    return result
+
+
 def create_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1773,7 +1783,7 @@ def create_payment_link(params, **kwargs):
             "guest_safe_next_action": data.get("guest_safe_next_action"),
         })
 
-    return _json_result(_payment_link_result("create_payment_link", data, {
+    result = _payment_link_result("create_payment_link", data, {
         "success": bool(data.get("success")),
         "tool": "create_payment_link",
         "payment_id": data.get("payment_id") or payment_id,
@@ -1790,7 +1800,9 @@ def create_payment_link(params, **kwargs):
         "next_action": data.get("next_action") or "send_secure_payment_link",
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    }))
+    })
+    _retain_owner_payment_completion(result)
+    return _json_result(result)
 
 
 def create_balance_payment_link(params, **kwargs):
@@ -1925,7 +1937,7 @@ def create_guest_payment_link(params, **kwargs):
         },
     )
     guest_url = _guest_payment_url(data)
-    return _json_result(_payment_link_result("create_guest_payment_link", data, {
+    result = _payment_link_result("create_guest_payment_link", data, {
         "success": bool(data.get("success")) and bool(guest_url),
         "tool": "create_guest_payment_link",
         "booking_guest_id": data.get("booking_guest_id") or guest_id,
@@ -1946,7 +1958,9 @@ def create_guest_payment_link(params, **kwargs):
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
-    }))
+    })
+    _retain_owner_payment_completion(result)
+    return _json_result(result)
 
 
 def get_guest_payment_status(params, **kwargs):

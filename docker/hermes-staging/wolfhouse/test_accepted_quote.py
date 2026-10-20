@@ -1001,6 +1001,85 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertEqual(revalidated['offer_revision']['payment_choice'], choice)
                     self.assertEqual(self.ledger.prepare_create({})['payment_choice'], choice)
 
+    def test_availability_preserves_evidenced_name_and_retires_stale_regrowth(self):
+        self.agent.session_id = 'roster-authority-regression'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('roster-start', 'Emma Clarke and Liam Green need rooms.')
+        initial = {**self.plan, 'guest_count': 2,
+                   'guests': [{'name': 'Emma Clarke'}, {'name': 'Liam Green'}]}
+        self.ledger._transaction(lambda state, ingress: state.update(
+            plan=deepcopy(initial), completion_plan={}))
+
+        # A stale/short availability name cannot replace owner identity.
+        self.ledger.record_availability_context({**initial,
+            'guests': [{'name': 'Emma'}, {'name': 'Liam'}]})
+        current = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertEqual([row['name'] for row in current['plan']['guests']],
+                         ['Emma Clarke', 'Liam Green'])
+
+        # Shrink retires slot 1. A stale roster on later growth cannot revive it.
+        self.ledger.record_availability_context({**initial, 'guest_count': 1,
+            'guests': [{'name': 'Emma'}]})
+        self.ledger.record_availability_context({**initial, 'guest_count': 2,
+            'guests': [{'name': 'Emma'}, {'name': 'Liam Green'}]})
+        current = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertEqual(current['plan']['guests'][0]['name'], 'Emma Clarke')
+        self.assertNotIn('name', current['plan']['guests'][1])
+        self.assertEqual(current['retired_guest_indices'], [1])
+
+    def test_owner_completion_can_reassign_retired_roster_slot(self):
+        self.agent.session_id = 'roster-retired-owner-reassign'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('roster-reassign', 'A new second guest is Nora Jones.')
+        base = {**self.plan, 'guest_count': 2,
+                'guests': [{'name': 'Emma Clarke'}, {}]}
+        self.ledger._transaction(lambda state, ingress: state.update(
+            plan=deepcopy(base), retired_guest_indices=[1],
+            completion_plan={'guests': [{}, {'name': 'Nora Jones'}]}))
+        self.ledger.record_availability_context({**base,
+            'guests': [{'name': 'Emma'}, {'name': 'stale Liam'}]})
+        current = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertEqual(current['plan']['guests'][1]['name'], 'Nora Jones')
+        self.assertEqual(current['retired_guest_indices'], [])
+
+    def test_payment_completion_rejects_partial_booking_identity_mismatch(self):
+        self.agent.session_id = 'payment-binding-regression'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('payment-binding', 'Send the payment link.')
+        receipt = {'success': True, 'booking_id': 'booking-1',
+                   'booking_code': 'WH-ONE', 'payment_id': 'payment-1'}
+        self.ledger._transaction(lambda state, ingress: state.update(
+            receipt=deepcopy(receipt), completion=deepcopy(receipt)))
+        self.ledger.record_payment_completion({
+            'success': True, 'tool': 'create_payment_link',
+            'booking_id': 'booking-1', 'booking_code': 'WH-OTHER',
+            'payment_id': 'payment-1', 'secure_payment_url': 'https://payments.invalid/wrong'})
+        current = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        self.assertNotIn('secure_payment_url', current['completion'])
+
+    def test_person_payment_completion_binds_booking_and_guest_id(self):
+        self.agent.session_id = 'person-payment-binding-regression'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        self.turn('person-payment-binding', 'Send Emma her payment link.')
+        receipt = {'success': True, 'booking_id': 'booking-1',
+                   'booking_code': 'WH-ONE',
+                   'booking_guests': [
+                       {'booking_guest_id': 'guest-lucia', 'guest_name': 'Lucía'},
+                       {'booking_guest_id': 'guest-emma', 'guest_name': 'Emma'}]}
+        self.ledger._transaction(lambda state, ingress: state.update(
+            receipt=deepcopy(receipt), completion=deepcopy(receipt)))
+        self.ledger.record_payment_completion({
+            'success': True, 'tool': 'create_guest_payment_link',
+            'booking_id': 'booking-1', 'booking_code': 'WH-ONE',
+            'booking_guest_id': 'guest-emma', 'guest_name': 'Emma',
+            'amount_due_cents': 10000, 'currency': 'EUR',
+            'secure_payment_url': 'https://payments.invalid/emma'})
+        current = self.ledger._transaction(lambda state, ingress: deepcopy(state))
+        links = current['completion']['guest_payment_links']
+        self.assertEqual(len(links), 1)
+        self.assertEqual(links[0]['booking_guest_id'], 'guest-emma')
+        self.assertEqual(links[0]['secure_payment_url'], 'https://payments.invalid/emma')
+
     def test_original_combined_turn_accepts_already_complete_matching_name(self):
         self.agent.session_id = 'accepted-known-full-name-owner'
         self.db.create_session(self.agent.session_id, source='whatsapp')
