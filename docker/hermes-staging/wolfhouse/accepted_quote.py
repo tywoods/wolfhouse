@@ -686,6 +686,30 @@ def _blocked_clarification_copy(result, plan, language):
                 'fr': "Je n’ai pas pu obtenir les options de forfait pour le moment. Souhaitez-vous un devis d’hébergement seul ?",
                 'de': 'Ich konnte die Paketoptionen gerade nicht abrufen. Möchten Sie stattdessen ein Angebot nur für die Unterkunft?',
             }[language]
+        packages = result.get('packages')
+        if (result.get('next_action') == 'explain_packages_then_ask_choice'
+                and isinstance(packages, dict)):
+            options = []
+            for code, details in packages.items():
+                cents = details.get('total_cents') if isinstance(details, dict) else None
+                if (isinstance(code, str) and code.strip() and type(cents) is int
+                        and cents >= 0):
+                    amount = f'{cents / 100:.2f}'.rstrip('0').rstrip('.')
+                    options.append(f'{code.replace("_", " ").title()} (€{amount})')
+            if options:
+                intro = {
+                    'en': 'The available Staff-checked options are ',
+                    'es': 'Las opciones comprobadas disponibles son ',
+                    'fr': 'Les options vérifiées disponibles sont ',
+                    'de': 'Die verfügbaren geprüften Optionen sind ',
+                }[language]
+                question = {
+                    'en': 'Which package would you like for this stay?',
+                    'es': '¿Qué paquete quieres para esta estancia?',
+                    'fr': 'Quel forfait souhaitez-vous pour ce séjour ?',
+                    'de': 'Welches Paket möchten Sie für diesen Aufenthalt?',
+                }[language]
+                return intro + ', '.join(options) + '. ' + question
         return {
             'en': 'Which package would you like for this stay?',
             'es': '¿Qué paquete quieres para esta estancia?',
@@ -1992,8 +2016,16 @@ def record_quote(params, response):
         elif _incomplete_payment_revision(response, ingress['tenant'], prepared):
             assignments = response['offer_revision'].get('guest_bed_assignments') or []
             if len(assignments) == response['offer_revision'].get('guest_count'):
+                supplied = prepared.get('guests') if isinstance(prepared.get('guests'), list) else []
+                def display_name(index, row):
+                    canonical = row.get('guest_name') or ''
+                    candidate = (supplied[index].get('name') if index < len(supplied)
+                                 and isinstance(supplied[index], dict) else '')
+                    normalize = lambda value: unicodedata.normalize(
+                        'NFC', ' '.join(str(value or '').split())).casefold()
+                    return candidate if normalize(candidate) and normalize(candidate) == normalize(canonical) else canonical
                 completion_plan['guests'] = [
-                    {'name': row.get('guest_name') or ''} for row in assignments]
+                    {'name': display_name(index, row)} for index, row in enumerate(assignments)]
             if response.get('full_payment_only') is True:
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')

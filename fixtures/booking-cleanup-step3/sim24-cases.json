@@ -1,0 +1,13 @@
+{
+  "schema": "booking-cleanup-step3.sim24.v1",
+  "classification": "derived from supplied captures; no historical Staff bodies reconstructed",
+  "sources": [
+    {"case":"guest1","source":"doc_e7ab1d779511_guest1.jsonl","turns":2,"sha256":"602b120368c1d8f87471a147e1dcfb3185c1e60ebd5a4840d1c5591e0518dbfa","facts":{"dates":["2026-11-16","2026-11-19"],"party":1,"names":["Lucía Fernández Ruiz"],"package":"package_none","payment":"deposit","create_and_link":true}},
+    {"case":"guest2","source":"doc_3dfda4b796a7_guest2.jsonl","turns":3,"sha256":"4f8107ed32e4b29b5f0f52c50eb2b13efcdb1b990688902b3015960e4961631b","facts":{"dates":["2026-11-13","2026-11-15"],"party":3,"names":["Camille Martin","Léa Dubois","Hugo Bernard"],"package":"package_none","payment":"full","create_and_link":true}},
+    {"case":"guest3","source":"doc_2e54d424c5df_guest3.jsonl","turns":3,"sha256":"180ee94a6a58093491180cd387c88c2452b287e580ef4b18d9750e175674fe96","facts":{"dates":["2026-11-23","2026-11-26"],"party":2,"names":["Jonas Becker","Felix Becker"],"explicit_whole_party":"male","package":"package_none","payment":"deposit","create_and_link":true}},
+    {"case":"guest4","source":"doc_8c0919dff8f5_guest4.jsonl","turns":5,"sha256":"c0a68749dfdbc0eb812ce82419f9fe9e1190b4626bb73136a8eb89c5e5f8fe16","facts":{"corrected_dates":["2026-11-10","2026-11-13"],"party":1,"names":["Emma Clarke"],"package":"package_none","payment":"full","create_and_link":true,"room_claim_limit":"preferred/shared is not exclusive"}},
+    {"case":"guest5","source":"doc_82d5b0c930f7_guest5.jsonl","turns":2,"sha256":"5657932ce462f7b4aa64b5c58a605982cee1c588331be139b85af873d4f1b903","facts":{"dates":["2026-11-09","2026-11-12"],"party":1,"names":["Raj Patel"],"package":"package_none","payment":"deposit","create_and_link":true}}
+  ],
+  "reference_only": {"source":"doc_0ea48795ddb0_guest9.jsonl","sha256":"c819d6a89cedd3f5e09c3c5f1effb1f35055a7c4e480dc37a24fd1ca90f537b4","ranking_expectation":false},
+  "constructed_witnesses": ["display-slot spelling and stale-name negative", "unnamed whole-party eligibility with person contradiction", "typed package outcomes", "preferred-versus-exclusive rendering"]
+}

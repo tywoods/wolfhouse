@@ -122,3 +122,25 @@ payment, and final reply. Missing historical backend receipts remain explicitly 
 does not invent a historical failure cause. Generic alternative-input failure controls are separately
 labelled and reject with zero booking writes. Committed inventory, tariffs, offer identity, and
 production validators are unchanged.
+
+## Step 3 execution — 2026-10-20
+
+Pinned base `d2699c5091d7be24bda86181d546c6194f9eb3c7`, tree
+`4aaf6e75fd9a8d0d0acb336fcb7a0e884d9d0f0a`. All six supplied JSONL hashes and the
+CHATS hash matched the approved brief before derivation; originals were not modified.
+
+Strict RED on the unmodified product was genuine: the new Sim24 Python suite ran 5 tests
+with one failure (missing Staff-backed package options rendered only the generic question),
+and the eligibility producer gate failed `unsure !== yes` for Becker's explicit unnamed
+whole-party fact. After the bounded owner/producer changes, both gates passed (5/5 and PASS).
+
+Candidate offline results: offer identity 42/42; ordinary retry controls PASS; real PGlite
+occupants/SQL PASS; mixed-room 69/69; allocator 63/63; send flags 53/53; syntax and diff
+checks PASS. The broad `verify:luna-all` aggregate remains failed in this scrubbed environment
+with the established plugin/harness expectation mismatches (missing legacy `reply_draft` /
+`room_decision` shapes). The exact-bed aggregate retained one environment-sensitive failure:
+its actual BOT_HTTP handler returned 403 rather than expected 409. Focused installed-Hermes
+suites could not be matched to the repository runtime: no pinned overlay is present; the
+available unrelated upstream checkout first lacked `ruamel.yaml`. Those are recorded as
+harness limitations, not product passes or waivers. No live service, DB, send, deploy, or guest
+operation was used.
