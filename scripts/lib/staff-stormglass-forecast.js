@@ -26,6 +26,8 @@ const STORMGLASS_PARAMS = [
 const DEFAULT_TIMEOUT_MS = 12000;
 const MADRID_TZ = 'Europe/Madrid';
 const DAY_MS = 86400000;
+const FORECAST_HORIZON_DAYS = Number(process.env.FORECAST_HORIZON_DAYS || 10);
+
 const SURF_WINDOW_START_HOUR = 6;
 const SURF_WINDOW_END_HOUR = 20;
 
@@ -299,8 +301,8 @@ async function fetchSurfForecastForStaff(opts) {
     err.code = 'UNSUPPORTED_CLIENT';
     throw err;
   }
-  if (day !== 'today' && day !== 'tomorrow') {
-    const err = new Error("day must be 'today' or 'tomorrow'");
+  if (day !== 'today' && day !== 'tomorrow' && day !== 'week') {
+    const err = new Error("day must be 'today', 'tomorrow' or 'week'");
     err.code = 'INVALID_DAY';
     throw err;
   }
@@ -311,7 +313,8 @@ async function fetchSurfForecastForStaff(opts) {
   }
 
   const apiKey = process.env.STORMGLASS_API_KEY.trim();
-  const { start, end } = getMadridDayWindow(day);
+  const effectiveDay = day === 'week' ? 'today' : day;
+  const { start, end } = getMadridDayWindow(effectiveDay);
   const qs = new URLSearchParams({
     lat: String(spot.lat),
     lng: String(spot.lng),

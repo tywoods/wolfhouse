@@ -43349,7 +43349,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
   }
 
   const clientSlug  = resolveBotHandlerTrustedClientSlug(req, body, null, DEFAULT_CLIENT);
-  const day         = String(body.day || 'today').trim().toLowerCase() === 'tomorrow' ? 'tomorrow' : 'today';
+  const dayRaw      = String(body.day || 'today').trim().toLowerCase();
+  const day         = (dayRaw === 'tomorrow' || dayRaw === 'week') ? dayRaw : 'today';
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
 

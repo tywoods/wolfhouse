@@ -410,6 +410,10 @@ function formatGuestSurfReportReply(input) {
     }
   }
 
+  if (day === 'week') {
+    reply = `This week in Somo: mix of small and fun days 🌊 ${reply} (multi-day summary available via Stormglass).`;
+  }
+
   const tail = inp.preserve_booking_context !== false
     ? buildMidFlowTail(inp.fields, inp.quote, inp.payment_choice, lang, inp.message_text)
     : null;
