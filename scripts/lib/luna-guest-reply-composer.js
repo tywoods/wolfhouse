@@ -196,11 +196,12 @@ function langOf(result, priorGuestContext, messageText) {
 }
 
 function formatEur(cents) {
-  if (cents == null || !Number.isFinite(Number(cents))) return null;
   const n = Number(cents);
+  if (!Number.isFinite(n) || n < 0) return null;
   const euros = n / 100;
-  if (n % 100 === 0) return `€${euros}`;
-  return `€${euros.toFixed(2)}`;
+  let s = euros.toFixed(2);
+  if (s.endsWith('.00')) s = s.slice(0, -3);
+  return `€${s}`;
 }
 
 function formatDateShort(iso) {
@@ -221,6 +222,24 @@ function formatDateRange(checkIn, checkOut) {
   return '';
 }
 
+function formatStyledDateRange(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return '';
+  const parse = (iso) => {
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const d = new Date(iso + 'T00:00:00');
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthsAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const wd = weekdays[d.getDay()];
+    const mi = Number(m[2]) - 1;
+    return `${wd} ${Number(m[3])} ${monthsAbbr[mi] || m[2]}`;
+  };
+  const a = parse(checkIn);
+  const b = parse(checkOut);
+  if (a && b) return `${a} – ${b}`;
+  return '';
+}
+
 function guestCountLabel(count, lang) {
   const n = Number(count);
   if (!Number.isFinite(n) || n < 1) return null;
@@ -237,6 +256,20 @@ function depositCentsFromPayload(quote, plan, pc) {
   const dep = quote && quote.deposit_options && quote.deposit_options.deposit_required_cents;
   if (dep != null) return dep;
   return null;
+}
+
+function buildStyledStayQuote(fields, quote, lang = 'en', roomDesc = 'A bed in a shared room') {
+  const range = formatStyledDateRange(fields.check_in, fields.check_out) || 'your dates';
+  const guests = guestCountLabel(fields.guest_count, lang) || '1 guest';
+  const total = formatEur(quote && quote.quote_total_cents) || '€0';
+  const depCents = depositCentsFromPayload(quote, null, null);
+  const deposit = formatEur(depCents) || total;
+  return `Here's your stay 🌊
+📅 ${range} · ${guests}
+🛏️ ${roomDesc}
+💶 Total: ${total}
+
+You can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
 }
 
 function sanitizeComposerReply(text) {
@@ -1081,38 +1114,10 @@ function buildReplyForState(state, ctx) {
       return `Perfect — ${ctx} 😊 For 7-night stays, most guests choose one of the surf packages: Malibu, Uluwatu, or Waimea. Want me to explain them quickly, or do you already know which one you prefer?`;
     },
     accommodation_quote: () => {
-      if (!total) return null;
-      const parts = [];
-      if (guests && range) {
-        parts.push(`Great — I'll check accommodation for ${range} for ${guests}.`);
-      }
-      const availOk = quote.quote_status === 'ready'
-        || !availability.availability_status
-        || availability.availability_status === 'available';
-      if (availOk) {
-        parts.push(`Good news — we have space for those dates. Accommodation comes to ${total}.`);
-      } else {
-        parts.push(`Accommodation comes to ${total}.`);
-      }
-      parts.push('Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?');
-      return parts.join('\n\n');
+      return buildStyledStayQuote(fields, quote, lang);
     },
     package_quote: () => {
-      if (!total) return null;
-      const pkgLabel = packageName && !/accommodation/i.test(packageName)
-        ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)}`
-        : 'Your stay';
-      const stayLine = range && guests
-        ? `Perfect 😊 ${pkgLabel} for ${range}, ${guests}.`
-        : range
-          ? `Perfect 😊 ${pkgLabel} for ${range}.`
-          : `Perfect 😊 ${pkgLabel} for your dates.`;
-      const dep = deposit || total;
-      const checked = availability.availability_status === 'available'
-        ? `I checked it and the stay comes to ${total} total.`
-        : `The stay comes to ${total} total.`;
-      const payLine = `To reserve it, you can do the ${dep} deposit now or pay the full ${total} — which do you prefer?`;
-      return [stayLine, checked, payLine].join('\n\n');
+      return buildStyledStayQuote(fields, quote, lang);
     },
     quote_refreshing: (ctxFields) => {
       const range = formatDateRange(ctxFields.check_in, ctxFields.check_out);
@@ -1129,9 +1134,9 @@ function buildReplyForState(state, ctx) {
         : '';
       const hasCollectedAddons = cls.priced.length + cls.pending_manual.length > 0;
       if (hasCollectedAddons) {
-        return `Got it — I've noted those extras.${manualNote}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+        return `Got it — I've noted those extras.${manualNote}\\n\\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
       }
-      return `Perfect — accommodation only then 😊${manualNote}\n\nTo hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+      return `Perfect — accommodation only then 😊${manualNote}\\n\\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
     },
     answer_arrival_payment_question: () => {
       if (!deposit || !total) {
@@ -1185,7 +1190,7 @@ function buildReplyForState(state, ctx) {
       msg += '. I\'ll send your full confirmation next.';
       return msg;
     },
-    confirmation_sent: 'Perfect — your Wolfhouse booking is confirmed 😊 I\'ve sent the details with the address, gate code, and room info.',
+    confirmation_sent: 'Your booking is confirmed 🌊 I have sent the details with the address, gate code, and room info.',
     clarify: 'Could you share your check-in and check-out dates, and how many guests?',
     contextual_when: 'Once you choose deposit or full payment, I\'ll line up the next step for your stay.',
     handoff: 'Thanks for your patience — I\'m looping in our team so they can help with the next step.',
