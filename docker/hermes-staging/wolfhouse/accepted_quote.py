@@ -2258,14 +2258,18 @@ def record_availability_context(params):
         new_size = projection.get('guest_count')
         retired = {index for index in state.get('retired_guest_indices') or []
                    if type(index) is int and index >= 0}
+        newly_retired = set()
         if type(old_size) is int and type(new_size) is int and new_size < old_size:
-            retired.update(range(max(new_size, 0), old_size))
+            newly_retired.update(range(max(new_size, 0), old_size))
+            retired.update(newly_retired)
         # An owner-evidenced completion is the only authority that may assign a
-        # retired/regrown slot again. Availability itself cannot resurrect it.
+        # previously retired/regrown slot again. A completion that predates this
+        # shrink cannot undo the retirement created by the same transition.
         completion_guests = (state.get('completion_plan') or {}).get('guests')
         if isinstance(completion_guests, list):
             for index, guest in enumerate(completion_guests):
-                if (isinstance(guest, dict)
+                if (index not in newly_retired
+                        and isinstance(guest, dict)
                         and isinstance(guest.get('name'), str)
                         and guest['name'].strip()):
                     retired.discard(index)

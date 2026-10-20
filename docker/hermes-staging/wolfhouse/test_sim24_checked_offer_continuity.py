@@ -5,16 +5,51 @@ owner rendering path with offline, constructed receipts derived from the approve
 """
 import json
 from pathlib import Path
+import subprocess
 import unittest
 
 from wolfhouse import accepted_quote as owner
 from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
     DeterministicRegisteredLoop, availability_receipt, checked_staff_quote,
-    create_recheck_receipt,
+    create_recheck_receipt, ROOT,
 )
 
 
 class Sim24CheckedOfferContinuityTests(unittest.TestCase):
+    @staticmethod
+    def _run_occupants(payload, scenario_facts=None):
+        script = """
+const verify = require('./scripts/verify-luna-create-booking-occupants');
+const p = JSON.parse(process.argv[1]);
+verify.runPayload(p.payload, { scenarioFacts: p.scenario_facts }).then(
+  (result) => process.stdout.write(JSON.stringify(result)),
+  (error) => { console.error(error.stack || error); process.exit(1); });
+"""
+        return json.loads(subprocess.check_output(
+            ["node", "-e", script, json.dumps({
+                "payload": payload, "scenario_facts": scenario_facts})],
+            cwd=ROOT, text=True))
+
+    @staticmethod
+    def _eligibility_receipt(plan):
+        script = """
+const p = JSON.parse(process.argv[1]);
+const {buildCanonicalAvailabilityBody:b, mapBotHttpAvailabilityResponse:m,
+  AVAILABILITY_CHANNELS:C} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const command = {channel:C.BOT_HTTP, clientSlug:'wolfhouse-somo', checkIn:p.check_in,
+  checkOut:p.check_out, guestCount:1, roomType:'shared', roomPreference:'female_only',
+  transportBody:{guests:p.guests}};
+const inventory = {groupGenderResolved:null, allocationReason:null, allocationSplit:false,
+  rulesRooming:false, roomOptionFlags:{girls_room_available:true,private_room_available:false},
+  selectedBedCodes:[], exactBedValidation:null, selectedRoomCode:null,
+  needsClarification:true, clarificationConflict:'room_eligibility_unknown', hasEnoughBeds:true,
+  availableCount:2, availableBeds:[], occupiedBedCodes:new Set(), warnings:[], blockers:[],
+  roomingHandoff:false, selectedPrivateRoom:false};
+process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
+"""
+        return json.loads(subprocess.check_output(
+            ["node", "-e", script, json.dumps(plan)], cwd=ROOT, text=True))
+
     def test_committed_five_case_fixture_is_loaded(self):
         fixture = json.loads((Path(__file__).parents[3] /
             "fixtures/booking-cleanup-step3/sim24-cases.json").read_text())
@@ -77,63 +112,221 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "male preferred"}), "shared room")
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "female_only"}), "women's room")
         self.assertEqual(owner._room_kind(offer, {"gender_strategy": "male_only"}), "men's room")
-    def test_five_sim24_journeys_execute_registered_create_and_link(self):
+
+    def test_name_completed_before_shrink_does_not_revive_retired_slot(self):
+        loop = DeterministicRegisteredLoop(self, "sim24-retired-old-completion")
+        try:
+            beds = [{"bed_code": f"R3-B{index}", "room_code": "R3",
+                     "room_type": "shared", "gender_strategy": "mixed",
+                     "selected_selling_mode": "bed"} for index in (1, 2)]
+            plan = {"check_in": "2026-11-10", "check_out": "2026-11-13",
+                    "guest_count": 2, "room_type": "shared",
+                    "room_preference": "mixed", "package_code": "package_none",
+                    "payment_choice": "full",
+                    "guests": [{"name": "Emma"}, {"name": "Liam"}]}
+            quote = checked_staff_quote(plan, beds, total=24000, deposit=20000)
+            loop.turn("quote", "Rooms for Emma and Liam please.")
+            self.assertTrue(loop.call("quote_booking", plan, {
+                "/availability-check": availability_receipt(beds),
+                "/booking-preview": quote})["success"])
+            loop.present()
+            raw = "Yes, book it for Emma Clarke and Liam Green."
+            loop.turn("accept", raw)
+            consent = loop.call("interpret_booking_turn", {
+                "action": "accept", "action_evidence": raw,
+                "ambiguous": False, "negated": False, "conditional": False,
+                "material_changes": [], "completions": {"guests": [
+                    {"guest_index": 0, "name": "Emma Clarke", "evidence": "Emma Clarke"},
+                    {"guest_index": 1, "name": "Liam Green", "evidence": "Liam Green"},
+                ]}}, {})
+            self.assertTrue(consent["accepted"], consent)
+
+            short = {"check_in": plan["check_in"], "check_out": plan["check_out"],
+                     "guest_count": 1, "room_type": "shared",
+                     "room_preference": "female_only",
+                     "guests": [{"name": "Emma Clarke", "explicit_gender": "female"}]}
+            loop.turn("shrink", "Liam is not coming, just Emma now.")
+            loop.call("check_availability", short, {
+                "/availability-check": availability_receipt(beds[:1])})
+            state = owner._transaction(lambda current, _ingress: dict(current))
+            self.assertEqual(state["retired_guest_indices"], [1])
+
+            grow = {**short, "guest_count": 2,
+                    "guests": [{"name": "Emma Clarke", "explicit_gender": "female"},
+                               {"name": "Liam Green"}]}
+            unknown = {**availability_receipt(beds),
+                       "room_eligibility": {"status": "unsure",
+                           "requested_room_preference": "female_only",
+                           "affected_guest_indices": [1],
+                           "reason_code": "room_eligibility_unknown",
+                           "question_kind": "confirm_room_eligibility"}}
+            loop.turn("grow", "Another person will join Emma; their details are unknown.")
+            result = loop.call("check_availability", grow, {
+                "/availability-check": unknown})
+            state = owner._transaction(lambda current, _ingress: dict(current))
+            reply = owner._structured_eligibility_copy(
+                result["room_eligibility"], state["plan"], "en")
+            self.assertIn("guest 2", reply)
+            self.assertNotIn("Liam Green", reply)
+            self.assertFalse(loop.create_dispatches)
+        finally:
+            loop.close()
+
+    def test_five_sim24_journeys_replay_chronology_create_sql_history_and_one_payment(self):
         fixture = json.loads((Path(__file__).parents[3] /
             "fixtures/booking-cleanup-step3/sim24-cases.json").read_text())
         case_meta = {
-            "guest1": {"language": "es", "beds": ["R1-B3"], "room_preference": "mixed"},
-            "guest2": {"language": "fr", "beds": ["R3-B1", "R3-B2", "R3-B3"], "room_preference": "mixed"},
-            "guest3": {"language": "de", "beds": ["R2-B1", "R2-B2"], "room_preference": "male_only"},
-            "guest4": {"language": "en", "beds": ["R5-B1"], "room_preference": "female_only"},
-            "guest5": {"language": "en", "beds": ["R1-B2"], "room_preference": "room 1"},
+            "guest1": {"language": "es", "beds": ["R1-B3"], "preference": "mixed",
+                "room": "flexible", "gender": "female", "deposit": 10000,
+                "turns": [
+                    "¡Hola Luna! Soy Lucía, de Sevilla 🇪🇸 Busco 1 cama en el dormitorio mixto del lunes 16 al jueves 19 de noviembre de 2026 (3 noches). Soy mujer y viajo sola. ¿Cuánto cuesta?",
+                    "Perfecto. Me llamo Lucía Fernández Ruiz. Prefiero pagar el depósito. ¡Sí, resérvalo!"],
+                "first_guests": [{"name": "Lucía", "explicit_gender": "female"}]},
+            "guest2": {"language": "fr", "beds": ["R3-B1", "R3-B2", "R3-B3"],
+                "preference": "mixed", "room": "flexible", "deposit": 24000,
+                "turns": [
+                    "Bonjour ! On est trois amis de Lyon (deux filles et un garçon) et on voudrait 3 lits en dortoir mixte du vendredi 13 au dimanche 15 novembre 2026. C'est combien pour nous trois ?",
+                    "Super ! Nos noms : Camille Martin, Léa Dubois et Hugo Bernard. On paie tout d'un coup, paiement complet s'il vous plaît. Oui, réservez !",
+                    "paiement complet s'il vous plaît"]},
+            "guest3": {"language": "de", "beds": ["R2-B1", "R2-B2"],
+                "preference": "male_only", "room": "male preferred", "gender": "male",
+                "deposit": 20000, "turns": [
+                    "Hallo Luna! Mein Bruder und ich (zwei Jungs aus München 😄) suchen 2 Betten im Männerschlafsaal, Montag 23. bis Donnerstag 26. November 2026. Was kostet das?",
+                    "Klingt gut. Jonas Becker und Felix Becker. Wir zahlen die Anzahlung. Ja, bitte buchen.",
+                    "die Anzahlung bitte"]},
+            "guest4": {"language": "en", "beds": ["R5-B1"],
+                "preference": "female_only", "room": "female preferred", "gender": "female",
+                "deposit": 10000, "initial_dates": ["2026-11-09", "2026-11-12"],
+                "turns": [
+                    "Hi Luna, Emma from Manchester here. Do you have a girls-only dorm? I'd like 1 bed from Mon 9 Nov to Thu 12 Nov 2026. How much?",
+                    "Ugh, sorry, my train changed. Could we do Tue 10 Nov to Fri 13 Nov 2026 instead? Same thing, 1 bed in the women's dorm.",
+                    "Perfect, thanks! Emma Clarke, full payment please. Yes, book it.",
+                    "yes, I'm female, full payment please",
+                    "full payment please"]},
+            "guest5": {"language": "en", "beds": ["R1-B2"],
+                "preference": "room 1", "room": "flexible", "gender": "male",
+                "deposit": 10000, "turns": [
+                    "Hey! Raj Patel here, male, stayed with you last year. Could I get a bed in room 1 again if possible, Mon 9 Nov to Thu 12 Nov 2026? I'd pay the deposit. What would it come to?",
+                    "Cool, that works. Yes, book it please."]},
         }
-        headings = {"es": "La reserva", "fr": "La réservation",
-                    "de": "Die Buchung", "en": "Booking"}
         for source in fixture["sources"]:
-            label = source["case"]
-            facts = source["facts"]
+            label, facts = source["case"], source["facts"]
             meta = case_meta[label]
-            language = meta["language"]
-            payment_choice = facts["payment"]
-            names = facts["names"]
             dates = facts.get("dates") or facts["corrected_dates"]
             with self.subTest(case=label):
                 loop = DeterministicRegisteredLoop(self, "sim24-" + label)
                 try:
+                    turns_seen = []
+                    def turn(index):
+                        raw = meta["turns"][index]
+                        loop.turn(f"{label}-{index + 1}", raw)
+                        loop.db.append_message(session_id=loop.agent.session_id,
+                                               role="user", content=raw)
+                        turns_seen.append(raw)
+                        return raw
+
                     beds = [{"bed_code": code, "room_code": code.split("-")[0],
-                             "room_type": "shared", "gender_strategy": "mixed",
+                             "room_type": "shared", "gender_strategy": meta["room"],
                              "selected_selling_mode": "bed"} for code in meta["beds"]]
-                    guests = [{"name": name} for name in names]
+                    guests = [{"name": name, **({"explicit_gender": meta["gender"]}
+                               if meta.get("gender") else {})} for name in facts["names"]]
                     plan = {"check_in": dates[0], "check_out": dates[1],
                             "guest_count": facts["party"], "room_type": "shared",
-                            "room_preference": meta["room_preference"],
+                            "room_preference": meta["preference"],
                             "package_code": facts["package"], "add_ons": facts["services"],
-                            "payment_choice": payment_choice, "guests": guests,
-                            "guest_name": names[0], "selected_bed_codes": meta["beds"],
-                            "language": language}
-                    if facts.get("explicit_whole_party"):
-                        plan["group_gender"] = facts["explicit_whole_party"]
-                        for guest in guests:
-                            guest["explicit_gender"] = facts["explicit_whole_party"]
-                    # Constructed Staff receipts retain each capture's own dates,
-                    # party, complete roster, package/payment selection and turn order.
-                    total = facts["total_cents"]
-                    amount = facts["payment_amount_cents"]
-                    deposit = amount if payment_choice == "deposit" else total
-                    quote = checked_staff_quote(plan, beds, total=total, deposit=deposit)
-                    loop.turn(label + "-first-priced-offer", "show the captured checked price chronology")
-                    self.assertTrue(loop.call("quote_booking", plan, {
-                        "/availability-check": availability_receipt(beds),
-                        "/booking-preview": quote})["success"])
-                    shown = loop.present()
-                    for name in names:
-                        self.assertIn(name, shown)
-                    loop.turn(label + "-post-price-acceptance", "yes, create this exact offer")
-                    consent = loop.call("interpret_booking_turn", {
-                        "action": "accept", "action_evidence": "yes, create this exact offer",
+                            "payment_choice": facts["payment"], "guests": guests,
+                            "guest_name": facts["names"][0],
+                            "selected_bed_codes": meta["beds"], "language": meta["language"]}
+                    if meta.get("gender"):
+                        plan["group_gender"] = meta["gender"]
+                    quote = checked_staff_quote(plan, beds, total=facts["total_cents"],
+                                                deposit=meta["deposit"])
+
+                    turn(0)
+                    if label == "guest1":
+                        initial = {**plan, "guests": meta["first_guests"],
+                                   "guest_name": "Lucía"}
+                        initial.pop("payment_choice")
+                        loop.call("quote_booking", initial, {
+                            "/availability-check": availability_receipt(beds),
+                            "/booking-preview": checked_staff_quote(
+                                initial, beds, total=facts["total_cents"],
+                                deposit=meta["deposit"])})
+                        turn(1)
+                    elif label == "guest2":
+                        initial = {key: plan[key] for key in
+                                   ("check_in", "check_out", "guest_count", "room_type", "room_preference")}
+                        blocked = loop.call("quote_booking", initial, {
+                            "/package-price-preview": {"success": False,
+                                "package_eligible": False,
+                                "next_action": "offer_accommodation_or_change_dates"}})
+                        self.assertEqual(blocked["next_action"], "package_eligibility_unavailable")
+                        turn(1)
+                    elif label == "guest3":
+                        initial = {"check_in": dates[0], "check_out": dates[1],
+                                   "guest_count": 2, "room_type": "shared",
+                                   "room_preference": "male_only", "group_gender": "male"}
+                        loop.call("check_availability", initial, {
+                            "/availability-check": availability_receipt(beds)})
+                        turn(1)
+                    elif label == "guest4":
+                        initial = {"check_in": meta["initial_dates"][0],
+                                   "check_out": meta["initial_dates"][1], "guest_count": 1,
+                                   "room_type": "shared", "room_preference": "female_only",
+                                   "package_code": "package_none"}
+                        for index, staged in enumerate((
+                            initial,
+                            {**initial, "check_in": dates[0], "check_out": dates[1],
+                             "guests": [{"name": "Emma"}], "guest_name": "Emma"},
+                            {**initial, "check_in": dates[0], "check_out": dates[1],
+                             "guests": [{"name": "Emma Clarke"}], "guest_name": "Emma Clarke",
+                             "payment_choice": "full"},
+                        )):
+                            if index:
+                                turn(index)
+                            blocked = loop.call("quote_booking", staged, {
+                                "/availability-check":
+                                    self._eligibility_receipt(staged),
+                                "/package-price-preview": {"success": False,
+                                    "package_eligible": None,
+                                    "next_action": "package_eligibility_unavailable"}})
+                            self.assertEqual(blocked["availability_status"], "eligibility_required")
+                        turn(3)
+                    elif label == "guest5":
+                        loop.call("quote_booking", plan, {
+                            "/availability-check": availability_receipt(beds),
+                            "/booking-preview": quote})
+                        shown = loop.present()
+                        turn(1)
+
+                    if label != "guest5":
+                        quoted = loop.call("quote_booking", plan, {
+                            "/availability-check": availability_receipt(beds),
+                            "/booking-preview": quote})
+                        self.assertTrue(quoted["success"], quoted)
+                    if label != "guest5":
+                        shown = loop.present()
+                    self.assertIn(f"{facts['total_cents'] / 100:.2f} EUR", shown)
+                    self.assertEqual(quote["deposit_required_cents"], meta["deposit"])
+                    if label == "guest4":
+                        self.assertEqual(quote["payment_link_amount_cents"], 12000)
+                        turn(4)
+                    elif label in ("guest2", "guest3"):
+                        turn(2)
+
+                    acceptance = meta["turns"][-1]
+                    interpreted = loop.call("interpret_booking_turn", {
+                        "action": "accept", "action_evidence": acceptance,
                         "ambiguous": False, "negated": False, "conditional": False,
                         "material_changes": [], "completions": {}}, {})
-                    self.assertTrue(consent["success"], consent)
+                    self.assertTrue(interpreted["success"], interpreted)
+
+                    scenario = {"weekly_cents": 28000,
+                                "deposit_per_guest_cents": meta["deposit"] // facts["party"],
+                                "rooms": [{"room_code": code.split("-")[0],
+                                           "gender_strategy": meta["room"]}
+                                          for code in meta["beds"]]}
+                    sql_proofs = []
                     url = "https://payments.invalid/" + label
                     def receipts(route, body):
                         if route == "/availability-check":
@@ -141,40 +334,64 @@ class Sim24CheckedOfferContinuityTests(unittest.TestCase):
                         if route == "/booking-preview":
                             return quote
                         if route == "/booking-create-from-plan":
-                            self.assertEqual(body["check_in"], dates[0])
-                            self.assertEqual(body["check_out"], dates[1])
-                            self.assertEqual(body["guest_count"], facts["party"])
-                            self.assertEqual([row["name"] for row in body["guests"]], names)
-                            self.assertEqual(body["package_code"], facts["package"])
-                            self.assertEqual(body.get("add_ons") or [], facts["services"])
-                            self.assertEqual(body["payment_choice"], payment_choice)
-                            return {"success": True, "created": True, "write_performed": True,
-                                    "booking_id": "id-" + label, "booking_code": "WH-" + label,
-                                    "payment_id": "pay-" + label}
-                        if route == "/payments/pay-" + label + "/create-stripe-link":
-                            return {"success": True, "booking_id": "id-" + label,
-                                    "booking_code": "WH-" + label, "payment_id": "pay-" + label,
-                                    "guest_payment_url": url, "amount_due_cents": amount,
+                            proof = self._run_occupants(
+                                body, scenario_facts=scenario)
+                            sql_proofs.append(proof)
+                            return {**proof["body"], "success": proof["ok"],
+                                    "write_performed": proof["ok"]}
+                        if route.endswith("/create-stripe-link"):
+                            return {"success": True, "booking_id": body.get("booking_id"),
+                                    "booking_code": sql_proofs[0]["body"]["booking_code"],
+                                    "payment_id": body["payment_id"],
+                                    "guest_payment_url": url,
+                                    "amount_due_cents": facts["payment_amount_cents"],
                                     "currency": "EUR", "payment_status": "pending"}
-                        raise AssertionError((route, body))
+                        self.fail((route, body))
+
                     created = loop.call("create_booking_from_plan", {}, receipts)
                     self.assertTrue(created["success"], created)
-                    payment = loop.call("create_payment_link", {"payment_id": "pay-" + label}, receipts)
+                    payment_id = "00000000-0000-0000-0000-00000000000" + label[-1]
+                    payment = loop.call("create_payment_link", {
+                        "payment_id": payment_id}, receipts)
                     self.assertTrue(payment["success"], payment)
-                    messages = [{"role": "user", "content": "yes"},
-                                {"role": "tool", "name": "create_booking_from_plan",
-                                 "content": json.dumps({**created, "tool": "create_booking_from_plan"})},
+                    self.assertEqual(len(loop.create_dispatches), 1)
+                    self.assertEqual(len(sql_proofs), 1)
+                    proof = sql_proofs[0]
+                    self.assertEqual([row["guest_name"] for row in proof["occupants"]],
+                                     facts["names"])
+                    self.assertEqual([row["assigned_bed_code"] for row in proof["occupants"]],
+                                     meta["beds"])
+                    self.assertEqual(len(proof["bookings"]), 1)
+                    self.assertEqual(len(proof["money"]["payments"]), 1)
+                    self.assertEqual(sum(row["kind"] == "booking_create"
+                                         for row in proof["sql_calls"]), 1)
+                    payment_routes = [row for row in loop.staff
+                                      if row["route"].startswith("/payments/")]
+                    self.assertEqual(len(payment_routes), 1)
+
+                    messages = [{"role": "tool", "name": "create_booking_from_plan",
+                                 "content": json.dumps({**created,
+                                     "tool": "create_booking_from_plan"})},
                                 {"role": "tool", "name": "create_payment_link",
-                                 "content": json.dumps({**payment, "tool": "create_payment_link"})},
+                                 "content": json.dumps({**payment,
+                                     "tool": "create_payment_link"})},
                                 {"role": "assistant", "content": "untrusted draft"}]
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": "untrusted draft", "messages": messages})
-                    self.assertIn(headings[language], final["final_response"])
                     self.assertIn(url, final["final_response"])
-                    self.assertIn(f"{amount / 100:.2f} EUR", final["final_response"])
-                    for name in names:
+                    self.assertIn(f"{facts['payment_amount_cents'] / 100:.2f} EUR",
+                                  final["final_response"])
+                    for name in facts["names"]:
                         self.assertIn(name, final["final_response"])
-                    self.assertEqual(len(loop.create_dispatches), 1)
+                    loop.db.append_message(session_id=loop.agent.session_id,
+                                           role="assistant", content=final["final_response"])
+                    history = loop.db.get_messages(loop.agent.session_id)
+                    self.assertGreater(len(history), len(turns_seen))
+                    self.assertEqual(history[-1]["content"], final["final_response"])
+                    self.assertEqual(final["messages"][-1]["content"],
+                                     final["final_response"])
+                    self.assertEqual([row["text"] for row in loop.trace
+                                      if row["kind"] == "raw_user"], meta["turns"])
                 finally:
                     loop.close()
 
