@@ -13,7 +13,7 @@ must(){ "$@" || { local rc=$?; die "$rc" "$(safe_command "$@") — exit $rc"; };
 require(){ "$@" || die 1 "assertion failed: $(safe_command "$@")"; }
 rb_error(){ ROLLBACK_ERRORS+=("$*"); printf 'ROLLBACK FAILED — %s\n' "$*" >&2; }
 regular_nolink(){ [[ -f $1 && ! -L $1 ]]; }
-atomic_restore(){ node "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
+atomic_restore(){ node -- "$BUNDLE/caddy-import-inventory.cjs" --restore "$1" "$2"; }
 controller_inactive(){ [[ $(/usr/bin/systemctl is-active luna-routing-controller.service 2>/dev/null || :) == inactive ]]; }
 controller_enabled_state(){
   local state rc
@@ -41,6 +41,22 @@ capture_public_contract(){
   do
     curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null -w '%{url_effective}\t%{http_code}\t%{ssl_verify_result}\t%{redirect_url}\n' "$url" >>"$out"||return 1
   done
+}
+wait_for_certificate(){
+  local deadline=$((SECONDS + 120)) remaining attempt_timeout
+  while (( SECONDS < deadline )); do
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
+    (( remaining < 8 )) && attempt_timeout=$remaining || attempt_timeout=8
+    if curl --silent --show-error --connect-timeout 3 --max-time "$attempt_timeout" -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"; then
+      (( SECONDS < deadline )) && return 0
+      break
+    fi
+    (( SECONDS < deadline )) || break
+    remaining=$((deadline - SECONDS))
+    (( remaining < 2 )) && sleep "$remaining" || sleep 2
+  done
+  return 1
 }
 backup_controller(){
   mkdir -p "$BACKUP/controller/files" || return 1
@@ -142,11 +158,11 @@ require /usr/bin/systemctl is-enabled --quiet luna-routing-controller.service
 must fetch_active "$BACKUP/active.after.json"
 must node "$BUNDLE/check-luna-caddy-json.cjs" verify-inactive "$BACKUP/active.after.json"
 must node "$BUNDLE/check-luna-caddy-json.cjs" compare-protected "$BACKUP/protected.before" "$BACKUP/active.after.json"
-must curl --silent --show-error --connect-timeout 3 --max-time 8 -o /dev/null "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook"
+must wait_for_certificate
 require require_unauthorized http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook "$BACKUP/local.unauth.json"
 require require_unauthorized "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" "$BACKUP/public.unauth.json"
-must node "$BUNDLE/probe-luna-routing-get.cjs" --env-file http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook /root/luna-routing.env >"$BACKUP/local.auth.json"
-must node "$BUNDLE/probe-luna-routing-get.cjs" --env-file "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" /root/luna-routing.env >"$BACKUP/public.auth.json"
+must node -- "$BUNDLE/probe-luna-routing-get.cjs" --env-file http://127.0.0.1:8096/v1/routes/meta-whatsapp-verified-webhook /root/luna-routing.env >"$BACKUP/local.auth.json"
+must node -- "$BUNDLE/probe-luna-routing-get.cjs" --env-file "https://$SITE/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook" /root/luna-routing.env >"$BACKUP/public.auth.json"
 must capture_public_contract "$BACKUP/public.after"; cmp -s "$BACKUP/public.before" "$BACKUP/public.after"||die 1 'protected HTTP/TLS/Location drifted'
 [[ $(crowsnest_state "$CROWSNEST_ID") == "$CROWSNEST_BASE" ]]||die 1 'Crow’s Nest identity/image/running/URL state drifted'
 COMMITTED=1; printf 'HOLD — France TEST controller installed inactive; activation remains HOLD.\n'

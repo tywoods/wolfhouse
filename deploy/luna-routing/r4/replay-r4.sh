@@ -8,6 +8,8 @@ bash -n "$here/run-luna-routing-r4.sh" "$here/replay-r4.sh" "$repo/deploy/luna-r
 node "$repo/scripts/verify-router-corrected-source-r1.js"
 node "$repo/scripts/verify-luna-routing-deployment.js"
 node "$here/test-installer-cleanup.cjs"
+node "$here/test-cert-readiness.cjs"
+node "$here/test-node-helper-invocations.cjs"
 node "$here/test-core.cjs"
 node "$here/test-r4.cjs"
 if [[ -n ${CADDY_BIN:-} ]]; then node "$here/test-native-caddy.cjs"; else printf 'SKIP native Caddy regression (set CADDY_BIN to reviewed v2.6.2 binary)\n'; fi
