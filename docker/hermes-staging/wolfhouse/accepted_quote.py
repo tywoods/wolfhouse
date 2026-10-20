@@ -792,7 +792,12 @@ def _prepend_revision_acknowledgement(state, text, language):
     values = {row.get('field'): row.get('value') for row in changes or []
               if isinstance(row, dict)}
     if not values.get('check_in') or not values.get('check_out'):
-        return text
+        acknowledgement = state.get('quote_date_acknowledgement') if isinstance(state, dict) else None
+        current = state.get('current_turn') if isinstance(state, dict) else None
+        if (not isinstance(acknowledgement, dict) or not isinstance(current, dict)
+                or acknowledgement.get('message_id') != current.get('message_id')):
+            return text
+        values = acknowledgement
     start = _plain_stay_date(values['check_in'], language)
     end = _plain_stay_date(values['check_out'], language)
     acknowledgements = {
@@ -1992,6 +1997,7 @@ def record_quote(params, response):
             if response.get('full_payment_only') is True:
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
+        previous_plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
         provisional = _incomplete_payment_revision(response, ingress['tenant'], prepared)
@@ -2153,6 +2159,19 @@ def record_quote(params, response):
             and response.get('quote_status') == 'needs_guest_clarification'
             and response.get('offer_revision') is None
         )
+        dates_changed = (all(isinstance(previous_plan.get(field), str) and previous_plan[field]
+                             for field in ('check_in', 'check_out'))
+                         and any(previous_plan.get(field) != plan.get(field)
+                                 for field in ('check_in', 'check_out')))
+        if (dates_changed and all(isinstance(plan.get(field), str) and plan[field]
+                                  for field in ('check_in', 'check_out'))):
+            state['quote_date_acknowledgement'] = {
+                'message_id': ingress['MESSAGE_ID'],
+                'check_in': plan['check_in'],
+                'check_out': plan['check_out'],
+            }
+        else:
+            state.pop('quote_date_acknowledgement', None)
         state.update(plan=plan, completion_plan=completion_plan,
                      quote=deepcopy(response) if (valid or unresolved_eligibility) else None,
                      status='offered' if valid else 'blocked', offer_message=ingress['MESSAGE_ID'])

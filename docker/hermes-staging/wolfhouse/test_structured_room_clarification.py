@@ -100,15 +100,69 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
         self.assertEqual(owner._final_copy("en", "refusal"), text)
         self.assertNotIn("Which package", text)
 
-    def test_corrected_dates_are_acknowledged_before_eligibility_question(self):
-        state = {"authorized_revision_changes": [
-            {"field": "check_in", "value": "2026-11-04", "evidence": "4 November"},
-            {"field": "check_out", "value": "2026-11-07", "evidence": "7 November"},
-        ]}
-        question = "Is Emma eligible for the requested women-only room?"
-        self.assertEqual(
-            "Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n" + question,
-            owner._prepend_revision_acknowledgement(state, question, "en"))
+    @staticmethod
+    def _eligibility_receipt(plan):
+        script = """
+const p = JSON.parse(process.argv[1]);
+const {buildCanonicalAvailabilityBody:b, mapBotHttpAvailabilityResponse:m,
+  AVAILABILITY_CHANNELS:C} = require('./scripts/lib/luna-front-desk-accommodation-availability-service');
+const command = {channel:C.BOT_HTTP, clientSlug:'wolfhouse-somo', checkIn:p.check_in,
+  checkOut:p.check_out, guestCount:1, roomType:'shared', roomPreference:'female_only',
+  transportBody:{guests:p.guests}};
+const inventory = {groupGenderResolved:null, allocationReason:null, allocationSplit:false,
+  rulesRooming:false, roomOptionFlags:{girls_room_available:true,private_room_available:false},
+  selectedBedCodes:[], exactBedValidation:null, selectedRoomCode:null,
+  needsClarification:true, clarificationConflict:'room_eligibility_unknown', hasEnoughBeds:true,
+  availableCount:2, availableBeds:[], occupiedBedCodes:new Set(), warnings:[], blockers:[],
+  roomingHandoff:false, selectedPrivateRoom:false};
+process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
+"""
+        return json.loads(subprocess.check_output(
+            ["node", "-e", script, json.dumps(plan)], cwd=ROOT, text=True))
+
+    def test_registered_corrected_dates_are_acknowledged_before_eligibility_question(self):
+        for checkout_only in (False, True):
+            with self.subTest(checkout_only=checkout_only):
+                loop = DeterministicRegisteredLoop(self, f"date-ack-{checkout_only}")
+                try:
+                    start = {"check_in": "2026-11-03", "check_out": "2026-11-06",
+                             "guest_count": 1, "room_type": "shared",
+                             "room_preference": "female_only", "package_code": "package_none",
+                             "payment_choice": "full", "language": "en",
+                             "guests": [{"name": "Emma"}]}
+                    loop.turn("original", "Emma needs 3–6 November in the women-only dorm; full payment.")
+                    first = loop.call("quote_booking", start,
+                                      {"/availability-check": self._eligibility_receipt(start)})
+                    owner.finalize_offer_response({"completed": True, "final_response": "draft",
+                        "messages": [{"role": "tool", "content": json.dumps(first)},
+                                     {"role": "assistant", "content": "draft"}]})
+
+                    corrected = {**start, "check_out": "2026-11-07"}
+                    if not checkout_only:
+                        corrected["check_in"] = "2026-11-04"
+                    raw = ("Keep 3 November, but change checkout to 7 November."
+                           if checkout_only else "Change the stay to 4–7 November.")
+                    loop.turn("corrected", raw)
+                    result = loop.call("quote_booking", corrected,
+                                       {"/availability-check": self._eligibility_receipt(corrected)})
+                    reply = owner.finalize_offer_response({"completed": True,
+                        "final_response": "model date acknowledgement must not be trusted",
+                        "messages": [{"role": "user", "content": raw},
+                                     {"role": "tool", "content": json.dumps(result)},
+                                     {"role": "assistant", "content": "model draft"}]})
+                    expected = ("Thanks — I’ve updated the stay to "
+                                f"{'Tue 3 Nov' if checkout_only else 'Wed 4 Nov'} to Sat 7 Nov.\n"
+                                "Is Emma eligible for the requested women-only room?")
+                    self.assertEqual(reply["final_response"], expected)
+                    self.assertEqual(reply["messages"][-1]["content"], expected)
+                    state = owner._transaction(lambda current, _ingress: dict(current))
+                    self.assertEqual((state["plan"]["check_in"], state["plan"]["check_out"]),
+                                     (corrected["check_in"], corrected["check_out"]))
+                    self.assertEqual(state["completion_plan"]["payment_choice"], "full")
+                    self.assertEqual(state["plan"]["room_preference"], "female_only")
+                    self.assertFalse(loop.create_dispatches)
+                finally:
+                    loop.close()
 
     def test_french_singleton_eligibility_is_neutral_for_named_and_unnamed_guests(self):
         for room, name, expected in (
@@ -126,27 +180,27 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
     def test_sim23_five_capture_outcomes_registered_render_create_and_sql(self):
         """Each immutable Sim23 outcome crosses registered quote/create and PGlite."""
         cases = (
-            {"label": "lucia", "dates": ("2026-11-04", "2026-11-07"),
-             "names": ("Lucía",), "beds": ("R3-B1",), "payment": "deposit",
-             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "mixed", "preference": "mixed"},
+            {"label": "lucia", "dates": ("2026-11-09", "2026-11-12"),
+             "names": ("Lucía Fernández Ruiz",), "beds": ("R3-B1",), "payment": "deposit",
+             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "flexible",
+             "preference": "mixed", "language": "es", "gender": "female"},
             {"label": "french-group", "dates": ("2026-11-06", "2026-11-08"),
              "names": ("Camille Martin", "Léa Dubois", "Hugo Bernard"),
-             "genders": ("female", "female", "male"), "group_gender": "mixed",
              "beds": ("R1-B1", "R1-B2", "R1-B3"), "payment": "full",
-             "total": 24000, "deposit": 24000, "weekly": 28000, "room": "mixed", "preference": "mixed",
+             "total": 24000, "deposit": 24000, "weekly": 28000, "room": "flexible", "preference": "mixed",
              "language": "fr"},
-            {"label": "becker", "dates": ("2026-11-11", "2026-11-14"),
+            {"label": "becker", "dates": ("2026-11-23", "2026-11-26"),
              "names": ("Jonas Becker", "Felix Becker"),
              "beds": ("R4-B1", "R4-B2"), "payment": "deposit",
              "total": 24000, "deposit": 20000, "weekly": 28000, "room": "male preferred",
              "preference": "male_only", "language": "de", "gender": "male"},
             {"label": "emma", "dates": ("2026-11-04", "2026-11-07"),
              "names": ("Emma Clarke",), "beds": ("R8-B4",), "payment": "full",
-             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "female_only",
+             "total": 12000, "deposit": 10000, "weekly": 28000, "room": "female preferred",
              "preference": "female_only", "gender": "female"},
-            {"label": "raj", "dates": ("2026-11-20", "2026-11-22"),
+            {"label": "raj", "dates": ("2026-11-06", "2026-11-08"),
              "names": ("Raj Patel",), "beds": ("R1-B4",), "payment": "full",
-             "total": 8000, "deposit": 8000, "weekly": 28000, "room": "Flexible",
+             "total": 8000, "deposit": 8000, "weekly": 28000, "room": "flexible",
              "preference": "room 1", "gender": "male"},
         )
         for case in cases:
@@ -176,8 +230,7 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                     if case.get("group_gender") or case.get("gender"):
                         plan["group_gender"] = case.get("group_gender") or case["gender"]
                     raw_quote = checked_staff_quote(
-                        plan, beds, total=case["total"], deposit=case["deposit"],
-                        full_payment_only=(case["payment"] == "full"))
+                        plan, beds, total=case["total"], deposit=case["deposit"])
                     loop.turn(f"{case['label']}-quote", "Quote this exact captured stay")
                     quoted = loop.call("quote_booking", plan, {
                         "/availability-check": availability_receipt(beds),
@@ -196,13 +249,25 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                         "ambiguous": False, "negated": False, "conditional": False,
                         "material_changes": [], "completions": {}}, {})
                     self.assertTrue(interpreted["success"], interpreted)
+                    facts = {"weekly_cents": case["weekly"],
+                             "deposit_per_guest_cents": case["deposit"] // len(case["names"]),
+                             "rooms": [{"room_code": code.split("-B", 1)[0],
+                                        "gender_strategy": case["room"]}
+                                       for code in case["beds"]]}
+                    sql_proofs = []
                     def responses(route, body):
                         if route == "/availability-check":
                             return create_recheck_receipt(beds, body)
                         if route == "/booking-create-from-plan":
-                            return {"success": True, "created": True, "write_performed": True,
-                                    "booking_id": f"sim23-{case['label']}-one"}
+                            proof = self._run_occupants(body, scenario_facts=facts)
+                            sql_proofs.append(proof)
+                            return {**proof["body"], "success": proof["ok"],
+                                    "write_performed": proof["ok"]}
+                        if route.startswith("/payments/"):
+                            return {"success": False, "intentionally_blocked": True,
+                                    "reason_code": "offline_payment_link_disabled"}
                         self.fail(f"unexpected route {route}")
+
                     created = loop.call("create_booking_from_plan", {}, responses)
                     self.assertTrue(created["success"], created)
                     self.assertEqual(len(loop.create_dispatches), 1, loop.trace)
@@ -214,34 +279,20 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                     self.assertEqual(sent["accepted_offer"]["total_cents"], case["total"])
                     self.assertEqual(sent["accepted_offer"]["deposit_required_cents"], case["deposit"])
 
-                    # Default behavior remains fail-closed. Lucía's capture-derived room label
-                    # differs from committed inventory; Raj's matching-room offer isolates price.
-                    if case["label"] == "lucia":
-                        rejected = self._run_occupants(sent)
-                        self.assertFalse(rejected["ok"], rejected)
-                        self.assertEqual(rejected["body"]["detail"],
-                                         "room_eligibility_changed")
-                        self.assertEqual(sum(row["kind"] == "booking_create"
-                                             for row in rejected["sql_calls"]), 0)
-                    if case["label"] == "raj":
-                        changed_price = json.loads(json.dumps(sent))
-                        changed_price["accepted_offer"]["total_cents"] += 1
-                        rejected = self._run_occupants(changed_price, recompute_offer=True)
-                        self.assertFalse(rejected["ok"], rejected)
-                        self.assertEqual(rejected["body"]["detail"],
-                                         "payment_terms_changed")
-                        self.assertEqual(sum(row["kind"] == "booking_create"
-                                             for row in rejected["sql_calls"]), 0)
+                    # Generic alternative-input failure continuation: the same DB
+                    # facts reject changed accepted money with no booking write.
+                    failure_body = json.loads(json.dumps(sent))
+                    failure_body["accepted_offer"]["total_cents"] += 1
+                    failed = self._run_occupants(
+                        failure_body, scenario_facts=facts, recompute_offer=True)
+                    self.assertFalse(failed["ok"], failed)
+                    self.assertEqual(sum(row["kind"] == "booking_create"
+                                         for row in failed["sql_calls"]), 0)
 
-                    # Send the exact registered request, including accepted_offer, through the
-                    # ordinary builder/executor in one isolated PGlite operation. The opaque
-                    # in-process fixture capability aligns only this test DB's room/price rows.
-                    facts = {"weekly_cents": case["weekly"],
-                             "deposit_per_guest_cents": case["deposit"] // len(case["names"]),
-                             "rooms": [{"room_code": code.split("-B", 1)[0],
-                                        "gender_strategy": case["room"]}
-                                       for code in case["beds"]]}
-                    proof = self._run_occupants(sent, scenario_facts=facts)
+                    # The registered owner completion above returned this real SQL
+                    # receipt; it is not a handcrafted success followed by separate SQL.
+                    self.assertEqual(len(sql_proofs), 1)
+                    proof = sql_proofs[0]
                     self.assertTrue(proof["ok"], proof)
                     self.assertEqual(len(proof["bookings"]), 1, proof)
                     self.assertEqual([row["assigned_bed_code"] for row in proof["occupants"]],
@@ -249,6 +300,15 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
                     self.assertEqual(sum(row["kind"] == "booking_create"
                                          for row in proof["sql_calls"]), 1)
                     self.assertEqual(proof["network_attempts"], [])
+                    self.assertEqual(len(proof["money"]["payments"]), 1, proof)
+                    self.assertEqual(proof["money"]["payments"][0]["status"], "draft")
+                    final_text = f"Booking {created['booking_code']} created."
+                    final = owner.finalize_offer_response({"completed": True,
+                        "final_response": final_text,
+                        "messages": [{"role": "tool", "content": json.dumps(created)},
+                                     {"role": "assistant", "content": final_text}]})
+                    self.assertEqual(final["final_response"], final["messages"][-1]["content"])
+                    self.assertIn(created["booking_code"], final["final_response"])
                     if case["label"] == "lucia":
                         for label, mutation, detail in (
                             ("price", {"total_cents": case["total"] + 100}, "payment_terms_changed"),

@@ -96,10 +96,11 @@ The historical G3 full package-preview response remains unavailable. The package
 
 The Sim23 French fixture now carries the supplied historical facts independently of the
 request under test: 6–8 November 2026, Camille Martin / Léa Dubois / Hugo Bernard,
-mixed R1-B1/R1-B2/R1-B3, package none, French, and one full €240 payment line. Enabled
+flexible R1-B1/R1-B2/R1-B3 with no invented per-person genders, package none, French,
+and one chosen full €240 payment line (not a derived full-payment-only policy). Enabled
 fixture-capability controls mutate price, deposit, and room strategy and must reject with
-zero booking writes. Emma retains 4–7 November, R8-B4, €100 required deposit, and the
-chosen €120 full payment.
+zero booking writes. Emma retains 4–7 November, R8-B4 with `female preferred`, €100
+required deposit, and the chosen €120 full payment.
 
 The localized helper's stale French expectation changed only from
 `Bea peut-elle séjourner…` to neutral named wording `Est-ce que Bea peut séjourner…`.
@@ -110,9 +111,11 @@ retaining the same eligibility question and women-only room fact.
 
 The occupants verifier exports an opaque, process-local fixture capability; no CLI flag or
 environment variable enables it. It is bound to the exact registered create body and changes only
-the isolated PGlite room/pricing rows. All five registered Sim23 dispatches now pass their complete
-`/booking-create-from-plan` bodies (including checked `accepted_offer`) into the same create
-operation and each proves one booking, one `booking_create`, and occupant/bed readback. The
-default-off controls prove mismatched room and price offers fail before writes with
-`room_eligibility_changed` and `payment_terms_changed`. Committed inventory, tariffs, offer
-identity, and production validators are unchanged.
+the isolated PGlite room/pricing rows. Each of the five retained Sim23 inputs now preserves its
+captured dates, full names, language, explicit person facts, bed/room facts, and commercial terms.
+The registered `/booking-create-from-plan` dispatch executes the isolated SQL operation and returns
+that real result through owner completion before assertions cover the persisted booking, occupants,
+payment, and final reply. Missing historical backend receipts remain explicitly synthetic; the test
+does not invent a historical failure cause. Generic alternative-input failure controls are separately
+labelled and reject with zero booking writes. Committed inventory, tariffs, offer identity, and
+production validators are unchanged.
