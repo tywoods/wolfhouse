@@ -196,6 +196,7 @@ function langOf(result, priorGuestContext, messageText) {
 }
 
 function formatEur(cents) {
+  if (cents == null) return null;
   const n = Number(cents);
   if (!Number.isFinite(n) || n < 0) return null;
   const euros = n / 100;
@@ -258,18 +259,33 @@ function depositCentsFromPayload(quote, plan, pc) {
   return null;
 }
 
-function buildStyledStayQuote(fields, quote, lang = 'en', roomDesc = 'A bed in a shared room') {
+function buildStyledStayQuote(fields, quote, lang = 'en', variant = 'package') {
   const range = formatStyledDateRange(fields.check_in, fields.check_out) || 'your dates';
   const guests = guestCountLabel(fields.guest_count, lang) || '1 guest';
-  const total = formatEur(quote && quote.quote_total_cents) || '€0';
+  const total = formatEur(quote && quote.quote_total_cents);
+  if (!total) return null;
   const depCents = depositCentsFromPayload(quote, null, null);
-  const deposit = formatEur(depCents) || total;
+  const deposit = formatEur(depCents);
+  const packageName = trimStr(fields.package_interest || fields.package_code);
+  const stayLabel = variant === 'accommodation'
+    ? 'Accommodation'
+    : (packageName ? `${packageName.charAt(0).toUpperCase()}${packageName.slice(1)} package` : 'Your stay');
+  const roomType = trimStr(quote && quote.room_type).toLowerCase();
+  const roomLabels = {
+    shared: 'A bed in a shared room',
+    private: 'A private room',
+    double: 'A double room',
+  };
+  const roomLine = roomLabels[roomType] ? `\n🛏️ ${roomLabels[roomType]}` : '';
+  const paymentLine = deposit
+    ? `You can pay a ${deposit} deposit now or the full ${total}. Which would you like?`
+    : `You can pay the full ${total} now. Would you like the payment link?`;
   return `Here's your stay 🌊
 📅 ${range} · ${guests}
-🛏️ ${roomDesc}
+🏄 ${stayLabel}${roomLine}
 💶 Total: ${total}
 
-You can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
+${paymentLine}`;
 }
 
 function sanitizeComposerReply(text) {
@@ -1114,7 +1130,7 @@ function buildReplyForState(state, ctx) {
       return `Perfect — ${ctx} 😊 For 7-night stays, most guests choose one of the surf packages: Malibu, Uluwatu, or Waimea. Want me to explain them quickly, or do you already know which one you prefer?`;
     },
     accommodation_quote: () => {
-      return buildStyledStayQuote(fields, quote, lang);
+      return buildStyledStayQuote(fields, quote, lang, 'accommodation');
     },
     package_quote: () => {
       return buildStyledStayQuote(fields, quote, lang);
@@ -1134,9 +1150,9 @@ function buildReplyForState(state, ctx) {
         : '';
       const hasCollectedAddons = cls.priced.length + cls.pending_manual.length > 0;
       if (hasCollectedAddons) {
-        return `Got it — I've noted those extras.${manualNote}\\n\\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
+        return `Got it — I've noted those extras.${manualNote}\n\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
       }
-      return `Perfect — accommodation only then 😊${manualNote}\\n\\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
+      return `Perfect — accommodation only then 😊${manualNote}\n\nYou can pay a ${deposit} deposit now or the full ${total}. Which would you like?`;
     },
     answer_arrival_payment_question: () => {
       if (!deposit || !total) {

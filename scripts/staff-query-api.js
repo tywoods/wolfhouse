@@ -52333,16 +52333,20 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const date = explicitDate || getMadridCalendarYmd(day);
   let structured = null;
   let outcome = null;
-  try {
-    structured = await fetchStormglassForecast({
-      locationId: forecastLocationId,
-      date,
-      startHour: tonight ? 18 : 0,
-      endHour: 24,
-      timeoutMs: 8000,
-    });
-  } catch (err) {
-    outcome = (err && err.code) || 'UPSTREAM_ERROR';
+  if (day === 'week') {
+    outcome = 'UNSUPPORTED_RANGE';
+  } else {
+    try {
+      structured = await fetchStormglassForecast({
+        locationId: forecastLocationId,
+        date,
+        startHour: tonight ? 18 : 0,
+        endHour: 24,
+        timeoutMs: 8000,
+      });
+    } catch (err) {
+      outcome = (err && err.code) || 'UPSTREAM_ERROR';
+    }
   }
 
   if (!structured) {
