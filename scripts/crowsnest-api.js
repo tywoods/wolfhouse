@@ -186,6 +186,7 @@ const {
   readLunaNumberRoute,
   flipLunaNumberRoute,
   rollbackLunaNumberRoute,
+  identityConfirmationError,
   isStagingEnvironment: isLunaNumberRoutingStaging,
 } = require('./lib/crowsnest/crowsnest-luna-number-routing');
 
@@ -507,6 +508,8 @@ async function handleLunaNumberRoute(req, res, method, action) {
   try { raw = await readLimitedBody(req, 16 * 1024); } catch (_) { return sendPayloadTooLarge(res); }
   const parsed = parseJsonBody(raw);
   if (!parsed.ok) return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  const identityError = identityConfirmationError(parsed.body, process.env);
+  if (identityError) return sendJSON(res, 422, { ok: false, code: identityError }, { 'Cache-Control': 'no-store' });
   const result = action === 'flip'
     ? await flipLunaNumberRoute(parsed.body, actor)
     : await rollbackLunaNumberRoute(parsed.body, actor);
@@ -1346,7 +1349,11 @@ async function handleLogout(req, res, method) {
 }
 
 const LUNA_ROUTING_PREFIX = '/api/staging/luna-routing/';
-const LUNA_ROUTING_NUMBER_ID = 'staging-es-34663439419';
+const waIdentity = require('./lib/whatsapp-runtime-identity');
+function configuredRoutingNumberId(env = process.env) {
+  const snapshot = waIdentity.publicSnapshot(env);
+  return snapshot.ok ? snapshot.profileId : '';
+}
 const LUNA_ROUTING_TARGET_IDS = new Set(['sunset', 'wolfhouse']);
 const LUNA_ROUTING_METHODS = Object.freeze({ targets: 'GET', effective: 'GET', audit: 'GET', confirm: 'POST', apply: 'POST' });
 
@@ -1362,7 +1369,8 @@ function resolveLunaRoutingControllerBaseUrl() {
 
 function validateLunaRoutingMutation(action, body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid_json_body';
-  if (body.number_id !== LUNA_ROUTING_NUMBER_ID) return 'unknown_or_production_number_denied';
+  const configuredNumberId = configuredRoutingNumberId();
+  if (!configuredNumberId || body.number_id !== configuredNumberId) return 'unknown_or_production_number_denied';
   if (!LUNA_ROUTING_TARGET_IDS.has(body.target_id)) return 'unknown_target_denied';
   if (!LUNA_ROUTING_TARGET_IDS.has(body.expected_old_target_id)) return 'invalid_expected_old_target';
   if (action === 'apply' && (typeof body.confirmation_token !== 'string' || body.confirmation_token.length < 8 || body.confirmation_token.length > 512)) return 'invalid_confirmation_token';
@@ -1387,7 +1395,7 @@ async function handleLunaRoutingController(req, res, method, pathname) {
     const parsed = parsedResult.body;
     const validationError = validateLunaRoutingMutation(action, parsed);
     if (validationError) return sendJSON(res, 400, { ok: false, error: validationError });
-    const safeBody = { number_id: LUNA_ROUTING_NUMBER_ID, target_id: parsed.target_id, expected_old_target_id: parsed.expected_old_target_id };
+    const safeBody = { number_id: configuredRoutingNumberId(), target_id: parsed.target_id, expected_old_target_id: parsed.expected_old_target_id };
     if (action === 'apply') safeBody.confirmation_token = parsed.confirmation_token;
     bodyText = JSON.stringify(safeBody);
   }

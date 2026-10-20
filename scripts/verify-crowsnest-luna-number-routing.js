@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const cp = require('child_process');
 const routing = require('./lib/crowsnest/crowsnest-luna-number-routing');
 const ctl = require('./luna-number-routing-controller');
 const crowsnestApi = require('./crowsnest-api');
@@ -157,6 +158,94 @@ function localControllerTransport(port) { return (_url, options) => fetch(`http:
   });
   await test('Crow’s Nest production route is not exposed when fully configured', async () => { const saved = { ...process.env }; Object.assign(process.env, {...env(),NODE_ENV:'production',CROWSNEST_ENVIRONMENT:'production'}); try { await withServer(crowsnestApi.router, async (port) => { const response=await fetch(`http://127.0.0.1:${port}/api/communications/luna-number-route/flip-to-sunset`,{method:'POST',headers:{'content-type':'application/json'},body:'{}'}); assert.equal(response.status,404); assert.equal((await response.json()).code,'routing_not_available'); }); } finally { for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]; Object.assign(process.env,saved); } });
   await test('controller POST requires application/json and removes fake mTLS', async () => { const key = 'z'.repeat(32); await withServer(ctl.makeHandler({ key, mutate: async () => ({ status: 200, body: { ok: true } }) }), async (port) => { const body = '{}'; const headers = routing.signedHeaders('POST', ctl.ROUTE_PATH, body, key); const response = await fetch(`http://127.0.0.1:${port}${ctl.ROUTE_PATH}`, { method: 'POST', headers, body }); assert.equal(response.status, 415); }); const source = fs.readFileSync(path.join(__dirname, 'luna-number-routing-controller.js'), 'utf8'); assert.doesNotMatch(source, /requestCert|rejectUnauthorized/); });
-  await test('migration separates owner/API/runtime and pooled transactions reset role', () => { const sql = fs.readFileSync(path.join(__dirname, '../database/migrations/103_crowsnest_comms_number_route_audit.sql'), 'utf8'); assert.match(sql, /SET LOCAL ROLE crowsnest_comms_owner/); assert.doesNotMatch(sql, /CREATE ROLE|runtime_login|GRANT crowsnest_api TO current_user/); assert.match(sql, /CREATE SCHEMA IF NOT EXISTS crowsnest_comms AUTHORIZATION crowsnest_comms_owner/); const provision = fs.readFileSync(path.join(__dirname, 'provision-crowsnest-comms-runtime-role.sh'), 'utf8'); assert.match(provision, /rolcanlogin/); assert.match(provision, /directly owns database objects/); assert.match(provision, /GRANT crowsnest_api TO/); const apiSource = fs.readFileSync(path.join(__dirname, 'lib/crowsnest/crowsnest-luna-number-routing.js'), 'utf8'); assert.doesNotMatch(apiSource, /query\('SET ROLE/); assert.match(apiSource, /query\('BEGIN'\)[\s\S]*query\('SET LOCAL ROLE crowsnest_api'\)/); });
+  await test('migration separates owner/API/runtime and pooled transactions reset role', () => { const sql = fs.readFileSync(path.join(__dirname, '../database/migrations/103_crowsnest_comms_number_route_audit.sql'), 'utf8'); assert.match(sql, /SET LOCAL ROLE crowsnest_comms_owner/); assert.doesNotMatch(sql, /CREATE ROLE|runtime_login|GRANT crowsnest_api TO current_user/); assert.match(sql, /CREATE SCHEMA IF NOT EXISTS crowsnest_comms AUTHORIZATION crowsnest_comms_owner/); assert.match(sql, /number_id text/); assert.match(sql, /phone_number_id text/); assert.match(sql, /number_e164 text/); assert.match(sql, /number_route_identity_complete/); assert.match(sql, /ADD COLUMN IF NOT EXISTS number_id text/); assert.match(sql, /ADD COLUMN IF NOT EXISTS phone_number_id text/); assert.match(sql, /ADD COLUMN IF NOT EXISTS number_e164 text/); assert.doesNotMatch(sql, /UPDATE crowsnest_comms\.number_route_operations SET number_id/); const upgrade = fs.readFileSync(path.join(__dirname, '../database/migrations/113_crowsnest_comms_number_route_identity_upgrade.sql'), 'utf8'); assert.match(upgrade, /ADD COLUMN IF NOT EXISTS number_id text/); assert.match(upgrade, /number_route_identity_complete/); assert.doesNotMatch(upgrade, /UPDATE crowsnest_comms\.number_route_operations/); assert.doesNotMatch(upgrade, /CREATE ROLE|runtime_login|GRANT crowsnest_api TO current_user/); const provision = fs.readFileSync(path.join(__dirname, 'provision-crowsnest-comms-runtime-role.sh'), 'utf8'); assert.match(provision, /rolcanlogin/); assert.match(provision, /directly owns database objects/); assert.match(provision, /GRANT crowsnest_api TO/); const apiSource = fs.readFileSync(path.join(__dirname, 'lib/crowsnest/crowsnest-luna-number-routing.js'), 'utf8'); assert.doesNotMatch(apiSource, /query\('SET ROLE/); assert.match(apiSource, /query\('BEGIN'\)[\s\S]*query\('SET LOCAL ROLE crowsnest_api'\)/); });
+  await test('API audit replay binds the selected confirmation tuple before cached success', async () => {
+    const { PGlite } = require('@electric-sql/pglite');
+    const db = new PGlite();
+    await db.exec('CREATE ROLE crowsnest_comms_owner NOLOGIN; CREATE ROLE crowsnest_api NOLOGIN; GRANT CREATE ON DATABASE postgres TO crowsnest_comms_owner;');
+    await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations/103_crowsnest_comms_number_route_audit.sql'), 'utf8'));
+    const pool = { async connect() { return { async query(sql, params) { const result = await db.query(sql, params); return { ...result, rowCount: result.rowCount === undefined ? result.affectedRows : result.rowCount }; }, release() {} }; }, async end() {} };
+    const store = routing.createAuditStore('fixture-only', () => pool);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'route-audit-'));
+    const fragmentFile = path.join(dir, 'route.caddy');
+    fs.writeFileSync(fragmentFile, ctl.managedBlock('wolfhouse'));
+    const revision = ctl.parseRoute(fs.readFileSync(fragmentFile, 'utf8')).revision;
+    const cfg = { apps: { http: { servers: { fixture: { routes: [{ match: [{ host: [ctl.FRANCE_STAGING_SITE], path: [ctl.EXACT_PATH] }], terminal: true, handle: [{ handler: 'subroute', routes: [{ handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: ctl.TARGETS.wolfhouse }] }] }] }] }] } } } } };
+    let hostCommands = 0;
+    let transports = 0;
+    function makeController(identityEnv) {
+      return ctl.createController({
+        env: identityEnv,
+        fragmentFile,
+        stateDir: dir,
+        expectedSite: ctl.FRANCE_STAGING_SITE,
+        mutationsEnabled: true,
+        hmacKey: env().CROWSNEST_LUNA_ROUTING_CONTROLLER_HMAC_KEY,
+        fetch: async (url) => { assert.equal(url, 'http://127.0.0.1:2019/config/'); return { ok: true, json: async () => cfg }; },
+        exec: async () => { hostCommands += 1; throw new Error('host command prohibited'); },
+      });
+    }
+    const common = { WA_BUSINESS_ACCOUNT_ID: '123456780001', WA_APP_ID: '123456780002', LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: '+1 555 555 0101' };
+    const identityA = { ...env(), ...common, WA_PHONE_NUMBER_ID: '123456780003', LUNA_STAGING_WHATSAPP_NUMBER_E164: '+15555550101', LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: '+1 555 555 0101' };
+    const identityB = { ...env(), ...common, WA_PHONE_NUMBER_ID: '123456780004', LUNA_STAGING_WHATSAPP_NUMBER_E164: '+15555550102', LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: '+1 555 555 0102' };
+    const actor = { account_id: 'earthling', username: 'offline-review' };
+    function request(identity, operationId) {
+      return { operation_id: operationId, expected_revision: revision, number_id: identity.WA_PHONE_NUMBER_ID, phone_number_id: identity.WA_PHONE_NUMBER_ID, number_e164: identity.LUNA_STAGING_WHATSAPP_NUMBER_E164 };
+    }
+    let active = makeController(env());
+    async function transport(url, options) {
+      assert.equal(url, env().CROWSNEST_LUNA_ROUTING_CONTROLLER_URL);
+      transports += 1;
+      const result = await active.mutate(JSON.parse(options.body));
+      return { ok: result.status >= 200 && result.status < 300, status: result.status, json: async () => result.body };
+    }
+    const opts = (identity) => ({ env: identity, auditStore: store, transport });
+    const unselectedId = crypto.randomUUID();
+    const unselected = await routing.rollbackLunaNumberRoute({ operation_id: unselectedId, expected_revision: revision }, actor, opts(env()));
+    assert.equal(unselected.ok, true, JSON.stringify(unselected));
+    const unselectedReplay = await routing.rollbackLunaNumberRoute({ operation_id: unselectedId, expected_revision: revision }, actor, opts(env()));
+    assert.deepEqual(unselectedReplay, unselected);
+    assert.equal(transports, 1);
+    active = makeController(identityA);
+    const operationId = crypto.randomUUID();
+    const initial = await routing.rollbackLunaNumberRoute(request(identityA, operationId), actor, opts(identityA));
+    assert.equal(initial.ok, true);
+    assert.equal(transports, 2);
+    const same = await routing.rollbackLunaNumberRoute(request(identityA, operationId), actor, opts(identityA));
+    assert.deepEqual(same, initial);
+    assert.equal(transports, 2);
+    active = makeController(identityB);
+    const stale = await routing.rollbackLunaNumberRoute(request(identityA, operationId), actor, opts(identityB));
+    assert.equal(stale.code, 'stale_identity');
+    assert.equal(transports, 2);
+    const cross = await routing.rollbackLunaNumberRoute(request(identityB, operationId), actor, opts(identityB));
+    assert.equal(cross.ok, false);
+    assert.equal(cross.code, 'operation_id_conflict');
+    assert.equal(transports, 2);
+    const direct = await active.mutate({ ...request(identityB, operationId), action: 'rollback_to_wolfhouse', actor_account_id: actor.account_id });
+    assert.equal(direct.status, 409);
+    assert.equal(direct.body.code, 'operation_id_conflict');
+    const fresh = await routing.rollbackLunaNumberRoute(request(identityB, crypto.randomUUID()), actor, opts(identityB));
+    assert.equal(fresh.ok, true);
+    assert.equal(transports, 3);
+    const drifted = { ...identityA, LUNA_STAGING_WHATSAPP_NUMBER_E164: '+15555550109', LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY: '+1 555 555 0109' };
+    const sparse = await routing.rollbackLunaNumberRoute({ operation_id: operationId, expected_revision: revision, number_id: identityA.WA_PHONE_NUMBER_ID }, actor, opts(drifted));
+    assert.equal(sparse.code, 'stale_identity');
+    assert.equal(transports, 3);
+    const rebound = await routing.rollbackLunaNumberRoute({ ...request(identityA, operationId), number_e164: drifted.LUNA_STAGING_WHATSAPP_NUMBER_E164 }, actor, opts(drifted));
+    assert.equal(rebound.code, 'operation_id_conflict');
+    assert.equal(transports, 3);
+    assert.equal(hostCommands, 0);
+    const stored = await db.query('SELECT number_id, phone_number_id, number_e164 FROM crowsnest_comms.number_route_operations WHERE operation_id=$1', [operationId]);
+    assert.equal(stored.rows[0].number_id, identityA.WA_PHONE_NUMBER_ID);
+    assert.equal(stored.rows[0].phone_number_id, identityA.WA_PHONE_NUMBER_ID);
+    assert.equal(stored.rows[0].number_e164, identityA.LUNA_STAGING_WHATSAPP_NUMBER_E164);
+    await db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  await test('existing audit schema upgrades through migration 103 and 113', () => {
+    const child = cp.spawnSync(process.execPath, [path.join(__dirname, 'verify-crowsnest-number-route-identity-upgrade.js')], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+  });
   console.log(`\n${passed} tests passed`); if (process.exitCode) process.exit(process.exitCode);
 })().catch((error) => { console.error(error); process.exit(1); });

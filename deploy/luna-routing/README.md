@@ -142,6 +142,35 @@ report `ROLLBACK INCOMPLETE` if any restoration command fails. Do not copy a pri
 journal or ledger. Meta callback changes, webhook activation, Luna restarts, guest sends,
 and a second active receiver remain separate prohibited operations.
 
+### France public identity (not an install)
+
+France TEST reads public IDs from the controller environment and does not
+embed a phone number. Router delivery stays OFF: `LUNA_ROUTING_MUTATIONS_ENABLED`
+remains false, and this repository change does not authorize `--install`, a
+gateway restart, a callback change, or any send.
+
+The operator-owned file `/root/wa-luna-ar.env` (root:root 0600) is loaded by
+compose `env_file` or systemd `EnvironmentFile` for TEST Luna and Staff. Its
+variable names are `WA_PHONE_NUMBER_ID`, `WA_BUSINESS_ACCOUNT_ID`, `WA_APP_ID`,
+`WA_ACCESS_TOKEN`, and `WA_APP_SECRET`. It has no telephone-number variable.
+The controller env file may contain the three public IDs plus
+`LUNA_STAGING_WHATSAPP_NUMBER_E164` and `LUNA_STAGING_WHATSAPP_NUMBER_DISPLAY`.
+It must reject the token and app secret. See `controller.france.env.example`.
+Missing or empty values fail closed. There is no fallback to an old number,
+an old token, or a vault name once any WA key is present. An unselected
+process keeps the historical proof only; that is not a France fallback.
+
+Staff for the selected profile starts with
+`npm run staff:api:selected-whatsapp` so the mapping runs before
+`staff-query-api.js`. France TEST Staff is the service that loads
+`/root/wa-luna-ar.env`. The checked-in unit name is unverified; the later
+landing must set that service's command to `staff:api:selected-whatsapp`.
+The existing `staff:api` script, the root image CMD, Sunset
+`luna-sunset-staging-staff-api`, and Azure `wh-staging-staff-api` stay on
+`npm run staff:api`. Do not run the selected start command as part of this
+change. Router policy stays off. Observed delivery is not reported as off
+when the route is active, missing, or failed.
+
 ## Database order (Azure PostgreSQL)
 
 Azure live acceptance is a deployment prerequisite; static SQL checks cannot prove the
@@ -152,7 +181,11 @@ the designated Azure admin principal:
    validates NOLOGIN owner/API roles and establishes explicit membership/admin options.
 2. Run canonical migration 103 with that admin/migration principal. It requires the
    roles, executes `SET LOCAL ROLE crowsnest_comms_owner`, creates objects directly under
-   that owner, and grants only API privileges.
+   that owner, and grants only API privileges. Re-running 103 upgrades an already-created
+   audit table: it adds `number_id`, `phone_number_id`, and `number_e164` plus the
+   all-null-or-all-present constraint, and does not rewrite historical rows. If 103 is
+   already recorded as applied and will not be executed again, run migration 113 instead.
+   Do not backfill an identity. A null tuple is not a wildcard.
 3. Create a distinct safe LOGIN using the platform process, then run
    `CROWSNEST_ADMIN_DSN=... CROWSNEST_RUNTIME_ROLE=... scripts/provision-crowsnest-comms-runtime-role.sh`.
    It validates LOGIN attributes, admin authority, API membership, and absence of direct

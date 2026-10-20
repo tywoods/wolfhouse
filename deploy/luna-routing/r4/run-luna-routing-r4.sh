@@ -62,7 +62,7 @@ backup_controller(){
   mkdir -p "$BACKUP/controller/files" || return 1
   : >"$BACKUP/controller/manifest" || return 1
   local i=0 p
-  for p in /var/lib/luna-routing/luna-number-route.caddy /etc/luna-routing/controller.env /opt/luna-routing/luna-number-routing-controller.js /etc/systemd/system/luna-routing-controller.service /etc/sudoers.d/luna-routing /etc/tmpfiles.d/luna-routing.conf; do
+  for p in /var/lib/luna-routing/luna-number-route.caddy /etc/luna-routing/controller.env /opt/luna-routing/luna-number-routing-controller.js /opt/luna-routing/lib/whatsapp-runtime-identity.js /etc/systemd/system/luna-routing-controller.service /etc/sudoers.d/luna-routing /etc/tmpfiles.d/luna-routing.conf; do
     [[ ! -L $p ]]||return 1
     if [[ -e $p ]];then cp -a "$p" "$BACKUP/controller/files/$i"||return 1; printf 'PRESENT\t%s\t%s\n' "$i" "$p">>"$BACKUP/controller/manifest";else printf 'ABSENT\t-\t%s\n' "$p">>"$BACKUP/controller/manifest";fi; ((i+=1))
   done

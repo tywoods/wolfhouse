@@ -56,6 +56,7 @@ COPY verify_deckhand_instance.py /etc/hermes-staging/verify_deckhand_instance.py
 COPY verify_water_cooler_a2a_pilot.py /etc/hermes-staging/verify_water_cooler_a2a_pilot.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
 COPY lunabox-caddyfile.reference /etc/hermes-staging/lunabox-caddyfile.reference
+COPY apply_whatsapp_runtime_config.py /etc/hermes-staging/apply_whatsapp_runtime_config.py
 COPY bootstrap.sh /etc/hermes-staging/bootstrap.sh
 COPY bootstrap.sh /etc/cont-init.d/99-wh-staging-bootstrap
 RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
@@ -82,7 +83,9 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_luna_live_loop_trace_patch.py \
  && python /etc/hermes-staging/apply_luna_append_body_receipt_patch.py \
  && python /etc/hermes-staging/apply_luna_append_body_receipt_patch.py \
- && python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt wolfhouse.test_luna_call1_failure_envelope -v
+ && python /etc/hermes-staging/apply_whatsapp_runtime_config.py \
+ && python /etc/hermes-staging/apply_whatsapp_runtime_config.py \
+ && python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt wolfhouse.test_luna_call1_failure_envelope wolfhouse.test_whatsapp_runtime_config -v
 # NOTE: Water-cooler A2A adapter patch is intentionally NOT applied at image
 # build. Bootstrap applies it only when HERMES_ROLE is seadog|deckhand and
 # WATER_COOLER_A2A_ENABLED=true (fail-closed default off for all roles).

@@ -1939,13 +1939,25 @@ function renderBillingMain() {
     </section>`;
 }
 
-function renderCommunicationsMain() {
-  return `<section id="communications" class="communications-shell" aria-labelledby="communications-title" data-communications-root>
+function communicationsIdentity(options = {}) {
+  if (options.whatsappIdentity) return options.whatsappIdentity;
+  const waIdentity = require('../whatsapp-runtime-identity');
+  return waIdentity.publicSnapshot(options.env || process.env);
+}
+
+function renderCommunicationsMain(options = {}) {
+  const identity = communicationsIdentity(options);
+  const display = identity.ok ? identity.numberDisplay : 'Identity unavailable';
+  const selector = identity.ok ? identity.profileId : '';
+  const option = selector
+    ? `<option value="${escapeHtml(selector)}">${escapeHtml(display)}</option>`
+    : '<option value="" disabled>Identity unavailable</option>';
+  return `<section id="communications" class="communications-shell" aria-labelledby="communications-title" data-communications-root data-routing-live="off">
       <div class="communications-grid">
         <article class="card communications-current" aria-live="polite">
           <span class="communications-kicker">Current binding</span>
           <p class="communications-binding" data-current-binding>Loading verified route…</p>
-          <p data-current-number>+34 663 43 94 19 · staging</p>
+          <p data-current-number>${escapeHtml(display)} · staging · policy off · delivery unknown</p>
           <dl class="communications-audit" aria-label="Latest routing audit">
             <div><dt>Who changed</dt><dd data-audit-who>Loading…</dd></div>
             <div><dt>When</dt><dd data-audit-when>Loading…</dd></div>
@@ -1956,7 +1968,7 @@ function renderCommunicationsMain() {
           <form class="communications-form" data-routing-form>
             <label for="routing-number">Staging number
               <select id="routing-number" name="number_id" required>
-                <option value="staging-es-34663439419">+34 663 43 94 19</option>
+                ${option}
               </select>
             </label>
             <label for="routing-target">Luna
@@ -1978,7 +1990,7 @@ function renderCommunicationsMain() {
       <dialog class="communications-dialog" data-confirm-dialog aria-labelledby="routing-confirm-title">
         <h2 id="routing-confirm-title">Confirm routing change</h2>
         <dl class="communications-confirm-list">
-          <dt>Number</dt><dd data-confirm-number>+34 663 43 94 19</dd>
+          <dt>Number</dt><dd data-confirm-number>${escapeHtml(display)}</dd>
           <dt>Old Luna</dt><dd data-confirm-old>—</dd>
           <dt>New Luna</dt><dd data-confirm-new>—</dd>
         </dl>
@@ -1991,27 +2003,33 @@ function renderCommunicationsMain() {
     </section>`;
 }
 
-function renderCommunicationsScript(nonce) {
+function renderCommunicationsScript(nonce, options = {}) {
   if (!nonce) return '';
+  const identity = communicationsIdentity(options);
+  const display = identity.ok ? identity.numberDisplay : 'Identity unavailable';
+  const selector = identity.ok ? identity.profileId : '';
+  const allowedNumbers = selector ? [[selector, display]] : [];
   const nonceAttr = ` nonce="${escapeHtml(nonce)}"`;
   return `<script${nonceAttr}>
 (() => {
   const root = document.querySelector('[data-communications-root]'); if (!root) return;
   const API = '/api/communications/luna-number-route';
-  const ALLOWED_NUMBERS = new Map([['staging-es-34663439419', '+34 663 43 94 19']]);
+  const ALLOWED_NUMBERS = new Map(${JSON.stringify(allowedNumbers)});
   const ALLOWED_TARGETS = new Map([['sunset', 'Sunset'], ['wolfhouse', 'Wolfhouse']]);
+  const BOUND_IDENTITY = ${JSON.stringify({ number_id: selector, phone_number_id: identity.phoneNumberId || selector, number_e164: identity.numberE164 || '' })};
   const form = root.querySelector('[data-routing-form]'); const number = root.querySelector('#routing-number'); const target = root.querySelector('#routing-target');
   const save = root.querySelector('[data-save-routing]'); const status = root.querySelector('[data-routing-status]'); const dialog = root.querySelector('[data-confirm-dialog]');
   let effective = null; let pending = null; let busy = false;
   function setStatus(text, kind) { status.textContent = text; status.dataset.kind = kind || ''; }
   async function request(path, options) { const response = await fetch(API + (path || ''), Object.assign({ credentials:'same-origin', headers:{ Accept:'application/json' } }, options || {})); const data = await response.json().catch(() => ({})); if (!response.ok || data.ok === false) throw new Error(data.error || data.code || ('HTTP ' + response.status)); return data; }
   function assertAllowed(numberId, targetId) { if (!ALLOWED_NUMBERS.has(numberId)) throw new Error('unknown_or_production_number_denied'); if (!ALLOWED_TARGETS.has(targetId)) throw new Error('unknown_target_denied'); }
-  function showEffective(data) { const route = data && data.route; const targetId = String(route && route.target_luna || ''); const numberId = 'staging-es-34663439419'; assertAllowed(numberId, targetId); if (!/^[a-f0-9]{64}$/i.test(String(route.revision || ''))) throw new Error('invalid_controller_revision'); effective = { number_id:numberId, target_id:targetId, revision:String(route.revision) }; root.querySelector('[data-current-binding]').textContent = ALLOWED_TARGETS.get(targetId) + ' Luna'; root.querySelector('[data-current-number]').textContent = ALLOWED_NUMBERS.get(numberId) + ' · staging'; target.value = targetId; }
+  function showEffective(data) { const route = data && data.route; const targetId = String(route && route.target_luna || ''); const numberId = String(data && data.phone_number_id || ''); assertAllowed(numberId, targetId); if (!/^[a-f0-9]{64}$/i.test(String(route.revision || ''))) throw new Error('invalid_controller_revision'); const delivery = String(data && data.routing_delivery || ''); if (!delivery || delivery === 'off') throw new Error('routing_delivery_unobserved'); if (delivery !== 'active') throw new Error('routing_delivery_unavailable'); effective = { number_id:numberId, target_id:targetId, revision:String(route.revision) }; root.querySelector('[data-current-binding]').textContent = ALLOWED_TARGETS.get(targetId) + ' Luna'; root.querySelector('[data-current-number]').textContent = ALLOWED_NUMBERS.get(numberId) + ' · staging · policy off · delivery active'; target.value = targetId; }
   function showAudit(audit) { root.querySelector('[data-audit-who]').textContent = audit && audit.changed_by || 'No verified audit record'; root.querySelector('[data-audit-when]').textContent = audit && audit.changed_at || '—'; }
-  async function load() { try { const result = await request(''); showEffective(result); showAudit(result.audit); save.disabled = false; setStatus('Registered targets loaded. Review before saving.'); } catch (error) { save.disabled = true; setStatus('Routing controls unavailable: ' + error.message, 'error'); } }
-  form.addEventListener('submit', event => { event.preventDefault(); try { assertAllowed(number.value, target.value); if (!effective) throw new Error('effective_route_unavailable'); pending = Object.freeze({ number_id:number.value, target_id:target.value, expected_old_target_id:String(effective.target_id), expected_revision:String(effective.revision) }); number.disabled = true; target.disabled = true; root.querySelector('[data-confirm-old]').textContent = ALLOWED_TARGETS.get(pending.expected_old_target_id); root.querySelector('[data-confirm-new]').textContent = ALLOWED_TARGETS.get(pending.target_id); dialog.showModal(); } catch (error) { setStatus(error.message, 'error'); } });
+  function showUnobservedDelivery() { const current = root.querySelector('[data-current-number]'); const display = String(current.textContent || '').split(' · ')[0] || 'Identity unavailable'; current.textContent = display + ' · staging · policy off · delivery unavailable'; }
+  async function load() { try { const result = await request(''); showEffective(result); showAudit(result.audit); save.disabled = false; setStatus('Registered targets loaded. Review before saving.'); } catch (error) { save.disabled = true; showUnobservedDelivery(); setStatus('Routing controls unavailable: ' + error.message, 'error'); } }
+  form.addEventListener('submit', event => { event.preventDefault(); try { assertAllowed(number.value, target.value); if (!effective) throw new Error('effective_route_unavailable'); pending = Object.freeze({ number_id:number.value, phone_number_id:BOUND_IDENTITY.phone_number_id, number_e164:BOUND_IDENTITY.number_e164, target_id:target.value, expected_old_target_id:String(effective.target_id), expected_revision:String(effective.revision) }); number.disabled = true; target.disabled = true; root.querySelector('[data-confirm-old]').textContent = ALLOWED_TARGETS.get(pending.expected_old_target_id); root.querySelector('[data-confirm-new]').textContent = ALLOWED_TARGETS.get(pending.target_id); dialog.showModal(); } catch (error) { setStatus(error.message, 'error'); } });
   root.querySelector('[data-cancel-routing]').addEventListener('click', () => { pending = null; number.disabled = false; target.disabled = false; dialog.close(); });
-  root.querySelector('[data-confirm-routing]').addEventListener('click', async () => { if (busy || !pending) return; busy = true; save.disabled = true; const payload = pending; try { assertAllowed(payload.number_id, payload.target_id); const action = payload.target_id === 'sunset' ? '/flip-to-sunset' : '/rollback-to-wolfhouse'; const applied = await request(action, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ operation_id:crypto.randomUUID(), expected_revision:payload.expected_revision }) }); if (!applied.audit || !applied.audit.changed_by || !applied.audit.changed_at) throw new Error('audit_readback_missing'); const verified = await request(''); showEffective(verified); if (String(effective.target_id) !== payload.target_id) throw new Error('effective_route_readback_mismatch'); showAudit(applied.audit); root.querySelector('[data-verified-result]').textContent = ALLOWED_NUMBERS.get(payload.number_id) + ' is verified on ' + ALLOWED_TARGETS.get(payload.target_id) + ' Luna.'; setStatus('Routing saved and verified.', 'success'); pending = null; number.disabled = false; target.disabled = false; dialog.close(); save.disabled = false; } catch (error) { effective = null; pending = null; number.disabled = false; target.disabled = false; save.disabled = true; setStatus('Routing was not verified: ' + error.message + '. Reload required.', 'error'); dialog.close(); } finally { busy = false; } });
+  root.querySelector('[data-confirm-routing]').addEventListener('click', async () => { if (busy || !pending) return; busy = true; save.disabled = true; const payload = pending; try { assertAllowed(payload.number_id, payload.target_id); const action = payload.target_id === 'sunset' ? '/flip-to-sunset' : '/rollback-to-wolfhouse'; const applied = await request(action, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ operation_id:crypto.randomUUID(), expected_revision:payload.expected_revision, number_id:payload.number_id, phone_number_id:payload.phone_number_id, number_e164:payload.number_e164 }) }); if (!applied.audit || !applied.audit.changed_by || !applied.audit.changed_at) throw new Error('audit_readback_missing'); const verified = await request(''); showEffective(verified); if (String(effective.target_id) !== payload.target_id) throw new Error('effective_route_readback_mismatch'); showAudit(applied.audit); root.querySelector('[data-verified-result]').textContent = ALLOWED_NUMBERS.get(payload.number_id) + ' is verified on ' + ALLOWED_TARGETS.get(payload.target_id) + ' Luna.'; setStatus('Routing saved and verified.', 'success'); pending = null; number.disabled = false; target.disabled = false; dialog.close(); save.disabled = false; } catch (error) { effective = null; pending = null; number.disabled = false; target.disabled = false; save.disabled = true; showUnobservedDelivery(); setStatus('Routing was not verified: ' + error.message + '. Reload required.', 'error'); dialog.close(); } finally { busy = false; } });
   load();
 })();
 </script>`;
@@ -3792,7 +3810,7 @@ function renderLiveSimulatorScript(nonce) {
 function renderViewMain(view, clients, options = {}) {
   if (view === 'clients') return renderClientsMain(clients, options);
   if (view === 'billing') return renderBillingMain();
-  if (view === 'communications') return renderCommunicationsMain();
+  if (view === 'communications') return renderCommunicationsMain(options);
   if (view === 'live_simulator') return renderLiveSimulatorMain();
   if (view === 'sales') return renderSalesMain(options);
   if (view === 'sales_detail') return renderSalesDetailMain(options);
@@ -3914,7 +3932,7 @@ function renderCrowsnestPage(options = {}) {
     ${main}
   </div>
   ${view === 'live_simulator' ? renderLiveSimulatorScript(nonce) : ''}
-  ${view === 'communications' ? renderCommunicationsScript(nonce) : ''}
+  ${view === 'communications' ? renderCommunicationsScript(nonce, options) : ''}
 </body>
 </html>`;
 }
