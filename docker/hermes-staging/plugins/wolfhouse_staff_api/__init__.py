@@ -624,8 +624,22 @@ def _default_solo_shared_placement(payload):
     """Pick ordinary shared stock for a solo guest without inventing gender."""
     if not isinstance(payload, dict) or payload.get("room_preference") not in (None, ""):
         return
-    # Preserve any established owner choice on sparse follow-ups. A default is
-    # placement, not a fresh guest selection, so it may never replace one.
+    room_type = _clean(payload.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    # A current-call explicit room request always outranks retained owner state.
+    # The canonical ordinary shared aliases below are the only room types that
+    # can receive a carried choice or the solo default.
+    if room_type not in {"", "any", "shared", "mixed", "dorm", "dormitory"}:
+        return
+    # gender_preference is itself an explicit solo eligibility/room request,
+    # including female aliases, private, and named rooms.
+    if payload.get("gender_preference") not in (None, ""):
+        return
+    current_group = _clean(payload.get("group_gender")).lower()
+    if current_group in {"female", "f", "woman", "women", "girl", "girls"}:
+        return
+    # Preserve any established owner choice on genuinely sparse follow-ups. A
+    # default is placement, not a fresh guest selection, so it may never replace
+    # one; equally, retained state may never replace the explicit requests above.
     try:
         from wolfhouse import accepted_quote as ledger
         if ledger._current.get() is not None:
@@ -637,11 +651,6 @@ def _default_solo_shared_placement(payload):
                 return
     except (ImportError, RuntimeError):
         pass
-    room_type = _clean(payload.get("room_type")).lower().replace("-", "_").replace(" ", "_")
-    # Default only canonical ordinary shared/any requests. Every other explicit
-    # room type (including double, matrimonial, private and named types) wins.
-    if room_type not in {"", "any", "shared", "mixed", "dorm", "dormitory"}:
-        return
     try:
         guest_count = int(payload.get("guest_count") or 1)
     except (TypeError, ValueError):

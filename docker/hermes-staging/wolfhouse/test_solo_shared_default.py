@@ -157,6 +157,51 @@ class SoloSharedDefaultTests(unittest.TestCase):
                 finally:
                     loop.close()
 
+    def test_current_explicit_room_request_supersedes_established_mixed_choice(self):
+        cases = (
+            ({"room_type": "private"}, "room_type", "private"),
+            ({"room_type": "double"}, "room_type", "double"),
+            ({"room_type": "matrimonial"}, "room_type", "matrimonial"),
+            ({"gender_preference": "female"}, "gender_preference", "female"),
+            ({"gender_preference": "girls"}, "gender_preference", "girls"),
+            ({"gender_preference": "Room 3"}, "gender_preference", "Room 3"),
+            ({"group_gender": "girls"}, "group_gender", "girls"),
+        )
+        for index, (request, key, expected) in enumerate(cases):
+            with self.subTest(request=request):
+                loop = DeterministicRegisteredLoop(self, session=f"solo-new-choice-{index}")
+                try:
+                    def staff(route, body):
+                        self.assertEqual(route, "/availability-check")
+                        return {
+                            "success": True, "has_enough_beds": True,
+                            "selected_room_code": "R1", "selected_bed_codes": ["R1-B1"],
+                            "available_beds": [{
+                                "bed_code": "R1-B1", "room_code": "R1",
+                                "room_type": body.get("room_type", "shared"),
+                                "selected_selling_mode": "bed",
+                            }],
+                        }
+
+                    loop.turn("mixed", "One ordinary mixed dorm bed, please.")
+                    loop.call("check_availability", {
+                        "check_in": "2026-11-02", "check_out": "2026-11-05",
+                        "guest_count": 1, "room_type": "shared",
+                        "room_preference": "mixed", "guests": [{"name": "Alex"}],
+                    }, staff)
+                    self.assertEqual(owner._transaction(
+                        lambda current, ingress: current.copy())["plan"]["room_preference"], "mixed")
+
+                    loop.turn("new-choice", f"Actually, I explicitly want {expected}.")
+                    loop.call("check_availability", {
+                        "guest_count": 1, **request,
+                    }, staff)
+                    sent = loop.staff[-1]["body"]
+                    self.assertEqual(sent[key], expected)
+                    self.assertNotEqual(sent.get("room_preference"), "mixed")
+                finally:
+                    loop.close()
+
     def test_sparse_follow_up_preserves_established_female_only_choice(self):
         loop = DeterministicRegisteredLoop(self, session="solo-retained-room")
         try:
