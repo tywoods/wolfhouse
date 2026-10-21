@@ -1,5 +1,6 @@
 """Regression for Lucía completing her name while accepting the shown offer."""
 import unittest
+from copy import deepcopy
 
 from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
     DeterministicRegisteredLoop,
@@ -106,6 +107,142 @@ class LuciaSameTurnCompletionTests(unittest.TestCase):
                 [{"kind": "rendered_reply", "text": shown}],
                 "the accepted offer must not be wiped and rendered again",
             )
+        finally:
+            loop.close()
+
+    def _completion_case(self, label, short_guests, completed_guests, *, hints=None):
+        loop = DeterministicRegisteredLoop(self, label)
+        try:
+            beds = [{
+                "bed_code": f"R10-B{index + 1}", "room_code": "R10",
+                "room_type": "shared", "gender_strategy": "flexible",
+                "selected_selling_mode": "bed",
+            } for index in range(len(short_guests))]
+            plan = {
+                "check_in": "2026-11-02", "check_out": "2026-11-05",
+                "guest_count": len(short_guests), "room_type": "shared",
+                "room_preference": "mixed", "guests": deepcopy(short_guests),
+                "package_code": "package_none",
+            }
+            loop.turn(label + "-quote", "Show me this exact offer.")
+            available = loop.call("check_availability", plan, {
+                "/availability-check": availability_receipt(beds)})
+            self.assertTrue(available["success"], available)
+            quote = checked_staff_quote(
+                plan, beds, total=12000 * len(short_guests),
+                deposit=10000 * len(short_guests))
+            quoted = loop.call("quote_booking", plan, {
+                "/availability-check": availability_receipt(beds),
+                "/booking-preview": quote,
+            })
+            self.assertTrue(quoted["success"], quoted)
+            shown = loop.present()
+
+            args = {
+                **plan, "confirm": True, "guests": deepcopy(completed_guests),
+                "guest_name": completed_guests[0]["name"],
+                "payment_choice": "deposit",
+                "selected_bed_codes": [bed["bed_code"] for bed in beds],
+            }
+            if hints is not None:
+                args["room_name_hints"] = deepcopy(hints)
+            loop.turn(label + "-accept", "These are the full names. Deposit. Yes, book it.")
+
+            def responses(route, body):
+                if route == "/availability-check":
+                    return create_recheck_receipt(beds, body)
+                if route == "/booking-preview":
+                    return checked_staff_quote(
+                        body, beds, total=12000 * len(short_guests),
+                        deposit=10000 * len(short_guests))
+                if route == "/booking-create-from-plan":
+                    return {"success": True, "created": True, "write_performed": True,
+                            "booking_id": label, "booking_code": "WH-IDENTITY"}
+                self.fail((route, body))
+
+            result = loop.call("create_booking_from_plan", args, responses)
+            if result.get("success"):
+                duplicate = loop.call("create_booking_from_plan", args, responses)
+                self.assertEqual(len(loop.create_dispatches), 1, (duplicate, loop.trace))
+            return loop, result, shown
+        except Exception:
+            loop.close()
+            raise
+
+    def test_replacement_occupant_cannot_consume_shown_offer(self):
+        short = [{"name": "Inés", "explicit_gender": "female"}]
+        replacement = [{"name": "Carlos Pérez", "explicit_gender": "male"}]
+        loop, result, _shown = self._completion_case(
+            "replacement", short, replacement)
+        try:
+            self.assertFalse(result["success"], result)
+            self.assertEqual(loop.create_dispatches, [])
+        finally:
+            loop.close()
+
+    def test_replacement_without_gender_cannot_inherit_old_gender(self):
+        short = [{"name": "Inés", "explicit_gender": "female"}]
+        replacement = [{"name": "Carlos Pérez"}]
+        loop, result, _shown = self._completion_case(
+            "replacement-no-gender", short, replacement)
+        try:
+            self.assertFalse(result["success"], result)
+            self.assertEqual(loop.create_dispatches, [])
+            self.assertFalse(any(
+                row["route"] == "/availability-check"
+                and row["body"].get("guests") == [
+                    {"name": "Carlos Pérez", "explicit_gender": "female"}]
+                for row in loop.staff), loop.staff)
+        finally:
+            loop.close()
+
+    def test_completed_names_cannot_swap_their_shown_slots(self):
+        short = [{"name": "Inés", "explicit_gender": "female"},
+                 {"name": "Mateo", "explicit_gender": "male"}]
+        swapped = [{"name": "Mateo García López", "explicit_gender": "male"},
+                   {"name": "Inés García López", "explicit_gender": "female"}]
+        loop, result, _shown = self._completion_case("multi-swap", short, swapped)
+        try:
+            self.assertFalse(result["success"], result)
+            self.assertEqual(loop.create_dispatches, [])
+        finally:
+            loop.close()
+
+    def test_stale_supplied_hint_allows_same_person_completion(self):
+        short = [{"name": "Inés", "explicit_gender": "female"}]
+        completed = [{"name": "Inés García López", "explicit_gender": "female"}]
+        loop, result, shown = self._completion_case(
+            "single-stale", short, completed, hints=short)
+        try:
+            self.assertTrue(result["success"], result)
+            self.assertEqual(len(loop.create_dispatches), 1, loop.trace)
+            self.assertEqual(loop.create_dispatches[0]["room_name_hints"], completed)
+            self.assertEqual([row for row in loop.trace if row["kind"] == "rendered_reply"],
+                             [{"kind": "rendered_reply", "text": shown}])
+        finally:
+            loop.close()
+
+    def test_fresh_supplied_hint_allows_same_person_completion(self):
+        short = [{"name": "Inés", "explicit_gender": "female"}]
+        completed = [{"name": "Inés García López", "explicit_gender": "female"}]
+        loop, result, _shown = self._completion_case(
+            "single-fresh", short, completed, hints=completed)
+        try:
+            self.assertTrue(result["success"], result)
+            self.assertEqual(len(loop.create_dispatches), 1, loop.trace)
+            self.assertEqual(loop.create_dispatches[0]["room_name_hints"], completed)
+        finally:
+            loop.close()
+
+    def test_duplicate_short_hints_are_not_reused_for_two_people(self):
+        short = [{"name": "Alex", "explicit_gender": "male"},
+                 {"name": "Alex", "explicit_gender": "female"}]
+        completed = [{"name": "Alex Uno"}, {"name": "Alex Dos"}]
+        loop, result, _shown = self._completion_case(
+            "duplicate-alex", short, completed)
+        try:
+            self.assertFalse(result["success"], result)
+            self.assertEqual(loop.create_dispatches, [])
         finally:
             loop.close()
 

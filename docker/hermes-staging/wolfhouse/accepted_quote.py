@@ -1694,11 +1694,11 @@ def _sync_catalog_projection(add_ons, changes, catalog_before=None):
 
 
 def _project_room_name_hints_from_guests(guests, retained_hints, guest_count):
-    """Return the Staff-wire hint projection for a complete named roster.
+    """Return a one-to-one Staff-wire hint projection for a named roster.
 
-    A completed name remains the same person only when its old hint is in the
-    same slot or has a uniquely matching short-name prefix.  Explicit gender
-    facts on the roster win only when they do not contradict that old fact.
+    A retained person fact may be consumed once. A completed name may bind its
+    same-slot hint or one uniquely matching short-name prefix; unrelated people
+    never inherit a hint merely because they occupy the same list index.
     """
     if (not isinstance(guests, list) or len(guests) != guest_count
             or not all(isinstance(guest, dict)
@@ -1712,19 +1712,26 @@ def _project_room_name_hints_from_guests(guests, retained_hints, guest_count):
                     and (old_name == new_name or new_name.startswith(old_name + ' ')))
 
     projected = []
+    consumed = set()
     for index, guest in enumerate(guests):
         new_name = normalize(guest.get('name'))
-        candidates = []
+        candidate_index = None
         if index < len(retained_hints) and isinstance(retained_hints[index], dict):
             hint = retained_hints[index]
             if same_person(normalize(hint.get('name')), new_name):
-                candidates = [hint]
-        if not candidates:
-            candidates = [hint for hint in retained_hints if isinstance(hint, dict)
-                          and same_person(normalize(hint.get('name')), new_name)]
-            if len(candidates) != 1:
-                candidates = []
-        old_gender = (candidates[0].get('explicit_gender') if candidates else None)
+                candidate_index = index
+        if candidate_index is None:
+            matches = [hint_index for hint_index, hint in enumerate(retained_hints)
+                       if hint_index not in consumed and isinstance(hint, dict)
+                       and same_person(normalize(hint.get('name')), new_name)]
+            if len(matches) == 1:
+                candidate_index = matches[0]
+        candidate = (retained_hints[candidate_index]
+                     if candidate_index is not None and candidate_index not in consumed
+                     else None)
+        if candidate is not None:
+            consumed.add(candidate_index)
+        old_gender = candidate.get('explicit_gender') if candidate else None
         new_gender = guest.get('explicit_gender')
         if (old_gender in ('male', 'female') and new_gender in ('male', 'female')
                 and old_gender != new_gender):
@@ -2467,9 +2474,15 @@ def prepare_create(params):
                 normalize = lambda name: ' '.join(str(name or '').split()).casefold()
                 old_names = [normalize(g.get('name')) for g in old_guests]
                 names = [normalize(g.get('name')) for g in guests]
-                if (len(set(names)) != len(names) or any(
-                        name in old_names and old_names.index(name) != index
-                        for index, name in enumerate(names))):
+                same_slot_completion = all(
+                    old_name and name
+                    and (name == old_name or name.startswith(old_name + ' '))
+                    for old_name, name in zip(old_names, names))
+                completed_old_names = [old_names[index] for index, name in enumerate(names)
+                                       if name != old_names[index]]
+                if (len(set(names)) != len(names)
+                        or len(set(completed_old_names)) != len(completed_old_names)
+                        or not same_slot_completion):
                     raise QuoteBoundaryError('quote_completion_identity_changed')
                 updates['guests'] = deepcopy(guests)
                 state['pending_name_completions'] = [
@@ -2523,10 +2536,21 @@ def prepare_create(params):
                               if key not in ('confirm', 'ready')})
             if not _same_material_offer(baseline, candidate, shown, shown):
                 raise QuoteBoundaryError('accepted_quote_changed')
+            projected_hints = _project_room_name_hints_from_guests(
+                candidate.get('guests'), baseline.get('room_name_hints')
+                or shown.get('room_name_hints') or [], candidate.get('guest_count'))
+            if 'room_name_hints' in params:
+                supplied_projection = _project_room_name_hints_from_guests(
+                    candidate.get('guests'), params.get('room_name_hints'),
+                    candidate.get('guest_count'))
+                if (projected_hints is None or supplied_projection != projected_hints):
+                    raise QuoteBoundaryError('accepted_quote_changed')
+                # Both a stale short-name restatement and an already-completed
+                # restatement resolve to the same person-bound canonical hints.
+                params['room_name_hints'] = deepcopy(projected_hints)
             if ('room_name_hints' in params
                     and not _person_plan_does_not_contradict_hints(
-                        params, baseline.get('room_name_hints')
-                        or shown.get('room_name_hints') or [])):
+                        params, projected_hints or [])):
                 raise QuoteBoundaryError('accepted_quote_changed')
             # Carried hints follow frozen guest slots even when restated out of order.
             if 'room_name_hints' in params:
