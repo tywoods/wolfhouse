@@ -119,8 +119,13 @@ function isConfirmationSendIdempotentReplay(sendResult) {
 
 function normalizeSendStatus(sendResult, env) {
   const reasons = sendResult.blocked_reasons || [];
-  if (sendResult.send_performed === true && sendResult.sends_whatsapp === true) {
+  if (sendResult.delivery_uncertain === true) return 'delivery_uncertain';
+  const providerId = trimStr(sendResult.whatsapp_message_id);
+  if (sendResult.send_performed === true && sendResult.sends_whatsapp === true && providerId) {
     return 'sent';
+  }
+  if (sendResult.send_performed === true && sendResult.sends_whatsapp === true && !providerId) {
+    return 'delivery_uncertain';
   }
   if (isConfirmationSendIdempotentReplay(sendResult)) {
     return 'idempotent_replay';
@@ -325,6 +330,7 @@ async function runGuestConfirmationSendGoNoGo(input, context) {
     recipient_allowlisted: recipientAllowlisted,
     live_send_allowlist: dryRun ? null : parseConfirmationLiveSendAllowlist(env),
     confirmation_sent: confirmationSent,
+    delivery_uncertain: sendStatus === 'delivery_uncertain' || sendResult.delivery_uncertain === true,
     idempotent_replay: isIdempotentReplay,
     duplicate_send_blocked: isIdempotentReplay,
     send_performed: sendResult.send_performed === true,

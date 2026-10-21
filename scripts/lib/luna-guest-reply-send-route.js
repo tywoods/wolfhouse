@@ -9,9 +9,11 @@ const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
 const {
   findGuestMessageSendByKey,
   claimGuestMessageSendPending,
-  recordGuestMessageSendBlocked,
   finalizeGuestMessageSendSent,
   finalizeGuestMessageSendBlocked,
+  formatGuestMessageSendRow,
+  SELECT_GUEST_MESSAGE_SEND_COLS,
+  isMissingGuestMessageSendsTable,
 } = require('./luna-guest-message-send-sql');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -39,8 +41,14 @@ function isTruthyEnv(env, key) {
   return String((env || {})[key] || '').trim().toLowerCase() === 'true';
 }
 
-function collectEnvGateReasons(env, sendKind) {
+function collectEnvGateReasons(env, sendKind, clientSlug) {
   const reasons = [];
+  const slug = trimStr(clientSlug).toLowerCase();
+  const wolfhouseConfirmation = sendKind === 'confirmation'
+    && (slug === 'wolfhouse-somo' || slug === 'wolfhouse')
+    && isTruthyEnv(env, 'LUNA_CONFIRMATION_AUTO_SEND_ENABLED');
+  // Confirmation-only never opens quotes, check-in, or other Staff automation.
+  if (wolfhouseConfirmation) return reasons;
   // Staff Inbox explicit send bypasses Luna auto-send gate; provider/env gates still apply.
   if (sendKind !== 'staff_reply' && !isTruthyEnv(env, 'LUNA_AUTO_SEND_ENABLED')) {
     reasons.push('luna_auto_send_not_enabled');
@@ -153,10 +161,10 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
   if (draft.creates_stripe_link) blocked.push('draft_creates_stripe_link');
   if (draft.sends_whatsapp) blocked.push('draft_marks_send');
 
-  blocked.push(...collectEnvGateReasons(env, sendKind));
+  blocked.push(...collectEnvGateReasons(env, sendKind, clientSlug));
 
   const uniqueBlocked = [...new Set(blocked)];
-  const envGatesClear = collectEnvGateReasons(env, sendKind).length === 0;
+  const envGatesClear = collectEnvGateReasons(env, sendKind, clientSlug).length === 0;
   const eligibilityClear = !uniqueBlocked.includes('requires_staff')
     && !uniqueBlocked.includes('send_not_allowed_later')
     && !uniqueBlocked.includes('auto_send_not_ready')
@@ -279,10 +287,38 @@ function buildBlockedRouteResult(baseResult, row) {
   };
 }
 
-async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey) {
+function isRetryableConfirmationNonDelivery(row, sendKind) {
+  if (trimStr(sendKind) !== 'confirmation') return false;
+  if (!row) return false;
+  if (trimStr(row.provider_message_id)) return false;
+  return row.status === 'blocked' || row.status === 'failed';
+}
+
+async function reclaimConfirmationNonDelivery(pg, clientSlug, idempotencyKey) {
+  try {
+    const updated = await pg.query(
+      `UPDATE guest_message_sends
+          SET status = 'pending',
+              updated_at = NOW()
+        WHERE client_slug = $1
+          AND idempotency_key = $2
+          AND status IN ('blocked', 'failed')
+          AND NULLIF(provider_message_id, '') IS NULL
+        RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+      [clientSlug, idempotencyKey],
+    );
+    return formatGuestMessageSendRow(updated.rows[0] || null);
+  } catch (err) {
+    if (isMissingGuestMessageSendsTable(err)) return null;
+    throw err;
+  }
+}
+
+async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey, sendKind) {
   if (!pg || typeof pg.query !== 'function' || !idempotencyKey) return null;
   const existing = await findGuestMessageSendByKey(pg, clientSlug, idempotencyKey);
   if (existing.table_missing || !existing.row) return null;
+  if (isRetryableConfirmationNonDelivery(existing.row, sendKind)) return null;
   if (existing.row.status === 'sent'
     || existing.row.status === 'pending'
     || existing.row.status === 'blocked'
@@ -292,11 +328,55 @@ async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempoten
   return null;
 }
 
+async function recordGateAuditWithoutStealingInFlight(pg, input) {
+  const payload = input || {};
+  const blockedReasons = [...new Set((payload.blocked_reasons || []).filter(Boolean).map(String))];
+  const params = [
+    payload.client_slug,
+    payload.channel || 'whatsapp',
+    payload.to_phone,
+    payload.idempotency_key,
+    payload.send_kind,
+    payload.source || null,
+    payload.message_text,
+    JSON.stringify(blockedReasons),
+    payload.provider_response ? JSON.stringify(payload.provider_response) : null,
+  ];
+  try {
+    const written = await pg.query(
+      `INSERT INTO guest_message_sends (
+         client_slug, channel, to_phone, idempotency_key, send_kind, source,
+         message_text, status, blocked_reasons, provider_response
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'blocked', $8::jsonb, $9::jsonb)
+       ON CONFLICT (client_slug, idempotency_key) DO UPDATE SET
+         status = EXCLUDED.status,
+         blocked_reasons = EXCLUDED.blocked_reasons,
+         message_text = EXCLUDED.message_text,
+         provider_response = EXCLUDED.provider_response,
+         updated_at = NOW()
+       WHERE guest_message_sends.status NOT IN ('pending', 'sent')
+         AND NULLIF(BTRIM(guest_message_sends.provider_message_id), '') IS NULL
+       RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+      params,
+    );
+    if (written.rows[0]) return { row: formatGuestMessageSendRow(written.rows[0]) };
+    const existing = await findGuestMessageSendByKey(
+      pg,
+      payload.client_slug,
+      payload.idempotency_key,
+    );
+    return { row: existing.row || null };
+  } catch (err) {
+    if (isMissingGuestMessageSendsTable(err)) return { row: null, table_missing: true };
+    throw err;
+  }
+}
+
 async function persistRouteBlockedSend(pg, body, result) {
   if (!pg || typeof pg.query !== 'function') return result;
   const blockedReasons = result.blocked_reasons || [];
   if (!blockedReasons.length) return result;
-  const recorded = await recordGuestMessageSendBlocked(pg, {
+  const recorded = await recordGateAuditWithoutStealingInFlight(pg, {
     client_slug: result.client_slug,
     to_phone: result.to,
     idempotency_key: result.idempotency_key,
@@ -345,7 +425,13 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
   const pg = context.pg;
 
   if (pg && idempotencyKey) {
-    const replay = await maybeReplayGuestMessageSend(pg, evaluated.result, clientSlug, idempotencyKey);
+    const replay = await maybeReplayGuestMessageSend(
+      pg,
+      evaluated.result,
+      clientSlug,
+      idempotencyKey,
+      trimStr(src.send_kind),
+    );
     if (replay) {
       return { ok: true, status: 200, result: replay };
     }
@@ -396,13 +482,37 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
       message_text: trimStr(src.suggested_reply),
     });
     if (claim.row && !claim.claimed) {
-      return {
-        ok: true,
-        status: 200,
-        result: buildIdempotentReplayResult(evaluated.result, claim.row),
-      };
+      if (isRetryableConfirmationNonDelivery(claim.row, evaluated.result.send_kind)) {
+        const reclaimed = await reclaimConfirmationNonDelivery(
+          pg,
+          evaluated.result.client_slug,
+          evaluated.result.idempotency_key,
+        );
+        if (!reclaimed) {
+          const again = await findGuestMessageSendByKey(
+            pg,
+            evaluated.result.client_slug,
+            evaluated.result.idempotency_key,
+          );
+          if (again.row) {
+            return {
+              ok: true,
+              status: 200,
+              result: buildIdempotentReplayResult(evaluated.result, again.row),
+            };
+          }
+        }
+        pendingRow = reclaimed;
+      } else {
+        return {
+          ok: true,
+          status: 200,
+          result: buildIdempotentReplayResult(evaluated.result, claim.row),
+        };
+      }
+    } else {
+      pendingRow = claim.row;
     }
-    pendingRow = claim.row;
   }
 
   const providerResult = await sendLunaWhatsAppMessage({
