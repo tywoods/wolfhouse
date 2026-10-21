@@ -2194,6 +2194,7 @@ def record_quote(params, response):
         state.pop('accepted_presentation', None)
         state.pop('receipt', None)
         state.pop('completion', None)
+        state.pop('partial_completion', None)
         state.pop('dispatch_pending', None)
         state.pop('dispatch_payload', None)
         state.pop('post_booking_contact', None)

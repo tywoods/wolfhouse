@@ -12,6 +12,75 @@ from wolfhouse_staff_api.test_sim16_jonas_liam_fix import (
 
 
 class Step4ReceiptRecoveryTests(unittest.TestCase):
+    def test_partial_receipt_survives_retry_but_not_a_new_material_offer(self):
+        """The registered tools persist recovery only for the accepted operation."""
+        loop = DeterministicRegisteredLoop(self, "step4-partial-lifecycle")
+        try:
+            beds = [
+                {"bed_code": f"R1-B{i}", "room_code": "R1", "room_type": "shared",
+                 "gender_strategy": "mixed", "selected_selling_mode": "bed"}
+                for i in (1, 2)]
+            guests = [{"name": "Guest One"}, {"name": "Guest Two"}]
+            plan = {"check_in": "2026-11-16", "check_out": "2026-11-19",
+                    "guest_count": 2, "room_type": "shared", "room_preference": "mixed",
+                    "guests": guests, "package_code": "package_none",
+                    "payment_choice": "per_guest", "per_guest_payment_links": True,
+                    "selected_bed_codes": ["R1-B1", "R1-B2"], "language": "en"}
+            quote = checked_staff_quote(plan, beds, total=24000, deposit=20000)
+            loop.turn("offer-a", "offer A")
+            loop.call("quote_booking", plan, {"/availability-check": availability_receipt(beds),
+                                               "/booking-preview": quote})
+            loop.present(); loop.turn("yes-a", "yes")
+            creates, links = [], []
+            active_quote = [quote]
+
+            def responses(route, body):
+                if route == "/booking-preview": return active_quote[0]
+                if route == "/availability-check": return create_recheck_receipt(beds, body)
+                if route == "/booking-create-from-plan":
+                    creates.append(body)
+                    code = "A" if len(creates) == 1 else "B"
+                    return {"success": True, "created": True, "write_performed": True,
+                            "booking_id": "booking-" + code, "booking_code": "WH-" + code,
+                            "payment_status": "pending", "uses_per_guest_model": True,
+                            "booking_guests": [
+                                {"booking_guest_id": f"guest-{code}-{i}", "guest_number": i,
+                                 "guest_name": guests[i - 1]["name"]} for i in (1, 2)]}
+                if route.startswith("/booking-guests/"):
+                    guest_id = route.split("/")[2]; links.append(guest_id)
+                    if guest_id == "guest-A-2":
+                        return {"success": False, "error": "payment_link_timeout"}
+                    return {"success": True, "booking_guest_id": guest_id,
+                            "guest_payment_url": "https://payments.invalid/" + guest_id,
+                            "amount_due_cents": 10000, "currency": "EUR",
+                            "payment_status": "pending"}
+                self.fail(route)
+
+            partial = loop.call("create_booking_from_plan", {}, responses)
+            self.assertEqual(partial["booking_code"], "WH-A")
+            self.assertEqual(len(creates), 1)
+            loop.turn("retry-a", "retry A's missing link")
+            recovered = loop.call("create_booking_from_plan", {}, responses)
+            self.assertEqual(recovered["booking_code"], "WH-A")
+            self.assertEqual(len(creates), 1, "same-operation retry must reuse booking A")
+            self.assertEqual(links.count("guest-A-1"), 1)
+            self.assertEqual(links.count("guest-A-2"), 2)
+
+            next_plan = {**plan, "check_in": "2026-12-16", "check_out": "2026-12-19"}
+            next_quote = checked_staff_quote(next_plan, beds, total=30000, deposit=20000)
+            active_quote[0] = next_quote
+            loop.turn("offer-b", "a separate booking for December 16 to 19")
+            loop.call("quote_booking", next_plan, {
+                "/availability-check": availability_receipt(beds),
+                "/booking-preview": next_quote})
+            self.assertIsNone(owner.current_create_receipt())
+            loop.present(); loop.turn("yes-b", "yes")
+            created = loop.call("create_booking_from_plan", {}, responses)
+            self.assertEqual(created["booking_code"], "WH-B")
+            self.assertEqual(len(creates), 2, "new offer B must dispatch its own create")
+        finally:
+            loop.close()
+
     def test_confirmation_balance_respects_selected_payment_choice(self):
         for choice, expected, forbidden in (
                 ("deposit", ("Depósito: €100.", "Pendiente: €20."), ()),

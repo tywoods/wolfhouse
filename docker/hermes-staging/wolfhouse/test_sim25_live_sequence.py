@@ -36,6 +36,10 @@ class Sim25LiveSequenceTests(unittest.TestCase):
             available = availability_receipt(beds)
             loop.turn("turn-1", fixture["raw_turns"][0])
             loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
+            loop.call("preview_package_prices", {"check_in": plan["check_in"],
+                      "check_out": plan["check_out"], "guest_count": 1},
+                      {"/package-price-preview": {"success": True, "package_min_nights": 7,
+                       "package_eligible": False, "nights": 3}})
             loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
             loop.call("quote_booking", {**plan, "guests": short}, {"/booking-preview": quote})
             loop.present()
@@ -45,19 +49,20 @@ class Sim25LiveSequenceTests(unittest.TestCase):
             first = loop.call("create_booking_from_plan", plan, {})
             self.assertFalse(first["success"], first)
             self.assertEqual(loop.create_dispatches, [])
-            loop.turn("turn-3", fixture["raw_turns"][2])
             loop.call("quote_booking", plan, {"/booking-preview": quote})
             second = loop.call("create_booking_from_plan", {}, {})
-            loop.turn("turn-4", fixture["raw_turns"][3])
+            loop.turn("turn-3", fixture["raw_turns"][2])
+            loop.call("quote_booking", plan, {"/booking-preview": quote})
             third = loop.call("create_booking_from_plan", {}, {})
+            for number in range(4, 7):
+                loop.turn(f"turn-{number}", fixture["raw_turns"][number - 1])
             self.assertFalse(second["success"], second)
             self.assertFalse(third["success"], third)
             self.assertEqual(loop.create_dispatches, [])
-            executable = [row["tool"] for row in loop.trace if row["kind"] == "tool_call"]
-            self.assertEqual(executable, [tool for tool in fixture["captured_tool_order"]
-                                          if tool != "package_price_preview"])
-            self.assertNotEqual(executable, [tool for tool in fixture["candidate_first_valid_yes_order"]
-                                             if tool != "package_price_preview"])
+            executable = [("package_price_preview" if row["tool"] == "preview_package_prices"
+                           else row["tool"]) for row in loop.trace if row["kind"] == "tool_call"]
+            self.assertEqual(executable, fixture["captured_tool_order"])
+            self.assertNotEqual(executable, fixture["candidate_first_valid_yes_order"])
         finally:
             loop.close()
 
@@ -72,16 +77,23 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                 try:
                     beds = [{"bed_code": "R3-B3", "room_code": "R3", "room_type": "shared",
                              "gender_strategy": "mixed", "selected_selling_mode": "bed"}]
-                    full = [{"name": fixture["completed_name"], "explicit_gender": "female"}]
                     short = [{"name": fixture["short_name"], "explicit_gender": "female"}]
+                    full = [{"name": fixture["completed_name"], "explicit_gender": "female"}]
+                    roster = full
                     plan = {"check_in": fixture["dates"][0], "check_out": fixture["dates"][1],
                             "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
-                            "guests": full,
+                            "guests": roster,
                             "room_name_hints": short if "stale_short_name_hint" in enabled else full,
                             "package_code": "package_none", "payment_choice": "deposit",
                             "selected_bed_codes": ["R3-B3"], "language": "es"}
                     quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
                     loop.turn("offer", fixture["raw_turns"][0])
+                    if "corrected_roster" in enabled:
+                        uncorrected = {**plan, "guests": short, "room_name_hints": short}
+                        uncorrected_quote = checked_staff_quote(
+                            uncorrected, beds, total=12000, deposit=10000)
+                        loop.call("quote_booking", uncorrected,
+                                  {"/booking-preview": uncorrected_quote})
                     loop.call("quote_booking", plan, {"/booking-preview": quote}); loop.present()
                     loop.turn("yes", fixture["raw_turns"][1])
                     if "interpret_booking_turn_absent" not in enabled:
@@ -91,7 +103,8 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                                   {"/availability-check": availability_receipt(beds)})
                     if "fact_equivalent_requote" in enabled:
                         loop.call("quote_booking", plan, {"/booking-preview": quote})
-                    sent = plan if "populated_create" in enabled else {}
+                    sent_shapes = ([plan, {}] if {"populated_create", "empty_create"} <= enabled
+                                   else [plan] if "populated_create" in enabled else [{}])
                     creates = []
                     def responses(route, body):
                         if route == "/booking-preview": return quote
@@ -104,15 +117,19 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                         if route == "/payments/payment/create-stripe-link":
                             return {"success": False, "error": "payment_link_timeout"}
                         self.fail(route)
-                    result = loop.call("create_booking_from_plan", sent, responses)
+                    results = [loop.call("create_booking_from_plan", sent, responses)
+                               for sent in sent_shapes]
+                    result = results[-1]
                     if label == "all_together":
-                        self.assertFalse(result["success"], result)
-                        self.assertEqual(result["error"], "quote_owner_presented_offer_required")
+                        self.assertTrue(all(not row["success"] for row in results), results)
+                        self.assertTrue(all(row["error"] == "quote_owner_presented_offer_required"
+                                            for row in results), results)
                         self.assertEqual(creates, [])
+                        self.assertEqual([bool(shape) for shape in sent_shapes], [True, False])
                     else:
                         self.assertTrue(result["success"], result)
                         self.assertEqual(len(creates), 1)
-                        self.assertEqual(creates[0]["guests"], full)
+                        self.assertEqual(creates[0]["guests"], roster)
                         self.assertEqual(creates[0]["selected_bed_codes"], ["R3-B3"])
                 finally:
                     loop.close()
@@ -280,8 +297,11 @@ class Sim25LiveSequenceTests(unittest.TestCase):
         self.assertEqual(lucia["captured_tool_order"], [
             "check_availability", "package_price_preview", "check_availability", "quote_booking",
             "check_availability", "quote_booking", "create_booking_from_plan",
-            "quote_booking", "create_booking_from_plan", "create_booking_from_plan"])
-        self.assertIn("re-quote occurred between the two turn-2 create attempts",
+            "quote_booking", "create_booking_from_plan", "quote_booking",
+            "create_booking_from_plan"])
+        self.assertIn("two creates separated by a fact-equivalent re-quote",
+                      lucia["chronology_note"])
+        self.assertIn("turn 3 independently re-quoted before its create",
                       lucia["chronology_note"])
         self.assertEqual(set(lucia["cause_isolation_dimensions"]), {
             "interpret_booking_turn_absent", "interposed_availability", "fact_equivalent_requote",

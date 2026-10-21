@@ -69,4 +69,18 @@ The original recovery RED failed because a retry returned no secure link. Produc
 
 ## Hold
 
-This is a **SEALED HOLD for Captain**. It does not claim all Step 4 or all Sim25 findings are closed. No push, PR, merge, publish, deploy, rollback, live check, or real send is authorized.
+## R3 corrections
+
+- Partial completion is now invalidated with the raw/completed receipt when a
+  materially different checked offer replaces the accepted operation. Registered
+  SessionDB coverage proves that retries of the same operation reuse booking A and
+  retry only its missing guest link, while a later accepted offer B creates booking B.
+- The immutable Lucía baseline now records and executes all 11 captured calls at
+  their real boundaries: four on turn 1, five on turn 2, two on turn 3, and none on
+  turns 4–6. This remains separate from the improved first-valid-yes continuation.
+  Corrected-roster input and both populated/empty create shapes are executed rather
+  than represented only by dimension labels.
+- Sim24 and structured-room monetary oracles now match the exact cents-derived euro
+  token with numeric boundaries and retain Ty's whole-euro style (no `.00`).
+
+This is a **SEALED HOLD for Captain**. It does not claim all Step 4 or all Sim25 findings are closed. The approved R3 job authorizes updating the existing PR branch and attaching its review packet; it does **not** authorize merge, deploy, rollback, live check, or real send.

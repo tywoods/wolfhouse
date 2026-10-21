@@ -85,11 +85,11 @@
     "captured_tool_order": [
       "check_availability", "package_price_preview", "check_availability", "quote_booking",
       "check_availability", "quote_booking", "create_booking_from_plan", "quote_booking",
-      "create_booking_from_plan", "create_booking_from_plan"
+      "create_booking_from_plan", "quote_booking", "create_booking_from_plan"
     ],
     "candidate_first_valid_yes_order": ["check_availability", "package_price_preview", "check_availability", "quote_booking", "check_availability", "quote_booking", "create_booking_from_plan"],
     "cause_isolation_dimensions": ["interpret_booking_turn_absent", "interposed_availability", "fact_equivalent_requote", "populated_create", "empty_create", "stale_short_name_hint", "corrected_roster", "independent_and_combined"],
-    "chronology_note": "The exact captured chronology is distinct from the improved first-valid-yes continuation: a fact-equivalent re-quote occurred between the two turn-2 create attempts.",
+    "chronology_note": "The exact captured chronology is distinct from the improved first-valid-yes continuation: turn 2 contained two creates separated by a fact-equivalent re-quote, and turn 3 independently re-quoted before its create; turns 4-6 made no tool calls.",
     "dates": ["2026-11-16", "2026-11-19"],
     "guest_count": 1,
     "short_name": "Lucía",
