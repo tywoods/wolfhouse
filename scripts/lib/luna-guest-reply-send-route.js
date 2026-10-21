@@ -9,7 +9,6 @@ const { sendLunaWhatsAppMessage } = require('./luna-whatsapp-provider');
 const {
   findGuestMessageSendByKey,
   claimGuestMessageSendPending,
-  recordGuestMessageSendBlocked,
   finalizeGuestMessageSendSent,
   finalizeGuestMessageSendBlocked,
   formatGuestMessageSendRow,
@@ -329,11 +328,55 @@ async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempoten
   return null;
 }
 
+async function recordGateAuditWithoutStealingInFlight(pg, input) {
+  const payload = input || {};
+  const blockedReasons = [...new Set((payload.blocked_reasons || []).filter(Boolean).map(String))];
+  const params = [
+    payload.client_slug,
+    payload.channel || 'whatsapp',
+    payload.to_phone,
+    payload.idempotency_key,
+    payload.send_kind,
+    payload.source || null,
+    payload.message_text,
+    JSON.stringify(blockedReasons),
+    payload.provider_response ? JSON.stringify(payload.provider_response) : null,
+  ];
+  try {
+    const written = await pg.query(
+      `INSERT INTO guest_message_sends (
+         client_slug, channel, to_phone, idempotency_key, send_kind, source,
+         message_text, status, blocked_reasons, provider_response
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'blocked', $8::jsonb, $9::jsonb)
+       ON CONFLICT (client_slug, idempotency_key) DO UPDATE SET
+         status = EXCLUDED.status,
+         blocked_reasons = EXCLUDED.blocked_reasons,
+         message_text = EXCLUDED.message_text,
+         provider_response = EXCLUDED.provider_response,
+         updated_at = NOW()
+       WHERE guest_message_sends.status NOT IN ('pending', 'sent')
+         AND NULLIF(BTRIM(guest_message_sends.provider_message_id), '') IS NULL
+       RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+      params,
+    );
+    if (written.rows[0]) return { row: formatGuestMessageSendRow(written.rows[0]) };
+    const existing = await findGuestMessageSendByKey(
+      pg,
+      payload.client_slug,
+      payload.idempotency_key,
+    );
+    return { row: existing.row || null };
+  } catch (err) {
+    if (isMissingGuestMessageSendsTable(err)) return { row: null, table_missing: true };
+    throw err;
+  }
+}
+
 async function persistRouteBlockedSend(pg, body, result) {
   if (!pg || typeof pg.query !== 'function') return result;
   const blockedReasons = result.blocked_reasons || [];
   if (!blockedReasons.length) return result;
-  const recorded = await recordGuestMessageSendBlocked(pg, {
+  const recorded = await recordGateAuditWithoutStealingInFlight(pg, {
     client_slug: result.client_slug,
     to_phone: result.to,
     idempotency_key: result.idempotency_key,

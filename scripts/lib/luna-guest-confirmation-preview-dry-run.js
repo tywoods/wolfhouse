@@ -246,9 +246,11 @@ function buildFixturePg(input, mergedDraft) {
 
 function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
   const draft = preview.confirmation_draft || mergedDraft || {};
-  const balanceDueCents = draft.balance_due_cents != null
-    ? Number(draft.balance_due_cents)
-    : (preview.payment_status === 'paid' ? 0 : null);
+  const balanceDueCents = preview.balance_due_cents != null
+    ? Number(preview.balance_due_cents)
+    : (draft.balance_due_cents != null
+      ? Number(draft.balance_due_cents)
+      : (preview.payment_status === 'paid' ? 0 : null));
   const paymentStatus = String(preview.payment_status || draft.payment_status || '').trim();
 
   const clientConfig = loadClientConfirmationConfig(

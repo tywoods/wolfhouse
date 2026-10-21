@@ -810,6 +810,224 @@ assert.match(it, /2 ospiti/);
   assert.equal(pendingCalls, 0);
   await preserveDb.close();
 
+  const rowBalanceId = '44444444-4444-4444-8444-444444444444';
+  function rowBalancePg(overrides) {
+    const paymentStatus = overrides.payment_status;
+    const amountPaid = overrides.amount_paid_cents;
+    const total = overrides.total_amount_cents;
+    const draft = overrides.draft;
+    const row = {
+      booking_id: rowBalanceId,
+      booking_code: 'WH-ROW-BALANCE',
+      payment_status: paymentStatus,
+      confirmation_sent_at: null,
+      primary_room_code: 'R2',
+      amount_paid_cents: amountPaid,
+      total_amount_cents: total,
+      language: 'en',
+      check_in: '2026-11-15',
+      check_out: '2026-11-24',
+      guest_count: 1,
+      requested_room_type: 'shared',
+      metadata: { confirmation_draft: draft },
+    };
+    return {
+      async query(sql) {
+        if (String(sql).includes('guest_phone_meta')) {
+          return { rows: [{
+            id: rowBalanceId,
+            booking_code: 'WH-ROW-BALANCE',
+            booking_status: 'confirmed',
+            payment_status: paymentStatus,
+            guest_phone_meta: '+346****0000',
+          }] };
+        }
+        if (String(sql).includes('LEFT JOIN LATERAL')) {
+          return { rows: [{
+            amount_paid_cents: amountPaid,
+            payment_record_status: 'paid',
+            booking_payment_status: paymentStatus,
+          }] };
+        }
+        if (String(sql).includes('confirmation_send_claim')) return { rows: [{ id: rowBalanceId }] };
+        if (/FROM booking_beds bb/.test(sql)) return { rows: [{ room_code: 'R2' }] };
+        if (/FROM payments p/.test(sql)) return { rows: [] };
+        if (/FROM bookings b/.test(sql)) return { rows: [row] };
+        const err = new Error('relation does not exist');
+        err.code = '42P01';
+        throw err;
+      },
+    };
+  }
+  async function automaticSendBoundary(overrides) {
+    let captured = null;
+    const automatic = await tryAutoSendBookingConfirmation({
+      client_slug: 'wolfhouse-somo',
+      booking_id: rowBalanceId,
+      booking_code: 'WH-ROW-BALANCE',
+      payment_status: overrides.payment_status,
+      to: '+346****0000',
+    }, {
+      pg: rowBalancePg(overrides),
+      env: { LUNA_AUTO_SEND_ENABLED: 'true', WHATSAPP_DRY_RUN: 'true' },
+      sendLunaBookingConfirmation: async (_, ctx) => {
+        captured = (await ctx.getLunaBookingConfirmationPreview()).message_preview;
+        return { result: { dry_run: true, blocked_reasons: ['whatsapp_dry_run_active'] } };
+      },
+    });
+    assert.equal(automatic.preview && automatic.preview.confirmation_preview_ready, true, JSON.stringify(automatic));
+    assert.equal(captured, automatic.preview.proposed_confirmation_message);
+    return captured;
+  }
+  const rowOnlyDeposit = await automaticSendBoundary({
+    payment_status: 'deposit_paid',
+    amount_paid_cents: 20000,
+    total_amount_cents: 45000,
+    draft: {
+      booking_code: 'WH-ROW-BALANCE',
+      payment_status: 'deposit_paid',
+      room_number: 'R2',
+      gate_code: '2684#',
+    },
+  });
+  assert.match(rowOnlyDeposit, /Deposit received: €200/);
+  assert.match(rowOnlyDeposit, /€250 is left for when you arrive/);
+  const paidInFullBoundary = await automaticSendBoundary({
+    payment_status: 'paid',
+    amount_paid_cents: 45000,
+    total_amount_cents: 45000,
+    draft: {
+      booking_code: 'WH-ROW-BALANCE',
+      payment_status: 'paid',
+      room_number: 'R2',
+      gate_code: '2684#',
+    },
+  });
+  assert.match(paidInFullBoundary, /Payment received: €450/);
+  assert.doesNotMatch(paidInFullBoundary, /Deposit received|€250|left for when you arrive/);
+  const explicitDraftBoundary = await automaticSendBoundary({
+    payment_status: 'deposit_paid',
+    amount_paid_cents: 20000,
+    total_amount_cents: 45000,
+    draft: {
+      booking_code: 'WH-ROW-BALANCE',
+      payment_status: 'deposit_paid',
+      amount_paid_cents: 20000,
+      balance_due_cents: 80000,
+      room_number: 'R2',
+      gate_code: '2684#',
+    },
+  });
+  assert.match(explicitDraftBoundary, /Deposit received: €200/);
+  assert.match(explicitDraftBoundary, /€800 is left for when you arrive/);
+  assert.doesNotMatch(explicitDraftBoundary, /€250/);
+
+  const timeoutDb = await recoveryDb();
+  let timeoutCalls = 0;
+  const timeoutCtx = {
+    pg: timeoutDb,
+    env: recoveryEnv,
+    fetch: async () => {
+      timeoutCalls += 1;
+      throw Object.assign(new Error('offline provider timeout'), { name: 'AbortError' });
+    },
+    runGuestConfirmationPreviewDryRun: async () => recoveryPreview,
+  };
+  const timeoutInput = (key) => ({
+    booking_id: recoveryBook,
+    booking_code: 'WH-TEST-001',
+    client_slug: 'wolfhouse-somo',
+    to: '+999****0001',
+    idempotency_key: key,
+  });
+  await tryAutoSendBookingConfirmation(timeoutInput('event-one'), timeoutCtx);
+  const timeoutRetry = await tryAutoSendBookingConfirmation(timeoutInput('brand-new-event-key'), timeoutCtx);
+  const timeoutRow = (await timeoutDb.query('SELECT status, provider_message_id FROM guest_message_sends')).rows[0];
+  const timeoutState = (await timeoutDb.query('SELECT confirmation_sent_at FROM bookings')).rows[0];
+  assert.equal(timeoutCalls, 1, 'a timeout must not authorize a second provider call');
+  assert.equal(timeoutRow.status, 'pending');
+  assert.equal(timeoutRow.provider_message_id, null);
+  assert.equal(timeoutState.confirmation_sent_at, null);
+  assert.equal(timeoutRetry.confirmation_sent, false);
+  await timeoutDb.close();
+
+  const overlapDb = await recoveryDb();
+  await overlapDb.query(
+    `INSERT INTO guest_message_sends(
+       client_slug, to_phone, idempotency_key, send_kind, message_text, status, blocked_reasons
+     ) VALUES ($1, $2, $3, 'confirmation', 'Payment received.', 'blocked', '["whatsapp_provider_send_failed"]'::jsonb)`,
+    ['wolfhouse-somo', '+999****0001', 'retry-key'],
+  );
+  let overlapCalls = 0;
+  let releaseBlocker;
+  let releaseProvider;
+  const blockerAtPause = new Promise((resolve) => { releaseBlocker = resolve; });
+  const providerStarted = new Promise((resolve) => { releaseProvider = resolve; });
+  let finishProvider;
+  const providerHold = new Promise((resolve) => { finishProvider = resolve; });
+  const overlapEnv = {
+    LUNA_AUTO_SEND_ENABLED: 'true',
+    WHATSAPP_DRY_RUN: 'false',
+    WHATSAPP_CLOUD_ACCESS_TOKEN: 'offline-fixture-not-a-token',
+    WHATSAPP_PHONE_NUMBER_ID: 'offline-fixture',
+  };
+  const overlapBody = {
+    client_slug: 'wolfhouse-somo',
+    to: '+999****0001',
+    send_kind: 'confirmation',
+    idempotency_key: 'retry-key',
+    suggested_reply: 'Payment received.',
+    send_eligibility: { auto_send_ready: true },
+  };
+  const gatedPg = {
+    query: async (sql, params) => {
+      if (String(sql).includes('FROM bot_pause_states')) {
+        releaseBlocker();
+        await providerStarted;
+        return { rows: [] };
+      }
+      return overlapDb.query(sql, params);
+    },
+  };
+  const overlapFetch = async () => {
+    const n = ++overlapCalls;
+    if (n === 1) {
+      releaseProvider();
+      await providerHold;
+    }
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.overlap.${n}` }] }) };
+  };
+  const blockedRequest = evaluateGuestReplySendRouteWithPause({
+    ...overlapBody,
+    send_eligibility: { requires_staff: true },
+  }, { pg: gatedPg, env: overlapEnv, fetch: overlapFetch });
+  await blockerAtPause;
+  const sendingRequest = evaluateGuestReplySendRouteWithPause(overlapBody, {
+    pg: overlapDb,
+    env: overlapEnv,
+    fetch: overlapFetch,
+  });
+  await providerStarted;
+  await blockedRequest;
+  const afterBlock = (await overlapDb.query('SELECT status, provider_message_id FROM guest_message_sends')).rows[0];
+  assert.equal(afterBlock.status, 'pending', 'gate audit must not overwrite an in-flight confirmation');
+  assert.equal(afterBlock.provider_message_id, null);
+  const third = await evaluateGuestReplySendRouteWithPause(overlapBody, {
+    pg: overlapDb,
+    env: overlapEnv,
+    fetch: overlapFetch,
+  });
+  finishProvider();
+  const overlapFirst = await sendingRequest;
+  assert.equal(overlapCalls, 1, 'one idempotency key must make one provider call');
+  assert.equal(third.result.idempotent_replay, true);
+  assert.equal(third.result.send_performed, false);
+  assert.equal(overlapFirst.result.whatsapp_message_id, 'wamid.overlap.1');
+  const overlapAudit = (await overlapDb.query('SELECT status, provider_message_id FROM guest_message_sends')).rows[0];
+  assert.equal(overlapAudit.status, 'sent');
+  assert.equal(overlapAudit.provider_message_id, 'wamid.overlap.1');
+  await overlapDb.close();
+
   console.log('verify-wolfhouse-paid-confirmation: PASS');
 })().catch((err) => {
   console.error(err.stack || err);
