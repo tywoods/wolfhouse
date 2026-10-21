@@ -15,6 +15,7 @@ const {
   loadClientConfirmationConfig,
   resolveGateCode,
   resolveConfirmationAddress,
+  resolveRoomNumbers,
   PREVIEW_SAFETY_FLAGS,
 } = require('./luna-booking-confirmation-preview');
 const {
@@ -178,20 +179,6 @@ function sanitizePreviewMessage(message, paymentStatus, balanceDueCents, languag
 function messageHasBedLeak(message) {
   if (!message) return false;
   return BED_CODE_RE.test(message) || BED_NUMBER_RE.test(message);
-}
-
-function resolveRoomNumbers(draft, primaryRoomCode, extraRoomCodes) {
-  const codes = new Set();
-  const fromDraft = draft && draft.room_number ? String(draft.room_number).trim() : '';
-  if (fromDraft) {
-    codes.add(fromDraft);
-  } else if (primaryRoomCode) {
-    codes.add(String(primaryRoomCode).trim());
-  }
-  for (const rc of extraRoomCodes || []) {
-    if (rc) codes.add(String(rc).trim());
-  }
-  return [...codes].filter(Boolean);
 }
 
 function resolveRoomLabel(roomNumbers, draft) {

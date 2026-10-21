@@ -542,6 +542,73 @@ assert.match(it, /2 ospiti/);
   assert.equal(amountBoundary.confirmation_preview_ready, true, JSON.stringify(amountBoundary.block_reasons));
   assert.match(amountBoundary.proposed_confirmation_message, /Payment received: €200/);
 
+  const roomProbeId = '00000000-0000-4000-8000-000000000027';
+  function roomProbePg(draftRoom, primaryRoom, bedRooms) {
+    const row = {
+      booking_id: roomProbeId,
+      booking_code: 'WH-ROOM-PROBE',
+      payment_status: 'deposit_paid',
+      confirmation_sent_at: null,
+      primary_room_code: primaryRoom,
+      amount_paid_cents: 20000,
+      total_amount_cents: 100000,
+      language: 'en',
+      check_in: '2026-06-05',
+      check_out: '2026-06-10',
+      guest_count: 2,
+      requested_room_type: 'shared',
+      room_preference: 'shared',
+      metadata: {
+        confirmation_draft: {
+          booking_code: 'WH-ROOM-PROBE',
+          guest_name: 'Test',
+          payment_status: 'deposit_paid',
+          amount_paid_cents: 20000,
+          balance_due_cents: 80000,
+          room_number: draftRoom,
+          gate_code: '1234',
+          address: 'Test address',
+          check_in: '2026-06-05',
+          check_out: '2026-06-10',
+          guest_count: 2,
+          requested_room_type: 'shared',
+        },
+      },
+    };
+    return {
+      async query(sql) {
+        if (/FROM booking_beds bb/.test(sql)) {
+          return { rows: (bedRooms || []).map((room_code) => ({ room_code })) };
+        }
+        if (/FROM payments p/.test(sql)) return { rows: [] };
+        if (/FROM bookings b/.test(sql)) return { rows: [row] };
+        throw new Error(`room probe unexpected query: ${String(sql).slice(0, 80)}`);
+      },
+    };
+  }
+  async function roomProbe(draftRoom, primaryRoom, bedRooms) {
+    return runGuestConfirmationPreviewDryRun({
+      client_slug: 'wolfhouse-somo',
+      booking_id: roomProbeId,
+      payment_status: 'deposit_paid',
+      language_hint: 'en',
+    }, { pg: roomProbePg(draftRoom, primaryRoom, bedRooms) });
+  }
+  const staleRoom = await roomProbe('R1', 'R2', ['R2']);
+  assert.equal(staleRoom.confirmation_preview_ready, true, JSON.stringify(staleRoom.block_reasons));
+  assert.equal(staleRoom.room_label, 'R2', staleRoom.proposed_confirmation_message);
+  assert.match(staleRoom.proposed_confirmation_message, /🛏️ .+ · R2\n/);
+  assert.doesNotMatch(staleRoom.proposed_confirmation_message, /R1/);
+  const multiRoom = await roomProbe('R1', 'R2', ['R2', 'R4']);
+  assert.equal(multiRoom.confirmation_preview_ready, true, JSON.stringify(multiRoom.block_reasons));
+  assert.equal(multiRoom.room_label, 'R2, R4', multiRoom.proposed_confirmation_message);
+  assert.match(multiRoom.proposed_confirmation_message, /🛏️ .+ · R2, R4\n/);
+  assert.doesNotMatch(multiRoom.proposed_confirmation_message, /R1/);
+  const draftOnlyRoom = await roomProbe('R1', null, []);
+  assert.equal(draftOnlyRoom.confirmation_preview_ready, true, JSON.stringify(draftOnlyRoom.block_reasons));
+  assert.equal(draftOnlyRoom.room_label, 'R1');
+  assert.match(draftOnlyRoom.proposed_confirmation_message, /🛏️ .+ · R1\n/);
+
   const fixture = buildFixturePg(copyInput, storedGermanDraft);
   const autoPg = {
     async query(sql, params) {
