@@ -25,6 +25,24 @@ SHORT = [{"name": "Lucía", "explicit_gender": "female"}]
 FULL = [{"name": "Lucía Fernández Ruiz", "explicit_gender": "female"}]
 BASE = {"check_in": "2026-11-16", "check_out": "2026-11-19", "guest_count": 1,
         "room_type": "shared", "room_preference": "mixed"}
+# Chief-supplied corrected readback (SIM26-READBACK-20261021T0905).  This is an
+# operator-attested preservation oracle, not a reconstructed missing chat turn.
+SIM26_SUPPLIED_READBACKS = {
+    "guest2.jsonl": {"booking_code": "WH-20261113-16186147",
+                     "beds": ["R1-B5", "R3-B4", "R9-B1"],
+                     "total_cents": 24000, "payment_choice": "full"},
+    "guest3.jsonl": {"booking_code": "WH-20261123-05665087",
+                     "beds": ["R4-B5", "R4-B6"],
+                     "total_cents": 24000, "payment_choice": "deposit"},
+    "guest4.jsonl": {"booking_code": "WH-20261110-00768716",
+                     "beds": ["R5-B2"], "check_in": "2026-11-10",
+                     "check_out": "2026-11-13", "total_cents": 12000,
+                     "payment_choice": "full", "status": "confirmed",
+                     "source": "operator_attested_readback"},
+    "guest5.jsonl": {"booking_code": "WH-20261109-12158553",
+                     "beds": ["R1-B4"], "total_cents": 12000,
+                     "payment_choice": "deposit"},
+}
 LUCIA_CAPTURED_CALLS = [
     [("check_availability", {"client_slug": None, **BASE, "guests": SHORT,
        "guest_name": "Lucía", "room_name_hints": SHORT}),
@@ -116,6 +134,37 @@ class Sim26LiveSequenceTests(unittest.TestCase):
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256((INPUTS / name).read_bytes()).hexdigest(), digest)
+
+        # Three successful journeys expose create payloads and receipts in the
+        # immutable JSONL.  Assert those executable capture boundaries instead
+        # of merely trusting the corrected 4/5 prose outcome.
+        for name in ("guest2.jsonl", "guest3.jsonl", "guest5.jsonl"):
+            with self.subTest(successful_capture=name):
+                rows = [json.loads(line) for line in (INPUTS / name).read_text().splitlines()]
+                creates = [call for row in rows for call in row["resp"]["tool_calls"]
+                           if call["name"] == "create_booking_from_plan"]
+                self.assertEqual(len(creates), 1)
+                body = creates[0]["args"]
+                oracle = SIM26_SUPPLIED_READBACKS[name]
+                self.assertEqual(body["selected_bed_codes"], oracle["beds"])
+                self.assertEqual(body["accepted_offer"]["total_cents"], oracle["total_cents"])
+                self.assertEqual(body["payment_choice"], oracle["payment_choice"])
+                self.assertIn(f"booking_code={oracle['booking_code']}",
+                              creates[0]["result_summary"])
+                self.assertIn("write_performed=True", creates[0]["result_summary"])
+
+        # Emma's supplied client capture ends before the create response.  Keep
+        # that gap explicit while pinning the separate corrected Staff readback.
+        emma_rows = [json.loads(line) for line in (INPUTS / "guest4.jsonl").read_text().splitlines()]
+        self.assertEqual([call for row in emma_rows for call in row["resp"].get("tool_calls", [])
+                          if call["name"] == "create_booking_from_plan"], [])
+        emma = SIM26_SUPPLIED_READBACKS["guest4.jsonl"]
+        self.assertEqual(emma, {
+            "booking_code": "WH-20261110-00768716", "beds": ["R5-B2"],
+            "check_in": "2026-11-10", "check_out": "2026-11-13",
+            "total_cents": 12000, "payment_choice": "full",
+            "status": "confirmed", "source": "operator_attested_readback",
+        })
 
     def test_lucia_unchanged_offer_first_populated_create_then_retry_reuses_receipt(self):
         loop = DeterministicRegisteredLoop(self, "sim26-lucia-green")

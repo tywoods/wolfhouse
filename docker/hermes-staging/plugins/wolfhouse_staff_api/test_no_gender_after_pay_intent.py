@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -11,6 +12,31 @@ ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "docker/hermes-staging"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import wolfhouse_staff_api as plugin
+
+
+def checked_staff_quote(plan, beds, *, total, deposit):
+    """Build a real Staff-shaped preview offer with the production JS builder."""
+    payment = plan.get("payment_choice") or "deposit"
+    quote = {"success": True, "total_cents": total,
+             "quote_total_cents": total, "deposit_required_cents": deposit,
+             "balance_due_cents": total - deposit,
+             "payment_link_amount_cents": total if payment == "full" else deposit,
+             "currency": "EUR", "package_code": plan.get("package_code", "package_none"),
+             "full_payment_only": False}
+    source = ("const {buildCheckedWolfhousePreviewOffer:b}=require("
+              "'./scripts/lib/luna-front-desk-accommodation-availability-service');"
+              "console.log(JSON.stringify(b(JSON.parse(process.argv[1]))));")
+    payload = {**{k: v for k, v in plan.items() if k not in ("guests", "payment_choice")},
+               "client_slug": "wolfhouse-somo", "quote": quote,
+               "guests": plan.get("guests", []), "payment_choice": payment,
+               "availability": {**plan, "status": "checked",
+                                "availability_status": "available",
+                                "availability_checked": True,
+                                "selected_bed_codes": [bed["bed_code"] for bed in beds]},
+               "room_rows": beds}
+    built = json.loads(subprocess.check_output(
+        ["node", "-e", source, json.dumps(payload)], cwd=ROOT))
+    return {**quote, **built, "payment_choice_needed": not plan.get("payment_choice")}
 
 
 class Registry:
@@ -231,11 +257,21 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
                 self.assertEqual(calls[0][1]["group_gender"], gender)
                 self.assertFalse(checked["room_decision"]["clarification_needed"])
                 named = {**unnamed, "guests": [{"name": "Alex"}, {"name": "Sam"}]}
-                quoted, calls = self.invoke("quote_booking", named)
-                self.assertEqual(calls[0][1]["guests"], named["guests"])
-                self.assertEqual(calls[0][1]["group_gender"], gender)
+                preview = checked_staff_quote(named, beds, total=10000, deposit=3000)
+                quoted, calls = self.invoke("quote_booking", named,
+                                            availability=available, preview=preview)
+                self.assertEqual([path for path, _ in calls],
+                                 ["/availability-check", "/booking-preview"])
+                availability_body, preview_body = calls[0][1], calls[1][1]
+                self.assertEqual(availability_body["guests"], named["guests"])
+                self.assertEqual(availability_body["group_gender"], gender)
+                self.assertEqual(preview_body["guests"], named["guests"])
+                self.assertEqual(preview_body["group_gender"], gender)
+                self.assertEqual(preview_body["selected_bed_codes"], ["X1", "X2"])
+                self.assertTrue(quoted["success"], quoted)
+                self.assertEqual(quoted["quote_status"], "ready")
                 self.assertFalse((quoted.get("room_decision") or {}).get("clarification_needed", False))
-                self.assertNotIn("?", quoted.get("reply_draft", ""))
+                self.assertNotIn("?", quoted.get("reply_draft") or "")
 
         partial = {**base, "guests": [{"name": "Alex", "explicit_gender": "female"},
                                        {"name": "Sam"}]}
