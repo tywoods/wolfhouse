@@ -183,20 +183,255 @@ function formatConfirmationDate(value, copy) {
   return `${weekday} ${date.getUTCDate()} ${month}`;
 }
 
+const ROOM_LINES = Object.freeze({
+  en: {
+    mixed: 'A bed in our mixed shared room',
+    women_shared: 'A bed in our women-only shared room',
+    men_shared: 'A bed in our men-only shared room',
+    shared: 'A bed in a shared room',
+    women: 'A women-only room',
+    men: 'A men-only room',
+    private: 'Private room',
+    private_or_mixed: 'A private or mixed room',
+    fallback: 'Your room',
+    and: 'and',
+    privateFor: (n) => `Private room for ${n}`,
+    many: {
+      mixed: (n) => `Beds in ${n} mixed shared rooms`,
+      women_shared: (n) => `Beds in ${n} women-only shared rooms`,
+      men_shared: (n) => `Beds in ${n} men-only shared rooms`,
+      shared: (n) => `Beds in ${n} shared rooms`,
+      women: (n) => `${n} women-only rooms`,
+      men: (n) => `${n} men-only rooms`,
+      private: (n) => `${n} private rooms`,
+      private_or_mixed: (n) => `${n} private or mixed rooms`,
+      fallback: (n) => `${n} rooms`,
+    },
+  },
+  es: {
+    mixed: 'Una cama en nuestra habitación compartida mixta',
+    women_shared: 'Una cama en nuestra habitación compartida solo para mujeres',
+    men_shared: 'Una cama en nuestra habitación compartida solo para hombres',
+    shared: 'Una cama en una habitación compartida',
+    women: 'Una habitación solo para mujeres',
+    men: 'Una habitación solo para hombres',
+    private: 'Habitación privada',
+    private_or_mixed: 'Una habitación privada o mixta',
+    fallback: 'Tu habitación',
+    and: 'y',
+    privateFor: (n) => `Habitación privada para ${n}`,
+    many: {
+      mixed: (n) => `Camas en ${n} habitaciones compartidas mixtas`,
+      women_shared: (n) => `Camas en ${n} habitaciones compartidas solo para mujeres`,
+      men_shared: (n) => `Camas en ${n} habitaciones compartidas solo para hombres`,
+      shared: (n) => `Camas en ${n} habitaciones compartidas`,
+      women: (n) => `${n} habitaciones solo para mujeres`,
+      men: (n) => `${n} habitaciones solo para hombres`,
+      private: (n) => `${n} habitaciones privadas`,
+      private_or_mixed: (n) => `${n} habitaciones privadas o mixtas`,
+      fallback: (n) => `${n} habitaciones`,
+    },
+  },
+  de: {
+    mixed: 'Ein Bett in unserem gemischten Mehrbettzimmer',
+    women_shared: 'Ein Bett in unserem Frauen-Mehrbettzimmer',
+    men_shared: 'Ein Bett in unserem Männer-Mehrbettzimmer',
+    shared: 'Ein Bett in einem Mehrbettzimmer',
+    women: 'Ein Zimmer nur für Frauen',
+    men: 'Ein Zimmer nur für Männer',
+    private: 'Privatzimmer',
+    private_or_mixed: 'Ein privates oder gemischtes Zimmer',
+    fallback: 'Dein Zimmer',
+    and: 'und',
+    privateFor: (n) => `Privatzimmer für ${n}`,
+    many: {
+      mixed: (n) => `Betten in ${n} gemischten Mehrbettzimmern`,
+      women_shared: (n) => `Betten in ${n} Frauen-Mehrbettzimmern`,
+      men_shared: (n) => `Betten in ${n} Männer-Mehrbettzimmern`,
+      shared: (n) => `Betten in ${n} Mehrbettzimmern`,
+      women: (n) => `${n} Zimmer nur für Frauen`,
+      men: (n) => `${n} Zimmer nur für Männer`,
+      private: (n) => `${n} Privatzimmer`,
+      private_or_mixed: (n) => `${n} private oder gemischte Zimmer`,
+      fallback: (n) => `${n} Zimmer`,
+    },
+  },
+  fr: {
+    mixed: 'Un lit dans notre chambre partagée mixte',
+    women_shared: 'Un lit dans notre chambre partagée réservée aux femmes',
+    men_shared: 'Un lit dans notre chambre partagée réservée aux hommes',
+    shared: 'Un lit dans une chambre partagée',
+    women: 'Une chambre réservée aux femmes',
+    men: 'Une chambre réservée aux hommes',
+    private: 'Chambre privée',
+    private_or_mixed: 'Une chambre privée ou mixte',
+    fallback: 'Ta chambre',
+    and: 'et',
+    privateFor: (n) => `Chambre privée pour ${n}`,
+    many: {
+      mixed: (n) => `Lits dans ${n} chambres partagées mixtes`,
+      women_shared: (n) => `Lits dans ${n} chambres partagées réservées aux femmes`,
+      men_shared: (n) => `Lits dans ${n} chambres partagées réservées aux hommes`,
+      shared: (n) => `Lits dans ${n} chambres partagées`,
+      women: (n) => `${n} chambres réservées aux femmes`,
+      men: (n) => `${n} chambres réservées aux hommes`,
+      private: (n) => `${n} chambres privées`,
+      private_or_mixed: (n) => `${n} chambres privées ou mixtes`,
+      fallback: (n) => `${n} chambres`,
+    },
+  },
+  it: {
+    mixed: 'Un letto nella nostra camera condivisa mista',
+    women_shared: 'Un letto nella nostra camera condivisa solo per donne',
+    men_shared: 'Un letto nella nostra camera condivisa solo per uomini',
+    shared: 'Un letto in una camera condivisa',
+    women: 'Una camera solo per donne',
+    men: 'Una camera solo per uomini',
+    private: 'Camera privata',
+    private_or_mixed: 'Una camera privata o mista',
+    fallback: 'La tua camera',
+    and: 'e',
+    privateFor: (n) => `Camera privata per ${n}`,
+    many: {
+      mixed: (n) => `Letti in ${n} camere condivise miste`,
+      women_shared: (n) => `Letti in ${n} camere condivise solo per donne`,
+      men_shared: (n) => `Letti in ${n} camere condivise solo per uomini`,
+      shared: (n) => `Letti in ${n} camere condivise`,
+      women: (n) => `${n} camere solo per donne`,
+      men: (n) => `${n} camere solo per uomini`,
+      private: (n) => `${n} camere private`,
+      private_or_mixed: (n) => `${n} camere private o miste`,
+      fallback: (n) => `${n} camere`,
+    },
+  },
+});
+
+const RECEPTION_TIMING = Object.freeze({
+  en: 'on arrival, at reception',
+  es: 'a tu llegada, en recepción',
+  de: 'bei Ankunft, an der Rezeption',
+  fr: "à l'arrivée, à la réception",
+  it: "all'arrivo, alla reception",
+});
+
+const ARRIVAL_TIMING = Object.freeze({
+  en: 'on arrival',
+  es: 'a tu llegada',
+  de: 'bei Ankunft',
+  fr: "à l'arrivée",
+  it: "all'arrivo",
+});
+
+const ARRIVAL_METHODS = Object.freeze({
+  en: 'by cash, bank transfer, or a payment link',
+  es: 'en efectivo, por transferencia o con un enlace de pago',
+  de: 'bar, per Überweisung oder per Zahlungslink',
+  fr: 'en espèces, par virement ou avec un lien de paiement',
+  it: 'in contanti, con bonifico o con un link di pagamento',
+});
+
+function knownCents(value) {
+  if (value == null || value === '') return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  return Math.round(amount);
+}
+
+function classifyRoomToken(value) {
+  const text = trimStr(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+  if (!text) return null;
+  if (/private or mixed|matrimonial or mixed/.test(text)) return 'private_or_mixed';
+  const women = /\b(?:women|female|girls?|mujeres|frauen|femmes|donne)\b/.test(text);
+  const men = /\b(?:men|male|guys?|hombres|manner|männer|hommes|uomini)\b/.test(text);
+  const mixed = /\b(?:mixed|mixta|mixte|mista|gemischt)\b/.test(text);
+  const shared = /\b(?:shared|dorm|mehrbett|compartid\w*|partag\w*|condivis\w*)\b/.test(text);
+  const isPrivate = /\b(?:private|privad\w*|privat\w*|prive|privé|matrimonial|couple|singol\w*)\b/.test(text);
+  if (women && !men && !mixed) return shared ? 'women_shared' : 'women';
+  if (men && !women && !mixed) return shared ? 'men_shared' : 'men';
+  if (mixed && !women && !men) return 'mixed';
+  if (isPrivate && !shared && !women && !men) return 'private';
+  if (shared && !women && !men && !mixed) return 'shared';
+  return null;
+}
+
+function roomPhrase(lines, kind, count, fields) {
+  if (count > 1) return (lines.many[kind] || lines.many.fallback)(count);
+  if (kind === 'private') {
+    const guests = Number(fields && fields.guest_count);
+    if (Number.isInteger(guests) && guests > 1) return lines.privateFor(guests);
+  }
+  return lines[kind] || lines.fallback;
+}
+
 function confirmationRoomSentence(fields, copy) {
-  const kind = [
-    fields && fields.room_kind,
-    fields && fields.requested_room_type,
-    fields && fields.room_preference,
-  ].map(trimStr).join(' ').toLowerCase();
-  const shared = /mixed|shared|dorm|mehrbett|compartid|partag|condivis/.test(kind);
-  const isPrivate = /private|privad|privat|privé|prive|singol/.test(kind) && !shared;
-  const guestCount = Number(fields && fields.guest_count);
-  if (shared) return copy.shared;
-  if (isPrivate) return Number.isInteger(guestCount) && guestCount > 0
-    ? `${copy.private} ${copy.labels.guests.toLowerCase()} ${guestCount}`
-    : copy.private;
-  return '';
+  const lines = ROOM_LINES[quoteStyleLanguage(fields && fields.language)] || ROOM_LINES.en;
+  const explicit = Array.isArray(fields && fields.room_kinds)
+    ? fields.room_kinds.map(trimStr).filter(Boolean)
+    : [];
+  const assigned = explicit.length
+    ? explicit
+    : [fields && fields.room_kind, fields && fields.requested_room_type].map(trimStr).filter(Boolean);
+  const tokens = assigned.length
+    ? assigned
+    : [fields && fields.room_preference].map(trimStr).filter(Boolean);
+  const classes = tokens.map(classifyRoomToken).filter(Boolean);
+  const countRaw = Number(fields && fields.room_count);
+  const count = Number.isInteger(countRaw) && countRaw > 1
+    ? countRaw
+    : (classes.length > 1 ? classes.length : 1);
+  if (!classes.length) {
+    if (!trimStr(fields && (fields.room_number || fields.room_label))) return '';
+    return count > 1 ? lines.many.fallback(count) : lines.fallback;
+  }
+  const unique = [...new Set(classes)];
+  if (unique.length > 1) {
+    return unique.map((kind, index) => {
+      const phrase = roomPhrase(lines, kind, 1, fields);
+      return index === 0 ? phrase : phrase.charAt(0).toLowerCase() + phrase.slice(1);
+    }).join(` ${lines.and} `);
+  }
+  return roomPhrase(lines, unique[0], count, fields);
+}
+
+function normalizeTiming(value) {
+  return trimStr(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+function confirmationBalanceTiming(src, language) {
+  const raw = trimStr(src && src.balance_due_timing);
+  if (!raw) return '';
+  const lang = quoteStyleLanguage(language);
+  const norm = normalizeTiming(raw);
+  if (Object.values(RECEPTION_TIMING).some((phrase) => normalizeTiming(phrase) === norm)) {
+    return ` ${RECEPTION_TIMING[lang]}`;
+  }
+  if (norm === 'at arrival or checkin' || norm === 'on arrival' || norm === 'when you arrive' || norm === 'at arrival') {
+    const methods = Array.isArray(src.balance_payment_methods) && src.balance_payment_methods.length
+      ? `, ${ARRIVAL_METHODS[lang]}`
+      : '';
+    return ` ${ARRIVAL_TIMING[lang]}${methods}`;
+  }
+  return ` ${raw}`;
+}
+
+function resolveConfirmationMoney(src) {
+  const paidCents = knownCents(src && src.amount_paid_cents);
+  const balanceCents = knownCents(src && src.balance_due_cents);
+  const balanceKnown = src && src.balance_due_cents != null && src.balance_due_cents !== '' && balanceCents != null;
+  const suppliedTotal = knownCents(src && src.total_amount_cents);
+  let totalCents = null;
+  if (paidCents != null && balanceKnown && balanceCents >= 0) {
+    const derived = paidCents + balanceCents;
+    if (suppliedTotal == null || suppliedTotal === derived) totalCents = derived;
+  } else if (suppliedTotal != null && suppliedTotal > 0) {
+    totalCents = suppliedTotal;
+  } else if (suppliedTotal === 0 && paidCents === 0 && balanceKnown && balanceCents === 0) {
+    totalCents = 0;
+  }
+  const deposit = trimStr(src && src.payment_status) === 'deposit_paid' && balanceKnown && balanceCents > 0;
+  const fullyPaid = !!(paidCents != null && balanceKnown && balanceCents === 0
+    && (suppliedTotal == null || suppliedTotal === paidCents));
+  return { paidCents, balanceCents, balanceKnown, totalCents, deposit, fullyPaid };
 }
 
 function confirmationFirstName(value) {
@@ -235,17 +470,12 @@ function confirmationFact(emoji, label, value) {
 function buildWolfhousePaidConfirmationCopy(fields) {
   const src = fields || {};
   const copy = QUOTE_STYLE_COPY[quoteStyleLanguage(src.language)];
-  const paidCents = Number(src.amount_paid_cents);
-  const balanceCents = src.balance_due_cents == null ? 0 : Number(src.balance_due_cents);
-  const suppliedTotal = Number(src.total_amount_cents);
-  const derivedTotal = Number.isFinite(paidCents) && Number.isFinite(balanceCents)
-    ? paidCents + Math.max(0, balanceCents)
-    : NaN;
-  const totalCents = Number.isFinite(suppliedTotal) && suppliedTotal >= 0 ? suppliedTotal : derivedTotal;
-  const paid = formatConfirmationEuro(paidCents);
-  const balance = balanceCents > 0 ? formatConfirmationEuro(balanceCents) : '';
-  const total = formatConfirmationEuro(totalCents);
-  const deposit = trimStr(src.payment_status) === 'deposit_paid' && balanceCents > 0;
+  const money = resolveConfirmationMoney(src);
+  const paid = formatConfirmationEuro(money.paidCents);
+  const balance = money.balanceKnown && money.balanceCents > 0
+    ? formatConfirmationEuro(money.balanceCents)
+    : '';
+  const total = money.totalCents == null ? '' : formatConfirmationEuro(money.totalCents);
 
   const arrival = formatConfirmationDate(src.check_in, copy);
   const departure = formatConfirmationDate(src.check_out, copy);
@@ -262,12 +492,12 @@ function buildWolfhousePaidConfirmationCopy(fields) {
     confirmationFact('🏄', copy.labels.package, trimStr(src.package_name || src.package)),
   ].filter(Boolean);
 
-  if (paid) facts.push(confirmationFact('💶', deposit ? copy.labels.paidToday : copy.labels.paid, paid));
+  if (paid) facts.push(confirmationFact('💶', money.deposit ? copy.labels.paidToday : copy.labels.paid, paid));
   if (total) facts.push(confirmationFact('💳', copy.labels.total, total));
-  if (deposit && balance) {
-    const timing = trimStr(src.balance_due_timing) ? ` ${copy.owedWhere}` : '';
+  if (money.deposit && balance) {
+    const timing = confirmationBalanceTiming(src, src.language);
     facts.push(confirmationFact('⏳', copy.labels.owed, `${balance}${timing}`));
-  } else if (paid && balanceCents <= 0) {
+  } else if (money.fullyPaid && paid) {
     facts.push(`✅ *${copy.fullyPaid}*, ${copy.nothingOwed}`);
   }
 

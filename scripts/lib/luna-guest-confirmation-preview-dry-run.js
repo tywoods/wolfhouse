@@ -9,6 +9,8 @@
  * No WhatsApp · no Meta/n8n · no booking confirmation write · no Stripe.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { withPgClient } = require('./pg-connect');
 const {
   getLunaBookingConfirmationPreview,
@@ -189,6 +191,77 @@ function resolveRoomLabel(roomNumbers, draft) {
   return { room_number: null, room_label: null };
 }
 
+const CATALOG_ROOM_KIND = Object.freeze({
+  mixed: 'mixed shared',
+  male_only: 'men-only shared',
+  female_only: 'women-only shared',
+  matrimonial_private_couple: 'private',
+  matrimonial_or_mixed: 'private or mixed',
+});
+
+function loadTenantConfirmationFacts(clientSlug) {
+  const slug = trimStr(clientSlug) || 'wolfhouse-somo';
+  try {
+    const cfgPath = path.join(__dirname, '..', '..', 'config', 'clients', `${slug}.baseline.json`);
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    return {
+      check_in_time: (cfg.operations && cfg.operations.check_in_time) || null,
+      balance_payment_timing: (cfg.payment && cfg.payment.balance_payment_timing) || null,
+      balance_payment_methods: Array.isArray(cfg.payment && cfg.payment.balance_payment_methods)
+        ? cfg.payment.balance_payment_methods
+        : null,
+      rooms: (cfg.rooming && cfg.rooming.rooms) || {},
+    };
+  } catch (_) {
+    return {
+      check_in_time: null,
+      balance_payment_timing: null,
+      balance_payment_methods: null,
+      rooms: {},
+    };
+  }
+}
+
+function kindsForAssignedRooms(roomNumbers, rooms) {
+  const kinds = [];
+  for (const code of roomNumbers || []) {
+    const room = rooms && rooms[String(code).trim()];
+    const mapped = room && CATALOG_ROOM_KIND[room.type];
+    if (mapped) kinds.push(mapped);
+  }
+  return kinds;
+}
+
+function existingGuestNames(draft) {
+  if (Array.isArray(draft && draft.guest_names)) {
+    return draft.guest_names.map(trimStr).filter(Boolean);
+  }
+  if (!Array.isArray(draft && draft.guests)) return [];
+  return draft.guests.map((guest) => {
+    if (typeof guest === 'string') return trimStr(guest);
+    return trimStr(guest && (guest.guest_name || guest.name));
+  }).filter(Boolean);
+}
+
+function existingPackageName(draft) {
+  const named = trimStr(draft && (draft.package_name || draft.package || draft.package_label));
+  if (named) return named;
+  const interest = trimStr(draft && draft.package_interest);
+  return interest && /\s/.test(interest) ? interest : '';
+}
+
+function existingShuttle(draft) {
+  const booked = !!(draft && (
+    draft.shuttle_booked === true
+    || draft.airport_shuttle === true
+    || draft.transfer_booked === true
+  ));
+  return {
+    shuttle_booked: booked,
+    shuttle_copy: trimStr(draft && (draft.shuttle_copy || draft.shuttle_note || draft.transfer_note)),
+  };
+}
+
 function buildFixturePg(input, mergedDraft) {
   const bookingId = trimStr(input.booking_id) || '00000000-0000-4000-8000-000000000027';
   const bookingCode = trimStr(input.booking_code)
@@ -250,7 +323,7 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
     ? Number(preview.balance_due_cents)
     : (draft.balance_due_cents != null
       ? Number(draft.balance_due_cents)
-      : (preview.payment_status === 'paid' ? 0 : null));
+      : null);
   const paymentStatus = String(preview.payment_status || draft.payment_status || '').trim();
 
   const clientConfig = loadClientConfirmationConfig(
@@ -274,27 +347,50 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
   const slug = trimStr(clientSlug) || 'wolfhouse-somo';
   let proposed = proposedBase;
   if (isWolfhousePaidConfirmationClient(slug)) {
+    const tenant = loadTenantConfirmationFacts(slug);
     const mapsLink = trimStr(draft.maps_link)
       || trimStr(loadLessonScheduleConfig(slug).maps_link);
+    const assignedKinds = kindsForAssignedRooms(roomNumbers, tenant.rooms);
+    const draftKind = trimStr(draft.room_kind);
+    const requestedKind = trimStr(draft.requested_room_type || preview.requested_room_type);
+    const preference = trimStr(draft.room_preference || preview.room_preference);
+    const roomKinds = assignedKinds.length
+      ? assignedKinds
+      : (roomNumbers.length
+        ? [draftKind || requestedKind].filter(Boolean)
+        : [draftKind || requestedKind || preference].filter(Boolean));
+    const draftTiming = trimStr(draft.balance_due_timing);
+    const shuttle = existingShuttle(draft);
+    const guestNames = existingGuestNames(draft);
+    const packageName = existingPackageName(draft);
     proposed = buildWolfhousePaidConfirmationCopy({
       language,
       guest_name: draft.guest_name,
+      guest_names: guestNames.length ? guestNames : undefined,
       booking_code: preview.booking_code || draft.booking_code,
       payment_status: paymentStatus,
       amount_paid_cents: draft.amount_paid_cents != null
         ? draft.amount_paid_cents
         : preview.amount_paid_cents,
       balance_due_cents: balanceDueCents,
+      total_amount_cents: Object.prototype.hasOwnProperty.call(draft, 'total_amount_cents')
+        ? draft.total_amount_cents
+        : undefined,
       check_in: draft.check_in || preview.check_in,
       check_out: draft.check_out || preview.check_out,
       guest_count: draft.guest_count || preview.guest_count,
-      room_kind: draft.room_kind || draft.requested_room_type || preview.requested_room_type,
-      requested_room_type: draft.requested_room_type || preview.requested_room_type,
-      room_preference: draft.room_preference || preview.room_preference,
+      room_kinds: roomKinds,
+      room_count: roomNumbers.length || undefined,
       room_number: roomFields.room_label,
       gate_code: gateCode,
       address: addressResolved.address,
       maps_link: mapsLink,
+      check_in_time: trimStr(draft.check_in_time) || trimStr(tenant.check_in_time) || undefined,
+      package_name: packageName || undefined,
+      balance_due_timing: draftTiming || trimStr(tenant.balance_payment_timing) || undefined,
+      balance_payment_methods: draftTiming ? undefined : tenant.balance_payment_methods,
+      shuttle_booked: shuttle.shuttle_booked,
+      shuttle_copy: shuttle.shuttle_copy || undefined,
     }) || proposedBase;
   }
 

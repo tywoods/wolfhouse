@@ -11,11 +11,25 @@ function factLines(message) {
   return message.split('\n').filter((line) => /^[📌📅🛏️👥🏄💶💳⏳✅📍🗺️🚐🔑]/u.test(line));
 }
 
+function euroTokenCents(token) {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(token);
+  assert.ok(match, token);
+  return Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
+}
+
+function labeledEuroCents(message, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = message.match(new RegExp(`${escaped}:\\* €(\\d+(?:\\.\\d{1,2})?)(?!\\d)`));
+  assert.ok(match, `${label}\n${message}`);
+  return euroTokenCents(match[1]);
+}
+
 function assertSharedContract(message, {
-  paid,
-  total,
-  owed,
+  paidCents,
+  totalCents,
+  owedCents,
   roomNeedle,
+  labels,
 }) {
   assert.match(message, /^.+ 🌊\n\n\*.+\* 🎉/u);
   assert.ok(factLines(message).length >= 8, message);
@@ -26,10 +40,17 @@ function assertSharedContract(message, {
     assert.equal(message.split(emoji).length - 1, 1, `${emoji}\n${message}`);
   }
   assert.match(message, roomNeedle);
-  assert.match(message, new RegExp(`€${paid}(?!\\.)`));
-  assert.match(message, new RegExp(`€${total}(?!\\.)`));
-  if (owed > 0) assert.match(message, new RegExp(`€${owed}(?!\\.)`));
-  assert.equal(paid + owed, total);
+  const paid = labeledEuroCents(message, labels.paid);
+  const total = labeledEuroCents(message, labels.total);
+  assert.equal(paid, paidCents, message);
+  assert.equal(total, totalCents, message);
+  if (owedCents > 0) {
+    const owed = labeledEuroCents(message, labels.owed);
+    assert.equal(owed, owedCents, message);
+    assert.equal(paid + owed, total, message);
+  } else {
+    assert.equal(paid, total, message);
+  }
   assert.doesNotMatch(message, /€\d+\.00\b/);
   assert.doesNotMatch(message, INTERNAL_LABELS);
   assert.doesNotMatch(message, /\*\*/);
@@ -61,10 +82,11 @@ const base = {
 
 const enDeposit = buildWolfhousePaidConfirmationCopy({ ...base, language: 'en' });
 assertSharedContract(enDeposit, {
-  paid: 200,
-  total: 400,
-  owed: 200,
+  paidCents: 20000,
+  totalCents: 40000,
+  owedCents: 20000,
   roomNeedle: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  labels: { paid: 'Paid today', total: 'Total', owed: 'Still to pay' },
 });
 assert.match(enDeposit, /^Hi Fabio! 🌊/);
 assert.match(enDeposit, /\*Payment received — you're officially part of the Wolfhouse family!\* 🎉/);
@@ -88,10 +110,11 @@ const enFull = buildWolfhousePaidConfirmationCopy({
   language: 'en',
 });
 assertSharedContract(enFull, {
-  paid: 400,
-  total: 400,
-  owed: 0,
+  paidCents: 40000,
+  totalCents: 40000,
+  owedCents: 0,
   roomNeedle: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  labels: { paid: 'Paid', total: 'Total' },
 });
 assert.match(enFull, /💶 \*Paid:\* €400/);
 assert.match(enFull, /✅ \*Fully paid\*, nothing left to pay/);
@@ -99,10 +122,11 @@ assert.doesNotMatch(enFull, /⏳|Paid today/);
 
 const es = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: 'Lucía Pérez', language: 'es' });
 assertSharedContract(es, {
-  paid: 200,
-  total: 400,
-  owed: 200,
+  paidCents: 20000,
+  totalCents: 40000,
+  owedCents: 20000,
   roomNeedle: /🛏️ \*Habitación:\* Una cama en nuestra habitación compartida mixta/,
+  labels: { paid: 'Pagado hoy', total: 'Total', owed: 'Pendiente' },
 });
 assert.match(es, /^¡Hola Lucía! 🌊/);
 assert.match(es, /\*Pago recibido — ¡ya formas parte de la familia Wolfhouse!\* 🎉/);
@@ -111,10 +135,11 @@ assert.match(es, /⏳ \*Pendiente:\* €200 a tu llegada, en recepción/);
 
 const de = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: 'Greta', language: 'de' });
 assertSharedContract(de, {
-  paid: 200,
-  total: 400,
-  owed: 200,
+  paidCents: 20000,
+  totalCents: 40000,
+  owedCents: 20000,
   roomNeedle: /🛏️ \*Zimmer:\* Ein Bett in unserem gemischten Mehrbettzimmer/,
+  labels: { paid: 'Heute bezahlt', total: 'Gesamt', owed: 'Noch offen' },
 });
 assert.match(de, /^Hallo Greta! 🌊/);
 assert.match(de, /\*Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie!\* 🎉/);
@@ -124,5 +149,50 @@ assert.match(de, /⏳ \*Noch offen:\* €200 bei Ankunft, an der Rezeption/);
 const unnamed = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: null, language: 'en' });
 assert.match(unnamed, /^Hi there! 🌊/);
 assert.doesNotMatch(unnamed, /Hi (?:null|Guest)/);
+
+for (const [lang, paidLabel, totalLabel, fullyPaid] of [
+  ['es', 'Pagado', 'Total', /Pagado por completo/],
+  ['de', 'Bezahlt', 'Gesamt', /Vollständig bezahlt/],
+]) {
+  const full = buildWolfhousePaidConfirmationCopy({
+    ...base,
+    guest_name: lang === 'es' ? 'Lucía Pérez' : 'Greta',
+    language: lang,
+    payment_status: 'paid',
+    amount_paid_cents: 40000,
+    balance_due_cents: 0,
+  });
+  assert.match(full, fullyPaid);
+  assert.equal(labeledEuroCents(full, paidLabel), 40000, full);
+  assert.equal(labeledEuroCents(full, totalLabel), 40000, full);
+  assert.doesNotMatch(full, /⏳|€0\b/);
+}
+
+const fractional = buildWolfhousePaidConfirmationCopy({
+  ...base,
+  amount_paid_cents: 12099,
+  balance_due_cents: 20001,
+  total_amount_cents: 32100,
+});
+assert.equal(labeledEuroCents(fractional, 'Paid today'), 12099, fractional);
+assert.equal(labeledEuroCents(fractional, 'Still to pay'), 20001, fractional);
+assert.equal(labeledEuroCents(fractional, 'Total'), 32100, fractional);
+assert.match(fractional, /€120\.99/);
+assert.match(fractional, /€200\.01/);
+assert.doesNotMatch(fractional, /€0\b/);
+
+const nullTotal = buildWolfhousePaidConfirmationCopy({
+  ...base,
+  total_amount_cents: null,
+});
+assert.equal(labeledEuroCents(nullTotal, 'Total'), 40000, nullTotal);
+assert.doesNotMatch(nullTotal, /Total:\* €0\b/);
+
+const unknownBalance = buildWolfhousePaidConfirmationCopy({
+  ...base,
+  balance_due_cents: null,
+});
+assert.doesNotMatch(unknownBalance, /Fully paid/);
+assert.equal(labeledEuroCents(unknownBalance, 'Total'), 40000, unknownBalance);
 
 console.log('PASS verify-wolfhouse-paid-confirmation-style');
