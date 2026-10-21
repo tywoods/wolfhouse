@@ -39,8 +39,14 @@ function isTruthyEnv(env, key) {
   return String((env || {})[key] || '').trim().toLowerCase() === 'true';
 }
 
-function collectEnvGateReasons(env, sendKind) {
+function collectEnvGateReasons(env, sendKind, clientSlug) {
   const reasons = [];
+  const slug = trimStr(clientSlug).toLowerCase();
+  const wolfhouseConfirmation = sendKind === 'confirmation'
+    && (slug === 'wolfhouse-somo' || slug === 'wolfhouse')
+    && isTruthyEnv(env, 'LUNA_CONFIRMATION_AUTO_SEND_ENABLED');
+  // Confirmation-only never opens quotes, check-in, or other Staff automation.
+  if (wolfhouseConfirmation) return reasons;
   // Staff Inbox explicit send bypasses Luna auto-send gate; provider/env gates still apply.
   if (sendKind !== 'staff_reply' && !isTruthyEnv(env, 'LUNA_AUTO_SEND_ENABLED')) {
     reasons.push('luna_auto_send_not_enabled');
@@ -153,10 +159,10 @@ function evaluateGuestReplySendRoute(body, env = process.env) {
   if (draft.creates_stripe_link) blocked.push('draft_creates_stripe_link');
   if (draft.sends_whatsapp) blocked.push('draft_marks_send');
 
-  blocked.push(...collectEnvGateReasons(env, sendKind));
+  blocked.push(...collectEnvGateReasons(env, sendKind, clientSlug));
 
   const uniqueBlocked = [...new Set(blocked)];
-  const envGatesClear = collectEnvGateReasons(env, sendKind).length === 0;
+  const envGatesClear = collectEnvGateReasons(env, sendKind, clientSlug).length === 0;
   const eligibilityClear = !uniqueBlocked.includes('requires_staff')
     && !uniqueBlocked.includes('send_not_allowed_later')
     && !uniqueBlocked.includes('auto_send_not_ready')

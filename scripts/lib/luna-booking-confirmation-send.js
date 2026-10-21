@@ -63,6 +63,52 @@ function isSentAuditReplayBackfill(sendResult) {
  * @param {object} pg
  * @param {object} fields — client_slug, booking_id, guest_message_send_id, provider_message_id
  */
+async function claimBookingConfirmationSend(pg, fields) {
+  const claimKey = trimStr(fields.claim_key);
+  const r = await pg.query(
+    `UPDATE bookings b
+        SET metadata = COALESCE(b.metadata, '{}'::jsonb) || jsonb_build_object(
+              'confirmation_send_claim_key', $3::text,
+              'confirmation_send_claim_state', 'in_flight'
+            )
+       FROM clients c
+      WHERE b.client_id = c.id
+        AND c.slug = $1
+        AND b.id = $2::uuid
+        AND b.confirmation_sent_at IS NULL
+        AND (
+          NULLIF(b.metadata->>'confirmation_send_claim_key', '') IS NULL
+          OR (
+            b.metadata->>'confirmation_send_claim_key' = $3
+            AND COALESCE(b.metadata->>'confirmation_send_claim_state', '') <> 'in_flight'
+          )
+        )
+      RETURNING b.id`,
+    [fields.client_slug, fields.booking_id, claimKey],
+  );
+  return { claimed: r.rows.length > 0, reason: r.rows.length ? null : 'confirmation_claim_held' };
+}
+
+async function releaseBookingConfirmationClaim(pg, fields) {
+  try {
+    await pg.query(
+      `UPDATE bookings b
+          SET metadata = COALESCE(b.metadata, '{}'::jsonb) || jsonb_build_object(
+                'confirmation_send_claim_state', 'released'
+              )
+         FROM clients c
+        WHERE b.client_id = c.id
+          AND c.slug = $1
+          AND b.id = $2::uuid
+          AND b.confirmation_sent_at IS NULL
+          AND b.metadata->>'confirmation_send_claim_key' = $3`,
+      [fields.client_slug, fields.booking_id, trimStr(fields.claim_key)],
+    );
+  } catch (_) {
+    // A missing claim column/table must not turn a blocked send into a throw.
+  }
+}
+
 async function markBookingConfirmationSent(pg, fields) {
   const audit = buildConfirmationSendAudit(fields);
   const r = await pg.query(CONFIRMATION_SENT_AUDIT_SQL, [
@@ -297,6 +343,17 @@ async function sendLunaBookingConfirmation(input, context = {}) {
     return { ok: true, status: evaluated.status || 200, result: out };
   }
 
+  const providerId = trimStr(sendResult.whatsapp_message_id);
+  if (sendResult.delivery_uncertain === true || !providerId) {
+    out.delivery_uncertain = true;
+    out.success = false;
+    out.send_performed = false;
+    out.sends_whatsapp = false;
+    out.updates_confirmation_sent_at = false;
+    out.blocked_reasons = [...new Set([...(out.blocked_reasons || []), 'delivery_uncertain'])];
+    return { ok: true, status: 200, result: out };
+  }
+
   const marked = await markBookingConfirmationSent(pg, {
     client_slug: clientSlug,
     booking_id: out.booking_id,
@@ -321,6 +378,8 @@ async function sendLunaBookingConfirmation(input, context = {}) {
 module.exports = {
   sendLunaBookingConfirmation,
   markBookingConfirmationSent,
+  claimBookingConfirmationSend,
+  releaseBookingConfirmationClaim,
   buildConfirmationSendAudit,
   isSentAuditReplayBackfill,
   CONFIRMATION_SENT_AUDIT_SQL,
