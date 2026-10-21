@@ -36,13 +36,13 @@ Because `accepted_quote.py` is touched, the Lucía witness locks the Ty-approved
 
 Pinned interpreter: `/opt/data/artifacts/bcr-r2-venv/bin/python` (3.14.4). `PYTHONPATH=/opt/data/artifacts/bcr-r2-runtime-overlay:<worktree>/docker/hermes-staging:<worktree>/docker/hermes-staging/plugins`.
 
-Candidate executions:
+Candidate executions after merging master `4cf52a5ffc69b5373f09a16c088f6b8d3cf1de82`:
 
 - focused slice: 7 passed, exit 0 (including 9 source-derived booking executions and 2 availability-only no-write controls inside one table-driven test).
-- accepted quote / first yes / persistence: 183 run; 15 stale-copy assertion failures, exit 1. All failures expect the now-forbidden `120.00 EUR`/single-name-label copy.
-- Sim24 / structured clarification / eligibility: 32 run; 10 stale-copy assertion failures, exit 1.
-- registered Sim16 group: 24 run; 9 stale-copy assertion failures, exit 1.
-- replay discovery: 10 run; 1 wrapper failure caused by 2 stale Sim22 copy assertions; ledger still reports 56 cases, 31 replayed, 25 Captain-approved unavailable; exit 1.
+- accepted quote / first yes / persistence: 183 passed, exit 0.
+- Sim24 / structured clarification / eligibility: 32 passed, exit 0.
+- registered Sim16 group: 24 passed, exit 0.
+- replay discovery: 10 passed; ledger reports 56 cases, 31 replayed, 25 Captain-approved unavailable; exit 0.
 - offer identity: 42 passed, exit 0.
 - offer retry handler: 5 PASS lines, exit 0.
 - create occupants PGlite verifier: all named/legacy/money/contact/negative checks passed, exit 0.
