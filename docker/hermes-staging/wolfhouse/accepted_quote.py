@@ -609,11 +609,17 @@ def _guest_room_lines(plan, offer, language='en'):
             n = _count_word(beds, language)
             # Room and bed codes are Staff internals, never guest-facing copy.
             room_suffix = ''
-            prefix = f'{who}: ' if who else ''
+            # Ty-approved guest copy does not label a one-person stay with
+            # ``Name:``. Keep the identity naturally in the sentence instead.
+            singleton = (offer.get('guest_count', plan.get('guest_count')) == 1
+                         or sum(entry['beds'] for entry in groups) == 1)
+            prefix = f'{who}: ' if who and not singleton else ''
+            natural_name = ({'es': f' para {who}', 'fr': f' pour {who}', 'de': f' für {who}'}.get(language, f' for {who}')
+                            if who and singleton else '')
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{prefix}una cama en una {kind}.', 'fr': f'{prefix}un lit dans une {kind}.',
-                            'de': f'{prefix}ein Bett in einem {kind}.'}[language]
+                    line = {'es': f'{prefix}una cama en una {kind}{natural_name}.', 'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
+                            'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
                 else:
                     line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
                             'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
@@ -625,7 +631,7 @@ def _guest_room_lines(plan, offer, language='en'):
                 first = False
                 continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{prefix}one bed in a {kind}{room_suffix}.")
+                lines.append(f"{prefix}one bed in a {kind}{room_suffix}{natural_name}.")
             elif len(same) == 1:
                 lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:
@@ -652,8 +658,8 @@ def _guest_language(state):
 
 
 _FINAL_COPY = {
-    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': 'Availability checked, subject to confirmation when booking.', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Shall I check this exact offer for booking?', 'which_payment': 'Which payment option would you like me to check for this booking?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
-    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': 'Disponibilidad comprobada, sujeta a confirmación al reservar.', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Compruebo esta oferta exacta para reservar?', 'which_payment': '¿Qué opción de pago quieres que compruebe para esta reserva?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
+    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': 'Availability checked, subject to confirmation when booking.', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Would you like this exact offer?', 'which_payment': 'You can pay the deposit now or the full total. Which would you like?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
+    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': 'Disponibilidad comprobada, sujeta a confirmación al reservar.', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Quieres esta oferta exacta?', 'which_payment': 'Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
     'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': 'Disponibilité vérifiée, sous réserve de confirmation lors de la réservation.', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
     'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': 'Verfügbarkeit geprüft, vorbehaltlich der Bestätigung bei der Buchung.', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
 }
@@ -661,6 +667,12 @@ _FINAL_COPY = {
 
 def _final_copy(language, key, **values):
     return _FINAL_COPY.get(language, _FINAL_COPY['en'])[key].format(**values)
+
+
+def _guest_money(cents, currency='EUR'):
+    """Render guest-facing money without accounting-style trailing zeroes."""
+    amount = f'{cents / 100:.2f}'.rstrip('0').rstrip('.')
+    return f'€{amount}' if currency == 'EUR' else f'{amount} {currency}'
 
 
 def _blocked_clarification_copy(result, plan, language):
@@ -2182,6 +2194,7 @@ def record_quote(params, response):
         state.pop('accepted_presentation', None)
         state.pop('receipt', None)
         state.pop('completion', None)
+        state.pop('partial_completion', None)
         state.pop('dispatch_pending', None)
         state.pop('dispatch_payload', None)
         state.pop('post_booking_contact', None)
@@ -2582,7 +2595,7 @@ def dispatch_recovery(prepared):
         _validate_dispatch_ticket(prepared, state)
         completion = state.get('completion')
         return {
-            'receipt': deepcopy(completion or state.get('receipt')),
+            'receipt': deepcopy(completion or state.get('partial_completion') or state.get('receipt')),
             'adapter_completed': isinstance(completion, dict),
             'pending': bool(state.get('checked_offer') and state.get('dispatch_pending')),
         }
@@ -2597,7 +2610,7 @@ def current_create_receipt():
     scoped; callers cannot supply an identity or inspect another owner.
     """
     def inspect(state, ingress):
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         return deepcopy(receipt) if isinstance(receipt, dict) else None
     try:
         return _transaction(inspect)
@@ -2672,10 +2685,20 @@ def record_create_completion(prepared, response):
         receipt = state.get('receipt')
         if not receipt or not isinstance(response, dict) or response.get('success') is not True:
             return
+        # The Staff create receipt is durable independently of adapter follow-up.
+        # Do not freeze a failed/uncertain payment-link attempt as completion: a
+        # same-operation retry must retain the booking IDs and retry only that
+        # substep.  Link generation is not payment truth.
+        if (response.get('payment_link_error')
+                or any(isinstance(row, dict) for row in
+                       (response.get('payment_link_failures') or []))):
+            state['partial_completion'] = deepcopy(response)
+            return
         if any(receipt.get(key) is not None and response.get(key) != receipt[key]
                for key in ('booking_id', 'booking_code', 'payment_id')):
             raise QuoteBoundaryError('create_completion_identity_mismatch')
         state['completion'] = deepcopy(response)
+        state.pop('partial_completion', None)
     _transaction(complete)
 
 
@@ -2685,7 +2708,7 @@ def record_payment_completion(response):
         del ingress
         if not isinstance(response, dict) or response.get('success') is not True:
             return
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         if not isinstance(receipt, dict):
             return
         compared_booking_keys = [key for key in ('booking_id', 'booking_code')
@@ -2878,7 +2901,7 @@ def finalize_offer_response(result):
                 output_messages[-1]['content'] = text
             return output
         current_tools = []
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -2943,7 +2966,29 @@ def finalize_offer_response(result):
                         'fr': (f'La réservation {reference} a bien été créée.' if reference else 'Votre réservation a bien été créée.'),
                         'de': (f'Die Buchung {reference} wurde erfolgreich erstellt.' if reference else 'Deine Buchung wurde erfolgreich erstellt.'),
                     }
-                    text = '\n'.join([headings.get(language, headings['en']), *room_lines])
+                    summary_labels = {
+                        'en': ('Stay', 'Guests', 'Total', 'Deposit', 'Remaining', 'Booking reference'),
+                        'es': ('Estancia', 'Huéspedes', 'Total', 'Depósito', 'Pendiente', 'Referencia de reserva'),
+                        'fr': ('Séjour', 'Personnes', 'Total', 'Acompte', 'Solde', 'Référence'),
+                        'de': ('Aufenthalt', 'Gäste', 'Gesamtpreis', 'Anzahlung', 'Restbetrag', 'Buchungsnummer'),
+                    }
+                    stay, guests_label, total_label, deposit_label, remaining_label, reference_label = summary_labels.get(language, summary_labels['en'])
+                    total_cents = completed_offer.get('total_cents')
+                    deposit_cents = completed_offer.get('deposit_required_cents')
+                    summary = [headings.get(language, headings['en']),
+                               f"{stay}: {_plain_stay_date(completed_offer['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(completed_offer['check_out'], language)}.",
+                               f"{guests_label}: {completed_offer['guest_count']}." ]
+                    if type(total_cents) is int:
+                        summary.append(f"{total_label}: {_guest_money(total_cents, completed_offer.get('currency'))}.")
+                    payment_choice = completed_offer.get('payment_choice')
+                    if payment_choice in ('deposit', 'per_guest') and type(deposit_cents) is int:
+                        summary.append(f"{deposit_label}: {_guest_money(deposit_cents, completed_offer.get('currency'))}.")
+                        summary.append(f"{remaining_label}: {_guest_money(total_cents - deposit_cents, completed_offer.get('currency'))}.")
+                    elif payment_choice == 'pay_on_arrival' and type(total_cents) is int:
+                        summary.append(f"{remaining_label}: {_guest_money(total_cents, completed_offer.get('currency'))}.")
+                    if reference:
+                        summary.append(f'{reference_label}: {reference}.')
+                    text = '\n'.join([*summary, *room_lines])
                     # The registered create completion is the owner-retained source.
                     # A current separate payment tool may add newer canonical payment
                     # truth, but arbitrary model text/top-level metadata never does.
@@ -2975,7 +3020,7 @@ def finalize_offer_response(result):
                             if isinstance(url, str) and url.strip():
                                 prefix = labels.get(language, labels['en'])
                                 who = f' {name}' if isinstance(name, str) and name.strip() else ''
-                                value = (f' {amount / 100:.2f} {row.get("currency") or currency}'
+                                value = (f' {_guest_money(amount, row.get("currency") or currency)}'
                                          if type(amount) is int and (row.get('currency') or currency) else '')
                                 payment_lines.append(f'{prefix}{who}:{value}\n{url.strip()}')
                     else:
@@ -2987,7 +3032,7 @@ def finalize_offer_response(result):
                             labels = {
                                 'en': 'Amount due now', 'es': 'Importe a pagar ahora',
                                 'fr': 'Montant à régler maintenant', 'de': 'Jetzt fälliger Betrag'}
-                            value = (f'{amount / 100:.2f} {currency}'
+                            value = (_guest_money(amount, currency)
                                      if type(amount) is int and currency else None)
                             payment_lines.append((f'{labels.get(language, labels["en"])}: {value}\n'
                                                   if value else '') + url.strip())
@@ -3063,7 +3108,7 @@ def finalize_offer_response(result):
             if not isinstance(currency, str) or type(total) is not int:
                 return result
             def quoted_money(cents):
-                return f"{cents // 100}.{cents % 100:02d} {currency}"
+                return _guest_money(cents, currency)
             lines = []
             language = _guest_language(state)
             if plan.get('check_in') and plan.get('check_out') and type(plan.get('guest_count')) is int:
@@ -3117,7 +3162,7 @@ def finalize_offer_response(result):
             )
             return output
         def money(cents):
-            return f"{cents // 100}.{cents % 100:02d} {offer['currency']}"
+            return _guest_money(cents, offer['currency'])
         plan = state['plan']
         language = _guest_language(state)
         lines = [f"{_plain_stay_date(offer['check_in'], language)} {_final_copy(language, 'to')} {_plain_stay_date(offer['check_out'], language)} — {_guest_count_label(offer['guest_count'], language)}."]

@@ -1,0 +1,113 @@
+{
+  "evidence_classification": "Supplied masked-source provenance and captured argument chronology. Constructed Staff receipts are labelled constructed; only tests invoking the repository PGlite verifier are SQL proof.",
+  "source_matrix": {
+    "sim23": {
+      "CHATS.md": "f06ead78b168f4b7b6fa7df0dd26c47b319ce9e655b5255326a125b136220ea8",
+      "script.json": "33589cc4226dc4b4841e40934d030618b748f52c75765efd2533c06c30b1648c",
+      "guest1.jsonl": "255bc099f26ae1d34faf76fa9f1888daf56148a6c41b64a16aecde2e3eb0041d",
+      "guest2.jsonl": "f10ea76dd4b74fd205ba0e1bc664c38608ad5e31a461b38b34c498c3c611e896",
+      "guest3.jsonl": "689cb5a8e1a8bc2e2823e9fad921535d26a6add41f07806b699acb620766e8bd",
+      "guest4.jsonl": "d0f3ed8256d55a4db29fb0eda3ad0cb160847321b2aea0b8f12a1853d608b8a8",
+      "guest5.jsonl": "f4981676836e33b17a02b2bf368903f9cebf467d354aaf622d91dc769b31ae7c",
+      "guest9.jsonl": "0f137388cfb351e0ecda400e884b9a1f2e154b43c07814fa50e953ba2556b0cd"
+    },
+    "sim24": {
+      "guest1-control.jsonl": "602b120368c1d8f87471a147e1dcfb3185c1e60ebd5a4840d1c5591e0518dbfa"
+    },
+    "sim25": {
+      "guest1.jsonl": "de36c2205e1e38aab8d6892b9eb28c6a9e87dee81ea18e1762570a026b2724fc",
+      "guest2.jsonl": "363433d7948df53b3e31cad32f989da74f7619064c190bcfb185d82d5da50349",
+      "guest3.jsonl": "08bb3eaf8a7648d11980cbf38d91d6e93a3b3b487e3858fdf86094d9cb324699",
+      "guest4.jsonl": "f931bee56308a6c245173030d87b1e91181fb5a4a638670490cf6a26a4acf1aa",
+      "guest5.jsonl": "56a0315d7703a790c316a748003ff34015c5e7282b6766ecd454fbf59bb8cf75",
+      "guest9.jsonl": "11a6b3b132e67e4a90061d413864f688d78ff5bdbfbbe043e0a4d938da383c31"
+    }
+  },
+  "executable_source_cases": [
+    {"id":"sim23/guest1","dates":["2026-11-09","2026-11-12"],"names":["Lucía Fernández Ruiz"],"beds":["R3-B1"],"room":"mixed","payment":"deposit","language":"es"},
+    {"id":"sim23/guest2","dates":["2026-11-06","2026-11-08"],"names":["Camille Martin","Léa Dubois","Hugo Bernard"],"beds":["R1-B1","R1-B2","R1-B3"],"room":"mixed","payment":"full","language":"fr"},
+    {"id":"sim23/guest3","dates":["2026-11-23","2026-11-26"],"names":["Jonas Becker","Felix Becker"],"beds":["R4-B1","R4-B2"],"room":"male_only","payment":"deposit","language":"de"},
+    {"id":"sim23/guest4","dates":["2026-11-04","2026-11-07"],"names":["Emma Clarke"],"beds":["R8-B4"],"room":"female_only","payment":"full","language":"en"},
+    {"id":"sim23/guest5","dates":["2026-11-06","2026-11-08"],"names":["Raj Patel"],"beds":["R1-B4"],"room":"room 1","payment":"full","language":"en"},
+    {"id":"sim25/guest2","dates":["2026-11-13","2026-11-15"],"names":["Camille Martin","Léa Dubois","Hugo Bernard"],"beds":["R1-B2","R1-B3","R1-B4"],"room":"mixed","payment":"full","language":"fr"},
+    {"id":"sim25/guest3","dates":["2026-11-23","2026-11-26"],"names":["Jonas Becker","Felix Becker"],"beds":["R4-B3","R4-B4"],"room":"male_only","payment":"deposit","language":"de"},
+    {"id":"sim25/guest4","dates":["2026-11-10","2026-11-13"],"names":["Emma Clarke"],"beds":["R8-B1"],"room":"female_only","payment":"full","language":"en"},
+    {"id":"sim25/guest5","dates":["2026-11-09","2026-11-12"],"names":["Raj Patel"],"beds":["R1-B3"],"room":"room 1","payment":"deposit","language":"en"}
+  ],
+  "availability_only_cases": ["sim23/guest9", "sim25/guest9"],
+  "sim13_25_coverage": {
+    "sim13-sim21": {"classification": "existing immutable replay fixtures", "boundary": "fixtures/booking-replay-sim13-20 plus BOOKING-CLEANUP-TEST-LEDGER", "status": "existing_executable_or_explicitly_unavailable"},
+    "sim22": {"classification": "existing registered constructed-receipt witnesses", "boundary": "wolfhouse_staff_api.test_sim16_jonas_liam_fix", "status": "executable"},
+    "sim23": {"classification": "supplied masked captures", "boundary": "fixture-driven registered owner/plugin executions in wolfhouse.test_sim25_live_sequence", "status": "executable"},
+    "sim24": {"classification": "supplied masked capture", "boundary": "wolfhouse.test_sim24_checked_offer_continuity", "status": "executable"},
+    "sim25": {"classification": "supplied masked captures plus constructed continuation", "boundary": "wolfhouse.test_sim25_live_sequence", "status": "executable"}
+  },
+  "legacy_not_replayable": {
+    "count": 25, "status": "unavailable_Captain_approved_nonblocking", "claim": "not passes",
+    "partial_evidence": "retained verbatim in fixtures/booking-replay-sim13-20/expected_cases.json (capture, available tool arguments, shown text, and frozen Staff fields)",
+    "cases": [
+      ["sim13-32d0789b-20261016/guest2","missing recorded create_booking_from_plan args"],
+      ["sim13-32d0789b-20261016/guest5","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim13-32d0789b-20261016/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim14-d06ab84f-20261017/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim15-2f8aa2b1-20261017/guest5","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim15-2f8aa2b1-20261017/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim16-2f8aa2b1-20261017/guest5","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim16-2f8aa2b1-20261017/guest9","missing recorded create_booking_from_plan args"],
+      ["sim17-2f8aa2b1-20261017/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim18-c959fee9-20261017/guest3","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim18-c959fee9-20261017/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim19-03962a75-20261018/guest19","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim19-03962a75-20261018/guest3","missing recorded create_booking_from_plan args"],
+      ["sim19-03962a75-20261018/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest1","missing recorded create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest2","recorded quote lacks frozen beds or shown total"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest3","missing recorded create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest4","missing recorded create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest5","missing recorded create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/attempt1-december-closed/guest9","missing recorded quote_booking and create_booking_from_plan args"],
+      ["sim20-b47d9e10-20261018/guest1","recorded quote lacks frozen beds or shown total"],
+      ["sim20-b47d9e10-20261018/guest2","recorded quote lacks frozen beds or shown total"],
+      ["sim20-b47d9e10-20261018/guest3","recorded quote lacks frozen beds or shown total"],
+      ["sim20-b47d9e10-20261018/guest4","recorded quote lacks frozen beds or shown total"],
+      ["sim20-b47d9e10-20261018/guest5","recorded quote lacks frozen beds or shown total"]
+    ]
+  },
+  "lucia": {
+    "raw_turns": [
+      "¡Hola Luna! Soy Lucía, de Sevilla 🇪🇸 Busco 1 cama en el dormitorio mixto del lunes 16 al jueves 19 de noviembre de 2026 (3 noches). Soy mujer y viajo sola. ¿Cuánto cuesta?",
+      "Perfecto. Me llamo Lucía Fernández Ruiz. Prefiero pagar el depósito. ¡Sí, resérvalo!",
+      "el depósito, por favor",
+      "el depósito, por favor",
+      "el depósito, por favor",
+      "el depósito, por favor"
+    ],
+    "captured_tool_order": [
+      "check_availability", "package_price_preview", "check_availability", "quote_booking",
+      "check_availability", "quote_booking", "create_booking_from_plan", "quote_booking",
+      "create_booking_from_plan", "quote_booking", "create_booking_from_plan"
+    ],
+    "candidate_first_valid_yes_order": ["check_availability", "package_price_preview", "check_availability", "quote_booking", "check_availability", "quote_booking", "create_booking_from_plan"],
+    "cause_isolation_dimensions": ["interpret_booking_turn_absent", "interposed_availability", "fact_equivalent_requote", "populated_create", "empty_create", "stale_short_name_hint", "corrected_roster", "independent_and_combined"],
+    "chronology_note": "The exact captured chronology is distinct from the improved first-valid-yes continuation: turn 2 contained two creates separated by a fact-equivalent re-quote, and turn 3 independently re-quoted before its create; turns 4-6 made no tool calls.",
+    "dates": ["2026-11-16", "2026-11-19"],
+    "guest_count": 1,
+    "short_name": "Lucía",
+    "completed_name": "Lucía Fernández Ruiz",
+    "bed": "R3-B3",
+    "room": "mixed",
+    "total_cents": 12000,
+    "deposit_cents": 10000,
+    "remainder_cents": 2000,
+    "currency": "EUR",
+    "payment_choice": "deposit",
+    "captured_failure": "quote_owner_presented_offer_required"
+  },
+  "preservation_cases": {
+    "guest2": {"expected": "three named occupants; successful full-payment booking"},
+    "guest3": {"expected": "two named occupants; successful deposit booking"},
+    "guest4": {"expected": "corrected 2026-11-04/2026-11-07 dates; full payment"},
+    "guest5": {"expected": "Raj Patel retained in selected Room 1 placement"},
+    "guest9": {"expected": "availability-only; zero booking/payment writes"}
+  }
+}

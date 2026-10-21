@@ -1512,7 +1512,13 @@ def create_booking_from_plan(params, **kwargs):
     from wolfhouse import accepted_quote as ledger
     ticket = ledger._dispatch_ticket.get()
     prior_receipt = ledger.dispatch_recovery(ticket).get("receipt") if ticket is not None else None
-    if ticket is None:
+    if prior_receipt is not None:
+        # Staff already acknowledged this exact owner-frozen operation.  A later
+        # adapter substep (normally payment-link creation) may have failed, but
+        # retrying it must not issue another booking create.  Lost create replies
+        # have no receipt and therefore still use Staff's idempotent create path.
+        data = dict(prior_receipt)
+    elif ticket is None:
         # Standalone offline handler compatibility only; real agent is failclosed.
         import sys
         if ledger._current.get() is not None or 'agent.conversation_loop' in sys.modules:
@@ -1536,7 +1542,9 @@ def create_booking_from_plan(params, **kwargs):
     payment_link_failures = []
     link_result = {}
 
-    guest_payment_links = []
+    guest_payment_links = [dict(row) for row in ((prior_receipt or {}).get("guest_payment_links") or [])
+                           if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
+    completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = uses_per_guest_model and split_payment_requested
     if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
@@ -1560,6 +1568,8 @@ def create_booking_from_plan(params, **kwargs):
                         continue
                     guest_id = _clean(status.get("booking_guest_id"))
                 if not guest_id:
+                    continue
+                if guest_id in completed_guest_ids:
                     continue
                 link_data = _post_bot(
                     f"/booking-guests/{urllib.parse.quote(guest_id)}/create-payment-link",

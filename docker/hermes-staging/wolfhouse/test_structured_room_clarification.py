@@ -6,6 +6,7 @@ response body or as proof of its historical cause.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -387,9 +388,16 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     self.assertEqual(quoted["total_cents"], case["total"])
                     self.assertEqual(quoted["deposit_required_cents"], case["deposit"])
                     rendered = loop.present()
-                    self.assertIn(f"{case['total'] / 100:.2f} EUR", rendered)
+                    total_text = (f"€{case['total'] // 100}" if case['total'] % 100 == 0
+                                  else f"€{case['total'] / 100:.2f}")
+                    self.assertRegex(rendered,
+                                     rf"(?<!\d){re.escape(total_text)}(?!\d|[.,]\d)")
                     if case["payment"] == "deposit":
-                        self.assertIn(f"{case['deposit'] / 100:.2f} EUR", rendered)
+                        deposit_text = (f"€{case['deposit'] // 100}"
+                                        if case['deposit'] % 100 == 0
+                                        else f"€{case['deposit'] / 100:.2f}")
+                        self.assertRegex(rendered,
+                                         rf"(?<!\d){re.escape(deposit_text)}(?!\d|[.,]\d)")
 
                     acceptance = turns[-1]
                     if not acceptance_loaded:
@@ -558,7 +566,7 @@ with patch.object(plugin, 'preview_package_prices', return_value=failed):
                 {"guest_index": 0, "guest_name": "Alex", "bed_code": "R1-B1"},
             ],
         }
-        self.assertEqual(["Alex: one bed in a mixed room."],
+        self.assertEqual(["one bed in a mixed room for Alex."],
                          owner._guest_room_lines(plan, offer, "en"))
 
     def test_preferred_strategy_remains_neutral_not_exclusive(self):

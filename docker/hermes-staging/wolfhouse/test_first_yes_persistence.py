@@ -205,8 +205,9 @@ class FirstYesPersistenceTests(unittest.TestCase):
         self.assertIsInstance(revision, dict, self.quote_result)
         self.assertTrue(revision.get('offer_fingerprint'))
         text = result.get('final_response', '')
-        for fragment in ('riley', 'morgan', 'tue 20 oct', 'thu 22 oct', '160'):
+        for fragment in ('riley', 'morgan', 'tue 20 oct', 'thu 22 oct', '€160'):
             self.assertIn(fragment, text.lower(), text)
+        self.assertNotIn('160.00 EUR', text, text)
         self.assertEqual(text.count('?'), 1, text)
         self.assertEqual(self.rpc(snapshot=True)['tables']['bookings'], [], 'Checking is NOT holding or booking')
         return revision

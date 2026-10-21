@@ -5,6 +5,7 @@ owner rendering path with offline, constructed receipts derived from the approve
 """
 import json
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -66,10 +67,10 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             "room_arrangement": [{"bed_code": "R3-B1", "room_code": "R3", "gender_strategy": "mixed"}],
         }
         self.assertEqual(owner._guest_room_lines(plan, offer, "es"),
-                         ["Lucía Fernández Ruiz: una cama en una habitación mixta."])
+                         ["una cama en una habitación mixta para Lucía Fernández Ruiz."])
         stale = {"guests": [{"name": "Camille Martin"}]}
         self.assertEqual(owner._guest_room_lines(stale, offer, "es"),
-                         ["lucía fernández ruiz: una cama en una habitación mixta."])
+                         ["una cama en una habitación mixta para lucía fernández ruiz."])
 
     def test_duplicate_names_do_not_reassign_occupant_slots(self):
         plan = {"guests": [{"name": "Alex"}, {"name": "Alex"}]}
@@ -256,8 +257,13 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             "/booking-preview": initial_quote})
                         self.assertTrue(first["success"], first)
                         shown = loop.present()
-                        self.assertIn("120.00 EUR", shown)
-                        self.assertIn("100.00 EUR", shown)
+                        self.assertIn("€120", shown)
+                        deposit_text = (f"€{meta['deposit'] // 100}"
+                                        if meta["deposit"] % 100 == 0
+                                        else f"€{meta['deposit'] / 100:.2f}")
+                        self.assertRegex(
+                            shown,
+                            rf"(?<!\d){re.escape(deposit_text)}(?!\d|[.,]\d)")
                         self.assertIn("depósito", shown.lower())
                         self.assertIn("pago completo", shown.lower())
                         turn(1)
@@ -313,7 +319,9 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             "/booking-preview": quote})
                         self.assertTrue(quoted["success"], quoted)
                         shown = loop.present()
-                    self.assertIn(f"{facts['total_cents'] / 100:.2f} EUR", shown)
+                    total_text = (f"€{facts['total_cents'] // 100}" if facts['total_cents'] % 100 == 0
+                                  else f"€{facts['total_cents'] / 100:.2f}")
+                    self.assertRegex(shown, rf"(?<!\d){re.escape(total_text)}(?!\d|[.,]\d)")
                     self.assertEqual(quote["deposit_required_cents"], meta["deposit"])
                     if label == "guest4":
                         self.assertEqual(quote["payment_link_amount_cents"], 12000)
@@ -412,8 +420,11 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": "untrusted draft", "messages": messages})
                     self.assertIn(url, final["final_response"])
-                    self.assertIn(f"{facts['payment_amount_cents'] / 100:.2f} EUR",
-                                  final["final_response"])
+                    due_text = (f"€{facts['payment_amount_cents'] // 100}"
+                                if facts['payment_amount_cents'] % 100 == 0
+                                else f"€{facts['payment_amount_cents'] / 100:.2f}")
+                    self.assertRegex(final["final_response"],
+                                     rf"(?<!\d){re.escape(due_text)}(?!\d|[.,]\d)")
                     for name in facts["names"]:
                         self.assertIn(name, final["final_response"])
                     loop.db.append_message(session_id=loop.agent.session_id,

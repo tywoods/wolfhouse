@@ -185,9 +185,9 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.assertEqual(result["total_cents"], 48000)
         self.assertTrue(result["full_payment_only"])
         rendered = self.loop.present()
-        self.assertIn("480.00 EUR", rendered)
+        self.assertIn("€480", rendered)
         self.assertIn("full", rendered.lower())
-        self.assertTrue(rendered.endswith("Shall I check this exact offer for booking?"), rendered)
+        self.assertTrue(rendered.endswith("Would you like this exact offer?"), rendered)
 
         yes = "Yes — book it for Jonas Bergström, Mia Chen, Noor Ali and Leo Costa."
         self.loop.turn("jonas-first-yes", yes)
@@ -429,8 +429,8 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         rendered = self.loop.present()
         self.assertEqual(rendered,
             "Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
-            "Total: 240.00 EUR.\n"
-            "Full payment: 240.00 EUR.\n"
+            "Total: €240.\n"
+            "Full payment: €240.\n"
             "two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
@@ -476,8 +476,8 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
              "/booking-preview": raw_quote})
         self.assertEqual(self.loop.present(),
             "Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
-            "Total: 240.00 EUR.\n"
-            "Full payment: 240.00 EUR.\n"
+            "Total: €240.\n"
+            "Full payment: €240.\n"
             "two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
@@ -554,7 +554,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
              "/booking-preview": raw_quote})
         self.assertEqual(quote["total_cents"], 36000)
         reply = self.loop.present()
-        self.assertIn("360.00 EUR", reply)
+        self.assertIn("€360", reply)
         self.loop.turn("tl-yes", "Yes, book that mixed room for Tom Wood and Liam Wernike")
         self.loop.interpret("accept", "Yes, book that mixed room for Tom Wood and Liam Wernike")
         prepared = owner.prepare_create({})
@@ -583,7 +583,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.call("quote_booking", plan,
             {"/availability-check": availability_receipt(mixed),
              "/booking-preview": quote})
-        self.assertIn("180.00 EUR", self.loop.present())
+        self.assertIn("€180", self.loop.present())
         self.loop.turn("kenji-yes", "Yes, create that accommodation-only booking")
         self.loop.interpret("accept", "Yes, create that accommodation-only booking")
         prepared = owner.prepare_create({})
@@ -814,7 +814,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
                     rendered = loop.present()
                     self.assertIn("(vollständige Zahlung).", rendered)
                     self.assertNotIn("vollständige zahlung", rendered)
-                    self.assertEqual(rendered.count("80.00 EUR"), 1, rendered)
+                    self.assertEqual(rendered.count("€80"), 1, rendered)
                 finally:
                     loop.close()
 
@@ -835,7 +835,9 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         quoted = self.loop.call("quote_booking", plan,
             {"/availability-check": receipt, "/booking-preview": quote})
         self.assertTrue(quoted["success"], quoted)
-        self.assertIn("emma", self.loop.present().casefold())
+        rendered = self.loop.present().casefold()
+        self.assertIn("one bed in a shared room for emma.", rendered)
+        self.assertNotIn("emma:", rendered)
         accepted = "Yes, create that exact booking for Emma."
         self.loop.turn("emma-yes-accept", accepted)
         interpreted = self.loop.call("interpret_booking_turn", {
@@ -871,8 +873,8 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
         self.loop.call("quote_booking", plan, {"/availability-check": availability_receipt(bed),
                                                "/booking-preview": quote})
         rendered = self.loop.present()
-        self.assertEqual(rendered.count("80.00 EUR"), 1, rendered)
-        self.assertIn("Total and due now: 80.00 EUR (full payment).", rendered)
+        self.assertEqual(rendered.count("€80"), 1, rendered)
+        self.assertIn("Total and due now: €80 (full payment).", rendered)
         self.assertNotIn("deposit", rendered.casefold())
 
     def test_sim22_german_actual_male_preferred_label_is_localized(self):
