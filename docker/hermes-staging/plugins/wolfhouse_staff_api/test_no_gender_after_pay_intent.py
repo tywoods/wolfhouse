@@ -275,17 +275,38 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
 
         partial = {**base, "guests": [{"name": "Alex", "explicit_gender": "female"},
                                        {"name": "Sam"}]}
-        _, calls = self.invoke("check_availability", partial, availability=available)
-        self.assertNotIn("group_gender", calls[0][1])
-        self.assertEqual(calls[0][1]["guests"], partial["guests"])
-        conflicting = {**partial, "group_gender": "male"}
-        _, calls = self.invoke("check_availability", conflicting, availability=available)
-        self.assertNotIn("group_gender", calls[0][1])
+        for candidate in (partial, {**partial, "group_gender": "male"}):
+            with self.subTest(person_facts=candidate):
+                # A person-bound fact is not a whole-party fact.  The registered
+                # quote owner must preserve the roster, discard the contradictory
+                # aggregate, and still quote the explicitly neutral room.
+                preview = checked_staff_quote(candidate, beds, total=10000, deposit=3000)
+                quoted, calls = self.invoke("quote_booking", candidate,
+                                            availability=available, preview=preview)
+                self.assertEqual([path for path, _ in calls],
+                                 ["/availability-check", "/booking-preview"])
+                for _, body in calls:
+                    self.assertNotIn("group_gender", body)
+                    self.assertEqual(body["guests"], partial["guests"])
+                self.assertTrue(quoted["success"], quoted)
+                self.assertEqual(quoted["quote_status"], "ready")
+                self.assertEqual(quoted["room_decision"]["resolved_composition"], "unknown")
+                self.assertFalse(quoted["room_decision"]["clarification_needed"])
         corrected = {**base, "group_gender": "female",
                      "guests": [{"name": "Alex", "explicit_gender": "female"},
                                 {"name": "Sam", "explicit_gender": "female"}]}
-        _, calls = self.invoke("check_availability", corrected, availability=available)
-        self.assertEqual(calls[0][1]["group_gender"], "female")
+        preview = checked_staff_quote(corrected, beds, total=10000, deposit=3000)
+        quoted, calls = self.invoke("quote_booking", corrected,
+                                    availability=available, preview=preview)
+        self.assertEqual([path for path, _ in calls],
+                         ["/availability-check", "/booking-preview"])
+        for _, body in calls:
+            self.assertEqual(body["group_gender"], "female")
+            self.assertEqual(body["guests"], corrected["guests"])
+        self.assertTrue(quoted["success"], quoted)
+        self.assertEqual(quoted["quote_status"], "ready")
+        self.assertEqual(quoted["room_decision"]["resolved_composition"], "female")
+        self.assertFalse(quoted["room_decision"]["clarification_needed"])
 
         gendered_stock = {"success": True, "has_enough_beds": True,
             "selected_bed_codes": ["F1", "F2"], "available_beds": [

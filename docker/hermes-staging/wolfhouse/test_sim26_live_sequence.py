@@ -166,6 +166,58 @@ class Sim26LiveSequenceTests(unittest.TestCase):
             "status": "confirmed", "source": "operator_attested_readback",
         })
 
+    def test_current_owner_renders_sim26_successes_and_corrected_readback(self):
+        """Current owner/render controls; Staff receipts below are constructed."""
+        current = []
+        for filename in ("guest2.jsonl", "guest3.jsonl", "guest5.jsonl"):
+            rows = [json.loads(line) for line in (INPUTS / filename).read_text().splitlines()]
+            creates = [call for row in rows for call in row["resp"]["tool_calls"]
+                       if call["name"] == "create_booking_from_plan"]
+            self.assertEqual(len(creates), 1)
+            current.append((filename, creates[0]["args"]))
+        emma = SIM26_SUPPLIED_READBACKS["guest4.jsonl"]
+        current.append(("guest4.jsonl", {
+            "check_in": emma["check_in"], "check_out": emma["check_out"],
+            "guest_count": 1, "guest_name": "Emma Clarke",
+            "guests": [{"name": "Emma Clarke", "explicit_gender": "female"}],
+            "room_type": "shared", "room_preference": "female_only",
+            "group_gender": "female", "package_code": "package_none",
+            "payment_choice": emma["payment_choice"],
+            "selected_bed_codes": emma["beds"], "language": "en",
+        }))
+        for filename, captured in current:
+            with self.subTest(current_owner=filename):
+                plan = dict(captured)
+                oracle = SIM26_SUPPLIED_READBACKS[filename]
+                beds = [{"bed_code": code, "room_code": code.split("-B", 1)[0],
+                         "room_type": "shared", "gender_strategy": "flexible",
+                         "selected_selling_mode": "bed"} for code in oracle["beds"]]
+                plan.update(selected_bed_codes=oracle["beds"],
+                            payment_choice=oracle["payment_choice"],
+                            package_code=plan.get("package_code") or "package_none")
+                quote = checked_staff_quote(plan, beds, total=oracle["total_cents"],
+                                            deposit=(oracle["total_cents"] if
+                                                     oracle["payment_choice"] == "full"
+                                                     else min(oracle["total_cents"],
+                                                              10000 * plan["guest_count"])))
+                loop = DeterministicRegisteredLoop(self, "sim26-current-" + filename[:-6])
+                try:
+                    loop.turn("offer", "source-backed offer")
+                    result = loop.call("quote_booking", plan, {
+                        "/availability-check": availability_receipt(beds),
+                        "/booking-preview": quote})
+                    self.assertTrue(result["success"], result)
+                    self.assertEqual(result["quote_status"], "ready")
+                    rendered = loop.present()
+                    self.assertIn(f"€{oracle['total_cents'] // 100}", rendered)
+                    if filename == "guest2.jsonl":
+                        # Camille's allocation spans three rooms; current rendering
+                        # must disclose the separation rather than imply co-location.
+                        self.assertIn("trois chambres partagées séparées", rendered)
+                    self.assertEqual(plan["selected_bed_codes"], oracle["beds"])
+                finally:
+                    loop.close()
+
     def test_lucia_unchanged_offer_first_populated_create_then_retry_reuses_receipt(self):
         loop = DeterministicRegisteredLoop(self, "sim26-lucia-green")
         try:
