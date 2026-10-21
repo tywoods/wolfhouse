@@ -3078,6 +3078,14 @@ function loadConvDetail(convId, targetEl){
   });
 }
 
+function inboxClearThreadGuestError(err) {
+  var raw = String((err && err.message) || '');
+  if (/fetch failed|luna_unreachable|missing_session_key_url|AbortError|TimeoutError|ECONNREFUSED|ENOTFOUND|UND_ERR_CONNECT_TIMEOUT/i.test(raw)) {
+    return "Couldn't reach Luna — try again";
+  }
+  return raw || 'Could not clear Luna session';
+}
+
 function wireInboxClearThread(convId, targetEl){
   var btn = (targetEl && targetEl.querySelector && targetEl.querySelector('#btn-inbox-clear-thread'))
     || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
@@ -3122,7 +3130,7 @@ function wireInboxClearThread(convId, targetEl){
       })
       .catch(function(err){
         if (inboxClearThreadCurrentToken() !== requestToken) return;
-        alert(err.message || 'Could not clear Luna session');
+        alert(inboxClearThreadGuestError(err));
       })
       .finally(function(){
         if (inboxClearThreadCurrentToken() !== requestToken) return;
