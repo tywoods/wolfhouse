@@ -93,67 +93,57 @@ const CONFIRMATION_ONLY_ENV = 'LUNA_CONFIRMATION_AUTO_SEND_ENABLED';
 
 const QUOTE_STYLE_COPY = Object.freeze({
   en: {
-    opening: "Payment received — you're officially part of the Wolfhouse family 🌊",
-    guest: 'guest',
-    guests: 'guests',
-    shared: 'A bed in a shared room',
-    private: 'A private room',
-    room: 'Room',
-    deposit: 'Deposit received',
-    paid: 'Payment received',
-    left: (amount) => `${amount} is left for when you arrive.`,
+    hello: (name) => name ? `Hi ${name}! 🌊` : 'Hi there! 🌊',
+    headline: "Payment received — you're officially part of the Wolfhouse family!",
+    labels: { booking: 'Booking', dates: 'Dates', room: 'Room', guests: 'Guests', package: 'Package', paidToday: 'Paid today', paid: 'Paid', total: 'Total', owed: 'Still to pay', checkIn: 'Check-in', shuttle: 'Shuttle' },
+    shared: 'A bed in our mixed shared room', private: 'Private room',
+    nights: (n) => `${n} ${n === 1 ? 'night' : 'nights'}`,
+    owedWhere: 'on arrival, at reception', fullyPaid: 'Fully paid', nothingOwed: 'nothing left to pay', from: 'from',
+    closing: ['If you need anything before you arrive, just message me here 😊', 'See you in the water! 🤙'],
     weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   },
   es: {
-    opening: 'Pago recibido — ya formas parte de la familia Wolfhouse 🌊',
-    guest: 'huésped',
-    guests: 'huéspedes',
-    shared: 'Una cama en una habitación compartida',
-    private: 'Una habitación privada',
-    room: 'Habitación',
-    deposit: 'Depósito recibido',
-    paid: 'Pago recibido',
-    left: (amount) => `Quedan ${amount} para cuando llegues.`,
+    hello: (name) => name ? `¡Hola ${name}! 🌊` : '¡Hola! 🌊',
+    headline: 'Pago recibido — ¡ya formas parte de la familia Wolfhouse!',
+    labels: { booking: 'Reserva', dates: 'Fechas', room: 'Habitación', guests: 'Huéspedes', package: 'Paquete', paidToday: 'Pagado hoy', paid: 'Pagado', total: 'Total', owed: 'Pendiente', checkIn: 'Check-in', shuttle: 'Traslado' },
+    shared: 'Una cama en nuestra habitación compartida mixta', private: 'Habitación privada',
+    nights: (n) => `${n} ${n === 1 ? 'noche' : 'noches'}`,
+    owedWhere: 'a tu llegada, en recepción', fullyPaid: 'Pagado por completo', nothingOwed: 'no queda nada por pagar', from: 'desde las',
+    closing: ['Si necesitas algo antes de llegar, escríbeme aquí 😊', '¡Nos vemos pronto! 🤙'],
     weekdays: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
     months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
   },
   de: {
-    opening: 'Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie 🌊',
-    guest: 'Gast',
-    guests: 'Gäste',
-    shared: 'Ein Bett in einem Mehrbettzimmer',
-    private: 'Ein Privatzimmer',
-    room: 'Zimmer',
-    deposit: 'Anzahlung erhalten',
-    paid: 'Zahlung erhalten',
-    left: (amount) => `${amount} bleiben bis zu deiner Ankunft.`,
+    hello: (name) => name ? `Hallo ${name}! 🌊` : 'Hallo! 🌊',
+    headline: 'Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie!',
+    labels: { booking: 'Buchung', dates: 'Daten', room: 'Zimmer', guests: 'Gäste', package: 'Paket', paidToday: 'Heute bezahlt', paid: 'Bezahlt', total: 'Gesamt', owed: 'Noch offen', checkIn: 'Check-in', shuttle: 'Shuttle' },
+    shared: 'Ein Bett in unserem gemischten Mehrbettzimmer', private: 'Privatzimmer',
+    nights: (n) => `${n} ${n === 1 ? 'Nacht' : 'Nächte'}`,
+    owedWhere: 'bei Ankunft, an der Rezeption', fullyPaid: 'Vollständig bezahlt', nothingOwed: 'nichts mehr zu bezahlen', from: 'ab',
+    closing: ['Wenn du vor deiner Ankunft etwas brauchst, schreib mir einfach hier 😊', 'Bis bald! 🤙'],
     weekdays: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
     months: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
   },
   fr: {
-    opening: 'Paiement reçu — tu fais partie de la famille Wolfhouse 🌊',
-    guest: 'voyageur',
-    guests: 'voyageurs',
-    shared: 'Un lit dans une chambre partagée',
-    private: 'Une chambre privée',
-    room: 'Chambre',
-    deposit: 'Acompte reçu',
-    paid: 'Paiement reçu',
-    left: (amount) => `Il reste ${amount} à ton arrivée.`,
+    hello: (name) => name ? `Bonjour ${name} ! 🌊` : 'Bonjour ! 🌊',
+    headline: 'Paiement reçu — tu fais officiellement partie de la famille Wolfhouse !',
+    labels: { booking: 'Réservation', dates: 'Dates', room: 'Chambre', guests: 'Voyageurs', package: 'Formule', paidToday: "Payé aujourd'hui", paid: 'Payé', total: 'Total', owed: 'Reste à payer', checkIn: 'Arrivée', shuttle: 'Navette' },
+    shared: 'Un lit dans notre chambre partagée mixte', private: 'Chambre privée',
+    nights: (n) => `${n} ${n === 1 ? 'nuit' : 'nuits'}`,
+    owedWhere: "à l'arrivée, à la réception", fullyPaid: 'Entièrement payé', nothingOwed: 'plus rien à payer', from: 'à partir de',
+    closing: ["Si tu as besoin de quoi que ce soit avant ton arrivée, écris-moi ici 😊", 'À bientôt ! 🤙'],
     weekdays: ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'],
     months: ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'],
   },
   it: {
-    opening: 'Pagamento ricevuto — fai parte della famiglia Wolfhouse 🌊',
-    guest: 'ospite',
-    guests: 'ospiti',
-    shared: 'Un letto in una camera condivisa',
-    private: 'Una camera privata',
-    room: 'Camera',
-    deposit: 'Acconto ricevuto',
-    paid: 'Pagamento ricevuto',
-    left: (amount) => `Restano ${amount} per quando arrivi.`,
+    hello: (name) => name ? `Ciao ${name}! 🌊` : 'Ciao! 🌊',
+    headline: 'Pagamento ricevuto — ora fai ufficialmente parte della famiglia Wolfhouse!',
+    labels: { booking: 'Prenotazione', dates: 'Date', room: 'Camera', guests: 'Ospiti', package: 'Pacchetto', paidToday: 'Pagato oggi', paid: 'Pagato', total: 'Totale', owed: 'Da pagare', checkIn: 'Check-in', shuttle: 'Navetta' },
+    shared: 'Un letto nella nostra camera condivisa mista', private: 'Camera privata',
+    nights: (n) => `${n} ${n === 1 ? 'notte' : 'notti'}`,
+    owedWhere: "all'arrivo, alla reception", fullyPaid: 'Pagato per intero', nothingOwed: 'non resta nulla da pagare', from: 'dalle',
+    closing: ["Se hai bisogno di qualcosa prima dell'arrivo, scrivimi qui 😊", 'A presto! 🤙'],
     weekdays: ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'],
     months: ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'],
   },
@@ -201,16 +191,44 @@ function confirmationRoomSentence(fields, copy) {
   ].map(trimStr).join(' ').toLowerCase();
   const shared = /mixed|shared|dorm|mehrbett|compartid|partag|condivis/.test(kind);
   const isPrivate = /private|privad|privat|privé|prive|singol/.test(kind) && !shared;
-  const code = trimStr(fields && fields.room_number).replace(/\s+/g, ' ');
-  if (shared) return code ? `${copy.shared} · ${code}` : copy.shared;
-  if (isPrivate) return code ? `${copy.private} · ${code}` : copy.private;
-  if (code) return `${copy.room} ${code}`;
+  const guestCount = Number(fields && fields.guest_count);
+  if (shared) return copy.shared;
+  if (isPrivate) return Number.isInteger(guestCount) && guestCount > 0
+    ? `${copy.private} ${copy.labels.guests.toLowerCase()} ${guestCount}`
+    : copy.private;
   return '';
 }
 
+function confirmationFirstName(value) {
+  const name = trimStr(value);
+  if (!name || /^(?:guest|null|undefined)$/i.test(name)) return '';
+  return name.split(/\s+/)[0];
+}
+
+function confirmationNightCount(checkIn, checkOut) {
+  const arrival = parseConfirmationDate(checkIn);
+  const departure = parseConfirmationDate(checkOut);
+  if (!arrival || !departure) return null;
+  const nights = Math.round((departure.getTime() - arrival.getTime()) / 86400000);
+  return nights > 0 ? nights : null;
+}
+
+function confirmationGuestValue(fields) {
+  const count = Number(fields && fields.guest_count);
+  if (!Number.isInteger(count) || count < 1) return '';
+  const names = Array.isArray(fields && fields.guest_names)
+    ? fields.guest_names.map(trimStr).filter(Boolean)
+    : [];
+  return names.length > 1 ? `${count} · ${names.join(', ')}` : String(count);
+}
+
+function confirmationFact(emoji, label, value) {
+  return value ? `${emoji} *${label}:* ${value}` : '';
+}
+
 /**
- * Wolfhouse guest confirmation in the approved quote style.
- * Facts only: dates, room, money, one reference. Says the payment was received.
+ * Wolfhouse guest confirmation in the approved WhatsApp style.
+ * Facts only: values are included only when supplied or safely derived.
  * @param {object} fields
  * @returns {string}
  */
@@ -219,39 +237,62 @@ function buildWolfhousePaidConfirmationCopy(fields) {
   const copy = QUOTE_STYLE_COPY[quoteStyleLanguage(src.language)];
   const paidCents = Number(src.amount_paid_cents);
   const balanceCents = src.balance_due_cents == null ? 0 : Number(src.balance_due_cents);
+  const suppliedTotal = Number(src.total_amount_cents);
+  const derivedTotal = Number.isFinite(paidCents) && Number.isFinite(balanceCents)
+    ? paidCents + Math.max(0, balanceCents)
+    : NaN;
+  const totalCents = Number.isFinite(suppliedTotal) && suppliedTotal >= 0 ? suppliedTotal : derivedTotal;
   const paid = formatConfirmationEuro(paidCents);
   const balance = balanceCents > 0 ? formatConfirmationEuro(balanceCents) : '';
+  const total = formatConfirmationEuro(totalCents);
   const deposit = trimStr(src.payment_status) === 'deposit_paid' && balanceCents > 0;
-  const lines = [copy.opening];
 
   const arrival = formatConfirmationDate(src.check_in, copy);
   const departure = formatConfirmationDate(src.check_out, copy);
-  const guestCount = Number(src.guest_count);
-  const guestBit = Number.isInteger(guestCount) && guestCount > 0
-    ? `${guestCount} ${guestCount === 1 ? copy.guest : copy.guests}`
-    : '';
-  if (arrival && departure) {
-    lines.push(`📅 ${arrival} – ${departure}${guestBit ? ` · ${guestBit}` : ''}`);
-  } else if (guestBit) {
-    lines.push(`📅 ${guestBit}`);
+  const nights = confirmationNightCount(src.check_in, src.check_out);
+  const dateValue = arrival && departure
+    ? `${arrival} – ${departure}${nights ? ` (${copy.nights(nights)})` : ''}`
+    : arrival || departure;
+
+  const facts = [
+    confirmationFact('📌', copy.labels.booking, trimStr(src.booking_code)),
+    confirmationFact('📅', copy.labels.dates, dateValue),
+    confirmationFact('🛏️', copy.labels.room, confirmationRoomSentence(src, copy)),
+    confirmationFact('👥', copy.labels.guests, confirmationGuestValue(src)),
+    confirmationFact('🏄', copy.labels.package, trimStr(src.package_name || src.package)),
+  ].filter(Boolean);
+
+  if (paid) facts.push(confirmationFact('💶', deposit ? copy.labels.paidToday : copy.labels.paid, paid));
+  if (total) facts.push(confirmationFact('💳', copy.labels.total, total));
+  if (deposit && balance) {
+    const timing = trimStr(src.balance_due_timing) ? ` ${copy.owedWhere}` : '';
+    facts.push(confirmationFact('⏳', copy.labels.owed, `${balance}${timing}`));
+  } else if (paid && balanceCents <= 0) {
+    facts.push(`✅ *${copy.fullyPaid}*, ${copy.nothingOwed}`);
   }
 
-  const room = confirmationRoomSentence(src, copy);
-  if (room) lines.push(`🛏️ ${room}`);
-  if (paid) lines.push(`💶 ${deposit ? copy.deposit : copy.paid}: ${paid}`);
-  const code = trimStr(src.booking_code);
-  if (code) lines.push(`📌 ${code}`);
-
-  const tail = [];
-  if (deposit && balance) tail.push(copy.left(balance));
+  const arrivalBits = [];
+  const checkInTime = trimStr(src.check_in_time);
   const address = trimStr(src.address);
-  if (address) tail.push(`📍 ${address}`);
+  if (checkInTime) arrivalBits.push(`${copy.from} ${checkInTime}`);
+  if (address) arrivalBits.push(address);
+  const arrivalLines = [];
+  if (arrivalBits.length) arrivalLines.push(confirmationFact('📍', copy.labels.checkIn, arrivalBits.join(' · ')));
   const maps = trimStr(src.maps_link);
-  if (maps && maps !== address) tail.push(`📍 ${maps}`);
+  if (maps && maps !== address) arrivalLines.push(`🗺️ ${maps}`);
+  const shuttle = trimStr(src.shuttle_copy);
+  if (src.shuttle_booked === true && shuttle) arrivalLines.push(confirmationFact('🚐', copy.labels.shuttle, shuttle));
   const gate = trimStr(src.gate_code);
-  if (gate) tail.push(`🔑 ${gate}`);
+  if (gate) arrivalLines.push(`🔑 ${gate}`);
 
-  return stripConfirmationInternalCopy([lines.join('\n'), tail.join('\n')].filter(Boolean).join('\n\n'));
+  const sections = [
+    copy.hello(confirmationFirstName(src.guest_name)),
+    `*${copy.headline}* 🎉`,
+    facts.join('\n'),
+    arrivalLines.join('\n'),
+    copy.closing.join('\n'),
+  ].filter(Boolean);
+  return sections.join('\n\n');
 }
 
 /**
