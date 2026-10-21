@@ -12,6 +12,9 @@ const {
   recordGuestMessageSendBlocked,
   finalizeGuestMessageSendSent,
   finalizeGuestMessageSendBlocked,
+  formatGuestMessageSendRow,
+  SELECT_GUEST_MESSAGE_SEND_COLS,
+  isMissingGuestMessageSendsTable,
 } = require('./luna-guest-message-send-sql');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -285,10 +288,38 @@ function buildBlockedRouteResult(baseResult, row) {
   };
 }
 
-async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey) {
+function isRetryableConfirmationNonDelivery(row, sendKind) {
+  if (trimStr(sendKind) !== 'confirmation') return false;
+  if (!row) return false;
+  if (trimStr(row.provider_message_id)) return false;
+  return row.status === 'blocked' || row.status === 'failed';
+}
+
+async function reclaimConfirmationNonDelivery(pg, clientSlug, idempotencyKey) {
+  try {
+    const updated = await pg.query(
+      `UPDATE guest_message_sends
+          SET status = 'pending',
+              updated_at = NOW()
+        WHERE client_slug = $1
+          AND idempotency_key = $2
+          AND status IN ('blocked', 'failed')
+          AND NULLIF(provider_message_id, '') IS NULL
+        RETURNING ${SELECT_GUEST_MESSAGE_SEND_COLS}`,
+      [clientSlug, idempotencyKey],
+    );
+    return formatGuestMessageSendRow(updated.rows[0] || null);
+  } catch (err) {
+    if (isMissingGuestMessageSendsTable(err)) return null;
+    throw err;
+  }
+}
+
+async function maybeReplayGuestMessageSend(pg, baseResult, clientSlug, idempotencyKey, sendKind) {
   if (!pg || typeof pg.query !== 'function' || !idempotencyKey) return null;
   const existing = await findGuestMessageSendByKey(pg, clientSlug, idempotencyKey);
   if (existing.table_missing || !existing.row) return null;
+  if (isRetryableConfirmationNonDelivery(existing.row, sendKind)) return null;
   if (existing.row.status === 'sent'
     || existing.row.status === 'pending'
     || existing.row.status === 'blocked'
@@ -351,7 +382,13 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
   const pg = context.pg;
 
   if (pg && idempotencyKey) {
-    const replay = await maybeReplayGuestMessageSend(pg, evaluated.result, clientSlug, idempotencyKey);
+    const replay = await maybeReplayGuestMessageSend(
+      pg,
+      evaluated.result,
+      clientSlug,
+      idempotencyKey,
+      trimStr(src.send_kind),
+    );
     if (replay) {
       return { ok: true, status: 200, result: replay };
     }
@@ -402,13 +439,37 @@ async function evaluateGuestReplySendRouteWithPause(body, context = {}) {
       message_text: trimStr(src.suggested_reply),
     });
     if (claim.row && !claim.claimed) {
-      return {
-        ok: true,
-        status: 200,
-        result: buildIdempotentReplayResult(evaluated.result, claim.row),
-      };
+      if (isRetryableConfirmationNonDelivery(claim.row, evaluated.result.send_kind)) {
+        const reclaimed = await reclaimConfirmationNonDelivery(
+          pg,
+          evaluated.result.client_slug,
+          evaluated.result.idempotency_key,
+        );
+        if (!reclaimed) {
+          const again = await findGuestMessageSendByKey(
+            pg,
+            evaluated.result.client_slug,
+            evaluated.result.idempotency_key,
+          );
+          if (again.row) {
+            return {
+              ok: true,
+              status: 200,
+              result: buildIdempotentReplayResult(evaluated.result, again.row),
+            };
+          }
+        }
+        pendingRow = reclaimed;
+      } else {
+        return {
+          ok: true,
+          status: 200,
+          result: buildIdempotentReplayResult(evaluated.result, claim.row),
+        };
+      }
+    } else {
+      pendingRow = claim.row;
     }
-    pendingRow = claim.row;
   }
 
   const providerResult = await sendLunaWhatsAppMessage({

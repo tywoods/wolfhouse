@@ -404,8 +404,9 @@ async function runGuestConfirmationPreviewDryRun(input, context) {
       });
     }
 
-    const language = trimStr(src.language_hint)
-      || (mergedDraft && mergedDraft.language)
+    const language = trimStr(preview.language)
+      || trimStr(src.language_hint)
+      || trimStr(mergedDraft && mergedDraft.language)
       || 'en';
     const mapped = mapPreviewSuccess(preview, mergedDraft, language, previewInput.client_slug);
 

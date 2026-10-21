@@ -494,6 +494,8 @@ async function getLunaBookingConfirmationPreview(input, context) {
     guest_count: row.guest_count || null,
     requested_room_type: row.requested_room_type || null,
     room_preference: row.room_preference || null,
+    language,
+    amount_paid_cents: amountPaidCents,
     room_numbers: roomNumbers,
     confirmation_draft: confirmationDraft,
     message_preview:    messagePreview,

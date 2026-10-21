@@ -14,13 +14,14 @@ const {
   passesConfirmationStyleContract,
 } = require('./lib/luna-guest-confirmation-copy-style');
 const { buildConfirmationPreviewFromPlaybook } = require('./lib/luna-client-messaging-playbook');
-const { runGuestConfirmationPreviewDryRun } = require('./lib/luna-guest-confirmation-preview-dry-run');
+const { runGuestConfirmationPreviewDryRun, buildFixturePg } = require('./lib/luna-guest-confirmation-preview-dry-run');
 const {
   tryAutoSendBookingConfirmation,
   isAutoConfirmationSendEnabled,
 } = require('./lib/luna-guest-confirmation-auto-send');
 const {
   evaluateGuestReplySendRoute,
+  evaluateGuestReplySendRouteWithPause,
   collectEnvGateReasons,
 } = require('./lib/luna-guest-reply-send-route');
 const { sendLunaBookingConfirmation } = require('./lib/luna-booking-confirmation-send');
@@ -500,6 +501,247 @@ assert.match(it, /2 ospiti/);
   assert.equal(uncertain.result.updates_confirmation_sent_at, false);
   assert.equal(uncertain.result.delivery_uncertain, true);
   assert.equal(uncertainPg.marks, 0);
+
+  const copyCode = 'WH-REVIEW-COPY';
+  const copyBooking = '44444444-4444-4444-8444-444444444444';
+  const storedGermanDraft = {
+    booking_code: copyCode,
+    payment_status: 'paid',
+    language: 'de',
+    balance_due_cents: 0,
+    amount_paid_cents: 20000,
+    room_number: 'R3',
+    gate_code: '2684#',
+    check_in: '2026-11-15',
+    check_out: '2026-11-24',
+    guest_count: 1,
+  };
+  const copyInput = {
+    booking_id: copyBooking,
+    booking_code: copyCode,
+    payment_status: 'paid',
+    client_slug: 'wolfhouse-somo',
+  };
+  const germanBoundary = await runGuestConfirmationPreviewDryRun({
+    ...copyInput,
+    language_hint: 'en',
+  }, { pg: buildFixturePg(copyInput, storedGermanDraft) });
+  assert.equal(germanBoundary.confirmation_preview_ready, true, JSON.stringify(germanBoundary.block_reasons));
+  assert.match(germanBoundary.proposed_confirmation_message, /Zahlung erhalten/);
+  assert.match(germanBoundary.proposed_confirmation_message, /€200/);
+  assert.doesNotMatch(germanBoundary.proposed_confirmation_message, /Payment received/);
+
+  const amountDraft = { ...storedGermanDraft, language: 'en' };
+  delete amountDraft.amount_paid_cents;
+  const amountBoundary = await runGuestConfirmationPreviewDryRun({
+    booking_code: copyCode,
+    payment_status: 'paid',
+    client_slug: 'wolfhouse-somo',
+    language_hint: 'en',
+  }, { pg: buildFixturePg({ booking_code: copyCode, payment_status: 'paid', client_slug: 'wolfhouse-somo' }, amountDraft) });
+  assert.equal(amountBoundary.confirmation_preview_ready, true, JSON.stringify(amountBoundary.block_reasons));
+  assert.match(amountBoundary.proposed_confirmation_message, /Payment received: €200/);
+
+  const fixture = buildFixturePg(copyInput, storedGermanDraft);
+  const autoPg = {
+    async query(sql, params) {
+      const flat = String(sql).replace(/\s+/g, ' ');
+      if (flat.includes('guest_phone_meta')) {
+        return { rows: [{
+          id: copyBooking,
+          booking_code: copyCode,
+          booking_status: 'confirmed',
+          payment_status: 'paid',
+          confirmation_sent_at: null,
+          guest_phone_meta: '+34600000000',
+          guest_phone_column: null,
+          guest_name_meta: 'Greta',
+          guest_name: 'Greta',
+        }] };
+      }
+      if (flat.includes('LEFT JOIN LATERAL')) {
+        return { rows: [{
+          amount_paid_cents: 20000,
+          payment_record_status: 'paid',
+          booking_payment_status: 'paid',
+        }] };
+      }
+      if (flat.includes('confirmation_send_claim')) return { rows: [{ id: copyBooking }] };
+      if (/FROM bookings b/.test(sql) || /FROM booking_beds/.test(sql) || /FROM payments p/.test(sql)) {
+        return fixture.query(sql, params);
+      }
+      const err = new Error('relation does not exist');
+      err.code = '42P01';
+      throw err;
+    },
+  };
+  const automaticGerman = await tryAutoSendBookingConfirmation({
+    booking_id: copyBooking,
+    booking_code: copyCode,
+    client_slug: 'wolfhouse-somo',
+    to: '+34600000000',
+  }, {
+    pg: autoPg,
+    env: {
+      LUNA_CONFIRMATION_AUTO_SEND_ENABLED: 'true',
+      LUNA_AUTO_SEND_ENABLED: 'false',
+      WHATSAPP_DRY_RUN: 'true',
+    },
+  });
+  assert.equal(automaticGerman.preview && automaticGerman.preview.confirmation_preview_ready, true, JSON.stringify(automaticGerman));
+  assert.match(automaticGerman.preview.proposed_confirmation_message, /Zahlung erhalten/);
+  assert.doesNotMatch(automaticGerman.preview.proposed_confirmation_message, /Payment received/);
+
+  const { PGlite } = require('@electric-sql/pglite');
+  const recoveryBook = '11111111-1111-4111-8111-111111111111';
+  const recoveryClient = '22222222-2222-4222-8222-222222222222';
+  const recoveryEnv = {
+    LUNA_AUTO_SEND_ENABLED: 'true',
+    LUNA_CONFIRMATION_AUTO_SEND_ENABLED: 'true',
+    WHATSAPP_DRY_RUN: 'false',
+    WHATSAPP_CLOUD_ACCESS_TOKEN: 'offline-fixture-not-a-token',
+    WHATSAPP_PHONE_NUMBER_ID: 'offline-fixture',
+  };
+  const recoveryPreview = {
+    confirmation_preview_ready: true,
+    confirmation_send_allowed: false,
+    proposed_confirmation_message: 'Payment received. Booking WH-TEST-001.',
+    message_preview: 'Payment received. Booking WH-TEST-001.',
+    booking_id: recoveryBook,
+    booking_code: 'WH-TEST-001',
+    payment_status: 'deposit_paid',
+  };
+  async function recoveryDb() {
+    const db = new PGlite();
+    await db.exec(`CREATE FUNCTION set_updated_at() RETURNS trigger AS $$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END $$ LANGUAGE plpgsql;
+      CREATE TABLE clients(id uuid PRIMARY KEY, slug text);
+      CREATE TABLE bookings(id uuid PRIMARY KEY, client_id uuid, booking_code text, status text, payment_status text, confirmation_sent_at timestamptz, metadata jsonb DEFAULT '{}', phone text, guest_name text, amount_paid_cents int);
+      CREATE TABLE payments(id uuid PRIMARY KEY, booking_id uuid, client_id uuid, status text, amount_paid_cents int, paid_at timestamptz, created_at timestamptz);
+      INSERT INTO clients VALUES('${recoveryClient}','wolfhouse-somo');
+      INSERT INTO bookings VALUES('${recoveryBook}','${recoveryClient}','WH-TEST-001','confirmed','deposit_paid',NULL,'{"guest_phone":"+9990000001","guest_name":"Review Fixture"}',NULL,'Review Fixture',20000);
+      INSERT INTO payments VALUES('33333333-3333-4333-8333-333333333333','${recoveryBook}','${recoveryClient}','paid',20000,NOW(),NOW());`);
+    await db.exec(fs.readFileSync(path.join(__dirname, '../database/migrations/013_guest_message_sends.sql'), 'utf8'));
+    return db;
+  }
+  async function recoveryScenario(name) {
+    const db = await recoveryDb();
+    let calls = 0;
+    let outage = false;
+    const pg = {
+      query: async (sql, params) => {
+        if (outage) throw new Error('offline-injected-db-outage-after-provider-audit');
+        if (name === 'audit-then-db-outage' && String(sql).includes('SET confirmation_sent_at = NOW()')) {
+          outage = true;
+          throw new Error('offline-injected-db-outage-after-provider-audit');
+        }
+        return db.query(sql, params);
+      },
+    };
+    const fetch = async () => {
+      calls += 1;
+      if (name === 'definitive-rejection-then-retry' && calls === 1) {
+        return { ok: false, status: 401, json: async () => ({ error: { message: 'offline definitive rejection' } }) };
+      }
+      if (name === 'accepted-without-provider-id') return { ok: true, status: 200, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.OFFLINE.${calls}` }] }) };
+    };
+    const ctx = {
+      pg,
+      env: recoveryEnv,
+      fetch,
+      runGuestConfirmationPreviewDryRun: async () => recoveryPreview,
+    };
+    const input = (key) => ({
+      booking_id: recoveryBook,
+      booking_code: 'WH-TEST-001',
+      client_slug: 'wolfhouse-somo',
+      to: '+9990000001',
+      idempotency_key: key,
+    });
+    if (name === 'concurrent-distinct-keys') {
+      await Promise.all([
+        tryAutoSendBookingConfirmation(input('race-a'), ctx),
+        tryAutoSendBookingConfirmation(input('race-b'), ctx),
+      ]);
+      const sentAt = (await db.query('SELECT confirmation_sent_at FROM bookings')).rows[0].confirmation_sent_at;
+      await db.close();
+      return { calls, sentAt };
+    }
+    await tryAutoSendBookingConfirmation(input('event-a'), ctx);
+    const second = await tryAutoSendBookingConfirmation(
+      input(name === 'definitive-rejection-then-retry' ? 'event-b' : 'event-a'),
+      { ...ctx, pg: db },
+    );
+    const sentAt = (await db.query('SELECT confirmation_sent_at FROM bookings')).rows[0].confirmation_sent_at;
+    await db.close();
+    return { calls, second, sentAt };
+  }
+
+  const rejected = await recoveryScenario('definitive-rejection-then-retry');
+  assert.equal(rejected.calls, 2, 'known provider rejection must reach the provider again');
+  assert.equal(rejected.second.confirmation_sent, true);
+  assert.ok(rejected.sentAt);
+
+  const repaired = await recoveryScenario('audit-then-db-outage');
+  assert.equal(repaired.calls, 1, 'sent-audit repair must not send a second copy');
+  assert.equal(repaired.second.confirmation_sent, true);
+  assert.equal(repaired.second.send && repaired.second.send.send_status, 'idempotent_replay');
+  assert.ok(repaired.sentAt);
+
+  const uncertainHold = await recoveryScenario('accepted-without-provider-id');
+  assert.equal(uncertainHold.calls, 1);
+  assert.equal(uncertainHold.second.skip_reason, 'confirmation_claim_held');
+  assert.equal(uncertainHold.sentAt, null);
+
+  const overlap = await recoveryScenario('concurrent-distinct-keys');
+  assert.equal(overlap.calls, 1);
+  assert.ok(overlap.sentAt);
+
+  const preserveDb = await recoveryDb();
+  let quoteCalls = 0;
+  let pendingCalls = 0;
+  await preserveDb.query(
+    `INSERT INTO guest_message_sends (
+       client_slug, to_phone, idempotency_key, send_kind, message_text, status, blocked_reasons
+     ) VALUES
+       ('wolfhouse-somo', '+34600000000', 'quote-blocked', 'show_quote', 'Which dates?', 'blocked', '["luna_auto_send_not_enabled"]'::jsonb),
+       ('wolfhouse-somo', '+34600000000', 'confirmation-pending', 'confirmation', 'Payment received.', 'pending', '[]'::jsonb)`,
+  );
+  const routeEnv = {
+    LUNA_AUTO_SEND_ENABLED: 'true',
+    WHATSAPP_DRY_RUN: 'false',
+    WHATSAPP_CLOUD_ACCESS_TOKEN: 'offline-fixture-not-a-token',
+    WHATSAPP_PHONE_NUMBER_ID: 'offline-fixture',
+  };
+  const quoteReplay = await evaluateGuestReplySendRouteWithPause({
+    client_slug: 'wolfhouse-somo',
+    to: '+34600000000',
+    suggested_reply: 'Which dates?',
+    send_kind: 'show_quote',
+    idempotency_key: 'quote-blocked',
+    send_eligibility: { send_allowed_later: true, requires_staff: false, auto_send_ready: true },
+  }, {
+    pg: preserveDb,
+    env: routeEnv,
+    fetch: async () => { quoteCalls += 1; return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.QUOTE' }] }) }; },
+  });
+  assert.equal(quoteReplay.result.idempotent_replay, true);
+  assert.equal(quoteCalls, 0);
+  const pendingReplay = await evaluateGuestReplySendRouteWithPause({
+    client_slug: 'wolfhouse-somo',
+    to: '+34600000000',
+    suggested_reply: 'Payment received.',
+    send_kind: 'confirmation',
+    idempotency_key: 'confirmation-pending',
+    send_eligibility: { send_allowed_later: true, requires_staff: false, auto_send_ready: true },
+  }, {
+    pg: preserveDb,
+    env: routeEnv,
+    fetch: async () => { pendingCalls += 1; return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.PENDING' }] }) }; },
+  });
+  assert.equal(pendingReplay.result.idempotent_replay, true);
+  assert.equal(pendingCalls, 0);
+  await preserveDb.close();
 
   console.log('verify-wolfhouse-paid-confirmation: PASS');
 })().catch((err) => {
