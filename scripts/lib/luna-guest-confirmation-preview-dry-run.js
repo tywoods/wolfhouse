@@ -15,9 +15,15 @@ const {
   loadClientConfirmationConfig,
   resolveGateCode,
   resolveConfirmationAddress,
+  resolveRoomNumbers,
   PREVIEW_SAFETY_FLAGS,
 } = require('./luna-booking-confirmation-preview');
-const { polishConfirmationGuestCopy } = require('./luna-guest-confirmation-copy-style');
+const {
+  polishConfirmationGuestCopy,
+  buildWolfhousePaidConfirmationCopy,
+  isWolfhousePaidConfirmationClient,
+} = require('./luna-guest-confirmation-copy-style');
+const { loadLessonScheduleConfig } = require('./luna-guest-lesson-schedule-config');
 
 const REUSED_PREVIEW_PATH = 'getLunaBookingConfirmationPreview (Phase 14b)';
 
@@ -175,20 +181,6 @@ function messageHasBedLeak(message) {
   return BED_CODE_RE.test(message) || BED_NUMBER_RE.test(message);
 }
 
-function resolveRoomNumbers(draft, primaryRoomCode, extraRoomCodes) {
-  const codes = new Set();
-  const fromDraft = draft && draft.room_number ? String(draft.room_number).trim() : '';
-  if (fromDraft) {
-    codes.add(fromDraft);
-  } else if (primaryRoomCode) {
-    codes.add(String(primaryRoomCode).trim());
-  }
-  for (const rc of extraRoomCodes || []) {
-    if (rc) codes.add(String(rc).trim());
-  }
-  return [...codes].filter(Boolean);
-}
-
 function resolveRoomLabel(roomNumbers, draft) {
   const nums = roomNumbers && roomNumbers.length ? roomNumbers : [];
   if (nums.length) return { room_number: nums[0], room_label: nums.join(', ') };
@@ -220,6 +212,11 @@ function buildFixturePg(input, mergedDraft) {
     total_amount_cents: mergedDraft && mergedDraft.balance_due_cents != null
       ? Number(mergedDraft.amount_paid_cents || 20000) + Number(mergedDraft.balance_due_cents)
       : 100000,
+    check_in: mergedDraft && mergedDraft.check_in || null,
+    check_out: mergedDraft && mergedDraft.check_out || null,
+    guest_count: mergedDraft && mergedDraft.guest_count || null,
+    requested_room_type: (mergedDraft && (mergedDraft.requested_room_type || mergedDraft.room_kind)) || null,
+    room_preference: mergedDraft && mergedDraft.room_preference || null,
     metadata: {
       confirmation_draft: mergedDraft,
       language: trimStr(input.language_hint) || 'en',
@@ -247,11 +244,13 @@ function buildFixturePg(input, mergedDraft) {
   };
 }
 
-function mapPreviewSuccess(preview, mergedDraft, language) {
+function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
   const draft = preview.confirmation_draft || mergedDraft || {};
-  const balanceDueCents = draft.balance_due_cents != null
-    ? Number(draft.balance_due_cents)
-    : (preview.payment_status === 'paid' ? 0 : null);
+  const balanceDueCents = preview.balance_due_cents != null
+    ? Number(preview.balance_due_cents)
+    : (draft.balance_due_cents != null
+      ? Number(draft.balance_due_cents)
+      : (preview.payment_status === 'paid' ? 0 : null));
   const paymentStatus = String(preview.payment_status || draft.payment_status || '').trim();
 
   const clientConfig = loadClientConfirmationConfig(
@@ -266,12 +265,38 @@ function mapPreviewSuccess(preview, mergedDraft, language) {
   );
   const roomFields = resolveRoomLabel(roomNumbers, draft);
 
-  const proposed = sanitizePreviewMessage(
+  const proposedBase = sanitizePreviewMessage(
     preview.message_preview,
     paymentStatus,
     balanceDueCents != null ? balanceDueCents : 0,
     language,
   );
+  const slug = trimStr(clientSlug) || 'wolfhouse-somo';
+  let proposed = proposedBase;
+  if (isWolfhousePaidConfirmationClient(slug)) {
+    const mapsLink = trimStr(draft.maps_link)
+      || trimStr(loadLessonScheduleConfig(slug).maps_link);
+    proposed = buildWolfhousePaidConfirmationCopy({
+      language,
+      guest_name: draft.guest_name,
+      booking_code: preview.booking_code || draft.booking_code,
+      payment_status: paymentStatus,
+      amount_paid_cents: draft.amount_paid_cents != null
+        ? draft.amount_paid_cents
+        : preview.amount_paid_cents,
+      balance_due_cents: balanceDueCents,
+      check_in: draft.check_in || preview.check_in,
+      check_out: draft.check_out || preview.check_out,
+      guest_count: draft.guest_count || preview.guest_count,
+      room_kind: draft.room_kind || draft.requested_room_type || preview.requested_room_type,
+      requested_room_type: draft.requested_room_type || preview.requested_room_type,
+      room_preference: draft.room_preference || preview.room_preference,
+      room_number: roomFields.room_label,
+      gate_code: gateCode,
+      address: addressResolved.address,
+      maps_link: mapsLink,
+    }) || proposedBase;
+  }
 
   return {
     success: true,
@@ -368,10 +393,11 @@ async function runGuestConfirmationPreviewDryRun(input, context) {
       });
     }
 
-    const language = trimStr(src.language_hint)
-      || (mergedDraft && mergedDraft.language)
+    const language = trimStr(preview.language)
+      || trimStr(src.language_hint)
+      || trimStr(mergedDraft && mergedDraft.language)
       || 'en';
-    const mapped = mapPreviewSuccess(preview, mergedDraft, language);
+    const mapped = mapPreviewSuccess(preview, mergedDraft, language, previewInput.client_slug);
 
     const clientConfig = loadClientConfirmationConfig(previewInput.client_slug);
     const trustedRoomlessSunsetCourse = ctx.trusted_crowsnest_sunset_course === true
