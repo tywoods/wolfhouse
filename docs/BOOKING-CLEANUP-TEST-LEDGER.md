@@ -168,3 +168,17 @@ Exact starting head `309cdc3e30ef0098f1b8f7b97e8cd67d5ed6005c` was repaired offl
 - The six supplied JSONL originals and `CHATS.md` were hash-checked before derived-fixture use; their bytes were not modified.
 
 No merge, deploy, live DB, guest message, payment, external send or runtime configuration change was performed. SEALED HOLD remains.
+
+## Step 4 Slice 2 — 2026-10-21
+
+Approved job `BOOKING-CLEANUP-STEP4-SLICE2-SIM26-20261021` started from `3d94ad87434364f51aa4aa148364cc59eb66bc42` (tree `1f9a6971108bd909ba8450516e30d1ad7ea52f65`). The companion archive SHA-256 matched `b7196d69adb57d40a186317a9220fba9f650b53872576e4138fdeb568ab97744`; every embedded input passed its supplied checksum.
+
+Strict focused RED ran 6 tests with 3 failures: ordinary success boilerplate remained, authoritative Room 1 was absent, and the initial Lucía oracle incorrectly expected link amount at a top-level adapter field. The first two are genuine S2-04 product REDs; the third is explicitly a test-oracle correction, not product attribution. The current base registered Lucía continuation already reached one dispatch and receipt reuse, so no new historical S2-01 RED is claimed. Focused GREEN passed 6/6.
+
+The registered availability description's old assertion, “gender-neutral capacity only / Do NOT pass group_gender,” was replaced with the approved explicit-fact propagation contract. Schema, no-inference, private-room, stock, and conflict controls remain unchanged. Successful quote copy no longer emits routine availability caveats; authoritative numbered rooms are disclosed without bed codes and room sentences are capitalized. Obsolete copy expectations are updated only where required; monetary, eligibility and identity guarantees are retained.
+
+Fresh section-4 gate outputs and exact exits are sealed in `artifacts/booking-cleanup-step4-slice2/gate-summary.json` and `gates/*.log`. `fixtures/booking-cleanup-step4/slice2-cases.json` maps every retained Sim13–26 case; inherited `not_replayable` cases remain approved unavailable. Scripted calls do not prove future model selection, historical missing bodies are not invented, and Sim26 readback remains 4/5 with Emma delivery classified S2-02. No push, PR, merge, deploy, restart, live DB, guest send or outbound business action occurred. SEALED HOLD.
+
+Final evidence-completeness follow-up: the two new focused modules passed **8/8** using the pinned interpreter/overlay. The added Sim26 test loads sealed `guest1.jsonl` and compares four raw texts plus all eleven top-level tool names and complete argument dictionaries against a literal oracle; package-preview failure and the zero-tool fourth turn are explicit. A separate registered S2-03 matrix test passed **1/1**, covering explicit unnamed male/female whole-party facts, later names, partial/conflicting/corrected person facts, unknown composition, private room and zero stock without name/room/payment inference. A same-process aggregate of the two older fact modules was not green under the available overlay (27 tests, 27 failures and 71 subtest errors, dominated by unexpected quote preflight `/availability-check` and missing legacy result shapes); this run is retained as a harness/runtime mismatch, not reported as product evidence or waived.
+
+Historical refusal not reproduced or attributed; current-base and candidate continuation pass. S2-01 is preservation/coverage, not a proven historical bug fix.

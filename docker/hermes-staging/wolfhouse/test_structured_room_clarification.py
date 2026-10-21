@@ -535,7 +535,7 @@ with patch.object(plugin, 'preview_package_prices', return_value=failed):
             ],
         }
         self.assertEqual(
-            ["lucía de la Cruz and lucía de la Cruz: two beds in the same mixed room."],
+            ["Lucía de la Cruz and lucía de la Cruz: two beds in the same mixed room."],
             owner._guest_room_lines(plan, offer, "en"),
         )
 
@@ -566,7 +566,7 @@ with patch.object(plugin, 'preview_package_prices', return_value=failed):
                 {"guest_index": 0, "guest_name": "Alex", "bed_code": "R1-B1"},
             ],
         }
-        self.assertEqual(["one bed in a mixed room for Alex."],
+        self.assertEqual(["One bed in a mixed room for Alex."],
                          owner._guest_room_lines(plan, offer, "en"))
 
     def test_preferred_strategy_remains_neutral_not_exclusive(self):
