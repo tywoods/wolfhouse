@@ -837,11 +837,11 @@
       "source_path": "fixtures/booking-replay-sim13-20/sim22_cases.json",
       "source_record_id": "sim22-g3-becker",
       "source_hash": "2cca296adf219da8886b23861f26f44760e2054b095148cdbec4ca62875f0ab1",
-      "test_id": "fixtures.booking-replay-sim13-20.test_sim22_cleanup.Sim22CleanupTests.test_executable_registered_sim22_cleanup_journeys",
-      "test_subtest": "case=sim22-g3-becker",
-      "executed_boundary": "registered owner/plugin/render/isolated-SQL journey",
+      "test_id": "wolfhouse_staff_api.test_sim16_jonas_liam_fix.RegisteredBoundaryEvidence.test_sim22_becker_captured_registered_sequence_reaches_create",
+      "test_subtest": null,
+      "executed_boundary": "registered check/quote/render/create dispatch and isolated SQL create/readback",
       "expected": "registered_create_one_booking",
-      "actual": "observed by executable subtest case=sim22-g3-becker: registered_create_one_booking",
+      "actual": "observed by test_sim22_becker_captured_registered_sequence_reaches_create: one isolated SQL booking with both occupants; create dispatch reaches real SQL adapter",
       "observed_outcome": "registered_create_one_booking",
       "evidence_class": "registered_sql"
     },
@@ -851,13 +851,13 @@
       "source_path": "fixtures/booking-replay-sim13-20/sim22_cases.json",
       "source_record_id": "sim22-g4-emma-unanswered",
       "source_hash": "2cca296adf219da8886b23861f26f44760e2054b095148cdbec4ca62875f0ab1",
-      "test_id": "fixtures.booking-replay-sim13-20.test_sim22_cleanup.Sim22CleanupTests.test_executable_registered_sim22_cleanup_journeys",
-      "test_subtest": "case=sim22-g4-emma-unanswered",
-      "executed_boundary": "registered owner/plugin/render/isolated-SQL journey",
+      "test_id": "wolfhouse_staff_api.test_sim16_jonas_liam_fix.RegisteredBoundaryEvidence.test_sim22_emma_structured_unsure_and_no_preserve_women_stock",
+      "test_subtest": "status=unsure",
+      "executed_boundary": "registered availability and quote-refusal control; stops before booking preview/create, not a SQL journey",
       "expected": "eligibility_unsure_no_booking",
-      "actual": "observed by executable subtest case=sim22-g4-emma-unanswered: eligibility_unsure_no_booking",
+      "actual": "observed by executable subtest status=unsure: eligibility_required; quote stops at availability with no booking creation attempted",
       "observed_outcome": "eligibility_unsure_no_booking",
-      "evidence_class": "registered_sql"
+      "evidence_class": "registered_negative_boundary"
     },
     {
       "simulation": "Sim22",
@@ -865,13 +865,13 @@
       "source_path": "fixtures/booking-replay-sim13-20/sim22_cases.json",
       "source_record_id": "sim22-g5-raj",
       "source_hash": "2cca296adf219da8886b23861f26f44760e2054b095148cdbec4ca62875f0ab1",
-      "test_id": "fixtures.booking-replay-sim13-20.test_sim22_cleanup.Sim22CleanupTests.test_executable_registered_sim22_cleanup_journeys",
-      "test_subtest": "case=sim22-g5-raj",
-      "executed_boundary": "registered owner/plugin/render/isolated-SQL journey",
+      "test_id": "wolfhouse_staff_api.test_sim16_jonas_liam_fix.RegisteredBoundaryEvidence.test_sim22_complete_offer_equal_total_has_one_payment_line",
+      "test_subtest": null,
+      "executed_boundary": "registered quote and rendered payment-line control; no create or isolated SQL claim",
       "expected": "single_full_payment_line",
-      "actual": "observed by executable subtest case=sim22-g5-raj: single_full_payment_line",
+      "actual": "observed by test_sim22_complete_offer_equal_total_has_one_payment_line: exactly one €80 full-payment line and no deposit wording",
       "observed_outcome": "single_full_payment_line",
-      "evidence_class": "registered_sql"
+      "evidence_class": "registered_render"
     },
     {
       "simulation": "Sim23",
