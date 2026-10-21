@@ -402,8 +402,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', shown['final_response'])
-        self.assertIn('Due on arrival: 200.00 EUR.', shown['final_response'])
+        self.assertIn('Total: €200 (deposit: €100).', shown['final_response'])
+        self.assertIn('Due on arrival: €200.', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
         prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
@@ -419,7 +419,7 @@ class OwnerHostileTests(unittest.TestCase):
         from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
         beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
                 dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
-        expected_due = {'deposit': '100.00 EUR', 'pay_on_arrival': '200.00 EUR'}
+        expected_due = {'deposit': '€100', 'pay_on_arrival': '€200'}
         for choice in ('deposit', 'full', 'pay_on_arrival'):
             with self.subTest(choice=choice):
                 self.agent.session_id = f'g4-breakdown-{choice}'
@@ -434,7 +434,7 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 text = shown['final_response']
-                self.assertIn('Total: 200.00 EUR (deposit: 100.00 EUR).', text)
+                self.assertIn('Total: €200 (deposit: €100).', text)
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
@@ -779,7 +779,7 @@ class OwnerHostileTests(unittest.TestCase):
                           'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
         })
         self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
+        self.assertIn('Payment options: deposit (€100) or full payment.', shown['final_response'])
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -987,7 +987,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('Payment options: deposit (100.00 EUR) or full payment.', shown['final_response'])
+                    self.assertIn('Payment options: deposit (€100) or full payment.', shown['final_response'])
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({
@@ -2779,8 +2779,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(spanish_plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: 200.00 EUR.', shown['final_response'])
-        self.assertIn('¿Qué opción de pago', shown['final_response'])
+        self.assertIn('Total: €200.', shown['final_response'])
+        self.assertIn('Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', shown['final_response'])
 
         self.agent.session_id = 'sim19-spanish-refusal'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -2810,8 +2810,8 @@ class OwnerHostileTests(unittest.TestCase):
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'as proposed', 'messages': []})['final_response']
                 self.assertIn(accommodation, text)
                 self.assertIn(availability, text)
-                self.assertIn('200.00 EUR', text)
-                self.assertIn('100.00 EUR', text)
+                self.assertIn('€200', text)
+                self.assertIn('€100', text)
                 self.assertNotIn('as proposed', text.casefold())
                 self.assertNotRegex(text, r'\b(?:M|R\d+)(?:-B\d+)?\b')
 
@@ -2824,7 +2824,7 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(incomplete_plan, incomplete)
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
                 self.assertIn(options, text)
-                self.assertIn('200.00 EUR', text)
+                self.assertIn('€200', text)
                 self.assertNotIn('Payment options', text) if language != 'en' else self.assertIn('Payment options', text)
 
                 self.agent.session_id = f'sim19-{language}-refusal'

@@ -540,7 +540,7 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertIn('alex', result['final_response'].lower())
         self.assertNotIn('M1', result['final_response'])
         self.assertIn('alex and sam: two beds in the same mixed room.', result['final_response'].lower())
-        self.assertIn('700.00 EUR', result['final_response'])
+        self.assertIn('€700', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
         self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
         self.assertEqual(result['messages'][-1]['content'], result['final_response'])
@@ -642,7 +642,8 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
         self.assertNotIn('1 guests', text)
         self.assertNotIn('2026-10-19', text)
-        self.assertIn('alex: one bed in a mixed room.', text.lower())
+        self.assertIn('one bed in a mixed room for alex.', text.lower())
+        self.assertNotIn('alex:', text.lower())
         self.assertNotIn('DORM-12', text)
         self.assertNotIn('ROOM-9', text)
         self.assertTrue(text.endswith('Shall I create this booking?'))
@@ -894,7 +895,7 @@ console.log(JSON.stringify({accepted,current}));
             'completed': True, 'final_response': 'draft',
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
-        self.assertIn('210.00 EUR', again['final_response'])
+        self.assertIn('€210', again['final_response'])
         self.assertTrue(again['final_response'].endswith('Shall I create this updated booking?'))
         self.assertNotIn('DORM-12', again['final_response'])
         self.assertFalse(ledger._completion_revision_matches(

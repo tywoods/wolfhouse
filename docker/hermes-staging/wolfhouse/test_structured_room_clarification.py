@@ -387,9 +387,9 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     self.assertEqual(quoted["total_cents"], case["total"])
                     self.assertEqual(quoted["deposit_required_cents"], case["deposit"])
                     rendered = loop.present()
-                    self.assertIn(f"{case['total'] / 100:.2f} EUR", rendered)
+                    self.assertIn(f"€{case['total'] // 100}", rendered)
                     if case["payment"] == "deposit":
-                        self.assertIn(f"{case['deposit'] / 100:.2f} EUR", rendered)
+                        self.assertIn(f"€{case['deposit'] // 100}", rendered)
 
                     acceptance = turns[-1]
                     if not acceptance_loaded:
@@ -558,7 +558,7 @@ with patch.object(plugin, 'preview_package_prices', return_value=failed):
                 {"guest_index": 0, "guest_name": "Alex", "bed_code": "R1-B1"},
             ],
         }
-        self.assertEqual(["Alex: one bed in a mixed room."],
+        self.assertEqual(["one bed in a mixed room for Alex."],
                          owner._guest_room_lines(plan, offer, "en"))
 
     def test_preferred_strategy_remains_neutral_not_exclusive(self):

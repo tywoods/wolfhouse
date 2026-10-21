@@ -610,12 +610,16 @@ def _guest_room_lines(plan, offer, language='en'):
             # Room and bed codes are Staff internals, never guest-facing copy.
             room_suffix = ''
             # Ty-approved guest copy does not label a one-person stay with
-            # ``Name:``. Names remain useful when naturally grouping parties.
-            prefix = f'{who}: ' if who and offer.get('guest_count') != 1 else ''
+            # ``Name:``. Keep the identity naturally in the sentence instead.
+            singleton = (offer.get('guest_count', plan.get('guest_count')) == 1
+                         or sum(entry['beds'] for entry in groups) == 1)
+            prefix = f'{who}: ' if who and not singleton else ''
+            natural_name = ({'es': f' para {who}', 'fr': f' pour {who}', 'de': f' für {who}'}.get(language, f' for {who}')
+                            if who and singleton else '')
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{prefix}una cama en una {kind}.', 'fr': f'{prefix}un lit dans une {kind}.',
-                            'de': f'{prefix}ein Bett in einem {kind}.'}[language]
+                    line = {'es': f'{prefix}una cama en una {kind}{natural_name}.', 'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
+                            'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
                 else:
                     line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
                             'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
@@ -627,7 +631,7 @@ def _guest_room_lines(plan, offer, language='en'):
                 first = False
                 continue
             if len(same) == 1 and beds == 1:
-                lines.append(f"{prefix}one bed in a {kind}{room_suffix}.")
+                lines.append(f"{prefix}one bed in a {kind}{room_suffix}{natural_name}.")
             elif len(same) == 1:
                 lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
             elif beds == 1:

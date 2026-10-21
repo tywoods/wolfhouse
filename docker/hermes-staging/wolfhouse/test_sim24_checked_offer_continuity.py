@@ -66,10 +66,10 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             "room_arrangement": [{"bed_code": "R3-B1", "room_code": "R3", "gender_strategy": "mixed"}],
         }
         self.assertEqual(owner._guest_room_lines(plan, offer, "es"),
-                         ["Lucía Fernández Ruiz: una cama en una habitación mixta."])
+                         ["una cama en una habitación mixta para Lucía Fernández Ruiz."])
         stale = {"guests": [{"name": "Camille Martin"}]}
         self.assertEqual(owner._guest_room_lines(stale, offer, "es"),
-                         ["lucía fernández ruiz: una cama en una habitación mixta."])
+                         ["una cama en una habitación mixta para lucía fernández ruiz."])
 
     def test_duplicate_names_do_not_reassign_occupant_slots(self):
         plan = {"guests": [{"name": "Alex"}, {"name": "Alex"}]}
@@ -256,8 +256,8 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             "/booking-preview": initial_quote})
                         self.assertTrue(first["success"], first)
                         shown = loop.present()
-                        self.assertIn("120.00 EUR", shown)
-                        self.assertIn("100.00 EUR", shown)
+                        self.assertIn("€120", shown)
+                        self.assertIn("€100", shown)
                         self.assertIn("depósito", shown.lower())
                         self.assertIn("pago completo", shown.lower())
                         turn(1)
@@ -313,7 +313,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             "/booking-preview": quote})
                         self.assertTrue(quoted["success"], quoted)
                         shown = loop.present()
-                    self.assertIn(f"{facts['total_cents'] / 100:.2f} EUR", shown)
+                    self.assertIn(f"€{facts['total_cents'] // 100}", shown)
                     self.assertEqual(quote["deposit_required_cents"], meta["deposit"])
                     if label == "guest4":
                         self.assertEqual(quote["payment_link_amount_cents"], 12000)
@@ -412,7 +412,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     final = owner.finalize_offer_response({"completed": True,
                         "final_response": "untrusted draft", "messages": messages})
                     self.assertIn(url, final["final_response"])
-                    self.assertIn(f"{facts['payment_amount_cents'] / 100:.2f} EUR",
+                    self.assertIn(f"€{facts['payment_amount_cents'] // 100}",
                                   final["final_response"])
                     for name in facts["names"]:
                         self.assertIn(name, final["final_response"])
