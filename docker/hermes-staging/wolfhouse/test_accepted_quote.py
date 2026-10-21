@@ -402,7 +402,7 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: €200.', shown['final_response'])
+        self.assertIn('Total: €200.', shown['final_response'].splitlines())
         self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
         self.assertIn('Due on arrival: €200.', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
@@ -435,7 +435,7 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 text = shown['final_response']
-                self.assertIn('Total: €200.', text)
+                self.assertIn('Total: €200.', text.splitlines())
                 self.assertNotIn('Total: €200 (deposit:', text)
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
