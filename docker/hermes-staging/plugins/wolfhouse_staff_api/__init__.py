@@ -620,6 +620,30 @@ def _strip_group_gender_conflicting_with_person_facts(payload):
         payload.pop("group_gender", None)
 
 
+def _default_solo_shared_placement(payload):
+    """Pick ordinary shared stock for a solo guest without inventing gender."""
+    if not isinstance(payload, dict) or payload.get("room_preference") not in (None, ""):
+        return
+    room_type = _clean(payload.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    if room_type in {"private", "couple_private", "private_room", "couple"}:
+        return
+    try:
+        guest_count = int(payload.get("guest_count") or 1)
+    except (TypeError, ValueError):
+        return
+    if guest_count != 1:
+        return
+    explicit = _clean(payload.get("group_gender") or payload.get("explicit_gender")).lower()
+    guests = payload.get("guests") if isinstance(payload.get("guests"), list) else []
+    if guests and isinstance(guests[0], dict):
+        explicit = _clean(guests[0].get("explicit_gender") or explicit).lower()
+    if explicit == "female":
+        return
+    # Names and legacy name hints are intentionally ignored. Unknown and
+    # explicitly male solos use the unrestricted shared allocation by default.
+    payload["room_preference"] = "mixed"
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -651,6 +675,7 @@ def check_availability(params, **kwargs):
     if hints:
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
+    _default_solo_shared_placement(payload)
     try:
         from wolfhouse import accepted_quote as ledger
         # Availability may also be used outside an initialized conversation
@@ -882,6 +907,7 @@ def quote_booking(params, **kwargs):
     if hints:
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
+    _default_solo_shared_placement(payload)
     # The quote shown to the guest must itself carry Staff's ordered bed pick.
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.
