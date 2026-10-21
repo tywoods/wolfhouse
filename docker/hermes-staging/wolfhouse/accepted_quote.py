@@ -2594,7 +2594,7 @@ def dispatch_recovery(prepared):
         _validate_dispatch_ticket(prepared, state)
         completion = state.get('completion')
         return {
-            'receipt': deepcopy(completion or state.get('receipt')),
+            'receipt': deepcopy(completion or state.get('partial_completion') or state.get('receipt')),
             'adapter_completed': isinstance(completion, dict),
             'pending': bool(state.get('checked_offer') and state.get('dispatch_pending')),
         }
@@ -2609,7 +2609,7 @@ def current_create_receipt():
     scoped; callers cannot supply an identity or inspect another owner.
     """
     def inspect(state, ingress):
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         return deepcopy(receipt) if isinstance(receipt, dict) else None
     try:
         return _transaction(inspect)
@@ -2691,11 +2691,13 @@ def record_create_completion(prepared, response):
         if (response.get('payment_link_error')
                 or any(isinstance(row, dict) for row in
                        (response.get('payment_link_failures') or []))):
+            state['partial_completion'] = deepcopy(response)
             return
         if any(receipt.get(key) is not None and response.get(key) != receipt[key]
                for key in ('booking_id', 'booking_code', 'payment_id')):
             raise QuoteBoundaryError('create_completion_identity_mismatch')
         state['completion'] = deepcopy(response)
+        state.pop('partial_completion', None)
     _transaction(complete)
 
 
@@ -2705,7 +2707,7 @@ def record_payment_completion(response):
         del ingress
         if not isinstance(response, dict) or response.get('success') is not True:
             return
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         if not isinstance(receipt, dict):
             return
         compared_booking_keys = [key for key in ('booking_id', 'booking_code')
@@ -2898,7 +2900,7 @@ def finalize_offer_response(result):
                 output_messages[-1]['content'] = text
             return output
         current_tools = []
-        receipt = state.get('completion') or state.get('receipt')
+        receipt = state.get('completion') or state.get('partial_completion') or state.get('receipt')
         if isinstance(messages, list) and isinstance(receipt, dict):
             last_user = max((index for index, item in enumerate(messages)
                              if isinstance(item, dict) and item.get('role') == 'user'),
@@ -2977,9 +2979,12 @@ def finalize_offer_response(result):
                                f"{guests_label}: {completed_offer['guest_count']}." ]
                     if type(total_cents) is int:
                         summary.append(f"{total_label}: {_guest_money(total_cents, completed_offer.get('currency'))}.")
-                    if type(deposit_cents) is int:
+                    payment_choice = completed_offer.get('payment_choice')
+                    if payment_choice in ('deposit', 'per_guest') and type(deposit_cents) is int:
                         summary.append(f"{deposit_label}: {_guest_money(deposit_cents, completed_offer.get('currency'))}.")
                         summary.append(f"{remaining_label}: {_guest_money(total_cents - deposit_cents, completed_offer.get('currency'))}.")
+                    elif payment_choice == 'pay_on_arrival' and type(total_cents) is int:
+                        summary.append(f"{remaining_label}: {_guest_money(total_cents, completed_offer.get('currency'))}.")
                     if reference:
                         summary.append(f'{reference_label}: {reference}.')
                     text = '\n'.join([*summary, *room_lines])

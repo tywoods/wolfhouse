@@ -52,9 +52,20 @@ Candidate executions after merging master `4cf52a5ffc69b5373f09a16c088f6b8d3cf1d
 - grouped payment handoff: exact base and head commands each run 37 tests with **4 failures + 6 errors**, exit 1. SQL handoff cases passed. The identical base/head signature establishes inherited module-global/mock ordering behavior; it remains a failure, not a waiver or a green claim.
 - `npm run verify:luna-all` is not run inside this active Hermes gateway because it includes prohibited process-management behavior; no attempt was made to restart/stop the gateway.
 
+## R2 changes review
+
+Captain's four-blocker R2 review is covered by executable regressions:
+
+- confirmation summaries are selected-payment-aware: deposit shows the policy deposit and remainder, full payment shows neither a false deposit nor remainder, and pay-on-arrival shows the full unpaid total rather than subtracting the policy deposit;
+- Lucía's captured chronology executes separately from the improved continuation, including the fact-equivalent re-quote between her captured create attempts; every named cause-isolation dimension executes independently and all dimensions execute together;
+- amount checks use exact numeric boundaries, preserving `€120` without accepting `€1200`, `€120.99`, `€120.00`, or adjacent numeric text;
+- a partial per-guest result retains and renders the successful €100 guest link, records no paid claim, and retries only the unfinished €100 link. The final result has two pending €100 links, one booking create, one request for the already-successful guest, and two requests for the timed-out guest. The all-links-failed recovery remains covered.
+
+R2 verification with the pinned runtime: focused 11/11; accepted quote / first yes / persistence 183/183; Sim24 / structured clarification / eligibility 32/32; registered Sim16 24/24; replay 10/10 with 31 replayed plus 25 explicitly unavailable; offer identity 42/42; retry controls 5/5; occupant/eligibility contracts and send flags 53/53 passed; `git diff --check` passed. RED and GREEN logs are retained under untracked `artifacts/booking-cleanup-step4-slice1/r2/`.
+
 ## TDD record
 
-The original recovery RED failed because a retry returned no secure link. Production GREEN taught the plugin to consume the owner-saved receipt and taught owner completion not to freeze a failed/uncertain payment-link attempt. Retained RED evidence lives under untracked `artifacts/booking-cleanup-step4-slice1/red/`. Later test-only REDs for SQL fixture fidelity (`mixed` versus committed `flexible`) and row-shape assertions were corrected incrementally without production changes.
+The original recovery RED failed because a retry returned no secure link. Production GREEN taught the plugin to consume the owner-saved receipt and taught owner completion not to freeze a failed/uncertain payment-link attempt. Retained RED evidence lives under untracked `artifacts/booking-cleanup-step4-slice1/red/`. R2 RED demonstrated that the successful first per-guest link disappeared from the reply; subsequent RED runs corrected the chronology and exact-boundary tests before GREEN. Later test-only REDs for SQL fixture fidelity (`mixed` versus committed `flexible`) and row-shape assertions were corrected incrementally without production changes.
 
 ## Hold
 

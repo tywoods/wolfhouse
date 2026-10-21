@@ -1,6 +1,7 @@
 """Offline Sim25 sequence witnesses derived from the supplied masked captures."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -16,6 +17,106 @@ FIXTURE = ROOT / "fixtures/booking-cleanup-step4/slice1-cases.json"
 
 
 class Sim25LiveSequenceTests(unittest.TestCase):
+    def test_lucia_exact_captured_owner_chronology_is_executable_and_distinct(self):
+        """Execute the captured owner boundary: failed create, re-quote, then retry."""
+        fixture = json.loads(FIXTURE.read_text())["lucia"]
+        loop = DeterministicRegisteredLoop(self, "sim25-lucia-captured")
+        try:
+            beds = [{"bed_code": fixture["bed"], "room_code": "R3", "room_type": "shared",
+                     "gender_strategy": "mixed", "selected_selling_mode": "bed"}]
+            short = [{"name": fixture["short_name"], "explicit_gender": "female"}]
+            full = [{"name": fixture["completed_name"], "explicit_gender": "female"}]
+            plan = {"check_in": fixture["dates"][0], "check_out": fixture["dates"][1],
+                    "guest_count": 1, "room_type": "shared", "room_preference": fixture["room"],
+                    "guests": full, "room_name_hints": short, "package_code": "package_none",
+                    "add_ons": [], "catalog_selections": [], "selected_bed_codes": [fixture["bed"]],
+                    "payment_choice": fixture["payment_choice"], "language": "es"}
+            quote = checked_staff_quote(plan, beds, total=fixture["total_cents"],
+                                        deposit=fixture["deposit_cents"])
+            available = availability_receipt(beds)
+            loop.turn("turn-1", fixture["raw_turns"][0])
+            loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
+            loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
+            loop.call("quote_booking", {**plan, "guests": short}, {"/booking-preview": quote})
+            loop.present()
+            loop.turn("turn-2", fixture["raw_turns"][1])
+            loop.call("check_availability", plan, {"/availability-check": available})
+            loop.call("quote_booking", plan, {"/booking-preview": quote})
+            first = loop.call("create_booking_from_plan", plan, {})
+            self.assertFalse(first["success"], first)
+            self.assertEqual(loop.create_dispatches, [])
+            loop.turn("turn-3", fixture["raw_turns"][2])
+            loop.call("quote_booking", plan, {"/booking-preview": quote})
+            second = loop.call("create_booking_from_plan", {}, {})
+            loop.turn("turn-4", fixture["raw_turns"][3])
+            third = loop.call("create_booking_from_plan", {}, {})
+            self.assertFalse(second["success"], second)
+            self.assertFalse(third["success"], third)
+            self.assertEqual(loop.create_dispatches, [])
+            executable = [row["tool"] for row in loop.trace if row["kind"] == "tool_call"]
+            self.assertEqual(executable, [tool for tool in fixture["captured_tool_order"]
+                                          if tool != "package_price_preview"])
+            self.assertNotEqual(executable, [tool for tool in fixture["candidate_first_valid_yes_order"]
+                                             if tool != "package_price_preview"])
+        finally:
+            loop.close()
+
+    def test_lucia_isolation_dimensions_execute_independently_and_together(self):
+        fixture = json.loads(FIXTURE.read_text())["lucia"]
+        names = [name for name in fixture["cause_isolation_dimensions"]
+                 if name != "independent_and_combined"]
+        cases = [(name, {name}) for name in names] + [("all_together", set(names))]
+        for label, enabled in cases:
+            with self.subTest(dimension=label):
+                loop = DeterministicRegisteredLoop(self, "lucia-isolation-" + label)
+                try:
+                    beds = [{"bed_code": "R3-B3", "room_code": "R3", "room_type": "shared",
+                             "gender_strategy": "mixed", "selected_selling_mode": "bed"}]
+                    full = [{"name": fixture["completed_name"], "explicit_gender": "female"}]
+                    short = [{"name": fixture["short_name"], "explicit_gender": "female"}]
+                    plan = {"check_in": fixture["dates"][0], "check_out": fixture["dates"][1],
+                            "guest_count": 1, "room_type": "shared", "room_preference": "mixed",
+                            "guests": full,
+                            "room_name_hints": short if "stale_short_name_hint" in enabled else full,
+                            "package_code": "package_none", "payment_choice": "deposit",
+                            "selected_bed_codes": ["R3-B3"], "language": "es"}
+                    quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
+                    loop.turn("offer", fixture["raw_turns"][0])
+                    loop.call("quote_booking", plan, {"/booking-preview": quote}); loop.present()
+                    loop.turn("yes", fixture["raw_turns"][1])
+                    if "interpret_booking_turn_absent" not in enabled:
+                        loop.interpret("accept", fixture["raw_turns"][1])
+                    if "interposed_availability" in enabled:
+                        loop.call("check_availability", plan,
+                                  {"/availability-check": availability_receipt(beds)})
+                    if "fact_equivalent_requote" in enabled:
+                        loop.call("quote_booking", plan, {"/booking-preview": quote})
+                    sent = plan if "populated_create" in enabled else {}
+                    creates = []
+                    def responses(route, body):
+                        if route == "/booking-preview": return quote
+                        if route == "/availability-check": return create_recheck_receipt(beds, body)
+                        if route == "/booking-create-from-plan":
+                            creates.append(body)
+                            return {"success": True, "created": True, "write_performed": True,
+                                    "booking_id": "booking", "booking_code": "WH-ISO",
+                                    "payment_id": "payment", "payment_status": "pending"}
+                        if route == "/payments/payment/create-stripe-link":
+                            return {"success": False, "error": "payment_link_timeout"}
+                        self.fail(route)
+                    result = loop.call("create_booking_from_plan", sent, responses)
+                    if label == "all_together":
+                        self.assertFalse(result["success"], result)
+                        self.assertEqual(result["error"], "quote_owner_presented_offer_required")
+                        self.assertEqual(creates, [])
+                    else:
+                        self.assertTrue(result["success"], result)
+                        self.assertEqual(len(creates), 1)
+                        self.assertEqual(creates[0]["guests"], full)
+                        self.assertEqual(creates[0]["selected_bed_codes"], ["R3-B3"])
+                finally:
+                    loop.close()
+
     def test_lucia_captured_order_first_valid_yes_needs_no_interpreter(self):
         """Replay the captured registered argument shapes, including both create forms."""
         loop = DeterministicRegisteredLoop(self, "sim25-lucia")
@@ -41,7 +142,10 @@ class Sim25LiveSequenceTests(unittest.TestCase):
                 "guests", "room_name_hints")}, {"/availability-check": available})
             loop.call("quote_booking", first, {"/booking-preview": first_quote})
             shown = loop.present()
-            self.assertIn("€120", shown)
+            exact_total = re.compile(r"(?<!\d)€120(?!\d|[.,]\d)")
+            self.assertEqual(exact_total.findall(shown), ["€120"], shown)
+            for adjacent in ("€1200", "€120.99", "€120.00", "1€120", "€1201"):
+                self.assertIsNone(exact_total.search(adjacent), adjacent)
             self.assertNotIn("Lucía:", shown)
             self.assertNotIn("check for this booking", shown)
 
@@ -176,7 +280,9 @@ class Sim25LiveSequenceTests(unittest.TestCase):
         self.assertEqual(lucia["captured_tool_order"], [
             "check_availability", "package_price_preview", "check_availability", "quote_booking",
             "check_availability", "quote_booking", "create_booking_from_plan",
-            "create_booking_from_plan", "quote_booking", "create_booking_from_plan"])
+            "quote_booking", "create_booking_from_plan", "create_booking_from_plan"])
+        self.assertIn("re-quote occurred between the two turn-2 create attempts",
+                      lucia["chronology_note"])
         self.assertEqual(set(lucia["cause_isolation_dimensions"]), {
             "interpret_booking_turn_absent", "interposed_availability", "fact_equivalent_requote",
             "populated_create", "empty_create", "stale_short_name_hint", "corrected_roster",

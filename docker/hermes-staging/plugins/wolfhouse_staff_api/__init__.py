@@ -1542,7 +1542,9 @@ def create_booking_from_plan(params, **kwargs):
     payment_link_failures = []
     link_result = {}
 
-    guest_payment_links = []
+    guest_payment_links = [dict(row) for row in ((prior_receipt or {}).get("guest_payment_links") or [])
+                           if isinstance(row, dict) and _clean(row.get("booking_guest_id"))]
+    completed_guest_ids = {_clean(row.get("booking_guest_id")) for row in guest_payment_links}
     create_split_links = uses_per_guest_model and split_payment_requested
     if bool(data.get("success")) and bool(data.get("write_performed")) and create_split_links:
         booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
@@ -1566,6 +1568,8 @@ def create_booking_from_plan(params, **kwargs):
                         continue
                     guest_id = _clean(status.get("booking_guest_id"))
                 if not guest_id:
+                    continue
+                if guest_id in completed_guest_ids:
                     continue
                 link_data = _post_bot(
                     f"/booking-guests/{urllib.parse.quote(guest_id)}/create-payment-link",
