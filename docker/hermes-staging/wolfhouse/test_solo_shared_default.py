@@ -158,6 +158,11 @@ class SoloSharedDefaultTests(unittest.TestCase):
                     loop.close()
 
     def test_current_explicit_room_request_supersedes_established_mixed_choice(self):
+        conversation_loop_was_loaded = "agent.conversation_loop" in sys.modules
+        self.addCleanup(
+            lambda: None if conversation_loop_was_loaded
+            else sys.modules.pop("agent.conversation_loop", None)
+        )
         cases = (
             ({"room_type": "private"}, "room_type", "private"),
             ({"room_type": "double"}, "room_type", "double"),
