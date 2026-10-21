@@ -78,17 +78,19 @@ const depositFacts = {
 const enDeposit = buildWolfhousePaidConfirmationCopy(depositFacts);
 assertQuoteStyle(enDeposit, {
   booking_code: CODE,
-  received: /Deposit received/i,
-  money: /€200/,
-  remain: /€250/,
-  room: /A bed in a shared room/,
-  dates: /Sun 15 Nov – Tue 24 Nov · 1 guest/,
+  received: /\*Payment received — you're officially part of the Wolfhouse family!\* 🎉/,
+  money: /💶 \*Paid today:\* €200/,
+  remain: /⏳ \*Still to pay:\* €250/,
+  room: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  dates: /📅 \*Dates:\* Sun 15 Nov – Tue 24 Nov \(9 nights\)/,
 });
-assert.match(enDeposit, /Wolfhouse family/);
+assert.match(enDeposit, /^Hi Fabio! 🌊/);
+assert.match(enDeposit, /👥 \*Guests:\* 1/);
+assert.match(enDeposit, /💳 \*Total:\* €450/);
 assert.match(enDeposit, /2684#/);
 assert.match(enDeposit, /Somo/);
 assert.match(enDeposit, /maps\.app\.goo\.gl\/oPRckhqozVBvXxL16/);
-assert.match(enDeposit, /R3/);
+assert.doesNotMatch(enDeposit, /\bR3\b/);
 assert.equal(passesConfirmationStyleContract(enDeposit, {
   booking_code: CODE,
   amount_paid_cents: 20000,
@@ -107,33 +109,38 @@ const enFull = buildWolfhousePaidConfirmationCopy({
 });
 assertQuoteStyle(enFull, {
   booking_code: CODE,
-  received: /Payment received/i,
-  money: /€450/,
-  room: /A bed in a shared room/,
-  dates: /Sun 15 Nov/,
+  received: /\*Payment received — you're officially part of the Wolfhouse family!\* 🎉/,
+  money: /💶 \*Paid:\* €450/,
+  room: /🛏️ \*Room:\* A bed in our mixed shared room/,
+  dates: /📅 \*Dates:\* Sun 15 Nov – Tue 24 Nov \(9 nights\)/,
 });
+assert.match(enFull, /💳 \*Total:\* €450/);
+assert.match(enFull, /✅ \*Fully paid\*, nothing left to pay/);
 assert.doesNotMatch(enFull, /€250/);
 assert.doesNotMatch(enFull, /Deposit received/i);
 
 const es = buildWolfhousePaidConfirmationCopy({ ...depositFacts, language: 'es' });
 assertQuoteStyle(es, {
   booking_code: CODE,
-  received: /Depósito recibido/,
-  money: /€200/,
-  remain: /€250/,
-  room: /cama en una habitación compartida/,
-  dates: /15 nov/,
+  received: /\*Pago recibido — ¡ya formas parte de la familia Wolfhouse!\* 🎉/,
+  money: /💶 \*Pagado hoy:\* €200/,
+  remain: /⏳ \*Pendiente:\* €250/,
+  room: /🛏️ \*Habitación:\* Una cama en nuestra habitación compartida mixta/,
+  dates: /📅 \*Fechas:\* dom 15 nov – mar 24 nov \(9 noches\)/,
   absent: [/Deposit received/i, /Booking:/],
 });
+assert.match(es, /💳 \*Total:\* €450/);
 
 const de = buildWolfhousePaidConfirmationCopy({ ...depositFacts, language: 'de' });
-assert.match(de, /Anzahlung erhalten/);
-assert.match(de, /Wolfhouse-Familie/);
+assert.match(de, /\*Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie!\* 🎉/);
+assert.match(de, /💶 \*Heute bezahlt:\* €200/);
+assert.match(de, /💳 \*Gesamt:\* €450/);
+assert.match(de, /⏳ \*Noch offen:\* €250/);
 assert.doesNotMatch(de, /Deposit received|Booking:/);
 
 const fr = buildWolfhousePaidConfirmationCopy({ ...depositFacts, language: 'fr' });
-assert.match(fr, /Acompte reçu/);
-assert.match(fr, /chambre partagée/);
+assert.match(fr, /Paiement reçu/);
+assert.match(fr, /chambre partagée mixte/);
 assert.doesNotMatch(fr, /Deposit received/);
 
 const it = buildWolfhousePaidConfirmationCopy({
@@ -142,9 +149,9 @@ const it = buildWolfhousePaidConfirmationCopy({
   room_kind: 'private',
   guest_count: 2,
 });
-assert.match(it, /Acconto ricevuto/);
-assert.match(it, /camera privata/);
-assert.match(it, /2 ospiti/);
+assert.match(it, /Pagamento ricevuto/);
+assert.match(it, /Camera privata ospiti 2/);
+assert.match(it, /👥 \*Ospiti:\* 2/);
 
 (async () => {
   const preview = await runGuestConfirmationPreviewDryRun({
@@ -159,7 +166,7 @@ assert.match(it, /2 ospiti/);
     },
   }, { use_fixture_pg: true });
   assert.equal(preview.confirmation_preview_ready, true, JSON.stringify(preview.block_reasons));
-  assert.match(preview.proposed_confirmation_message, /Deposit received/);
+  assert.match(preview.proposed_confirmation_message, /💶 \*Paid today:\* €200/);
   assert.match(preview.proposed_confirmation_message, /🌊/);
   assert.doesNotMatch(preview.proposed_confirmation_message, /created successfully/i);
   assert.equal(euroCount(preview.proposed_confirmation_message, CODE), 1);
@@ -405,7 +412,7 @@ assert.match(it, /2 ospiti/);
     reasons: first.send && first.send.blocked_reasons,
   }));
   assert.equal(sends.count, 1);
-  assert.match(first.preview.proposed_confirmation_message, /Deposit received/);
+  assert.match(first.preview.proposed_confirmation_message, /💶 \*Paid today:\* €200/);
 
   const retry = await attempt(paid, { idempotency_key: `confirmation:auto:webhook:${CODE}:pay-2` });
   assert.notEqual(retry.confirmation_sent, true);
@@ -540,7 +547,8 @@ assert.match(it, /2 ospiti/);
     language_hint: 'en',
   }, { pg: buildFixturePg({ booking_code: copyCode, payment_status: 'paid', client_slug: 'wolfhouse-somo' }, amountDraft) });
   assert.equal(amountBoundary.confirmation_preview_ready, true, JSON.stringify(amountBoundary.block_reasons));
-  assert.match(amountBoundary.proposed_confirmation_message, /Payment received: €200/);
+  assert.match(amountBoundary.proposed_confirmation_message, /💶 \*Paid:\* €200/);
+  assert.match(amountBoundary.proposed_confirmation_message, /💳 \*Total:\* €200/);
 
   const roomProbeId = '00000000-0000-4000-8000-000000000027';
   function roomProbePg(draftRoom, primaryRoom, bedRooms) {
@@ -597,17 +605,18 @@ assert.match(it, /2 ospiti/);
   const staleRoom = await roomProbe('R1', 'R2', ['R2']);
   assert.equal(staleRoom.confirmation_preview_ready, true, JSON.stringify(staleRoom.block_reasons));
   assert.equal(staleRoom.room_label, 'R2', staleRoom.proposed_confirmation_message);
-  assert.match(staleRoom.proposed_confirmation_message, /🛏️ .+ · R2\n/);
-  assert.doesNotMatch(staleRoom.proposed_confirmation_message, /R1/);
+  assert.match(staleRoom.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our mixed shared room/);
+  assert.doesNotMatch(staleRoom.proposed_confirmation_message, /\bR[12]\b/);
   const multiRoom = await roomProbe('R1', 'R2', ['R2', 'R4']);
   assert.equal(multiRoom.confirmation_preview_ready, true, JSON.stringify(multiRoom.block_reasons));
   assert.equal(multiRoom.room_label, 'R2, R4', multiRoom.proposed_confirmation_message);
-  assert.match(multiRoom.proposed_confirmation_message, /🛏️ .+ · R2, R4\n/);
-  assert.doesNotMatch(multiRoom.proposed_confirmation_message, /R1/);
+  assert.match(multiRoom.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our mixed shared room/);
+  assert.doesNotMatch(multiRoom.proposed_confirmation_message, /\bR[124]\b/);
   const draftOnlyRoom = await roomProbe('R1', null, []);
   assert.equal(draftOnlyRoom.confirmation_preview_ready, true, JSON.stringify(draftOnlyRoom.block_reasons));
   assert.equal(draftOnlyRoom.room_label, 'R1');
-  assert.match(draftOnlyRoom.proposed_confirmation_message, /🛏️ .+ · R1\n/);
+  assert.match(draftOnlyRoom.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our mixed shared room/);
+  assert.doesNotMatch(draftOnlyRoom.proposed_confirmation_message, /\bR1\b/);
 
   const fixture = buildFixturePg(copyInput, storedGermanDraft);
   const autoPg = {
@@ -890,8 +899,9 @@ assert.match(it, /2 ospiti/);
       gate_code: '2684#',
     },
   });
-  assert.match(rowOnlyDeposit, /Deposit received: €200/);
-  assert.match(rowOnlyDeposit, /€250 is left for when you arrive/);
+  assert.match(rowOnlyDeposit, /💶 \*Paid today:\* €200/);
+  assert.match(rowOnlyDeposit, /💳 \*Total:\* €450/);
+  assert.match(rowOnlyDeposit, /⏳ \*Still to pay:\* €250/);
   const paidInFullBoundary = await automaticSendBoundary({
     payment_status: 'paid',
     amount_paid_cents: 45000,
@@ -903,7 +913,9 @@ assert.match(it, /2 ospiti/);
       gate_code: '2684#',
     },
   });
-  assert.match(paidInFullBoundary, /Payment received: €450/);
+  assert.match(paidInFullBoundary, /💶 \*Paid:\* €450/);
+  assert.match(paidInFullBoundary, /💳 \*Total:\* €450/);
+  assert.match(paidInFullBoundary, /✅ \*Fully paid\*, nothing left to pay/);
   assert.doesNotMatch(paidInFullBoundary, /Deposit received|€250|left for when you arrive/);
   const explicitDraftBoundary = await automaticSendBoundary({
     payment_status: 'deposit_paid',
@@ -918,8 +930,9 @@ assert.match(it, /2 ospiti/);
       gate_code: '2684#',
     },
   });
-  assert.match(explicitDraftBoundary, /Deposit received: €200/);
-  assert.match(explicitDraftBoundary, /€800 is left for when you arrive/);
+  assert.match(explicitDraftBoundary, /💶 \*Paid today:\* €200/);
+  assert.match(explicitDraftBoundary, /💳 \*Total:\* €1000/);
+  assert.match(explicitDraftBoundary, /⏳ \*Still to pay:\* €800/);
   assert.doesNotMatch(explicitDraftBoundary, /€250/);
 
   const timeoutDb = await recoveryDb();
