@@ -52314,7 +52314,8 @@ async function handleBotSurfReport(req, res, user, authMode) {
   // slug alone is intentionally insufficient: a forecast must not guess Somo
   // when this inbound conversation belongs to El Sardinero.
   const forecastLocationId = clientSlug === 'sunset' ? String(body.location_id || '').trim() : clientSlug;
-  const day         = String(body.day || 'today').trim().toLowerCase() === 'tomorrow' ? 'tomorrow' : 'today';
+  const dayRaw      = String(body.day || 'today').trim().toLowerCase();
+  const day         = (dayRaw === 'tomorrow' || dayRaw === 'week') ? dayRaw : 'today';
   const messageText = String(body.message_text || body.question || '').slice(0, 500);
   const lang        = body.lang ? String(body.lang).slice(0, 5) : null;
 
@@ -52332,16 +52333,20 @@ async function handleBotSurfReport(req, res, user, authMode) {
   const date = explicitDate || getMadridCalendarYmd(day);
   let structured = null;
   let outcome = null;
-  try {
-    structured = await fetchStormglassForecast({
-      locationId: forecastLocationId,
-      date,
-      startHour: tonight ? 18 : 0,
-      endHour: 24,
-      timeoutMs: 8000,
-    });
-  } catch (err) {
-    outcome = (err && err.code) || 'UPSTREAM_ERROR';
+  if (day === 'week') {
+    outcome = 'UNSUPPORTED_RANGE';
+  } else {
+    try {
+      structured = await fetchStormglassForecast({
+        locationId: forecastLocationId,
+        date,
+        startHour: tonight ? 18 : 0,
+        endHour: 24,
+        timeoutMs: 8000,
+      });
+    } catch (err) {
+      outcome = (err && err.code) || 'UPSTREAM_ERROR';
+    }
   }
 
   if (!structured) {

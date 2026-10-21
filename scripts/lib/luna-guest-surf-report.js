@@ -382,7 +382,7 @@ function formatGuestSurfReportReply(input) {
   const day = trimStr(inp.day) || 'today';
   const paragraphs = localizedSurfParagraphs(lang);
 
-  if (inp.unavailable === true) {
+  if (inp.unavailable === true || day === 'week') {
     const fb = (config.fallback && (config.fallback[lang] || config.fallback.en))
       || paragraphs.tiny_flat;
     let reply = fb;
@@ -409,6 +409,7 @@ function formatGuestSurfReportReply(input) {
       reply = `${paragraphs.tomorrow_prefix}, ${reply.charAt(0).toLowerCase()}${reply.slice(1)}`;
     }
   }
+
 
   const tail = inp.preserve_booking_context !== false
     ? buildMidFlowTail(inp.fields, inp.quote, inp.payment_choice, lang, inp.message_text)
@@ -454,6 +455,10 @@ async function fetchGuestSurfReportData(opts) {
   const clientSlug = trimStr(opts.clientSlug) || DEFAULT_CLIENT;
   const day = trimStr(opts.day) || 'today';
   const mockNorm = normalizeMockSurfData(opts.mock);
+
+  if (day === 'week') {
+    return { unavailable: true, day, source: 'unsupported_range', error_code: 'INVALID_DAY' };
+  }
 
   if (_fetchOverrideForTests) {
     return _fetchOverrideForTests({ ...opts, clientSlug, day, mockNorm });
