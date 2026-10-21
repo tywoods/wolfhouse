@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const composer = require('./lib/luna-guest-reply-composer');
 const surf = require('./lib/luna-guest-surf-report');
 const forecast = require('./lib/staff-stormglass-forecast');
@@ -143,6 +145,12 @@ test('weekly surf is deferred without a fetch or invented summary', async () => 
   });
   assert.equal(reply.language, 'es');
   assert.doesNotMatch(reply.reply, /This week|mix of small and fun|multi-day summary/i);
+});
+
+test('loaded prompt does not advertise deferred weekly surf behavior', () => {
+  const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
+  assert.doesNotMatch(soul, /offer the week/i);
+  assert.doesNotMatch(soul, /Pass `day: ["']week["']`/i);
 });
 
 (async () => {
