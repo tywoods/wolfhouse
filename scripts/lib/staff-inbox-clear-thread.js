@@ -60,6 +60,8 @@ SELECT conv.id::text AS conversation_id,
 const HERMES_UNAVAILABLE_REASONS = {
   gateway_not_ready: true,
   missing_bot_token: true,
+  missing_session_key_url: true,
+  luna_unreachable: true,
   request_failed: true,
 };
 
