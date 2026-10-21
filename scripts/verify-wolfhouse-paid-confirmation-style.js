@@ -99,6 +99,7 @@ assert.match(enDeposit, /⏳ \*Still to pay:\* €200 on arrival, at reception/)
 assert.match(enDeposit, /📍 \*Check-in:\* from 15:00 · C\. Mies de La Ran, 41, Somo/);
 assert.match(enDeposit, /🗺️ https:\/\/maps\.example\/wolfhouse/);
 assert.match(enDeposit, /🚐 \*Shuttle:\* pick-up on Sun 1 Nov/);
+assert.doesNotMatch(enDeposit, /send me|flight number/);
 assert.match(enDeposit, /If you need anything before you arrive, just message me here 😊/);
 assert.match(enDeposit, /See you in the water! 🤙$/);
 
@@ -132,6 +133,8 @@ assert.match(es, /^¡Hola Lucía! 🌊/);
 assert.match(es, /\*Pago recibido — ¡ya formas parte de la familia Wolfhouse!\* 🎉/);
 assert.match(es, /📅 \*Fechas:\* dom 1 nov – lun 9 nov \(8 noches\)/);
 assert.match(es, /⏳ \*Pendiente:\* €200 a tu llegada, en recepción/);
+assert.match(es, /🚐 \*Traslado:\* recogida el dom 1 nov/);
+assert.doesNotMatch(es, /send me|flight number|pick-up on/);
 
 const de = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: 'Greta', language: 'de' });
 assertSharedContract(de, {
@@ -145,6 +148,8 @@ assert.match(de, /^Hallo Greta! 🌊/);
 assert.match(de, /\*Zahlung erhalten — du gehörst jetzt zur Wolfhouse-Familie!\* 🎉/);
 assert.match(de, /📅 \*Daten:\* So 1 Nov – Mo 9 Nov \(8 Nächte\)/);
 assert.match(de, /⏳ \*Noch offen:\* €200 bei Ankunft, an der Rezeption/);
+assert.match(de, /🚐 \*Shuttle:\* Abholung am So 1 Nov/);
+assert.doesNotMatch(de, /send me|flight number|pick-up on/);
 
 const unnamed = buildWolfhousePaidConfirmationCopy({ ...base, guest_name: null, language: 'en' });
 assert.match(unnamed, /^Hi there! 🌊/);

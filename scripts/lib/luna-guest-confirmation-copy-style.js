@@ -100,6 +100,8 @@ const QUOTE_STYLE_COPY = Object.freeze({
     nights: (n) => `${n} ${n === 1 ? 'night' : 'nights'}`,
     owedWhere: 'on arrival, at reception', fullyPaid: 'Fully paid', nothingOwed: 'nothing left to pay', from: 'from',
     closing: ['If you need anything before you arrive, just message me here 😊', 'See you in the water! 🤙'],
+    shuttlePickup: (date) => `pick-up on ${date}`,
+    shuttleBooked: 'transfer booked',
     weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   },
@@ -111,6 +113,8 @@ const QUOTE_STYLE_COPY = Object.freeze({
     nights: (n) => `${n} ${n === 1 ? 'noche' : 'noches'}`,
     owedWhere: 'a tu llegada, en recepción', fullyPaid: 'Pagado por completo', nothingOwed: 'no queda nada por pagar', from: 'desde las',
     closing: ['Si necesitas algo antes de llegar, escríbeme aquí 😊', '¡Nos vemos pronto! 🤙'],
+    shuttlePickup: (date) => `recogida el ${date}`,
+    shuttleBooked: 'traslado reservado',
     weekdays: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
     months: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
   },
@@ -122,6 +126,8 @@ const QUOTE_STYLE_COPY = Object.freeze({
     nights: (n) => `${n} ${n === 1 ? 'Nacht' : 'Nächte'}`,
     owedWhere: 'bei Ankunft, an der Rezeption', fullyPaid: 'Vollständig bezahlt', nothingOwed: 'nichts mehr zu bezahlen', from: 'ab',
     closing: ['Wenn du vor deiner Ankunft etwas brauchst, schreib mir einfach hier 😊', 'Bis bald! 🤙'],
+    shuttlePickup: (date) => `Abholung am ${date}`,
+    shuttleBooked: 'Transfer gebucht',
     weekdays: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
     months: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
   },
@@ -133,6 +139,8 @@ const QUOTE_STYLE_COPY = Object.freeze({
     nights: (n) => `${n} ${n === 1 ? 'nuit' : 'nuits'}`,
     owedWhere: "à l'arrivée, à la réception", fullyPaid: 'Entièrement payé', nothingOwed: 'plus rien à payer', from: 'à partir de',
     closing: ["Si tu as besoin de quoi que ce soit avant ton arrivée, écris-moi ici 😊", 'À bientôt ! 🤙'],
+    shuttlePickup: (date) => `prise en charge le ${date}`,
+    shuttleBooked: 'navette réservée',
     weekdays: ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'],
     months: ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'],
   },
@@ -144,6 +152,8 @@ const QUOTE_STYLE_COPY = Object.freeze({
     nights: (n) => `${n} ${n === 1 ? 'notte' : 'notti'}`,
     owedWhere: "all'arrivo, alla reception", fullyPaid: 'Pagato per intero', nothingOwed: 'non resta nulla da pagare', from: 'dalle',
     closing: ["Se hai bisogno di qualcosa prima dell'arrivo, scrivimi qui 😊", 'A presto! 🤙'],
+    shuttlePickup: (date) => `ritiro il ${date}`,
+    shuttleBooked: 'navetta prenotata',
     weekdays: ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'],
     months: ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'],
   },
@@ -160,6 +170,7 @@ function quoteStyleLanguage(language) {
 }
 
 function formatConfirmationEuro(cents) {
+  if (cents == null || cents === '') return '';
   const amount = Number(cents);
   if (!Number.isFinite(amount)) return '';
   const euros = amount / 100;
@@ -363,14 +374,52 @@ function roomPhrase(lines, kind, count, fields) {
   return lines[kind] || lines.fallback;
 }
 
+function kindSlot(value) {
+  const text = trimStr(value).toLowerCase();
+  if (!text || text === 'unclassified' || text === 'unknown') return 'unknown';
+  return classifyRoomToken(value) || 'unknown';
+}
+
+function joinRoomPhrases(parts, lines) {
+  return parts.map((phrase, index) => (
+    index === 0 ? phrase : phrase.charAt(0).toLowerCase() + phrase.slice(1)
+  )).join(` ${lines.and} `);
+}
+
+function sentenceFromKindSlots(slots, fields, lines) {
+  const classes = slots.map(kindSlot);
+  const countRaw = Number(fields && fields.room_count);
+  const extraUnknown = Number.isInteger(countRaw) && countRaw > classes.length
+    ? countRaw - classes.length
+    : 0;
+  const known = classes.filter((kind) => kind !== 'unknown');
+  const unknownCount = classes.length - known.length + extraUnknown;
+  if (!known.length) {
+    const count = unknownCount || 1;
+    return count > 1 ? lines.many.fallback(count) : lines.fallback;
+  }
+  const unique = [...new Set(known)];
+  if (unique.length === 1 && unknownCount === 0) {
+    return roomPhrase(lines, unique[0], known.length, fields);
+  }
+  const parts = unique.map((kind) => roomPhrase(
+    lines,
+    kind,
+    known.filter((item) => item === kind).length,
+    fields,
+  ));
+  if (unknownCount === 1) parts.push(lines.fallback);
+  else if (unknownCount > 1) parts.push(lines.many.fallback(unknownCount));
+  return joinRoomPhrases(parts, lines);
+}
+
 function confirmationRoomSentence(fields, copy) {
   const lines = ROOM_LINES[quoteStyleLanguage(fields && fields.language)] || ROOM_LINES.en;
   const explicit = Array.isArray(fields && fields.room_kinds)
     ? fields.room_kinds.map(trimStr).filter(Boolean)
     : [];
-  const assigned = explicit.length
-    ? explicit
-    : [fields && fields.room_kind, fields && fields.requested_room_type].map(trimStr).filter(Boolean);
+  if (explicit.length) return sentenceFromKindSlots(explicit, fields, lines);
+  const assigned = [fields && fields.room_kind, fields && fields.requested_room_type].map(trimStr).filter(Boolean);
   const tokens = assigned.length
     ? assigned
     : [fields && fields.room_preference].map(trimStr).filter(Boolean);
@@ -385,16 +434,59 @@ function confirmationRoomSentence(fields, copy) {
   }
   const unique = [...new Set(classes)];
   if (unique.length > 1) {
-    return unique.map((kind, index) => {
-      const phrase = roomPhrase(lines, kind, 1, fields);
-      return index === 0 ? phrase : phrase.charAt(0).toLowerCase() + phrase.slice(1);
-    }).join(` ${lines.and} `);
+    return joinRoomPhrases(unique.map((kind) => roomPhrase(lines, kind, 1, fields)), lines);
   }
   return roomPhrase(lines, unique[0], count, fields);
 }
 
 function normalizeTiming(value) {
   return trimStr(value).toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+const METHOD_KEYS = Object.freeze(['cash', 'bank_transfer', 'stripe']);
+const METHOD_PHRASES = Object.freeze({
+  en: { cash: 'cash', bank_transfer: 'bank transfer', stripe: 'a payment link' },
+  es: { cash: 'en efectivo', bank_transfer: 'por transferencia', stripe: 'con un enlace de pago' },
+  de: { cash: 'bar', bank_transfer: 'per Überweisung', stripe: 'per Zahlungslink' },
+  fr: { cash: 'en espèces', bank_transfer: 'par virement', stripe: 'avec un lien de paiement' },
+  it: { cash: 'in contanti', bank_transfer: 'con bonifico', stripe: 'con un link di pagamento' },
+});
+const METHOD_JOIN = Object.freeze({
+  en: 'or', es: 'o', de: 'oder', fr: 'ou', it: 'o',
+});
+
+function canonicalPaymentMethod(value) {
+  const text = normalizeTiming(value);
+  if (!text) return null;
+  if (/^(?:cash|efectivo|bar|especes|espèces|contanti)$/.test(text)) return 'cash';
+  if (/^(?:bank transfer|transfer|wire|virement|bonifico|uberweisung|überweisung|transferencia)$/.test(text)) return 'bank_transfer';
+  if (/^(?:stripe|payment link|card|enlace de pago|zahlungslink|lien de paiement|link di pagamento)$/.test(text)) return 'stripe';
+  return null;
+}
+
+function listedPaymentMethods(methods) {
+  const list = [];
+  for (const item of Array.isArray(methods) ? methods : []) {
+    const key = canonicalPaymentMethod(item);
+    if (key && !list.includes(key)) list.push(key);
+  }
+  return list;
+}
+
+function joinMethodParts(parts, lang) {
+  if (parts.length === 1) return lang === 'en' ? `by ${parts[0]}` : parts[0];
+  const conjunction = METHOD_JOIN[lang] || METHOD_JOIN.en;
+  if (lang === 'en' && parts.length === 2) return `by ${parts[0]} or ${parts[1]}`;
+  if (lang === 'en') return `by ${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
+  return `${parts.slice(0, -1).join(', ')} ${conjunction} ${parts[parts.length - 1]}`;
+}
+
+function arrivalMethodsPhrase(methods, lang) {
+  const list = listedPaymentMethods(methods);
+  if (!list.length) return '';
+  if (METHOD_KEYS.every((key) => list.includes(key))) return ARRIVAL_METHODS[lang];
+  const phrases = METHOD_PHRASES[lang] || METHOD_PHRASES.en;
+  return joinMethodParts(list.map((key) => phrases[key]), lang);
 }
 
 function confirmationBalanceTiming(src, language) {
@@ -406,12 +498,43 @@ function confirmationBalanceTiming(src, language) {
     return ` ${RECEPTION_TIMING[lang]}`;
   }
   if (norm === 'at arrival or checkin' || norm === 'on arrival' || norm === 'when you arrive' || norm === 'at arrival') {
-    const methods = Array.isArray(src.balance_payment_methods) && src.balance_payment_methods.length
-      ? `, ${ARRIVAL_METHODS[lang]}`
-      : '';
-    return ` ${ARRIVAL_TIMING[lang]}${methods}`;
+    const methods = arrivalMethodsPhrase(src && src.balance_payment_methods, lang);
+    return ` ${ARRIVAL_TIMING[lang]}${methods ? `, ${methods}` : ''}`;
   }
   return ` ${raw}`;
+}
+
+const SHUTTLE_ASK_RE = /(?:^|[,.!?]|\s)\s*(?:just\s+|please\s+|por favor\s+|bitte\s+)*(?:send(?:\s+me|\s+your)?|tell me|let me know|env[ií]a(?:me)?|m[aá]ndame|schick(?:\s+mir)?|envoie(?:-moi)?|mandami|scrivimi)\b[\s\S]*$/i;
+
+function stripShuttleAsk(value) {
+  const text = trimStr(value);
+  const match = SHUTTLE_ASK_RE.exec(text);
+  if (!match) return text;
+  return trimStr(text.slice(0, match.index).replace(/[,\s]+$/g, ''));
+}
+
+function ownedPickupDate(factual, src) {
+  const normalized = trimStr(factual).replace(/\s*✈️\s*$/u, '').toLowerCase();
+  for (const value of [src && src.check_in, src && src.check_out]) {
+    const enDate = formatConfirmationDate(value, QUOTE_STYLE_COPY.en);
+    if (enDate && normalized === `pick-up on ${enDate}`.toLowerCase()) return value;
+  }
+  return null;
+}
+
+function confirmationShuttleValue(src, copy) {
+  if (!src || src.shuttle_booked !== true) return '';
+  const raw = trimStr(src.shuttle_copy);
+  if (!raw) return '';
+  if (!SHUTTLE_ASK_RE.test(raw)) return raw;
+  const factual = stripShuttleAsk(raw);
+  const owned = factual ? ownedPickupDate(factual, src) : null;
+  if (owned) {
+    const localDate = formatConfirmationDate(owned, copy);
+    return localDate ? copy.shuttlePickup(localDate) : copy.shuttleBooked;
+  }
+  if (factual) return factual;
+  return copy.shuttleBooked;
 }
 
 function resolveConfirmationMoney(src) {
@@ -471,7 +594,7 @@ function buildWolfhousePaidConfirmationCopy(fields) {
   const src = fields || {};
   const copy = QUOTE_STYLE_COPY[quoteStyleLanguage(src.language)];
   const money = resolveConfirmationMoney(src);
-  const paid = formatConfirmationEuro(money.paidCents);
+  const paid = money.paidCents == null ? '' : formatConfirmationEuro(money.paidCents);
   const balance = money.balanceKnown && money.balanceCents > 0
     ? formatConfirmationEuro(money.balanceCents)
     : '';
@@ -510,8 +633,8 @@ function buildWolfhousePaidConfirmationCopy(fields) {
   if (arrivalBits.length) arrivalLines.push(confirmationFact('📍', copy.labels.checkIn, arrivalBits.join(' · ')));
   const maps = trimStr(src.maps_link);
   if (maps && maps !== address) arrivalLines.push(`🗺️ ${maps}`);
-  const shuttle = trimStr(src.shuttle_copy);
-  if (src.shuttle_booked === true && shuttle) arrivalLines.push(confirmationFact('🚐', copy.labels.shuttle, shuttle));
+  const shuttle = confirmationShuttleValue(src, copy);
+  if (shuttle) arrivalLines.push(confirmationFact('🚐', copy.labels.shuttle, shuttle));
   const gate = trimStr(src.gate_code);
   if (gate) arrivalLines.push(`🔑 ${gate}`);
 

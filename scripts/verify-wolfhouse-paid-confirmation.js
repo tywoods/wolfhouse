@@ -242,6 +242,122 @@ const splitRooms = buildWolfhousePaidConfirmationCopy({
 assert.match(splitRooms, /men-only shared room and a bed in our women-only shared room/);
 assert.doesNotMatch(splitRooms, /mixed/);
 
+const missingPaid = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: undefined,
+  balance_due_cents: 20000,
+  total_amount_cents: 40000,
+});
+assert.doesNotMatch(missingPaid, /Paid today|💶 \*Paid:\*|€0\b/);
+assert.match(missingPaid, /💳 \*Total:\* €400(?!\d|\.)/);
+assert.match(missingPaid, /⏳ \*Still to pay:\* €200(?!\d|\.)/);
+
+const invalidPaid = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: 'unknown',
+  balance_due_cents: 20000,
+  total_amount_cents: 40000,
+});
+assert.doesNotMatch(invalidPaid, /Paid today|💶 \*Paid:\*|€0\b/);
+assert.match(invalidPaid, /⏳ \*Still to pay:\* €200(?!\d|\.)/);
+
+const nullPaid = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: null,
+  balance_due_cents: 20000,
+  total_amount_cents: 40000,
+});
+assert.doesNotMatch(nullPaid, /€0\b/);
+
+const zeroPaid = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: 0,
+  balance_due_cents: 20000,
+  total_amount_cents: 20000,
+});
+assert.match(zeroPaid, /💶 \*Paid today:\* €0\b/);
+assert.match(zeroPaid, /⏳ \*Still to pay:\* €200(?!\d|\.)/);
+assert.doesNotMatch(zeroPaid, /Fully paid/);
+
+const cashOnlyMethods = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: 20000,
+  balance_due_cents: 20000,
+  total_amount_cents: 40000,
+  balance_due_timing: 'on arrival',
+  balance_payment_methods: ['cash'],
+});
+assert.match(cashOnlyMethods, /⏳ \*Still to pay:\* €200(?!\d|\.) on arrival, by cash$/m);
+assert.doesNotMatch(cashOnlyMethods, /bank transfer|payment link/);
+
+const allArrivalMethods = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  amount_paid_cents: 20000,
+  balance_due_cents: 20000,
+  total_amount_cents: 40000,
+  balance_due_timing: 'on arrival',
+  balance_payment_methods: ['cash', 'bank_transfer', 'stripe'],
+});
+assert.match(allArrivalMethods, /on arrival, by cash, bank transfer, or a payment link/);
+
+const partialKinds = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  room_kinds: ['women-only shared', 'unclassified'],
+  room_count: 2,
+  room_number: 'R5, RX',
+});
+assert.match(partialKinds, /women-only shared room and your room/);
+assert.doesNotMatch(partialKinds, /women-only shared rooms|2 women-only|\bRX\b/);
+
+const shuttleAsk = 'pick-up on Sun 1 Nov, just send me your flight number ✈️';
+const enShuttle = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  check_in: '2026-11-01',
+  check_out: '2026-11-09',
+  shuttle_booked: true,
+  shuttle_copy: shuttleAsk,
+});
+assert.match(enShuttle, /🚐 \*Shuttle:\* pick-up on Sun 1 Nov$/m);
+assert.doesNotMatch(enShuttle, /send me|flight number/);
+
+const esShuttle = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  language: 'es',
+  check_in: '2026-11-01',
+  check_out: '2026-11-09',
+  shuttle_booked: true,
+  shuttle_copy: shuttleAsk,
+});
+assert.match(esShuttle, /🚐 \*Traslado:\* recogida el dom 1 nov$/m);
+assert.doesNotMatch(esShuttle, /send me|flight number|pick-up on/);
+
+const deShuttle = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  language: 'de',
+  check_in: '2026-11-01',
+  check_out: '2026-11-09',
+  shuttle_booked: true,
+  shuttle_copy: shuttleAsk,
+});
+assert.match(deShuttle, /🚐 \*Shuttle:\* Abholung am So 1 Nov$/m);
+assert.doesNotMatch(deShuttle, /send me|flight number|pick-up on/);
+
+const esLocalizedShuttle = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  language: 'es',
+  shuttle_booked: true,
+  shuttle_copy: 'Recogida el domingo 1 de noviembre',
+});
+assert.match(esLocalizedShuttle, /🚐 \*Traslado:\* Recogida el domingo 1 de noviembre$/m);
+
+const askOnlyShuttle = buildWolfhousePaidConfirmationCopy({
+  ...depositFacts,
+  shuttle_booked: true,
+  shuttle_copy: 'just send me your flight number',
+});
+assert.match(askOnlyShuttle, /🚐 \*Shuttle:\* transfer booked$/m);
+assert.doesNotMatch(askOnlyShuttle, /send me|flight number|Sun 1 Nov/);
+
 const bankTiming = buildWolfhousePaidConfirmationCopy({
   ...depositFacts,
   amount_paid_cents: 20000,
@@ -793,6 +909,11 @@ for (const [lang, paidLabel, totalLabel, fullyPaid] of [
   const womenAssigned = await roomProbe('R1', 'R5', ['R5']);
   assert.match(womenAssigned.proposed_confirmation_message, /🛏️ \*Room:\* A bed in our women-only shared room/);
   assert.doesNotMatch(womenAssigned.proposed_confirmation_message, /mixed|\bR[15]\b/);
+  const partialCatalog = await roomProbe('R5', 'R5', ['R5', 'RX']);
+  assert.equal(partialCatalog.confirmation_preview_ready, true, JSON.stringify(partialCatalog.block_reasons));
+  assert.equal(partialCatalog.room_label, 'R5, RX');
+  assert.match(partialCatalog.proposed_confirmation_message, /women-only shared room and your room/);
+  assert.doesNotMatch(partialCatalog.proposed_confirmation_message, /women-only shared rooms|2 women-only|\bRX\b|mixed/);
 
   const richPreview = await runGuestConfirmationPreviewDryRun({
     client_slug: 'wolfhouse-somo',
@@ -829,8 +950,73 @@ for (const [lang, paidLabel, totalLabel, fullyPaid] of [
   assert.match(richMessage, /Giulia Bianchi/);
   assert.match(richMessage, /Surf week with 5 lessons/);
   assert.match(richMessage, /pick-up on Sun 1 Nov/);
+  assert.doesNotMatch(richMessage, /send me|flight number/);
   assert.match(richMessage, /on arrival, at reception/);
   assert.doesNotMatch(richMessage, /€0\b/);
+  const esAskPreview = await runGuestConfirmationPreviewDryRun({
+    client_slug: 'wolfhouse-somo',
+    booking_code: 'WH-ES-SHUTTLE',
+    payment_status: 'deposit_paid',
+    language_hint: 'es',
+    confirmation_draft: {
+      booking_code: 'WH-ES-SHUTTLE',
+      guest_name: 'Lucía',
+      language: 'es',
+      payment_status: 'deposit_paid',
+      amount_paid_cents: 20000,
+      balance_due_cents: 20000,
+      total_amount_cents: 40000,
+      check_in: '2026-11-01',
+      check_out: '2026-11-09',
+      guest_count: 1,
+      room_number: 'R1',
+      gate_code: '2684#',
+      address: 'C. Mies de La Ran, 41, Somo',
+      shuttle_booked: true,
+      shuttle_copy: 'pick-up on Sun 1 Nov, just send me your flight number ✈️',
+    },
+  }, { use_fixture_pg: true });
+  assert.equal(esAskPreview.confirmation_preview_ready, true, JSON.stringify(esAskPreview.block_reasons));
+  assert.match(esAskPreview.proposed_confirmation_message, /🚐 \*Traslado:\* recogida el dom 1 nov/);
+  assert.doesNotMatch(esAskPreview.proposed_confirmation_message, /send me|flight number|pick-up on/);
+  const readTenantConfig = fs.readFileSync;
+  fs.readFileSync = function cashOnlyTenantConfig(file, ...args) {
+    const value = readTenantConfig.call(this, file, ...args);
+    if (String(file).endsWith('/config/clients/wolfhouse-somo.baseline.json')) {
+      const cfg = JSON.parse(String(value));
+      cfg.payment.balance_payment_methods = ['cash'];
+      return JSON.stringify(cfg);
+    }
+    return value;
+  };
+  let cashOnlyPreview;
+  try {
+    cashOnlyPreview = await runGuestConfirmationPreviewDryRun({
+      client_slug: 'wolfhouse-somo',
+      booking_code: 'WH-CASH-ONLY',
+      payment_status: 'deposit_paid',
+      language_hint: 'en',
+      confirmation_draft: {
+        booking_code: 'WH-CASH-ONLY',
+        guest_name: 'Fabio',
+        payment_status: 'deposit_paid',
+        amount_paid_cents: 20000,
+        balance_due_cents: 20000,
+        total_amount_cents: 40000,
+        check_in: '2026-11-01',
+        check_out: '2026-11-09',
+        guest_count: 1,
+        room_number: 'R1',
+        gate_code: '2684#',
+        address: 'C. Mies de La Ran, 41, Somo',
+      },
+    }, { use_fixture_pg: true });
+  } finally {
+    fs.readFileSync = readTenantConfig;
+  }
+  assert.equal(cashOnlyPreview.confirmation_preview_ready, true, JSON.stringify(cashOnlyPreview.block_reasons));
+  assert.match(cashOnlyPreview.proposed_confirmation_message, /on arrival, by cash/);
+  assert.doesNotMatch(cashOnlyPreview.proposed_confirmation_message, /bank transfer|payment link/);
   const bankPreview = await runGuestConfirmationPreviewDryRun({
     client_slug: 'wolfhouse-somo',
     booking_code: 'WH-BANK-TIMING',

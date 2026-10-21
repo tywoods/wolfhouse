@@ -223,13 +223,15 @@ function loadTenantConfirmationFacts(clientSlug) {
 }
 
 function kindsForAssignedRooms(roomNumbers, rooms) {
-  const kinds = [];
+  const slots = [];
+  let known = 0;
   for (const code of roomNumbers || []) {
     const room = rooms && rooms[String(code).trim()];
     const mapped = room && CATALOG_ROOM_KIND[room.type];
-    if (mapped) kinds.push(mapped);
+    if (mapped) known += 1;
+    slots.push(mapped || null);
   }
-  return kinds;
+  return { slots, known };
 }
 
 function existingGuestNames(draft) {
@@ -350,15 +352,17 @@ function mapPreviewSuccess(preview, mergedDraft, language, clientSlug) {
     const tenant = loadTenantConfirmationFacts(slug);
     const mapsLink = trimStr(draft.maps_link)
       || trimStr(loadLessonScheduleConfig(slug).maps_link);
-    const assignedKinds = kindsForAssignedRooms(roomNumbers, tenant.rooms);
+    const assigned = kindsForAssignedRooms(roomNumbers, tenant.rooms);
     const draftKind = trimStr(draft.room_kind);
     const requestedKind = trimStr(draft.requested_room_type || preview.requested_room_type);
     const preference = trimStr(draft.room_preference || preview.room_preference);
-    const roomKinds = assignedKinds.length
-      ? assignedKinds
-      : (roomNumbers.length
-        ? [draftKind || requestedKind].filter(Boolean)
-        : [draftKind || requestedKind || preference].filter(Boolean));
+    const roomKinds = assigned.slots.length && assigned.known === assigned.slots.length
+      ? assigned.slots
+      : (assigned.known
+        ? assigned.slots.map((slot) => slot || 'unclassified')
+        : (roomNumbers.length
+          ? [draftKind || requestedKind].filter(Boolean)
+          : [draftKind || requestedKind || preference].filter(Boolean)));
     const draftTiming = trimStr(draft.balance_due_timing);
     const shuttle = existingShuttle(draft);
     const guestNames = existingGuestNames(draft);
