@@ -258,7 +258,12 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                         self.assertTrue(first["success"], first)
                         shown = loop.present()
                         self.assertIn("€120", shown)
-                        self.assertIn("€100", shown)
+                        deposit_text = (f"€{meta['deposit'] // 100}"
+                                        if meta["deposit"] % 100 == 0
+                                        else f"€{meta['deposit'] / 100:.2f}")
+                        self.assertRegex(
+                            shown,
+                            rf"(?<!\d){re.escape(deposit_text)}(?!\d|[.,]\d)")
                         self.assertIn("depósito", shown.lower())
                         self.assertIn("pago completo", shown.lower())
                         turn(1)

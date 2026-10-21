@@ -18,49 +18,110 @@ FIXTURE = ROOT / "fixtures/booking-cleanup-step4/slice1-cases.json"
 
 class Sim25LiveSequenceTests(unittest.TestCase):
     def test_lucia_exact_captured_owner_chronology_is_executable_and_distinct(self):
-        """Execute the captured owner boundary: failed create, re-quote, then retry."""
+        """Execute the captured owner boundary: create, re-quote, then idempotent reuse."""
         fixture = json.loads(FIXTURE.read_text())["lucia"]
         loop = DeterministicRegisteredLoop(self, "sim25-lucia-captured")
         try:
+            supplied_calls = []
+            def call(name, args, responses):
+                supplied_calls.append({"tool": name, "args": json.loads(json.dumps(args))})
+                return loop.call(name, args, responses)
+
             beds = [{"bed_code": fixture["bed"], "room_code": "R3", "room_type": "shared",
                      "gender_strategy": "mixed", "selected_selling_mode": "bed"}]
             short = [{"name": fixture["short_name"], "explicit_gender": "female"}]
             full = [{"name": fixture["completed_name"], "explicit_gender": "female"}]
-            plan = {"check_in": fixture["dates"][0], "check_out": fixture["dates"][1],
-                    "guest_count": 1, "room_type": "shared", "room_preference": fixture["room"],
-                    "guests": full, "room_name_hints": short, "package_code": "package_none",
-                    "add_ons": [], "catalog_selections": [], "selected_bed_codes": [fixture["bed"]],
-                    "payment_choice": fixture["payment_choice"], "language": "es"}
-            quote = checked_staff_quote(plan, beds, total=fixture["total_cents"],
-                                        deposit=fixture["deposit_cents"])
+            first_plan = {"check_in": fixture["dates"][0], "check_out": fixture["dates"][1],
+                          "guest_count": 1, "room_type": "shared",
+                          "room_preference": fixture["room"], "guests": short,
+                          "guest_name": fixture["short_name"], "room_name_hints": short,
+                          "package_code": "package_none", "add_ons": [],
+                          "catalog_selections": [], "selected_bed_codes": [fixture["bed"]],
+                          "language": "es"}
+            completed_plan = {**first_plan, "guests": full,
+                              "guest_name": fixture["completed_name"],
+                              "room_name_hints": full,
+                              "payment_choice": fixture["payment_choice"]}
+            first_quote = checked_staff_quote(first_plan, beds, total=fixture["total_cents"],
+                                              deposit=fixture["deposit_cents"])
+            completed_quote = checked_staff_quote(
+                completed_plan, beds, total=fixture["total_cents"],
+                deposit=fixture["deposit_cents"])
             available = availability_receipt(beds)
             loop.turn("turn-1", fixture["raw_turns"][0])
-            loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
-            loop.call("preview_package_prices", {"check_in": plan["check_in"],
-                      "check_out": plan["check_out"], "guest_count": 1},
-                      {"/package-price-preview": {"success": True, "package_min_nights": 7,
-                       "package_eligible": False, "nights": 3}})
-            loop.call("check_availability", {**plan, "guests": short}, {"/availability-check": available})
-            loop.call("quote_booking", {**plan, "guests": short}, {"/booking-preview": quote})
+            first_availability = {key: first_plan[key] for key in (
+                "check_in", "check_out", "guest_count", "room_type", "room_preference",
+                "guests", "guest_name", "room_name_hints")}
+            call("check_availability", first_availability,
+                 {"/availability-check": available})
+            call("preview_package_prices", {"check_in": first_plan["check_in"],
+                 "check_out": first_plan["check_out"], "guest_count": 1},
+                 {"/package-price-preview": {"success": True, "package_min_nights": 7,
+                  "package_eligible": False, "nights": 3}})
+            call("check_availability", {key: first_plan[key] for key in (
+                "check_in", "check_out", "guest_count", "room_type", "room_preference",
+                "guests", "room_name_hints")}, {"/availability-check": available})
+            call("quote_booking", first_plan, {"/booking-preview": first_quote})
             loop.present()
             loop.turn("turn-2", fixture["raw_turns"][1])
-            loop.call("check_availability", plan, {"/availability-check": available})
-            loop.call("quote_booking", plan, {"/booking-preview": quote})
-            first = loop.call("create_booking_from_plan", plan, {})
-            self.assertFalse(first["success"], first)
-            self.assertEqual(loop.create_dispatches, [])
-            loop.call("quote_booking", plan, {"/booking-preview": quote})
-            second = loop.call("create_booking_from_plan", {}, {})
+            call("check_availability", {key: completed_plan[key] for key in (
+                "check_in", "check_out", "guest_count", "room_type", "room_preference",
+                "guests", "room_name_hints")}, {"/availability-check": available})
+            call("quote_booking", completed_plan, {"/booking-preview": completed_quote})
+            first_create = {key: completed_plan[key] for key in (
+                "add_ons", "catalog_selections", "check_in", "check_out", "guest_count",
+                "guests", "language", "package_code", "payment_choice", "room_name_hints",
+                "room_preference", "room_type")}
+            first_create["room_name_hints"] = short
+            dispatched = []
+            def responses(route, body):
+                if route == "/booking-preview": return completed_quote
+                if route == "/availability-check": return create_recheck_receipt(beds, body)
+                if route == "/booking-create-from-plan":
+                    dispatched.append(body)
+                    return {"success": True, "created": True, "write_performed": True,
+                            "booking_id": "booking-lucia", "booking_code": "WH-LUCIA",
+                            "payment_id": "payment-lucia", "payment_status": "pending"}
+                if route == "/payments/payment-lucia/create-stripe-link":
+                    return {"success": True, "booking_id": "booking-lucia",
+                            "booking_code": "WH-LUCIA", "payment_id": "payment-lucia",
+                            "secure_payment_url": "https://payments.invalid/lucia",
+                            "amount_due_cents": fixture["deposit_cents"], "currency": "EUR",
+                            "payment_status": "pending"}
+                self.fail(route)
+            first = call("create_booking_from_plan", first_create, responses)
+            call("quote_booking", completed_plan, {"/booking-preview": completed_quote})
+            second = call("create_booking_from_plan", completed_plan, responses)
             loop.turn("turn-3", fixture["raw_turns"][2])
-            loop.call("quote_booking", plan, {"/booking-preview": quote})
-            third = loop.call("create_booking_from_plan", {}, {})
+            call("quote_booking", completed_plan, {"/booking-preview": completed_quote})
+            third_create = {**completed_plan, "room_name_hints": short}
+            third = call("create_booking_from_plan", third_create, responses)
             for number in range(4, 7):
                 loop.turn(f"turn-{number}", fixture["raw_turns"][number - 1])
-            self.assertFalse(second["success"], second)
-            self.assertFalse(third["success"], third)
-            self.assertEqual(loop.create_dispatches, [])
+            self.assertTrue(first["success"], first)
+            self.assertTrue(second["success"], second)
+            self.assertTrue(third["success"], third)
+            self.assertEqual([first["booking_code"], second["booking_code"], third["booking_code"]],
+                             ["WH-LUCIA"] * 3)
+            self.assertEqual(len(dispatched), 1)
+            self.assertEqual(len(loop.create_dispatches), 1)
+            self.assertEqual(dispatched[0]["guests"], full)
+            self.assertEqual(supplied_calls[3]["args"]["guests"], short)
+            self.assertEqual(supplied_calls[3]["args"]["room_name_hints"], short)
+            self.assertNotIn("payment_choice", supplied_calls[3]["args"])
+            for index in (4, 5, 7, 9):
+                self.assertEqual(supplied_calls[index]["args"]["guests"], full)
+                self.assertEqual(supplied_calls[index]["args"]["room_name_hints"], full)
+            self.assertNotIn("selected_bed_codes", supplied_calls[6]["args"])
+            self.assertEqual(supplied_calls[6]["args"]["room_name_hints"], short)
+            self.assertEqual(supplied_calls[8]["args"], completed_plan)
+            self.assertEqual(supplied_calls[10]["args"]["room_name_hints"], short)
+            self.assertEqual(second["booking_id"], first["booking_id"])
+            self.assertEqual(third["booking_id"], first["booking_id"])
             executable = [("package_price_preview" if row["tool"] == "preview_package_prices"
                            else row["tool"]) for row in loop.trace if row["kind"] == "tool_call"]
+            self.assertEqual([("package_price_preview" if row["tool"] == "preview_package_prices"
+                               else row["tool"]) for row in supplied_calls], executable)
             self.assertEqual(executable, fixture["captured_tool_order"])
             self.assertNotEqual(executable, fixture["candidate_first_valid_yes_order"])
         finally:
