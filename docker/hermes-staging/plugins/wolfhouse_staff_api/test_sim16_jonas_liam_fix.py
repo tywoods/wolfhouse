@@ -431,7 +431,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             "Sun 25 Oct to Tue 27 Oct — 2 guests.\n"
             "Total: €240.\n"
             "Full payment: €240.\n"
-            "two beds in the same mixed room.\n"
+            "Two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
         yes = "Yes — book that exact offer for Jonas Bergström and Mia Chen."
@@ -478,7 +478,7 @@ class RegisteredBoundaryEvidence(unittest.TestCase):
             "Mon 23 Nov to Thu 26 Nov — 2 guests.\n"
             "Total: €240.\n"
             "Full payment: €240.\n"
-            "two beds in the same mixed room.\n"
+            "Two beds in the same mixed room.\n"
             "What are the guests' full names?")
 
         names = [{"name": "Aoife Byrne"}, {"name": "Ciara Walsh"}]

@@ -67,10 +67,10 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
             "room_arrangement": [{"bed_code": "R3-B1", "room_code": "R3", "gender_strategy": "mixed"}],
         }
         self.assertEqual(owner._guest_room_lines(plan, offer, "es"),
-                         ["una cama en una habitación mixta para Lucía Fernández Ruiz."])
+                         ["Una cama en una habitación mixta para Lucía Fernández Ruiz."])
         stale = {"guests": [{"name": "Camille Martin"}]}
         self.assertEqual(owner._guest_room_lines(stale, offer, "es"),
-                         ["una cama en una habitación mixta para lucía fernández ruiz."])
+                         ["Una cama en una habitación mixta para lucía fernández ruiz."])
 
     def test_duplicate_names_do_not_reassign_occupant_slots(self):
         plan = {"guests": [{"name": "Alex"}, {"name": "Alex"}]}

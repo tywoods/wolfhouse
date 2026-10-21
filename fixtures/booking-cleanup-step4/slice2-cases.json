@@ -1,0 +1,665 @@
+{
+  "job": "BOOKING-CLEANUP-STEP4-SLICE2-SIM26-20261021",
+  "input_hashes": {
+    "CHATS.md": "eec1dfb9f8e29d4436be0d9d42983baed03e51ee1fbd27c897282c258c24972e",
+    "SIM26-RESULT.md": "59b91024746d2990a147f427d1cb8707b4afc12cb2f52133cf146bea06db12d0",
+    "guest1.jsonl": "fac0d54d8c58a93c8bbcc58eb92c2182eeabc7fced5d203799958a5deb8685d9",
+    "guest2.jsonl": "ce1d3f46eca5f4ad3ac3ec0c702addbf16b2cc4a3e4c89d07b100d0a0ab46076",
+    "guest3.jsonl": "d40c72fc6f9a5038090202e403db7f0d2c1f3d88224145ebcaf5f30f958588b2",
+    "guest4.jsonl": "c472a1f4503f368e3dafcba7e38d6e0f04d12471b976531f5cc1d97993c1d70e",
+    "guest5.jsonl": "416e296c7e4a3c823819bcf7c47da2a77e034622e3aa46e997accb14fee8e93e"
+  },
+  "identity_masking": "Committed matrix contains no original contact identifiers; guest labels and supplied names are limited to brief-authorized facts.",
+  "cases": [
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim13",
+      "case_id": "sim13-32d0789b-20261016/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim14",
+      "case_id": "sim14-d06ab84f-20261017/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest6",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim15",
+      "case_id": "sim15-2f8aa2b1-20261017/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim16",
+      "case_id": "sim16-2f8aa2b1-20261017/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim17",
+      "case_id": "sim17-2f8aa2b1-20261017/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim18",
+      "case_id": "sim18-c959fee9-20261017/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest19",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim19",
+      "case_id": "sim19-03962a75-20261018/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/attempt1-december-closed/guest9",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "missing recorded quote_booking and create_booking_from_plan args"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/guest2",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/guest3",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/guest4",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "Sim20",
+      "case_id": "sim20-b47d9e10-20261018/guest5",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "historical input audit only",
+      "expected": "not_replayable",
+      "actual": "not_replayable",
+      "evidence_class": "approved_unavailable",
+      "reason": "recorded quote lacks frozen beds or shown total"
+    },
+    {
+      "simulation": "smoke",
+      "case_id": "smoke-03962a75-20261018/guest1",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "accepted_quote decision replay",
+      "expected": "booked",
+      "actual": "booked",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim21",
+      "case_id": "sim21-coverage",
+      "source_hash": null,
+      "test_id": "fixtures.booking-replay-sim13-20.test_decision_replay",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "preserved",
+      "actual": "preserved",
+      "evidence_class": "replayed"
+    },
+    {
+      "simulation": "Sim22",
+      "case_id": "sim22-coverage",
+      "source_hash": null,
+      "test_id": "wolfhouse.test_sim22_cleanup",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "preserved",
+      "actual": "preserved",
+      "evidence_class": "registered"
+    },
+    {
+      "simulation": "Sim23",
+      "case_id": "sim23-coverage",
+      "source_hash": null,
+      "test_id": "wolfhouse_staff_api.test_sim16_jonas_liam_fix",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "preserved",
+      "actual": "preserved",
+      "evidence_class": "registered_sql"
+    },
+    {
+      "simulation": "Sim24",
+      "case_id": "sim24-coverage",
+      "source_hash": null,
+      "test_id": "wolfhouse.test_sim24_checked_offer_continuity",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "preserved",
+      "actual": "preserved",
+      "evidence_class": "registered"
+    },
+    {
+      "simulation": "Sim25",
+      "case_id": "sim25-coverage",
+      "source_hash": null,
+      "test_id": "wolfhouse.test_sim25_live_sequence",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "preserved",
+      "actual": "preserved",
+      "evidence_class": "registered"
+    },
+    {
+      "simulation": "Sim26",
+      "case_id": "sim26-coverage",
+      "source_hash": null,
+      "test_id": "wolfhouse.test_sim26_live_sequence",
+      "executed_boundary": "offline registered/owner boundary",
+      "expected": "4 supplied successful readbacks preserved; Lucía continuation passes",
+      "actual": "4 supplied successful readbacks preserved; Lucía continuation passes",
+      "evidence_class": "registered_constructed_receipt"
+    }
+  ],
+  "limitations": [
+    "Scripted registered calls do not prove future model tool selection.",
+    "Sim13-21 not_replayable decisions remain unavailable, not passes.",
+    "Sim26 Staff/link receipts in Python are constructed unless a gate explicitly invokes isolated PGlite."
+  ]
+}

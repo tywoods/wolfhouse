@@ -200,10 +200,82 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
                         if tool == "create_booking_from_plan":
                             self.assertFalse(result["write_performed"])
 
-    def test_availability_description_does_not_schedule_composition_at_create(self):
-        description = self.tools["check_availability"]["description"].lower()
-        self.assertIn("before quote/payment", description)
-        self.assertIn("never after payment intent", description)
+    def test_availability_description_and_schema_preserve_explicit_party_facts(self):
+        tool = self.tools["check_availability"]
+        description = tool["description"].lower()
+        self.assertIn("explicit whole-party composition", description)
+        self.assertIn("person facts", description)
+        self.assertIn("partial-party facts", description)
+        self.assertIn("must not be generalized", description)
+        self.assertIn("never infer gender from names", description)
+        properties = tool["schema"]["parameters"]["properties"]
+        for field in ("group_gender", "gender_preference", "guests", "room_name_hints"):
+            self.assertIn(field, properties)
+        self.assertIn("explicit party facts", properties["group_gender"]["description"].lower())
+        self.assertIn("person-bound facts", properties["guests"]["description"].lower())
+
+    def test_registered_availability_quote_fact_matrix_is_explicit_and_non_inferential(self):
+        """S2-03 scripted registered calls; this is not model-selection evidence."""
+        beds = [{"bed_code": "X1", "room_code": "X", "room_type": "mixed"},
+                {"bed_code": "X2", "room_code": "X", "room_type": "mixed"}]
+        available = {"success": True, "has_enough_beds": True,
+                     "selected_bed_codes": ["X1", "X2"], "available_beds": beds}
+        base = {k: self.payload[k] for k in ("check_in", "check_out", "guest_count",
+                                             "room_preference", "payment_choice")}
+        base["room_type"] = "shared"
+        base["package_code"] = "package_none"
+        for gender in ("male", "female"):
+            with self.subTest(whole_party=gender):
+                unnamed = {**base, "group_gender": gender, "guests": [{}, {}]}
+                checked, calls = self.invoke("check_availability", unnamed, availability=available)
+                self.assertEqual(calls[0][1]["group_gender"], gender)
+                self.assertFalse(checked["room_decision"]["clarification_needed"])
+                named = {**unnamed, "guests": [{"name": "Alex"}, {"name": "Sam"}]}
+                quoted, calls = self.invoke("quote_booking", named)
+                self.assertEqual(calls[0][1]["guests"], named["guests"])
+                self.assertEqual(calls[0][1]["group_gender"], gender)
+                self.assertFalse((quoted.get("room_decision") or {}).get("clarification_needed", False))
+                self.assertNotIn("?", quoted.get("reply_draft", ""))
+
+        partial = {**base, "guests": [{"name": "Alex", "explicit_gender": "female"},
+                                       {"name": "Sam"}]}
+        _, calls = self.invoke("check_availability", partial, availability=available)
+        self.assertNotIn("group_gender", calls[0][1])
+        self.assertEqual(calls[0][1]["guests"], partial["guests"])
+        conflicting = {**partial, "group_gender": "male"}
+        _, calls = self.invoke("check_availability", conflicting, availability=available)
+        self.assertNotIn("group_gender", calls[0][1])
+        corrected = {**base, "group_gender": "female",
+                     "guests": [{"name": "Alex", "explicit_gender": "female"},
+                                {"name": "Sam", "explicit_gender": "female"}]}
+        _, calls = self.invoke("check_availability", corrected, availability=available)
+        self.assertEqual(calls[0][1]["group_gender"], "female")
+
+        gendered_stock = {"success": True, "has_enough_beds": True,
+            "selected_bed_codes": ["F1", "F2"], "available_beds": [
+                {"bed_code": "F1", "room_code": "F", "room_type": "female_only"},
+                {"bed_code": "F2", "room_code": "F", "room_type": "female_only"}]}
+        unknown = {**base, "room_preference": "female_only",
+                   "guests": [{"name": "Alex"}, {"name": "Sam"}]}
+        result, calls = self.invoke("check_availability", unknown, availability=gendered_stock)
+        self.assertNotIn("group_gender", calls[0][1])
+        self.assertEqual(result["reply_draft"],
+                         "Is everyone in your group eligible for the women-only dorm?")
+        self.assertEqual(result["reply_draft"].count("?"), 1)
+        self.assertEqual((calls[0][1]["check_in"], calls[0][1]["check_out"]),
+                         (base["check_in"], base["check_out"]))
+        self.assertEqual(unknown["payment_choice"], "full")
+
+        private = {**unknown, "room_preference": "private", "room_type": "private"}
+        private_result, private_calls = self.invoke("check_availability", private,
+                                                    availability=available)
+        self.assertNotIn("group_gender", private_calls[0][1])
+        self.assertFalse(private_result["room_decision"]["clarification_needed"])
+        no_stock = {"success": True, "has_enough_beds": False,
+                    "availability_status": "unavailable", "available_beds": []}
+        sold_out, _ = self.invoke("check_availability", unknown, availability=no_stock)
+        self.assertTrue(sold_out["unavailable"])
+        self.assertNotEqual(sold_out["availability_status"], "eligibility_required")
 
     def test_registered_room_descriptions_forbid_late_composition_and_invention(self):
         for tool in ("quote_booking", "create_booking_from_plan"):
