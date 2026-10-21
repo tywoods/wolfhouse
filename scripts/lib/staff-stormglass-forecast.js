@@ -27,6 +27,7 @@ const STORMGLASS_PARAMS = [
 const DEFAULT_TIMEOUT_MS = 12000;
 const MADRID_TZ = 'Europe/Madrid';
 const DAY_MS = 86400000;
+
 const SURF_WINDOW_START_HOUR = 6;
 const SURF_WINDOW_END_HOUR = 20;
 
