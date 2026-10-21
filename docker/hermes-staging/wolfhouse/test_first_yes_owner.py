@@ -539,10 +539,10 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertNotIn('reserved', result['final_response'])
         self.assertIn('alex', result['final_response'].lower())
         self.assertNotIn('M1', result['final_response'])
-        self.assertIn('alex and sam: two beds in the same mixed room.', result['final_response'].lower())
+        self.assertIn('alex and sam: two beds in the same mixed room', result['final_response'].lower())
         self.assertIn('€700', result['final_response'])
         self.assertIn('full', result['final_response'].lower())
-        self.assertTrue(result['final_response'].endswith('Shall I create this booking?'))
+        self.assertTrue(result['final_response'].endswith('Shall I save this booking?'))
         self.assertEqual(result['messages'][-1]['content'], result['final_response'])
         self.turn('contextual-yes', 'Yes!')
         self.interpret_accept('Yes!')
@@ -639,14 +639,14 @@ class FirstYesOwnerTests(unittest.TestCase):
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
         text = first['final_response']
-        self.assertIn('Mon 19 Oct to Thu 22 Oct — 1 guest.', text)
+        self.assertIn('📅 *Dates:* Mon 19 Oct – Thu 22 Oct · 1 guest', text)
         self.assertNotIn('1 guests', text)
         self.assertNotIn('2026-10-19', text)
-        self.assertIn('one bed in a mixed room for alex.', text.lower())
+        self.assertIn('🛏️ *room:* a bed in our mixed shared room', text.lower())
         self.assertNotIn('alex:', text.lower())
         self.assertNotIn('DORM-12', text)
         self.assertNotIn('ROOM-9', text)
-        self.assertTrue(text.endswith('Shall I create this booking?'))
+        self.assertTrue(text.endswith('Shall I save this booking?'))
 
     def packet_offer(self):
         plan = dict(
@@ -877,7 +877,7 @@ console.log(JSON.stringify({accepted,current}));
             'completed': True, 'final_response': 'draft',
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
-        self.assertTrue(first['final_response'].endswith('Shall I create this booking?'))
+        self.assertTrue(first['final_response'].endswith('Shall I save this booking?'))
         self.turn('revised-yes', 'yes')
         self.interpret_accept('yes')
         ledger.record_quote({}, {**response, 'reply_draft': 'cosmetic only'})
@@ -896,7 +896,7 @@ console.log(JSON.stringify({accepted,current}));
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
         self.assertIn('€210', again['final_response'])
-        self.assertTrue(again['final_response'].endswith('Shall I create this updated booking?'))
+        self.assertTrue(again['final_response'].endswith('Shall I save this updated booking?'))
         self.assertNotIn('DORM-12', again['final_response'])
         self.assertFalse(ledger._completion_revision_matches(
             response['offer_revision'], changed['offer_revision']))
@@ -927,8 +927,8 @@ console.log(JSON.stringify({accepted,current}));
             self.assertNotIn('N1', texts[label])
             self.assertNotIn('room M', texts[label])
             self.assertNotIn('room N', texts[label])
-        self.assertIn('alex and sam: two beds in the same mixed room.', texts['same'].lower())
-        self.assertIn('alex and sam: beds in two separate mixed rooms.', texts['split'].lower())
+        self.assertIn('alex and sam: two beds in the same mixed room', texts['same'].lower())
+        self.assertIn('alex and sam: beds in two separate mixed rooms', texts['split'].lower())
         self.assertNotEqual(texts['same'], texts['split'])
 
     def test_preview_tool_shows_room_type_includes_line(self):
@@ -989,7 +989,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
                 result = ledger.finalize_offer_response({'completed': True, 'final_response': 'Information only'})
                 if index == 8:
                     self.assertIn("What are the guests' full names?", result['final_response'])
-                    self.assertNotIn('Shall I create this booking?', result['final_response'])
+                    self.assertNotIn('Shall I save this booking?', result['final_response'])
                 else:
                     self.assertEqual(result['final_response'], 'Information only')
                 self.turn('invalid-yes-' + str(index), 'yes')
@@ -1068,7 +1068,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             'completed': True, 'final_response': 'draft',
             'messages': [{'role': 'assistant', 'content': 'draft'}],
         })
-        self.assertTrue(presented['final_response'].endswith('Shall I create this booking?'))
+        self.assertTrue(presented['final_response'].endswith('Shall I save this booking?'))
         self.turn('accept-contact', 'yes')
         self.interpret_accept('yes')
         prepared = ledger.prepare_create({})
@@ -1193,7 +1193,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
             plugin.register(registry)
             offered = gateway_ingress(self.agent, 'Please quote this', 'hook-q',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
-            self.assertIn('Shall I create this booking?', offered['final_response'])
+            self.assertIn('Shall I save this booking?', offered['final_response'])
             accepted = gateway_ingress(self.agent, 'yes', 'hook-a',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertIn('UNIT-1', accepted['final_response'])
@@ -1212,7 +1212,7 @@ console.log(JSON.stringify(computePackagePricePreview(input, config)));
                 self.agent, 'Check the booking without prior successful-turn history', 'hook-readback',
                 lambda raw: conversation_loop.run_conversation(self.agent, raw))
             self.assertIn('UNIT-1', readback['final_response'])
-            self.assertIn('created successfully earlier', readback['final_response'])
+            self.assertIn('saved earlier', readback['final_response'])
             self.assertNotIn('not created', readback['final_response'].lower())
             self.assertEqual(readback['messages'][-1]['content'], readback['final_response'])
             newer = gateway_ingress(
