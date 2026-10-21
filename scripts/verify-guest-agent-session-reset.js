@@ -80,6 +80,59 @@ async function expectUnreachable(label, thrown) {
   }
 }
 
+function bodyStallResponse() {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw unreachableError('TimeoutError');
+    },
+  };
+}
+
+async function expectBodyStall(label, invoke) {
+  const env = {
+    STAFF_API_INGRESS_TENANT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_HERMES_BASE_URL: 'http://hermes-luna:8090',
+    LUNA_BOT_INTERNAL_TOKEN: 'test-token',
+  };
+  const prev = global.fetch;
+  let signal = null;
+  global.fetch = async (_url, opts) => {
+    signal = opts && opts.signal;
+    return bodyStallResponse();
+  };
+  try {
+    const out = await invoke(env);
+    check(
+      label,
+      out && out.reason === 'luna_unreachable' && out.ok === false && out.attempted === true && out.status == null
+        && signal && typeof signal.aborted === 'boolean',
+      JSON.stringify(out),
+    );
+  } finally {
+    if (prev == null) delete global.fetch;
+    else global.fetch = prev;
+  }
+}
+
+async function expectMalformedStaysHttp(label, response, predicate) {
+  const env = {
+    STAFF_API_INGRESS_TENANT_SLUG: 'wolfhouse-somo',
+    WOLFHOUSE_HERMES_BASE_URL: 'http://hermes-luna:8090',
+    LUNA_BOT_INTERNAL_TOKEN: 'test-token',
+  };
+  const prev = global.fetch;
+  global.fetch = async () => response;
+  try {
+    const out = await reset.resetHermesConversationSession('+34600000001', { env });
+    check(label, predicate(out), JSON.stringify(out));
+  } finally {
+    if (prev == null) delete global.fetch;
+    else global.fetch = prev;
+  }
+}
+
 (async () => {
   const unset = await reset.resetHermesConversationSession('+34600000001', {
     env: {
@@ -97,6 +150,39 @@ async function expectUnreachable(label, thrown) {
   await expectUnreachable('E5', unreachableError('Error', 'UND_ERR_CONNECT_TIMEOUT'));
   await expectUnreachable('E6', unreachableError('Error', 'ECONNREFUSED'));
   await expectUnreachable('E7', unreachableError('Error', 'ENOTFOUND'));
+  await expectBodyStall('E8', (env) => reset.resetHermesConversationSession('+34600000001', { env }));
+  const savedEnv = {
+    LUNA_BOT_INTERNAL_TOKEN: process.env.LUNA_BOT_INTERNAL_TOKEN,
+    WOLFHOUSE_HERMES_BASE_URL: process.env.WOLFHOUSE_HERMES_BASE_URL,
+    STAFF_API_INGRESS_TENANT_SLUG: process.env.STAFF_API_INGRESS_TENANT_SLUG,
+    WOLFHOUSE_HERMES_GUEST_FRESH_START_URL: process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL,
+  };
+  process.env.LUNA_BOT_INTERNAL_TOKEN = 'test-token';
+  process.env.WOLFHOUSE_HERMES_BASE_URL = 'http://hermes-luna:8090';
+  process.env.STAFF_API_INGRESS_TENANT_SLUG = 'wolfhouse-somo';
+  delete process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL;
+  try {
+    await expectBodyStall('E9', () => reset.resetHermesGuestSession('+34600000001'));
+  } finally {
+    for (const key of Object.keys(savedEnv)) {
+      if (savedEnv[key] == null) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  }
+  await expectMalformedStaysHttp('E10', {
+    ok: false,
+    status: 502,
+    json: async () => {
+      throw new SyntaxError('Unexpected token < in JSON at position 0');
+    },
+  }, (out) => out && out.reason === 'http_502' && out.status === 502 && out.reason !== 'luna_unreachable');
+  await expectMalformedStaysHttp('E11', {
+    ok: true,
+    status: 200,
+    json: async () => {
+      throw new SyntaxError('Unexpected end of JSON input');
+    },
+  }, (out) => out && out.ok === false && out.status === 200 && out.reason !== 'luna_unreachable');
   console.log(`\n${passes} passed, ${failures} failed\n`);
   process.exit(failures > 0 ? 1 : 0);
 })().catch((err) => {

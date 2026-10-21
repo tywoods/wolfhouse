@@ -1140,6 +1140,95 @@ async function main() {
     ok('luna_unreachable becomes a plain retry', false, 'wire helper missing');
   }
 
+  console.log('\n[9c] After-headers body stall is 503 luna_unreachable and the plain retry');
+  {
+    const plain = "Couldn't reach Luna — try again";
+    const slug = 'wolfhouse-somo';
+    const hermes = require(HERMES_JS);
+    const pg = makeRecordingPg({
+      conversations: [{
+        id: CONV_A,
+        client_slug: slug,
+        phone: '+34600000001',
+        digits: '34600000001',
+        needs_human: true,
+        display_name: 'Ana',
+        status: 'open',
+      }],
+    });
+    const prevFetch = global.fetch;
+    global.fetch = async (_url, opts) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        const err = new Error('The operation was aborted due to timeout');
+        err.name = 'TimeoutError';
+        throw err;
+      },
+      signalSeen: !!(opts && opts.signal),
+    });
+    let stalled = null;
+    let status = 0;
+    try {
+      stalled = await owner.performInboxClearThreadReset({
+        pg,
+        clientSlug: slug,
+        convId: CONV_A,
+        resetHermesConversationSession: (phone, opts) => hermes.resetHermesConversationSession(phone, Object.assign({}, opts, {
+          env: {
+            STAFF_API_INGRESS_TENANT_SLUG: slug,
+            WOLFHOUSE_HERMES_BASE_URL: 'http://hermes-luna:8090',
+            LUNA_BOT_INTERNAL_TOKEN: 'test-token',
+          },
+        })),
+      });
+      status = owner.mapInboxClearThreadHttpStatus(stalled);
+    } finally {
+      if (prevFetch == null) delete global.fetch;
+      else global.fetch = prevFetch;
+    }
+    const updates = pg.calls.filter((c) => /\bUPDATE conversations conv\b/i.test(c.sql)).length;
+    ok('after-headers body stall is 503 luna_unreachable and does not write',
+      stalled && stalled.reason === 'luna_unreachable'
+      && stalled.hermes_session_reset && stalled.hermes_session_reset.reason === 'luna_unreachable'
+      && status === 503
+      && updates === 0
+      && stalled.needs_human === true
+      && stalled.needs_human_cleared === false,
+      JSON.stringify({ stalled, status, updates }));
+    if (typeof ui.wireInboxClearThread === 'function' && stalled) {
+      const box = loadThreadFns();
+      box.fetch = () => Promise.resolve({
+        status,
+        json: () => Promise.resolve({
+          success: false,
+          error: stalled.reason,
+          hermes_session_reset: stalled.hermes_session_reset,
+          needs_human_cleared: false,
+        }),
+      });
+      const root = miniNode('div');
+      const btn = miniNode('button', { id: 'btn-inbox-clear-thread', textContent: 'Clear' });
+      const dialog = miniNode('div', { id: 'inbox-clear-thread-dialog', hidden: true });
+      const confirm = miniNode('button', { id: 'inbox-clear-thread-dialog-confirm', textContent: 'Clear' });
+      root.appendChild(btn);
+      dialog.appendChild(confirm);
+      box.__byId['btn-inbox-clear-thread'] = btn;
+      box.__byId['inbox-clear-thread-dialog'] = dialog;
+      box.__byId['inbox-clear-thread-dialog-confirm'] = confirm;
+      box.document.getElementById = (id) => box.__byId[id] || null;
+      box.wireInboxClearThread(CONV_A, root);
+      btn.click();
+      confirm.click();
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+      ok('after-headers body stall shows the plain retry',
+        box.__alerts.length === 1 && box.__alerts[0] === plain && box.__alerts[0] !== 'hermes_reset_failed',
+        JSON.stringify(box.__alerts));
+    } else {
+      ok('after-headers body stall shows the plain retry', false, 'wire helper or stall result missing');
+    }
+  }
+
   console.log('\n[10] Stay off: no send, no second Luna toggle, gates registered');
   ok('no guest WhatsApp/email send from Clear modules',
     !/sendMail/.test(threadSrc) && !/_patched_whatsapp_cloud_send/.test(threadSrc)

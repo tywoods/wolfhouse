@@ -82,6 +82,26 @@ function hermesFetchSignal() {
   return AbortSignal.timeout(8000);
 }
 
+function isMalformedHermesJson(err) {
+  return !!(err && (err.name === 'SyntaxError' || err instanceof SyntaxError));
+}
+
+/**
+ * AbortSignal.timeout covers body consumption. A stall after headers rejects
+ * res.json() with TimeoutError; that must reach lunaUnreachableReason.
+ * Ordinary malformed JSON stays an empty object so HTTP status is preserved.
+ */
+async function readHermesJson(res) {
+  try {
+    return await res.json();
+  } catch (err) {
+    if (isMalformedHermesJson(err) && lunaUnreachableReason(err) !== 'luna_unreachable') {
+      return {};
+    }
+    throw err;
+  }
+}
+
 /**
  * Ask Hermes to reset the guest's WhatsApp session (same as operator /new).
  * @param {string} guestPhone - E.164 or digits
@@ -111,12 +131,7 @@ async function resetHermesGuestSession(guestPhone, opts = {}) {
 
   try {
     const res = await fetch(url, { method: 'POST', headers, body, signal: hermesFetchSignal() });
-    let data = {};
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = {};
-    }
+    const data = await readHermesJson(res);
     if (!res.ok) {
       return {
         attempted: true,
@@ -188,12 +203,7 @@ async function resetHermesConversationSession(guestPhone, opts = {}) {
 
   try {
     const res = await fetch(url, { method: 'POST', headers, body, signal: hermesFetchSignal() });
-    let data = {};
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = {};
-    }
+    const data = await readHermesJson(res);
     if (!res.ok) {
       return {
         attempted: true,
