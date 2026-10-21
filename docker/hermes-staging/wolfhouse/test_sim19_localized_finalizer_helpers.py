@@ -51,7 +51,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         self.assertEqual(
-            ["two beds in the same mixed room."],
+            ["Two beds in the same mixed room."],
             owner._guest_room_lines(plan, offer, "en"),
         )
 
@@ -68,15 +68,15 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         lines = owner._guest_room_lines(plan, offer, "en")
-        self.assertEqual(["two beds in the same shared room."], lines)
+        self.assertEqual(["Two beds in the same shared room."], lines)
         self.assertNotIn("Alex:", "\n".join(lines))
 
     def test_partially_named_party_uses_neutral_room_copy_for_same_and_split_rooms(self):
         expected = {
-            "en": ("two beds in the same mixed room.", "beds in two separate mixed rooms."),
-            "es": ("dos camas en la misma habitación mixta.", "camas en dos habitaciones mixtas separadas."),
-            "fr": ("deux lits dans la même chambre mixte.", "lits dans deux chambres mixtes séparées."),
-            "de": ("zwei Betten im selben gemischten Zimmer.", "Betten in zwei getrennten gemischten Zimmern."),
+            "en": ("Two beds in the same mixed room.", "Beds in two separate mixed rooms."),
+            "es": ("Dos camas en la misma habitación mixta.", "Camas en dos habitaciones mixtas separadas."),
+            "fr": ("Deux lits dans la même chambre mixte.", "Lits dans deux chambres mixtes séparées."),
+            "de": ("Zwei Betten im selben gemischten Zimmer.", "Betten in zwei getrennten gemischten Zimmern."),
         }
         for language, (same_copy, split_copy) in expected.items():
             for split, phrase in ((False, same_copy), (True, split_copy)):
@@ -110,7 +110,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         self.assertEqual(
-            ["beds in three separate mixed rooms."],
+            ["Beds in three separate mixed rooms."],
             owner._guest_room_lines(plan, offer, "en"),
         )
 

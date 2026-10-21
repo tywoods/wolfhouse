@@ -607,8 +607,15 @@ def _guest_room_lines(plan, offer, language='en'):
             who = _join_names(names, language)
             beds = item['beds']
             n = _count_word(beds, language)
-            # Room and bed codes are Staff internals, never guest-facing copy.
-            room_suffix = ''
+            # A numbered room is useful guest-facing identity (unlike a bed
+            # code). Disclose it only when Staff supplied it authoritatively.
+            room_code = str(item.get('room') or '').strip().upper()
+            requested_match = re.fullmatch(
+                r'(?:room|r)\s*[-_ ]?\s*(\d+)',
+                str(plan.get('room_preference') or '').strip(), re.IGNORECASE)
+            room_suffix = (f" (Room {room_code[1:]})"
+                           if requested_match and room_code == f'R{int(requested_match.group(1))}'
+                           else '')
             # Ty-approved guest copy does not label a one-person stay with
             # ``Name:``. Keep the identity naturally in the sentence instead.
             singleton = (offer.get('guest_count', plan.get('guest_count')) == 1
@@ -641,7 +648,7 @@ def _guest_room_lines(plan, offer, language='en'):
                 where = f"the same {kind}" if first else f"a separate {kind}"
                 lines.append(f"{who}: {_count_word(beds)} beds in {where}{room_suffix}.")
             first = False
-    return lines
+    return [line[:1].upper() + line[1:] for line in lines]
 
 
 def _guest_language(state):
@@ -658,10 +665,10 @@ def _guest_language(state):
 
 
 _FINAL_COPY = {
-    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': 'Availability checked, subject to confirmation when booking.', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Would you like this exact offer?', 'which_payment': 'You can pay the deposit now or the full total. Which would you like?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
-    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': 'Disponibilidad comprobada, sujeta a confirmación al reservar.', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Quieres esta oferta exacta?', 'which_payment': 'Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
-    'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': 'Disponibilité vérifiée, sous réserve de confirmation lors de la réservation.', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
-    'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': 'Verfügbarkeit geprüft, vorbehaltlich der Bestätigung bei der Buchung.', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
+    'en': {'to': 'to', 'total': 'Total', 'deposit': 'deposit', 'full_required': 'Full payment required', 'full': 'Full payment', 'options': 'Payment options', 'or': 'or', 'accommodation': 'Accommodation only', 'guest': 'Guest', 'extras': 'Extras', 'for_days': 'for {days} days', 'payment_deposit': 'Deposit', 'arrival_payment': 'Payment on arrival', 'individual': 'Individual payments', 'due_now': 'Due now', 'due_arrival': 'Due on arrival', 'availability': '', 'create': 'Shall I create this booking?', 'create_updated': 'Shall I create this updated booking?', 'names': "What are the guests\' full names?", 'check_exact': 'Would you like this exact offer?', 'which_payment': 'You can pay the deposit now or the full total. Which would you like?', 'refusal': 'I could not verify an eligible bed for this stay yet. Would you like me to check another room option?'},
+    'es': {'to': 'a', 'total': 'Total', 'deposit': 'depósito', 'full_required': 'Pago completo requerido', 'full': 'Pago completo', 'options': 'Opciones de pago', 'or': 'o', 'accommodation': 'Solo alojamiento', 'guest': 'Huésped', 'extras': 'Extras', 'for_days': 'durante {days} días', 'payment_deposit': 'Depósito', 'arrival_payment': 'Pago a la llegada', 'individual': 'Pagos individuales', 'due_now': 'A pagar ahora', 'due_arrival': 'A pagar a la llegada', 'availability': '', 'create': '¿Creo esta reserva?', 'create_updated': '¿Creo esta reserva actualizada?', 'names': '¿Cuáles son los nombres completos de los huéspedes?', 'check_exact': '¿Quieres esta oferta exacta?', 'which_payment': 'Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', 'refusal': 'No pude verificar aún una cama apta para esta estancia. ¿Quieres que compruebe otra opción de habitación?'},
+    'fr': {'to': 'au', 'total': 'Total', 'deposit': 'acompte', 'full_required': 'Paiement intégral requis', 'full': 'Paiement intégral', 'options': 'Options de paiement', 'or': 'ou', 'accommodation': 'Hébergement seul', 'guest': 'Personne', 'extras': 'Suppléments', 'for_days': 'pendant {days} jours', 'payment_deposit': 'Acompte', 'arrival_payment': "Paiement à l'arrivée", 'individual': 'Paiements individuels', 'due_now': 'À payer maintenant', 'due_arrival': "À payer à l'arrivée", 'availability': '', 'create': 'Voulez-vous que je crée cette réservation ?', 'create_updated': 'Voulez-vous que je crée cette réservation mise à jour ?', 'names': 'Quels sont les noms complets des personnes ?', 'check_exact': 'Voulez-vous que je vérifie cette offre exacte pour la réservation ?', 'which_payment': 'Quelle option de paiement souhaitez-vous que je vérifie pour cette réservation ?', 'refusal': "Je n'ai pas encore pu vérifier de lit admissible pour ce séjour. Voulez-vous que je vérifie une autre option de chambre ?"},
+    'de': {'to': 'bis', 'total': 'Gesamtpreis', 'deposit': 'Anzahlung', 'full_required': 'Vollständige Zahlung erforderlich', 'full': 'Vollständige Zahlung', 'options': 'Zahlungsoptionen', 'or': 'oder', 'accommodation': 'Nur Unterkunft', 'guest': 'Gast', 'extras': 'Extras', 'for_days': 'für {days} Tage', 'payment_deposit': 'Anzahlung', 'arrival_payment': 'Zahlung bei Ankunft', 'individual': 'Einzelzahlungen', 'due_now': 'Jetzt fällig', 'due_arrival': 'Bei Ankunft fällig', 'availability': '', 'create': 'Soll ich diese Buchung erstellen?', 'create_updated': 'Soll ich diese aktualisierte Buchung erstellen?', 'names': 'Wie lauten die vollständigen Namen der Gäste?', 'check_exact': 'Soll ich dieses genaue Angebot für die Buchung prüfen?', 'which_payment': 'Welche Zahlungsoption soll ich für diese Buchung prüfen?', 'refusal': 'Ich konnte noch kein geeignetes Bett für diesen Aufenthalt bestätigen. Soll ich eine andere Zimmeroption prüfen?'},
 }
 
 
@@ -3202,8 +3209,8 @@ def finalize_offer_response(result):
             lines.append(f"{equality_labels.get(language, equality_labels['en'])}: "
                          f"{money(offer['total_cents'])} ({full_inline}).")
         else:
-            lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])} "
-                         f"({_final_copy(language, 'deposit')}: {money(offer['deposit_required_cents'])}).")
+            # The selected-payment line below is the single deposit statement.
+            lines.append(f"{_final_copy(language, 'total')}: {money(offer['total_cents'])}.")
         payment = {'full': _final_copy(language, 'full'), 'deposit': _final_copy(language, 'payment_deposit'),
                    'pay_on_arrival': _final_copy(language, 'arrival_payment'),
                    'per_guest': _final_copy(language, 'individual')}
@@ -3216,7 +3223,9 @@ def finalize_offer_response(result):
         if offer['per_guest_payment_links']:
             lines.extend(f"{item['guest_name']}: {money(item['amount_cents'])}."
                          for item in offer['payment_distribution'])
-        lines.append(_final_copy(language, 'availability'))
+        availability_copy = _final_copy(language, 'availability')
+        if availability_copy:
+            lines.append(availability_copy)
         prior = state.get('accepted_offer_snapshot')
         question = (_final_copy(language, 'create_updated')
                     if isinstance(prior, dict) and prior != offer

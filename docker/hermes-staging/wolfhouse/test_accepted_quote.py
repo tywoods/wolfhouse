@@ -402,7 +402,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: €200 (deposit: €100).', shown['final_response'])
+        self.assertIn('Total: €200.', shown['final_response'].splitlines())
+        self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
         self.assertIn('Due on arrival: €200.', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
@@ -434,7 +435,8 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 text = shown['final_response']
-                self.assertIn('Total: €200 (deposit: €100).', text)
+                self.assertIn('Total: €200.', text.splitlines())
+                self.assertNotIn('Total: €200 (deposit:', text)
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
@@ -2809,9 +2811,10 @@ class OwnerHostileTests(unittest.TestCase):
                 self.ledger.record_quote(plan, self.checked(plan))
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'as proposed', 'messages': []})['final_response']
                 self.assertIn(accommodation, text)
-                self.assertIn(availability, text)
+                self.assertNotIn(availability, text)
                 self.assertIn('€200', text)
                 self.assertIn('€100', text)
+                self.assertEqual(text.count('€100'), 2)  # deposit once, remainder once
                 self.assertNotIn('as proposed', text.casefold())
                 self.assertNotRegex(text, r'\b(?:M|R\d+)(?:-B\d+)?\b')
 
