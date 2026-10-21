@@ -41,6 +41,11 @@ SELECT b.id AS booking_id,
        b.amount_paid_cents,
        b.total_amount_cents,
        b.language,
+       b.check_in::text AS check_in,
+       b.check_out::text AS check_out,
+       b.guest_count,
+       b.requested_room_type,
+       b.room_preference,
        b.metadata
   FROM bookings b
  INNER JOIN clients c ON c.id = b.client_id
@@ -56,6 +61,11 @@ SELECT b.id AS booking_id,
        b.amount_paid_cents,
        b.total_amount_cents,
        b.language,
+       b.check_in::text AS check_in,
+       b.check_out::text AS check_out,
+       b.guest_count,
+       b.requested_room_type,
+       b.room_preference,
        b.metadata
   FROM bookings b
  INNER JOIN clients c ON c.id = b.client_id
@@ -479,6 +489,14 @@ async function getLunaBookingConfirmationPreview(input, context) {
     success: true,
     ...base,
     primary_room_code: row.primary_room_code || null,
+    check_in: row.check_in || null,
+    check_out: row.check_out || null,
+    guest_count: row.guest_count || null,
+    requested_room_type: row.requested_room_type || null,
+    room_preference: row.room_preference || null,
+    language,
+    amount_paid_cents: amountPaidCents,
+    balance_due_cents: balanceDueCents,
     room_numbers: roomNumbers,
     confirmation_draft: confirmationDraft,
     message_preview:    messagePreview,

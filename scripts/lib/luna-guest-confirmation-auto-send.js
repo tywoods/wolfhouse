@@ -8,7 +8,8 @@
 const { runGuestConfirmationPreviewDryRun } = require('./luna-guest-confirmation-preview-dry-run');
 const { runGuestConfirmationSendGoNoGo, isWhatsappDryRun } = require('./luna-guest-confirmation-send-go-no-go');
 const { mirrorHermesWhatsAppThreadMessage } = require('./luna-hermes-whatsapp-thread-mirror');
-const { markBookingConfirmationSent } = require('./luna-booking-confirmation-send');
+const { markBookingConfirmationSent, claimBookingConfirmationSend, releaseBookingConfirmationClaim } = require('./luna-booking-confirmation-send');
+const { findGuestMessageSendByKey } = require('./luna-guest-message-send-sql');
 
 const PAID_BOOKING_STATUSES = new Set(['deposit_paid', 'paid']);
 
@@ -16,9 +17,32 @@ function trimStr(v) {
   return v == null ? '' : String(v).trim();
 }
 
-function isAutoConfirmationSendEnabled(env) {
+function isTruthyEnvFlag(env, key) {
+  return String((env || {})[key] || '').trim().toLowerCase() === 'true';
+}
+
+function isWolfhousePaidConfirmationClient(clientSlug) {
+  const slug = trimStr(clientSlug).toLowerCase();
+  return slug === 'wolfhouse-somo' || slug === 'wolfhouse';
+}
+
+async function findDurableSentConfirmationAudit(pg, clientSlug, idempotencyKey) {
+  try {
+    const found = await findGuestMessageSendByKey(pg, clientSlug, idempotencyKey);
+    const row = found && found.row;
+    if (!row || row.status !== 'sent' || !trimStr(row.provider_message_id)) return null;
+    return row;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isAutoConfirmationSendEnabled(env, clientSlug) {
   const e = env || process.env;
-  return String(e.LUNA_AUTO_SEND_ENABLED || '').trim().toLowerCase() === 'true';
+  if (isTruthyEnvFlag(e, 'LUNA_AUTO_SEND_ENABLED')) return true;
+  if (clientSlug == null || trimStr(clientSlug) === '') return false;
+  return isWolfhousePaidConfirmationClient(clientSlug)
+    && isTruthyEnvFlag(e, 'LUNA_CONFIRMATION_AUTO_SEND_ENABLED');
 }
 
 function isAuthoritativeSunsetStaging(env, clientSlug) {
@@ -223,18 +247,19 @@ async function tryAutoSendBookingConfirmation(input, context) {
   )) {
     return { ...base, skip_reason: 'booking_status_not_confirmation_eligible', booking_code: row.booking_code };
   }
-  if (!simulator && !isAutoConfirmationSendEnabled(env)) {
+  if (!simulator && !isAutoConfirmationSendEnabled(env, clientSlug)) {
     return { ...base, skip_reason: 'luna_auto_send_not_enabled' };
   }
 
   const previewConfirmation = ctx.runGuestConfirmationPreviewDryRun || runGuestConfirmationPreviewDryRun;
+  const callerLanguage = trimStr(src.language_hint);
   const preview = await previewConfirmation({
     client_slug: clientSlug,
     booking_id: row.id,
     booking_code: row.booking_code,
     payment_status: row.payment_status,
     guest_name: trimStr(src.guest_name) || trimStr(row.guest_name_meta) || null,
-    language_hint: trimStr(src.language_hint) || 'en',
+    ...(callerLanguage ? { language_hint: callerLanguage } : {}),
   }, {
     pg,
     env,
@@ -254,8 +279,9 @@ async function tryAutoSendBookingConfirmation(input, context) {
     };
   }
 
-  const idempotencyKey = trimStr(src.idempotency_key)
-    || `confirmation:auto:${row.booking_code}:${row.id}`;
+  const callerKey = trimStr(src.idempotency_key);
+  const bookingKey = `confirmation:auto:${row.booking_code}:${row.id}`;
+  const idempotencyKey = simulator ? (callerKey || bookingKey) : bookingKey;
 
   if (simulator) {
     const persistMirror = ctx.mirrorHermesWhatsAppThreadMessage || mirrorHermesWhatsAppThreadMessage;
@@ -310,6 +336,27 @@ async function tryAutoSendBookingConfirmation(input, context) {
     };
   }
 
+  const claim = await claimBookingConfirmationSend(pg, {
+    client_slug: clientSlug,
+    booking_id: row.id,
+    claim_key: bookingKey,
+  });
+  let recoverSentAudit = false;
+  if (!claim.claimed) {
+    recoverSentAudit = !!(await findDurableSentConfirmationAudit(pg, clientSlug, bookingKey));
+    if (!recoverSentAudit) {
+      return {
+        ...base,
+        skipped: true,
+        skip_reason: claim.reason || 'confirmation_claim_held',
+        duplicate_send_blocked: true,
+        confirmation_sent: false,
+        booking_code: row.booking_code,
+        preview,
+      };
+    }
+  }
+
   const send = await runGuestConfirmationSendGoNoGo({
     confirmation_preview_result: preview,
     confirm_send: true,
@@ -328,14 +375,24 @@ async function tryAutoSendBookingConfirmation(input, context) {
     loadClientConfirmationConfig: ctx.loadClientConfirmationConfig,
   });
 
-  const sent = send && (send.confirmation_sent === true || send.send_status === 'sent');
+  const uncertain = !!(send && (send.delivery_uncertain === true || send.send_status === 'delivery_uncertain'));
+  const sent = !uncertain && send && (send.confirmation_sent === true || send.send_status === 'sent');
+  if (!sent && !uncertain && !recoverSentAudit) {
+    await releaseBookingConfirmationClaim(pg, {
+      client_slug: clientSlug,
+      booking_id: row.id,
+      claim_key: bookingKey,
+    });
+  }
   return {
     attempted: true,
     skipped: !sent,
-    skip_reason: sent ? null : (send && send.send_status) || 'send_blocked',
+    skip_reason: sent ? null : (uncertain ? 'delivery_uncertain' : ((send && send.send_status) || 'send_blocked')),
     preview,
     send,
     confirmation_sent: sent,
+    delivery_uncertain: uncertain,
+    duplicate_send_blocked: !!(send && send.duplicate_send_blocked),
     booking_code: row.booking_code,
     whatsapp_dry_run: isWhatsappDryRun(env),
   };

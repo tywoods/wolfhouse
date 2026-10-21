@@ -462,18 +462,17 @@ async function main() {
 
   await withEnv(wolfhouseStaffEnv(), async () => {
     const url = hermes.hermesSessionKeyResetUrl();
-    ok('Wolfhouse still defaults session-key reset to Lunabox /wolfhouse/guest-session-key-reset',
-      url === WOLFHOUSE_DEFAULT_SESSION_KEY,
+    ok('Wolfhouse with no Hermes URL does not call the old Lunabox host',
+      url === '',
       String(url));
     const fetch404 = stubFetch(async () => http404Response());
     try {
-      const out = await hermes.resetHermesConversationSession('+34600000001');
-      ok('Wolfhouse default still POSTs the session-key path',
-        fetch404.calls.length === 1
-        && fetch404.calls[0].url === WOLFHOUSE_DEFAULT_SESSION_KEY,
+      const out = await hermes.resetHermesConversationSession('+346****0001');
+      ok('Wolfhouse missing URL does not POST',
+        fetch404.calls.length === 0,
         JSON.stringify(fetch404.calls));
-      ok('Wolfhouse live 404 still surfaces as http_404 (unchanged default)',
-        out && out.ok === false && out.reason === 'http_404' && out.status === 404,
+      ok('Wolfhouse missing URL is missing_session_key_url',
+        out && out.ok === false && out.attempted === false && out.reason === 'missing_session_key_url',
         JSON.stringify(out));
     } finally {
       fetch404.restore();
@@ -487,8 +486,8 @@ async function main() {
     WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL: null,
   }, () => {
     const url = hermes.hermesSessionKeyResetUrl();
-    ok('unset tenant still defaults to Wolfhouse session-key path',
-      url === WOLFHOUSE_DEFAULT_SESSION_KEY,
+    ok('unset tenant does not fall back to the old Lunabox host',
+      url === '',
       String(url));
   });
 
