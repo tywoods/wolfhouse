@@ -1693,6 +1693,48 @@ def _sync_catalog_projection(add_ons, changes, catalog_before=None):
     return projected
 
 
+def _project_room_name_hints_from_guests(guests, retained_hints, guest_count):
+    """Return the Staff-wire hint projection for a complete named roster.
+
+    A completed name remains the same person only when its old hint is in the
+    same slot or has a uniquely matching short-name prefix.  Explicit gender
+    facts on the roster win only when they do not contradict that old fact.
+    """
+    if (not isinstance(guests, list) or len(guests) != guest_count
+            or not all(isinstance(guest, dict)
+                       and str(guest.get('name') or '').strip() for guest in guests)):
+        return None
+    retained_hints = retained_hints if isinstance(retained_hints, list) else []
+    normalize = lambda value: ' '.join(str(value or '').split()).casefold()
+
+    def same_person(old_name, new_name):
+        return bool(old_name and new_name
+                    and (old_name == new_name or new_name.startswith(old_name + ' ')))
+
+    projected = []
+    for index, guest in enumerate(guests):
+        new_name = normalize(guest.get('name'))
+        candidates = []
+        if index < len(retained_hints) and isinstance(retained_hints[index], dict):
+            hint = retained_hints[index]
+            if same_person(normalize(hint.get('name')), new_name):
+                candidates = [hint]
+        if not candidates:
+            candidates = [hint for hint in retained_hints if isinstance(hint, dict)
+                          and same_person(normalize(hint.get('name')), new_name)]
+            if len(candidates) != 1:
+                candidates = []
+        old_gender = (candidates[0].get('explicit_gender') if candidates else None)
+        new_gender = guest.get('explicit_gender')
+        if (old_gender in ('male', 'female') and new_gender in ('male', 'female')
+                and old_gender != new_gender):
+            raise QuoteBoundaryError('quote_completion_identity_changed')
+        gender = new_gender if new_gender in ('male', 'female') else old_gender
+        if gender in ('male', 'female'):
+            projected.append({'name': guest.get('name'), 'explicit_gender': gender})
+    return projected
+
+
 def prepare_quote(params):
     """Prepare a read-only Staff quote, preserving omitted draft selections.
 
@@ -1728,31 +1770,12 @@ def prepare_quote(params):
         for key in _FIELDS + _CHECKED_FIELDS:
             if key not in result and key in preserved:
                 result[key] = preserved[key]
-        # A model-supplied ordered roster may complete an unambiguous short
-        # name while omitting the legacy hint projection. Keep that projection
-        # person-bound instead of sending Staff a stale Mateo/Mateo Ríos split.
-        old_guests = preserved.get('guests')
-        new_guests = result.get('guests')
-        retained_hints = result.get('room_name_hints')
-        if ('guests' in normalized_params and 'room_name_hints' not in normalized_params
-                and isinstance(old_guests, list) and isinstance(new_guests, list)
-                and len(old_guests) == len(new_guests)
-                and isinstance(retained_hints, list)):
-            normalize = lambda value: ' '.join(str(value or '').split()).casefold()
-            old_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
-                         for row in old_guests]
-            new_names = [normalize(row.get('name')) if isinstance(row, dict) else ''
-                         for row in new_guests]
-            synchronized = deepcopy(retained_hints)
-            for index, (old_name, new_name) in enumerate(zip(old_names, new_names)):
-                if (old_name and new_name and new_name != old_name
-                        and new_name.startswith(old_name + ' ')
-                        and old_names.count(old_name) == 1 and new_names.count(new_name) == 1):
-                    matches = [hint for hint in synchronized if isinstance(hint, dict)
-                               and normalize(hint.get('name')) == old_name]
-                    if len(matches) == 1:
-                        matches[0]['name'] = new_guests[index].get('name')
-            result['room_name_hints'] = synchronized
+        # Keep the owner projection identical to the Staff wire projection.
+        # This must also replace stale hints supplied by a prior owner plan.
+        projected_hints = _project_room_name_hints_from_guests(
+            result.get('guests'), result.get('room_name_hints'), result.get('guest_count'))
+        if projected_hints is not None:
+            result['room_name_hints'] = projected_hints
         # Catalog and atomic add-ons are aliases of the same priced selection.
         # An explicit replacement owns that alias; an omitted field is retained,
         # except for stale duplicates of the explicitly replaced representation.
@@ -2513,6 +2536,10 @@ def prepare_create(params):
             for key in _CARRIED_FIELDS:
                 if key in params:
                     result[key] = deepcopy(params[key])
+            projected_hints = _project_room_name_hints_from_guests(
+                result.get('guests'), result.get('room_name_hints'), result.get('guest_count'))
+            if projected_hints is not None:
+                result['room_name_hints'] = projected_hints
             if new_group_fact is not None:
                 result['group_gender'] = new_group_fact
                 state['pending_group_gender_fact'] = new_group_fact
