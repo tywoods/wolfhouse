@@ -8,6 +8,8 @@ Historical result_summary strings are the only diagnostic source. A missing
 reason stays unavailable. A later successful booking does not drop an earlier
 failure. probe.log denials stay in their own scope and are not folded into a
 journey "zero tool errors" claim. Adapter capture is not model-selection proof.
+Non-string tool names or summaries, including probe n/r fields, are malformed
+input and cannot pass as zero errors.
 """
 
 from __future__ import annotations
@@ -77,8 +79,25 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _require_capture_string(
+    value: Any,
+    *,
+    field: str,
+    where: str,
+    code: str,
+    nonempty: bool = False,
+) -> str:
+    """Reject unsupported capture field types before they can look like success."""
+    if not isinstance(value, str) or (nonempty and not value.strip()):
+        expected = "a non-empty string" if nonempty else "a string"
+        raise CaptureInputError(code, f"{where} {field} is not {expected}")
+    return value
+
+
 def parse_summary(summary: Any) -> dict[str, Any]:
-    text = summary if isinstance(summary, str) else ""
+    if not isinstance(summary, str):
+        raise CaptureInputError("malformed_input", "result_summary is not a string")
+    text = summary
     truncated = len(text) > SUMMARY_BOUND
     fields: dict[str, str] = {}
     for part in text[:SUMMARY_BOUND].split("; "):
@@ -117,6 +136,8 @@ def safe_diagnostic(fields: dict[str, str]) -> dict[str, Any]:
 
 
 def classify_tool_call(name: Any, summary: Any, guard: Any) -> dict[str, Any]:
+    if not isinstance(name, str) or not name.strip():
+        raise CaptureInputError("malformed_input", "tool name is not a non-empty string")
     parsed = parse_summary(summary)
     fields = parsed["fields"]
     diagnostic = safe_diagnostic(fields)
@@ -133,13 +154,13 @@ def classify_tool_call(name: Any, summary: Any, guard: Any) -> dict[str, Any]:
     else:
         kind = "not_a_failure"
     return {
-        "tool": str(name or "unknown")[:120],
+        "tool": name[:120],
         "kind": kind,
         "diagnostic": diagnostic,
         "guard_blocked": _guard_blocked(guard),
         "summary_truncated": parsed["truncated"],
         "later_booking_marker": (
-            str(name or "") == "create_booking_from_plan"
+            name == "create_booking_from_plan"
             and fields.get("success") == "True"
             and fields.get("write_performed") == "True"
         ),
@@ -205,9 +226,23 @@ def summarize_journey(sim_dir: Path, *, sim: str) -> dict[str, Any]:
                         "malformed_json",
                         f"{name} turn {turn} tool {index} is missing name or result_summary",
                     )
-                classified = classify_tool_call(
+                where = f"{name} turn {turn} tool {index}"
+                tool_name = _require_capture_string(
                     call.get("name"),
+                    field="name",
+                    where=where,
+                    code="malformed_json",
+                    nonempty=True,
+                )
+                summary = _require_capture_string(
                     call.get("result_summary"),
+                    field="result_summary",
+                    where=where,
+                    code="malformed_json",
+                )
+                classified = classify_tool_call(
+                    tool_name,
+                    summary,
                     call.get("simulator_guard"),
                 )
                 tool_calls += 1
@@ -297,7 +332,21 @@ def summarize_probe(sim_dir: Path) -> dict[str, Any]:
                     "malformed_probe",
                     f"probe.log block {blocks} tool {index} is missing n or r",
                 )
-            classified = classify_tool_call(call.get("n"), call.get("r"), call.get("g"))
+            where = f"probe.log block {blocks} tool {index}"
+            tool_name = _require_capture_string(
+                call.get("n"),
+                field="n",
+                where=where,
+                code="malformed_probe",
+                nonempty=True,
+            )
+            summary = _require_capture_string(
+                call.get("r"),
+                field="r",
+                where=where,
+                code="malformed_probe",
+            )
+            classified = classify_tool_call(tool_name, summary, call.get("g"))
             tool_calls += 1
             if classified["kind"] == "not_a_failure":
                 continue

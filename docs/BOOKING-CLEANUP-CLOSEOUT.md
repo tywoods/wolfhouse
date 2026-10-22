@@ -95,8 +95,8 @@ The recorded slice 1/2 pin `/opt/data/artifacts/bcr-r2-venv/bin/python` (3.14.4)
 | Command | Result |
 |---|---|
 | `python -m unittest wolfhouse.test_simulate_write_guards` | 31 tests, 1 failure, exit 1. Inherited. See below. |
-| `python scripts/test_sim28_sim29_capture_summary.py` | 12/12, exit 0. |
-| `python scripts/verify-sim28-sim29-capture-summary.py --sim28-dir … --sim29-dir …` | exit 0. |
+| `python scripts/test_sim28_sim29_capture_summary.py` | R2: 24/24, exit 0, with `SIM28_INPUT_DIR` and `SIM29_INPUT_DIR` set to a packet copy that is not a private notes path. The earlier 12/12 was not portable. |
+| `python scripts/verify-sim28-sim29-capture-summary.py --sim28-dir … --sim29-dir …` | exit 0 on the original packet. Non-string name, summary, probe `n`, or probe `r` exits 2 with `ok: false`. |
 | `node scripts/verify-hermes-send-flags.js` | 53 passed, exit 0. |
 
 Inherited failure, same on the unmodified base and this candidate because the guard file was not edited: `WolfhouseStagingBookingCapabilityTests.test_france_origin_exception_is_exact_and_keeps_all_other_gates`. The test expects `BOT_BOOKING_ENABLED=false` to deny with `bot_booking_disabled`. The landed evaluator says no environment business switch may grant or deny booking here, and the France origin fixture stays admitted. This is not a preview-diagnostic regression and it is not waived. Guard permissions were left behavior-identical. It blocks a green claim for that suite.
@@ -104,3 +104,11 @@ Inherited failure, same on the unmodified base and this candidate because the gu
 ## Hold
 
 No merge, deploy, guest send, Staff alert, payment, gateway restart, or live repair. Ty's current France Wolfhouse TEST session was not touched. Unsupported items above stay open.
+
+## R2 — DH-1395-R2-CHANGES-20261022T1358
+
+Captain CHANGES at `bfb366ce3fce95835d0ae85659c370bf4f2b14ce`. The repair stays in the same four files. `simulate_write_guards.py` and `test_simulate_write_guards.py` are untouched.
+
+The suite reads `SIM28_INPUT_DIR` and `SIM29_INPUT_DIR`. It does not hard-code a private packet path, and it does not skip when those inputs are missing. A non-string journey `name` or `result_summary`, and a non-string probe `n` or `r`, is malformed input even when the expected failure counts would be unchanged.
+
+Measured again with `/opt/hermes/.venv/bin/python` (3.13.5), from a packet copy outside the private notes path: capture-summary suite 24/24, exit 0. Original-packet verifier exit 0; both Sim28 `package_price_preview` failures stay listed after later booking, diagnostic unavailable. Captain's unchanged malformed-capture probe exit 0; null summary, object summary, list summary, and null tool name each exit 2 with `ok: false`; original input bytes unchanged. Send-flags 53 passed, exit 0. Guard suite still 31 tests, 1 failure, exit 1, same inherited `test_france_origin_exception_is_exact_and_keeps_all_other_gates`. Not waived. The recorded 3.14.4 pin and overlay are still absent. That gate remains incomplete, not PASS. This is not a source PASS and not a close-out PASS.
