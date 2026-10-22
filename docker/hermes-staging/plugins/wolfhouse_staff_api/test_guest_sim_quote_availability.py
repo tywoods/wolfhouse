@@ -190,6 +190,54 @@ const beds = [
         self.assertEqual(result["reply_draft"], "Can Emma stay in the women-only dorm?")
         self.assertNotIn("mixed", result["reply_draft"].casefold())
 
+    def _gendered_room_result(self, guests, preference="female_only"):
+        params = {
+            **self.params,
+            "guest_count": len(guests), "room_type": "shared",
+            "room_preference": preference, "payment_choice": "full",
+            "guests": copy.deepcopy(guests),
+        }
+        receipt = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_room_code": "R5",
+            "selected_bed_codes": [f"R5-B{i}" for i in range(1, len(guests) + 1)],
+            "available_beds": [
+                {"bed_code": f"R5-B{i}", "room_code": "R5", "room_type": preference}
+                for i in range(1, len(guests) + 1)
+            ],
+        }
+        return self.invoke("check_availability", params, receipt)[0]
+
+    def test_same_name_answer_does_not_authorize_unanswered_guest(self):
+        result = self._gendered_room_result([
+            {"name": "Alex Same", "explicit_gender": "female"},
+            {"name": "Alex Same"},
+        ])
+        self.assertEqual(result["availability_status"], "eligibility_required", result)
+        self.assertTrue(result["room_decision"]["clarification_needed"], result)
+        self.assertNotIn("female_only", result["room_decision"]["allowed_room_preferences"])
+
+    def test_same_name_female_answer_does_not_overwrite_explicit_male_guest(self):
+        result = self._gendered_room_result([
+            {"name": "Alex Same", "explicit_gender": "male"},
+            {"name": "Alex Same", "explicit_gender": "female"},
+        ])
+        self.assertNotEqual(result["availability_status"], "available", result)
+        self.assertIn("female_only", result["room_decision"]["excluded_room_preferences"])
+
+    def test_same_name_opposite_facts_are_row_order_independent(self):
+        for guests in (
+            [{"name": "Alex Same", "explicit_gender": "male"},
+             {"name": "Alex Same", "explicit_gender": "female"}],
+            [{"name": "Alex Same", "explicit_gender": "female"},
+             {"name": "Alex Same", "explicit_gender": "male"}],
+        ):
+            with self.subTest(guests=guests):
+                result = self._gendered_room_result(guests)
+                self.assertNotEqual(result["availability_status"], "available", result)
+                self.assertIn("female_only", result["room_decision"]["excluded_room_preferences"])
+
     def test_explicit_answer_resolves_requested_women_room_without_reasking(self):
         params = {
             **self.params,

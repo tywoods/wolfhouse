@@ -479,21 +479,17 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
     raw_hints = params.get("room_name_hints")
     if not isinstance(raw_hints, list):
         raw_hints = []
-    explicit_by_name = {
-        _clean(item.get("name")).casefold(): _clean(item.get("explicit_gender")).lower()
-        for item in raw_hints
-        if isinstance(item, dict) and _clean(item.get("name"))
-        and _clean(item.get("explicit_gender")).lower() in {"female", "male"}
-    }
+    # Eligibility is person-bound.  For gendered rooms the canonical guest list
+    # owns each slot's explicit answer; legacy room_name_hints are used only when
+    # no canonical guest roster is available.  Display names are not identities
+    # and must never be used to copy an answer between guest rows.
     source_rows = (raw_guests if preference in {"female_only", "male_only"} and raw_guests
                    else raw_hints)
     travelers = [
         {"name": _clean(item.get("name")),
-         "explicit_gender": (
-             explicit_by_name.get(_clean(item.get("name")).casefold())
-             or (_clean(item.get("explicit_gender")).lower()
-                 if _clean(item.get("explicit_gender")).lower() in {"female", "male"}
-                 else ""))}
+         "explicit_gender": (_clean(item.get("explicit_gender")).lower()
+                             if _clean(item.get("explicit_gender")).lower()
+                             in {"female", "male"} else "")}
         for item in source_rows
         if isinstance(item, dict)
     ] or None
