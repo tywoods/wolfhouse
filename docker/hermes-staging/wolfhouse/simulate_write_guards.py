@@ -92,6 +92,31 @@ def tool_name_from_path(path: str) -> str:
     return tail.replace("-", "_")
 
 
+def _safe_diagnostic_text(value: Any, max_len: int = 160) -> str:
+    """Return a bounded diagnostic scalar with contact/secret/URL shapes removed."""
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"https?://\S+", "[redacted-url]", text, flags=re.I)
+    text = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "[redacted-contact]", text)
+    text = re.sub(r"(?<!\w)\+?\d[\d* ()-]{7,}\d(?!\w)", "[redacted-contact]", text)
+    text = re.sub(
+        r"\bguest_text\s*[:=].*$",
+        "[redacted]",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r"\b(?:signed_url|signature|token|secret|api_key)\s*[:=]\s*\S+",
+        "[redacted]",
+        text,
+        flags=re.I,
+    )
+    return " ".join(text.split())[:max_len]
+
+
 def summarize_tool_result(result: Any, max_len: int = 400) -> str:
     if not isinstance(result, dict):
         return str(result)[:max_len]
@@ -116,7 +141,27 @@ def summarize_tool_result(result: Any, max_len: int = 400) -> str:
             val = result[key]
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)[:120]
+            elif key == "error":
+                val = _safe_diagnostic_text(val)
             bits.append(f"{key}={val}")
+
+    if result.get("success") is False:
+        raw_diagnostics = result.get("diagnostics")
+        nested: Dict[str, Any] = dict(raw_diagnostics) if isinstance(raw_diagnostics, dict) else {}
+        diagnostic_fields = (
+            ("reason", result.get("reason", nested.get("reason"))),
+            ("error_code", result.get("error_code", result.get("code", nested.get("error_code", nested.get("code"))))),
+            ("detail", result.get("message", result.get("detail", nested.get("message", nested.get("detail"))))),
+        )
+        added = False
+        for label, value in diagnostic_fields:
+            safe = _safe_diagnostic_text(value)
+            if safe:
+                bits.append(f"{label}={safe}")
+                added = True
+        if not added and not _safe_diagnostic_text(result.get("error")):
+            bits.append("reason=unavailable")
+
     if not bits:
         bits.append(f"keys={','.join(sorted(result.keys())[:8])}")
     return "; ".join(bits)[:max_len]

@@ -137,6 +137,78 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(door.record_local_tool_result(
             "quote_booking", {}, {"success": False}, stage="pre_staff_rejection"))
 
+    async def test_staff_failure_reason_survives_real_tool_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+346001111889")
+        token = door._SCOPE.set(scope)
+        original_post = self.staff._post_bot
+
+        def synthetic_failed_preview(path, payload):
+            self.staff.calls.append((path, dict(payload or {})))
+            return {
+                "success": False,
+                "reason": "synthetic_package_not_available",
+                "message": "synthetic package tier unavailable",
+                "guest": {"phone": "+346****1222"},
+            }
+
+        door._INSTALLED_STAFF.discard(id(self.staff))
+        self.staff._post_bot = synthetic_failed_preview
+        install_request_owned_guards(self.staff, self.whatsapp)
+        try:
+            result = self.staff._post_bot("/booking-preview", {"synthetic": True})
+        finally:
+            door._SCOPE.reset(token)
+            self.staff._post_bot = original_post
+
+        self.assertFalse(result["success"])
+        self.assertEqual(len(scope.tool_calls), 1)
+        summary = scope.tool_calls[0]["result_summary"]
+        self.assertIn("success=False", summary)
+        self.assertIn("reason=synthetic_package_not_available", summary)
+        self.assertIn("detail=synthetic package tier unavailable", summary)
+        self.assertNotIn("+346****1222", summary)
+
+    async def test_all_diagnostic_shapes_are_safe_at_local_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+        from wolfhouse.simulate_write_guards import synthetic_blocked_result
+
+        scope = CrowsnestGuestScope.create("+346001111890")
+        synthetic_results = (
+            {"success": False, "error": "synthetic error only"},
+            {"success": False, "reason": "synthetic_reason_only"},
+            {"success": False, "diagnostics": {"error_code": "SYNTHETIC_422", "detail": "synthetic nested detail"}},
+            {"success": False},
+            {
+                "success": False,
+                "error_code": "SYNTHETIC_BAD",
+                "message": "guest@example.test +346****1222 https://example.test/signed?token=SECRET " + "x" * 500,
+                "payload": {"secret": "MUST_NOT_APPEAR"},
+            },
+            {"success": True, "booking_code": "SYNTHETIC-BOOK", "reason": "ignored_on_success"},
+            synthetic_blocked_result("/sunset/payment-link", ["blocked_payment"], allow_writes=False),
+            "synthetic non-dict " + "x" * 500,
+        )
+        token = door._SCOPE.set(scope)
+        try:
+            for result in synthetic_results:
+                self.assertTrue(door.record_local_tool_result("synthetic_tool", {}, result, stage="synthetic_test"))
+        finally:
+            door._SCOPE.reset(token)
+
+        summaries = [call["result_summary"] for call in scope.tool_calls]
+        self.assertIn("error=synthetic error only", summaries[0])
+        self.assertIn("reason=synthetic_reason_only", summaries[1])
+        self.assertIn("error_code=SYNTHETIC_422; detail=synthetic nested detail", summaries[2])
+        self.assertEqual(summaries[3], "success=False; reason=unavailable")
+        self.assertLessEqual(len(summaries[4]), 400)
+        for forbidden in ("guest@example.test", "+346****1222", "token=SECRET", "MUST_NOT_APPEAR"):
+            self.assertNotIn(forbidden, summaries[4])
+        self.assertEqual(summaries[5], "success=True; booking_code=SYNTHETIC-BOOK")
+        self.assertIn("simulate_write_blocked=True", summaries[6])
+        self.assertEqual(summaries[7], synthetic_results[7][:400])
+
     async def test_missing_quote_owner_hook_fails_before_live_guard_install(self):
         import sys
         import wolfhouse.crowsnest_guest_door as door

@@ -18,12 +18,56 @@ if str(ROOT) not in sys.path:
 from simulate_write_guards import (  # noqa: E402
     guard_bot_path_and_payload,
     is_simulate_write_blocked,
+    summarize_tool_result,
     synthetic_blocked_result,
     tool_name_from_path,
 )
 
 
 class GuardPathTests(unittest.TestCase):
+    def test_failure_diagnostics_are_allowlisted_bounded_and_redacted(self):
+        synthetic_cases = (
+            ({"success": False, "error": "synthetic preview unavailable"}, "error=synthetic preview unavailable"),
+            ({"success": False, "reason": "synthetic_inventory_gap"}, "reason=synthetic_inventory_gap"),
+            ({"success": False, "diagnostics": {"error_code": "SYNTHETIC_409", "message": "synthetic tier unavailable"}},
+             "error_code=SYNTHETIC_409; detail=synthetic tier unavailable"),
+        )
+        for result, expected in synthetic_cases:
+            with self.subTest(result=result):
+                summary = summarize_tool_result(result)
+                self.assertIn("success=False", summary)
+                self.assertIn(expected, summary)
+
+        unavailable = summarize_tool_result({"success": False, "ignored": "synthetic hidden"})
+        self.assertEqual(unavailable, "success=False; reason=unavailable")
+
+        malicious = summarize_tool_result({
+            "success": False,
+            "error_code": "SYNTHETIC_BAD",
+            "message": (
+                "synthetic contact guest@example.test +346****1222 "
+                "https://example.test/pay?signature=SECRET signed_url=SECRET "
+                "guest_text=do not retain " + "x" * 600
+            ),
+            "payload": {"secret": "MUST_NOT_APPEAR"},
+        })
+        self.assertLessEqual(len(malicious), 400)
+        for forbidden in ("guest@example.test", "+346****1222", "signature=SECRET", "signed_url=SECRET",
+                          "guest_text=do not retain", "MUST_NOT_APPEAR"):
+            self.assertNotIn(forbidden, malicious)
+
+    def test_success_guard_non_dict_and_existing_fields_are_unchanged(self):
+        success = {"success": True, "booking_code": "SYNTHETIC-BOOK", "reason": "must_not_be_added"}
+        self.assertEqual(summarize_tool_result(success), "success=True; booking_code=SYNTHETIC-BOOK")
+        guard = synthetic_blocked_result("/sunset/payment-link", ["blocked_payment"], allow_writes=False)
+        self.assertEqual(
+            summarize_tool_result(guard),
+            "success=False; error=Sunset payment writes are disabled in simulate mode (use --allow-writes); "
+            "simulate_write_blocked=True",
+        )
+        text = "synthetic " + "x" * 500
+        self.assertEqual(summarize_tool_result(text), text[:400])
+
     def test_blocks_sunset_booking_create_short_and_full_paths(self):
         for path in ("/sunset/booking-create", "/staff/bot/sunset/booking-create"):
             norm, body, warnings = guard_bot_path_and_payload(
