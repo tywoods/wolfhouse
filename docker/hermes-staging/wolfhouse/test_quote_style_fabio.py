@@ -209,11 +209,15 @@ class QuoteStyleFabioTests(unittest.TestCase):
                         "guests": [{"name": "Fabio"}, "bad-row"]}
         self.assertNotIn("Individual payments", owner._styled_quote_copy(
             split_plan, mixed_guests, "en", create_ready=True))
+        duplicate_roster = {**duplicate, "payment_distribution": None,
+                            "guests": [{"name": "Fabio"}, {"name": " fabio "}]}
+        self.assertNotIn("Individual payments", owner._styled_quote_copy(
+            split_plan, duplicate_roster, "en", create_ready=True))
 
         fallback_plan = {**self.plan, "guest_packages": [
             {"guest_index": 0, "package_code": "malibu"}],
             "add_ons": [{"code": "yoga_class", "quantity": 1}]}
-        fallback_offer = {**self.offer, "guest_packages": {"bad": True}, "add_ons": "bad"}
+        fallback_offer = {**self.offer, "guest_packages": ["bad"], "add_ons": ["bad"]}
         fallback_text = owner._styled_quote_copy(fallback_plan, fallback_offer, "en", create_ready=True)
         self.assertIn("Malibu", fallback_text)
         self.assertIn("Yoga class", fallback_text)
@@ -222,7 +226,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
             {"amount_due_cents": 7500, "currency": "EUR", "secure_payment_url": "https://pay.invalid/a"},
             {"amount_due_cents": 7500, "currency": "EUR", "secure_payment_url": "   "},
             {"amount_due_cents": 9000, "currency": "USD", "secure_payment_url": "https://pay.invalid/usd"},
-            {"amount_due_cents": 5000, "currency": "EUR", "secure_payment_url": "http://pay.invalid/insecure"}]}
+            {"amount_due_cents": 5000, "currency": "EUR", "secure_payment_url": "http://pay.invalid/insecure"},
+            {"amount_due_cents": 5000, "currency": "EUR", "secure_payment_url": "https://[bad-ipv6"}]}
         receipt_text = owner._styled_booking_receipt_copy(
             split_plan, {**self.offer, "total_cents": 15000}, receipt, "en")
         self.assertIn("Due now:* €75", receipt_text)

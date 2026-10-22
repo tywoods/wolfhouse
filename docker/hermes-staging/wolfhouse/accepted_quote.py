@@ -778,8 +778,11 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         lines.append(substitution)
     package_code = offer.get('package_code') or plan.get('package_code')
     offer_guest_packages = offer.get('guest_packages')
-    guest_packages = (offer_guest_packages if isinstance(offer_guest_packages, list)
-                      else plan.get('guest_packages'))
+    offer_packages_valid = (isinstance(offer_guest_packages, list)
+                            and all(isinstance(row, dict)
+                                    and bool(row.get('package_code') or row.get('code'))
+                                    for row in offer_guest_packages))
+    guest_packages = offer_guest_packages if offer_packages_valid else plan.get('guest_packages')
     guests = offer.get('guests') or plan.get('guests') or []
     guests = guests if isinstance(guests, list) else []
     def package_label(code):
@@ -804,7 +807,11 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     elif package_code:
         lines.append(f"🏄 *{copy['package']}:* {package_label(package_code)}")
     offer_extras = offer.get('add_ons')
-    extras = offer_extras if isinstance(offer_extras, list) else plan.get('add_ons')
+    offer_extras_valid = (isinstance(offer_extras, list)
+                          and all(isinstance(row, dict)
+                                  and bool(row.get('code') or row.get('service_code'))
+                                  for row in offer_extras))
+    extras = offer_extras if offer_extras_valid else plan.get('add_ons')
     if isinstance(extras, list) and extras:
         values = []
         for row in extras:
@@ -862,6 +869,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         valid_guests = [row for row in guests if isinstance(row, dict)
                         and isinstance(row.get('name'), str) and row.get('name').strip()]
         expected_names = [row['name'].strip() for row in valid_guests]
+        expected_keys = [name.casefold() for name in expected_names]
+        unique_roster = (len(valid_guests) == len(guests)
+                         and len(set(expected_keys)) == len(expected_keys))
         distribution = offer.get('payment_distribution')
         values = []
         amounts = []
@@ -880,14 +890,14 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                     values.append(f'{name}: {_guest_money(amount, currency)}')
                     amounts.append(amount)
             shown_names = [value.split(':', 1)[0].strip().casefold() for value in values]
-            expected_keys = [name.casefold() for name in expected_names]
             due = offer.get('payment_link_amount_cents')
-            if (len(values) != len(distribution) or len(set(shown_names)) != len(shown_names)
+            if (not unique_roster or len(values) != len(distribution)
+                    or len(set(shown_names)) != len(shown_names)
                     or sorted(shown_names) != sorted(expected_keys)
                     or (type(due) is int and sum(amounts) != due)):
                 values = []
         elif (offer.get('per_guest_payment_links') is True and valid_guests
-              and len(valid_guests) == len(guests)
+              and unique_roster
               and type(total) is int and total % len(valid_guests) == 0):
             share = _guest_money(total // len(valid_guests), currency)
             values = [f"{row['name'].strip()}: {share}" for row in valid_guests]
@@ -906,8 +916,12 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
 def _usable_payment_url(value):
     if not isinstance(value, str) or not value.strip():
         return None
-    parsed = urlsplit(value.strip())
-    return value.strip() if parsed.scheme == 'https' and bool(parsed.netloc) else None
+    try:
+        parsed = urlsplit(value.strip())
+        hostname = parsed.hostname
+    except ValueError:
+        return None
+    return value.strip() if parsed.scheme == 'https' and bool(hostname) else None
 
 
 def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
