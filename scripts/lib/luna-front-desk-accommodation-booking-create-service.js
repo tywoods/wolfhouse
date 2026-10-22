@@ -317,6 +317,9 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }
 
   const transportBody = (opts && opts.transportBody) || {};
+  if (transportBody.keep_together !== undefined && typeof transportBody.keep_together !== 'boolean') {
+    return fail(400, 'invalid_keep_together', 'keep_together must be boolean');
+  }
   const surfReject = rejectSurfSchoolTransportFields(transportBody);
   if (!surfReject.ok) return surfReject;
 
@@ -888,6 +891,7 @@ function wolfhouseOperationFingerprint(input) {
     email: src.email || body.email || null,
     guest_bed_assignments: guestBedAssignments,
     room_type: src.roomType || body.room_type || null,
+    ...(body.keep_together === true ? { keep_together: true } : {}),
     payment_choice: src.paymentChoice || body.payment_choice || null,
     per_guest_payment_links: src.perGuestPaymentLinks === true || body.per_guest_payment_links === true,
     package_code: src.effectivePackageCode || body.package_code || null,
@@ -1124,10 +1128,25 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     }
     // Lock authoritative selected room settings before the write, including Staff
     // commands built without a database and commands with availability provenance.
+    if (command.transportBody?.keep_together === true) {
+      // Pin authoritative membership before locking rooms; the earlier preflight
+      // cannot authorize a selection whose room mapping changed before BEGIN.
+      await pg.query(`SELECT bd.id FROM beds bd JOIN clients c ON c.id=bd.client_id
+        WHERE c.slug=$1 AND bd.bed_code=ANY($2::text[])
+        ORDER BY bd.id FOR UPDATE OF bd`, [clientSlug, assignedBedCodes]);
+    }
     const selectedRooms = (await pg.query(`SELECT r.id, r.selling_mode FROM rooms r
       JOIN clients c ON c.id=r.client_id WHERE c.slug=$1 AND r.id IN (
         SELECT bd.room_id FROM beds bd WHERE bd.client_id=c.id AND bd.bed_code=ANY($2::text[])
       ) ORDER BY r.id FOR UPDATE OF r`, [clientSlug, assignedBedCodes])).rows;
+    if (command.transportBody?.keep_together === true) {
+      const selection = await checkExplicitSelection(pg, clientSlug, assignedBedCodes,
+        quoteGuestCount, command.transportBody, checkIn, checkOut);
+      if (!selection.ok) {
+        await pg.query('ROLLBACK');
+        return selection;
+      }
+    }
     const hooks = execOpts && execOpts.privateRoomHooks;
     const willReservePrivate = hooks
       ? typeof hooks.enabled === 'function' && hooks.enabled(roomType) && typeof hooks.syncPrivateRoomBlocks === 'function'

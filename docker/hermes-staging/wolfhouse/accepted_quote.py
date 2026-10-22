@@ -48,11 +48,11 @@ _dispatch_ticket: ContextVar[PreparedPlan | None] = ContextVar('wolfhouse_quote_
 _PREFIX = 'wolfhouse.accepted_quote.v1:'
 _current: ContextVar[TurnCapability | None] = ContextVar('wolfhouse_quote_owner', default=None)
 _FIELDS = ('check_in', 'check_out', 'guest_count', 'package_code', 'guest_packages',
-           'room_type', 'room_preference', 'gender_preference', 'group_gender',
+           'room_type', 'room_preference', 'gender_preference', 'group_gender', 'keep_together',
            'add_ons', 'catalog_selections', 'selected_bed_codes', 'email',
            'language')
 _CHECKED_FIELDS = ('guests', 'room_name_hints', 'payment_choice', 'per_guest_payment_links')
-_CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference',
+_CARRIED_FIELDS = ('language', 'group_gender', 'gender_preference', 'room_preference', 'keep_together',
                    'room_name_hints', 'email', 'guests', 'payment_choice',
                    'per_guest_payment_links')
 _registered_quote = None
@@ -154,6 +154,7 @@ def _material_projection(plan, revision=None, *, include_personal=False):
     projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
         'guest_count': value('guest_count'), 'room_type': value('room_type'),
+        'keep_together': value('keep_together') is True,
         'allocation': allocation, 'package_code': value('package_code'),
         'guest_packages': packages,
         'services': sorted(services, key=lambda item: _encode(item)),
@@ -1377,6 +1378,14 @@ def _validated_material_changes(raw, changes, state=None):
             if marker in list_seen:
                 return None
             list_seen.add(marker)
+        elif field == 'keep_together':
+            # The model owns the semantic interpretation; this is a proposal to
+            # re-quote, never acceptance. Bind it to the whole current turn.
+            if (field in scalar_seen or set(change) != {'field', 'value', 'evidence'}
+                    or type(change.get('value')) is not bool
+                    or not _action_evidence_is_current_turn(raw, evidence)):
+                return None
+            scalar_seen.add(field)
         else:
             if (field in scalar_seen or field == 'selected_bed_codes'
                     or set(change) != {'field', 'value', 'evidence'}
@@ -1750,6 +1759,24 @@ def interpret_owner_turn(interpretation):
         bounded_changes = _validated_material_changes(raw, changes, state)
         if bounded_changes is None:
             raise QuoteBoundaryError('quote_intent_schema_invalid')
+        if any(change['field'] == 'keep_together' for change in bounded_changes):
+            # A stock refusal can remove the old presentation. A placement-only
+            # revision must still be possible, but grants no create authority.
+            if (action != 'revise' or len(bounded_changes) != 1 or completions
+                    or any(interpretation[key] for key in ('ambiguous', 'negated', 'conditional'))
+                    or bounded_changes[0]['value'] is not False):
+                raise QuoteBoundaryError('keep_together_revision_required')
+            if 'interpretation_result' in pending:
+                return deepcopy(pending['interpretation_result'])
+            if _presentation_plan(state).get('keep_together') is not True:
+                raise QuoteBoundaryError('keep_together_revision_required')
+            _revoke_placement_authority(state)
+            state['authorized_revision_changes'] = bounded_changes
+            state['unresolved_change'] = False
+            result = {'accepted': False, 'create_ready': False, 'action': 'revise',
+                      'question_required': False, 'next_action': 'requote_material_changes'}
+            pending['interpretation_result'] = deepcopy(result)
+            return result
         presentation = state.get('presentation')
         if (not isinstance(presentation, dict)
                 or presentation.get('tenant') != ingress['tenant']
@@ -2099,12 +2126,36 @@ def _project_room_name_hints_from_guests(guests, retained_hints, guest_count):
     return projected
 
 
+def _revoke_placement_authority(state):
+    for key in ('checked_offer', 'presented_offer', 'presentation',
+                'accepted_presentation', 'acceptance_message', 'acceptance_raw_digest',
+                'operation_key', 'dispatch_pending', 'dispatch_payload', 'pending_fact_refresh'):
+        state.pop(key, None)
+    state.update(status='blocked', quote=None, auto_acceptance=False)
+    state['epoch'] += 1
+    _current.get().epoch = state['epoch']
+
+
+def _split_revision_proposed(state):
+    return (state.get('current_turn', {}).get('interpretation_result', {}).get('next_action')
+            == 'requote_material_changes'
+            and any(change.get('field') == 'keep_together' and change.get('value') is False
+                    for change in state.get('authorized_revision_changes') or []))
+
+
+def _validate_keep_together(params):
+    """Reject malformed placement constraints before touching owner state."""
+    if 'keep_together' in params and type(params['keep_together']) is not bool:
+        raise QuoteBoundaryError('invalid_keep_together')
+
+
 def prepare_quote(params):
     """Prepare a read-only Staff quote, preserving omitted draft selections.
 
     Quote admission is intentionally not a consent boundary: explicit model values
     are sent to Staff for pricing, while omitted values retain the previous draft.
     """
+    _validate_keep_together(params)
     def prepare(state, ingress):
         normalized_params = dict(params)
         authorized = state.get('authorized_revision_changes') or []
@@ -2121,6 +2172,9 @@ def prepare_quote(params):
         result = deepcopy(normalized_params)
         preserved = deepcopy(state.get('plan') or {})
         preserved.update(deepcopy(state.get('completion_plan') or {}))
+        if (preserved.get('keep_together') is True and result.get('keep_together') is False
+                and not _split_revision_proposed(state)):
+            raise QuoteBoundaryError('keep_together_revision_required')
         prior_room_preference = str(preserved.get('room_preference') or '').strip()
         new_room_preference = str(result.get('room_preference') or '').strip().casefold()
         explicit_prior_room = re.fullmatch(
@@ -2649,10 +2703,15 @@ def record_quote(params, response):
 
 def record_availability_context(params):
     """Merge trusted availability facts without replacing booking authority."""
+    _validate_keep_together(params)
     projection = {key: deepcopy(params[key]) for key in (*_FIELDS, *_CHECKED_FIELDS)
                   if key in params}
     def record(state, ingress):
         previous = _presentation_plan(state)
+        if (previous.get('keep_together') is True and projection.get('keep_together') is False
+                and not _split_revision_proposed(state)):
+            raise QuoteBoundaryError('keep_together_revision_required')
+        tightened = projection.get('keep_together') is True and previous.get('keep_together') is not True
         changed = (all(isinstance(projection.get(key), str) and projection[key]
                        for key in ('check_in', 'check_out'))
                    and all(isinstance(previous.get(key), str) and previous[key]
@@ -2707,6 +2766,11 @@ def record_availability_context(params):
                     merged[key] = merged[key][:party_size]
         state['retired_guest_indices'] = sorted(retired)
         state['plan'] = merged
+        if tightened or (previous.get('keep_together') is True
+                         and projection.get('keep_together') is False):
+            # Both directions revoke all old authority; a fresh checked offer
+            # and its presentation/acceptance are mandatory before any create.
+            _revoke_placement_authority(state)
         # Availability is a projection, not a new commercial/person owner.  Keep
         # completions already accepted by the quote owner and fold them into the
         # merged plan so a later create sees one coherent authoritative snapshot.
@@ -2722,10 +2786,12 @@ def record_availability_context(params):
                 'check_out': merged['check_out']}
         else:
             state.pop('quote_date_acknowledgement', None)
+        return deepcopy(merged)
     return _transaction(record)
 
 
 def prepare_create(params):
+    _validate_keep_together(params)
     params = deepcopy(params)
     def prepare(state, ingress):
         frozen_dispatch = state.get('dispatch_payload')

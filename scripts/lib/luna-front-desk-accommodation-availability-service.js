@@ -129,6 +129,10 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
     return skipped('invalid_date_range');
   }
 
+  if (transportBody.keep_together !== undefined && typeof transportBody.keep_together !== 'boolean') {
+    return fail(400, 'invalid_keep_together', 'keep_together must be a boolean.');
+  }
+
   const roomType = resolveQuoteRoomTypeFromPreference(
     transportBody.room_type,
     transportBody.room_preference,
@@ -158,6 +162,7 @@ function buildWolfhouseAvailabilityCommand(opts = {}) {
       genderPreference,
       groupGender,
       roomPreference,
+      keepTogether: transportBody.keep_together === true,
       guestName,
       guests,
       packageCode: packageCode || null,
@@ -182,6 +187,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     genderPreference,
     groupGender,
     roomPreference,
+    keepTogether,
     guestName,
     assignmentMode,
     guests,
@@ -310,6 +316,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
       blockRows,
       guestCount,
       guestName,
+      keepTogether,
       genderPreference: canonicalGender || genderPreference || groupGender || null,
       roomPreference: explicitRoomPreference || roomPreference || roomType || genderPreference || null,
       groupGender: canonicalGender || groupGender || genderPreference || null,
@@ -331,6 +338,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
         blockRows,
         guestCount,
         guestName,
+        keepTogether,
         genderPreference: canonicalGender,
         roomPreference: `${canonicalGender}_only`,
         groupGender: canonicalGender,
@@ -377,6 +385,7 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
           blockRows,
           guestCount,
           guestName,
+          keepTogether,
           genderPreference: genderPreference || groupGender || null,
           roomPreference: roomPreference || genderPreference || null,
           groupGender: groupGender || genderPreference || null,
@@ -408,6 +417,12 @@ function computeWolfhouseAvailabilityInventory(bedRows, blockRows, command, room
     }
   }
 
+  if (allocationReason === 'same_room_unavailable') {
+    needsClarification = true;
+    clarificationConflict = allocationReason;
+    blockers.push(allocationReason);
+    warnings.push('group_split_across_rooms_required');
+  }
   if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
 
   const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount, bedRows, blockRows);
@@ -441,6 +456,7 @@ function resolveDomainNextAction(channel, inventory, dateEval) {
     if (dateEval.reason_code === 'package_min_nights_violation') return 'package_min_nights_violation';
     return 'handoff_to_staff';
   }
+  if (inventory.allocationReason === 'same_room_unavailable') return 'explain_split_or_alternate_dates';
   if (inventory.needsClarification) return 'ask_room_eligibility';
   if (!inventory.hasEnoughBeds) {
     return channel === AVAILABILITY_CHANNELS.BOT_HTTP
@@ -544,6 +560,7 @@ function buildCanonicalAvailabilityBody(command, inventory, dateEval) {
     room_type: command.roomType,
     gender_preference: command.genderPreference || null,
     room_preference: command.roomPreference || null,
+    keep_together: command.keepTogether === true,
     room_eligibility: roomEligibility,
     group_gender: inventory.groupGenderResolved,
     allocation_reason: inventory.allocationReason,
@@ -684,7 +701,9 @@ async function executeWolfhouseAvailabilityCheck(pg, command) {
  * Map canonical availability to Staff bot HTTP response (transport enrichment only).
  */
 function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
-  const nextAction = canonical.needs_clarification
+  const nextAction = canonical.allocation_reason === 'same_room_unavailable'
+    ? 'explain_split_or_alternate_dates'
+    : canonical.needs_clarification
     ? 'ask_room_eligibility'
     : canonical.domain_next_action === 'ask_staff_or_alternate_dates'
     ? 'ask_staff_or_alternate_dates'
@@ -711,6 +730,7 @@ function mapBotHttpAvailabilityResponse(canonical, httpOpts = {}) {
     date_rule_ok: canonical.date_rule_ok,
     gender_preference: canonical.gender_preference,
     room_preference: canonical.room_preference,
+    keep_together: canonical.keep_together,
     group_gender: canonical.group_gender,
     allocation_reason: canonical.allocation_reason,
     allocation_split: canonical.allocation_split,
@@ -754,6 +774,7 @@ function buildAvailabilityRecheckCommandFromBooking(command) {
     roomPreference: command.roomPreference || null,
     guestName: command.guestName || null,
     groupGender: body.group_gender || null,
+    keepTogether: body.keep_together === true,
     packageCode: command.effectivePackageCode || command.storagePackageCode || null,
     guestPackages: command.guestPackages || body.guest_packages || [],
     // Re-read current Admin policy at commit; never reuse transport-supplied config.
@@ -872,6 +893,7 @@ function wolfhouseOfferPayload(offer) {
     room_arrangement: normalizeRoomArrangement(src.room_arrangement),
     room_type: src.room_type || null,
     room_preference: src.room_preference || null,
+    ...(src.keep_together === true ? { keep_together: true } : {}),
     gender_preference: src.gender_preference || null,
     // Informational allocator/group classification only. It remains in the
     // revision for diagnostics but is removed from the identity projection.
@@ -1076,6 +1098,7 @@ function currentWolfhouseOfferFromCreateCommand(command) {
       selected_bed_codes: beds,
       room_type: src.roomType,
       room_preference: src.roomPreference || null,
+      keep_together: src.transportBody?.keep_together === true,
       group_gender: src.groupGender || src.genderPreference || null,
       gender_preference: src.genderPreference || null,
       allocation_reason: src.allocationReason || null,
@@ -1151,6 +1174,7 @@ function buildCheckedWolfhousePreviewOffer(input) {
     room_arrangement: roomArrangement,
     room_type: availability.room_type,
     room_preference: availability.room_preference,
+    keep_together: availability.keep_together,
     group_gender: availability.group_gender,
     gender_preference: availability.gender_preference,
     allocation_reason: availability.allocation_reason,
@@ -1312,6 +1336,7 @@ async function rereadWolfhouseOfferForCommit(pg, command) {
       selected_bed_codes: beds,
       room_type: src.roomType,
       room_preference: src.roomPreference || null,
+      keep_together: src.transportBody?.keep_together === true,
       group_gender: src.groupGender || src.genderPreference || null,
       gender_preference: src.genderPreference || null,
       allocation_reason: src.allocationReason || null,
