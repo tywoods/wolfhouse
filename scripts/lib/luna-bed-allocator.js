@@ -440,9 +440,9 @@ function tryPlaceWithTieredPools({
   const activePools = (pools || []).filter((p) => p.rooms && p.rooms.length);
   if (!activePools.length) return null;
 
-  // Single-room fit — dedicated tier only (keeps small groups off operator/flip)
-  const firstPool = activePools[0];
-  if (firstPool) {
+  // Keep a party in one eligible room before considering any cross-room split.
+  // Tier order still prefers dedicated rooms; operator/flip safety is unchanged.
+  for (const firstPool of activePools) {
     const eligible = firstPool.rooms.filter(
       (r) => roomEligibleForGroup(r.category, groupGender, firstPool.allocOpts) && countAvailable(r) > 0,
     );
@@ -651,6 +651,14 @@ function operatorBlockedRoomsFromBlocks(blockRows) {
   return rooms;
 }
 
+function enforceKeepTogether(selection, keepTogether) {
+  if (keepTogether !== true || !selection || !selection.split) return selection;
+  return {
+    selected_bed_codes: [], room_code: null, split: true,
+    handoff: false, needs_clarification: true, reason: 'same_room_unavailable',
+  };
+}
+
 function chooseBeds(opts) {
   const guestCount = Math.max(1, Number(opts.guestCount) || 1);
   let groupGender = opts.groupGender || 'unknown';
@@ -719,7 +727,7 @@ function chooseBeds(opts) {
     groupGender,
     roomPreference,
   });
-  if (result && !result.handoff) return result;
+  if (result && !result.handoff) return enforceKeepTogether(result, opts.keepTogether);
   if (result && result.handoff) return result;
 
   if (groupGender === 'unknown') {
@@ -732,7 +740,7 @@ function chooseBeds(opts) {
 }
 
 /** Legacy capacity-only picker (feature-flag rollback). */
-function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
+function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference, keepTogether }) {
   const n = Math.max(1, Number(guestCount) || 1);
   const privatePick = privateSellingSelection(rooms, n, roomPreference);
   if (privatePick) return privatePick;
@@ -763,7 +771,7 @@ function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
   }
   if (rooms.length && rooms.every(room => room.fill_policy)) {
     const plan = cramAcrossEligibleRooms(rooms, n);
-    return plan ? buildCramSelection(plan, n) : { handoff: true, reason: 'not_enough_available_beds' };
+    return plan ? enforceKeepTogether(buildCramSelection(plan, n), keepTogether) : { handoff: true, reason: 'not_enough_available_beds' };
   }
   const flat = (rooms || [])
     .flatMap((r) => (r.beds || []).filter((b) => b.available))
@@ -773,12 +781,12 @@ function chooseBedsCapacityOnly({ rooms, guestCount, roomPreference }) {
   if (flat.length < n) {
     return { handoff: true, reason: 'not_enough_available_beds' };
   }
-  return {
+  return enforceKeepTogether({
     selected_bed_codes: flat,
     room_code: null,
     split: true,
     reason: 'legacy_capacity_scatter',
-  };
+  }, keepTogether);
 }
 
 function deriveAllocatorContext({
@@ -885,6 +893,7 @@ function runAvailabilityBedSelection(params) {
     roomPreference,
     groupGender,
     roomFillRanking = null,
+    keepTogether = false,
     capacityOnly = false,
     useRules = isRulesBasedRoomingEnabled(),
   } = params;
@@ -923,9 +932,10 @@ function runAvailabilityBedSelection(params) {
       groupGender: ctx.groupGender,
       roomPreference: ctx.roomPreference,
       allowProtected: true,
+      keepTogether,
       operatorBlockedRoomCodes: blockedRooms,
     })
-    : chooseBedsCapacityOnly({ rooms, guestCount, roomPreference: ctx.roomPreference });
+    : chooseBedsCapacityOnly({ rooms: applyOperatorBlockFlags(rooms, blockedRooms), guestCount, roomPreference: ctx.roomPreference, keepTogether });
 
   if (pick.handoff || pick.needs_clarification) {
     return {
@@ -988,6 +998,9 @@ function validateExplicitBedSelection({ selectedBedCodes, bedRows, blockRows, gu
   const blockedRooms = operatorBlockedRoomsFromBlocks(blockRows || []);
   const conflicts = selectedBedCodes.filter((code, i) => occupied.has(code) || blockedRooms.has(selected[i].room_code));
   if (conflicts.length) return bad('availability_changed', conflicts);
+  if (body.keep_together === true && new Set(selected.map(row => row.room_code)).size !== 1) {
+    return bad('same_room_unavailable');
+  }
 
   const roster = Array.isArray(body.guests) && body.guests.length === guestCount
     ? body.guests : (guestCount === 1 ? [{ name: body.guest_name }] : []);
