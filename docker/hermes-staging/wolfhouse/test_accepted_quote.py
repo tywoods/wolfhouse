@@ -2621,7 +2621,7 @@ class OwnerHostileTests(unittest.TestCase):
         })
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertEqual('Are all guests eligible for the requested women-only room?',
+        self.assertEqual('Just to confirm, are Alex and Sam women?',
                          shown['final_response'])
 
     def test_sim19_spanish_eligibility_question_keeps_meaning_in_spanish(self):
@@ -2642,17 +2642,17 @@ class OwnerHostileTests(unittest.TestCase):
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertEqual(
-            '¿Pueden todas las personas alojarse en la habitación solicitada solo para mujeres?',
+            'Solo para confirmar, ¿Alex y Sam son mujeres?',
             shown['final_response'])
 
     def test_sim19_multilingual_eligibility_questions_remain_supported(self):
         cases = (
             ('en', 'Are both guests girls?',
-             'Are all guests eligible for the requested men-only room?'),
+             'Just to confirm, are Alex and Sam men?'),
             ('es', '¿Sois dos chicos?',
-             '¿Pueden todas las personas alojarse en la habitación solicitada solo para hombres?'),
+             'Solo para confirmar, ¿Alex y Sam son hombres?'),
             ('de', 'Seid ihr beide Jungs?',
-             'Können alle Gäste im gewünschten Männerzimmer übernachten?'),
+             'Nur zur Bestätigung: Sind Alex und Sam Männer?'),
         )
         for language, question, expected in cases:
             with self.subTest(language=language):
@@ -2799,7 +2799,7 @@ class OwnerHostileTests(unittest.TestCase):
             'en': ('Please book this room', 'Accommodation only', 'Which would you like?', 'Availability checked', 'I could not verify'),
             'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Cuál prefieres?', 'Disponibilidad comprobada', 'No pude verificar'),
             'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Que préférez-vous ?', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
-            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Was möchtest du?', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
+            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Was möchtet ihr?', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
         }
         for language, expected in cases.items():
             raw, accommodation, options, availability, refusal_text = expected
