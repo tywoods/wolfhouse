@@ -703,6 +703,28 @@ def _availability_is_comparison_turn(params):
     ))
 
 
+def _same_room_refusal(data, tool):
+    """Stock/placement refusal is not a request to establish anyone's gender."""
+    if not isinstance(data, dict) or "same_room_unavailable" not in (
+            [data.get("allocation_reason"), data.get("reason_code")] + list(data.get("blockers") or [])):
+        return None
+    return {
+        **data, "tool": tool, "available": False, "availability_status": "unavailable",
+        "unavailable": True, "unclear": False, "selected_bed_codes": [],
+        "selected_room_code": None, "needs_human": False, "staff_review_needed": False,
+        "do_not_escalate": True, "write_performed": False, "room_decision": None,
+        "next_action": ("explain_split_or_alternate_dates" if data.get("allocation_split") is True
+                        else "ask_same_room_reselection"),
+        "guest_safe_next_action": (
+            "No eligible room can fit the whole party for the full stay. "
+            "The remaining beds require separate rooms, which you haven't agreed to. "
+            "Would other dates work so you can stay together?"
+            if data.get("allocation_split") is True else
+            "The requested beds do not meet your requirement to stay in one room. "
+            "Would you like me to check another selection in the same room?"),
+    }
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -723,7 +745,7 @@ def check_availability(params, **kwargs):
         if params.get(key) not in (None, ""):
             payload[key] = params[key]
     for key in ("room_preference", "gender_preference", "group_gender", "guests",
-                "room_name_hints", "payment_choice"):
+                "room_name_hints", "payment_choice", "keep_together", "selected_bed_codes"):
         if key in params:
             payload[key] = params[key]
     # Availability and quote interpret the same canonical person-bound facts.
@@ -740,14 +762,22 @@ def check_availability(params, **kwargs):
     _default_solo_shared_placement(payload)
     try:
         from wolfhouse import accepted_quote as ledger
-        # Availability may also be used outside an initialized conversation
-        # (offline probes/retained registered fixtures).  Only write owner state
-        # when this invocation has an active owner turn and represents a choice.
-        if ledger._current.get() is not None and not comparison_only:
-            ledger.record_availability_context(payload)
-    except (ImportError, RuntimeError):
-        pass
+    except ImportError:
+        ledger = None
+    # Availability can also run outside an initialized owner turn.
+    if ledger is not None and ledger._current.get() is not None and not comparison_only:
+        try:
+            retained = ledger.record_availability_context(payload)
+            if retained.get("keep_together") is True:
+                payload["keep_together"] = True
+        except ledger.QuoteBoundaryError as exc:
+            return _json_result({"success": False, "write_performed": False,
+                                 "error": str(exc), "tool": "check_availability",
+                                 "requires_guest_confirmation": True})
     data = _post_bot("/availability-check", payload)
+    together_refusal = _same_room_refusal(data, "check_availability")
+    if together_refusal is not None:
+        return _json_result(together_refusal)
     structured_eligibility = data.get("room_eligibility") if isinstance(data, dict) else None
     if not (isinstance(structured_eligibility, dict)
             and structured_eligibility.get("status") in {"yes", "no", "unsure"}
@@ -884,6 +914,9 @@ def check_availability(params, **kwargs):
         "unclear": status == "unclear",
         "staff_review_needed": status == "unclear" or bool(data.get("staff_review_needed")),
         "selected_bed_codes": selected_codes,
+        "keep_together": payload.get("keep_together"),
+        "allocation_split": data.get("allocation_split") is True,
+        "allocation_reason": data.get("allocation_reason"),
         "selected_room_types": room_contract["selected_room_types"],
         "selected_room_description": room_contract.get("selected_room_description"),
         "guest_safe_room_label": room_contract.get("guest_safe_room_label"),
@@ -977,7 +1010,7 @@ def quote_booking(params, **kwargs):
     identity = dict(payload)
     _normalize_guests_payload(
         identity, validated_explicit_genders=owner_validated_guest_eligibility)
-    payload.update({key: identity[key] for key in ("guest_name", "guests") if key in identity})
+    payload.update({key: identity[key] for key in ("guest_name", "guests", "selected_bed_codes") if key in identity})
     hints = [{"name": guest.get("name"), "explicit_gender": guest.get("explicit_gender")}
              for guest in payload.get("guests", []) if isinstance(guest, dict)
              and guest.get("explicit_gender") in ("male", "female")]
@@ -995,8 +1028,14 @@ def quote_booking(params, **kwargs):
             key: payload[key] for key in (
                 "client_slug", "check_in", "check_out", "guest_count", "room_type",
                 "room_preference", "gender_preference", "group_gender", "guests",
-                "room_name_hints") if key in payload
+                "room_name_hints", "keep_together") if key in payload
         })
+        together_refusal = _same_room_refusal(availability, "quote_booking")
+        if together_refusal is not None:
+            return _json_result({**together_refusal, "success": False,
+                                 "quote_status": "needs_guest_clarification",
+                                 "offer_revision": None, "total_cents": None,
+                                 "deposit_required_cents": None})
         picked = availability.get("selected_bed_codes") if isinstance(availability, dict) else None
         # Compatibility with Staff receipts that return only the exact selected
         # rows: accept them only when they form one complete, unambiguous party
@@ -1179,6 +1218,16 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
     raw = payload.get("guests")
     if not isinstance(raw, list):
         return
+    # Ordered requests remain untrusted until Staff's existing exact-bed recheck.
+    # Partial requests retain empty slots so Staff refuses instead of auto-swapping.
+    if any(isinstance(item, dict) and "selected_bed_code" in item for item in raw):
+        requested = [_clean(item.get("selected_bed_code")) if isinstance(item, dict) else ""
+                     for item in raw]
+        if "selected_bed_codes" not in payload:
+            payload["selected_bed_codes"] = requested
+        elif payload["selected_bed_codes"] != requested:
+            # A contradictory ordered mapping is deliberately invalid, never a choice.
+            payload["selected_bed_codes"] = [""] * len(raw)
     normalized = []
     for index, item in enumerate(raw):
         explicit_gender = None
@@ -1515,6 +1564,8 @@ def create_booking_from_plan(params, **kwargs):
                 **({"room_preference": payload.get("room_preference")} if payload.get("room_preference") else {}),
                 **({"gender_preference": payload.get("gender_preference")} if payload.get("gender_preference") else {}),
                 **({"group_gender": payload.get("group_gender")} if payload.get("group_gender") else {}),
+                **({"keep_together": payload["keep_together"]} if "keep_together" in payload else {}),
+                **({"guests": payload["guests"]} if "guests" in payload else {}),
             })
             bed_codes = avail_data.get("selected_bed_codes") or []
             if bed_codes:
@@ -1591,6 +1642,7 @@ def create_booking_from_plan(params, **kwargs):
                     "room_type": payload.get("room_type") or "any",
                     "room_preference": payload.get("room_preference"),
                     "selected_bed_codes": codes,
+                    **({"keep_together": payload["keep_together"]} if "keep_together" in payload else {}),
                     "guests": guests,
                     **({"room_name_hints": hints} if hints is not None else {}),
                 })
@@ -5179,6 +5231,12 @@ def register(ctx):
             "items": {"type": "object"},
         },
     }
+    placement_fields = {
+        "keep_together": {"type": "boolean", "description": "Separate from room category: true when the party must stay in one room or refuses a split (including a couple asking to stay together). Never infer gender from this or from couple/names. Retain across availability, quote and create. If Staff says same_room_unavailable, explain that no eligible room fits the whole party for the full stay and offer other dates; never book a refused split. Only propose false when the guest explicitly agrees to separate rooms: first call interpret_booking_turn with action revise, the sole material change keep_together=false, and the complete current guest message as both evidence fields. This permits only a fresh checked/presented split offer; never reuse earlier acceptance."},
+        "selected_bed_codes": {"type": "array", "items": {"type": "string"}, "description": "Guest-requested exact bed codes in guest order. Requests only, never proof of availability; Staff revalidates inventory, eligibility and operator blocks. Never silently replace stale/requested beds."},
+    }
+    common_availability.update(placement_fields)
+    common_booking.update(placement_fields)
     intent_interpretation = {
         "action": {"type": "string", "enum": ["accept", "reject", "revise", "clarify"],
                    "description": "Semantic intent for the current original guest message in the context of the latest owner-presented offer."},
@@ -5189,9 +5247,9 @@ def register(ctx):
         "conditional": {"type": "boolean"},
         "material_changes": {"type": "array", "items": {
             "type": "object",
-            "description": "One exact evidenced target. Scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
+            "description": "One exact evidenced target. Placement relaxation exception: keep_together=false is a boolean semantic revision proposed alone, with the COMPLETE current guest message as evidence, action revise, and no ambiguous/negated/conditional flags. This revokes old authority and requires a fresh checked/presented offer and acceptance. Other scalar: {field,value,evidence}; value must appear literally in evidence (use YYYY-MM-DD and digits when needed), otherwise clarify. Narrow list item: {field,operation:add|remove,item,evidence}; every item identity and quantity must appear in evidence. Multiple ordered operations for one list field are allowed, but duplicate/conflicting identities are not.",
             "properties": {
-                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email"]},
+                "field": {"type": "string", "enum": ["check_in", "check_out", "guest_count", "package_code", "guest_packages", "room_type", "room_preference", "gender_preference", "group_gender", "add_ons", "catalog_selections", "email", "keep_together"]},
                 "value": {},
                 "operation": {"type": "string", "enum": ["add", "remove"]},
                 "item": {"type": "object"},
@@ -5218,7 +5276,7 @@ def register(ctx):
         }},
     }
     tools = [
-        ("interpret_booking_turn", "Optional compatibility diagnostic only. It may log the model's semantic interpretation but never authorizes or vetoes create_booking_from_plan.", interpret_booking_turn, intent_interpretation,
+        ("interpret_booking_turn", "Optional compatibility diagnostic for ordinary booking intent. Also proposes a placement-only keep_together=false revision when the guest explicitly agrees to separate rooms, including after a stock refusal. This proposal never authorizes create_booking_from_plan: a fresh checked and presented offer and its acceptance are required.", interpret_booking_turn, intent_interpretation,
          ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
         ("check_availability", "Check real Wolfhouse bed availability. Use before any availability claim. Preserve explicit whole-party composition and established person facts on availability and carry them into quote; never infer gender from names, a room request, or payment choice. Partial-party facts remain person-bound and must not be generalized. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
