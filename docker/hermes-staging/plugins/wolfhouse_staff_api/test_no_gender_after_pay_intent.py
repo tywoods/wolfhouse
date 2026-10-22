@@ -317,7 +317,7 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         result, calls = self.invoke("check_availability", unknown, availability=gendered_stock)
         self.assertNotIn("group_gender", calls[0][1])
         self.assertEqual(result["reply_draft"],
-                         "Is everyone in your group eligible for the women-only dorm?")
+                         "Can Alex and Sam stay in the women-only dorm?")
         self.assertEqual(result["reply_draft"].count("?"), 1)
         self.assertEqual((calls[0][1]["check_in"], calls[0][1]["check_out"]),
                          (base["check_in"], base["check_out"]))
@@ -338,7 +338,8 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         for tool in ("quote_booking", "create_booking_from_plan"):
             properties = self.tools[tool]["schema"]["parameters"]["properties"]
             description = properties["group_gender"]["description"].lower()
-            self.assertIn("never ask after payment intent", description)
+            self.assertIn("pending through names, date corrections, or payment preference", description)
+            self.assertIn("never ask again", description)
             self.assertIn("never invent", description)
             self.assertIn("unknown", description)
             self.assertIn("reuse", properties["room_preference"]["description"].lower())
@@ -390,7 +391,8 @@ class NoGenderAfterPayIntentTests(unittest.TestCase):
         for preference in ("female_only", "male_only"):
             result, calls = self.invoke("create_booking_from_plan", {**self.payload, "room_preference": preference})
             self.assertEqual(calls, [])
-            self.assertEqual(result["reply_draft"], "Would a mixed dorm work for you?")
+            room = "women-only" if preference == "female_only" else "men-only"
+            self.assertEqual(result["reply_draft"], f"Can Alex and Sam stay in the {room} dorm?")
             self.assertEqual(result["room_decision"]["resolved_composition"], "unknown")
             self.assertNotIn(preference, result["room_decision"]["allowed_room_preferences"])
 

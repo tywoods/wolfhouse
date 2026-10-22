@@ -473,13 +473,24 @@ def _room_decision_for_tool(params, availability=None, *, payment_intent=False):
             preference = "mixed"
     if not preference and room_type in {"private", "couple_private", "private_room", "couple"}:
         preference = room_type
-    raw_travelers = params.get("room_name_hints") if isinstance(params.get("room_name_hints"), list) else []
+    raw_guests = params.get("guests")
+    if not isinstance(raw_guests, list):
+        raw_guests = []
+    raw_hints = params.get("room_name_hints")
+    if not isinstance(raw_hints, list):
+        raw_hints = []
+    # Eligibility is person-bound.  For gendered rooms the canonical guest list
+    # owns each slot's explicit answer; legacy room_name_hints are used only when
+    # no canonical guest roster is available.  Display names are not identities
+    # and must never be used to copy an answer between guest rows.
+    source_rows = (raw_guests if preference in {"female_only", "male_only"} and raw_guests
+                   else raw_hints)
     travelers = [
         {"name": _clean(item.get("name")),
          "explicit_gender": (_clean(item.get("explicit_gender")).lower()
-                             if _clean(item.get("explicit_gender")).lower() in {"female", "male"}
-                             else "")}
-        for item in raw_travelers
+                             if _clean(item.get("explicit_gender")).lower()
+                             in {"female", "male"} else "")}
+        for item in source_rows
         if isinstance(item, dict)
     ] or None
     group_gender = params.get("group_gender")
@@ -978,6 +989,7 @@ def quote_booking(params, **kwargs):
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.
     structured_eligibility = None
+    local_eligibility_decision = None
     if not payload.get("selected_bed_codes"):
         availability = _post_bot("/availability-check", {
             key: payload[key] for key in (
@@ -996,10 +1008,27 @@ def quote_booking(params, **kwargs):
                 picked = [row["bed_code"] for row in rows]
         structured_eligibility = (availability.get("room_eligibility")
                                   if isinstance(availability, dict) else None)
+        if not isinstance(structured_eligibility, dict):
+            # Legacy Staff receipts may provide an exact gendered bed pick but
+            # omit structured eligibility. Apply the same local owner policy
+            # before pricing; names, corrected dates, or payment preference do
+            # not turn that missing person-bound fact into eligibility.
+            local_eligibility_decision = _room_decision_for_tool(
+                payload, availability,
+                payment_intent=isinstance(params.get("payment_choice"), str)
+                and bool(params["payment_choice"].strip())
+                and _normalize_payment_choice(params["payment_choice"])
+                in {"full", "deposit", "pay_on_arrival"},
+            )
         structured_yes = (not isinstance(structured_eligibility, dict)
                           or structured_eligibility.get("status") == "yes")
+        local_yes = not (isinstance(local_eligibility_decision, dict) and (
+            local_eligibility_decision.get("clarification_needed")
+            or local_eligibility_decision.get("conflict")
+        ))
         if (availability.get("success") is True
                 and structured_yes
+                and local_yes
                 and availability.get("needs_clarification") is not True
                 and availability.get("has_enough_beds") is not False
                 and isinstance(picked, list) and len(picked) == payload.get("guest_count")):
@@ -1009,10 +1038,14 @@ def quote_booking(params, **kwargs):
             # Staff's room-resolution response drive the next guest question;
             # do not call pricing or give the owner a non-bed-backed quote.
             structured_decision = ({"structured": True, **structured_eligibility}
-                                   if isinstance(structured_eligibility, dict) else None)
+                                   if isinstance(structured_eligibility, dict)
+                                   else local_eligibility_decision)
             availability_status = _availability_status(availability)
-            if (isinstance(structured_eligibility, dict)
-                    and structured_eligibility.get("status") != "yes"
+            if (((isinstance(structured_eligibility, dict)
+                    and structured_eligibility.get("status") != "yes")
+                    or (isinstance(local_eligibility_decision, dict) and (
+                        local_eligibility_decision.get("clarification_needed")
+                        or local_eligibility_decision.get("conflict"))))
                     and availability_status != "unavailable"):
                 availability_status = "eligibility_required"
             return _json_result({
@@ -1026,6 +1059,12 @@ def quote_booking(params, **kwargs):
                 "deposit_required_cents": None, "write_performed": False,
                 **({"room_decision": structured_decision}
                    if structured_decision else {}),
+                **({"reply_draft": structured_decision.get("clarification_prompt"),
+                    "next_action": "ask_room_eligibility",
+                    "needs_human": False, "do_not_escalate": True}
+                   if isinstance(structured_decision, dict)
+                   and (structured_decision.get("clarification_needed")
+                        or structured_decision.get("conflict")) else {}),
             })
     data = _post_bot("/booking-preview", payload)
     # Price fields without Staff's checked revision are not an offer. The
@@ -5120,7 +5159,7 @@ def register(ctx):
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Reuse the guest's accepted choice on repeat quote/create; mixed/shared does not establish group_gender. Never override an explicit mismatch or known unavailability."},
-        "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. Resolve any necessary composition before quote/payment; never ask after payment intent (full, split, deposit, or a payment-link request). Reuse prior answers. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
+        "group_gender": {"type": "string", "description": "Explicitly supplied composition only: female (all girls), male (all guys), or mixed. Never invent this from payment intent or an accepted mixed/shared room; leave it absent when unknown. For an explicitly requested gendered room, keep the focused eligibility clarification pending through names, date corrections, or payment preference until explicitly answered; then reuse the answer and never ask again. Do NOT ask or pass when the booking is private room — gender mix does not matter there."},
         "gender_preference": {"type": "string", "description": "Solo only: explicit guest eligibility or explicit room request only. Never infer this from a name."},
         "room_name_hints": {"type": "array", "description": "Legacy compatibility only. Never create name-based gender hints; explicit traveler eligibility only.", "items": {"type": "object"}},
         "email": {"type": "string", "description": "Email address the guest explicitly asked to save after successful booking creation."},

@@ -8,6 +8,38 @@ from wolfhouse.room_eligibility_policy import decide_room_eligibility
 
 
 class RoomEligibilityPolicyTests(unittest.TestCase):
+    def test_requested_gendered_room_names_only_the_unresolved_travelers(self):
+        result = decide_room_eligibility(
+            guest_count=2,
+            room_preference="female_only",
+            travelers=[
+                {"name": "Emma Clarke"},
+                {"name": "Bea", "explicit_gender": "female"},
+            ],
+            available={"female_only": True, "mixed": True},
+        )
+        self.assertTrue(result["clarification_needed"])
+        self.assertEqual(
+            result["clarification_prompt"],
+            "Can Emma Clarke stay in the women-only dorm?",
+        )
+        self.assertNotIn("guest 1", result["clarification_prompt"].casefold())
+        self.assertNotIn("Bea", result["clarification_prompt"])
+
+    def test_name_date_or_payment_context_does_not_establish_solo_eligibility(self):
+        result = decide_room_eligibility(
+            guest_count=1,
+            room_preference="female_only",
+            travelers=[{"name": "Emma Clarke"}],
+            available={"female_only": True, "mixed": True},
+            payment_intent=True,
+        )
+        self.assertTrue(result["clarification_needed"])
+        self.assertEqual(
+            result["clarification_prompt"],
+            "Can Emma Clarke stay in the women-only dorm?",
+        )
+
     def test_sim9_sparse_roster_keeps_explicit_whole_party_fact(self):
         result = decide_room_eligibility(
             guest_count=3, group_gender='female', room_preference='female_only',

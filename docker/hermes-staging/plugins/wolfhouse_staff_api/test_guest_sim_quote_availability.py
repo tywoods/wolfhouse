@@ -168,6 +168,7 @@ const beds = [
             "check_in": "2026-11-18", "check_out": "2026-11-21",
             "guest_count": 1, "room_type": "shared",
             "room_preference": "female_only", "guests": [{"name": "Emma"}],
+            "payment_choice": "full",
         }
         receipt = {
             "success": True, "has_enough_beds": True,
@@ -181,10 +182,116 @@ const beds = [
         self.assertEqual(sent["check_in"], "2026-11-18")
         self.assertEqual(sent["check_out"], "2026-11-21")
         self.assertEqual(sent["room_preference"], "female_only")
+        self.assertEqual(sent["guests"], [{"name": "Emma"}])
+        self.assertEqual(sent["payment_choice"], "full")
         self.assertEqual(result["availability_status"], "eligibility_required", result)
         self.assertEqual(result["next_action"], "ask_room_eligibility")
         self.assertIs(result["girls_room_available"], True)
+        self.assertEqual(result["reply_draft"], "Can Emma stay in the women-only dorm?")
         self.assertNotIn("mixed", result["reply_draft"].casefold())
+
+    def _gendered_room_result(self, guests, preference="female_only"):
+        params = {
+            **self.params,
+            "guest_count": len(guests), "room_type": "shared",
+            "room_preference": preference, "payment_choice": "full",
+            "guests": copy.deepcopy(guests),
+        }
+        receipt = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_room_code": "R5",
+            "selected_bed_codes": [f"R5-B{i}" for i in range(1, len(guests) + 1)],
+            "available_beds": [
+                {"bed_code": f"R5-B{i}", "room_code": "R5", "room_type": preference}
+                for i in range(1, len(guests) + 1)
+            ],
+        }
+        return self.invoke("check_availability", params, receipt)[0]
+
+    def test_same_name_answer_does_not_authorize_unanswered_guest(self):
+        result = self._gendered_room_result([
+            {"name": "Alex Same", "explicit_gender": "female"},
+            {"name": "Alex Same"},
+        ])
+        self.assertEqual(result["availability_status"], "eligibility_required", result)
+        self.assertTrue(result["room_decision"]["clarification_needed"], result)
+        self.assertNotIn("female_only", result["room_decision"]["allowed_room_preferences"])
+
+    def test_same_name_female_answer_does_not_overwrite_explicit_male_guest(self):
+        result = self._gendered_room_result([
+            {"name": "Alex Same", "explicit_gender": "male"},
+            {"name": "Alex Same", "explicit_gender": "female"},
+        ])
+        self.assertNotEqual(result["availability_status"], "available", result)
+        self.assertIn("female_only", result["room_decision"]["excluded_room_preferences"])
+
+    def test_same_name_opposite_facts_are_row_order_independent(self):
+        for guests in (
+            [{"name": "Alex Same", "explicit_gender": "male"},
+             {"name": "Alex Same", "explicit_gender": "female"}],
+            [{"name": "Alex Same", "explicit_gender": "female"},
+             {"name": "Alex Same", "explicit_gender": "male"}],
+        ):
+            with self.subTest(guests=guests):
+                result = self._gendered_room_result(guests)
+                self.assertNotEqual(result["availability_status"], "available", result)
+                self.assertIn("female_only", result["room_decision"]["excluded_room_preferences"])
+
+    def test_explicit_answer_resolves_requested_women_room_without_reasking(self):
+        params = {
+            **self.params,
+            "check_in": "2026-11-17", "check_out": "2026-11-20",
+            "guest_count": 1, "room_type": "shared",
+            "room_preference": "female_only", "payment_choice": "full",
+            "guests": [{"name": "Emma Clarke", "explicit_gender": "female"}],
+        }
+        receipt = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_room_code": "R5", "selected_bed_codes": ["R5-B1"],
+            "available_beds": [
+                {"bed_code": "R5-B1", "room_code": "R5", "room_type": "female_only"},
+            ],
+        }
+        result, sent = self.invoke("check_availability", params, receipt)
+        self.assertEqual(sent["check_in"], "2026-11-17")
+        self.assertEqual(sent["check_out"], "2026-11-20")
+        self.assertEqual(sent["payment_choice"], "full")
+        self.assertEqual(sent["guests"], params["guests"])
+        self.assertEqual(result["availability_status"], "available", result)
+        self.assertFalse(result["room_decision"]["clarification_needed"])
+        self.assertNotEqual(result.get("next_action"), "ask_room_eligibility")
+
+    def test_quote_legacy_gendered_pick_blocks_before_price_until_eligibility_answer(self):
+        params = {
+            **self.params,
+            "check_in": "2026-11-17", "check_out": "2026-11-20",
+            "guest_count": 1, "room_type": "shared",
+            "room_preference": "female_only", "payment_choice": "full",
+            "guests": [{"name": "Emma Clarke"}],
+        }
+        availability = {
+            "success": True, "has_enough_beds": True,
+            "girls_room_available": True,
+            "selected_room_code": "R5", "selected_bed_codes": ["R5-B1"],
+            "available_beds": [
+                {"bed_code": "R5-B1", "room_code": "R5", "room_type": "female_only"},
+            ],
+        }
+        with patch.object(plugin, "_post_bot", return_value=availability) as transport:
+            result = json.loads(self.tools["quote_booking"]["handler"](params))
+        transport.assert_called_once()
+        self.assertEqual(transport.call_args.args[0], "/availability-check")
+        self.assertEqual(transport.call_args.args[1]["check_in"], "2026-11-17")
+        self.assertEqual(transport.call_args.args[1]["check_out"], "2026-11-20")
+        self.assertEqual(result["quote_status"], "needs_guest_clarification")
+        self.assertEqual(result["availability_status"], "eligibility_required")
+        self.assertEqual(result["reply_draft"],
+                         "Can Emma Clarke stay in the women-only dorm?")
+        self.assertIsNone(result["offer_revision"])
+        self.assertIsNone(result["total_cents"])
+        self.assertFalse(result["write_performed"])
 
     def test_mixed_gendered_selection_is_never_relabelled_from_filtered_subset(self):
         receipt = {'success': True, 'has_enough_beds': True,
