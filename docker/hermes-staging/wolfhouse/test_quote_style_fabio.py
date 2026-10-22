@@ -68,7 +68,7 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("📌 *Booking:* WH-2F393C", text)
         self.assertIn("💶 *Total:* €400", text)
         self.assertIn("💳 *Due now:* €200", text)
-        self.assertIn("⏳ *Remaining balance:* €200", text)
+        self.assertIn("⏳ *Remaining after this payment:* €200", text)
         self.assertIn("🔗 *Payment link:* https://example.invalid/pay/abc", text)
         self.assertNotIn("payment received", text.lower())
         self.assertNotIn("paid", text.lower())
@@ -77,8 +77,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
     def test_receipt_localizes_spanish_and_german_without_changing_money_truth(self):
         receipt = {"success": True, "booking_code": "WH-2F393C"}
         expected = {
-            "es": ("Fabio, ¡tu reserva está guardada! 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Saldo restante:* €200"),
-            "de": ("Fabio, deine Buchung ist gespeichert! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Restbetrag:* €200"),
+            "es": ("Fabio, ¡tu reserva está guardada! 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Pendiente después de este pago:* €200"),
+            "de": ("Fabio, deine Buchung ist gespeichert! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Danach noch offen:* €200"),
         }
         for language, phrases in expected.items():
             with self.subTest(language=language):
@@ -95,9 +95,9 @@ class QuoteStyleFabioTests(unittest.TestCase):
             "amount_due_cents": 15000, "currency": "EUR",
         }
         expected = {
-            "en": ("💳 *Due now:* €150", "⏳ *Remaining balance:* €250",
+            "en": ("💳 *Due now:* €150", "⏳ *Remaining after this payment:* €250",
                    "🔗 *Payment link:* https://example.invalid/pay/current"),
-            "es": ("💳 *A pagar ahora:* €150", "⏳ *Saldo restante:* €250",
+            "es": ("💳 *A pagar ahora:* €150", "⏳ *Pendiente después de este pago:* €250",
                    "🔗 *Enlace de pago:* https://example.invalid/pay/current"),
         }
         for language, phrases in expected.items():
@@ -187,6 +187,26 @@ class QuoteStyleFabioTests(unittest.TestCase):
             {**self.offer, "total_cents": 15000, "payment_choice": "per_guest"}, receipt, "es")
         self.assertIn("💳 *A pagar ahora:* €150", text_es)
         self.assertNotIn("A pagar ahora:* €200", text_es)
+
+    def test_german_group_quote_uses_group_address_and_capitalized_anzahlung(self):
+        plan = {**self.plan, "guest_count": 2,
+                "guests": [{"name": "Jonas"}, {"name": "Felix"}]}
+        offer = {**self.offer, **plan, "room_arrangement": [
+            {"bed_code": "R4-B1", "room_code": "R4", "gender_strategy": "male_only"},
+            {"bed_code": "R4-B2", "room_code": "R4", "gender_strategy": "male_only"}],
+            "guest_bed_assignments": [
+                {"guest_index": 0, "guest_name": "Jonas", "bed_code": "R4-B1"},
+                {"guest_index": 1, "guest_name": "Felix", "bed_code": "R4-B2"}]}
+        text = owner._styled_quote_copy(plan, offer, "de", create_ready=True)
+        self.assertTrue(text.startswith("Hier ist euer Aufenthalt 🌊"), text)
+        self.assertIn("(Anzahlung)", text)
+        self.assertIn("Jonas und Felix haben zwei Betten", text)
+        self.assertIn("Soll ich eure Buchung speichern?", text)
+        provisional = owner._styled_quote_copy(plan, offer, "de", create_ready=False)
+        self.assertIn("Ihr könnt jetzt", provisional)
+        self.assertIn("Was möchtet ihr?", provisional)
+        self.assertNotIn("Was möchtest du?", provisional)
+        self.assertNotIn("Jonas und Felix:", text)
 
     def test_malformed_payment_shapes_fail_closed_without_false_copy(self):
         full = {**self.offer, "total_cents": 8000, "payment_link_amount_cents": 6000,

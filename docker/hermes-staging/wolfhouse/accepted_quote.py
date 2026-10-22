@@ -596,11 +596,16 @@ def _guest_room_lines(plan, offer, language='en'):
             count = _count_word(len(same), language)
             plural_kind = _plural_room_kind(kind, language)
             who = _join_names(names, language) if all_guests_named else ''
-            prefix = (f'{who} : ' if language == 'fr' else f'{who}: ') if who else ''
-            templates = {'en': f'{prefix}beds in {count} separate {plural_kind}.',
-                         'es': f'{prefix}camas en {count} {plural_kind} separadas.',
-                         'fr': f'{prefix}lits dans {count} {plural_kind} séparées.',
-                         'de': f'{prefix}Betten in {count} getrennten {plural_kind}.'}
+            templates = {
+                'en': (f'{who} have beds in {count} separate {plural_kind}.' if who
+                       else f'Beds in {count} separate {plural_kind}.'),
+                'es': (f'{who} tienen camas en {count} {plural_kind} separadas.' if who
+                       else f'Camas en {count} {plural_kind} separadas.'),
+                'fr': (f'{who} ont des lits dans {count} {plural_kind} séparées.' if who
+                       else f'Lits dans {count} {plural_kind} séparées.'),
+                'de': (f'{who} haben Betten in {count} getrennten {plural_kind}.' if who
+                       else f'Betten in {count} getrennten {plural_kind}.'),
+            }
             lines.append(templates.get(language, templates['en']))
             continue
         first = True
@@ -627,22 +632,40 @@ def _guest_room_lines(plan, offer, language='en'):
                             if who and singleton else '')
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{prefix}una cama en una {kind}{natural_name}.', 'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
-                            'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
+                    if who and language == 'fr':
+                        where = f'une {kind}' if first else f'une autre {kind}'
+                        line = f'{who} a un lit dans {where}.'
+                    elif who and language == 'de':
+                        where = f'einem {kind}' if first else f'einem anderen {kind}'
+                        line = f'{who} hat ein Bett in {where}.'
+                    else:
+                        line = {'es': f'{prefix}una cama en una {kind}{natural_name}.',
+                                'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
+                                'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
                 else:
-                    line = {'es': f'{prefix}{n} camas en la misma {kind}.', 'fr': f'{prefix}{n} lits dans la même {kind}.',
-                            'de': f'{prefix}{n} Betten im selben {kind}.'}[language]
-                if len(same) > 1 and not first:
-                    line = {'es': f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.',
-                            'fr': f'{who} : {n if beds > 1 else "un"} lit' + ('s' if beds > 1 else '') + f' dans une autre {kind}.',
-                            'de': f'{who}: {n if beds > 1 else "ein"} Bett' + ('en' if beds > 1 else '') + f' in einem anderen {kind}.'}[language]
+                    line = {
+                        'es': (f'{who} tienen {n} camas en la misma {kind}.' if who
+                               else f'{n} camas en la misma {kind}.'),
+                        'fr': (f'{who} ont {n} lits dans la même {kind}.' if who
+                               else f'{n} lits dans la même {kind}.'),
+                        'de': (f'{who} haben {n} Betten im selben {kind}.' if who
+                               else f'{n} Betten im selben {kind}.'),
+                    }[language]
+                if len(same) > 1 and not first and language == 'es':
+                    line = f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.'
+                elif len(same) > 1 and not first and beds > 1:
+                    line = {
+                        'fr': f'{who} ont {n} lits dans une autre {kind}.',
+                        'de': f'{who} haben {n} Betten in einem anderen {kind}.',
+                    }[language]
                 lines.append(line)
                 first = False
                 continue
             if len(same) == 1 and beds == 1:
                 lines.append(f"{prefix}one bed in a {kind}{room_suffix}{natural_name}.")
             elif len(same) == 1:
-                lines.append(f"{prefix}{_count_word(beds)} beds in the same {kind}{room_suffix}.")
+                lines.append((f"{who} have {_count_word(beds)} beds in the same {kind}{room_suffix}."
+                              if who else f"{_count_word(beds)} beds in the same {kind}{room_suffix}."))
             elif beds == 1:
                 where = f"the {kind}" if first else f"a separate {kind}"
                 lines.append(f"{who}: a bed in {where}{room_suffix}.")
@@ -742,7 +765,7 @@ def _styled_room_value(plan, offer, language):
             return 'Private room' + room_suffix
         adjective = 'mixed shared room' if kind == 'mixed room' else kind
         return f'A bed in our {adjective}{room_suffix}'
-    return ' '.join(line.rstrip('.') for line in lines)
+    return '. '.join(line.rstrip('.') for line in lines)
 
 
 def _styled_dates_value(plan, offer, language, *, include_nights=False):
@@ -768,6 +791,14 @@ def _styled_dates_value(plan, offer, language, *, include_nights=False):
 def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated=False):
     """Render provisional or checked Staff terms in Ty-approved WhatsApp style."""
     copy = _style_copy(language)
+    party_count = offer.get('guest_count', plan.get('guest_count'))
+    if language == 'de' and type(party_count) is int and party_count > 1:
+        copy = {**copy,
+                'opener': 'Hier ist euer Aufenthalt 🌊',
+                'deposit_choice': ('Ihr könnt jetzt {deposit} anzahlen oder den vollen Betrag '
+                                   'von {total} bezahlen. Was möchtet ihr?'),
+                'save': 'Soll ich eure Buchung speichern?',
+                'save_updated': 'Soll ich eure aktualisierte Buchung speichern?'}
     currency = offer.get('currency') or 'EUR'
     total = offer.get('total_cents')
     lines = [copy['opener'],
@@ -872,9 +903,11 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         if create_ready:
             if type(due) is int and due > 0:
                 payment_choice = offer.get('payment_choice')
-                payment_name = ({'full': (_final_copy(language, 'full').lower()
-                                          if due == total else None),
-                                 'deposit': _final_copy(language, 'deposit').lower()}
+                local_payment = lambda key: (_final_copy(language, key)
+                                             if language == 'de'
+                                             else _final_copy(language, key).lower())
+                payment_name = ({'full': (local_payment('full') if due == total else None),
+                                 'deposit': local_payment('deposit')}
                                 .get(payment_choice))
                 payment_suffix = f' ({payment_name})' if payment_name else ''
                 if not full_only:
@@ -978,7 +1011,7 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
             lines.append(f"💳 *{copy['due']}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:
-                lines.append(f"⏳ *{copy['balance']}:* {_guest_money(remaining, currency)}")
+                lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")
         else:
             lines.append(f"⏳ *{copy['balance']}:* {_guest_money(total, currency)}")
     url = receipt.get('secure_payment_url')
@@ -1094,12 +1127,31 @@ def _structured_eligibility_copy(eligibility, plan, language):
         'de': 'gewünschten Frauenzimmer' if female else 'gewünschten Männerzimmer',
     }[language]
     if status == 'unsure':
-        if all_party or partial_group:
+        if len(guests) == 1 and indices == [0]:
             return {
-                'en': f'Are {subject} eligible for the requested {room_label}?',
-                'es': f'¿Pueden {subject} alojarse en la {room_label}?',
-                'fr': f'{subject.capitalize()} peuvent-elles séjourner dans la {room_label} ?',
-                'de': f'Können {subject} im {room_label} übernachten?',
+                'en': f'Just to confirm, are you a {"woman" if female else "man"}?',
+                'es': f'Solo para confirmar, ¿eres {"mujer" if female else "hombre"}?',
+                'fr': f'Juste pour confirmer, êtes-vous {"une femme" if female else "un homme"} ?',
+                'de': f'Nur zur Bestätigung: Bist du {"eine Frau" if female else "ein Mann"}?',
+            }[language]
+        if len(indices) == 1:
+            return {
+                'en': f'Just to confirm, is {subject} a {"woman" if female else "man"}?',
+                'es': f'Solo para confirmar, ¿{subject} es {"mujer" if female else "hombre"}?',
+                'fr': f'Juste pour confirmer, {subject} est-{"elle une femme" if female else "il un homme"} ?',
+                'de': f'Nur zur Bestätigung: Ist {subject} {"eine Frau" if female else "ein Mann"}?',
+            }[language]
+        if all_party or partial_group:
+            named = [name for name in names if name]
+            if len(named) == len(indices):
+                affected = _join_names(named, language)
+            else:
+                affected = subject
+            return {
+                'en': f'Just to confirm, are {affected} {"women" if female else "men"}?',
+                'es': f'Solo para confirmar, ¿{affected} son {"mujeres" if female else "hombres"}?',
+                'fr': f'Juste pour confirmer, {affected} sont-{"elles des femmes" if female else "ils des hommes"} ?',
+                'de': f'Nur zur Bestätigung: Sind {affected} {"Frauen" if female else "Männer"}?',
             }[language]
         return {
             'en': f'Is {subject} eligible for the requested {room_label}?',
@@ -3451,7 +3503,11 @@ def finalize_offer_response(result):
             if chosen_full_names_missing:
                 text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'names')
             elif quote.get('full_payment_only') is True:
-                text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'check_exact')
+                party_count = plan.get('guest_count')
+                question = ('Möchtet ihr dieses genaue Angebot?'
+                            if language == 'de' and type(party_count) is int and party_count > 1
+                            else _final_copy(language, 'check_exact'))
+                text = text.rsplit('\n\n', 1)[0] + '\n\n' + question
             output = deepcopy(result)
             output['final_response'] = text
             output_messages = output.get('messages')

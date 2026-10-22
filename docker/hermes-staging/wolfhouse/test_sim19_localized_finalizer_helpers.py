@@ -15,19 +15,19 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
         plan = {"guests": [{"name": ""}, {"name": ""}, {"name": "Cara"}]}
         expected = {
             "en": (
-                "Are guests 1 and 2 eligible for the requested women-only room?",
+                "Just to confirm, are guests 1 and 2 women?",
                 "The requested women-only room is not compatible with the guest details for guests 1 and 2. Would you like to see other room options?",
             ),
             "es": (
-                "¿Pueden las personas 1 y 2 alojarse en la habitación solicitada solo para mujeres?",
+                "Solo para confirmar, ¿las personas 1 y 2 son mujeres?",
                 "La habitación solicitada solo para mujeres no es compatible con los datos de las personas 1 y 2. ¿Quieres ver otras opciones de habitación?",
             ),
             "fr": (
-                "Les personnes 1 et 2 peuvent-elles séjourner dans la chambre demandée réservée aux femmes ?",
+                "Juste pour confirmer, les personnes 1 et 2 sont-elles des femmes ?",
                 "La chambre demandée réservée aux femmes n’est pas compatible avec les informations des personnes 1 et 2. Voulez-vous voir d’autres options de chambre ?",
             ),
             "de": (
-                "Können Gäste 1 und 2 im gewünschten Frauenzimmer übernachten?",
+                "Nur zur Bestätigung: Sind Gäste 1 und 2 Frauen?",
                 "Das gewünschte Frauenzimmer ist mit den Angaben zu den Gästen 1 und 2 nicht vereinbar. Möchten Sie andere Zimmeroptionen sehen?",
             ),
         }
@@ -143,10 +143,10 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
             ],
         }
         expected = {
-            "en": "Jonas and Felix: beds in two separate mixed rooms.",
-            "es": "Jonas y Felix: camas en dos habitaciones mixtas separadas.",
-            "fr": "Jonas et Felix : lits dans deux chambres mixtes séparées.",
-            "de": "Jonas und Felix: Betten in zwei getrennten gemischten Zimmern.",
+            "en": "Jonas and Felix have beds in two separate mixed rooms.",
+            "es": "Jonas y Felix tienen camas en dos habitaciones mixtas separadas.",
+            "fr": "Jonas et Felix ont des lits dans deux chambres mixtes séparées.",
+            "de": "Jonas und Felix haben Betten in zwei getrennten gemischten Zimmern.",
         }
         for language, phrase in expected.items():
             with self.subTest(language=language):
@@ -184,10 +184,10 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
                       "question_kind": "confirm_room_eligibility"}
         plan = {"guests": [{"name": "Ana"}, {"name": "Bea"}]}
         expected = {
-            "en": "Is Bea eligible for the requested women-only room?",
-            "es": "¿Puede Bea alojarse en la habitación solicitada solo para mujeres?",
-            "fr": "Est-ce que Bea peut séjourner dans la chambre demandée réservée aux femmes ?",
-            "de": "Kann Bea im gewünschten Frauenzimmer übernachten?",
+            "en": "Just to confirm, is Bea a woman?",
+            "es": "Solo para confirmar, ¿Bea es mujer?",
+            "fr": "Juste pour confirmer, Bea est-elle une femme ?",
+            "de": "Nur zur Bestätigung: Ist Bea eine Frau?",
         }
         for language, phrase in expected.items():
             with self.subTest(language=language):
@@ -195,7 +195,7 @@ class Sim19LocalizedFinalizerHelperTests(unittest.TestCase):
                     structured, plan, language))
         all_party = {**structured, "affected_guest_indices": [0, 1]}
         self.assertEqual(
-            "Are all guests eligible for the requested women-only room?",
+            "Just to confirm, are Ana and Bea women?",
             owner._structured_eligibility_copy(all_party, plan, "en"),
         )
 
