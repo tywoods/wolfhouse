@@ -35,11 +35,11 @@ Three people, different packages, and one missing room fact. Ask that question o
 
 ## Guest 4
 
-Only split stock is available. The guest refuses to split. There must be no split booking, hold, payment link, or invented success. If the guest later accepts a fresh same-room option from a new tool result, quote that option again and create only that booking. Do not reuse the refused split.
+Only split stock is available. The guest refuses to split. There must be no split booking, hold, payment link, or invented success. A later sentence that they would take a same-room week is interest, not consent. Only the following guest turn, after a fresh quote has been shown, accepts that quote. Quote it again with Staff and create only that booking. Do not reuse the refused split. Removing that acceptance sentence must fail validation.
 
 ## Guest 5
 
-Read the selected booking. Cancel an unpaid booking. A sandbox payment link is returned inside Crow's Nest and is not sent. Confirm only after Staff says paid. A paid cancellation goes to a human, with no refund promise. A timeout is unknown: read back, retry the same operation, and leave one record with no duplicate charge or link. Live paid cleanup is incomplete until an approved exact-ID cleanup exists. Do not fake paid state.
+First create the unpaid booking and bind this chat to `selected_booking_id`. Then read that bound record, not a phone's first match. Cancel an unpaid booking. A sandbox payment link is returned inside Crow's Nest and is not sent. The next guest turn completes the sandbox checkout with no live card. Confirm only after `getPaymentStatus` says paid. A paid cancellation goes to a human, with no refund promise. The timeout retry names the operation and the fault point: `getPaymentStatus` after sandbox checkout completion and before paid confirmation, on the bound record. Read that record back, retry only that call, and leave one record with no duplicate charge or link. Live paid cleanup is incomplete until an approved exact-ID cleanup exists. Do not fake paid state.
 
 ## Scorecard
 
@@ -58,11 +58,13 @@ Skip executes. Deckhand scores. Captain reviews the receipts. Do not train on th
 node scripts/verify-luna-v3-contracts.js
 ```
 
-Exit `0` only when every handler contract has run against `scripts/lib/model-led-luna/` and passed. That directory is Skip's and does not exist yet.
+Exit `0` only when every handler contract and every section-3 tool has been awaited against `scripts/lib/model-led-luna/` and the verifier has read the side effect back itself. That directory is Skip's and does not exist yet. The ten tools that are not also a contract export (`book`, `getBooking`, `getPaymentStatus`, and the rest of that list) are checked even when `index.js` exists. They must not disappear.
 
-Until then the handler rows are **pending**, with a TODO naming the missing export. The script still checks these fixtures and rejects success-shaped stubs. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed or a present handler broke a contract.
+Handlers are called as `await tool(pg, input)`. `pg` is an observation database with `read`, `write`, `update`, and simple `query` SQL (`select * from <table>`, `insert into <table> (json) values ($1)`, `update <table> set status = $1 where id = $2`). A return value is not proof. If the export is missing, or the function never touches that database, the row stays **pending**. PASS requires the awaited result and the rows the verifier reads after the call to agree. A fake that returns a success shape and touches no database must not PASS.
 
-No always-pass stub. A `{ ok: true }` result does not satisfy hold, money, cancel, link, notes, or timeout.
+Until then the handler rows are **pending**, with a TODO naming the missing or unconnected export. The script still checks these fixtures, rejects success-shaped stubs, and fails if real guest dialogue is removed. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed or a present handler broke a contract.
+
+No always-pass stub. A `{ ok: true }` result does not satisfy hold, money, cancel, link, notes, timeout, or any section-3 tool.
 
 ## Not done here
 

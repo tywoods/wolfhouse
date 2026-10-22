@@ -6,7 +6,10 @@
   "collision_checked": false,
   "party_size": 1,
   "guests": [
-    {"alias": "Casey", "role": "guest"}
+    {
+      "alias": "Casey",
+      "role": "guest"
+    }
   ],
   "dates": {
     "check_in": "2027-09-03",
@@ -21,43 +24,116 @@
   },
   "turns": [
     {
+      "name": "setup_booking",
+      "guest": "Please make the first booking for Casey, one person, 3 September to 7 September 2027, and bind this chat to that saved record.",
+      "record_binding": {
+        "alias": "Casey",
+        "bind_field": "selected_booking_id",
+        "must_persist_before": "read"
+      },
+      "must": [
+        "create the initial unpaid booking through Staff",
+        "persist the booking id and bind this conversation to that record before any read",
+        "do not treat a phone first booking as the selected record"
+      ],
+      "must_not": [
+        "confirm paid",
+        "send a payment link before the record exists"
+      ]
+    },
+    {
       "name": "read",
       "guest": "Can you read the booking we just made?",
-      "must": ["call get_booking for the selected booking", "not trust a phone's first result if it is a different booking"]
+      "must": [
+        "call getBooking for the selected_booking_id bound in setup_booking",
+        "not trust a phone first result if it is a different booking"
+      ]
     },
     {
       "name": "cancel_unpaid",
       "guest": "Please cancel it. I have not paid.",
-      "must": ["cancel only after Staff shows the booking is unpaid"],
-      "must_not": ["cancel a paid or uncertain booking"]
+      "must": [
+        "cancel only after Staff shows the booking is unpaid"
+      ],
+      "must_not": [
+        "cancel a paid or uncertain booking"
+      ]
     },
     {
       "name": "sandbox_payment",
       "guest": "Make a new booking and I will pay the test link.",
       "must": [
+        "create a new unpaid booking through Staff after the cancel",
+        "rebind selected_booking_id to that new record before the sandbox checkout",
         "return a test-mode payment URL inside Crow's Nest",
-        "confirm in Crow's Nest only after get_payment_status says paid",
         "send no WhatsApp, SMS, or email"
+      ],
+      "record_binding": {
+        "alias": "Casey",
+        "bind_field": "selected_booking_id",
+        "replaces": "the cancelled unpaid booking",
+        "must_persist_before": "sandbox_payment_complete"
+      }
+    },
+    {
+      "name": "sandbox_payment_complete",
+      "guest": "I completed the sandbox payment on the test link. No real card was charged. Confirm only after Staff says it is paid.",
+      "steps": [
+        {
+          "name": "return_test_url",
+          "action": "Return a test-mode payment URL inside Crow's Nest. Do not send WhatsApp, SMS, or email."
+        },
+        {
+          "name": "complete_sandbox_checkout",
+          "action": "Complete the sandbox checkout on that URL with no live card and no real charge."
+        },
+        {
+          "name": "confirm_from_staff",
+          "action": "Call getPaymentStatus for the bound booking and confirm only when Staff says paid."
+        }
+      ],
+      "must": [
+        "confirm in Crow's Nest only after getPaymentStatus says paid",
+        "send no WhatsApp, SMS, or email",
+        "do not fake paid state"
       ],
       "live_status": "offline first; live acceptance incomplete without approved exact-ID cleanup"
     },
     {
       "name": "paid_cancel",
       "guest": "Cancel the paid booking and refund me.",
-      "must": ["handoff to a human", "make no refund promise", "not call cancel_unpaid on paid money"],
-      "must_not": ["erase the payment"]
+      "must": [
+        "handoff to a human",
+        "make no refund promise",
+        "not call cancel_unpaid on paid money"
+      ],
+      "must_not": [
+        "erase the payment"
+      ]
     },
     {
       "name": "timeout_retry",
-      "guest": "The last step timed out. Please try the same operation again.",
+      "guest": "getPaymentStatus timed out after the sandbox checkout and before you confirmed paid. Read that same booking back and retry only that call.",
       "must": [
         "treat timeout as unknown, not as proof of no write",
-        "read back before retry",
-        "recover the same operation",
+        "read back the bound booking before retry",
+        "retry only getPaymentStatus at that fault point",
         "leave one saved record and no duplicate charge or link"
-      ]
+      ],
+      "operation": "getPaymentStatus",
+      "fault_point": {
+        "call": "getPaymentStatus",
+        "after": "sandbox checkout completion",
+        "before": "paid confirmation",
+        "record": "selected_booking_id"
+      }
     }
   ],
   "pass": "unpaid cancel works, paid cancel goes to a human, timeout retry does not duplicate",
-  "fail": ["paid booking cancelled by Luna", "real send", "duplicate charge or link", "timeout treated as success or as no write"]
+  "fail": [
+    "paid booking cancelled by Luna",
+    "real send",
+    "duplicate charge or link",
+    "timeout treated as success or as no write"
+  ]
 }

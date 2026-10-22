@@ -6,8 +6,14 @@
   "collision_checked": false,
   "party_size": 2,
   "guests": [
-    {"alias": "Rae", "role": "guest"},
-    {"alias": "Jo", "role": "guest"}
+    {
+      "alias": "Rae",
+      "role": "guest"
+    },
+    {
+      "alias": "Jo",
+      "role": "guest"
+    }
   ],
   "dates": {
     "check_in": "2027-08-14",
@@ -23,13 +29,25 @@
     {
       "guest": "Two of us, Rae and Jo. We must stay together, 14 to 18 August 2027.",
       "tool_result": "only beds in different rooms are free",
-      "must": ["say they cannot stay together in one room on these dates", "not book the split"],
-      "must_not": ["hold either bed", "create a payment link", "say the stay is booked"]
+      "must": [
+        "say they cannot stay together in one room on these dates",
+        "not book the split"
+      ],
+      "must_not": [
+        "hold either bed",
+        "create a payment link",
+        "say the stay is booked"
+      ]
     },
     {
       "guest": "No. We will not split.",
-      "must": ["leave no booking, hold, or payment link", "not invent a success"],
-      "must_not": ["reuse the refused split as an accepted offer"]
+      "must": [
+        "leave no booking, hold, or payment link",
+        "not invent a success"
+      ],
+      "must_not": [
+        "reuse the refused split as an accepted offer"
+      ]
     },
     {
       "guest": "If a later week in 2027 has one room for both of us, we will take that instead.",
@@ -40,13 +58,47 @@
         "requires": "a fresh tool result with one same-room pair, not the refused split"
       },
       "must": [
-        "discuss only the fresh option",
-        "quote it again with Staff",
+        "treat this sentence as interest, not consent",
+        "do not book, hold, or create a payment link from this sentence",
+        "a fresh tool result is required before any quote can be accepted"
+      ],
+      "must_not": [
+        "book the refused split",
+        "reuse the old offer or hold",
+        "treat earlier interest as acceptance"
+      ],
+      "name": "later_interest",
+      "consent": false
+    },
+    {
+      "name": "accept_fresh_quote",
+      "consent": true,
+      "guest": "Yes, we accept the fresh quote for 21 to 25 August 2027, both of us in that same room. Book that quote only.",
+      "fresh_quote": {
+        "check_in": "2027-08-21",
+        "check_out": "2027-08-25",
+        "stock_pricing_confirmed": false,
+        "source": "a fresh tool result with one same-room pair, not the refused split",
+        "shown_before_this_turn": true
+      },
+      "must": [
+        "book only after this explicit acceptance of the fresh quote",
+        "quote it again with Staff before this acceptance is stored as consent",
         "create only the newly agreed booking"
       ],
-      "must_not": ["book the refused split", "reuse the old offer or hold"]
+      "must_not": [
+        "book the refused split",
+        "reuse the old offer or hold",
+        "treat the earlier interest sentence as consent"
+      ]
     }
   ],
-  "pass": "refusal writes nothing; a later genuine acceptance creates only the new agreed booking",
-  "fail": ["split booking", "split hold", "payment link after refusal", "invented success", "old offer reused"]
+  "pass": "refusal writes nothing; only a later explicit acceptance of a fresh quote creates the new agreed booking",
+  "fail": [
+    "split booking",
+    "split hold",
+    "payment link after refusal",
+    "invented success",
+    "old offer reused"
+  ]
 }
