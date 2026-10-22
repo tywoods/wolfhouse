@@ -1,0 +1,52 @@
+{
+  "id": "guest-04-refusal",
+  "title": "Refused split, then a genuine later acceptance",
+  "synthetic": true,
+  "phone": "+34699910004",
+  "collision_checked": false,
+  "party_size": 2,
+  "guests": [
+    {"alias": "Rae", "role": "guest"},
+    {"alias": "Jo", "role": "guest"}
+  ],
+  "dates": {
+    "check_in": "2027-08-14",
+    "check_out": "2027-08-18",
+    "stock_pricing_confirmed": false,
+    "source": "Proposed 2027 window only. Not a confirmed stock or Pricing date."
+  },
+  "stock_fixture": {
+    "first_window": "only split beds, in different rooms",
+    "same_room_pair": "none"
+  },
+  "turns": [
+    {
+      "guest": "Two of us, Rae and Jo. We must stay together, 14 to 18 August 2027.",
+      "tool_result": "only beds in different rooms are free",
+      "must": ["say they cannot stay together in one room on these dates", "not book the split"],
+      "must_not": ["hold either bed", "create a payment link", "say the stay is booked"]
+    },
+    {
+      "guest": "No. We will not split.",
+      "must": ["leave no booking, hold, or payment link", "not invent a success"],
+      "must_not": ["reuse the refused split as an accepted offer"]
+    },
+    {
+      "guest": "If a later week in 2027 has one room for both of us, we will take that instead.",
+      "later_window": {
+        "check_in": "2027-08-21",
+        "check_out": "2027-08-25",
+        "stock_pricing_confirmed": false,
+        "requires": "a fresh tool result with one same-room pair, not the refused split"
+      },
+      "must": [
+        "discuss only the fresh option",
+        "quote it again with Staff",
+        "create only the newly agreed booking"
+      ],
+      "must_not": ["book the refused split", "reuse the old offer or hold"]
+    }
+  ],
+  "pass": "refusal writes nothing; a later genuine acceptance creates only the new agreed booking",
+  "fail": ["split booking", "split hold", "payment link after refusal", "invented success", "old offer reused"]
+}

@@ -1,0 +1,63 @@
+{
+  "id": "guest-05-lifecycle",
+  "title": "Read, unpaid cancel, sandbox pay, paid cancel to a human, one retry",
+  "synthetic": true,
+  "phone": "+34699910005",
+  "collision_checked": false,
+  "party_size": 1,
+  "guests": [
+    {"alias": "Casey", "role": "guest"}
+  ],
+  "dates": {
+    "check_in": "2027-09-03",
+    "check_out": "2027-09-07",
+    "stock_pricing_confirmed": false,
+    "source": "Proposed 2027 window only. Not a confirmed stock or Pricing date."
+  },
+  "payment": {
+    "provider": "sandbox-or-test-only",
+    "real_charge": false,
+    "live_paid_cleanup": "incomplete until an approved exact-ID cleanup exists; do not fake paid state and call it Stripe"
+  },
+  "turns": [
+    {
+      "name": "read",
+      "guest": "Can you read the booking we just made?",
+      "must": ["call get_booking for the selected booking", "not trust a phone's first result if it is a different booking"]
+    },
+    {
+      "name": "cancel_unpaid",
+      "guest": "Please cancel it. I have not paid.",
+      "must": ["cancel only after Staff shows the booking is unpaid"],
+      "must_not": ["cancel a paid or uncertain booking"]
+    },
+    {
+      "name": "sandbox_payment",
+      "guest": "Make a new booking and I will pay the test link.",
+      "must": [
+        "return a test-mode payment URL inside Crow's Nest",
+        "confirm in Crow's Nest only after get_payment_status says paid",
+        "send no WhatsApp, SMS, or email"
+      ],
+      "live_status": "offline first; live acceptance incomplete without approved exact-ID cleanup"
+    },
+    {
+      "name": "paid_cancel",
+      "guest": "Cancel the paid booking and refund me.",
+      "must": ["handoff to a human", "make no refund promise", "not call cancel_unpaid on paid money"],
+      "must_not": ["erase the payment"]
+    },
+    {
+      "name": "timeout_retry",
+      "guest": "The last step timed out. Please try the same operation again.",
+      "must": [
+        "treat timeout as unknown, not as proof of no write",
+        "read back before retry",
+        "recover the same operation",
+        "leave one saved record and no duplicate charge or link"
+      ]
+    }
+  ],
+  "pass": "unpaid cancel works, paid cancel goes to a human, timeout retry does not duplicate",
+  "fail": ["paid booking cancelled by Luna", "real send", "duplicate charge or link", "timeout treated as success or as no write"]
+}

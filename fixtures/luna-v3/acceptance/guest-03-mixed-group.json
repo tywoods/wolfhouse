@@ -1,0 +1,45 @@
+{
+  "id": "guest-03-mixed-group",
+  "title": "Mixed requirements",
+  "synthetic": true,
+  "phone": "+34699910003",
+  "collision_checked": false,
+  "party_size": 3,
+  "guests": [
+    {"alias": "Nora", "package": "stated-on-turn-2"},
+    {"alias": "Luis", "package": "stated-on-turn-2"},
+    {"alias": "Kim", "package": "stated-on-turn-2", "missing_fact": "whether Kim will share a mixed dorm"}
+  ],
+  "dates": {
+    "check_in": "2027-07-02",
+    "check_out": "2027-07-09",
+    "stock_pricing_confirmed": false,
+    "source": "Proposed 2027 window only. Not a confirmed stock or Pricing date."
+  },
+  "turns": [
+    {
+      "guest": "We are three: Nora, Luis, and Kim. 2 July to 9 July 2027.",
+      "must": ["keep the party and dates", "not invent packages or beds"],
+      "must_not": ["repeat this question later"]
+    },
+    {
+      "guest": "Nora wants the surf package, Luis wants no package, and Kim wants the surf package. Kim has not said if a mixed dorm is okay.",
+      "must": [
+        "ask only the missing room fact about Kim",
+        "keep each person's package choice",
+        "not repeat the dates, the party size, or the packages already given"
+      ]
+    },
+    {
+      "guest": "Kim is fine in a mixed dorm.",
+      "must": [
+        "preserve Nora, Luis, and Kim as separate people with their own package and bed",
+        "use Staff per-person money",
+        "not ask the mixed-dorm question again"
+      ],
+      "must_not": ["collapse the group onto one package", "reprice from a model total"]
+    }
+  ],
+  "pass": "one needed question, no repeated settled questions, each person/bed/package kept, Staff per-person money",
+  "fail": ["gender or room fact invented", "settled question asked again", "one shared package forced on everyone"]
+}

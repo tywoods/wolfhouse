@@ -1,0 +1,49 @@
+{
+  "id": "DH-LUNA-V3-TESTS-20261022T2345",
+  "lane": "luna-v3-acceptance",
+  "status": "frozen_scripts_not_executed",
+  "owner": "deckhand",
+  "reviewer": "captain",
+  "executor": "skip",
+  "scorer": "deckhand",
+  "versions": {
+    "v3": {
+      "name": "Luna v3",
+      "runtime": "hermes-luna-clone",
+      "surface": "crows-nest-only",
+      "whatsapp": false
+    },
+    "classic": {
+      "name": "Luna Classic (v2)",
+      "runtime": "hermes-luna",
+      "surface": "whatsapp",
+      "untouched": true
+    }
+  },
+  "phone_rule": {
+    "prefix": "+346999",
+    "meaning": "reserved +34 699 9xx test convention, expanded to a 9-digit national number",
+    "collision_checked": false,
+    "note": "Skip must collision-check before any live run. This prefix is not proof a real number is unassigned. Outbound stays off."
+  },
+  "date_rule": {
+    "year": 2027,
+    "guest_1_frozen": true,
+    "guests_2_to_5_stock_pricing_confirmed": false,
+    "note": "Guest 1 dates are Ty's specified window. Guests 2-5 use proposed 2027 windows only. Live 2027 stock and Pricing were not queried in this turn. Do not treat these dates as available, priced, or closed. If a window is unpriced or closed, report that block. Do not rewrite the season to manufacture a pass."
+  },
+  "scripts": [
+    "guest-01-couple.json",
+    "guest-01-room10-only.json",
+    "guest-02-solo-package.json",
+    "guest-03-mixed-group.json",
+    "guest-04-refusal.json",
+    "guest-05-lifecycle.json"
+  ],
+  "scorecard": "scorecard.json",
+  "not_run": [
+    "No Crow's Nest simulation was executed.",
+    "No WhatsApp send, Staff alert, payment, or France login was performed.",
+    "These fixtures are not Seadog's example chats and must stay out of fixtures/luna-v3/examples/."
+  ]
+}

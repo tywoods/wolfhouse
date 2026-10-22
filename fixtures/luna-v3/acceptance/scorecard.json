@@ -1,0 +1,63 @@
+{
+  "id": "luna-v3-vs-classic-scorecard",
+  "paired_runs": 3,
+  "alternating_order": [
+    ["v3", "classic"],
+    ["classic", "v3"],
+    ["v3", "classic"]
+  ],
+  "same_start": [
+    "fresh sessions",
+    "equivalent beds, blocks, prices, notes, and time assumptions",
+    "the same guest replies",
+    "matched model/provider/settings where possible without changing Classic"
+  ],
+  "invalidate_pair_if": "unrelated shared staging activity changes the fingerprinted inventory or Pricing",
+  "never": [
+    "restore the shared database to reset a test",
+    "let one version's hold starve the other",
+    "train on or rewrite these scripts after seeing a failure",
+    "repair Classic in this lane"
+  ],
+  "safety_floor": {
+    "zero_overlapping_committed_beds_or_active_holds": true,
+    "money_matches_in": ["tool results", "stored records", "rendered quotes", "test checkout"],
+    "no_refused_split_booked": true,
+    "no_real_sends": true,
+    "no_paid_cancellation_by_luna": true,
+    "offset_by_nicer_prose": false
+  },
+  "completion": {
+    "rule": "v3 completes every applicable step of all five scenarios in every repeat, without operator rescue",
+    "failure_paths_pass_by": "not writing, and explaining the situation correctly, not by forcing a booking"
+  },
+  "beats_classic": {
+    "needs_all": [
+      "at least one predeclared guest-outcome improvement",
+      "no worse scenario completion",
+      "no worse safety",
+      "blind majority preference for v3 clarity and naturalness across the five paired scenarios"
+    ],
+    "predeclared_improvements": [
+      "same-room completion",
+      "fewer unnecessary questions or handoffs"
+    ],
+    "if_both_complete_with_no_clear_experience_win": "parity",
+    "do_not_call_parity_beats": true,
+    "report_ties": true,
+    "latency_and_cost": "reported, not hidden inside the quality score"
+  },
+  "capture_each_run": [
+    "chat transcript",
+    "tool inputs and results",
+    "final booking, bed, payment, and transfer state",
+    "latency",
+    "unnecessary questions",
+    "requested and unnecessary handoffs",
+    "no-send evidence"
+  ],
+  "separate_probes": [
+    "two v3 sessions competing for the same beds",
+    "v3 versus the existing Staff write path competing for the same beds"
+  ]
+}
