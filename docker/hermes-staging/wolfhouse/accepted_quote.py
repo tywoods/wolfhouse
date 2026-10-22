@@ -13,6 +13,7 @@ import os
 import re
 import unicodedata
 from threading import RLock
+from urllib.parse import urlsplit
 
 
 class TurnCapability:
@@ -776,7 +777,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     if substitution:
         lines.append(substitution)
     package_code = offer.get('package_code') or plan.get('package_code')
-    guest_packages = offer.get('guest_packages') or plan.get('guest_packages')
+    offer_guest_packages = offer.get('guest_packages')
+    guest_packages = (offer_guest_packages if isinstance(offer_guest_packages, list)
+                      else plan.get('guest_packages'))
     guests = offer.get('guests') or plan.get('guests') or []
     guests = guests if isinstance(guests, list) else []
     def package_label(code):
@@ -800,7 +803,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         lines.append(f"🏄 *{copy['package']}:* " + '; '.join(values))
     elif package_code:
         lines.append(f"🏄 *{copy['package']}:* {package_label(package_code)}")
-    extras = offer.get('add_ons') or plan.get('add_ons')
+    offer_extras = offer.get('add_ons')
+    extras = offer_extras if isinstance(offer_extras, list) else plan.get('add_ons')
     if isinstance(extras, list) and extras:
         values = []
         for row in extras:
@@ -823,7 +827,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 values.append(f'{label} ×{count}' if count != 1 else label)
         if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
     if type(total) is int:
-        full_only = offer.get('full_payment_only') is True
+        due = offer.get('payment_link_amount_cents')
+        full_only = (offer.get('full_payment_only') is True
+                     and type(due) is int and due == total and total >= 0)
         if full_only:
             labels = {
                 'en': ('Total and due now', 'full payment'),
@@ -836,10 +842,10 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
         else:
             lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
         if create_ready:
-            due = offer.get('payment_link_amount_cents')
             if type(due) is int and due > 0:
                 payment_choice = offer.get('payment_choice')
-                payment_name = ({'full': _final_copy(language, 'full').lower(),
+                payment_name = ({'full': (_final_copy(language, 'full').lower()
+                                          if due == total else None),
                                  'deposit': _final_copy(language, 'deposit').lower()}
                                 .get(payment_choice))
                 payment_suffix = f' ({payment_name})' if payment_name else ''
@@ -853,6 +859,9 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     if create_ready and offer.get('payment_choice') == 'per_guest':
         guests = offer.get('guests') or plan.get('guests') or []
         guests = guests if isinstance(guests, list) else []
+        valid_guests = [row for row in guests if isinstance(row, dict)
+                        and isinstance(row.get('name'), str) and row.get('name').strip()]
+        expected_names = [row['name'].strip() for row in valid_guests]
         distribution = offer.get('payment_distribution')
         values = []
         amounts = []
@@ -870,14 +879,18 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 if name and type(amount) is int and amount >= 0 and row_currency == currency:
                     values.append(f'{name}: {_guest_money(amount, currency)}')
                     amounts.append(amount)
+            shown_names = [value.split(':', 1)[0].strip().casefold() for value in values]
+            expected_keys = [name.casefold() for name in expected_names]
             due = offer.get('payment_link_amount_cents')
-            if len(values) != len(distribution) or (type(due) is int and sum(amounts) != due):
+            if (len(values) != len(distribution) or len(set(shown_names)) != len(shown_names)
+                    or sorted(shown_names) != sorted(expected_keys)
+                    or (type(due) is int and sum(amounts) != due)):
                 values = []
-        elif (offer.get('per_guest_payment_links') is True and guests
-              and type(total) is int and total % len(guests) == 0):
-            share = _guest_money(total // len(guests), currency)
-            values = [f"{str(row.get('name') or f'{copy['guest']} {index + 1}').strip()}: {share}"
-                      for index, row in enumerate(guests) if isinstance(row, dict)]
+        elif (offer.get('per_guest_payment_links') is True and valid_guests
+              and len(valid_guests) == len(guests)
+              and type(total) is int and total % len(valid_guests) == 0):
+            share = _guest_money(total // len(valid_guests), currency)
+            values = [f"{row['name'].strip()}: {share}" for row in valid_guests]
         if values:
             lines.append(f"💳 *{_final_copy(language, 'individual')}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
@@ -888,6 +901,13 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     if question:
         lines.extend(['', question])
     return '\n'.join(lines)
+
+
+def _usable_payment_url(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlsplit(value.strip())
+    return value.strip() if parsed.scheme == 'https' and bool(parsed.netloc) else None
 
 
 def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
@@ -904,12 +924,11 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     split = receipt.get('guest_payment_links')
     if isinstance(split, list):
         linked = [row for row in split if isinstance(row, dict)
-                  and (row.get('secure_payment_url') or row.get('guest_payment_url'))]
+                  and _usable_payment_url(row.get('secure_payment_url') or row.get('guest_payment_url'))]
         valid = [row for row in linked if type(row.get('amount_due_cents')) is int
                  and row.get('amount_due_cents') >= 0
-                 and (row.get('currency') or currency) == currency]
-        paid_or_due = (sum(row['amount_due_cents'] for row in valid)
-                       if linked and len(valid) == len(linked) else None)
+                 and str(row.get('currency') or currency).upper() == str(currency).upper()]
+        paid_or_due = sum(row['amount_due_cents'] for row in valid) if valid else None
     else:
         paid_or_due = receipt.get('amount_due_cents')
     if type(paid_or_due) is not int and not isinstance(split, list):
@@ -3304,12 +3323,14 @@ def finalize_offer_response(result):
                             url = row.get('secure_payment_url')
                             amount = row.get('amount_due_cents')
                             name = row.get('guest_name')
-                            if isinstance(url, str) and url.strip():
+                            row_currency = str(row.get('currency') or currency).upper()
+                            url = _usable_payment_url(url)
+                            if (url and type(amount) is int and amount >= 0
+                                    and row_currency == str(currency).upper()):
                                 who = f' — {name}' if isinstance(name, str) and name.strip() else ''
-                                value = (f' ({_guest_money(amount, row.get("currency") or currency)})'
-                                         if type(amount) is int and (row.get('currency') or currency) else '')
+                                value = f' ({_guest_money(amount, currency)})'
                                 payment_lines.append(
-                                    f"🔗 *{labels.get(language, labels['en'])}{who}:* {url.strip()}{value}")
+                                    f"🔗 *{labels.get(language, labels['en'])}{who}:* {url}{value}")
                     if payment_lines:
                         text += '\n\n' + '\n'.join(payment_lines)
                     output = deepcopy(result)

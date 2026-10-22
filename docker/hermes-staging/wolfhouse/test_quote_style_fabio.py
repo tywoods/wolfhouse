@@ -188,6 +188,45 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("💳 *A pagar ahora:* €150", text_es)
         self.assertNotIn("A pagar ahora:* €200", text_es)
 
+    def test_malformed_payment_shapes_fail_closed_without_false_copy(self):
+        full = {**self.offer, "total_cents": 8000, "payment_link_amount_cents": 6000,
+                "payment_choice": "full", "full_payment_only": True}
+        full_text = owner._styled_quote_copy(self.plan, full, "en", create_ready=True)
+        self.assertNotIn("Total and due now", full_text)
+        self.assertIn("Due now:* €60", full_text)
+        self.assertIn("Remaining after this payment:* €20", full_text)
+
+        split_plan = {**self.plan, "guest_count": 2,
+                      "guests": [{"name": "Fabio"}, {"name": "Mia"}],
+                      "payment_choice": "per_guest", "per_guest_payment_links": True}
+        duplicate = {**self.offer, **split_plan, "total_cents": 15000,
+                     "payment_link_amount_cents": 15000, "payment_distribution": [
+                         {"guest_name": "Fabio", "amount_cents": 7000},
+                         {"guest_name": "Fabio", "amount_cents": 8000}]}
+        self.assertNotIn("Individual payments", owner._styled_quote_copy(
+            split_plan, duplicate, "en", create_ready=True))
+        mixed_guests = {**duplicate, "payment_distribution": None,
+                        "guests": [{"name": "Fabio"}, "bad-row"]}
+        self.assertNotIn("Individual payments", owner._styled_quote_copy(
+            split_plan, mixed_guests, "en", create_ready=True))
+
+        fallback_plan = {**self.plan, "guest_packages": [
+            {"guest_index": 0, "package_code": "malibu"}],
+            "add_ons": [{"code": "yoga_class", "quantity": 1}]}
+        fallback_offer = {**self.offer, "guest_packages": {"bad": True}, "add_ons": "bad"}
+        fallback_text = owner._styled_quote_copy(fallback_plan, fallback_offer, "en", create_ready=True)
+        self.assertIn("Malibu", fallback_text)
+        self.assertIn("Yoga class", fallback_text)
+
+        receipt = {"booking_code": "WH-MALFORMED", "guest_payment_links": [
+            {"amount_due_cents": 7500, "currency": "EUR", "secure_payment_url": "https://pay.invalid/a"},
+            {"amount_due_cents": 7500, "currency": "EUR", "secure_payment_url": "   "},
+            {"amount_due_cents": 9000, "currency": "USD", "secure_payment_url": "https://pay.invalid/usd"},
+            {"amount_due_cents": 5000, "currency": "EUR", "secure_payment_url": "http://pay.invalid/insecure"}]}
+        receipt_text = owner._styled_booking_receipt_copy(
+            split_plan, {**self.offer, "total_cents": 15000}, receipt, "en")
+        self.assertIn("Due now:* €75", receipt_text)
+
     def test_soul_mixed_default_yields_to_explicit_room_preference(self):
         from pathlib import Path
         soul = (Path(__file__).resolve().parents[1] / "SOUL.md").read_text()
