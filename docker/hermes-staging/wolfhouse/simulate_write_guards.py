@@ -93,28 +93,32 @@ def tool_name_from_path(path: str) -> str:
 
 
 def _safe_diagnostic_text(value: Any, max_len: int = 160) -> str:
-    """Return a bounded diagnostic scalar with contact/secret/URL shapes removed."""
+    """Return a bounded diagnostic scalar, omitting privacy-unsafe values."""
     if isinstance(value, (dict, list, tuple, set)):
         return ""
     text = str(value or "").strip()
     if not text:
         return ""
-    text = re.sub(r"https?://\S+", "[redacted-url]", text, flags=re.I)
-    text = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "[redacted-contact]", text)
-    text = re.sub(r"(?<!\w)\+?\d[\d* ()-]{7,}\d(?!\w)", "[redacted-contact]", text)
-    text = re.sub(
-        r"\bguest_text\s*[:=].*$",
-        "[redacted]",
-        text,
-        flags=re.I,
+    unsafe_patterns = (
+        r"https?://\S+",
+        r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b",
+        r"(?<!\w)\+?\d[\d* ()-]{7,}\d(?!\w)",
+        r"\bguest(?:[_ -]?(?:text|message|prose|name)|\s+said)\s*[:=]",
+        r"\bauthorization\s*:\s*bearer\b|\b(?:password|passwd|api[_-]?key|signed_url|signature|token|secret)\s*[:=]",
+        r"\bpayload\s*[:=]\s*[\[{]",
+        r"^[\[{].*[\"']guest(?:_name)?[\"']\s*:",
     )
-    text = re.sub(
-        r"\b(?:signed_url|signature|token|secret|api_key)\s*[:=]\s*\S+",
-        "[redacted]",
-        text,
-        flags=re.I,
-    )
+    if any(re.search(pattern, text, flags=re.I | re.S) for pattern in unsafe_patterns):
+        return ""
     return " ".join(text.split())[:max_len]
+
+
+def _first_safe_diagnostic(*candidates: Any) -> str:
+    for candidate in candidates:
+        safe = _safe_diagnostic_text(candidate)
+        if safe:
+            return safe
+    return ""
 
 
 def summarize_tool_result(result: Any, max_len: int = 400) -> str:
@@ -149,13 +153,14 @@ def summarize_tool_result(result: Any, max_len: int = 400) -> str:
         raw_diagnostics = result.get("diagnostics")
         nested: Dict[str, Any] = dict(raw_diagnostics) if isinstance(raw_diagnostics, dict) else {}
         diagnostic_fields = (
-            ("reason", result.get("reason", nested.get("reason"))),
-            ("error_code", result.get("error_code", result.get("code", nested.get("error_code", nested.get("code"))))),
-            ("detail", result.get("message", result.get("detail", nested.get("message", nested.get("detail"))))),
+            ("reason", _first_safe_diagnostic(result.get("reason"), nested.get("reason"))),
+            ("error_code", _first_safe_diagnostic(
+                result.get("error_code"), result.get("code"), nested.get("error_code"), nested.get("code"))),
+            ("detail", _first_safe_diagnostic(
+                result.get("message"), result.get("detail"), nested.get("message"), nested.get("detail"))),
         )
         added = False
-        for label, value in diagnostic_fields:
-            safe = _safe_diagnostic_text(value)
+        for label, safe in diagnostic_fields:
             if safe:
                 bits.append(f"{label}={safe}")
                 added = True

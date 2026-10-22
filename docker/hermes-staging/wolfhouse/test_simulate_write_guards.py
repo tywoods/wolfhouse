@@ -56,6 +56,41 @@ class GuardPathTests(unittest.TestCase):
                           "guest_text=do not retain", "MUST_NOT_APPEAR"):
             self.assertNotIn(forbidden, malicious)
 
+    def test_unsafe_diagnostic_values_are_omitted(self):
+        synthetic_privacy_cases = (
+            "guest_text=first private line\nsecond private line",
+            "guest said: first private line\nsecond private line",
+            "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+            "password=SYNTHETIC-CREDENTIAL",
+            "api_key: SYNTHETIC-CREDENTIAL",
+            '{"guest":{"name":"Synthetic Guest","phone":"+34600111222"}}',
+            "payload={'guest_name':'Synthetic Guest','notes':'private prose'}",
+        )
+        for unsafe_value in synthetic_privacy_cases:
+            with self.subTest(unsafe_value=unsafe_value):
+                summary = summarize_tool_result({"success": False, "message": unsafe_value})
+                self.assertEqual(summary, "success=False; reason=unavailable")
+                self.assertNotIn("private", summary.lower())
+                self.assertNotIn("credential", summary.lower())
+                self.assertNotIn("synthetic guest", summary.lower())
+
+    def test_first_nonempty_safe_diagnostic_candidate_wins(self):
+        synthetic_cases = (
+            ({"reason": None, "diagnostics": {"reason": "nested_reason"}}, "reason=nested_reason"),
+            ({"reason": "", "diagnostics": {"reason": "nested_reason"}}, "reason=nested_reason"),
+            ({"error_code": None, "diagnostics": {"code": "NESTED_CODE"}}, "error_code=NESTED_CODE"),
+            ({"message": "", "diagnostics": {"detail": "nested detail"}}, "detail=nested detail"),
+            ({
+                "message": "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+                "diagnostics": {"detail": "safe nested detail"},
+            }, "detail=safe nested detail"),
+        )
+        for fields, expected in synthetic_cases:
+            with self.subTest(fields=fields):
+                summary = summarize_tool_result({"success": False, **fields})
+                self.assertIn(expected, summary)
+                self.assertNotIn("reason=unavailable", summary)
+
     def test_success_guard_non_dict_and_existing_fields_are_unchanged(self):
         success = {"success": True, "booking_code": "SYNTHETIC-BOOK", "reason": "must_not_be_added"}
         self.assertEqual(summarize_tool_result(success), "success=True; booking_code=SYNTHETIC-BOOK")
