@@ -688,25 +688,29 @@ _STYLE_COPY = {
            'saved': '{name}, your booking is saved! 🌊', 'saved_anon': 'Your booking is saved! 🌊',
            'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
            'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
-           'remaining': 'Remaining after this payment', 'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
+           'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
+           'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
     'es': {'opener': 'Aquí tienes tu estancia 🌊', 'dates': 'Fechas', 'room': 'Habitación', 'package': 'Paquete',
            'guests': 'Huéspedes', 'total': 'Total', 'booking': 'Reserva',
            'saved': '{name}, ¡tu reserva está guardada! 🌊', 'saved_anon': '¡Tu reserva está guardada! 🌊',
            'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
            'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
-           'remaining': 'Pendiente después de este pago', 'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
+           'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
+           'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
     'fr': {'opener': 'Voici votre séjour 🌊', 'dates': 'Dates', 'room': 'Chambre', 'package': 'Formule',
            'guests': 'Personnes', 'total': 'Total', 'booking': 'Réservation',
            'saved': '{name}, votre réservation est enregistrée ! 🌊', 'saved_anon': 'Votre réservation est enregistrée ! 🌊',
            'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
            'save': 'J’enregistre cette réservation ?', 'save_updated': 'J’enregistre cette réservation mise à jour ?',
-           'remaining': 'Reste après ce paiement', 'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
+           'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
+           'due': 'À payer maintenant', 'link': 'Lien de paiement', 'guest': 'personne', 'guests_word': 'personnes'},
     'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
            'guests': 'Gäste', 'total': 'Gesamt', 'booking': 'Buchung',
            'saved': '{name}, deine Buchung ist gespeichert! 🌊', 'saved_anon': 'Deine Buchung ist gespeichert! 🌊',
            'deposit_choice': 'Du kannst jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtest du?',
            'save': 'Soll ich diese Buchung speichern?', 'save_updated': 'Soll ich diese aktualisierte Buchung speichern?',
-           'remaining': 'Danach noch offen', 'due': 'Jetzt fällig', 'link': 'Zahlungslink', 'guest': 'Gast', 'guests_word': 'Gäste'},
+           'remaining': 'Danach noch offen', 'balance': 'Restbetrag',
+           'due': 'Jetzt fällig', 'link': 'Zahlungslink', 'guest': 'Gast', 'guests_word': 'Gäste'},
 }
 
 
@@ -805,7 +809,11 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     reference = receipt.get('booking_code') or receipt.get('booking_id')
     currency = offer.get('currency') or receipt.get('currency') or 'EUR'
     total = offer.get('total_cents')
-    paid_or_due = offer.get('payment_link_amount_cents')
+    # The current payment-link receipt is newer payment truth than the accepted
+    # offer. Fall back to the offer only when no link amount was returned.
+    paid_or_due = receipt.get('amount_due_cents')
+    if type(paid_or_due) is not int:
+        paid_or_due = offer.get('payment_link_amount_cents')
     lines = [headline, '', f"📌 *{copy['booking']}:* {reference}",
              f"📅 *{copy['dates']}:* {_styled_dates_value(plan, offer, language, include_nights=True)}",
              f"🛏️ *{copy['room']}:* {_styled_room_value(plan, offer, language)}",
@@ -816,9 +824,9 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
             lines.append(f"💳 *{copy['due']}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:
-                lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")
+                lines.append(f"⏳ *{copy['balance']}:* {_guest_money(remaining, currency)}")
         else:
-            lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(total, currency)}")
+            lines.append(f"⏳ *{copy['balance']}:* {_guest_money(total, currency)}")
     url = receipt.get('secure_payment_url')
     if isinstance(url, str) and url.strip():
         lines.extend(['', f"🔗 *{copy['link']}:* {url.strip()}"])

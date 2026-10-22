@@ -221,7 +221,7 @@ class Sim25LiveSequenceTests(unittest.TestCase):
             loop.call("quote_booking", first, {"/booking-preview": first_quote})
             shown = loop.present()
             exact_total = re.compile(r"(?<!\d)€120(?!\d|[.,]\d)")
-            self.assertEqual(exact_total.findall(shown), ["€120"], shown)
+            self.assertEqual(exact_total.findall(shown), ["€120", "€120"], shown)
             for adjacent in ("€1200", "€120.99", "€120.00", "1€120", "€1201"):
                 self.assertIsNone(exact_total.search(adjacent), adjacent)
             self.assertNotIn("Lucía:", shown)
@@ -445,10 +445,9 @@ class Sim25LiveSequenceTests(unittest.TestCase):
             quote = checked_staff_quote(plan, beds, total=12000, deposit=10000)
             loop.turn("offer", "¿Cuánto cuesta?"); loop.call("quote_booking", plan, {"/booking-preview": quote})
             shown = loop.present()
-            self.assertIn("Total: €120.", shown.splitlines())
-            self.assertNotIn("Total: €120 (depósito: €100).", shown)
-            self.assertIn("Depósito: €100.", shown)
-            self.assertIn("A pagar a la llegada: €20.", shown)
+            self.assertIn("💶 *Total:* €120", shown.splitlines())
+            self.assertIn("💳 *A pagar ahora:* €100 (depósito)", shown.splitlines())
+            self.assertIn("⏳ *Pendiente después de este pago:* €20", shown.splitlines())
             self.assertNotIn("Lucía Fernández Ruiz:", shown)
             loop.turn("yes", "Perfecto. Me llamo Lucía Fernández Ruiz. Prefiero pagar el depósito. ¡Sí, resérvalo!")
             proof = []

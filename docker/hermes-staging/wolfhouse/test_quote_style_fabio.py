@@ -68,7 +68,7 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("📌 *Booking:* WH-2F393C", text)
         self.assertIn("💶 *Total:* €400", text)
         self.assertIn("💳 *Due now:* €200", text)
-        self.assertIn("⏳ *Remaining after this payment:* €200", text)
+        self.assertIn("⏳ *Remaining balance:* €200", text)
         self.assertIn("🔗 *Payment link:* https://example.invalid/pay/abc", text)
         self.assertNotIn("payment received", text.lower())
         self.assertNotIn("paid", text.lower())
@@ -77,8 +77,8 @@ class QuoteStyleFabioTests(unittest.TestCase):
     def test_receipt_localizes_spanish_and_german_without_changing_money_truth(self):
         receipt = {"success": True, "booking_code": "WH-2F393C"}
         expected = {
-            "es": ("Fabio, ¡tu reserva está guardada! 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Pendiente después de este pago:* €200"),
-            "de": ("Fabio, deine Buchung ist gespeichert! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Danach noch offen:* €200"),
+            "es": ("Fabio, ¡tu reserva está guardada! 🌊", "📌 *Reserva:*", "📅 *Fechas:*", "⏳ *Saldo restante:* €200"),
+            "de": ("Fabio, deine Buchung ist gespeichert! 🌊", "📌 *Buchung:*", "📅 *Daten:*", "⏳ *Restbetrag:* €200"),
         }
         for language, phrases in expected.items():
             with self.subTest(language=language):
@@ -86,6 +86,28 @@ class QuoteStyleFabioTests(unittest.TestCase):
                 for phrase in phrases:
                     self.assertIn(phrase, text)
                 self.assertEqual(text.count("WH-2F393C"), 1)
+                self.assert_style(text)
+
+    def test_unpaid_receipt_uses_current_payment_link_amount_for_due_and_balance(self):
+        receipt = {
+            "success": True, "booking_code": "WH-2F393C",
+            "secure_payment_url": "https://example.invalid/pay/current",
+            "amount_due_cents": 15000, "currency": "EUR",
+        }
+        expected = {
+            "en": ("💳 *Due now:* €150", "⏳ *Remaining balance:* €250",
+                   "🔗 *Payment link:* https://example.invalid/pay/current"),
+            "es": ("💳 *A pagar ahora:* €150", "⏳ *Saldo restante:* €250",
+                   "🔗 *Enlace de pago:* https://example.invalid/pay/current"),
+        }
+        for language, phrases in expected.items():
+            with self.subTest(language=language):
+                text = owner._styled_booking_receipt_copy(self.plan, self.offer, receipt, language)
+                for phrase in phrases:
+                    self.assertIn(phrase, text)
+                self.assertEqual(text.count("WH-2F393C"), 1)
+                self.assertEqual(text.count("https://example.invalid/pay/current"), 1)
+                self.assertNotIn("€150.00", text)
                 self.assert_style(text)
 
 

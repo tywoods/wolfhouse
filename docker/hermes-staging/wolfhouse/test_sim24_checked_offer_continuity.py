@@ -265,7 +265,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                             shown,
                             rf"(?<!\d){re.escape(deposit_text)}(?!\d|[.,]\d)")
                         self.assertIn("depósito", shown.lower())
-                        self.assertIn("pago completo", shown.lower())
+                        self.assertIn("el total de €120", shown.lower())
                         turn(1)
                     elif label == "guest2":
                         initial = {key: plan[key] for key in
@@ -425,8 +425,11 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                 else f"€{facts['payment_amount_cents'] / 100:.2f}")
                     self.assertRegex(final["final_response"],
                                      rf"(?<!\d){re.escape(due_text)}(?!\d|[.,]\d)")
-                    for name in facts["names"]:
-                        self.assertIn(name, final["final_response"])
+                    if facts["party"] == 1:
+                        self.assertIn(facts["names"][0].split()[0], final["final_response"])
+                    else:
+                        for name in facts["names"]:
+                            self.assertIn(name, final["final_response"])
                     loop.db.append_message(session_id=loop.agent.session_id,
                                            role="assistant", content=final["final_response"])
                     history = loop.db.get_messages(loop.agent.session_id)
