@@ -66,6 +66,62 @@ class Sim29CopyTests(unittest.TestCase):
         self.assertIn("(Anzahlung)", quote)
         self.assertNotIn("Jonas Becker und Felix Becker:", quote)
 
+    def test_constructed_partial_group_splits_use_natural_french_and_german_sentences(self):
+        names = ["Alex Example", "Sam Example", "Camille Example"]
+        cases = {
+            ("fr", ("R1", "R1", "R2")): (
+                "Alex Example et Sam Example ont deux lits dans la même chambre mixte",
+                "Camille Example a un lit dans une autre chambre mixte",
+            ),
+            ("fr", ("R1", "R2", "R2")): (
+                "Alex Example a un lit dans une chambre mixte",
+                "Sam Example et Camille Example ont deux lits dans une autre chambre mixte",
+            ),
+            ("de", ("R1", "R1", "R2")): (
+                "Alex Example und Sam Example haben zwei Betten im selben gemischten Zimmer",
+                "Camille Example hat ein Bett in einem anderen gemischten Zimmer",
+            ),
+            ("de", ("R1", "R2", "R2")): (
+                "Alex Example hat ein Bett in einem gemischten Zimmer",
+                "Sam Example und Camille Example haben zwei Betten in einem anderen gemischten Zimmer",
+            ),
+        }
+        for (language, rooms), phrases in cases.items():
+            with self.subTest(language=language, rooms=rooms):
+                plan = {
+                    "check_in": "2026-11-16",
+                    "check_out": "2026-11-19",
+                    "guest_count": 3,
+                    "room_type": "shared",
+                    "room_preference": "mixed",
+                    "package_code": "package_none",
+                    "payment_choice": "deposit",
+                    "guests": [{"name": name} for name in names],
+                }
+                beds = [
+                    {"bed_code": f"{room}-B{index + 1}", "room_code": room,
+                     "gender_strategy": "mixed"}
+                    for index, room in enumerate(rooms)
+                ]
+                offer = {
+                    **plan,
+                    "currency": "EUR",
+                    "total_cents": 36000,
+                    "deposit_required_cents": 20000,
+                    "payment_link_amount_cents": 20000,
+                    "room_arrangement": beds,
+                    "guest_bed_assignments": [
+                        {"guest_index": index, "guest_name": name,
+                         "bed_code": beds[index]["bed_code"]}
+                        for index, name in enumerate(names)
+                    ],
+                }
+                rendered = owner._styled_quote_copy(plan, offer, language, create_ready=True)
+                self.assertIn(f"{phrases[0]}. {phrases[1]}", rendered)
+                for name in names:
+                    self.assertNotIn(f"{name}:", rendered)
+                    self.assertNotIn(f"{name} :", rendered)
+
     def test_constructed_unpaid_receipts_distinguish_due_now_and_future_remainder(self):
         plan = {"check_in": "2026-11-16", "check_out": "2026-11-19", "guest_count": 1,
                 "room_type": "shared", "payment_choice": "deposit",

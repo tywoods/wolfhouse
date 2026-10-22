@@ -632,8 +632,16 @@ def _guest_room_lines(plan, offer, language='en'):
                             if who and singleton else '')
             if language != 'en':
                 if beds == 1:
-                    line = {'es': f'{prefix}una cama en una {kind}{natural_name}.', 'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
-                            'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
+                    if who and language == 'fr':
+                        where = f'une {kind}' if first else f'une autre {kind}'
+                        line = f'{who} a un lit dans {where}.'
+                    elif who and language == 'de':
+                        where = f'einem {kind}' if first else f'einem anderen {kind}'
+                        line = f'{who} hat ein Bett in {where}.'
+                    else:
+                        line = {'es': f'{prefix}una cama en una {kind}{natural_name}.',
+                                'fr': f'{prefix}un lit dans une {kind}{natural_name}.',
+                                'de': f'{prefix}ein Bett in einem {kind}{natural_name}.'}[language]
                 else:
                     line = {
                         'es': (f'{who} tienen {n} camas en la misma {kind}.' if who
@@ -643,10 +651,13 @@ def _guest_room_lines(plan, offer, language='en'):
                         'de': (f'{who} haben {n} Betten im selben {kind}.' if who
                                else f'{n} Betten im selben {kind}.'),
                     }[language]
-                if len(same) > 1 and not first:
-                    line = {'es': f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.',
-                            'fr': f'{who} : {n if beds > 1 else "un"} lit' + ('s' if beds > 1 else '') + f' dans une autre {kind}.',
-                            'de': f'{who}: {n if beds > 1 else "ein"} Bett' + ('en' if beds > 1 else '') + f' in einem anderen {kind}.'}[language]
+                if len(same) > 1 and not first and language == 'es':
+                    line = f'{who}: {n if beds > 1 else "una"} cama' + ('s' if beds > 1 else '') + f' en otra {kind}.'
+                elif len(same) > 1 and not first and beds > 1:
+                    line = {
+                        'fr': f'{who} ont {n} lits dans une autre {kind}.',
+                        'de': f'{who} haben {n} Betten in einem anderen {kind}.',
+                    }[language]
                 lines.append(line)
                 first = False
                 continue
@@ -754,7 +765,7 @@ def _styled_room_value(plan, offer, language):
             return 'Private room' + room_suffix
         adjective = 'mixed shared room' if kind == 'mixed room' else kind
         return f'A bed in our {adjective}{room_suffix}'
-    return ' '.join(line.rstrip('.') for line in lines)
+    return '. '.join(line.rstrip('.') for line in lines)
 
 
 def _styled_dates_value(plan, offer, language, *, include_nights=False):
