@@ -52,10 +52,10 @@ h.runPayload(body, options).then(result => process.stdout.write(JSON.stringify(r
         }
         plan = {"guests": [{"name": "Emma"}]}
         expected = {
-            "en": "Is Emma eligible for the requested women-only room?",
-            "es": "¿Puede Emma alojarse en la habitación solicitada solo para mujeres?",
-            "fr": "Est-ce que Emma peut séjourner dans la chambre demandée réservée aux femmes ?",
-            "de": "Kann Emma im gewünschten Frauenzimmer übernachten?",
+            "en": "Just to confirm, are you a woman?",
+            "es": "Solo para confirmar, ¿eres mujer?",
+            "fr": "Juste pour confirmer, êtes-vous une femme ?",
+            "de": "Nur zur Bestätigung: Bist du eine Frau?",
         }
         for language, copy in expected.items():
             with self.subTest(language=language):
@@ -140,7 +140,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                     {"role": "tool", "content": json.dumps(checked)},
                     {"role": "assistant", "content": "MODEL DRAFT"}]})
             self.assertIn("Tue 10 Nov to Fri 13 Nov", rendered["final_response"])
-            self.assertIn("Emma", rendered["final_response"])
+            self.assertIn("Just to confirm, are you a woman?", rendered["final_response"])
             self.assertEqual(rendered["final_response"].count("?"), 1)
         finally:
             loop.close()
@@ -182,7 +182,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                                      {"role": "assistant", "content": "model draft"}]})
                     expected = ("Thanks — I’ve updated the stay to "
                                 f"{'Tue 3 Nov' if checkout_only else 'Wed 4 Nov'} to Sat 7 Nov.\n"
-                                "Is Emma eligible for the requested women-only room?")
+                                "Just to confirm, are you a woman?")
                     self.assertEqual(reply["final_response"], expected)
                     self.assertEqual(reply["messages"][-1]["content"], expected)
                     state = owner._transaction(lambda current, _ingress: dict(current))
@@ -217,7 +217,7 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
                 "messages": [{"role": "user", "content": raw},
                              {"role": "assistant", "content": "model draft"}]})
             expected = ("Thanks — I’ve updated the stay to Wed 4 Nov to Sat 7 Nov.\n"
-                        "Is Emma eligible for the requested women-only room?")
+                        "Just to confirm, are you a woman?")
             self.assertEqual(reply["final_response"], expected)
             self.assertEqual(reply["messages"][-1]["content"], expected)
         finally:
@@ -225,10 +225,10 @@ process.stdout.write(JSON.stringify(m(b(command, inventory, null))));
 
     def test_french_singleton_eligibility_is_neutral_for_named_and_unnamed_guests(self):
         for room, name, expected in (
-            ("male_only", "Hugo", "Est-ce que Hugo peut séjourner dans la chambre demandée réservée aux hommes ?"),
-            ("female_only", "Hugo", "Est-ce que Hugo peut séjourner dans la chambre demandée réservée aux femmes ?"),
-            ("male_only", "", "Est-ce que la personne 1 peut séjourner dans la chambre demandée réservée aux hommes ?"),
-            ("female_only", "", "Est-ce que la personne 1 peut séjourner dans la chambre demandée réservée aux femmes ?"),
+            ("male_only", "Hugo", "Juste pour confirmer, êtes-vous un homme ?"),
+            ("female_only", "Hugo", "Juste pour confirmer, êtes-vous une femme ?"),
+            ("male_only", "", "Juste pour confirmer, êtes-vous un homme ?"),
+            ("female_only", "", "Juste pour confirmer, êtes-vous une femme ?"),
         ):
             eligibility = {"status": "unsure", "requested_room_preference": room,
                            "affected_guest_indices": [0],
@@ -535,7 +535,7 @@ with patch.object(plugin, 'preview_package_prices', return_value=failed):
             ],
         }
         self.assertEqual(
-            ["Lucía de la Cruz and lucía de la Cruz: two beds in the same mixed room."],
+            ["Lucía de la Cruz and lucía de la Cruz have two beds in the same mixed room."],
             owner._guest_room_lines(plan, offer, "en"),
         )
 
