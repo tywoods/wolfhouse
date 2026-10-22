@@ -67,7 +67,7 @@ class CaptainR2Tests(OwnerHostileTests):
         self.ledger.record_quote(plan, receipt)
         shown = self.ledger.finalize_offer_response({"completed": True,
                                                      "final_response": "model draft"})
-        self.assertIn("Full payment required: 80.00 EUR.", shown["final_response"])
+        self.assertIn("💶 *Total and due now:* €80 (full payment)", shown["final_response"])
         self.assertNotIn("deposit", shown["final_response"].lower())
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     "quote_owner_acceptance_required"):
@@ -154,6 +154,48 @@ class CaptainR2Tests(OwnerHostileTests):
         with self.assertRaisesRegex(self.ledger.QuoteBoundaryError,
                                     "quote_completion_identity_changed"):
             self._accept("r2b-partial", raw, ["Aisha Rahman", "Priya Shah"], "deposit")
+
+    def test_capfix2_finalizer_preserves_rental_quantity_and_duration_before_consent(self):
+        self._fresh("captain-capfix2-rental")
+        plan = {"check_in": "2026-11-03", "check_out": "2026-11-06", "guest_count": 1,
+                "guest_name": "Aisha", "guests": [{"name": "Aisha"}],
+                "package_code": "package_none", "room_type": "shared",
+                "room_preference": "female_only",
+                "add_ons": [{"code": "board_rental", "quantity": 1, "days": 3}]}
+        receipt = self._receipt(["aisha"], ["R5-B1"], total=12000, deposit=6000)
+        receipt["offer_revision"]["add_ons"] = [{"code": "board_rental", "quantity": 1}]
+        self.turn("capfix2-rental-offer", "quote bed and board rental for three days")
+        self.ledger.record_quote(plan, receipt)
+        shown = self.ledger.finalize_offer_response(
+            {"completed": True, "final_response": "model draft", "messages": []})
+        self.assertIn("Board rental × 1 for 3 days", shown["final_response"])
+
+    def test_capfix2_finalizer_localizes_full_payment_only_timing(self):
+        cases = {
+            "en": "💶 *Total and due now:* €80 (full payment)",
+            "es": "💶 *Total y a pagar ahora:* €80 (pago completo)",
+            "fr": "💶 *Total et à payer maintenant:* €80 (paiement intégral)",
+            "de": "💶 *Gesamtpreis und jetzt fällig:* €80 (vollständige Zahlung)",
+        }
+        prompts = {
+            "en": "What's the price?", "es": "¿Cuánto cuesta?",
+            "fr": "Quel est le prix ?", "de": "Wie viel kostet es?",
+        }
+        for language, expected in cases.items():
+            with self.subTest(language=language):
+                self._fresh(f"captain-capfix2-full-{language}")
+                plan = {"check_in": "2026-10-16", "check_out": "2026-10-18",
+                        "guest_count": 1, "guest_name": "Nora",
+                        "guests": [{"name": "Nora"}], "package_code": "package_none",
+                        "room_type": "shared", "room_preference": "female_only",
+                        "gender_preference": "female", "language": language}
+                receipt = self._receipt(["nora"], ["R5-B3"], total=8000,
+                                        deposit=8000, full_only=True)
+                self.turn(f"capfix2-full-offer-{language}", prompts[language])
+                self.ledger.record_quote(plan, receipt)
+                shown = self.ledger.finalize_offer_response(
+                    {"completed": True, "final_response": "model draft", "messages": []})
+                self.assertIn(expected, shown["final_response"])
 
 
 if __name__ == "__main__":

@@ -317,7 +317,7 @@ If composition is still needed for a requested gendered room, preserve that requ
 
 ### Solo (guest_count = 1)
 
-For a solo guest, use only explicit self-description, an explicit room request whose eligibility is established, or authoritative Staff eligibility facts. A name is never gender evidence. If a gendered room's eligibility is unresolved, ask one neutral placement question before the checked offer; otherwise offer a compatible neutral room. An explicit correction always wins. Never hand off merely for a room/eligibility clarification, and never reopen it after payment intent.
+For a solo guest with unknown or male gender, use the compatible mixed/shared bed without asking, but this mixed/shared default never overrides an explicit room preference. Never infer gender from a name. Use a female-only or other gendered room only from explicit self-description, an explicit room request whose eligibility is established, or authoritative Staff eligibility facts. An explicit correction always wins. Never hand off merely for a room/eligibility clarification, and never reopen it after payment intent.
 
 ### After composition — auto-assign the dorm (NO second room question)
 

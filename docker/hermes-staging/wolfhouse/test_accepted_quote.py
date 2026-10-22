@@ -402,9 +402,9 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: €200.', shown['final_response'].splitlines())
+        self.assertIn('💶 *Total:* €200', shown['final_response'].splitlines())
         self.assertNotIn('Total: €200 (deposit:', shown['final_response'])
-        self.assertIn('Due on arrival: €200.', shown['final_response'])
+        self.assertIn('⏳ *Remaining after this payment:* €200', shown['final_response'])
         self.assertNotIn('Payment on arrival: 0.00 EUR', shown['final_response'])
         self.turn('g4-same-name-control', 'Please check Mateo Ríos again')
         prepared = self.ledger.prepare_quote({'guests': deepcopy(plan['guests'])})
@@ -435,12 +435,12 @@ class OwnerHostileTests(unittest.TestCase):
                 shown = self.ledger.finalize_offer_response(
                     {'completed': True, 'final_response': 'draft', 'messages': []})
                 text = shown['final_response']
-                self.assertIn('Total: €200.', text.splitlines())
+                self.assertIn('💶 *Total:* €200', text.splitlines())
                 self.assertNotIn('Total: €200 (deposit:', text)
                 if choice == 'full':
                     self.assertNotIn('Due on arrival:', text)
                 else:
-                    self.assertIn(f'Due on arrival: {expected_due[choice]}.', text)
+                    self.assertIn(f"⏳ *Remaining after this payment:* {expected_due[choice]}", text)
 
     def test_g4_first_create_accepts_only_synced_same_person_room_hints(self):
         plan = {**self.plan, 'guests': [{'name': 'Mateo Ríos'}, {'name': 'Guest Two'}],
@@ -781,7 +781,7 @@ class OwnerHostileTests(unittest.TestCase):
                           'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
         })
         self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('Payment options: deposit (€100) or full payment.', shown['final_response'])
+        self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?', shown['final_response'])
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -989,7 +989,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('Payment options: deposit (€100) or full payment.', shown['final_response'])
+                    self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?', shown['final_response'])
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({
@@ -2781,8 +2781,8 @@ class OwnerHostileTests(unittest.TestCase):
         self.ledger.record_quote(spanish_plan, response)
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
-        self.assertIn('Total: €200.', shown['final_response'])
-        self.assertIn('Puedes pagar el depósito ahora o el total. ¿Cuál prefieres?', shown['final_response'])
+        self.assertIn('💶 *Total:* €200', shown['final_response'])
+        self.assertIn('Puedes pagar ahora un depósito de €100 o el total de €200. ¿Cuál prefieres?', shown['final_response'])
 
         self.agent.session_id = 'sim19-spanish-refusal'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -2796,10 +2796,10 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_sim19_complete_incomplete_and_refusal_are_fully_localized(self):
         cases = {
-            'en': ('Please book this room', 'Accommodation only', 'Payment options', 'Availability checked', 'I could not verify'),
-            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', 'Opciones de pago', 'Disponibilidad comprobada', 'No pude verificar'),
-            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Options de paiement', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
-            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Zahlungsoptionen', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
+            'en': ('Please book this room', 'Accommodation only', 'Which would you like?', 'Availability checked', 'I could not verify'),
+            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Cuál prefieres?', 'Disponibilidad comprobada', 'No pude verificar'),
+            'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Que préférez-vous ?', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
+            'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Was möchtest du?', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
         }
         for language, expected in cases.items():
             raw, accommodation, options, availability, refusal_text = expected
@@ -2828,7 +2828,7 @@ class OwnerHostileTests(unittest.TestCase):
                 text = self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft', 'messages': []})['final_response']
                 self.assertIn(options, text)
                 self.assertIn('€200', text)
-                self.assertNotIn('Payment options', text) if language != 'en' else self.assertIn('Payment options', text)
+                self.assertNotIn('Payment options', text)
 
                 self.agent.session_id = f'sim19-{language}-refusal'
                 self.db.create_session(self.agent.session_id, source='whatsapp')
