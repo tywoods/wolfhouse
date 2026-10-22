@@ -21462,9 +21462,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-field-dates-edit .ctx-field-edit-actions,
 #bc-side-drawer #bc-field-dates-edit .ctx-field-preview-result{grid-column:1/-1}
 #bc-side-drawer #bc-field-guests-edit .ctx-field-private-room-edit{display:none}
+/* SCHEDULE-DATE-RANGE-PICKER-001 — fixed portal, not clipped by the grid lock. */
 .bc-range-pop{
-  position:absolute;top:calc(100% + 6px);right:0;z-index:80;
-  width:268px;padding:10px;background:var(--surface,#fff);border:1px solid var(--border-soft);
+  position:fixed;z-index:80;
+  width:268px;max-width:calc(100vw - 16px);box-sizing:border-box;padding:10px;
+  background:var(--surface,#fff);border:1px solid var(--border-soft);
   border-radius:10px;box-shadow:0 8px 24px rgba(43,36,31,.16);
 }
 .bc-range-pop[hidden]{display:none!important}
@@ -46933,6 +46935,35 @@ function bcSyncRangeBtn(){
   else btn.textContent = 'Select dates';
 }
 
+function bcPlaceRangePop(){
+  var pop = el('bc-range-pop');
+  var btn = el('bc-range-btn');
+  if (!pop || !btn || pop.hidden) return;
+  if (pop.parentNode !== document.body) document.body.appendChild(pop);
+  var rect = btn.getBoundingClientRect();
+  var margin = 8;
+  var gap = 6;
+  var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+  var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+  var width = pop.offsetWidth || 268;
+  var height = pop.offsetHeight || 280;
+  var left = rect.right - width;
+  if (left < margin) left = margin;
+  if (left + width > vw - margin) left = Math.max(margin, vw - margin - width);
+  var below = rect.bottom + gap;
+  var above = rect.top - gap - height;
+  var top = below;
+  if (below + height > vh - margin && above >= margin) top = above;
+  if (top < margin) top = margin;
+  if (top + height > vh - margin) top = Math.max(margin, vh - margin - height);
+  pop.style.position = 'fixed';
+  pop.style.zIndex = '80';
+  pop.style.left = Math.round(left) + 'px';
+  pop.style.top = Math.round(top) + 'px';
+  pop.style.right = 'auto';
+  pop.style.bottom = 'auto';
+}
+
 function bcInitRangePicker(){
   var btn = el('bc-range-btn');
   var pop = el('bc-range-pop');
@@ -46940,9 +46971,16 @@ function bcInitRangePicker(){
   pop.dataset.wired = '1';
   window.bcRangePopState = { view: null, start: null, end: null };
   bcSyncRangeBtn();
+  btn.setAttribute('aria-haspopup', 'dialog');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', 'bc-range-pop');
   btn.addEventListener('click', function(ev){
     ev.stopPropagation();
-    if (!pop.hidden){ pop.hidden = true; return; }
+    if (!pop.hidden){
+      pop.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+      return;
+    }
     var start = bcReadDateField(el('bc-start'));
     var end = bcReadDateField(el('bc-end'));
     window.bcRangePopState.start = start || null;
@@ -46950,12 +46988,17 @@ function bcInitRangePicker(){
     window.bcRangePopState.view = start || bcIso(new Date());
     bcRenderRangePop();
     pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    bcPlaceRangePop();
   });
   document.addEventListener('click', function(ev){
     if (pop.hidden) return;
     if (pop.contains(ev.target) || btn.contains(ev.target)) return;
     pop.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
   });
+  window.addEventListener('resize', bcPlaceRangePop);
+  document.addEventListener('scroll', bcPlaceRangePop, true);
 }
 
 function bcRangePopShift(delta){
@@ -47007,6 +47050,7 @@ function bcRenderRangePop(){
       bcRangePopPick(b.getAttribute('data-bc-range-day'));
     });
   });
+  if (!pop.hidden) bcPlaceRangePop();
 }
 
 function bcRangePopPick(iso){
