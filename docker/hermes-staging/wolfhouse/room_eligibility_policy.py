@@ -238,6 +238,19 @@ def decide_room_eligibility(
             "excluded_room_preferences": ["female_only", "male_only"],
         }
 
+    if (not statement and count == 1 and unknown and not preference
+            and hint in (None, "") and confidence in (None, "") and not ambiguous):
+        # A solo guest does not need to consent to the ordinary shared/mixed
+        # allocation before seeing its Staff-backed offer. This is placement
+        # only: composition remains unknown and gendered rooms stay excluded.
+        return {
+            **base,
+            "resolved_composition": "unknown",
+            "clarification_needed": False,
+            "allowed_room_preferences": [item for item in ("mixed", "shared") if flags["mixed"]],
+            "excluded_room_preferences": ["female_only", "male_only"],
+        }
+
     if not statement and (unknown or (count >= 2 and len(known) < count)):
         return {
             **base,

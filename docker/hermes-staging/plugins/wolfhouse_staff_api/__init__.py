@@ -620,6 +620,78 @@ def _strip_group_gender_conflicting_with_person_facts(payload):
         payload.pop("group_gender", None)
 
 
+def _default_solo_shared_placement(payload):
+    """Pick ordinary shared stock for a solo guest without inventing gender."""
+    if not isinstance(payload, dict) or payload.get("room_preference") not in (None, ""):
+        return
+    room_type = _clean(payload.get("room_type")).lower().replace("-", "_").replace(" ", "_")
+    # A current-call explicit room request always outranks retained owner state.
+    # The canonical ordinary shared aliases below are the only room types that
+    # can receive a carried choice or the solo default.
+    if room_type not in {"", "any", "shared", "mixed", "dorm", "dormitory"}:
+        return
+    # gender_preference is itself an explicit solo eligibility/room request,
+    # including female aliases, private, and named rooms.
+    if payload.get("gender_preference") not in (None, ""):
+        return
+    current_group = _clean(payload.get("group_gender")).lower()
+    if current_group in {"female", "f", "woman", "women", "girl", "girls"}:
+        return
+    # Preserve any established owner choice on genuinely sparse follow-ups. A
+    # default is placement, not a fresh guest selection, so it may never replace
+    # one; equally, retained state may never replace the explicit requests above.
+    try:
+        from wolfhouse import accepted_quote as ledger
+        if ledger._current.get() is not None:
+            state = ledger._transaction(lambda current, ingress: current.copy())
+            established = ((state.get("plan") or {}).get("room_preference")
+                           if isinstance(state, dict) else None)
+            if established not in (None, ""):
+                payload["room_preference"] = established
+                return
+    except (ImportError, RuntimeError):
+        pass
+    try:
+        guest_count = int(payload.get("guest_count") or 1)
+    except (TypeError, ValueError):
+        return
+    if guest_count != 1:
+        return
+    # gender_preference is itself an explicit solo eligibility/room request,
+    # including female aliases, private, and named rooms.
+    if payload.get("gender_preference") not in (None, ""):
+        return
+    explicit = _clean(payload.get("group_gender") or payload.get("explicit_gender")).lower()
+    guests = payload.get("guests") if isinstance(payload.get("guests"), list) else []
+    if guests and isinstance(guests[0], dict):
+        explicit = _clean(guests[0].get("explicit_gender") or explicit).lower()
+    if explicit in {"female", "f", "woman", "women", "girl", "girls"}:
+        return
+    # Names and legacy name hints are intentionally ignored. Unknown and
+    # explicitly male solos use the unrestricted shared allocation by default.
+    payload["room_preference"] = "mixed"
+
+
+def _availability_is_comparison_turn(params):
+    """Return true for an explicit inventory comparison, never a room choice."""
+    intent = _clean((params or {}).get("availability_intent")).casefold()
+    if intent:
+        return intent == "comparison"
+    try:
+        from wolfhouse import accepted_quote as ledger
+        if ledger._current.get() is None:
+            return False
+        state = ledger._transaction(lambda current, ingress: current.copy())
+        raw = _clean((state.get("current_turn") or {}).get("raw")).casefold()
+    except (ImportError, RuntimeError):
+        return False
+    return any(marker in raw for marker in (
+        "just checking availability", "no booking yet", "only want to know",
+        "only checking availability", "compare availability", "compare these rooms",
+        "which rooms are free", "which of those have", "show me availability for",
+    ))
+
+
 def check_availability(params, **kwargs):
     del kwargs
     _ok, _err = guard_tool_input("check_availability", params)
@@ -633,12 +705,14 @@ def check_availability(params, **kwargs):
         })
     payload = {
         "client_slug": params.get("client_slug"),
-        "check_in": params.get("check_in"),
-        "check_out": params.get("check_out"),
         "guest_count": params.get("guest_count"),
         "room_type": params.get("room_type") or params.get("stay_preference") or "shared",
     }
-    for key in ("room_preference", "gender_preference", "group_gender", "guests", "room_name_hints"):
+    for key in ("check_in", "check_out"):
+        if params.get(key) not in (None, ""):
+            payload[key] = params[key]
+    for key in ("room_preference", "gender_preference", "group_gender", "guests",
+                "room_name_hints", "payment_choice"):
         if key in params:
             payload[key] = params[key]
     # Availability and quote interpret the same canonical person-bound facts.
@@ -651,12 +725,14 @@ def check_availability(params, **kwargs):
     if hints:
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
+    comparison_only = _availability_is_comparison_turn(params)
+    _default_solo_shared_placement(payload)
     try:
         from wolfhouse import accepted_quote as ledger
         # Availability may also be used outside an initialized conversation
         # (offline probes/retained registered fixtures).  Only write owner state
-        # when this invocation has an active owner turn.
-        if ledger._current.get() is not None:
+        # when this invocation has an active owner turn and represents a choice.
+        if ledger._current.get() is not None and not comparison_only:
             ledger.record_availability_context(payload)
     except (ImportError, RuntimeError):
         pass
@@ -668,28 +744,43 @@ def check_availability(params, **kwargs):
         structured_eligibility = None
     status = _availability_status(data)
     eligibility_blockers = set(data.get("blockers") or []) if isinstance(data, dict) else set()
-    if (status != "unavailable"
-            and eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}):
-        status = "eligibility_required"
-    decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
-    if structured_eligibility is not None:
-        eligibility_status = structured_eligibility["status"]
-        if eligibility_status != "yes" and status != "unavailable":
-            status = "eligibility_required"
+    if comparison_only:
         decision = {
-            "structured": True,
-            "status": eligibility_status,
-            "requested_room_preference": structured_eligibility.get("requested_room_preference"),
-            "affected_guest_indices": structured_eligibility["affected_guest_indices"],
-            "reason_code": structured_eligibility.get("reason_code"),
-            "question_kind": structured_eligibility.get("question_kind"),
-            "clarification_needed": eligibility_status == "unsure",
-            "conflict": structured_eligibility.get("reason_code") if eligibility_status == "no" else None,
-            "needs_human": False, "do_not_escalate": True,
+            "comparison_only": True,
+            "provisional": True,
+            "not_a_verified_demographic": True,
+            "resolved_composition": "unknown",
+            "clarification_needed": False,
+            "clarification_prompt": None,
+            "conflict": None,
+            "needs_human": False,
+            "do_not_escalate": True,
             "allowed_room_preferences": [],
-            "excluded_room_preferences": ([structured_eligibility.get("requested_room_preference")]
-                                           if eligibility_status == "no" else []),
+            "excluded_room_preferences": [],
         }
+    else:
+        if (status != "unavailable"
+                and eligibility_blockers & {"room_eligibility_unknown", "room_eligibility_policy_conflict"}):
+            status = "eligibility_required"
+        decision = None if structured_eligibility is not None else _room_decision_for_tool(payload, data)
+        if structured_eligibility is not None:
+            eligibility_status = structured_eligibility["status"]
+            if eligibility_status != "yes" and status != "unavailable":
+                status = "eligibility_required"
+            decision = {
+                "structured": True,
+                "status": eligibility_status,
+                "requested_room_preference": structured_eligibility.get("requested_room_preference"),
+                "affected_guest_indices": structured_eligibility["affected_guest_indices"],
+                "reason_code": structured_eligibility.get("reason_code"),
+                "question_kind": structured_eligibility.get("question_kind"),
+                "clarification_needed": eligibility_status == "unsure",
+                "conflict": structured_eligibility.get("reason_code") if eligibility_status == "no" else None,
+                "needs_human": False, "do_not_escalate": True,
+                "allowed_room_preferences": [],
+                "excluded_room_preferences": ([structured_eligibility.get("requested_room_preference")]
+                                               if eligibility_status == "no" else []),
+            }
     if status != "unavailable" and isinstance(decision, dict) and (
             decision.get("clarification_needed") or decision.get("conflict")):
         status = "eligibility_required"
@@ -882,6 +973,7 @@ def quote_booking(params, **kwargs):
     if hints:
         payload["room_name_hints"] = hints
     _strip_group_gender_conflicting_with_person_facts(payload)
+    _default_solo_shared_placement(payload)
     # The quote shown to the guest must itself carry Staff's ordered bed pick.
     # Preflight once, then price those exact beds; do not leave a separately
     # bookable availability result beside an owner-unrecorded prose quote.
@@ -1031,6 +1123,15 @@ def _normalize_contact(payload):
             return
 
 
+def _canonical_explicit_gender(value):
+    token = _clean(value).casefold()
+    if token in {"female", "f", "woman", "women", "girl", "girls"}:
+        return "female"
+    if token in {"male", "m", "man", "men", "boy", "boys"}:
+        return "male"
+    return None
+
+
 def _normalize_guests_payload(payload, validated_explicit_genders=None):
     """Normalize indexed model facts, retaining current person corrections."""
     validated_explicit_genders = (validated_explicit_genders
@@ -1046,10 +1147,9 @@ def _normalize_guests_payload(payload, validated_explicit_genders=None):
             name = _clean(item)
         elif isinstance(item, dict):
             name = _clean(item.get("name") or item.get("guest_name"))
-            if item.get('explicit_gender') in ('male', 'female'):
-                explicit_gender = item['explicit_gender']
-            elif validated_explicit_genders.get(index) in ("male", "female"):
-                explicit_gender = validated_explicit_genders[index]
+            explicit_gender = _canonical_explicit_gender(item.get("explicit_gender"))
+            if explicit_gender is None:
+                explicit_gender = _canonical_explicit_gender(validated_explicit_genders.get(index))
         else:
             name = ""
         normalized.append({"name": name, **(
@@ -5003,6 +5103,10 @@ def register(ctx):
         "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
+        "availability_intent": {
+            "type": "string", "enum": ["selection", "comparison"],
+            "description": "Use comparison when the guest is only comparing dates/rooms and has not selected a stay or room; otherwise selection.",
+        },
     }
     for key in ("room_preference", "gender_preference", "group_gender"):
         common_availability[key] = {"type": "string", "description": "Established guest room choice or explicit party facts only; never infer gender from names."}
