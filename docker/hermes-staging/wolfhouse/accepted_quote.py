@@ -813,7 +813,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                                   and isinstance(identifier := row.get('code') or row.get('service_code'), str)
                                   and bool(identifier.strip())
                                   for row in offer_extras))
-    extras = offer_extras if offer_extras_valid else plan.get('add_ons')
+    plan_extras = plan.get('add_ons')
+    extras = offer_extras if offer_extras_valid else plan_extras
     if isinstance(extras, list) and extras:
         values = []
         for row in extras:
@@ -822,6 +823,12 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             if code:
                 quantity = row.get('quantity')
                 days = row.get('days')
+                if type(days) is not int and extras is offer_extras and isinstance(plan_extras, list):
+                    plan_row = next((candidate for candidate in plan_extras
+                                     if isinstance(candidate, dict)
+                                     and (candidate.get('code') or candidate.get('service_code')) == code), None)
+                    if plan_row is not None and type(plan_row.get('days')) is int:
+                        days = plan_row['days']
                 count = quantity
                 if type(count) is not int:
                     count = days

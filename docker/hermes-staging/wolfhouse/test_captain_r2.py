@@ -163,7 +163,7 @@ class CaptainR2Tests(OwnerHostileTests):
                 "room_preference": "female_only",
                 "add_ons": [{"code": "board_rental", "quantity": 1, "days": 3}]}
         receipt = self._receipt(["aisha"], ["R5-B1"], total=12000, deposit=6000)
-        receipt["offer_revision"]["add_ons"] = deepcopy(plan["add_ons"])
+        receipt["offer_revision"]["add_ons"] = [{"code": "board_rental", "quantity": 1}]
         self.turn("capfix2-rental-offer", "quote bed and board rental for three days")
         self.ledger.record_quote(plan, receipt)
         shown = self.ledger.finalize_offer_response(
