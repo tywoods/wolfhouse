@@ -102,11 +102,12 @@ def _safe_diagnostic_text(value: Any, max_len: int = 160) -> str:
     unsafe_patterns = (
         r"https?://\S+",
         r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b",
-        r"(?<!\w)\+?\d[\d* ()-]{7,}\d(?!\w)",
+        r"(?<!\w)\+?\d[\d* ().-]{7,}\d(?!\w)",
         r"\bguest(?:[_ -]?(?:text|message|prose|name)|\s+said)\s*[:=]",
-        r"\bauthorization\s*:\s*bearer\b|\b(?:password|passwd|api[_-]?key|signed_url|signature|token|secret)\s*[:=]",
+        r"\bauthorization\s*:\s*bearer\b",
+        r'''(?<![\w-])["']?(?:password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret|signed_url|signature|token|secret)["']?\s*[:=]''',
         r"\bpayload\s*[:=]\s*[\[{]",
-        r"^[\[{].*[\"']guest(?:_name)?[\"']\s*:",
+        r"^[\[{]",
     )
     if any(re.search(pattern, text, flags=re.I | re.S) for pattern in unsafe_patterns):
         return ""

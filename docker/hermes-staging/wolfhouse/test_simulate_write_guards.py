@@ -74,6 +74,54 @@ class GuardPathTests(unittest.TestCase):
                 self.assertNotIn("credential", summary.lower())
                 self.assertNotIn("synthetic guest", summary.lower())
 
+    def test_cap_r2_exact_original_privacy_cases_are_omitted(self):
+        exact_original_privacy_cases = (
+            "guest_text=SYNTHETIC_GUEST_LINE_ONE\nSYNTHETIC_GUEST_LINE_TWO",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Authorization: Bearer SYNTHETIC_AUTH_VALUE",
+            "access_token=SYNTHETIC_ACCESS_VALUE password=SYNTHETIC_PASSWORD_VALUE",
+            json.dumps({
+                "guest": {"name": "SYNTHETIC_PRIVATE_NAME"},
+                "payload": {"secret": "SYNTHETIC_NESTED_SECRET"},
+            }),
+            "Guest said: SYNTHETIC_PRIVATE_GUEST_WORDS",
+            "Contact +34.600.111.222",
+        )
+        for unsafe_value in exact_original_privacy_cases:
+            with self.subTest(unsafe_value=unsafe_value):
+                self.assertEqual(
+                    summarize_tool_result({"success": False, "message": unsafe_value}),
+                    "success=False; reason=unavailable",
+                )
+
+    def test_cap_r2_unsafe_values_skip_to_safe_fallback_in_each_diagnostic_field(self):
+        isolated_unsafe_values = (
+            "access_token=SYNTHETIC_ACCESS_VALUE",
+            "client_secret=SYNTHETIC_CLIENT_SECRET",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Contact +34.600.111.222",
+            json.dumps({"payload": {"notes": "SYNTHETIC_PRIVATE_NOTES"}}),
+        )
+        field_labels = {
+            "message": "detail",
+            "reason": "reason",
+            "error_code": "error_code",
+        }
+        for unsafe_value in isolated_unsafe_values:
+            for field, label in field_labels.items():
+                with self.subTest(unsafe_value=unsafe_value, field=field, fallback=False):
+                    self.assertEqual(
+                        summarize_tool_result({"success": False, field: unsafe_value}),
+                        "success=False; reason=unavailable",
+                    )
+                with self.subTest(unsafe_value=unsafe_value, field=field, fallback=True):
+                    summary = summarize_tool_result({
+                        "success": False,
+                        field: unsafe_value,
+                        "diagnostics": {field: "synthetic_safe_fallback"},
+                    })
+                    self.assertEqual(summary, f"success=False; {label}=synthetic_safe_fallback")
+
     def test_first_nonempty_safe_diagnostic_candidate_wins(self):
         synthetic_cases = (
             ({"reason": None, "diagnostics": {"reason": "nested_reason"}}, "reason=nested_reason"),
