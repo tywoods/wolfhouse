@@ -217,7 +217,9 @@ class QuoteStyleFabioTests(unittest.TestCase):
         fallback_plan = {**self.plan, "guest_packages": [
             {"guest_index": 0, "package_code": "malibu"}],
             "add_ons": [{"code": "yoga_class", "quantity": 1}]}
-        fallback_offer = {**self.offer, "guest_packages": ["bad"], "add_ons": ["bad"]}
+        fallback_offer = {**self.offer,
+                          "guest_packages": [{"package_code": 123}],
+                          "add_ons": [{"code": {"bad": True}}]}
         fallback_text = owner._styled_quote_copy(fallback_plan, fallback_offer, "en", create_ready=True)
         self.assertIn("Malibu", fallback_text)
         self.assertIn("Yoga class", fallback_text)

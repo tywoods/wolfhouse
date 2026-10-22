@@ -780,7 +780,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     offer_guest_packages = offer.get('guest_packages')
     offer_packages_valid = (isinstance(offer_guest_packages, list)
                             and all(isinstance(row, dict)
-                                    and bool(row.get('package_code') or row.get('code'))
+                                    and isinstance(identifier := row.get('package_code') or row.get('code'), str)
+                                    and bool(identifier.strip())
                                     for row in offer_guest_packages))
     guest_packages = offer_guest_packages if offer_packages_valid else plan.get('guest_packages')
     guests = offer.get('guests') or plan.get('guests') or []
@@ -809,7 +810,8 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     offer_extras = offer.get('add_ons')
     offer_extras_valid = (isinstance(offer_extras, list)
                           and all(isinstance(row, dict)
-                                  and bool(row.get('code') or row.get('service_code'))
+                                  and isinstance(identifier := row.get('code') or row.get('service_code'), str)
+                                  and bool(identifier.strip())
                                   for row in offer_extras))
     extras = offer_extras if offer_extras_valid else plan.get('add_ons')
     if isinstance(extras, list) and extras:
