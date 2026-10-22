@@ -137,6 +137,241 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(door.record_local_tool_result(
             "quote_booking", {}, {"success": False}, stage="pre_staff_rejection"))
 
+    async def test_staff_failure_reason_survives_real_tool_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+346001111889")
+        token = door._SCOPE.set(scope)
+        original_post = self.staff._post_bot
+
+        def synthetic_failed_preview(path, payload):
+            self.staff.calls.append((path, dict(payload or {})))
+            return {
+                "success": False,
+                "reason": "synthetic_package_not_available",
+                "message": "synthetic package tier unavailable",
+                "guest": {"phone": "+346****1222"},
+            }
+
+        door._INSTALLED_STAFF.discard(id(self.staff))
+        self.staff._post_bot = synthetic_failed_preview
+        install_request_owned_guards(self.staff, self.whatsapp)
+        try:
+            result = self.staff._post_bot("/booking-preview", {"synthetic": True})
+        finally:
+            door._SCOPE.reset(token)
+            self.staff._post_bot = original_post
+
+        self.assertFalse(result["success"])
+        self.assertEqual(len(scope.tool_calls), 1)
+        summary = scope.tool_calls[0]["result_summary"]
+        self.assertIn("success=False", summary)
+        self.assertIn("reason=synthetic_package_not_available", summary)
+        self.assertIn("detail=synthetic package tier unavailable", summary)
+        self.assertNotIn("+346****1222", summary)
+
+    async def test_all_diagnostic_shapes_are_safe_at_local_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+        from wolfhouse.simulate_write_guards import synthetic_blocked_result
+
+        scope = CrowsnestGuestScope.create("+346001111890")
+        synthetic_results = (
+            {"success": False, "error": "synthetic error only"},
+            {"success": False, "reason": "synthetic_reason_only"},
+            {"success": False, "diagnostics": {"error_code": "SYNTHETIC_422", "detail": "synthetic nested detail"}},
+            {"success": False},
+            {
+                "success": False,
+                "error_code": "SYNTHETIC_BAD",
+                "message": "guest@example.test +346****1222 https://example.test/signed?token=SECRET " + "x" * 500,
+                "payload": {"secret": "MUST_NOT_APPEAR"},
+            },
+            {"success": True, "booking_code": "SYNTHETIC-BOOK", "reason": "ignored_on_success"},
+            synthetic_blocked_result("/sunset/payment-link", ["blocked_payment"], allow_writes=False),
+            "synthetic non-dict " + "x" * 500,
+        )
+        token = door._SCOPE.set(scope)
+        try:
+            for result in synthetic_results:
+                self.assertTrue(door.record_local_tool_result("synthetic_tool", {}, result, stage="synthetic_test"))
+        finally:
+            door._SCOPE.reset(token)
+
+        summaries = [call["result_summary"] for call in scope.tool_calls]
+        self.assertIn("error=synthetic error only", summaries[0])
+        self.assertIn("reason=synthetic_reason_only", summaries[1])
+        self.assertIn("error_code=SYNTHETIC_422; detail=synthetic nested detail", summaries[2])
+        self.assertEqual(summaries[3], "success=False; reason=unavailable")
+        self.assertLessEqual(len(summaries[4]), 400)
+        for forbidden in ("guest@example.test", "+346****1222", "token=SECRET", "MUST_NOT_APPEAR"):
+            self.assertNotIn(forbidden, summaries[4])
+        self.assertEqual(summaries[5], "success=True; booking_code=SYNTHETIC-BOOK")
+        self.assertIn("simulate_write_blocked=True", summaries[6])
+        self.assertEqual(summaries[7], synthetic_results[7][:400])
+
+    async def test_privacy_and_fallback_cases_survive_local_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        privacy_cases = (
+            "guest_text=first private line\nsecond private line",
+            "guest said: first private line\nsecond private line",
+            "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+            "password=SYNTHETIC-CREDENTIAL",
+            "api_key: SYNTHETIC-CREDENTIAL",
+            '{"guest":{"name":"Synthetic Guest","phone":"+34600111222"}}',
+            "payload={'guest_name':'Synthetic Guest','notes':'private prose'}",
+        )
+        fallback_cases = (
+            {"reason": None, "diagnostics": {"reason": "nested_reason"}},
+            {"reason": "", "diagnostics": {"reason": "nested_reason"}},
+            {"message": "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+             "diagnostics": {"detail": "safe nested detail"}},
+        )
+        scope = CrowsnestGuestScope.create("+" + "34600111891")
+        token = door._SCOPE.set(scope)
+        try:
+            for value in privacy_cases:
+                self.assertTrue(door.record_local_tool_result(
+                    "synthetic_tool", {}, {"success": False, "message": value}, stage="synthetic_privacy"))
+            for fields in fallback_cases:
+                self.assertTrue(door.record_local_tool_result(
+                    "synthetic_tool", {}, {"success": False, **fields}, stage="synthetic_fallback"))
+        finally:
+            door._SCOPE.reset(token)
+
+        summaries = [call["result_summary"] for call in scope.tool_calls]
+        self.assertEqual(summaries[:7], ["success=False; reason=unavailable"] * 7)
+        self.assertIn("reason=nested_reason", summaries[7])
+        self.assertIn("reason=nested_reason", summaries[8])
+        self.assertIn("detail=safe nested detail", summaries[9])
+        self.assertNotIn("SYNTHETIC-CREDENTIAL", "\n".join(summaries))
+
+    async def test_privacy_and_fallback_cases_survive_real_tool_capture_seam(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        synthetic_results = [
+            {"success": False, "message": value}
+            for value in (
+                "guest_text=first private line\nsecond private line",
+                "guest said: first private line\nsecond private line",
+                "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+                "password=SYNTHETIC-CREDENTIAL",
+                "api_key: SYNTHETIC-CREDENTIAL",
+                '{"guest":{"name":"Synthetic Guest","phone":"+34600111222"}}',
+                "payload={'guest_name':'Synthetic Guest','notes':'private prose'}",
+            )
+        ] + [
+            {"success": False, "reason": None, "diagnostics": {"reason": "nested_reason"}},
+            {"success": False, "message": "", "diagnostics": {"detail": "safe nested detail"}},
+        ]
+        scope = CrowsnestGuestScope.create("+" + "34600111892")
+        token = door._SCOPE.set(scope)
+        original_post = self.staff._post_bot
+
+        def synthetic_failed_preview(path, payload):
+            self.staff.calls.append((path, dict(payload or {})))
+            return synthetic_results.pop(0)
+
+        door._INSTALLED_STAFF.discard(id(self.staff))
+        self.staff._post_bot = synthetic_failed_preview
+        install_request_owned_guards(self.staff, self.whatsapp)
+        try:
+            for _ in range(9):
+                self.staff._post_bot("/booking-preview", {"synthetic": True})
+        finally:
+            door._SCOPE.reset(token)
+            self.staff._post_bot = original_post
+
+        summaries = [call["result_summary"] for call in scope.tool_calls]
+        self.assertEqual(summaries[:7], ["success=False; reason=unavailable"] * 7)
+        self.assertIn("reason=nested_reason", summaries[7])
+        self.assertIn("detail=safe nested detail", summaries[8])
+        joined = "\n".join(summaries)
+        self.assertNotIn("SYNTHETIC-CREDENTIAL", joined)
+        self.assertNotIn("Synthetic Guest", joined)
+        self.assertNotIn("private prose", joined)
+
+    async def test_cap_r2_exact_privacy_cases_survive_both_capture_seams(self):
+        import json
+        import wolfhouse.crowsnest_guest_door as door
+
+        exact_original_values = (
+            "guest_text=SYNTHETIC_GUEST_LINE_ONE\nSYNTHETIC_GUEST_LINE_TWO",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Authorization: Bearer SYNTHETIC_AUTH_VALUE",
+            "access_token=SYNTHETIC_ACCESS_VALUE password=SYNTHETIC_PASSWORD_VALUE",
+            json.dumps({
+                "guest": {"name": "SYNTHETIC_PRIVATE_NAME"},
+                "payload": {"secret": "SYNTHETIC_NESTED_SECRET"},
+            }),
+            "Guest said: SYNTHETIC_PRIVATE_GUEST_WORDS",
+            "Contact +34.600.111.222",
+        )
+        payloads = [
+            {"success": False, "message": value}
+            for value in exact_original_values
+        ]
+        expected = ["success=False; reason=unavailable"] * len(payloads)
+
+        isolated_unsafe_values = (
+            "access_token=SYNTHETIC_ACCESS_VALUE",
+            "client_secret=SYNTHETIC_CLIENT_SECRET",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Contact +34.600.111.222",
+            json.dumps({"payload": {"notes": "SYNTHETIC_PRIVATE_NOTES"}}),
+        )
+        field_labels = {
+            "message": "detail",
+            "reason": "reason",
+            "error_code": "error_code",
+        }
+        for value in isolated_unsafe_values:
+            for field, label in field_labels.items():
+                payloads.append({"success": False, field: value})
+                expected.append("success=False; reason=unavailable")
+                payloads.append({
+                    "success": False,
+                    field: value,
+                    "diagnostics": {field: "synthetic_safe_fallback"},
+                })
+                expected.append(f"success=False; {label}=synthetic_safe_fallback")
+
+        local_scope = CrowsnestGuestScope.create("+" + "99900000000")
+        token = door._SCOPE.set(local_scope)
+        try:
+            for result in payloads:
+                self.assertTrue(door.record_local_tool_result(
+                    "package_price_preview", {}, result, stage="cap_r2_privacy"))
+        finally:
+            door._SCOPE.reset(token)
+        self.assertEqual(
+            [call["result_summary"] for call in local_scope.tool_calls],
+            expected,
+        )
+
+        real_scope = CrowsnestGuestScope.create("+" + "99900000000")
+        token = door._SCOPE.set(real_scope)
+        original_post = self.staff._post_bot
+        synthetic_results = list(payloads)
+
+        def synthetic_failed_preview(path, payload):
+            self.staff.calls.append((path, dict(payload or {})))
+            return synthetic_results.pop(0)
+
+        door._INSTALLED_STAFF.discard(id(self.staff))
+        self.staff._post_bot = synthetic_failed_preview
+        install_request_owned_guards(self.staff, self.whatsapp)
+        try:
+            for _ in payloads:
+                self.staff._post_bot("/package-price-preview", {"synthetic": True})
+        finally:
+            door._SCOPE.reset(token)
+            self.staff._post_bot = original_post
+        self.assertEqual(
+            [call["result_summary"] for call in real_scope.tool_calls],
+            expected,
+        )
+
     async def test_missing_quote_owner_hook_fails_before_live_guard_install(self):
         import sys
         import wolfhouse.crowsnest_guest_door as door

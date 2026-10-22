@@ -92,6 +92,36 @@ def tool_name_from_path(path: str) -> str:
     return tail.replace("-", "_")
 
 
+def _safe_diagnostic_text(value: Any, max_len: int = 160) -> str:
+    """Return a bounded diagnostic scalar, omitting privacy-unsafe values."""
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    unsafe_patterns = (
+        r"https?://\S+",
+        r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b",
+        r"(?<!\w)\+?\d[\d* ().-]{7,}\d(?!\w)",
+        r"\bguest(?:[_ -]?(?:text|message|prose|name)|\s+said)\s*[:=]",
+        r"\bauthorization\s*:\s*bearer\b",
+        r'''(?<![\w-])["']?(?:password|passwd|api[_-]?key|access[_-]?token|client[_-]?secret|signed_url|signature|token|secret)["']?\s*[:=]''',
+        r"\bpayload\s*[:=]\s*[\[{]",
+        r"^[\[{]",
+    )
+    if any(re.search(pattern, text, flags=re.I | re.S) for pattern in unsafe_patterns):
+        return ""
+    return " ".join(text.split())[:max_len]
+
+
+def _first_safe_diagnostic(*candidates: Any) -> str:
+    for candidate in candidates:
+        safe = _safe_diagnostic_text(candidate)
+        if safe:
+            return safe
+    return ""
+
+
 def summarize_tool_result(result: Any, max_len: int = 400) -> str:
     if not isinstance(result, dict):
         return str(result)[:max_len]
@@ -116,7 +146,28 @@ def summarize_tool_result(result: Any, max_len: int = 400) -> str:
             val = result[key]
             if isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)[:120]
+            elif key == "error":
+                val = _safe_diagnostic_text(val)
             bits.append(f"{key}={val}")
+
+    if result.get("success") is False:
+        raw_diagnostics = result.get("diagnostics")
+        nested: Dict[str, Any] = dict(raw_diagnostics) if isinstance(raw_diagnostics, dict) else {}
+        diagnostic_fields = (
+            ("reason", _first_safe_diagnostic(result.get("reason"), nested.get("reason"))),
+            ("error_code", _first_safe_diagnostic(
+                result.get("error_code"), result.get("code"), nested.get("error_code"), nested.get("code"))),
+            ("detail", _first_safe_diagnostic(
+                result.get("message"), result.get("detail"), nested.get("message"), nested.get("detail"))),
+        )
+        added = False
+        for label, safe in diagnostic_fields:
+            if safe:
+                bits.append(f"{label}={safe}")
+                added = True
+        if not added and not _safe_diagnostic_text(result.get("error")):
+            bits.append("reason=unavailable")
+
     if not bits:
         bits.append(f"keys={','.join(sorted(result.keys())[:8])}")
     return "; ".join(bits)[:max_len]

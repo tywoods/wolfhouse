@@ -18,12 +18,139 @@ if str(ROOT) not in sys.path:
 from simulate_write_guards import (  # noqa: E402
     guard_bot_path_and_payload,
     is_simulate_write_blocked,
+    summarize_tool_result,
     synthetic_blocked_result,
     tool_name_from_path,
 )
 
 
 class GuardPathTests(unittest.TestCase):
+    def test_failure_diagnostics_are_allowlisted_bounded_and_redacted(self):
+        synthetic_cases = (
+            ({"success": False, "error": "synthetic preview unavailable"}, "error=synthetic preview unavailable"),
+            ({"success": False, "reason": "synthetic_inventory_gap"}, "reason=synthetic_inventory_gap"),
+            ({"success": False, "diagnostics": {"error_code": "SYNTHETIC_409", "message": "synthetic tier unavailable"}},
+             "error_code=SYNTHETIC_409; detail=synthetic tier unavailable"),
+        )
+        for result, expected in synthetic_cases:
+            with self.subTest(result=result):
+                summary = summarize_tool_result(result)
+                self.assertIn("success=False", summary)
+                self.assertIn(expected, summary)
+
+        unavailable = summarize_tool_result({"success": False, "ignored": "synthetic hidden"})
+        self.assertEqual(unavailable, "success=False; reason=unavailable")
+
+        malicious = summarize_tool_result({
+            "success": False,
+            "error_code": "SYNTHETIC_BAD",
+            "message": (
+                "synthetic contact guest@example.test +346****1222 "
+                "https://example.test/pay?signature=SECRET signed_url=SECRET "
+                "guest_text=do not retain " + "x" * 600
+            ),
+            "payload": {"secret": "MUST_NOT_APPEAR"},
+        })
+        self.assertLessEqual(len(malicious), 400)
+        for forbidden in ("guest@example.test", "+346****1222", "signature=SECRET", "signed_url=SECRET",
+                          "guest_text=do not retain", "MUST_NOT_APPEAR"):
+            self.assertNotIn(forbidden, malicious)
+
+    def test_unsafe_diagnostic_values_are_omitted(self):
+        synthetic_privacy_cases = (
+            "guest_text=first private line\nsecond private line",
+            "guest said: first private line\nsecond private line",
+            "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+            "password=SYNTHETIC-CREDENTIAL",
+            "api_key: SYNTHETIC-CREDENTIAL",
+            '{"guest":{"name":"Synthetic Guest","phone":"+34600111222"}}',
+            "payload={'guest_name':'Synthetic Guest','notes':'private prose'}",
+        )
+        for unsafe_value in synthetic_privacy_cases:
+            with self.subTest(unsafe_value=unsafe_value):
+                summary = summarize_tool_result({"success": False, "message": unsafe_value})
+                self.assertEqual(summary, "success=False; reason=unavailable")
+                self.assertNotIn("private", summary.lower())
+                self.assertNotIn("credential", summary.lower())
+                self.assertNotIn("synthetic guest", summary.lower())
+
+    def test_cap_r2_exact_original_privacy_cases_are_omitted(self):
+        exact_original_privacy_cases = (
+            "guest_text=SYNTHETIC_GUEST_LINE_ONE\nSYNTHETIC_GUEST_LINE_TWO",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Authorization: Bearer SYNTHETIC_AUTH_VALUE",
+            "access_token=SYNTHETIC_ACCESS_VALUE password=SYNTHETIC_PASSWORD_VALUE",
+            json.dumps({
+                "guest": {"name": "SYNTHETIC_PRIVATE_NAME"},
+                "payload": {"secret": "SYNTHETIC_NESTED_SECRET"},
+            }),
+            "Guest said: SYNTHETIC_PRIVATE_GUEST_WORDS",
+            "Contact +34.600.111.222",
+        )
+        for unsafe_value in exact_original_privacy_cases:
+            with self.subTest(unsafe_value=unsafe_value):
+                self.assertEqual(
+                    summarize_tool_result({"success": False, "message": unsafe_value}),
+                    "success=False; reason=unavailable",
+                )
+
+    def test_cap_r2_unsafe_values_skip_to_safe_fallback_in_each_diagnostic_field(self):
+        isolated_unsafe_values = (
+            "access_token=SYNTHETIC_ACCESS_VALUE",
+            "client_secret=SYNTHETIC_CLIENT_SECRET",
+            json.dumps({"api_key": "SYNTHETIC_QUOTED_KEY"}),
+            "Contact +34.600.111.222",
+            json.dumps({"payload": {"notes": "SYNTHETIC_PRIVATE_NOTES"}}),
+        )
+        field_labels = {
+            "message": "detail",
+            "reason": "reason",
+            "error_code": "error_code",
+        }
+        for unsafe_value in isolated_unsafe_values:
+            for field, label in field_labels.items():
+                with self.subTest(unsafe_value=unsafe_value, field=field, fallback=False):
+                    self.assertEqual(
+                        summarize_tool_result({"success": False, field: unsafe_value}),
+                        "success=False; reason=unavailable",
+                    )
+                with self.subTest(unsafe_value=unsafe_value, field=field, fallback=True):
+                    summary = summarize_tool_result({
+                        "success": False,
+                        field: unsafe_value,
+                        "diagnostics": {field: "synthetic_safe_fallback"},
+                    })
+                    self.assertEqual(summary, f"success=False; {label}=synthetic_safe_fallback")
+
+    def test_first_nonempty_safe_diagnostic_candidate_wins(self):
+        synthetic_cases = (
+            ({"reason": None, "diagnostics": {"reason": "nested_reason"}}, "reason=nested_reason"),
+            ({"reason": "", "diagnostics": {"reason": "nested_reason"}}, "reason=nested_reason"),
+            ({"error_code": None, "diagnostics": {"code": "NESTED_CODE"}}, "error_code=NESTED_CODE"),
+            ({"message": "", "diagnostics": {"detail": "nested detail"}}, "detail=nested detail"),
+            ({
+                "message": "Authorization: Bearer SYNTHETIC-CREDENTIAL",
+                "diagnostics": {"detail": "safe nested detail"},
+            }, "detail=safe nested detail"),
+        )
+        for fields, expected in synthetic_cases:
+            with self.subTest(fields=fields):
+                summary = summarize_tool_result({"success": False, **fields})
+                self.assertIn(expected, summary)
+                self.assertNotIn("reason=unavailable", summary)
+
+    def test_success_guard_non_dict_and_existing_fields_are_unchanged(self):
+        success = {"success": True, "booking_code": "SYNTHETIC-BOOK", "reason": "must_not_be_added"}
+        self.assertEqual(summarize_tool_result(success), "success=True; booking_code=SYNTHETIC-BOOK")
+        guard = synthetic_blocked_result("/sunset/payment-link", ["blocked_payment"], allow_writes=False)
+        self.assertEqual(
+            summarize_tool_result(guard),
+            "success=False; error=Sunset payment writes are disabled in simulate mode (use --allow-writes); "
+            "simulate_write_blocked=True",
+        )
+        text = "synthetic " + "x" * 500
+        self.assertEqual(summarize_tool_result(text), text[:400])
+
     def test_blocks_sunset_booking_create_short_and_full_paths(self):
         for path in ("/sunset/booking-create", "/staff/bot/sunset/booking-create"):
             norm, body, warnings = guard_bot_path_and_payload(
