@@ -820,9 +820,11 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             if not isinstance(row, dict): continue
             code = row.get('code') or row.get('service_code')
             if code:
-                count = row.get('quantity')
+                quantity = row.get('quantity')
+                days = row.get('days')
+                count = quantity
                 if type(count) is not int:
-                    count = row.get('days')
+                    count = days
                 if type(count) is not int:
                     count = 1
                 if count <= 0:
@@ -833,7 +835,17 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 }
                 label = labels.get(str(code), {}).get(
                     language, str(code).replace('_', ' ').capitalize())
-                values.append(f'{label} ×{count}' if count != 1 else label)
+                if (type(quantity) is int and quantity > 0
+                        and type(days) is int and days > 0):
+                    duration = {
+                        'en': f'for {days} {"day" if days == 1 else "days"}',
+                        'es': f'durante {days} {"día" if days == 1 else "días"}',
+                        'fr': f'pour {days} {"jour" if days == 1 else "jours"}',
+                        'de': f'für {days} {"Tag" if days == 1 else "Tage"}',
+                    }.get(language, f'for {days} {"day" if days == 1 else "days"}')
+                    values.append(f'{label} × {quantity} {duration}')
+                else:
+                    values.append(f'{label} ×{count}' if count != 1 else label)
         if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
     if type(total) is int:
         due = offer.get('payment_link_amount_cents')
@@ -3421,9 +3433,13 @@ def finalize_offer_response(result):
                     or not isinstance(provisional_offer.get('room_arrangement'), list)):
                 return result
             language = _guest_language(state)
+            full_payment_only = quote.get('full_payment_only') is True
             provisional_offer = {**provisional_offer, 'currency': currency,
                                  'total_cents': total,
-                                 'deposit_required_cents': quote.get('deposit_required_cents')}
+                                 'deposit_required_cents': quote.get('deposit_required_cents'),
+                                 'full_payment_only': full_payment_only,
+                                 'payment_link_amount_cents': (total if full_payment_only else
+                                                               provisional_offer.get('payment_link_amount_cents'))}
             text = _styled_quote_copy(plan, provisional_offer, language, create_ready=False)
             if chosen_full_names_missing:
                 text = text.rsplit('\n\n', 1)[0] + '\n\n' + _final_copy(language, 'names')
