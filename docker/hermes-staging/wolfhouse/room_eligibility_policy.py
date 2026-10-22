@@ -17,11 +17,35 @@ _NEUTRAL_PROMPT = "Would a mixed dorm work for you?"
 _GROUP_PROMPT = "Is your group all girls, all guys, or a mix?"
 
 
-def _missing_eligibility_prompt(preference: str, count: int, payment_intent: bool) -> str:
+def _join_names(names: List[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + f", and {names[-1]}"
+
+
+def _missing_eligibility_prompt(
+    preference: str,
+    count: int,
+    payment_intent: bool,
+    travelers: Optional[Iterable[Dict[str, Any]]] = None,
+) -> str:
+    rows = [row for row in (travelers or []) if isinstance(row, dict)]
+    unresolved_names = [
+        _clean(row.get("name"))
+        for row in rows[:count]
+        if not _explicit(row.get("explicit_gender") or row.get("explicit_statement"))
+        and _clean(row.get("name"))
+    ]
     if preference == "female_only":
+        if unresolved_names:
+            return f"Can {_join_names(unresolved_names)} stay in the women-only dorm?"
         return ("Is everyone in your group eligible for the women-only dorm?" if count > 1
                 else "Are you eligible for the women-only dorm?")
     if preference == "male_only":
+        if unresolved_names:
+            return f"Can {_join_names(unresolved_names)} stay in the men-only dorm?"
         return ("Is everyone in your group eligible for the men-only dorm?" if count > 1
                 else "Are you eligible for the men-only dorm?")
     return _NEUTRAL_PROMPT if count == 1 or payment_intent else _GROUP_PROMPT
@@ -256,7 +280,7 @@ def decide_room_eligibility(
             **base,
             "resolved_composition": "unknown",
             "clarification_needed": not accepted_mixed,
-            "clarification_prompt": None if accepted_mixed else _missing_eligibility_prompt(preference, count, payment_intent),
+            "clarification_prompt": None if accepted_mixed else _missing_eligibility_prompt(preference, count, payment_intent, rows),
             "allowed_room_preferences": [item for item in ("mixed", "shared") if flags["mixed"]],
             "excluded_room_preferences": ["female_only", "male_only"],
         }
@@ -276,7 +300,7 @@ def decide_room_eligibility(
         return {
             **base,
             "clarification_needed": not accepted_mixed,
-            "clarification_prompt": None if accepted_mixed else _missing_eligibility_prompt(preference, count, payment_intent),
+            "clarification_prompt": None if accepted_mixed else _missing_eligibility_prompt(preference, count, payment_intent, rows),
             "allowed_room_preferences": [item for item in ("mixed", "shared") if flags["mixed"]],
             "excluded_room_preferences": ["female_only", "male_only"],
         }
