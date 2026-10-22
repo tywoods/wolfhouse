@@ -77,6 +77,7 @@ async function main() {
 
   const wolfPhone = `+49${'1701234567'}`;
   const sunsetPhone = `+34${'600111222'}`;
+  const clonePhone = `+34${'699901001'}`;
 
   ok('route contract is under Crowsnest API', LIVE_SIMULATOR_ROUTE === '/api/live-simulator/guest-turn');
   ok('email route contract is under Crowsnest API', LIVE_SIMULATOR_EMAIL_ROUTE === '/api/live-simulator/email');
@@ -128,8 +129,22 @@ async function main() {
 
   const whRuntime = resolveTenantRuntime('wolfhouse', {});
   const sunsetRuntime = resolveTenantRuntime('sunset', {});
+  const unconfiguredCloneRuntime = resolveTenantRuntime('wolfhouse-clone', {});
   ok('Wolfhouse declared simulator port is 8090', whRuntime.origin === 'http://127.0.0.1:8090' && whRuntime.url.endsWith(TENANT_SIMULATE_PATH));
   ok('Sunset declared simulator port is 8094', sunsetRuntime.origin === 'http://127.0.0.1:8094' && sunsetRuntime.url.endsWith(TENANT_SIMULATE_PATH));
+  ok('Wolfhouse clone fails closed until its dedicated origin and token are configured', unconfiguredCloneRuntime.origin_allowed === false && unconfiguredCloneRuntime.token === '');
+
+  const cloneBuilt = buildTenantRequest({ tenantId: 'wolfhouse-clone', fromPhone: clonePhone, text: 'Hello' }, {
+    CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_ORIGIN: 'http://127.0.0.1:8097',
+    CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_TOKEN: 'clone-only-token',
+  });
+  ok('Wolfhouse clone uses its dedicated runtime and token', cloneBuilt.ok === true
+    && cloneBuilt.runtime.origin === 'http://127.0.0.1:8097'
+    && cloneBuilt.headers['X-Luna-Bot-Token'] === 'clone-only-token');
+  ok('Wolfhouse clone rejects phones outside its reserved range', buildTenantRequest({ tenantId: 'wolfhouse-clone', fromPhone: wolfPhone, text: 'Hello' }, {
+    CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_ORIGIN: 'http://127.0.0.1:8097',
+    CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_TOKEN: 'clone-only-token',
+  }).code === 'clone_phone_out_of_range');
 
   ok('phone normalizer preserves selected E.164 digits', normalizePhone(wolfPhone).e164 === wolfPhone);
 
@@ -357,6 +372,7 @@ async function main() {
   const repoRoot = path.resolve(__dirname, '..');
   const pageSrc = fs.readFileSync(path.join(repoRoot, 'scripts/lib/crowsnest/crowsnest-page.js'), 'utf8');
   ok('Live Simulator UI exposes WhatsApp and Email channel doors', /option value="whatsapp">WhatsApp/.test(pageSrc) && /option value="email">Email/.test(pageSrc));
+  ok('Live Simulator UI exposes Wolfhouse Luna Clone without replacing Wolfhouse Luna', /option value="wolfhouse-clone">Wolfhouse Luna Clone/.test(pageSrc) && /option value="wolfhouse">Wolfhouse Luna/.test(pageSrc));
   ok('channel-specific controls are actually hidden despite grid label styles', /live-simulator-toolbar \[hidden\],\.live-simulator-composer \[hidden\]\{display:none!important\}/.test(pageSrc));
   ok('email UI posts sender, subject, and body to the dedicated route', pageSrc.includes("'/api/live-simulator/email'") && pageSrc.includes('from_address: emailFrom.value') && pageSrc.includes('subject: emailSubject.value') && pageSrc.includes('body_text: draftText'));
   ok('email UI visibly marks replies not sent and new conversation', pageSrc.includes('Email reply · Not sent') && pageSrc.includes('New email conversation') && pageSrc.includes('emailConversationSequence += 1') && pageSrc.includes("Conversation ' + (data.conversation_id"));

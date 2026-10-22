@@ -46,6 +46,17 @@ const TENANTS = Object.freeze({
     envToken: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN',
     fallbackTokenEnv: 'LUNA_BOT_INTERNAL_TOKEN',
   }),
+  'wolfhouse-clone': Object.freeze({
+    id: 'wolfhouse-clone',
+    label: 'Wolfhouse Luna Clone',
+    runtime: 'wolfhouse-clone',
+    defaultOrigin: '',
+    envOrigin: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_ORIGIN',
+    envToken: 'CROWSNEST_LIVE_SIM_WOLFHOUSE_CLONE_TOKEN',
+    fallbackTokenEnv: '',
+    requireExplicitConfig: true,
+    phonePrefix: '346999',
+  }),
   sunset: Object.freeze({
     id: 'sunset',
     label: 'Sunset Luna',
@@ -60,6 +71,7 @@ const TENANTS = Object.freeze({
 function normalizeTenant(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'wolfhouse' || raw === 'wolfhouse-somo' || raw === 'somo') return 'wolfhouse';
+  if (raw === 'wolfhouse-clone' || raw === 'wolfhouse-luna-clone') return 'wolfhouse-clone';
   if (raw === 'sunset' || raw === 'sunset-luna' || raw === 'sunset-somo') return 'sunset';
   return '';
 }
@@ -146,14 +158,15 @@ function resolveTenantRuntime(tenantId, env = process.env) {
     origin,
     url: `${origin}${TENANT_SIMULATE_PATH}`,
     token,
-    origin_allowed: runtimeOriginAllowed(origin, { env, trustedOriginHosts }),
+    origin_allowed: (!tenant.requireExplicitConfig || Boolean(explicitOrigin && token))
+      && runtimeOriginAllowed(origin, { env, trustedOriginHosts }),
   };
 }
 
 function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.env) {
   const tenant = normalizeTenant(tenantId);
   if (!tenant) {
-    return { ok: false, status: 400, code: 'invalid_tenant', error: 'tenant must be wolfhouse or sunset' };
+    return { ok: false, status: 400, code: 'invalid_tenant', error: 'tenant must be wolfhouse, wolfhouse-clone, or sunset' };
   }
   const runtime = resolveTenantRuntime(tenant, env);
   if (!runtime || !runtime.origin_allowed) {
@@ -163,6 +176,9 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
   const phone = normalizePhone(fromPhone);
   if (!phone.ok) {
     return { ok: false, status: 400, code: 'invalid_from_phone', error: phone.error };
+  }
+  if (runtime.phonePrefix && !phone.digits.startsWith(runtime.phonePrefix)) {
+    return { ok: false, status: 400, code: 'clone_phone_out_of_range', error: 'Wolfhouse Luna Clone requires the reserved +34 699 9xx xxx simulator range' };
   }
 
   const messageText = String(text || '').trim();
