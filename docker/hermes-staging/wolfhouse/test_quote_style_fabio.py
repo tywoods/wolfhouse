@@ -110,6 +110,89 @@ class QuoteStyleFabioTests(unittest.TestCase):
                 self.assertNotIn("€150.00", text)
                 self.assert_style(text)
 
+    def test_solo_quote_names_allocated_room_and_discloses_substitution(self):
+        requested = {**self.plan, "room_preference": "room_1"}
+        room_one = {**self.offer, "room_arrangement": [
+            {"bed_code": "R1-B1", "room_code": "R1", "gender_strategy": "mixed"}],
+            "guest_bed_assignments": [{"guest_index": 0, "guest_name": "Fabio", "bed_code": "R1-B1"}]}
+        room_three = {**room_one, "room_arrangement": [
+            {"bed_code": "R3-B1", "room_code": "R3", "gender_strategy": "mixed"}],
+            "guest_bed_assignments": [{"guest_index": 0, "guest_name": "Fabio", "bed_code": "R3-B1"}]}
+        direct = owner._styled_quote_copy(requested, room_one, "en", create_ready=True)
+        substitute = owner._styled_quote_copy(requested, room_three, "en", create_ready=True)
+        self.assertIn("Room 1", direct)
+        self.assertIn("Room 1 is not available", substitute)
+        self.assertIn("quote is for Room 3", substitute)
+        substitute_es = owner._styled_quote_copy(requested, room_three, "es", create_ready=True)
+        self.assertIn("Habitación 1 no está disponible", substitute_es)
+        self.assertIn("presupuesto es para Habitación 3", substitute_es)
+
+    def test_checked_quote_shows_each_guest_package_and_selected_extras_before_consent(self):
+        plan = {**self.plan, "guest_count": 2, "guests": [{"name": "Fabio"}, {"name": "Mia"}],
+                "guest_packages": [{"guest_number": None, "package_code": "malibu"},
+                                   {"guest_number": None, "package_code": "waimea"}],
+                "add_ons": [{"code": "yoga_class", "quantity": 2}]}
+        offer = {**self.offer, **plan, "room_arrangement": [
+            {"bed_code": "R1-B1", "room_code": "R1", "gender_strategy": "mixed"},
+            {"bed_code": "R1-B2", "room_code": "R1", "gender_strategy": "mixed"}],
+            "guest_bed_assignments": [
+                {"guest_index": 0, "guest_name": "Fabio", "bed_code": "R1-B1"},
+                {"guest_index": 1, "guest_name": "Mia", "bed_code": "R1-B2"}]}
+        text = owner._styled_quote_copy(plan, offer, "en", create_ready=True)
+        self.assertIn("Fabio: Malibu", text)
+        self.assertIn("Mia: Waimea", text)
+        self.assertIn("Yoga class ×2", text)
+        self.assertLess(text.index("Fabio: Malibu"), text.index("Shall I save"))
+        text_es = owner._styled_quote_copy(plan, offer, "es", create_ready=True)
+        self.assertIn("Fabio: Malibu", text_es)
+        self.assertIn("Mia: Waimea", text_es)
+        self.assertIn("Clase de yoga ×2", text_es)
+        self.assertLess(text_es.index("Fabio: Malibu"), text_es.index("¿Guardo"))
+
+    def test_full_only_and_named_split_amounts_are_explicit_before_consent(self):
+        full = {**self.offer, "total_cents": 8000, "payment_link_amount_cents": 8000,
+                "payment_choice": "full", "full_payment_only": True}
+        self.assertIn("💶 *Total and due now:* €80 (full payment)",
+                      owner._styled_quote_copy(self.plan, full, "en", create_ready=True))
+        self.assertIn("💶 *Total y a pagar ahora:* €80 (pago completo)",
+                      owner._styled_quote_copy(self.plan, full, "es", create_ready=True))
+        split_plan = {**self.plan, "guest_count": 2, "guests": [{"name": "Fabio"}, {"name": "Mia"}],
+                      "payment_choice": "per_guest", "per_guest_payment_links": True}
+        split = {**self.offer, **split_plan, "total_cents": 15000,
+                 "payment_link_amount_cents": 15000, "payment_distribution": [
+                     {"guest_name": "Fabio", "amount_cents": 7000},
+                     {"guest_name": "Mia", "amount_cents": 8000}]}
+        split_text = owner._styled_quote_copy(split_plan, split, "en", create_ready=True)
+        self.assertIn("Fabio: €70", split_text)
+        self.assertIn("Mia: €80", split_text)
+        self.assertLess(split_text.index("Fabio: €70"), split_text.index("Shall I save"))
+        split_text_es = owner._styled_quote_copy(split_plan, split, "es", create_ready=True)
+        self.assertIn("Fabio: €70", split_text_es)
+        self.assertIn("Mia: €80", split_text_es)
+        self.assertLess(split_text_es.index("Fabio: €70"), split_text_es.index("¿Guardo"))
+
+    def test_split_receipt_due_now_equals_links_sent(self):
+        receipt = {"success": True, "booking_code": "WH-SPLIT", "amount_due_cents": 20000,
+                   "guest_payment_links": [
+                       {"guest_name": "Fabio", "amount_due_cents": 7500, "secure_payment_url": "https://pay.invalid/a"},
+                       {"guest_name": "Mia", "amount_due_cents": 7500, "secure_payment_url": "https://pay.invalid/b"},
+                       {"guest_name": "Failed link", "amount_due_cents": 5000, "error": "payment_link_timeout"}]}
+        text = owner._styled_booking_receipt_copy(
+            {**self.plan, "payment_choice": "per_guest"},
+            {**self.offer, "total_cents": 15000, "payment_choice": "per_guest"}, receipt, "en")
+        self.assertIn("💳 *Due now:* €150", text)
+        self.assertNotIn("Due now:* €200", text)
+        text_es = owner._styled_booking_receipt_copy(
+            {**self.plan, "payment_choice": "per_guest"},
+            {**self.offer, "total_cents": 15000, "payment_choice": "per_guest"}, receipt, "es")
+        self.assertIn("💳 *A pagar ahora:* €150", text_es)
+        self.assertNotIn("A pagar ahora:* €200", text_es)
+
+    def test_soul_mixed_default_yields_to_explicit_room_preference(self):
+        from pathlib import Path
+        soul = (Path(__file__).resolve().parents[1] / "SOUL.md").read_text()
+        self.assertIn("mixed/shared default never overrides an explicit room preference", soul)
+
 
 if __name__ == "__main__":
     unittest.main()

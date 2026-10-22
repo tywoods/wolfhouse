@@ -518,8 +518,9 @@ def _requested_room_change_line(plan, offer, language='en'):
             allocated.append(code)
     if not allocated or requested in allocated:
         return None
-    requested_label = f'Room {int(match.group(1))}'
-    allocated_labels = ', '.join(f'Room {code[1:]}' if re.fullmatch(r'R\d+', code) else code
+    room_word = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'de': 'Zimmer'}.get(language, 'Room')
+    requested_label = f'{room_word} {int(match.group(1))}'
+    allocated_labels = ', '.join(f'{room_word} {code[1:]}' if re.fullmatch(r'R\d+', code) else code
                                  for code in allocated)
     templates = {
         'en': f'{requested_label} is not available for these dates, so this quote is for {allocated_labels}.',
@@ -725,17 +726,21 @@ def _styled_room_value(plan, offer, language):
     if count == 1 and offer.get('room_arrangement'):
         room = offer['room_arrangement'][0]
         kind = _room_kind(offer, room, language)
+        room_code = str(room.get('room_code') or '').strip().upper()
+        room_words = {'en': 'Room', 'es': 'Habitación', 'fr': 'Chambre', 'de': 'Zimmer'}
+        room_suffix = (f" ({room_words.get(language, 'Room')} {room_code[1:]})"
+                       if re.fullmatch(r'R\d+', room_code) else '')
         private = offer.get('room_type') == 'private'
         if language == 'es':
-            return ('Habitación privada' if private else f'Una cama en nuestra {kind}')
+            return ('Habitación privada' if private else f'Una cama en nuestra {kind}') + room_suffix
         if language == 'fr':
-            return ('Chambre privée' if private else f'Un lit dans notre {kind}')
+            return ('Chambre privée' if private else f'Un lit dans notre {kind}') + room_suffix
         if language == 'de':
-            return ('Privatzimmer' if private else f'Ein Bett in unserem {kind}')
+            return ('Privatzimmer' if private else f'Ein Bett in unserem {kind}') + room_suffix
         if private:
-            return 'Private room'
+            return 'Private room' + room_suffix
         adjective = 'mixed shared room' if kind == 'mixed room' else kind
-        return f'A bed in our {adjective}'
+        return f'A bed in our {adjective}{room_suffix}'
     return ' '.join(line.rstrip('.') for line in lines)
 
 
@@ -767,15 +772,69 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     lines = [copy['opener'],
              f"📅 *{copy['dates']}:* {_styled_dates_value(plan, offer, language)}",
              f"🛏️ *{copy['room']}:* {_styled_room_value(plan, offer, language)}"]
+    substitution = _requested_room_change_line(plan, offer, language)
+    if substitution:
+        lines.append(substitution)
     package_code = offer.get('package_code') or plan.get('package_code')
-    if package_code:
-        if package_code in ('package_none', 'none', 'accommodation_only', 'no_package'):
-            package_value = _final_copy(language, 'accommodation')
-        else:
-            package_value = str(package_code).removeprefix('package_').replace('_', ' ').capitalize()
-        lines.append(f"🏄 *{copy['package']}:* {package_value}")
+    guest_packages = offer.get('guest_packages') or plan.get('guest_packages')
+    guests = offer.get('guests') or plan.get('guests') or []
+    guests = guests if isinstance(guests, list) else []
+    def package_label(code):
+        if code in ('package_none', 'none', 'accommodation_only', 'no_package'):
+            return _final_copy(language, 'accommodation')
+        return str(code).removeprefix('package_').replace('_', ' ').title()
+    values = []
+    if isinstance(guest_packages, list) and guest_packages:
+        for index, row in enumerate(guest_packages):
+            if not isinstance(row, dict):
+                continue
+            guest_index = row.get('guest_index')
+            if type(guest_index) is not int:
+                guest_number = row.get('guest_number')
+                guest_index = guest_number - 1 if type(guest_number) is int else index
+            code = row.get('package_code') or row.get('code')
+            name = (guests[guest_index].get('name') if type(guest_index) is int and 0 <= guest_index < len(guests) and isinstance(guests[guest_index], dict) else f"{copy['guest']} {guest_index + 1}")
+            if code:
+                values.append(f"{name}: {package_label(code)}")
+    if values:
+        lines.append(f"🏄 *{copy['package']}:* " + '; '.join(values))
+    elif package_code:
+        lines.append(f"🏄 *{copy['package']}:* {package_label(package_code)}")
+    extras = offer.get('add_ons') or plan.get('add_ons')
+    if isinstance(extras, list) and extras:
+        values = []
+        for row in extras:
+            if not isinstance(row, dict): continue
+            code = row.get('code') or row.get('service_code')
+            if code:
+                count = row.get('quantity')
+                if type(count) is not int:
+                    count = row.get('days')
+                if type(count) is not int:
+                    count = 1
+                if count <= 0:
+                    continue
+                labels = {
+                    'yoga_class': {'en': 'Yoga class', 'es': 'Clase de yoga',
+                                   'fr': 'Cours de yoga', 'de': 'Yogastunde'},
+                }
+                label = labels.get(str(code), {}).get(
+                    language, str(code).replace('_', ' ').capitalize())
+                values.append(f'{label} ×{count}' if count != 1 else label)
+        if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
     if type(total) is int:
-        lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
+        full_only = offer.get('full_payment_only') is True
+        if full_only:
+            labels = {
+                'en': ('Total and due now', 'full payment'),
+                'es': ('Total y a pagar ahora', 'pago completo'),
+                'fr': ('Total et à payer maintenant', 'paiement intégral'),
+                'de': ('Gesamtpreis und jetzt fällig', 'vollständige Zahlung'),
+            }
+            timing, full = labels.get(language, labels['en'])
+            lines.append(f"💶 *{timing}:* {_guest_money(total, currency)} ({full})")
+        else:
+            lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
         if create_ready:
             due = offer.get('payment_link_amount_cents')
             if type(due) is int and due > 0:
@@ -784,12 +843,43 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                                  'deposit': _final_copy(language, 'deposit').lower()}
                                 .get(payment_choice))
                 payment_suffix = f' ({payment_name})' if payment_name else ''
-                lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}{payment_suffix}")
+                if not full_only:
+                    lines.append(f"💳 *{copy['due']}:* {_guest_money(due, currency)}{payment_suffix}")
                 remaining = total - due
                 if remaining > 0:
                     lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")
             elif offer.get('payment_choice') == 'pay_on_arrival':
                 lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(total, currency)}")
+    if create_ready and offer.get('payment_choice') == 'per_guest':
+        guests = offer.get('guests') or plan.get('guests') or []
+        guests = guests if isinstance(guests, list) else []
+        distribution = offer.get('payment_distribution')
+        values = []
+        amounts = []
+        if isinstance(distribution, list) and distribution:
+            for index, row in enumerate(distribution):
+                if not isinstance(row, dict):
+                    continue
+                amount = row.get('amount_due_cents')
+                if type(amount) is not int:
+                    amount = row.get('amount_cents')
+                name = str(row.get('guest_name') or '').strip()
+                if not name and index < len(guests) and isinstance(guests[index], dict):
+                    name = str(guests[index].get('name') or '').strip()
+                row_currency = row.get('currency') or currency
+                if name and type(amount) is int and amount >= 0 and row_currency == currency:
+                    values.append(f'{name}: {_guest_money(amount, currency)}')
+                    amounts.append(amount)
+            due = offer.get('payment_link_amount_cents')
+            if len(values) != len(distribution) or (type(due) is int and sum(amounts) != due):
+                values = []
+        elif (offer.get('per_guest_payment_links') is True and guests
+              and type(total) is int and total % len(guests) == 0):
+            share = _guest_money(total // len(guests), currency)
+            values = [f"{str(row.get('name') or f'{copy['guest']} {index + 1}').strip()}: {share}"
+                      for index, row in enumerate(guests) if isinstance(row, dict)]
+        if values:
+            lines.append(f"💳 *{_final_copy(language, 'individual')}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
         question = copy['deposit_choice'].format(
@@ -811,8 +901,18 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     total = offer.get('total_cents')
     # The current payment-link receipt is newer payment truth than the accepted
     # offer. Fall back to the offer only when no link amount was returned.
-    paid_or_due = receipt.get('amount_due_cents')
-    if type(paid_or_due) is not int:
+    split = receipt.get('guest_payment_links')
+    if isinstance(split, list):
+        linked = [row for row in split if isinstance(row, dict)
+                  and (row.get('secure_payment_url') or row.get('guest_payment_url'))]
+        valid = [row for row in linked if type(row.get('amount_due_cents')) is int
+                 and row.get('amount_due_cents') >= 0
+                 and (row.get('currency') or currency) == currency]
+        paid_or_due = (sum(row['amount_due_cents'] for row in valid)
+                       if linked and len(valid) == len(linked) else None)
+    else:
+        paid_or_due = receipt.get('amount_due_cents')
+    if type(paid_or_due) is not int and not isinstance(split, list):
         paid_or_due = offer.get('payment_link_amount_cents')
     lines = [headline, '', f"📌 *{copy['booking']}:* {reference}",
              f"📅 *{copy['dates']}:* {_styled_dates_value(plan, offer, language, include_nights=True)}",
@@ -3186,7 +3286,8 @@ def finalize_offer_response(result):
                             payment = candidate
                     styled_receipt = deepcopy(receipt)
                     styled_receipt.update({key: value for key, value in payment.items()
-                                           if key in ('secure_payment_url', 'amount_due_cents', 'currency')})
+                                           if key in ('secure_payment_url', 'amount_due_cents', 'currency',
+                                                      'guest_payment_links')})
                     text = _styled_booking_receipt_copy(
                         _presentation_plan(state), completed_offer, styled_receipt, language)
                     split = payment.get('guest_payment_links')
