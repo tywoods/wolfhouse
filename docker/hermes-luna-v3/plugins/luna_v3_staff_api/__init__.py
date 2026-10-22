@@ -13,21 +13,21 @@ import urllib.request
 from typing import Any
 
 TOOL_PATHS = {
-    "check_availability": "/bot/luna-v3/check-availability",
-    "find_rooms": "/bot/luna-v3/find-rooms",
-    "get_pricing_catalog": "/bot/luna-v3/pricing-catalog",
-    "quote": "/bot/luna-v3/quote",
-    "hold_beds": "/bot/luna-v3/hold-beds",
-    "book": "/bot/luna-v3/book",
-    "release_hold": "/bot/luna-v3/release-hold",
-    "get_booking": "/bot/luna-v3/get-booking",
-    "get_payment_status": "/bot/luna-v3/payment-status",
-    "send_payment_link": "/bot/luna-v3/payment-link",
-    "cancel_unpaid": "/bot/luna-v3/cancel-unpaid",
-    "read_notes": "/bot/luna-v3/notes/read",
-    "write_note": "/bot/luna-v3/notes/write",
-    "save_transfer_request": "/bot/luna-v3/transfer-request",
-    "handoff_to_human": "/bot/luna-v3/handoff",
+    "check_availability": "/staff/bot/luna-v3/check-availability",
+    "find_rooms": "/staff/bot/luna-v3/find-rooms",
+    "get_pricing_catalog": "/staff/bot/luna-v3/pricing-catalog",
+    "quote": "/staff/bot/luna-v3/quote",
+    "hold_beds": "/staff/bot/luna-v3/hold-beds",
+    "book": "/staff/bot/luna-v3/book",
+    "release_hold": "/staff/bot/luna-v3/release-hold",
+    "get_booking": "/staff/bot/luna-v3/get-booking",
+    "get_payment_status": "/staff/bot/luna-v3/payment-status",
+    "send_payment_link": "/staff/bot/luna-v3/payment-link",
+    "cancel_unpaid": "/staff/bot/luna-v3/cancel-unpaid",
+    "read_notes": "/staff/bot/luna-v3/notes/read",
+    "write_note": "/staff/bot/luna-v3/notes/write",
+    "save_transfer_request": "/staff/bot/luna-v3/transfer-request",
+    "handoff_to_human": "/staff/bot/luna-v3/handoff",
 }
 TOOL_NAMES = tuple(TOOL_PATHS)
 WRITE_TOOLS = frozenset({

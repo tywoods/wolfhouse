@@ -24,6 +24,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             "write_note", "save_transfer_request", "handoff_to_human",
         }
         self.assertEqual(set(plugin.TOOL_NAMES), expected)
+        self.assertTrue(all(path.startswith("/staff/bot/luna-v3/") for path in plugin.TOOL_PATHS.values()))
         source = PLUGIN_PATH.read_text()
         self.assertNotIn("accepted_quote", source)
         self.assertNotIn("wolfhouse_staff_api", source)
@@ -78,7 +79,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             result = plugin.call_tool("find_rooms", {"check_in": "2027-11-05", "check_out": "2027-11-15", "party_size": 2})
 
         self.assertTrue(result["ok"])
-        self.assertEqual(captured["url"], "https://staff-staging.lunafrontdesk.com/bot/luna-v3/find-rooms")
+        self.assertEqual(captured["url"], "https://staff-staging.lunafrontdesk.com/staff/bot/luna-v3/find-rooms")
         self.assertEqual(captured["body"]["tenant_id"], "wolfhouse-somo")
         self.assertEqual(captured["body"]["session_id"], "v3-test-session")
         self.assertFalse(captured["body"]["external_send_allowed"])

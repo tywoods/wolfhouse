@@ -18,7 +18,7 @@ const EXPECTED_TOOLS = [
 async function main() {
   assert.deepStrictEqual(Object.keys(TOOL_CONTRACTS).sort(), EXPECTED_TOOLS.slice().sort());
   for (const name of EXPECTED_TOOLS) {
-    assert.match(TOOL_CONTRACTS[name].path, /^\/bot\/luna-v3\//);
+    assert.match(TOOL_CONTRACTS[name].path, /^\/staff\/bot\/luna-v3\//);
     assert.ok(['GET', 'POST'].includes(TOOL_CONTRACTS[name].method));
   }
 
@@ -36,7 +36,7 @@ async function main() {
     tenantId: 'wolfhouse-somo',
     sessionId: 'v3-session-1',
   });
-  assert.strictEqual(request.url, 'https://staff-staging.lunafrontdesk.com/bot/luna-v3/book');
+  assert.strictEqual(request.url, 'https://staff-staging.lunafrontdesk.com/staff/bot/luna-v3/book');
   assert.strictEqual(request.headers.Authorization, 'Bearer server-secret');
   assert.strictEqual(request.body.tenant_id, 'wolfhouse-somo');
   assert.strictEqual(request.body.session_id, 'v3-session-1');

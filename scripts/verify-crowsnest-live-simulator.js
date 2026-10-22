@@ -25,6 +25,7 @@ const {
 } = require('./lib/crowsnest/crowsnest-live-simulator-email');
 
 const { server } = require('./crowsnest-api');
+const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 const {
   CROWSNEST_SESSION_COOKIE,
   createCrowsnestSession,
@@ -136,6 +137,10 @@ async function main() {
   ok('Luna v3 has no Classic origin or token fallback', lunaV3Runtime.fallbackTokenEnv === null
     && lunaV3Runtime.origin !== whRuntime.origin
     && lunaV3Runtime.envOrigin === 'CROWSNEST_LIVE_SIM_LUNA_V3_ORIGIN');
+  const simulatorPage = renderCrowsnestPage({ view: 'live_simulator' });
+  ok('Crow\'s Nest selector labels the clone exactly Luna v3',
+    simulatorPage.includes('<option value="luna-v3">Luna v3</option>')
+    && !simulatorPage.includes('Wolfhouse Luna Clone'));
   ok('Sunset declared simulator port is 8094', sunsetRuntime.origin === 'http://127.0.0.1:8094' && sunsetRuntime.url.endsWith(TENANT_SIMULATE_PATH));
 
   const v3ReservedPhone = `+34${'699901101'}`;

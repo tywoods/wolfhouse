@@ -1,21 +1,21 @@
 'use strict';
 
 const TOOL_CONTRACTS = Object.freeze({
-  check_availability: { method: 'POST', path: '/bot/luna-v3/check-availability', write: false },
-  find_rooms: { method: 'POST', path: '/bot/luna-v3/find-rooms', write: false },
-  get_pricing_catalog: { method: 'POST', path: '/bot/luna-v3/pricing-catalog', write: false },
-  quote: { method: 'POST', path: '/bot/luna-v3/quote', write: false },
-  hold_beds: { method: 'POST', path: '/bot/luna-v3/hold-beds', write: true },
-  book: { method: 'POST', path: '/bot/luna-v3/book', write: true },
-  release_hold: { method: 'POST', path: '/bot/luna-v3/release-hold', write: true },
-  get_booking: { method: 'POST', path: '/bot/luna-v3/get-booking', write: false },
-  get_payment_status: { method: 'POST', path: '/bot/luna-v3/payment-status', write: false },
-  send_payment_link: { method: 'POST', path: '/bot/luna-v3/payment-link', write: true },
-  cancel_unpaid: { method: 'POST', path: '/bot/luna-v3/cancel-unpaid', write: true },
-  read_notes: { method: 'POST', path: '/bot/luna-v3/notes/read', write: false },
-  write_note: { method: 'POST', path: '/bot/luna-v3/notes/write', write: true },
-  save_transfer_request: { method: 'POST', path: '/bot/luna-v3/transfer-request', write: true },
-  handoff_to_human: { method: 'POST', path: '/bot/luna-v3/handoff', write: true },
+  check_availability: { method: 'POST', path: '/staff/bot/luna-v3/check-availability', write: false },
+  find_rooms: { method: 'POST', path: '/staff/bot/luna-v3/find-rooms', write: false },
+  get_pricing_catalog: { method: 'POST', path: '/staff/bot/luna-v3/pricing-catalog', write: false },
+  quote: { method: 'POST', path: '/staff/bot/luna-v3/quote', write: false },
+  hold_beds: { method: 'POST', path: '/staff/bot/luna-v3/hold-beds', write: true },
+  book: { method: 'POST', path: '/staff/bot/luna-v3/book', write: true },
+  release_hold: { method: 'POST', path: '/staff/bot/luna-v3/release-hold', write: true },
+  get_booking: { method: 'POST', path: '/staff/bot/luna-v3/get-booking', write: false },
+  get_payment_status: { method: 'POST', path: '/staff/bot/luna-v3/payment-status', write: false },
+  send_payment_link: { method: 'POST', path: '/staff/bot/luna-v3/payment-link', write: true },
+  cancel_unpaid: { method: 'POST', path: '/staff/bot/luna-v3/cancel-unpaid', write: true },
+  read_notes: { method: 'POST', path: '/staff/bot/luna-v3/notes/read', write: false },
+  write_note: { method: 'POST', path: '/staff/bot/luna-v3/notes/write', write: true },
+  save_transfer_request: { method: 'POST', path: '/staff/bot/luna-v3/transfer-request', write: true },
+  handoff_to_human: { method: 'POST', path: '/staff/bot/luna-v3/handoff', write: true },
 });
 
 const FORBIDDEN_INPUTS = new Set([

@@ -47,7 +47,7 @@ Effective clone transport flags read back as:
 
 `scripts/lib/model-led-luna/` owns the Staff tool contracts and client boundary. It rejects model-supplied money, tenant/host/provider selection, silent room relaxation, and transport inputs. Every mutation requires an operation key. Responses are facts/status/IDs, never guest copy.
 
-The 15 proposed tools are represented. Their `/bot/luna-v3/*` Staff routes remain intentionally unregistered until Chief releases `scripts/staff-query-api.js` after keep-together lands. Until then, a deployed tool call must fail clearly; no fallback to Classic is permitted.
+The 15 proposed `/staff/bot/luna-v3/*` routes are registered through the isolated model-led dispatcher. Bot authentication, principal-tenant binding, request-bound `luna-v3:*` sessions, transport-off flags, and recursive authority checks run before an operation. Any operation not explicitly installed in `LUNA_V3_STAFF_OPERATIONS` fails closed with `503 luna_v3_tool_not_registered`; there is no Classic fallback.
 
 Scoped notes are session/tenant-bound and idempotent in the adapter contract. Durable SQL persistence still belongs behind the queued Staff route. Shared General Notes replacement is rejected and remains read-only.
 
@@ -64,12 +64,13 @@ The server-side simulator target is:
 - image-owned simulator bridge maps each reserved phone to a request-bound `luna-v3:*` Hermes/Staff session key;
 - missing/unreachable clone returns an explicit error.
 
-The browser option itself is rendered in `scripts/lib/crowsnest/crowsnest-page.js`. That file is outside this job's approved write list. Chief must grant that exact path before the visible selector can be changed to `Luna v3`; this source slice does not silently widen ownership.
+The browser selector is rendered in `scripts/lib/crowsnest/crowsnest-page.js` and contains the canonical `<option value="luna-v3">Luna v3</option>`. The option value reaches only the fail-closed clone target above.
 
 ## Pre-land gates
 
 ```bash
 node scripts/lib/model-led-luna/test-contracts.js
+node scripts/lib/model-led-luna/test-staff-routes.js
 python3 docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v
 python3 docker/hermes-luna-v3/tests/test_simulator_route.py -v
 node scripts/verify-crowsnest-live-simulator.js
@@ -87,7 +88,7 @@ Captain must verify the exact commit and confirm:
 3. operation keys are mandatory on all writes;
 4. exact `Luna v3` target is explicit-config-only and reserved-phone-only;
 5. no modified file outside the approved list;
-6. Staff route registration remains absent and queued.
+6. all 15 Staff routes are authenticated, principal-bound, transport-off, and fail closed until an operation is explicitly installed.
 
 Do not land or deploy before Captain PASS.
 
