@@ -207,6 +207,11 @@ const {
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
 const {
+  LUNA_V3_ROUTE_TO_TOOL,
+  dispatchLunaV3StaffRoute,
+} = require('./lib/model-led-luna/staff-routes');
+const LUNA_V3_STAFF_OPERATIONS = Object.freeze({});
+const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
 } = require('./lib/staff-whatsapp-notifications');
@@ -55610,6 +55615,29 @@ async function router(req, res) {
   const parsed   = url.parse(req.url, true);
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
+
+  // Luna v3 is Wolfhouse TEST-only. Auth and principal-tenant binding happen
+  // before the narrow model-led dispatcher; unimplemented tools fail closed.
+  if (LUNA_V3_ROUTE_TO_TOOL[pathname]) {
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (_user, _authMode, effectiveClientSlug) => {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req) || '{}');
+      } catch (_) {
+        return send400(res, 'invalid or missing JSON body');
+      }
+      const result = await dispatchLunaV3StaffRoute({
+        pathname,
+        method,
+        clientSlug: effectiveClientSlug,
+        body,
+        operations: LUNA_V3_STAFF_OPERATIONS,
+      });
+      return sendJSON(res, result.status, result.body);
+    });
+  }
 
   // ── Public Sunset waiver form (unauthenticated; same class as /pay) ─────────
   if (await tryHandleSunsetWaiverPublicRoute(pathname, method, req, res, {
