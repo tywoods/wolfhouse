@@ -1,0 +1,47 @@
+{
+  "id": "package-deposit-200",
+  "title": "Package stay, 200 euro deposit per person",
+  "synthetic": true,
+  "phone": "+34699910024",
+  "collision_checked": false,
+  "party_size": 1,
+  "dates": {
+    "check_in": "2027-06-04",
+    "check_out": "2027-06-11",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Hi, one person, mixed dorm plus the surf package, 4 to 11 June 2027. What is the deposit?",
+      "must": [
+        "deposit 200 euros per person with a package from Staff Pricing",
+        "not 100 euros"
+      ]
+    },
+    {
+      "guest": "My name is Nora.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
+      "guest": "I will take the package. Please book it.",
+      "must": [
+        "save booking at Staff package price",
+        "deposit 200"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Package quote from Staff; deposit 200 euros per person; booking saved.",
+    "quote_source": "staff_pricing",
+    "deposit_euros_per_person": 200,
+    "package": true,
+    "booking_saved": true,
+    "unpaid_shows_confirmed": true
+  },
+  "contact": "Nora",
+  "occupants": [
+    "Nora"
+  ]
+}
