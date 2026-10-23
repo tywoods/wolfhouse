@@ -68,6 +68,10 @@
         "return a test-mode payment URL inside Crow's Nest",
         "send no WhatsApp, SMS, or email"
       ],
+      "must_not": [
+        "bind or charge the cancelled booking",
+        "use phone_first_booking_id"
+      ],
       "record_binding": {
         "alias": "Casey",
         "bind_field": "selected_booking_id",

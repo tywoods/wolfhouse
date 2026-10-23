@@ -39,7 +39,7 @@ Only split stock is available. The guest refuses to split. There must be no spli
 
 ## Guest 5
 
-First create the unpaid booking and bind this chat to `selected_booking_id`. Then read that bound record, not a phone's first match. Cancel an unpaid booking. A sandbox payment link is returned inside Crow's Nest and is not sent. The next guest turn completes the sandbox checkout with no live card. Confirm only after `getPaymentStatus` says paid. A paid cancellation goes to a human, with no refund promise. The timeout retry names the operation and the fault point: `getPaymentStatus` after sandbox checkout completion and before paid confirmation, on the bound record. Read that record back, retry only that call, and leave one record with no duplicate charge or link. Live paid cleanup is incomplete until an approved exact-ID cleanup exists. Do not fake paid state.
+First create the unpaid booking and bind this chat to `selected_booking_id`. Then read that bound record, not a phone's first match. Cancel an unpaid booking. Create a new unpaid booking and rebind `selected_booking_id` to that new record before the sandbox checkout. Do not bind or charge the cancelled booking, and do not use `phone_first_booking_id`. A sandbox payment link is returned inside Crow's Nest and is not sent. The next guest turn completes the sandbox checkout with no live card. Confirm only after `getPaymentStatus` says paid. A paid cancellation goes to a human, with no refund promise. The timeout retry names the operation and the fault point: `getPaymentStatus` after sandbox checkout completion and before paid confirmation, on the bound record. Read that record back, retry only that call, and leave one record with no duplicate charge or link. Live paid cleanup is incomplete until an approved exact-ID cleanup exists. Do not fake paid state. Removing the new-record rebind, or pointing it at the cancelled booking, must fail validation.
 
 ## Scorecard
 
@@ -60,11 +60,22 @@ node scripts/verify-luna-v3-contracts.js
 
 Exit `0` only when every handler contract and every section-3 tool has been awaited against `scripts/lib/model-led-luna/` and the verifier has read the side effect back itself. That directory is Skip's and does not exist yet. The ten tools that are not also a contract export (`book`, `getBooking`, `getPaymentStatus`, and the rest of that list) are checked even when `index.js` exists. They must not disappear.
 
-Handlers are called as `await tool(pg, input)`. `pg` is an observation database with `read`, `write`, `update`, and simple `query` SQL (`select * from <table>`, `insert into <table> (json) values ($1)`, `update <table> set status = $1 where id = $2`). A return value is not proof. If the export is missing, or the function never touches that database, the row stays **pending**. PASS requires the awaited result and the rows the verifier reads after the call to agree. A fake that returns a success shape and touches no database must not PASS.
+Handlers are called as `await tool(pg, input)`. `pg` is an observation database with `read`, `write`, `update`, and simple `query` SQL (`select * from <table>`, `insert into <table> (json) values ($1)`, `update <table> set status = $1 where id = $2`). A return value is not proof. If the export is missing, or the function never touches that database, the row stays **pending**. PASS requires the awaited result and the rows the verifier reads after the call to agree, compared with verifier-owned request, stock, and snapshots. A fake that returns a success shape and touches no database must not PASS.
 
-Until then the handler rows are **pending**, with a TODO naming the missing or unconnected export. The script still checks these fixtures, rejects success-shaped stubs, and fails if real guest dialogue is removed. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed or a present handler broke a contract.
+These rows must not PASS from a weak observation:
 
-No always-pass stub. A `{ ok: true }` result does not satisfy hold, money, cancel, link, notes, timeout, or any section-3 tool.
+- Unavailable requested beds must not be held. A write in that case is a **fail**. Success, atomicity, and a competing Staff writer stay **pending** until that boundary exists. A refusal is not that proof.
+- Paid cancel must preserve payment id, booking association, amount, and cancellation state. A refusal flag does not excuse a destructive write. That write is a **fail**.
+- `book` must persist the trusted hold, tenant, session, guest, requested beds, and Staff cents. A foreign tenant or session, the wrong person, an unrequested bed, or negative money is a **fail**. `getBooking` must read the authenticated session binding. An argument booking id is not that binding.
+- A stored string, including `not-a-checkout-url` or a self-declared test URL, does not certify a payment link. Without an observed sandbox-provider adapter and an independent transport denial, that acceptance stays **pending**. A send, or a non-URL stored as the checkout, is a **fail**.
+- Timeout recovery must read the trusted operation and the selected booking. Reading an unrelated table, including empty `rooms`, is a **fail**. Retry effect and uniqueness stay **pending** until that effect is observable.
+- Fixture validation requires the substantive turns, pass/fail assertions, the new-booking rebind, and the whole safety floor, including overlap prevention, money-conservation targets, and both race probes. Replacing those turns with a greeting, rebinding the new booking to `phone_first_booking_id`, or deleting the safety floor must fail validation.
+
+The script's structural section runs one negative control for each of those holes. Accepting any of them is a structural **fail** (exit `1`), not a product pass.
+
+Until Skip's module exists, the handler rows are **pending**, with a TODO naming the missing or unconnected export. The script still checks these fixtures, rejects success-shaped stubs, and fails if real guest dialogue or substantive acceptance coverage is removed. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed, a negative control was accepted, or a present handler broke a contract.
+
+No always-pass stub. A `{ ok: true }` result does not satisfy hold, money, cancel, link, notes, timeout, or any section-3 tool. Proposed 2027 windows, unconfirmed stock and Pricing, unverified phone collisions, and live paid cleanup stay pending. This gate does not run them.
 
 ## Not done here
 
