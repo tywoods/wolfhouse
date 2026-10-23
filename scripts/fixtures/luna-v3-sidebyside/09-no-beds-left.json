@@ -1,0 +1,28 @@
+{
+  "id": "no-beds-left",
+  "title": "No beds left",
+  "synthetic": true,
+  "phone": "+34699910029",
+  "collision_checked": false,
+  "party_size": 1,
+  "dates": {
+    "check_in": "2027-08-20",
+    "check_out": "2027-08-22",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Any bed at all for one person, 20 to 22 August 2027?",
+      "must": [
+        "read Staff stock",
+        "say there are no beds if Staff shows none",
+        "do not invent a bed or book"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Staff shows no beds. No booking saved. Luna explains that, does not invent stock.",
+    "quote_source": "staff_pricing",
+    "booking_saved": false
+  }
+}

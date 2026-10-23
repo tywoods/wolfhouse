@@ -1,0 +1,29 @@
+{
+  "id": "paid-cancel-handoff",
+  "title": "Paid cancel goes to a person",
+  "synthetic": true,
+  "phone": "+34699910027",
+  "collision_checked": false,
+  "party_size": 1,
+  "dates": {
+    "check_in": "2027-06-04",
+    "check_out": "2027-06-08",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "I already paid for 4 to 8 June 2027. I need to cancel that booking.",
+      "must": [
+        "do not cancel a paid booking",
+        "handoff to a person",
+        "no refund promise"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Paid cancel is a human handoff. Luna does not cancel and does not erase payment.",
+    "luna_cancels": false,
+    "handoff_to_human": true,
+    "booking_saved": false
+  }
+}

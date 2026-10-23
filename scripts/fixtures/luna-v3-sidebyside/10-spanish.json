@@ -1,0 +1,29 @@
+{
+  "id": "spanish",
+  "title": "Spanish quote chat",
+  "synthetic": true,
+  "phone": "+34699910030",
+  "collision_checked": false,
+  "party_size": 2,
+  "dates": {
+    "check_in": "2027-08-14",
+    "check_out": "2027-08-18",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Hola, somos dos y queremos un presupuesto del 14 al 18 de agosto de 2027 en dormitorio mixto. Gracias.",
+      "must": [
+        "reply in Spanish",
+        "Staff quote",
+        "do not switch the guest to English without asking"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Spanish chat. Staff quote. Reply in Spanish.",
+    "quote_source": "staff_pricing",
+    "language": "es",
+    "booking_saved": false
+  }
+}

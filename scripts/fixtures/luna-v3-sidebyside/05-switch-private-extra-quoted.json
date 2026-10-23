@@ -1,0 +1,41 @@
+{
+  "id": "switch-private-extra-quoted",
+  "title": "Switch to private after extra cost is quoted",
+  "synthetic": true,
+  "phone": "+34699910025",
+  "collision_checked": false,
+  "party_size": 2,
+  "dates": {
+    "check_in": "2027-08-05",
+    "check_out": "2027-08-10",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Two of us, mixed dorm from 5 to 10 August 2027. Can we have a quote?",
+      "must": [
+        "Staff mixed-dorm quote first"
+      ]
+    },
+    {
+      "guest": "Could we switch to a private room instead?",
+      "must": [
+        "quote the extra private-room cost from Staff before asking them to confirm",
+        "do not book the private yet"
+      ]
+    },
+    {
+      "guest": "Yes, take the private room at that extra cost.",
+      "must": [
+        "only then save the private-room booking",
+        "amounts match the quoted extra"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Private switch only after Staff extra cost is quoted and the guest confirms.",
+    "quote_source": "staff_pricing",
+    "extra_cost_quoted_before_confirm": true,
+    "booking_saved": true
+  }
+}
