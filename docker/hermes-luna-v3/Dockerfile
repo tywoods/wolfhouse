@@ -9,6 +9,7 @@ COPY SOUL.md /etc/hermes-luna-v3/SOUL.md
 COPY plugins /etc/hermes-luna-v3/plugins
 COPY bootstrap.py /etc/hermes-luna-v3/bootstrap.py
 COPY startup.py /etc/hermes-luna-v3/startup.py
+COPY bootstrap.sh /etc/hermes-luna-v3/bootstrap.sh
 COPY bootstrap.sh /etc/cont-init.d/99-luna-v3-bootstrap
 COPY runtime /etc/hermes-luna-v3/runtime
 COPY install_simulator_route.py /etc/hermes-luna-v3/install_simulator_route.py
