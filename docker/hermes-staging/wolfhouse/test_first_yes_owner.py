@@ -640,7 +640,8 @@ class FirstYesOwnerTests(unittest.TestCase):
         # Ordinary model route: no optional interpret_booking_turn call is scheduled.
         for index, decline in enumerate((
                 'No, keep the shared beds', 'Actually, no thanks.',
-                "I don't want the private room.", 'I don’t want the private room.')):
+                "I don't want the private room.", 'I don’t want the private room.',
+                "I don't need the private room.", 'I don’t need the private room.')):
             with self.subTest(decline=decline):
                 if index:
                     ledger.record_quote(private_plan, private)
@@ -660,7 +661,8 @@ class FirstYesOwnerTests(unittest.TestCase):
     def test_private_plain_yes_binds_to_displayed_private_offer_on_registered_create(self):
         for index, approval in enumerate((
                 'Yes, save that booking',
-                'Yes, I approve the €1725 total and €125 supplement. Save that booking')):
+                'Yes, I approve the €1725 total and €125 supplement. Save that booking',
+                'Yes, book the private room, not the shared beds.')):
             with self.subTest(approval=approval):
                 if index:
                     ledger.record_quote(self.plan, self.response)

@@ -2213,8 +2213,19 @@ def observe_owner_turn(agent, raw):
                     or 'do not want' in normalized_raw
                     or "doesn't want" in normalized_raw
                     or 'does not want' in normalized_raw)
-        selects_shared = 'shared' in tokens and not ('shared' in tokens and 'private' in tokens and not negative)
-        if private_comparison and (negative or selects_shared):
+        # Negation rejects the option it directly qualifies. A positive private
+        # selection followed by "not the shared beds" must retain private.
+        private_rejected = any(marker in normalized_raw for marker in (
+            'not the private', 'no private', 'without private', "don't want the private",
+            'do not want the private', "don't need the private", 'do not need the private',
+            'no need for the private', 'rather not private'))
+        shared_rejected = any(marker in normalized_raw for marker in (
+            'not the shared', 'no shared', 'without shared', "don't want the shared",
+            'do not want the shared', "don't need the shared", 'do not need the shared'))
+        selects_shared = ('shared' in normalized_raw and not shared_rejected
+                          and ('private' not in normalized_raw or private_rejected))
+        generic_decline = negative and 'private' not in normalized_raw and 'shared' not in normalized_raw
+        if private_comparison and (private_rejected or selects_shared or generic_decline):
             state.pop('private_decline_fallback', None)
             for key, value in fallback.items():
                 state[key] = deepcopy(value)
