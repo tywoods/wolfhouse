@@ -1120,7 +1120,8 @@ def quote_booking(params, **kwargs):
             "balance_due_cents": None, "payment_choice_needed": False,
             "write_performed": False,
         })
-    quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
+    raw_quote = data.get("quote")
+    quote: Dict[str, Any] = raw_quote if isinstance(raw_quote, dict) else {}
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
     deposit = data.get("deposit_required_cents") or quote.get("deposit_required_cents")
     balance = data.get("balance_due_cents") or quote.get("balance_due_cents")
@@ -1128,8 +1129,11 @@ def quote_booking(params, **kwargs):
     # must never reconstruct prices from request fields after acceptance.
     offer_revision = deepcopy(data.get("offer_revision"))
     if isinstance(offer_revision, dict):
-        offer_revision["per_person"] = deepcopy(data.get("per_person") or quote.get("per_person") or [])
-        offer_revision["included_items"] = deepcopy(data.get("included_items") or quote.get("included_items") or [])
+        for key in ("per_person", "included_items"):
+            if key in data:
+                offer_revision[key] = deepcopy(data[key])
+            elif key in quote:
+                offer_revision[key] = deepcopy(quote[key])
     remaining_after_deposit = None
     if total is not None and deposit is not None:
         try:

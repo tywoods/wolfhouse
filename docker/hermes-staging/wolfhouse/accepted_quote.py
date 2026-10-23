@@ -1024,9 +1024,15 @@ def _staff_invoice_lines(plan, offer, language, currency):
         nights = source.get('nights') if isinstance(source, dict) else None
         unit = source.get('unit_cents') if isinstance(source, dict) else None
         source_count = source.get('guest_count') if isinstance(source, dict) else None
+        source_total = source.get('total_cents') if isinstance(source, dict) else None
+        source_guest_number = source.get('guest_number') if isinstance(source, dict) else None
+        source_multiplier = source_count if source_guest_number is None else 1
         if (type(nights) is not int or nights < 1 or type(unit) is not int or unit < 0
+                or type(source_total) is not int or source_total < 0
+                or type(source_multiplier) is not int or source_multiplier < 1
+                or unit * nights * source_multiplier != source_total
                 or unit * nights != accommodation
-                or (source.get('guest_number') is None and source_count != count)):
+                or (source_guest_number is None and source_count != count)):
             return []
         guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
         name = str(guest.get('name') or '').strip()
@@ -1122,7 +1128,8 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     if type(total) is int:
         lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
         if type(paid_or_due) is int:
-            due_label = copy['deposit_due'] if invoice_lines and paid_or_due < total else copy['due']
+            payment_choice = str(offer.get('payment_choice') or plan.get('payment_choice') or '').strip().lower()
+            due_label = copy['deposit_due'] if invoice_lines and payment_choice == 'deposit' else copy['due']
             lines.append(f"💳 *{due_label}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:

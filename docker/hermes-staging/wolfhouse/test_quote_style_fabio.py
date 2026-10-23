@@ -121,6 +121,33 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertIn("📅 *Dates:*", text)
         self.assertIn("💶 *Total:* €400", text)
 
+    def test_saved_booking_receipt_fails_closed_when_staff_base_total_is_inconsistent(self):
+        offer = {**self.offer,
+                 "per_person": [{"guest_number": 1, "package_code": "package_none",
+                                  "accommodation_cents": 40000}],
+                 "included_items": [{"code": "accommodation_only", "guest_number": 1,
+                                      "nights": 8, "unit_cents": 5000,
+                                      "total_cents": 39999}]}
+        receipt = {"booking_code": "WH-BAD-BASE", "amount_due_cents": 20000,
+                   "secure_payment_url": "https://example.invalid/pay/bad-base"}
+        text = owner._styled_booking_receipt_copy(self.plan, offer, receipt, "en")
+        self.assertNotIn("here's your invoice", text)
+        self.assertIn("📅 *Dates:*", text)
+
+    def test_itemised_per_guest_payment_uses_generic_due_label(self):
+        plan = {**self.plan, "payment_choice": "per_guest"}
+        offer = {**self.offer, **plan,
+                 "per_person": [{"guest_number": 1, "package_code": "package_none",
+                                  "accommodation_cents": 40000}],
+                 "included_items": [{"code": "accommodation_only", "guest_number": 1,
+                                      "nights": 8, "unit_cents": 5000,
+                                      "total_cents": 40000}]}
+        receipt = {"booking_code": "WH-SPLIT", "amount_due_cents": 20000,
+                   "secure_payment_url": "https://example.invalid/pay/split"}
+        text = owner._styled_booking_receipt_copy(plan, offer, receipt, "en")
+        self.assertIn("💳 *Due now:* €200", text)
+        self.assertNotIn("Deposit due now", text)
+
     def test_receipt_localizes_spanish_and_german_without_changing_money_truth(self):
         receipt = {"success": True, "booking_code": "WH-2F393C"}
         expected = {
