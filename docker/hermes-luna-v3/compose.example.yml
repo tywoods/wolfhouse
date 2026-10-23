@@ -3,7 +3,6 @@ services:
     image: ${LUNA_V3_IMAGE:?set reviewed Luna v3 image}
     container_name: hermes-luna-clone
     restart: unless-stopped
-    command: gateway run
     ports:
       - "127.0.0.1:8097:8090"
     cpus: 1.5

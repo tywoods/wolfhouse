@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from importlib.util import find_spec
 from pathlib import Path
 import sys
 
@@ -15,7 +16,11 @@ def validate_final_startup_config() -> None:
     from hermes_cli.env_loader import load_hermes_dotenv
 
     home = Path(get_hermes_home())
-    load_hermes_dotenv(hermes_home=home)
+    gateway_spec = find_spec("gateway.run")
+    if gateway_spec is None or gateway_spec.origin is None:
+        raise RuntimeError("cannot locate the Hermes gateway package")
+    project_env = Path(gateway_spec.origin).resolve().parents[1] / ".env"
+    load_hermes_dotenv(hermes_home=home, project_env=project_env)
     validate_environment()
     validate_effective_platforms()
 
@@ -30,7 +35,7 @@ def main() -> int:
     if "--validate-only" in sys.argv[1:]:
         return 0
 
-    os.execvp("gateway", ["gateway", "run"])
+    os.execvp("hermes", ["hermes", "gateway", "run"])
     return 127
 
 
