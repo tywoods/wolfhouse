@@ -616,8 +616,16 @@ class FirstYesOwnerTests(unittest.TestCase):
             self.assertEqual(path, '/booking-create-from-plan')
             return {'success': True, 'write_performed': True,
                     'booking_id': 'offline-private', 'booking_code': 'OFFLINE-PRIVATE'}
-        with patch.object(plugin, '_post_bot', side_effect=staff):
-            result = json.loads(registry.tools['create_booking_from_plan']['handler'](params))
+        from wolfhouse import booking_names
+        token = booking_names._agent.set(self.agent)
+        try:
+            with patch.object(plugin, '_post_bot', side_effect=staff):
+                booking_names.begin_turn(session_id=self.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                result = json.loads(registry.tools['create_booking_from_plan']['handler'](params))
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(token)
         return result, requests
 
     def test_ordinary_private_decline_without_diagnostic_restores_shared_authority(self):
