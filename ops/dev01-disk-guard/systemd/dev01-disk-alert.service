@@ -1,0 +1,8 @@
+[Unit]
+Description=Dev-01 /data disk alert
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/wolfhouse/WH/ops/dev01-disk-guard
+Environment=DISCORD_BOT_TOKEN_FILE=/etc/dev01-disk-guard/discord-token
+ExecStart=/usr/bin/python3 disk_alert.py

@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Dev-01 build cache cap
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00 Europe/Madrid
+Persistent=true
+Unit=dev01-build-cache-prune.service
+
+[Install]
+WantedBy=timers.target
