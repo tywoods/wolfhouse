@@ -652,7 +652,8 @@ class FirstYesOwnerTests(unittest.TestCase):
                 "I don't need the private room.", 'I don’t need the private room.',
                 'I would rather not have the private room.', "I don't like a private room.",
                 'I don’t like any private room.', 'No need for a private room.',
-                'Without the private room.')):
+                'Without the private room.', 'I would rather not take the private room.',
+                'I dont need the private room.')):
             with self.subTest(decline=decline):
                 if index:
                     ledger.record_quote(private_plan, private)

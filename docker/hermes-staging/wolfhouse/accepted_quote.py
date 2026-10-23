@@ -2215,10 +2215,10 @@ def observe_owner_turn(agent, raw):
                     or 'does not want' in normalized_raw)
         # Attribute each negation to the option which follows it; articles and
         # filler words are not option authority.
-        option_gap = r'(?:\s+(?:a|the|any|have|need|want|like|for))*\s+'
+        option_gap = r'(?:\s+(?:a|the|any|have|need|want|like|take|for))*\s+'
         private_rejected = bool(re.search(
             r'\b(?:not|no|without)' + option_gap + r'private\b'
-            r'|\b(?:don\'t|do not|doesn\'t|does not|rather not)' + option_gap + r'private\b'
+            r'|\b(?:don\'t|dont|do not|doesn\'t|does not|rather not)' + option_gap + r'private\b'
             r'|\bno need for' + option_gap + r'private\b', normalized_raw))
         shared_rejected = bool(re.search(
             r'\b(?:not|no|without)' + option_gap + r'shared\b'
