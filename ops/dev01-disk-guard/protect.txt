@@ -1,0 +1,11 @@
+# One regex fragment per line. Extended by operators without changing code.
+1401
+1402
+1405
+38d97409
+8ffe4a28
+luna-v3
+SKIP-DEAF
+evidence
+chief-backlog
+pass4

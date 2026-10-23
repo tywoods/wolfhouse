@@ -1,0 +1,7 @@
+[Unit]
+Description=Cap Docker buildx caches at 2 GB
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/wolfhouse/WH/ops/dev01-disk-guard
+ExecStart=/usr/bin/ionice -c 3 /usr/bin/nice -n 19 /bin/sh build-cache-prune.sh

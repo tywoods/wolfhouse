@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Dev-01 disk thresholds
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=5m
+Unit=dev01-disk-alert.service
+
+[Install]
+WantedBy=timers.target
