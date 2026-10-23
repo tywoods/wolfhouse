@@ -1236,6 +1236,12 @@ function phase1RowsFromObservations(observations) {
     tool_releaseHold: ['toolReleaseHold', 'activeHoldAvailabilityLifecycle'],
     tool_getBooking: ['toolGetBooking'],
     tool_handoffToHuman: ['toolHandoffToHuman'],
+    cancel_unpaid_refuses_paid: ['cancelUnpaidRefusal'],
+    payment_link_returned_not_sent: ['paymentLinkOfflineBoundary'],
+    scoped_notes: ['noteDurable', 'notesSources'],
+    tool_getPaymentStatus: ['paymentTruth'],
+    tool_readNotes: ['notesSources'],
+    tool_saveTransferRequest: ['transferDecision'],
   };
   const row = (id) => {
     const missing = requirements[id].filter((name) => observations[name] !== true);
@@ -1243,8 +1249,7 @@ function phase1RowsFromObservations(observations) {
       ? { id, status: 'fail', reason: `missing named Phase 1 observation(s): ${missing.join(', ')}` }
       : { id, status: 'pass', reason: `named observations: ${requirements[id].join(', ')}` };
   };
-  const later = (id, card) => ({ id, status: 'pending', todo: `TODO(skip): card ${card} is outside Phase 1 and requires its own authoritative proof`, reason: 'later-phase capability intentionally not certified by Phase 1' });
-  return [row('hold_all_or_none'), row('no_bed_substitution'), row('staff_computed_money'), later('cancel_unpaid_refuses_paid', 13), later('payment_link_returned_not_sent', 12), later('scoped_notes', 15), row('timeout_unknown'), row('tool_checkAvailability'), row('tool_findRooms'), row('tool_getPricingCatalog'), row('tool_book'), row('tool_releaseHold'), row('tool_getBooking'), later('tool_getPaymentStatus', 11), later('tool_readNotes', 14), later('tool_saveTransferRequest', 16), row('tool_handoffToHuman')];
+  return [row('hold_all_or_none'), row('no_bed_substitution'), row('staff_computed_money'), row('cancel_unpaid_refuses_paid'), row('payment_link_returned_not_sent'), row('scoped_notes'), row('timeout_unknown'), row('tool_checkAvailability'), row('tool_findRooms'), row('tool_getPricingCatalog'), row('tool_book'), row('tool_releaseHold'), row('tool_getBooking'), row('tool_getPaymentStatus'), row('tool_readNotes'), row('tool_saveTransferRequest'), row('tool_handoffToHuman')];
 }
 
 async function runCanonicalPhase1(api) {

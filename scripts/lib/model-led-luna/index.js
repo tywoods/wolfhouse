@@ -28,6 +28,12 @@ const WIRES = Object.freeze({
   recoverOperation: 'recover_operation',
   releaseHold: 'release_hold',
   handoffToHuman: 'handoff_to_human',
+  getPaymentStatus: 'get_payment_status',
+  sendPaymentLink: 'send_payment_link',
+  cancelUnpaid: 'cancel_unpaid',
+  readNotes: 'read_notes',
+  writeNote: 'write_note',
+  saveTransferRequest: 'save_transfer_request',
 });
 
 function trusted(context) {

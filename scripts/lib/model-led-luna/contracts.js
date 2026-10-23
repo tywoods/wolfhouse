@@ -39,6 +39,12 @@ const READ_SCHEMAS = Object.freeze({
   recover_operation: new Set(['operation_key']),
   release_hold: new Set(['operation_key', 'hold_id']),
   handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
+  get_payment_status: new Set(['booking_id']),
+  send_payment_link: new Set(['booking_id', 'payment_choice', 'guest_id', 'operation_key']),
+  cancel_unpaid: new Set(['booking_id', 'guest_reason', 'operation_key']),
+  read_notes: new Set(['topic']),
+  write_note: new Set(['text', 'context', 'booking_reference', 'operation_key']),
+  save_transfer_request: new Set(['booking_id', 'decision', 'travel_details', 'operation_key']),
 });
 const NESTED_SCHEMAS = Object.freeze({
   guests: new Set(['name', 'explicit_gender']),
@@ -47,6 +53,8 @@ const NESTED_SCHEMAS = Object.freeze({
   guest_packages: new Set(['guest_number', 'package_code']),
   add_ons: new Set(['code', 'days', 'quantity']),
   assignments: new Set(['bed_code', 'guest_name', 'package_code']),
+  context: new Set(['topic', 'kind', 'detail']),
+  travel_details: new Set(['airport', 'direction', 'date', 'time', 'flight', 'passengers', 'boards']),
 });
 
 function assertKnownObject(value, allowed, path) {

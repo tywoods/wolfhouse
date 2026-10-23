@@ -47,7 +47,8 @@ async function main() {
   const context = { tenantId: 'wolfhouse-somo', authenticated: true,
     sessionId: 'luna-v3:test', principalId: 'test-principal', writeAllowed: true };
   assert.deepEqual(Object.keys(api).sort(), ['checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote',
-    'holdBeds', 'book', 'getBooking', 'recoverOperation', 'releaseHold', 'handoffToHuman'].sort());
+    'holdBeds', 'book', 'getBooking', 'recoverOperation', 'releaseHold', 'handoffToHuman',
+    'getPaymentStatus', 'sendPaymentLink', 'cancelUnpaid', 'readNotes', 'writeNote', 'saveTransferRequest'].sort());
 
   const pg = staffPg({ blocks: [{ bed_code: 'R7-B1' }] });
   const available = await api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }, context);

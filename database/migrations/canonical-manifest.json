@@ -1617,6 +1617,15 @@
       "inForwardChain": true,
       "rationale": "Durable session-bound Luna v3 selections, idempotent operations, exact-bed holds, no-alert handoffs, and a common booking/hold occupancy boundary.",
       "sha256": "3af9c58ad5d3d2ff59d6400c690df2241c43241d7ce9c6695b26100a6e3ff9d8"
+    },
+    {
+      "id": "115_luna_v3_guest_operations",
+      "filename": "115_luna_v3_guest_operations.sql",
+      "order": 106,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Durable session-scoped Luna v3 notes, verified test-checkout receipts, and unscheduled transfer requests.",
+      "sha256": "3dd928b37a612c2f73ce5a4794c2b38e6e8ea6b72dfeacc3e2ec3efe5e10cd26"
     }
   ]
 }
