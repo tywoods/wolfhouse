@@ -18,6 +18,12 @@
       ]
     },
     {
+      "guest": "Our names are Elena and Marco.",
+      "must": [
+        "use the given names"
+      ]
+    },
+    {
       "guest": "Could we switch to a private room instead?",
       "must": [
         "quote the extra private-room cost from Staff before asking them to confirm",
@@ -37,5 +43,10 @@
     "quote_source": "staff_pricing",
     "extra_cost_quoted_before_confirm": true,
     "booking_saved": true
-  }
+  },
+  "contact": "Elena",
+  "occupants": [
+    "Elena",
+    "Marco"
+  ]
 }

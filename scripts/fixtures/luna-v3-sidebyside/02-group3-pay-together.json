@@ -19,6 +19,12 @@
       ]
     },
     {
+      "guest": "Our names are Luis, Sofia and Pablo.",
+      "must": [
+        "use the given names"
+      ]
+    },
+    {
       "guest": "We will pay together, one deposit for the three of us.",
       "must": [
         "one deposit for the party",
@@ -39,5 +45,11 @@
     "pay_together": true,
     "booking_saved": true,
     "unpaid_shows_confirmed": true
-  }
+  },
+  "contact": "Luis",
+  "occupants": [
+    "Luis",
+    "Sofia",
+    "Pablo"
+  ]
 }

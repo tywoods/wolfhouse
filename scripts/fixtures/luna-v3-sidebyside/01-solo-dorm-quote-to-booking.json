@@ -19,6 +19,12 @@
       ]
     },
     {
+      "guest": "My name is Marta.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
       "guest": "Yes, that works. Please book it.",
       "must": [
         "save the booking",
@@ -34,5 +40,9 @@
     "package": false,
     "booking_saved": true,
     "unpaid_shows_confirmed": true
-  }
+  },
+  "contact": "Marta",
+  "occupants": [
+    "Marta"
+  ]
 }

@@ -89,6 +89,27 @@ function main() {
   assert.equal(byId['november-stay'].pass.must_not_doubt_november, true);
   assert.equal(byId['no-beds-left'].pass.booking_saved, false);
   assert.equal(byId['spanish'].pass.language, 'es');
+  const SAVE_IDS = [
+    'solo-dorm-quote-to-booking',
+    'group3-pay-together',
+    'group3-pay-separately',
+    'package-deposit-200',
+    'switch-private-extra-quoted',
+    'unpaid-cancel-luna',
+  ];
+  for (const id of SAVE_IDS) {
+    const script = byId[id];
+    assert.equal(typeof script.contact === 'string' && script.contact.length >= 3, true, id + ' contact');
+    assert.equal(Array.isArray(script.occupants) && script.occupants.length >= 1, true, id + ' occupants');
+    const named = script.turns.some((turn) => /my name is |our names are /i.test(turn.guest));
+    assert.equal(named, true, id + ' missing name turn');
+    const accept = script.turns.some((turn) => /book|take the private|yes,/i.test(turn.guest));
+    assert.equal(accept, true, id + ' missing acceptance turn');
+  }
+  assert.equal(byId['paid-cancel-handoff'].prerequisites.paid_booking.required, true);
+  assert.equal(byId['paid-cancel-handoff'].prerequisites.paid_booking.present, false);
+  assert.equal(byId['no-beds-left'].prerequisites.sold_out.required, true);
+  assert.equal(byId['no-beds-left'].prerequisites.sold_out.present, false);
 
   console.log('sidebyside scenarios pack 10 loaded');
 }

@@ -25,5 +25,12 @@
     "luna_cancels": false,
     "handoff_to_human": true,
     "booking_saved": false
+  },
+  "prerequisites": {
+    "paid_booking": {
+      "required": true,
+      "present": false,
+      "note": "Needs a real paid booking on this reserved test phone before the chat can run."
+    }
   }
 }

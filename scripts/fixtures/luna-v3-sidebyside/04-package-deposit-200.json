@@ -19,6 +19,12 @@
       ]
     },
     {
+      "guest": "My name is Nora.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
       "guest": "I will take the package. Please book it.",
       "must": [
         "save booking at Staff package price",
@@ -33,5 +39,9 @@
     "package": true,
     "booking_saved": true,
     "unpaid_shows_confirmed": true
-  }
+  },
+  "contact": "Nora",
+  "occupants": [
+    "Nora"
+  ]
 }

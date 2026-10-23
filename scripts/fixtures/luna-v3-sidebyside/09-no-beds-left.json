@@ -24,5 +24,12 @@
     "summary": "Staff shows no beds. No booking saved. Luna explains that, does not invent stock.",
     "quote_source": "staff_pricing",
     "booking_saved": false
+  },
+  "prerequisites": {
+    "sold_out": {
+      "required": true,
+      "present": false,
+      "note": "Needs Staff stock to show no beds on these 2027 dates before the chat can run."
+    }
   }
 }

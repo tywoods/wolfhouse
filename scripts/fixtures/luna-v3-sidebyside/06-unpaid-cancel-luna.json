@@ -20,6 +20,19 @@
       ]
     },
     {
+      "guest": "My name is Iker.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
+      "guest": "Yes, please book that unpaid stay.",
+      "must": [
+        "save the booking",
+        "unpaid shows as confirmed"
+      ]
+    },
+    {
       "guest": "Please cancel that unpaid booking.",
       "must": [
         "Staff shows unpaid",
@@ -35,5 +48,9 @@
     "unpaid_shows_confirmed": true,
     "luna_cancels": true,
     "handoff_to_human": false
-  }
+  },
+  "contact": "Iker",
+  "occupants": [
+    "Iker"
+  ]
 }

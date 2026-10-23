@@ -18,6 +18,12 @@
       ]
     },
     {
+      "guest": "Our names are Nuria, Hugo and Alba.",
+      "must": [
+        "use the given names"
+      ]
+    },
+    {
       "guest": "Separately please. A link for each person.",
       "must": [
         "one Staff-priced deposit per person",
@@ -38,5 +44,11 @@
     "pay_together": false,
     "payment_links_per_person": true,
     "booking_saved": true
-  }
+  },
+  "contact": "Nuria",
+  "occupants": [
+    "Nuria",
+    "Hugo",
+    "Alba"
+  ]
 }
