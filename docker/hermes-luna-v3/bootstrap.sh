@@ -19,7 +19,7 @@ install -m 0600 /etc/hermes-luna-v3/plugins/luna_v3_staff_api/plugin.yaml "$HERM
 
 cat > "$HERMES_HOME/config.yaml" <<'YAML'
 model:
-  default: gpt-5.5
+  default: gpt-6.1-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
