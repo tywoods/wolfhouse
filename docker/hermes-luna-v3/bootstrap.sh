@@ -45,6 +45,14 @@ gateway:
 YAML
 chmod 0600 "$HERMES_HOME/config.yaml"
 
+# cont-init runs as root, while the supervised gateway drops to the home owner.
+# Keep the generated files private but readable by that runtime account.
+runtime_owner="$(stat -c '%u:%g' "$HERMES_HOME")"
+chown -R "$runtime_owner" \
+  "$HERMES_HOME/SOUL.md" \
+  "$HERMES_HOME/config.yaml" \
+  "$HERMES_HOME/plugins/luna_v3_staff_api"
+
 # Resolve the generated config through Hermes' authentic environment override
 # path, then fail closed unless API server is the only enabled platform.
 python /etc/hermes-luna-v3/bootstrap.py --validate-platforms
