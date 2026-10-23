@@ -3,39 +3,85 @@
 const assert = require('node:assert/strict');
 const api = require('./index');
 
-function memory(seed = {}) {
-  const tables = structuredClone(seed);
+const rooms = [
+  { room_id: 'r10', room_code: 'R10', room_name: 'Room 10', room_type: 'shared', selling_mode: 'shared', capacity: 2, fill_priority: 1, room_sort_order: 1, gender_strategy: 'mixed', bed_id: 'b10a', bed_code: 'R10-B1', bed_label: '1', bed_number: 1, bed_active: true, bed_sellable: true },
+  { room_id: 'r10', room_code: 'R10', room_name: 'Room 10', room_type: 'shared', selling_mode: 'shared', capacity: 2, fill_priority: 1, room_sort_order: 1, gender_strategy: 'mixed', bed_id: 'b10b', bed_code: 'R10-B2', bed_label: '2', bed_number: 2, bed_active: true, bed_sellable: true },
+  { room_id: 'r7', room_code: 'R7', room_name: 'Room 7', room_type: 'shared', selling_mode: 'shared', capacity: 1, fill_priority: 2, room_sort_order: 2, gender_strategy: 'mixed', bed_id: 'b7a', bed_code: 'R7-B1', bed_label: '1', bed_number: 1, bed_active: true, bed_sellable: true },
+];
+const seasons = [{ id: 's1', code: 'summer', label: 'Summer', priority: 1, bookable: true, active: true, sort_order: 1, ranges: [{ start_month: 1, start_day: 1, end_month: 12, end_day: 31 }], source: 'db' }];
+const items = [
+  { id: 'i1', item_type: 'package', item_code: 'malibu', label: 'Malibu', metadata: { includes: ['stay', 'surf'], min_days: 7 }, active: true, sort_order: 1, source: 'db' },
+  { id: 'i2', item_type: 'policy', item_code: 'package_min_nights', label: 'Minimum nights', metadata: { minimum_nights: 7 }, active: true, sort_order: 2, source: 'db' },
+];
+const rules = [
+  { id: 'p1', item_type: 'package', item_code: 'malibu', season_code: 'summer', unit: 'per_person_per_week', amount_cents: 50000, currency: 'EUR', active: true, source: 'db' },
+  { id: 'd1', item_type: 'deposit', item_code: 'standard_package', season_code: null, unit: 'per_person', amount_cents: 10000, currency: 'EUR', active: true, source: 'db' },
+  { id: 'd2', item_type: 'deposit', item_code: 'custom_or_short_stay', season_code: null, unit: 'per_person', amount_cents: 5000, currency: 'EUR', active: true, source: 'db' },
+];
+
+function staffPg({ blocks = [], pricingDown = false } = {}) {
+  const observations = [];
   return {
-    async read(table, filter) { return (tables[table] || []).filter((row) => !filter || Object.entries(filter).every(([k, v]) => row[k] === v)).map((row) => structuredClone(row)); },
-    async write(table, row) { tables[table] ||= []; const saved = { id: row.id || `${table}-${tables[table].length + 1}`, ...structuredClone(row) }; tables[table].push(saved); return structuredClone(saved); },
-    async update(table, id, patch) { const row = (tables[table] || []).find((item) => item.id === id); if (!row) return null; Object.assign(row, structuredClone(patch)); return structuredClone(row); },
-    tables,
+    observations,
+    async query(sql, params) {
+      observations.push({ sql, params });
+      if (/FROM rooms r/.test(sql)) return { rows: rooms };
+      if (/FROM booking_beds bb/.test(sql)) return { rows: blocks };
+      if (/FROM wh_pricing_seasons s/.test(sql)) {
+        if (pricingDown) throw new Error('pricing unavailable');
+        return { rows: seasons };
+      }
+      if (/FROM wh_pricing_rules/.test(sql)) return { rows: rules };
+      if (/FROM wh_pricing_items/.test(sql)) return { rows: items };
+      if (/FROM wh_pricing_transfer_rules/.test(sql)) return { rows: [] };
+      throw new Error(`unexpected Staff query: ${sql.slice(0, 80)}`);
+    },
   };
 }
 
 async function main() {
-  const names = ['checkAvailability', 'findRooms', 'getPricingCatalog', 'quote', 'holdBeds', 'book', 'getBooking', 'recoverOperation', 'releaseHold', 'handoffToHuman'];
-  names.forEach((name) => assert.equal(typeof api[name], 'function', name));
+  const context = { tenantId: 'wolfhouse-somo', authenticated: true };
+  assert.deepEqual(Object.keys(api).sort(), ['checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote'].sort());
 
-  const pg = memory({
-    beds: [{ id: 'a', roomId: 'r10', available: true }, { id: 'b', roomId: 'r10', available: true }],
-    rooms: [{ id: 'r10', beds: ['a', 'b'] }], pricing: [{ totalCents: 20000, depositCents: 8000, source: 'staff_pricing' }],
-    catalog: [{ id: 'surf', totalCents: 20000 }], sessions: [{ id: 'luna-v3:s1', tenant_id: 'wolfhouse-somo', guest: 'A' }],
-    authority: [{ totalCents: 20000, depositCents: 8000 }], holds: [], bookings: [], operations: [], handoffs: [], sends: [],
-  });
-  assert.equal((await api.checkAvailability(pg, {})).availableCount, 2);
-  assert.deepEqual((await api.findRooms(pg, {})).roomIds, ['r10']);
-  assert.equal((await api.quote(pg, {})).totalCents, 20000);
-  await assert.rejects(() => api.quote(pg, { selection: { totalCents: 1 } }), /authority/);
+  const pg = staffPg({ blocks: [{ bed_code: 'R7-B1' }] });
+  const available = await api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }, context);
+  assert.equal(available.availableCount, 2);
+  assert.deepEqual(available.bedIds, ['R10-B1', 'R10-B2']);
+  assert.equal(available.activeHoldInclusion, 'PENDING_DURABLE_HOLD_SCHEMA');
+  assert(pg.observations.some((row) => /booking_beds/.test(row.sql)), 'uses Staff booking blocks query');
 
-  const held = await api.holdBeds(pg, { requestedBeds: ['a', 'b'], assignments: [{ bedId: 'a' }, { bedId: 'b' }], operation_key: 'hold-1', session_id: 'luna-v3:s1' });
-  assert.equal(held.held, true); assert.equal(pg.tables.holds.length, 1);
-  assert.deepEqual(await api.holdBeds(pg, { requestedBeds: ['a', 'b'], assignments: [{ bedId: 'a' }, { bedId: 'b' }], operation_key: 'hold-1', session_id: 'luna-v3:s1' }), held);
-  const booked = await api.book(pg, { holdId: held.holdId, operation_key: 'book-1', session_id: 'luna-v3:s1' });
-  assert.equal(booked.status, 'confirmed'); assert.equal(booked.paymentStatus, 'unpaid'); assert.equal(pg.tables.bookings.length, 1);
-  assert.equal((await api.getBooking(pg, { session_id: 'luna-v3:s1' })).bookingId, booked.bookingId);
-  const handoff = await api.handoffToHuman(pg, { reason: 'help', operation_key: 'human-1', session_id: 'luna-v3:s1' });
-  assert.equal(handoff.sent, false); assert.equal(handoff.staffAlertAllowed, false); assert.equal(pg.tables.sends.length, 0);
-  console.log('V3 phase-1 operation proofs passed (10 cards)');
+  const found = await api.findRooms(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2, preferences: { keep_together: true } }, context);
+  assert.deepEqual(found.roomIds, ['R10']);
+  assert.equal(found.selectedRoomId, null);
+  assert.deepEqual(found.selectedBedIds, []);
+
+  const catalog = await api.getPricingCatalog(pg, { check_in: '2027-07-01', check_out: '2027-07-08', package_ids: ['malibu'] }, context);
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.source, 'staff_pricing');
+  assert.equal(catalog.items[0].metadata.includes[1], 'surf');
+  assert.equal(catalog.rules.find((row) => row.item_code === 'malibu').amount_cents, 50000);
+
+  const unavailable = await api.getPricingCatalog(staffPg({ pricingDown: true }), { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.deepEqual(unavailable, { ok: false, status: 503, code: 'STAFF_PRICING_UNAVAILABLE' });
+
+  await assert.rejects(() => api.quote(pg, {
+    check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
+    selection: { selected_bed_codes: ['R10-B1', 'R10-B2'], totalCents: 1 }, guest_packages: [], add_ons: [],
+  }, context), /authority field|unknown field/);
+  await assert.rejects(() => api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2, surprise: true }, context), /unknown field/);
+  await assert.rejects(() => api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }), /trusted Wolfhouse context/);
+
+  const quoted = await api.quote(staffPg(), {
+    check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
+    selection: { selected_bed_codes: ['R10-B1', 'R10-B2'], room_type: 'shared', keep_together: true },
+    package_id: 'malibu', guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'malibu' }], add_ons: [],
+  }, context);
+  assert.equal(quoted.ok, true, JSON.stringify(quoted));
+  assert.equal(quoted.source, 'staff_pricing');
+  assert(Number.isSafeInteger(quoted.totalCents) && quoted.totalCents > 0);
+  assert(Number.isSafeInteger(quoted.depositCents) && quoted.depositCents > 0);
+  assert(Number.isSafeInteger(quoted.remainingCents));
+  console.log('cards 1-4 Staff service observations passed');
 }
+
 main().catch((error) => { console.error(error.stack || error); process.exit(1); });

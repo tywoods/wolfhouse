@@ -30,17 +30,20 @@ async function main() {
       staff_alert_allowed: false,
     },
     operations: {
-      quote: async (input) => {
-        seen.push(input);
+      quote: async (input, context) => {
+        seen.push({ input, context });
         return { ok: true, source: 'staff_pricing', total_cents: 12345 };
       },
     },
   });
   assert.strictEqual(response.status, 200);
   assert.strictEqual(response.body.source, 'staff_pricing');
-  assert.strictEqual(seen[0].tenant_id, 'wolfhouse-somo');
-  assert.strictEqual(seen[0].external_send_allowed, false);
-  assert.strictEqual(seen[0].staff_alert_allowed, false);
+  assert.strictEqual(seen[0].context.tenantId, 'wolfhouse-somo');
+  assert.strictEqual(seen[0].context.authenticated, true);
+  assert.strictEqual(seen[0].input.tenant_id, undefined);
+  assert.strictEqual(seen[0].input.session_id, undefined);
+  assert.strictEqual(seen[0].input.external_send_allowed, undefined);
+  assert.strictEqual(seen[0].input.staff_alert_allowed, undefined);
 
   const wrongTenant = await dispatchLunaV3StaffRoute({
     pathname: '/staff/bot/luna-v3/quote', method: 'POST', clientSlug: 'sunset', body: {}, operations: {},

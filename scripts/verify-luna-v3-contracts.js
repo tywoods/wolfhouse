@@ -1199,7 +1199,12 @@ async function evaluateExport(id, todo, fn, input, seed, judge) {
   const harness = createObservationDb(seed);
   let result;
   try {
-    result = await fn(harness.pg, input);
+    result = await fn(harness.pg, input, {
+      tenantId: 'wolfhouse-somo',
+      sessionId: 'luna-v3:contract-observer',
+      destination: 'france-test',
+      authenticated: true,
+    });
   } catch (err) {
     return { id, status: 'fail', todo, reason: err && err.message ? err.message : String(err) };
   }

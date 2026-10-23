@@ -27,24 +27,51 @@ const FORBIDDEN_INPUTS = new Set([
   'send_whatsapp', 'send_sms', 'send_email',
 ]);
 
+const READ_SCHEMAS = Object.freeze({
+  check_availability: new Set(['check_in', 'check_out', 'party_size', 'room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
+  find_rooms: new Set(['check_in', 'check_out', 'party_size', 'preferences']),
+  get_pricing_catalog: new Set(['check_in', 'check_out', 'package_ids', 'service_ids']),
+  quote: new Set(['check_in', 'check_out', 'guests', 'selection', 'guest_packages', 'package_id', 'add_ons']),
+});
+const NESTED_SCHEMAS = Object.freeze({
+  guests: new Set(['name', 'explicit_gender']),
+  preferences: new Set(['room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
+  selection: new Set(['room_id', 'bed_ids', 'selected_bed_codes', 'room_type', 'room_preference', 'keep_together']),
+  guest_packages: new Set(['guest_number', 'package_code']),
+  add_ons: new Set(['code', 'days', 'quantity']),
+});
+
+function assertKnownObject(value, allowed, path) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} must be an object`);
+  for (const [key, item] of Object.entries(value)) {
+    if (FORBIDDEN_INPUTS.has(key)) throw new Error(`model-supplied authority field is forbidden: ${path}.${key}`);
+    if (!allowed.has(key)) throw new Error(`unknown field: ${path}.${key}`);
+    const nested = NESTED_SCHEMAS[key];
+    if (nested) {
+      const rows = Array.isArray(item) ? item : [item];
+      rows.forEach((row, index) => assertKnownObject(row, nested, `${path}.${key}${Array.isArray(item) ? `[${index}]` : ''}`));
+    }
+  }
+}
+
 function assertSafeToolRequest(name, input = {}) {
   const contract = TOOL_CONTRACTS[name];
   if (!contract) throw new Error(`unknown Luna v3 tool: ${name}`);
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('tool arguments must be an object');
-  const visit = (value, path = 'input') => {
-    if (Array.isArray(value)) return value.forEach((item, index) => visit(item, `${path}[${index}]`));
-    if (!value || typeof value !== 'object') return;
-    for (const [key, item] of Object.entries(value)) {
-      if (FORBIDDEN_INPUTS.has(key)) {
-        throw new Error(`model-supplied authority field is forbidden: ${path}.${key}`);
+  const schema = READ_SCHEMAS[name];
+  if (schema) assertKnownObject(input, schema, 'input');
+  else {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('tool arguments must be an object');
+    const visit = (value, path = 'input') => {
+      if (Array.isArray(value)) return value.forEach((item, index) => visit(item, `${path}[${index}]`));
+      if (!value || typeof value !== 'object') return;
+      for (const [key, item] of Object.entries(value)) {
+        if (FORBIDDEN_INPUTS.has(key)) throw new Error(`model-supplied authority field is forbidden: ${path}.${key}`);
+        visit(item, `${path}.${key}`);
       }
-      visit(item, `${path}.${key}`);
-    }
-  };
-  visit(input);
-  if (contract.write && !String(input.operation_key || '').trim()) {
-    throw new Error(`operation_key is required for ${name}`);
+    };
+    visit(input);
   }
+  if (contract.write && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
   return contract;
 }
 

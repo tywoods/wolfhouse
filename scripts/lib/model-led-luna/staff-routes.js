@@ -47,12 +47,11 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   delete modelInput.external_send_allowed;
   delete modelInput.staff_alert_allowed;
   assertSafeToolRequest(tool, modelInput);
-  const result = await operation({
-    ...modelInput,
-    tenant_id: 'wolfhouse-somo',
-    session_id: input.session_id,
-    external_send_allowed: false,
-    staff_alert_allowed: false,
+  const result = await operation(modelInput, {
+    tenantId: clientSlug,
+    // Authentication/principal binding happened before this dispatcher. Model
+    // fields are never copied into this trusted context.
+    authenticated: true,
   });
   return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
 }
