@@ -7,12 +7,12 @@
   "party_size": 1,
   "dates": {
     "check_in": "2027-06-04",
-    "check_out": "2027-06-08",
+    "check_out": "2027-06-11",
     "stock_pricing_confirmed": false
   },
   "turns": [
     {
-      "guest": "Hi, one person, mixed dorm plus the surf package, 4 to 8 June 2027. What is the deposit?",
+      "guest": "Hi, one person, mixed dorm plus the surf package, 4 to 11 June 2027. What is the deposit?",
       "must": [
         "deposit 200 euros per person with a package from Staff Pricing",
         "not 100 euros"

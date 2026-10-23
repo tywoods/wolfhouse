@@ -12,11 +12,9 @@
   },
   "turns": [
     {
-      "guest": "Hi, one mixed dorm bed 4 to 8 June 2027. Quote and book me please.",
+      "guest": "Hi, one mixed dorm bed 4 to 8 June 2027. Can I get a quote please?",
       "must": [
-        "Staff quote",
-        "save unpaid booking",
-        "unpaid shows as confirmed"
+        "Staff quote"
       ]
     },
     {
@@ -33,9 +31,15 @@
       ]
     },
     {
-      "guest": "Please cancel that unpaid booking.",
+      "guest": "Before I cancel, confirm Staff shows it unpaid with no payment taken.",
       "must": [
         "Staff shows unpaid",
+        "no payment"
+      ]
+    },
+    {
+      "guest": "Please cancel that unpaid booking.",
+      "must": [
         "Luna cancels it herself",
         "no handoff"
       ]
