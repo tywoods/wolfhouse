@@ -12,6 +12,7 @@ COPY startup.py /etc/hermes-luna-v3/startup.py
 COPY bootstrap.sh /etc/hermes-luna-v3/bootstrap.sh
 COPY bootstrap.sh /etc/cont-init.d/99-luna-v3-bootstrap
 COPY runtime /etc/hermes-luna-v3/runtime
+COPY compose.example.yml /etc/hermes-luna-v3/compose.example.yml
 COPY install_simulator_route.py /etc/hermes-luna-v3/install_simulator_route.py
 COPY tests /etc/hermes-luna-v3/tests
 
