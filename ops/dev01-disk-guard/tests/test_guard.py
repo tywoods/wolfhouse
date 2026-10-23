@@ -124,6 +124,50 @@ class GuardTests(unittest.TestCase):
    c.execute(plan,apply=True,cfg=cfg)
   self.assertTrue(candidate.exists())
   self.assertTrue((candidate/'active').exists())
+ def test_cleanup_preserves_claim_when_env_appears_after_claim_checks(self):
+  c=load('cleanup'); now=1_700_000_000
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/late-env')
+  cfg=c.Config(self.root,now,'nomatch',set(),{})
+  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
+  def add_env_after_checks(path,root,targets):
+   nonlocal calls
+   result=original(path,root,targets); calls+=1
+   if calls==2:
+    claimed=next(candidate.parent.glob('.dev01-delete-*'))
+    secret=claimed/'.env'; secret.write_text('late secret'); os.utime(secret,(1_600_000_000,1_600_000_000))
+   return result
+  with patch.object(c,'is_in_use',side_effect=add_env_after_checks):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists()); self.assertTrue((candidate/'.env').exists())
+ def test_cleanup_preserves_claim_when_it_becomes_in_use_after_claim_checks(self):
+  c=load('cleanup'); now=1_700_000_000; proc=Path(self.t.name)/'proc'
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/late-in-use')
+  active=candidate/'active'; active.write_text('x'); os.utime(active,(1_600_000_000,1_600_000_000)); os.utime(candidate,(1_600_000_000,1_600_000_000))
+  cfg=c.Config(self.root,now,'nomatch',set(),{},proc_root=proc)
+  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
+  def mark_in_use_after_checks(path,root,targets):
+   nonlocal calls
+   result=original(path,root,targets); calls+=1
+   if calls==2:
+    claimed=next(candidate.parent.glob('.dev01-delete-*'))
+    fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(candidate/'active')
+   return result
+  with patch.object(c,'is_in_use',side_effect=mark_in_use_after_checks):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists()); self.assertTrue((candidate/'active').exists())
+ def test_cleanup_preserves_claim_when_parent_moves_after_claim_checks(self):
+  c=load('cleanup'); now=1_700_000_000
+  workspace=self.root/'bots/hermes-orchestrator/workspace'; candidate=self.old(workspace/'late-move')
+  moved=Path(self.t.name)/'moved-workspace'; cfg=c.Config(self.root,now,'nomatch',set(),{})
+  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
+  def move_parent_after_checks(path,root,targets):
+   nonlocal calls
+   result=original(path,root,targets); calls+=1
+   if calls==2: workspace.rename(moved)
+   return result
+  with patch.object(c,'is_in_use',side_effect=move_parent_after_checks):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue((moved/'late-move').exists())
  def test_config_generators(self):
   d=load('daemon_config'); src={'features':{'containerd-snapshotter':True},'log-opts':{'labels':'x'}}
   out=d.merge_config(src); self.assertTrue(out['features']['containerd-snapshotter']); self.assertEqual(out['log-driver'],'json-file'); self.assertEqual(out['log-opts']['max-size'],'20m'); self.assertEqual(out['log-opts']['max-file'],'3'); self.assertEqual(out['log-opts']['labels'],'x')

@@ -12,10 +12,11 @@ class Decision:
  def as_dict(self): return {'path':str(self.path),'action':self.action,'reason':self.reason}
 
 def run(cmd): return subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-def proc_targets(proc_root=Path('/proc')):
- out=set()
+def proc_targets(proc_root=Path('/proc'),ignore_links=()):
+ out=set(); ignored={Path(p) for p in ignore_links}
  for proc in proc_root.glob('[0-9]*'):
   for link in [proc/'cwd',*list((proc/'fd').glob('*'))]:
+   if link in ignored:continue
    try: out.add(os.readlink(link).split(' (deleted)')[0])
    except OSError: pass
  return out
@@ -138,6 +139,22 @@ def within_allowed_root(path,root):
   return path.resolve(strict=True).is_relative_to(root.resolve(strict=True))
  except (OSError,ValueError):return False
 
+def _claimed_target_safe(claimed_fd,parent_fd,claimed,path,root,cfg):
+ """Bind deletion authority to the opened claim and recheck its live location/state."""
+ if cfg is None:return False
+ try:
+  opened=os.fstat(claimed_fd); named=os.stat(claimed,dir_fd=parent_fd,follow_symlinks=False)
+  if (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino):return False
+  live=Path(os.readlink(f'/proc/self/fd/{claimed_fd}').split(' (deleted)')[0])
+  if not live.is_relative_to(root.resolve(strict=True)):return False
+  own_link=cfg.proc_root/str(os.getpid())/'fd'/str(claimed_fd)
+  targets=proc_targets(cfg.proc_root,{own_link})
+  return not (protected(path,cfg.protect_regex)
+              or protected_descendant(live,cfg.protect_regex)
+              or is_in_use(path,cfg.root,targets)
+              or is_in_use(live,cfg.root,targets))
+ except (OSError,ValueError):return False
+
 def secure_delete(path,root,cfg=None):
  fds=[]; claimed=None; parent_fd=None; name=None
  try:
@@ -151,17 +168,14 @@ def secure_delete(path,root,cfg=None):
   if stat.S_ISLNK(mode):return False
   claimed=f'.dev01-delete-{os.getpid()}-{time.time_ns()}'
   os.rename(name,claimed,src_dir_fd=fd,dst_dir_fd=fd)
-  claimed_path=path.with_name(claimed)
-  if cfg is not None:
-   targets=proc_targets(cfg.proc_root)
-   unsafe=(not within_allowed_root(claimed_path,root)
-           or protected(path,cfg.protect_regex)
-           or protected_descendant(claimed_path,cfg.protect_regex)
-           or is_in_use(path,cfg.root,targets)
-           or is_in_use(claimed_path,cfg.root,targets))
-   if unsafe:
-    os.rename(claimed,name,src_dir_fd=fd,dst_dir_fd=fd); claimed=None
-    return False
+  claimed_flags=os.O_RDONLY|os.O_NOFOLLOW
+  if stat.S_ISDIR(mode):claimed_flags|=os.O_DIRECTORY
+  claimed_fd=os.open(claimed,claimed_flags,dir_fd=fd); fds.append(claimed_fd)
+  # Require two stable descriptor-bound snapshots; any late veto restores the claim.
+  if (not _claimed_target_safe(claimed_fd,parent_fd,claimed,path,root,cfg)
+      or not _claimed_target_safe(claimed_fd,parent_fd,claimed,path,root,cfg)):
+   os.rename(claimed,name,src_dir_fd=fd,dst_dir_fd=fd); claimed=None
+   return False
   if stat.S_ISDIR(mode):shutil.rmtree(claimed,dir_fd=fd)
   else:os.unlink(claimed,dir_fd=fd)
   claimed=None
