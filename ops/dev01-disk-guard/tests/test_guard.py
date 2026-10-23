@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util, json, os, subprocess, tempfile, unittest
 from pathlib import Path
+from unittest.mock import patch
 HERE=Path(__file__).resolve().parents[1]
 def load(name):
  s=importlib.util.spec_from_file_location(name,HERE/f"{name}.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
@@ -34,7 +35,7 @@ class GuardTests(unittest.TestCase):
   self.assertEqual(paths['bots/hermes-orchestrator/workspace/in-use'].action,'skip')
   self.assertEqual(sum(v.action=='delete' for k,v in paths.items() if '/releases/' in k),2)
   c.execute(plan,apply=False); self.assertTrue(eligible.exists())
-  c.execute(plan,apply=True); self.assertFalse(eligible.exists())
+  c.execute(plan,apply=True,cfg=cfg); self.assertFalse(eligible.exists())
  def test_host_in_use_and_container_mapping(self):
   c=load('cleanup'); root=self.root
   cand=root/'bots/hermes-captain/artifacts/review-pr1-x'; self.old(cand)
@@ -55,6 +56,45 @@ class GuardTests(unittest.TestCase):
   ok,reason=c.git_safe(broken); self.assertFalse(ok)
   nested=self.old(self.root/'bots/hermes-captain/artifacts/DEPOSIT-FROM-ADMIN-PRICING-001'); (nested/'.git').mkdir()
   self.assertFalse(c.git_safe(nested)[0])
+ def test_cleanup_refuses_symlinked_parent_escape(self):
+  c=load('cleanup'); outside=Path(self.t.name)/'outside'; victim=self.old(outside/'victim')
+  allowed=self.root/'bots/hermes-orchestrator/workspace'; allowed.mkdir(parents=True)
+  (allowed/'escape').symlink_to(outside,target_is_directory=True)
+  plan=[c.Decision(allowed/'escape/victim','delete','non-git',allowed_root=self.root)]
+  c.execute(plan,apply=True)
+  self.assertTrue(victim.exists())
+ def test_cleanup_refuses_parent_symlink_swap_after_validation(self):
+  c=load('cleanup'); now=1_700_000_000
+  workspace=self.root/'bots/hermes-orchestrator/workspace'; candidate=self.old(workspace/'swap-target')
+  outside=Path(self.t.name)/'outside'; outside_target=self.old(outside/'swap-target')
+  cfg=c.Config(self.root,now,'nomatch',set(),{})
+  plan=c.build_plan(cfg); original=c.within_allowed_root; calls=0
+  def swap_after_validation(path,root):
+   nonlocal calls
+   result=original(path,root); calls+=1
+   if calls==2:
+    workspace.rename(workspace.with_name('workspace-original'))
+    workspace.symlink_to(outside,target_is_directory=True)
+   return result
+  with patch.object(c,'within_allowed_root',side_effect=swap_after_validation):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(outside_target.exists())
+ def test_cleanup_revalidates_target_before_delete(self):
+  c=load('cleanup'); now=1_700_000_000
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/stale-plan')
+  cfg=c.Config(self.root,now,'nomatch',set(),{})
+  plan=c.build_plan(cfg)
+  self.assertEqual(next(x for x in plan if x.path==candidate).action,'delete')
+  secret=candidate/'.env'; secret.write_text('added after planning'); os.utime(secret,(1_600_000_000,1_600_000_000)); os.utime(candidate,(1_600_000_000,1_600_000_000))
+  c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists())
+ def test_cleanup_refreshes_in_use_targets_before_delete(self):
+  c=load('cleanup'); now=1_700_000_000; proc=Path(self.t.name)/'proc'
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/newly-in-use'); active=candidate/'active'; active.write_text('x'); os.utime(active,(1_600_000_000,1_600_000_000)); os.utime(candidate,(1_600_000_000,1_600_000_000))
+  cfg=c.Config(self.root,now,'nomatch',set(),{},proc_root=proc)
+  plan=c.build_plan(cfg); fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(active)
+  c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists())
  def test_config_generators(self):
   d=load('daemon_config'); src={'features':{'containerd-snapshotter':True},'log-opts':{'labels':'x'}}
   out=d.merge_config(src); self.assertTrue(out['features']['containerd-snapshotter']); self.assertEqual(out['log-driver'],'json-file'); self.assertEqual(out['log-opts']['max-size'],'20m'); self.assertEqual(out['log-opts']['max-file'],'3'); self.assertEqual(out['log-opts']['labels'],'x')
@@ -64,5 +104,11 @@ class GuardTests(unittest.TestCase):
   state=Path(self.t.name)/'state'; sent=[]
   a.maybe_send('yellow','msg',state,lambda m:sent.append(m)); a.maybe_send('yellow','msg2',state,lambda m:sent.append(m)); a.maybe_send('red','msg3',state,lambda m:sent.append(m)); self.assertEqual(sent,['msg','msg3'])
   text=(HERE/'disk_alert.py').read_text(); self.assertNotIn('Bot ',text); self.assertIn('DISCORD_BOT_TOKEN_FILE',text); self.assertIn('1537017482748100678',text)
+ def test_print_only_does_not_acknowledge_alert_severity(self):
+  a=load('disk_alert'); state=Path(self.t.name)/'print-only-state'; printed=[]; sent=[]
+  a.maybe_send('yellow','preview',state,printed.append,record_state=False)
+  self.assertFalse(state.exists())
+  a.maybe_send('yellow','live',state,sent.append)
+  self.assertEqual(printed,['preview']); self.assertEqual(sent,['live'])
 
 if __name__=='__main__': unittest.main(verbosity=2)

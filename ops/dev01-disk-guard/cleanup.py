@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Fail-closed /data scratch cleaner. Default mode only prints a plan."""
-import argparse, json, os, re, shutil, subprocess, time
+import argparse, json, os, re, shutil, stat, subprocess, time
 from pathlib import Path
 
 DENY_PARTS={'state.db','sessions','memories','auth','SOUL.md','SOUL','config'}
 class Config:
- def __init__(self,root,now=None,protect_regex='',in_use=None,pr_states=None):
-  self.root=Path(root); self.now=time.time() if now is None else now; self.protect_regex=protect_regex; self.in_use=set(in_use or ()); self.pr_states=dict(pr_states or {})
+ def __init__(self,root,now=None,protect_regex='',in_use=None,pr_states=None,proc_root=Path('/proc')):
+  self.root=Path(root); self.now=time.time() if now is None else now; self.protect_regex=protect_regex; self.in_use=set(in_use or ()); self.pr_states=dict(pr_states or {}); self.proc_root=Path(proc_root)
 class Decision:
- def __init__(self,path,action,reason): self.path=Path(path); self.action=action; self.reason=reason
+ def __init__(self,path,action,reason,allowed_root=None,days=None): self.path=Path(path); self.action=action; self.reason=reason; self.allowed_root=Path(allowed_root) if allowed_root is not None else None; self.days=days
  def as_dict(self): return {'path':str(self.path),'action':self.action,'reason':self.reason}
 
 def run(cmd): return subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -125,15 +125,51 @@ def build_plan(cfg):
    else:
     ok,reason=git_safe(path)
     if ok:action='delete'
-  out.append(Decision(path,action,reason))
+  out.append(Decision(path,action,reason,cfg.root,days))
  return out
 
-def execute(plan,apply=False):
+def within_allowed_root(path,root):
+ try:
+  root=Path(root).absolute(); path=Path(path).absolute(); rel=path.relative_to(root)
+  current=root
+  for part in rel.parts[:-1]:
+   current=current/part
+   if current.is_symlink():return False
+  return path.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+ except (OSError,ValueError):return False
+
+def secure_delete(path,root):
+ fds=[]
+ try:
+  root=Path(root).absolute(); path=Path(path).absolute(); rel=path.relative_to(root)
+  if not rel.parts:return False
+  flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW
+  fd=os.open(root,flags); fds.append(fd)
+  for part in rel.parts[:-1]:
+   fd=os.open(part,flags,dir_fd=fd); fds.append(fd)
+  name=rel.parts[-1]; mode=os.stat(name,dir_fd=fd,follow_symlinks=False).st_mode
+  if stat.S_ISLNK(mode):return False
+  if stat.S_ISDIR(mode):shutil.rmtree(name,dir_fd=fd)
+  else:os.unlink(name,dir_fd=fd)
+  return True
+ except (OSError,ValueError):return False
+ finally:
+  for fd in reversed(fds):os.close(fd)
+
+def execute(plan,apply=False,cfg=None):
  for d in plan:
-  print(json.dumps(d.as_dict(),sort_keys=True))
+  if apply and d.action=='delete' and (d.allowed_root is None or not within_allowed_root(d.path,d.allowed_root)):
+   d=Decision(d.path,'skip','outside-allowed-root',d.allowed_root,d.days)
+  elif apply and d.action=='delete':
+   current=Config(cfg.root,cfg.now,cfg.protect_regex,proc_targets(cfg.proc_root),cfg.pr_states,cfg.proc_root) if cfg is not None else None
+   fresh=next((x for x in build_plan(current) if x.path==d.path),None) if current is not None else None
+   if fresh is None:d=Decision(d.path,'skip','revalidation-unavailable',d.allowed_root,d.days)
+   else:d=fresh
+   if d.action=='delete' and not within_allowed_root(d.path,d.allowed_root):
+    d=Decision(d.path,'skip','outside-allowed-root',d.allowed_root,d.days)
   if apply and d.action=='delete':
-   if d.path.is_dir() and not d.path.is_symlink():shutil.rmtree(d.path)
-   else:d.path.unlink(missing_ok=True)
+   if not secure_delete(d.path,d.allowed_root):d=Decision(d.path,'skip','unsafe-delete-target',d.allowed_root,d.days)
+  print(json.dumps(d.as_dict(),sort_keys=True))
 
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('--root',default='/data'); ap.add_argument('--apply',action='store_true'); ap.add_argument('--protect-file',default=str(Path(__file__).with_name('protect.txt'))); ap.add_argument('--pr-states-json'); ap.add_argument('--proc-root',default='/proc'); a=ap.parse_args()
@@ -144,6 +180,6 @@ def main():
  except OSError: raise SystemExit('protect file unreadable; fail closed')
  states={}
  if a.pr_states_json: states=json.loads(Path(a.pr_states_json).read_text())
- cfg=Config(root,protect_regex=regex,in_use=proc_targets(Path(a.proc_root)),pr_states=states)
- execute(build_plan(cfg),a.apply)
+ cfg=Config(root,protect_regex=regex,in_use=proc_targets(Path(a.proc_root)),pr_states=states,proc_root=Path(a.proc_root))
+ execute(build_plan(cfg),a.apply,cfg)
 if __name__=='__main__':main()
