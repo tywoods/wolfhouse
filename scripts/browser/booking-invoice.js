@@ -5,11 +5,8 @@ function bcInvoiceBookingFullyPaid(data){
   return Number.isSafeInteger(fin.invoiceTotal) && fin.invoiceTotal > 0 && Number.isSafeInteger(fin.paidCents) && fin.paidCents >= fin.invoiceTotal;
 }
 function bcInvoiceDepositRowHtml(bk, paidCents, invoiceTotal){
-  var ruled = bcWolfhouseStayDepositCents(bk);
-  var keepHistorical = bk.metadata && bk.metadata.quote_snapshot && bk.metadata.quote_snapshot.per_guest_dates === true;
-  var stored = bk.deposit_required_cents;
-  var storedTypeValid = typeof stored === 'number' || (typeof stored === 'string' && stored.trim() !== '');
-  var required = ruled != null || keepHistorical ? ruled : (storedTypeValid ? Number(stored) : null);
+  // The helper owns history/fallbacks too; unknown per-guest caps stay unknown.
+  var required = bcWolfhouseStayDepositCents(bk);
   var known = Number.isSafeInteger(required) && required >= 0 && Number.isSafeInteger(invoiceTotal) && invoiceTotal >= 0;
   // Use the current invoice ceiling for both amount and state; never reprice history.
   required = known ? Math.min(required, invoiceTotal) : null;
@@ -112,22 +109,63 @@ function bcWolfhouseStayDepositCents(bk){
     var stored = Number(value);
     return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
   }
-  var nights = (typeof bcStayNightsFromCheckInOut === 'function')
-    ? bcStayNightsFromCheckInOut(bk.check_in, bk.check_out) : 0;
+  // Display projection of wolfhouseBookingDepositCents; emitted-UI parity tests
+  // cover package aliases, current Pricing, person-bound caps and paid state.
+  function packageIdentity(code){
+    var key = String(code || '').trim().toLowerCase();
+    return ['','no_package','package_none','accommodation_only','accommodation-only','custom','manual_override'].indexOf(key) >= 0 ? 'package_none' : key;
+  }
+  var start = String(bk.check_in || '').slice(0,10), end = String(bk.check_out || '').slice(0,10);
+  var nights = Math.round((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000);
+  // Retain the existing nights-only display interface; full booking rows use dates.
   if (!(nights > 0) && bk.nights != null) nights = Number(bk.nights);
-  var guests = parseInt(bk.guest_count, 10);
-  if (!(nights > 0) || !(guests > 0)) return null;
-  var rates = bk.stay_deposit_rates || null;
-  var longRate = 20000;
-  var shortRate = 10000;
-  if (rates && Number.isSafeInteger(Number(rates.long_stay_cents)) && Number(rates.long_stay_cents) >= 0) {
-    longRate = Number(rates.long_stay_cents);
+  var guests = Number(bk.guest_count), rates = bk.stay_deposit_rates;
+  function configuredRate(key, fallback){
+    var value = rates && Number(rates[key]);
+    return rates && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
   }
-  if (rates && Number.isSafeInteger(Number(rates.short_stay_cents)) && Number(rates.short_stay_cents) >= 0) {
-    shortRate = Number(rates.short_stay_cents);
+  function rateFor(code){
+    if (!Number.isInteger(nights) || nights < 1) return null;
+    return packageIdentity(code) === 'package_none'
+      ? configuredRate('short_stay_cents', 10000) : configuredRate('long_stay_cents', 20000);
   }
-  var total = (nights >= 6 ? longRate : shortRate) * guests;
-  return Number.isSafeInteger(total) ? total : null;
+  var metadata = bk.metadata || {};
+  var guestPackages = [bk.guest_packages, metadata.guest_packages, snapshot && snapshot.guest_packages].find(function(rows){ return Array.isArray(rows) && rows.length > 0; });
+  var packageCode = bk.package_code || metadata.package_code || (snapshot && snapshot.package_code);
+  var shares = snapshot && snapshot.per_person;
+  if (guestPackages || shares != null) {
+    if (shares != null && (!Array.isArray(shares) || shares.length !== guests)) return null;
+    var rows = guestPackages || shares.map(function(person){ return { guest_number: person && person.guest_number, package_code: packageCode }; });
+    if (rows.length !== guests) return null;
+    var seen = new Set();
+    var amounts = rows.map(function(row){
+      if (!row || typeof row.package_code !== 'string' || !row.package_code.trim()) return null;
+      var rate = rateFor(row.package_code);
+      if (rate == null || shares == null) return rate;
+      var number = row.guest_number;
+      if (!Number.isInteger(number) || number < 1 || number > rows.length || seen.has(number)) return null;
+      seen.add(number);
+      var matches = shares.filter(function(person){ return person && person.guest_number === number; });
+      if (matches.length !== 1) return null;
+      var person = matches[0];
+      if (packageIdentity(person.package_code) !== packageIdentity(row.package_code)
+        || !Number.isSafeInteger(person.subtotal_cents) || person.subtotal_cents < 0) return null;
+      return Math.min(rate, person.subtotal_cents);
+    });
+    if (amounts.some(function(amount){ return amount == null; })) return null;
+    var total = amounts.reduce(function(sum, amount){ return sum + amount; }, 0);
+    return Number.isSafeInteger(total) ? total : null;
+  }
+  var rate = rateFor(packageCode);
+  if (rate != null && Number.isInteger(guests) && guests > 0) {
+    var total = rate * guests;
+    if (Number.isSafeInteger(total)) return total;
+  }
+  var value = bk.deposit_required_cents;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  var stored = Number(value);
+  return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
 }
 function bcInvoiceActionsHtml(bk){
   return '<div class="bc-invoice-actions" id="bc-invoice-actions">' +
