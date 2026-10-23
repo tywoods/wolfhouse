@@ -139,16 +139,58 @@ async function findRooms(pg, input = {}, context) {
 
 async function loadStrictPricing(pg) {
   try {
-    const [seasons, rules, items, transfers] = await Promise.all([
-      pricingStore.loadSeasons(pg, TENANT), pricingStore.loadRules(pg, TENANT),
-      pricingStore.loadItems(pg, TENANT), pricingStore.loadTransferRules(pg, TENANT),
-    ]);
+    const seasons = await pricingStore.loadSeasons(pg, TENANT);
+    const rules = await pricingStore.loadRules(pg, TENANT);
+    const items = await pricingStore.loadItems(pg, TENANT);
+    const transfers=[];
     if (!seasons.length || !rules.length || !items.length) throw new Error('empty authoritative Pricing');
     return { seasons, rules, items, transfers };
   } catch (cause) {
     const error = new Error('authoritative Staff Pricing is unavailable');
     error.code = 'STAFF_PRICING_UNAVAILABLE'; error.cause = cause; throw error;
   }
+}
+
+// V3 may use bundled structure and labels, but never bundled money. Rebuild all
+// calculator money-bearing branches exclusively from active Staff Pricing rows.
+async function loadV3DbOnlyQuoteConfig(pg) {
+  const data = await loadStrictPricing(pg);
+  const base = await loadBookingQuoteConfigWithOverlay(pg);
+  const config = JSON.parse(JSON.stringify(base));
+  config.packages = [];
+  config.add_ons = {};
+  config.room_supplements = {};
+  config.deposits = { tiers: {} };
+  const byItem = new Map(data.items.map((item) => [`${item.item_type}:${item.item_code}`, item]));
+  for (const item of data.items.filter((row) => row.item_type === 'package')) {
+    const meta = item.metadata || {};
+    config.packages.push({ code: item.item_code, name: item.label,
+      min_days: Number(meta.min_days) || 7, allow_daily_proration: meta.allow_daily_proration !== false,
+      seasonal_prices: {} });
+  }
+  for (const rule of data.rules) {
+    const cents = Number(rule.amount_cents);
+    if (!Number.isSafeInteger(cents) || cents < 0) throw Object.assign(new Error('invalid authoritative Pricing row'), { code: 'STAFF_PRICING_UNAVAILABLE' });
+    if (rule.item_type === 'package') {
+      const pkg = config.packages.find((row) => row.code === rule.item_code);
+      if (pkg && rule.season_code) pkg.seasonal_prices[rule.season_code] = { weekly_per_person_cents: cents };
+    } else if (rule.item_type === 'deposit') {
+      config.deposits.tiers[rule.item_code] = { amount_cents: cents, scope: rule.unit === 'per_person' ? 'per_person' : 'per_booking' };
+      if (rule.item_code === 'standard_package') config.deposits.scope = rule.unit === 'per_person' ? 'per_person' : 'per_booking';
+    } else if (rule.item_type === 'supplement') {
+      config.room_supplements[rule.item_code] = rule.unit === 'per_person_per_night'
+        ? { per_person_per_night_cents: cents } : { per_room_per_night_cents: cents };
+    } else if (rule.item_type === 'service') {
+      const item = byItem.get(`service:${rule.item_code}`);
+      config.add_ons[rule.item_code] = { code: rule.item_code, name: item && item.label,
+        pricing_unit: rule.unit, price_cents: cents,
+        ...(rule.unit === 'per_lesson' ? { price_cents_each: cents } : {}) };
+    } else if (rule.item_type === 'rental') {
+      const code = rule.item_code.split('__')[0];
+      config.add_ons[code] = { code, price_cents: cents, pricing_unit: rule.unit };
+    }
+  }
+  return config;
 }
 
 function catalogRevision(data) {
@@ -194,7 +236,7 @@ async function quote(pg, input = {}, context) {
     return { ok: false, status: 409, code: 'selected_beds_unavailable' };
   }
   let config;
-  try { config = await loadBookingQuoteConfigWithOverlay(pg); }
+  try { config = await loadV3DbOnlyQuoteConfig(pg); }
   catch (error) { return { ok: false, status: 503, code: error.code || 'STAFF_PRICING_UNAVAILABLE' }; }
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
@@ -220,7 +262,7 @@ async function quote(pg, input = {}, context) {
     ok: true, source: 'staff_pricing', quoteRevision: offer.offer_revision.offer_fingerprint,
     selectionRevision: current.provenance.availability_fingerprint, expiresAt: null,
     totalCents: quoteResult.total_cents, depositCents: quoteResult.deposit_required_cents,
-    remainingCents: quoteResult.balance_due_cents, currency: quoteResult.currency,
+    remainingCents: quoteResult.total_cents - quoteResult.deposit_required_cents, currency: quoteResult.currency,
     lineItems: quoteResult.line_items, perPerson: quoteResult.per_guest_deposits || [],
     eligibilityFacts: { packageEligible: quoteResult.package_eligible, blockers: quoteResult.blockers || [] },
   };
@@ -233,15 +275,16 @@ async function quote(pg, input = {}, context) {
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
     ON CONFLICT(client_id,session_id,quote_revision) DO NOTHING`, [session.client_id, session.id,
     receipt.quoteRevision, input.check_in, input.check_out, JSON.stringify(input.guests), JSON.stringify(assignments),
-    JSON.stringify({ ...receipt, phone: context.guestPhone || null, quoteInput: input,
+    JSON.stringify({ ...receipt, phone: context.guestPhone || null, addOns: input.add_ons || [], quoteInput: input,
       packageCode: input.package_id || null, roomType: input.selection.room_type || 'shared',
       keepTogether: input.selection.keep_together === true })]);
   return { ...receipt, quotedSelection: receipt.quoteRevision };
 }
 
-function createOperations(withPgClient) {
+function createOperations(withPgClient, authorities = {}) {
   return Object.freeze(Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
-    (input, context) => withPgClient((client) => module.exports[name](client, input, context)),
+    (input, context) => withPgClient((client) => module.exports[name](client, input,
+      { ...context, staffAuthorities: authorities })),
   ])));
 }
 

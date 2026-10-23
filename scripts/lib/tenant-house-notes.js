@@ -29,13 +29,24 @@ async function ensureHouseNotesTable(client) {
 }
 
 async function getHouseNotes(client, { clientSlug }) {
-  await ensureHouseNotesTable(client);
-  const res = await client.query(
-    `SELECT notes, updated_at FROM ${TABLE} WHERE client_slug = $1`,
-    [clientSlug],
-  );
-  const row = res.rows[0];
-  return { ok: true, notes: row ? row.notes : '', updated_at: row ? row.updated_at : null };
+  // Strict read: schema ownership belongs to migration 030/deployment.  A read
+  // must never acquire DDL locks or make a missing authority look like an empty
+  // owner document.
+  try {
+    const res = await client.query(
+      `SELECT notes, updated_at FROM ${TABLE} WHERE client_slug = $1`,
+      [clientSlug],
+    );
+    const row = res.rows[0];
+    return row
+      ? { ok: true, found: true, notes: row.notes, updated_at: row.updated_at }
+      : { ok: true, found: false, notes: null, updated_at: null };
+  } catch (err) {
+    if (err && err.code === '42P01') {
+      return { ok: false, found: false, unavailable: true, reason: 'tenant_house_notes_source_missing', notes: null, updated_at: null };
+    }
+    throw err;
+  }
 }
 
 async function setHouseNotes(client, { clientSlug, notes, actor }) {

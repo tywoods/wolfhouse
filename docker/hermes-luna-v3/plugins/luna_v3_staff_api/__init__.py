@@ -123,9 +123,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 return {"ok": False, "code": "malformed_staff_response"}
             return body
     except urllib.error.HTTPError as exc:
-        return {"ok": False, "status": exc.code, "code": "staff_tool_rejected", "outcome_unknown": exc.code >= 500}
+        return {"ok": False, "status": exc.code, "recoveryStatus": "unknown" if exc.code >= 500 else "rejected", "outcome": "unknown" if exc.code >= 500 else "rejected", "code": "staff_tool_rejected"}
     except (urllib.error.URLError, TimeoutError):
-        return {"ok": False, "status": 503, "code": "staff_tool_unreachable", "outcome_unknown": True}
+        return {"ok": False, "status": 503, "recoveryStatus": "unknown", "outcome": "unknown", "code": "staff_tool_unreachable"}
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.
@@ -140,7 +140,7 @@ _TOOL_FIELDS = {
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
-    "get_booking": ("booking_id", "phone"),
+    "get_booking": ("booking_id",),
     "get_payment_status": ("booking_id",),
     "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
@@ -157,7 +157,7 @@ _TOOL_REQUIRED = {
     "find_rooms": ("check_in", "check_out", "party_size"),
     "get_pricing_catalog": ("check_in", "check_out"),
     "quote": ("operation_key", "check_in", "check_out", "guests", "selection"),
-    "hold_beds": ("assignments", "check_in", "check_out", "guests", "operation_key"),
+    "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
@@ -175,9 +175,11 @@ _TOOL_REQUIRED = {
 def _field_schema(field: str) -> dict[str, Any]:
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
-    if field in {"guests", "assignments", "guest_packages", "add_ons", "package_ids", "service_ids"}:
+    if field in {"package_ids", "service_ids"}:
+        return {"type": "array", "items": {"type": "string", "minLength": 1}}
+    if field in {"guests", "assignments", "guest_packages", "add_ons"}:
         return {"type": "array", "items": {"type": "object"}}
-    if field in {"preferences", "selection", "quoted_selection", "travel_details"}:
+    if field in {"preferences", "selection", "travel_details"}:
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 

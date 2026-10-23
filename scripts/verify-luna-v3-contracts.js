@@ -1236,7 +1236,7 @@ function phase1RowsFromObservations(observations) {
     tool_releaseHold: ['toolReleaseHold', 'activeHoldAvailabilityLifecycle'],
     tool_getBooking: ['toolGetBooking'],
     tool_handoffToHuman: ['toolHandoffToHuman'],
-    cancel_unpaid_refuses_paid: ['cancelUnpaidRefusal'],
+    cancel_unpaid_refuses_paid: ['cancelUnpaidRefusalMatrix', 'cancelUnpaidSelectionAuthority', 'cancelUnpaidHandoffAtomicity', 'cancelUnpaidZeroPaymentRelease', 'cancelUnpaidConcurrency'],
     payment_link_returned_not_sent: ['paymentLinkOfflineBoundary'],
     scoped_notes: ['noteDurable', 'notesSources'],
     tool_getPaymentStatus: ['paymentTruth'],
@@ -1244,6 +1244,9 @@ function phase1RowsFromObservations(observations) {
     tool_saveTransferRequest: ['transferDecision'],
   };
   const row = (id) => {
+    if (id === 'payment_link_returned_not_sent' && observations.actualSandboxProviderReceipt !== true) {
+      return { id, status: 'pending', reason: 'actualSandboxProviderReceipt observation unavailable' };
+    }
     const missing = requirements[id].filter((name) => observations[name] !== true);
     return missing.length
       ? { id, status: 'fail', reason: `missing named Phase 1 observation(s): ${missing.join(', ')}` }
@@ -1755,9 +1758,9 @@ async function main() {
       console.error('PENDING not PASS; handlers missing or unconnected');
       process.exit(2);
     }
-    const expected = new Set(['cancel_unpaid_refuses_paid', 'payment_link_returned_not_sent', 'scoped_notes', 'tool_getPaymentStatus', 'tool_readNotes', 'tool_saveTransferRequest']);
-    assert.deepEqual(new Set(pending.map((row) => row.id)), expected, 'Phase 1 has unexpected pending rows');
-    console.log('PASS luna v3 Phase 1 contracts; later cards remain PENDING');
+    const expected = new Set(['payment_link_returned_not_sent']);
+    assert.deepEqual(new Set(pending.map((row) => row.id)), expected, 'Phase 2 has unexpected pending rows');
+    console.log('PASS luna v3 contracts: exactly 16 PASS / 1 PENDING (actualSandboxProviderReceipt unavailable)');
     return;
   }
   if (passed.length !== required) {

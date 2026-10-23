@@ -1625,7 +1625,25 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Durable session-scoped Luna v3 notes, verified test-checkout receipts, and unscheduled transfer requests.",
-      "sha256": "3dd928b37a612c2f73ce5a4794c2b38e6e8ea6b72dfeacc3e2ec3efe5e10cd26"
+      "sha256": "05e11b557758f1cfa9b928e8a691545cc10fa161c65decc52a0c19f7262ec289"
+    },
+    {
+      "id": "116_luna_v3_session_phone_and_hold_invariant",
+      "filename": "116_luna_v3_session_phone_and_hold_invariant.sql",
+      "order": 107,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Server-owned bounded Luna v3 guest phone and final locked exact-bed eligibility invariant.",
+      "sha256": "d1e3cc96c4bb9fbe9f2d07e17e7bca2c048c42978538fb0642718ff399b6658c"
+    },
+    {
+      "id": "117_cancel_unpaid_payment_race_guard",
+      "filename": "117_cancel_unpaid_payment_race_guard.sql",
+      "order": 108,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
+      "sha256": "73690cfdad1cb26b4eb4ec9167fa2550e1d9e494dc9f2391905f77342ec58117"
     }
   ]
 }

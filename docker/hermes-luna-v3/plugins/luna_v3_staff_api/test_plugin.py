@@ -49,9 +49,17 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual(set(plugin.TOOL_NAMES), {tool["name"] for tool in ctx.tools})
         self.assertEqual({"luna_v3_staff_api"}, {tool["toolset"] for tool in ctx.tools})
         for tool in ctx.tools:
-            self.assertFalse(tool["schema"]["parameters"].get("additionalProperties", True))
+            params = tool["schema"]["parameters"]
+            self.assertFalse(params.get("additionalProperties", True))
             if tool["name"] in plugin.WRITE_TOOLS:
-                self.assertIn("operation_key", tool["schema"]["parameters"]["required"])
+                self.assertIn("operation_key", params["required"])
+        by_name = {tool["name"]: tool["schema"]["parameters"] for tool in ctx.tools}
+        self.assertIn("quoted_selection", by_name["hold_beds"]["required"])
+        self.assertEqual({"type": "string", "minLength": 1}, by_name["hold_beds"]["properties"]["quoted_selection"])
+        for field in ("package_ids", "service_ids"):
+            self.assertEqual("array", by_name["get_pricing_catalog"]["properties"][field]["type"])
+            self.assertEqual("string", by_name["get_pricing_catalog"]["properties"][field]["items"]["type"])
+        self.assertNotIn("phone", by_name["get_booking"]["properties"])
 
     def test_authentic_hermes_scanner_discovers_native_manifest(self):
         sys.path.insert(0, "/opt/hermes")

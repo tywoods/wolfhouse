@@ -211,7 +211,26 @@ const {
   dispatchLunaV3StaffRoute,
 } = require('./lib/model-led-luna/staff-routes');
 const { createOperations: createLunaV3StaffOperations } = require('./lib/model-led-luna');
-const LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient);
+// Bind real Staff/provider authorities in the registry. They are deliberately
+// absent from model input and resolved only when the operation executes.
+const LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, {
+  async createGuestCheckout(args) {
+    if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SECRET_KEY.startsWith('sk_test_')
+        || !stripeCheckoutRedirectUrlsConfigured()) {
+      const err = new Error('test_provider_unavailable'); err.code = 'test_provider_unavailable'; throw err;
+    }
+    return require('./lib/per-guest-checkout').run({
+      ...args, withPgClient, stripe: require('stripe')(STRIPE_SECRET_KEY), clientSlug: 'wolfhouse-somo',
+      actorId: args.principalId, successUrl: stripeCheckoutSessionSuccessUrl(), cancelUrl: stripeCheckoutSessionCancelUrl(),
+    });
+  },
+  async readGuestCheckout(checkoutId) {
+    if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SECRET_KEY.startsWith('sk_test_')) {
+      const err = new Error('test_provider_unavailable'); err.code = 'test_provider_unavailable'; throw err;
+    }
+    return require('stripe')(STRIPE_SECRET_KEY).checkout.sessions.retrieve(checkoutId);
+  },
+});
 const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
@@ -55633,10 +55652,10 @@ async function router(req, res) {
         authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true' },
         resolveSession: async ({ selector, principalId: requestedPrincipal }) => withPgClient(async (pg) => {
           if (!selector || !requestedPrincipal) return null;
-          const r = await pg.query(`SELECT s.session_key, s.write_admitted FROM luna_v3_sessions s
+          const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone FROM luna_v3_sessions s
             JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`,
           [effectiveClientSlug, selector, requestedPrincipal]);
-          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true } : null;
+          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true, guestPhone: r.rows[0].guest_phone } : null;
         }),
       });
       return sendJSON(res, result.status, result.body);

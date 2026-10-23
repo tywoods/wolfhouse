@@ -52,16 +52,23 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   delete modelInput.session_id;
   delete modelInput.external_send_allowed;
   delete modelInput.staff_alert_allowed;
-  assertSafeToolRequest(tool, modelInput);
-  const result = await operation(modelInput, {
-    tenantId: clientSlug,
-    authenticated: true,
-    sessionId: boundSession.sessionId,
-    principalId: authenticatedPrincipal.principalId,
-    writeAllowed: authenticatedPrincipal.writeAllowed === true && boundSession.writeAllowed === true,
-    guestPhone: boundSession.guestPhone || null,
-  });
-  return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
+  try { assertSafeToolRequest(tool, modelInput); }
+  catch (error) { return { status: 400, body: { ok: false, code: 'invalid_tool_request', message: error.message } }; }
+  try {
+    const result = await operation(modelInput, {
+      tenantId: clientSlug,
+      authenticated: true,
+      sessionId: boundSession.sessionId,
+      principalId: authenticatedPrincipal.principalId,
+      writeAllowed: authenticatedPrincipal.writeAllowed === true && boundSession.writeAllowed === true,
+      guestPhone: boundSession.guestPhone || null,
+    });
+    return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
+  } catch (error) {
+    const status = Number.isInteger(error && error.status) ? error.status
+      : Number.isInteger(error && error.httpStatus) ? error.httpStatus : 500;
+    return { status, body: { ok: false, code: error.code || (status === 403 ? 'write_admission_denied' : 'luna_v3_operation_failed') } };
+  }
 }
 
 module.exports = { LUNA_V3_ROUTE_TO_TOOL, dispatchLunaV3StaffRoute };

@@ -88,6 +88,14 @@ function assertSafeToolRequest(name, input = {}) {
     visit(input);
   }
   if (contract.write && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
+  if (name === 'hold_beds' && typeof input.quoted_selection !== 'string') throw new Error('quoted_selection must be a string');
+  if (name === 'get_pricing_catalog') {
+    for (const field of ['package_ids', 'service_ids']) {
+      if (input[field] !== undefined && (!Array.isArray(input[field]) || input[field].some((value) => typeof value !== 'string' || !value.trim()))) {
+        throw new Error(`${field} must be an array of strings`);
+      }
+    }
+  }
   return contract;
 }
 
