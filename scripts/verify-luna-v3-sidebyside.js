@@ -35,7 +35,7 @@ async function main() {
 
   const v3 = runner.resolveTarget('hermes-luna-clone');
   assert.equal(v3.runtime, 'hermes-luna-clone');
-  assert.equal(v3.tenant, 'luna-v3');
+  assert.equal(v3.tenant, 'wolfhouse-clone');
   assert.equal(runner.resolveTarget('v3').runtime, 'hermes-luna-clone');
   assert.equal(runner.resolveTarget('luna-v3').runtime, 'hermes-luna-clone');
 
@@ -182,7 +182,7 @@ async function main() {
   assert.equal(live.executed, true);
   assert.equal(liveCalls.length, live.planned_turns.length);
   assert.equal(liveCalls.every((call) => String(call.url).endsWith('/api/live-simulator/guest-turn')), true);
-  assert.equal(liveCalls.every((call) => call.opts.body.tenant === 'luna-v3'), true);
+  assert.equal(liveCalls.every((call) => call.opts.body.tenant === 'wolfhouse-clone'), true);
   assert.equal(liveCalls.every((call) => call.opts.body.allow_writes === false), true);
   assert.equal(liveCalls.every((call) => call.opts.body.external_send_allowed === false), true);
   assert.equal(liveCalls.every((call) => reservedPhone.test(call.opts.body.from_phone)), true);
