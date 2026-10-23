@@ -1,0 +1,33 @@
+{
+  "id": "november-stay",
+  "title": "November 2027 stay, no doubting the month",
+  "synthetic": true,
+  "phone": "+34699910028",
+  "collision_checked": false,
+  "party_size": 2,
+  "dates": {
+    "check_in": "2027-11-12",
+    "check_out": "2027-11-18",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Two of us, mixed dorm, 12 to 18 November 2027. Quote please.",
+      "must": [
+        "treat November 2027 as given",
+        "Staff quote for those dates"
+      ],
+      "must_not": [
+        "ask if they meant a different year",
+        "doubt November",
+        "move the stay to another month"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "November 2027 is accepted as stated. Quote from Staff. No doubting the month.",
+    "quote_source": "staff_pricing",
+    "must_not_doubt_november": true,
+    "booking_saved": false
+  }
+}
