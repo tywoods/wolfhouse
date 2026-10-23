@@ -63,6 +63,20 @@ gateway:
       # Human ops "Chief of Staff" thread — never auto-wake Skipper.
       ignored_channels:
         - "1537017482748100678"
+approvals:
+  mode: smart
+  timeout: 60
+  cron_mode: deny
+  mcp_reload_confirm: true
+  destructive_slash_confirm: false
+command_allowlist:
+- execute_code
+- shell command via -c/-lc flag
+- script execution via -e/-c flag
+- script execution via heredoc
+- git reset --hard (destroys uncommitted changes)
+- sudo with privilege flag (stdin/askpass/shell/list)
+- git force push (rewrites remote history)
 EOF
   # Force jobs-thread retarget on every boot (replace any prior wake/free/
   # ignored channel ids left in the live volume .env).
@@ -84,7 +98,7 @@ EOF
   fi
 fi
 
-if [ "$HERMES_ROLE" = "sunset-email-luna" ] || [ "$HERMES_ROLE" = "sunset-luna-http" ]; then
+if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
   # Isolated openai-codex credentials. Never symlink or copy-back to the shared
   # WhatsApp/Skipper auth pool — two containers must not mutate the same file.
   :
@@ -101,22 +115,17 @@ elif [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
 fi
 
 if [ "$HERMES_ROLE" = "seadog" ]; then
-  # Seadog is a light Discord chat persona (no guest booking tools). Runs on
-  # openai-codex/gpt-5.5 — the same provider as the orchestrator (Skipper) and the
-  # active_provider in the shared auth store. The Anthropic OAuth subscription path
-  # was tried (to use Claude credits) but Anthropic now rejects Hermes' agent turns
-  # as third-party usage: "Third-party apps now draw from your extra usage... add
-  # more at claude.ai/settings/usage" (HTTP 400), and Hermes auto-suppressed the
-  # anthropic source. The token still works for raw API calls, but not via Hermes.
-  # To move seadog back onto Claude: top up extra usage at claude.ai/settings/usage,
-  # then set provider: anthropic + a claude model here.
+  # Seadog engineering builder. Ty 2026-09-25 evening: gpt-5.6-sol / openai-codex
+  # (Cap plans · Seadog builds · Skipper lands). Was temporarily on grok-4.7 /
+  # xai-oauth while Grok credits lasted; now on sol (Guest Alerts paused). Deckhand stays
+  # on grok until Ty says otherwise.
   #
   # Water-cooler A2A toolset/plugin is included only when explicitly enabled for
   # this container (WATER_COOLER_A2A_ENABLED=true). Default remains no plugins.
   if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.6-terra
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
@@ -133,11 +142,25 @@ gateway:
   platforms:
     discord:
       require_mention: false
+discord:
+  ignored_channels:
+  - '1562313110243512330'
+approvals:
+  mode: smart
+  timeout: 60
+  cron_mode: deny
+  mcp_reload_confirm: true
+  destructive_slash_confirm: false
+command_allowlist:
+- script execution via heredoc
+- script execution via -e/-c flag
+- shell command via -c/-lc flag
+- execute_code
 EOF
   else
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.6-terra
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
@@ -149,6 +172,20 @@ gateway:
   platforms:
     discord:
       require_mention: false
+discord:
+  ignored_channels:
+  - '1562313110243512330'
+approvals:
+  mode: smart
+  timeout: 60
+  cron_mode: deny
+  mcp_reload_confirm: true
+  destructive_slash_confirm: false
+command_allowlist:
+- script execution via heredoc
+- script execution via -e/-c flag
+- shell command via -c/-lc flag
+- execute_code
 EOF
   fi
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
@@ -191,10 +228,37 @@ guest-facing receptionist.
 EOF
   chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
+
+  # Seadog is Discord-only. Image bootstrap write_luna_env overwrites .env with
+  # WhatsApp/Luna keys and omits DISCORD_BOT_TOKEN — which leaves the gateway
+  # deaf. Rewrite a clean Discord .env on every boot from container env.
+  {
+    [ -n "${DISCORD_BOT_TOKEN:-}" ] && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
+    [ -n "${DISCORD_ALLOWED_USERS:-}" ] && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
+    printf 'DISCORD_ALLOW_BOTS=%s\n' "${DISCORD_ALLOW_BOTS:-mentions}"
+    [ -n "${DISCORD_ALLOW_MENTION_REPLIED_USER:-}" ] && printf 'DISCORD_ALLOW_MENTION_REPLIED_USER=%s\n' "$DISCORD_ALLOW_MENTION_REPLIED_USER"
+    [ -n "${DISCORD_HOME_CHANNEL:-}" ] && printf 'DISCORD_HOME_CHANNEL=%s\n' "$DISCORD_HOME_CHANNEL"
+    [ -n "${DISCORD_HOME_CHANNEL_NAME:-}" ] && printf 'DISCORD_HOME_CHANNEL_NAME=%s\n' "$DISCORD_HOME_CHANNEL_NAME"
+    printf 'DISCORD_HOME_CHANNEL_THREAD_ID=1552994607309131888\n'
+    printf 'DISCORD_BOT_WAKE_CHANNELS=1552994607309131888\n'
+    [ -n "${WH_REQUIRE_MENTION:-}" ] && printf 'WH_REQUIRE_MENTION=%s\n' "$WH_REQUIRE_MENTION"
+    [ -n "${API_SERVER_KEY:-}" ] && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
+    printf 'GATEWAY_ALLOW_ALL_USERS=false\n'
+    printf 'API_SERVER_ENABLED=false\n'
+    [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ] && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
+    [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ] && printf 'LUNA_BOT_INTERNAL_TOKEN=%s\n' "$LUNA_BOT_INTERNAL_TOKEN"
+    [ -n "${LUNA_PERSONALITY_STAFF_COOKIE:-}" ] && printf 'LUNA_PERSONALITY_STAFF_COOKIE=%s\n' "$LUNA_PERSONALITY_STAFF_COOKIE"
+    [ -n "${GITHUB_TOKEN:-}" ] && printf 'GITHUB_TOKEN=%s\n' "$GITHUB_TOKEN"
+    [ -n "${_HERMES_FORCE_GITHUB_TOKEN:-}" ] && printf '_HERMES_FORCE_GITHUB_TOKEN=%s\n' "$_HERMES_FORCE_GITHUB_TOKEN"
+    [ -n "${GENERIC_TIMEZONE:-}" ] && printf 'GENERIC_TIMEZONE=%s\n' "$GENERIC_TIMEZONE"
+    printf 'PYTHONPATH=/etc/hermes-staging\n'
+  } > "$HERMES_HOME/.env"
+  chown hermes:hermes "$HERMES_HOME/.env" 2>/dev/null || true
+  chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
-  # Deckhand: isolated Discord engineering worker. xAI grok-4.6 via xai-oauth
+  # Deckhand: isolated Discord engineering worker. xAI grok-4.7 via xai-oauth
   # (shared auth.json) — no Anthropic/OpenAI fallback, no API-key env var.
   # Distinct Discord bot via /etc/hermes-deckhand.env (never reuse Skipper's
   # discord-bot-token).
@@ -203,7 +267,7 @@ if [ "$HERMES_ROLE" = "deckhand" ]; then
   if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: grok-4.6
+  default: grok-4.7
   provider: xai-oauth
 agent:
   reasoning_effort: medium
@@ -226,11 +290,25 @@ gateway:
     discord:
       enabled: true
       require_mention: false
+discord:
+  ignored_channels:
+  - '1562313110243512330'
+approvals:
+  mode: smart
+  timeout: 60
+  cron_mode: deny
+  mcp_reload_confirm: true
+  destructive_slash_confirm: false
+command_allowlist:
+- script execution via -e/-c flag
+- shell command via -c/-lc flag
+- script execution via heredoc
+- execute_code
 EOF
   else
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: grok-4.6
+  default: grok-4.7
   provider: xai-oauth
 agent:
   reasoning_effort: medium
@@ -248,6 +326,20 @@ gateway:
     discord:
       enabled: true
       require_mention: false
+discord:
+  ignored_channels:
+  - '1562313110243512330'
+approvals:
+  mode: smart
+  timeout: 60
+  cron_mode: deny
+  mcp_reload_confirm: true
+  destructive_slash_confirm: false
+command_allowlist:
+- script execution via -e/-c flag
+- shell command via -c/-lc flag
+- script execution via heredoc
+- execute_code
 EOF
   fi
   if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
@@ -275,6 +367,29 @@ EOF
   chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
+
+  # Deckhand Discord .env rewrite — image bootstrap may omit DISCORD_ALLOW_BOTS.
+  # Pin mentions so CoS @mentions are heard after recreate/reboot.
+  {
+    [ -n "${DISCORD_BOT_TOKEN:-}" ] && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
+    [ -n "${DISCORD_ALLOWED_USERS:-}" ] && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
+    printf 'DISCORD_ALLOW_BOTS=%s\n' "${DISCORD_ALLOW_BOTS:-mentions}"
+    [ -n "${DISCORD_ALLOW_MENTION_REPLIED_USER:-}" ] && printf 'DISCORD_ALLOW_MENTION_REPLIED_USER=%s\n' "$DISCORD_ALLOW_MENTION_REPLIED_USER"
+    [ -n "${DISCORD_HOME_CHANNEL:-}" ] && printf 'DISCORD_HOME_CHANNEL=%s\n' "$DISCORD_HOME_CHANNEL"
+    [ -n "${DISCORD_HOME_CHANNEL_NAME:-}" ] && printf 'DISCORD_HOME_CHANNEL_NAME=%s\n' "$DISCORD_HOME_CHANNEL_NAME"
+    [ -n "${DISCORD_HOME_CHANNEL_THREAD_ID:-}" ] && printf 'DISCORD_HOME_CHANNEL_THREAD_ID=%s\n' "$DISCORD_HOME_CHANNEL_THREAD_ID"
+    [ -n "${WH_REQUIRE_MENTION:-}" ] && printf 'WH_REQUIRE_MENTION=%s\n' "$WH_REQUIRE_MENTION"
+    [ -n "${API_SERVER_KEY:-}" ] && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
+    printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
+    printf 'API_SERVER_ENABLED=false\n'
+    [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ] && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
+    [ -n "${GITHUB_TOKEN:-}" ] && printf 'GITHUB_TOKEN=%s\n' "$GITHUB_TOKEN"
+    [ -n "${_HERMES_FORCE_GITHUB_TOKEN:-}" ] && printf '_HERMES_FORCE_GITHUB_TOKEN=%s\n' "$_HERMES_FORCE_GITHUB_TOKEN"
+    [ -n "${GENERIC_TIMEZONE:-}" ] && printf 'GENERIC_TIMEZONE=%s\n' "$GENERIC_TIMEZONE"
+    printf 'PYTHONPATH=/etc/hermes-staging\n'
+  } > "$HERMES_HOME/.env"
+  chown hermes:hermes "$HERMES_HOME/.env" 2>/dev/null || true
+  chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
 fi
 
 # Deterministic outbound alias->mention rewrite (seadog + deckhand only).
@@ -357,7 +472,8 @@ except Exception:
 # first send rather than import a fixed name. Dropping in _handle_message also
 # suppresses the "interrupting current task" preemption for capped messages.
 _WH_MAX_HOPS = 6
-_wh_hops = {}            # channel_id -> consecutive peer-bot answers since human
+_WH_CHIEF_BOT_ID = 1537024312609869834
+_wh_hops = {}            # channel_id -> consecutive plain peer-bot answers
 _wh_hopcap_done = [False]
 
 # Address-aware routing: each agent's Discord role id + bot user id. If a HUMAN
@@ -372,9 +488,9 @@ _WH_ROLE = (_os.environ.get("HERMES_ROLE", "") or "").strip().lower()
 _WH_MINE = _WH_AGENTS.get(_WH_ROLE, set())
 _WH_ALL_AGENTS = set().union(*_WH_AGENTS.values()) if _WH_AGENTS else set()
 # Per-bot policy (env WH_REQUIRE_MENTION): true => answer a human only when
-# explicitly tagged (Sea Dog); false/unset => read everything except messages
-# aimed only at the OTHER agent (Deckhand).
-_WH_REQUIRE_MENTION = (_os.environ.get("WH_REQUIRE_MENTION", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+# explicitly tagged; false/unset => read everything except messages aimed only
+# at the OTHER agent. Ty 2026-09-25: default UNPICKY (false) for Seadog+Deckhand.
+_WH_REQUIRE_MENTION = (_os.environ.get("WH_REQUIRE_MENTION", "false") or "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _wh_should_skip_human(message):
@@ -399,16 +515,27 @@ def _wh_make_hm(_orig):
     async def _hm(self, message, role_authorized=False):
         try:
             _ch = str(getattr(getattr(message, "channel", None), "id", ""))
-            _abot = bool(getattr(getattr(message, "author", None), "bot", False))
+            _author = getattr(message, "author", None)
+            _abot = bool(getattr(_author, "bot", False))
+            _author_id = getattr(_author, "id", None)
             _me = getattr(getattr(self, "_client", None), "user", None)
-            _is_self = _me is not None and message.author == _me
+            _me_id = getattr(_me, "id", None)
+            _is_self = _me is not None and _author == _me
+            _mentions_me = _me_id is not None and any(
+                getattr(_u, "id", None) == _me_id
+                for _u in (getattr(message, "mentions", None) or [])
+            )
             if not _is_self:
                 if not _abot:
                     _wh_hops[_ch] = 0                    # human resets the chain
                     if _wh_should_skip_human(message):
                         return                           # not for me (policy/routing)
+                elif _author_id == _WH_CHIEF_BOT_ID or _mentions_me:
+                    # Chief jobs and explicit bot mentions are operator-directed
+                    # work: reset the chain and never drop them at the hop cap.
+                    _wh_hops[_ch] = 0
                 else:
-                    _n = _wh_hops.get(_ch, 0) + 1        # peer-bot hop cap
+                    _n = _wh_hops.get(_ch, 0) + 1        # plain peer-bot hop cap
                     _wh_hops[_ch] = _n
                     if _n > _WH_MAX_HOPS:
                         return
