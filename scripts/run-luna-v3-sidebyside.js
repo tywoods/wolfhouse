@@ -50,7 +50,7 @@ function resolveTarget(value) {
 }
 
 function parseArgs(argv) {
-  const args = { dryRun: true, live: false, target: 'hermes-luna-clone', outDir: '', liveConfirmed: false };
+  const args = { dryRun: true, live: false, target: 'hermes-luna-clone', outDir: '', liveConfirmed: false, set: 'sidebyside' };
   const list = Array.isArray(argv) ? argv.slice() : [];
   let sawDry = false;
   let sawLive = false;
@@ -63,6 +63,9 @@ function parseArgs(argv) {
       i += 1;
     } else if (token === '--out') {
       args.outDir = list[i + 1];
+      i += 1;
+    } else if (token === '--set') {
+      args.set = list[i + 1];
       i += 1;
     }
   }
@@ -94,18 +97,26 @@ function operatorSessionFrom(opts, env) {
   return '';
 }
 
-function fixtureDir(repoRoot) {
-  return path.join(repoRoot, 'fixtures', 'luna-v3', 'acceptance');
+function fixtureDir(repoRoot, setName) {
+  const set = String(setName || 'sidebyside');
+  if (set === 'acceptance') return path.join(repoRoot, 'fixtures', 'luna-v3', 'acceptance');
+  return path.join(repoRoot, 'scripts', 'fixtures', 'luna-v3-sidebyside');
 }
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function loadFrozenScripts(repoRoot) {
-  const dir = fixtureDir(repoRoot);
-  const manifest = readJson(path.join(dir, 'manifest.json'));
-  const scorecard = readJson(path.join(dir, 'scorecard.json'));
+function loadFrozenScripts(repoRoot, setName) {
+  const dir = fixtureDir(repoRoot, setName);
+  const manifestPath = path.join(dir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error('sidebyside pack missing: ' + dir);
+  }
+  const manifest = readJson(manifestPath);
+  let scorecard = {};
+  const scorePath = path.join(dir, 'scorecard.json');
+  if (fs.existsSync(scorePath)) scorecard = readJson(scorePath);
   const scripts = (manifest.scripts || []).map((name) => {
     const script = readJson(path.join(dir, name));
     script._file = name;
@@ -140,11 +151,33 @@ function collectDateWindows(value, found) {
   }
 }
 
-function assertDialogueMatches2027(text, label) {
+function nightCount(checkIn, checkOut) {
+  const start = Date.parse(String(checkIn) + 'T00:00:00Z');
+  const end = Date.parse(String(checkOut) + 'T00:00:00Z');
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return -1;
+  return Math.round((end - start) / 86400000);
+}
+
+function isoDatesInText(text) {
+  return String(text || '').match(/\b20\d{2}-\d{2}-\d{2}\b/g) || [];
+}
+
+function dateInWindow(iso, checkIn, checkOut) {
+  return iso >= checkIn && iso < checkOut;
+}
+
+function assertDialogueMatches2027(text, label, window) {
   const years = String(text || '').match(/\b(20\d{2})\b/g) || [];
   for (const year of years) {
     if (year !== '2027') {
       throw new Error(label + ' dialogue is not in the 2027 window');
+    }
+  }
+  if (window && window.check_in && window.check_out) {
+    for (const iso of isoDatesInText(text)) {
+      if (!dateInWindow(iso, window.check_in, window.check_out)) {
+        throw new Error(label + ' dialogue date is outside the approved window');
+      }
     }
   }
 }
@@ -168,6 +201,10 @@ function assertScript(script) {
     if (!String(window.check_in).startsWith(YEAR_PREFIX) || !String(window.check_out).startsWith(YEAR_PREFIX)) {
       throw new Error(label + ' is not a proposed 2027 window');
     }
+    const nights = nightCount(window.check_in, window.check_out);
+    if (nights < 1) {
+      throw new Error(label + ' has a reversed or zero-night range');
+    }
   }
   const turns = Array.isArray(script.turns) ? script.turns : [];
   if (!turns.length) throw new Error(label + ' has no turns');
@@ -175,7 +212,7 @@ function assertScript(script) {
     if (typeof turn.guest !== 'string' || turn.guest.trim().length < 8) {
       throw new Error(label + ' is missing guest dialogue');
     }
-    assertDialogueMatches2027(turn.guest, label);
+    assertDialogueMatches2027(turn.guest, label, script.dates);
   }
 }
 
@@ -205,6 +242,25 @@ function noSendEvidence(body) {
   const limitation = body && body.limitation;
   if (!limitation || typeof limitation !== 'object') return false;
   return limitation.whatsapp_sends_enabled === false && limitation.sms_sends_enabled === false;
+}
+
+function inspectNoSend(body) {
+  const limitation = body && body.limitation;
+  if (!limitation || typeof limitation !== 'object') {
+    return { ok: false, code: 'missing_no_send_evidence', error: 'limitation missing' };
+  }
+  const waOff = limitation.whatsapp_sends_enabled === false;
+  const smsOff = limitation.sms_sends_enabled === false;
+  if (!waOff || !smsOff) {
+    return { ok: false, code: 'unsafe_no_send_evidence', error: 'sends not proven off' };
+  }
+  if (body.whatsapp_suppressed === true && limitation.whatsapp_sends_enabled === true) {
+    return { ok: false, code: 'contradictory_no_send_evidence', error: 'root vs nested limitation' };
+  }
+  if (body.external_send_allowed === true) {
+    return { ok: false, code: 'contradictory_no_send_evidence', error: 'external_send_allowed true' };
+  }
+  return { ok: true };
 }
 
 function phoneForRun(scriptPhone, runId, index) {
@@ -237,18 +293,26 @@ function scoreRun({ dryRun, executed, scripts, replies, scorecard }) {
   return Object.assign({}, scorecard, { this_run: thisRun });
 }
 
-function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard }) {
-  const summary = {
-    ok: false,
-    cause,
-    dry_run: dryRun,
-    executed: false,
+function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard, replies, phones, runId, evidence }) {
+  const loaded = { scripts: scripts || [], scorecard: scorecard || {} };
+  const summary = finishRun({
+    dryRun: true,
+    live: false,
     target,
-    scripts: (scripts || []).map((script) => script.id || script._file),
-    planned_turns: planned || [],
-    transcripts: [],
-    scorecard: scorecard || { this_run: { executed: false, observations: { writes: 'blocked', payments: 'blocked' } } },
-  };
+    loaded,
+    planned: planned || [],
+    replies: replies || [],
+    phones: phones || {},
+    runId: runId || 'failed',
+    outDir,
+    evidence: evidence || { tool_calls: [], session_id: null, errors: [] },
+  });
+  summary.ok = false;
+  summary.cause = cause;
+  summary.executed = false;
+  summary.dry_run = dryRun;
+  summary.receipts = replies || [];
+  summary.finished_progress = (replies || []).length;
   if (outDir) {
     const summaryPath = path.join(outDir, 'summary.json');
     writeJson(summaryPath, summary);
@@ -305,7 +369,7 @@ async function runSideBySide(options) {
   }
   const loaded = opts.scripts
     ? { scripts: opts.scripts, scorecard: opts.scorecard || {}, manifest: opts.manifest || {} }
-    : loadFrozenScripts(repoRoot);
+    : loadFrozenScripts(repoRoot, opts.set);
   for (const script of loaded.scripts) assertScript(script);
   const runId = String(opts.runId || Date.now());
   const phones = {};
@@ -317,6 +381,25 @@ async function runSideBySide(options) {
   const stamp = target.id;
   const outDir = opts.outDir || path.join(repoRoot, 'tmp', 'luna-v3-sidebyside', stamp);
   fs.mkdirSync(outDir, { recursive: true });
+
+  for (const script of loaded.scripts) {
+    const pre = script.prerequisites || {};
+    for (const key of Object.keys(pre)) {
+      const item = pre[key];
+      if (item && item.required === true && item.present === false) {
+        return failResult({
+          cause: { code: 'BLOCKED', error: key + ' prerequisite absent' },
+          target,
+          dryRun,
+          planned,
+          scripts: loaded.scripts,
+          outDir,
+          phones,
+          runId,
+        });
+      }
+    }
+  }
 
   if (live) {
     try {
@@ -351,6 +434,10 @@ async function runSideBySide(options) {
           planned,
           scripts: loaded.scripts,
           outDir,
+          replies,
+          phones,
+          runId,
+          evidence,
         });
       }
       const body = posted.body || {};
@@ -360,10 +447,9 @@ async function runSideBySide(options) {
           error: body.error || body.code || 'request_failed',
           code: body.code || (posted.status === 401 ? 'unauthorized' : 'request_failed'),
         };
-        return failResult({ cause, target, dryRun, planned, scripts: loaded.scripts, outDir });
+        return failResult({ cause, target, dryRun, planned, scripts: loaded.scripts, outDir, replies, phones, runId, evidence });
       }
-      if (Array.isArray(body.tool_calls)) evidence.tool_calls.push(...body.tool_calls);
-      if (body.session_id) evidence.session_id = body.session_id;
+      const sendCheck = inspectNoSend(body);
       replies.push({
         script_id: turn.script_id,
         index: turn.index,
@@ -375,6 +461,22 @@ async function runSideBySide(options) {
         tool_calls: body.tool_calls || [],
         limitation: body.limitation || null,
       });
+      if (!sendCheck.ok) {
+        return failResult({
+          cause: { code: sendCheck.code, error: sendCheck.error },
+          target,
+          dryRun,
+          planned,
+          scripts: loaded.scripts,
+          outDir,
+          replies,
+          phones,
+          runId,
+          evidence,
+        });
+      }
+      if (Array.isArray(body.tool_calls)) evidence.tool_calls.push(...body.tool_calls);
+      if (body.session_id) evidence.session_id = body.session_id;
     }
     return finishRun({
       dryRun: false,
@@ -459,32 +561,60 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
 
 async function runPaired(options) {
   const opts = options || {};
+  const repeats = opts.repeats == null ? 3 : Number(opts.repeats);
+  if (opts.blockRepeats === true) {
+    return { ok: false, cause: { code: 'repeats_blocked', error: 'prescribed repeats blocked' }, repeats: 0, runs: [], outcomes: [] };
+  }
   const outDir = opts.outDir || path.join(opts.repoRoot || path.resolve(__dirname, '..'), 'tmp', 'luna-v3-sidebyside', 'pair');
-  const v3 = await runSideBySide(Object.assign({}, opts, {
-    target: 'hermes-luna-clone',
-    runId: String(opts.runId || 'pair') + '-v3',
-    outDir: path.join(outDir, 'v3'),
-    fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna-clone']) || opts.fetchImpl,
-  }));
-  const classic = await runSideBySide(Object.assign({}, opts, {
-    target: 'hermes-luna',
-    runId: String(opts.runId || 'pair') + '-classic',
-    outDir: path.join(outDir, 'classic'),
-    fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna']) || opts.fetchImpl,
-  }));
-  const ids = new Set([].concat(v3.scripts || [], classic.scripts || []));
+  const runs = [];
+  for (let i = 0; i < repeats; i += 1) {
+    const nonce = crypto.randomBytes(8).toString('hex');
+    const runId = String(opts.runId || 'pair') + '-' + String(i) + '-' + nonce;
+    const v3 = await runSideBySide(Object.assign({}, opts, {
+      target: 'hermes-luna-clone',
+      runId: runId + '-v3',
+      outDir: path.join(outDir, 'r' + String(i), 'v3'),
+      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna-clone']) || opts.fetchImpl,
+    }));
+    const classic = await runSideBySide(Object.assign({}, opts, {
+      target: 'hermes-luna',
+      runId: runId + '-classic',
+      outDir: path.join(outDir, 'r' + String(i), 'classic'),
+      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna']) || opts.fetchImpl,
+    }));
+    runs.push({ v3, classic });
+  }
+  const last = runs[runs.length - 1] || { v3: { scripts: [] }, classic: { scripts: [] } };
+  const ids = new Set([].concat(last.v3.scripts || [], last.classic.scripts || []));
   const outcomes = Array.from(ids).map((id) => {
-    const v3File = (v3.transcripts || []).find((row) => row.id === id);
-    const classicFile = (classic.transcripts || []).find((row) => row.id === id);
+    const v3File = (last.v3.transcripts || []).find((row) => row.id === id);
+    const classicFile = (last.classic.transcripts || []).find((row) => row.id === id);
     const v3Turns = v3File ? JSON.parse(fs.readFileSync(v3File.path, 'utf8')).turns : [];
     const classicTurns = classicFile ? JSON.parse(fs.readFileSync(classicFile.path, 'utf8')).turns : [];
+    const count = Math.max(v3Turns.length, classicTurns.length);
+    const turns = [];
+    for (let t = 0; t < count; t += 1) {
+      turns.push({
+        index: t,
+        v3: (v3Turns[t] && v3Turns[t].reply) || '',
+        classic: (classicTurns[t] && classicTurns[t].reply) || '',
+      });
+    }
     return {
       id,
       v3: { reply: (v3Turns.find((turn) => turn.reply) || {}).reply || '' },
       classic: { reply: (classicTurns.find((turn) => turn.reply) || {}).reply || '' },
+      turns,
     };
   });
-  return { ok: v3.ok && classic.ok, v3, classic, outcomes };
+  return {
+    ok: runs.every((row) => row.v3.ok && row.classic.ok),
+    v3: last.v3,
+    classic: last.classic,
+    outcomes,
+    repeats,
+    runs,
+  };
 }
 
 async function main(argv) {
@@ -498,6 +628,7 @@ async function main(argv) {
     dryRun: args.dryRun,
     live: args.live,
     liveConfirmed,
+    set: args.set,
     outDir: args.outDir,
     cookie: operatorSessionFrom({}, process.env),
     fetchImpl: args.live ? globalThis.fetch : undefined,

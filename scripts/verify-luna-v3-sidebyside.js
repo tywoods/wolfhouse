@@ -62,6 +62,7 @@ async function main() {
   const dry = await runner.runSideBySide({
     target: 'hermes-luna-clone',
     dryRun: true,
+    set: 'acceptance',
     outDir: out,
     fetchImpl: forbiddenFetch(),
     repoRoot,
@@ -89,6 +90,7 @@ async function main() {
   const classicDry = await runner.runSideBySide({
     target: 'hermes-luna',
     dryRun: true,
+    set: 'acceptance',
     outDir: classicOut,
     fetchImpl: forbiddenFetch(),
     repoRoot,
@@ -156,6 +158,7 @@ async function main() {
     live: true,
     liveConfirmed: true,
     cookie: 'crowsnest-operator=test',
+    set: 'acceptance',
     outDir: liveOut,
     fetchImpl: async (url, opts) => {
       liveCalls.push({ url, opts: { method: opts.method, headers: opts.headers, body: JSON.parse(opts.body), redirect: opts.redirect } });
@@ -196,6 +199,7 @@ async function main() {
   const defaultArgs = runner.parseArgs([]);
   assert.equal(defaultArgs.dryRun, true);
   assert.equal(defaultArgs.live, false);
+  assert.equal(defaultArgs.set, 'sidebyside');
 
   const mixedLiveFirst = runner.parseArgs(['--live', '--dry-run']);
   assert.equal(mixedLiveFirst.dryRun, true, 'dry must win when --live comes first');
@@ -209,6 +213,7 @@ async function main() {
     dryRun: true,
     live: true,
     liveConfirmed: true,
+    set: 'acceptance',
     cookie: 'crowsnest-operator=test',
     outDir: tmpDir(),
     fetchImpl: async () => {
@@ -286,7 +291,25 @@ async function main() {
     }),
     repoRoot,
   });
-  assert.equal(rootLie.scorecard.this_run.no_real_sends, false, 'root no-send fields must not certify sends');
+  assert.equal(rootLie.ok, false, 'contradictory no-send evidence must stop the run');
+  assert.equal(/no_send|unsafe|contradict/i.test(JSON.stringify(rootLie.cause)), true);
+
+  const missingLim = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, reply_text: 'A 2027 quote.' }),
+    }),
+    repoRoot,
+  });
+  assert.equal(missingLim.ok, false, 'missing limitation must stop the run');
 
   const nestedOk = await runner.runSideBySide({
     target: 'hermes-luna-clone',
@@ -453,6 +476,7 @@ async function main() {
     cookie: 'crowsnest-operator=test',
     scripts: [quoteScript],
     runId: 'pair-1',
+    repeats: 1,
     outDir: tmpDir(),
     fetchImplByTarget: {
       'hermes-luna-clone': mockReply('v3 quoted eighty'),
@@ -463,6 +487,134 @@ async function main() {
   assert.equal(pair.outcomes.length, 1);
   assert.equal(pair.outcomes[0].v3.reply, 'v3 quoted eighty');
   assert.equal(pair.outcomes[0].classic.reply, 'classic quoted ninety');
+  assert.equal(Array.isArray(pair.outcomes[0].turns), true);
+  assert.equal(pair.outcomes[0].turns.length, 1);
+
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'zero-night',
+        phone: quoteScript.phone,
+        dates: { check_in: '2027-11-05', check_out: '2027-11-05', stock_pricing_confirmed: false },
+        turns: [{ guest: 'Hello there, quote 5 November 2027 please.' }],
+      }],
+    }),
+    /zero-night|reversed|night/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'reversed-dates',
+        phone: quoteScript.phone,
+        dates: { check_in: '2027-11-15', check_out: '2027-11-05', stock_pricing_confirmed: false },
+        turns: [{ guest: 'Hello there, quote 5 November 2027 please.' }],
+      }],
+    }),
+    /zero-night|reversed|night/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'dialogue-outside-window',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote 2027-12-01 to 2027-12-05 please, one person.' }],
+      }],
+    }),
+    /window|dialogue/i,
+  );
+
+  const twoTurn = {
+    id: 'two-turn-receipts',
+    phone: quoteScript.phone,
+    dates: quoteScript.dates,
+    turns: [
+      { guest: 'Hi, quote one person 4 to 8 June 2027 please.' },
+      { guest: 'Yes book that stay for 4 to 8 June 2027.' },
+    ],
+  };
+  let n = 0;
+  const laterFail = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [twoTurn],
+    outDir: tmpDir(),
+    fetchImpl: async () => {
+      n += 1;
+      if (n === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'first turn quote',
+            session_id: 'sess-first',
+            limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false, writes_enabled: false, payments_enabled: false },
+          }),
+        };
+      }
+      return { ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }) };
+    },
+    repoRoot,
+  });
+  assert.equal(laterFail.ok, false);
+  assert.equal(laterFail.finished_progress, 1);
+  assert.equal(Array.isArray(laterFail.receipts) && laterFail.receipts.length === 1, true);
+  assert.equal(laterFail.receipts[0].reply, 'first turn quote');
+  assert.equal(laterFail.transcripts.length > 0, true);
+
+  const pairDefault = await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': mockReply('v3 quoted eighty'),
+      'hermes-luna': mockReply('classic quoted ninety'),
+    },
+    repoRoot,
+  });
+  assert.equal(pairDefault.repeats, 3);
+  assert.equal(pairDefault.runs.length, 3);
+  const phones = pairDefault.runs.map((row) => row.v3.memory_key);
+  assert.equal(new Set(phones).size, 3, 'paired repeats reused conversation identity');
+
+  const blockedPaid = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: true,
+    outDir: tmpDir(),
+    fetchImpl: forbiddenFetch(),
+    repoRoot,
+    scripts: [{
+      id: 'paid-cancel-handoff',
+      phone: quoteScript.phone,
+      dates: quoteScript.dates,
+      prerequisites: { paid_booking: { required: true, present: false } },
+      turns: [{ guest: 'I already paid for 4 to 8 June 2027. I need to cancel that booking.' }],
+    }],
+  });
+  assert.equal(blockedPaid.ok, false);
+  assert.equal(blockedPaid.cause && blockedPaid.cause.code, 'BLOCKED');
 
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');
