@@ -1,0 +1,46 @@
+{
+  "id": "guest-01-room10-only",
+  "title": "Ty's couple, Room 10 is the only suitable same room",
+  "parent": "guest-01-couple",
+  "synthetic": true,
+  "phone": "+34699910001",
+  "collision_checked": false,
+  "party_size": 2,
+  "guests": [
+    {"alias": "Alex", "role": "guest"},
+    {"alias": "Sam", "role": "guest"}
+  ],
+  "dates": {
+    "check_in": "2027-11-05",
+    "check_out": "2027-11-15",
+    "stock_pricing_confirmed": false,
+    "source": "Same Ty window as guest-01-couple. This variant changes stock, not the dates."
+  },
+  "together": true,
+  "stock_fixture": {
+    "room_7": "not suitable for both guests for the whole stay",
+    "room_10": "two beds free for every night",
+    "other_rooms": "do not invent a second same-room winner"
+  },
+  "turns": [
+    {
+      "guest": "We still need to be together, same room, 5 to 15 November 2027.",
+      "must": [
+        "offer Room 10's two beds for the whole stay",
+        "not offer Room 7 as if it were free",
+        "not split the couple across rooms"
+      ]
+    },
+    {
+      "guest": "Yes, Room 10.",
+      "must": [
+        "book only the Room 10 beds the tool returned",
+        "keep Alex and Sam mapped to those beds",
+        "use Staff money"
+      ],
+      "must_not": ["substitute Room 7", "split", "model amount"]
+    }
+  ],
+  "pass": "Room 10 only, both guests, whole stay, Staff total",
+  "fail": ["Room 7 booked", "split booking", "substituted bed"]
+}

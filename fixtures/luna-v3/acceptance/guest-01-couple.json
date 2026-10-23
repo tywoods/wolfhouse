@@ -1,0 +1,51 @@
+{
+  "id": "guest-01-couple",
+  "title": "Ty's couple, together",
+  "synthetic": true,
+  "phone": "+34699910001",
+  "collision_checked": false,
+  "party_size": 2,
+  "guests": [
+    {"alias": "Alex", "role": "guest"},
+    {"alias": "Sam", "role": "guest"}
+  ],
+  "dates": {
+    "check_in": "2027-11-05",
+    "check_out": "2027-11-15",
+    "stock_pricing_confirmed": false,
+    "source": "Ty specified this window. Availability and price still come from Staff at run time."
+  },
+  "together": true,
+  "turns": [
+    {
+      "guest": "Hi, there are two of us, Alex and Sam. We want to stay together, same room, from 5 November to 15 November 2027.",
+      "must": [
+        "treat together as an explicit same-room requirement for the whole stay",
+        "call availability and room tools for the full stay",
+        "not place the guests, and not silently split them"
+      ],
+      "must_not": [
+        "book before the guest accepts a same-room option",
+        "hardcode Room 7 or Room 10 as the only winners"
+      ]
+    },
+    {
+      "when_stock": "at least one room has two beds free for every night of the stay",
+      "expected_offer": "both beds in Room 7 or both beds in Room 10, same room, whole stay",
+      "guest": "Yes, book that same-room option.",
+      "must": [
+        "quote the accepted selection with Staff Pricing",
+        "hold every requested bed or none",
+        "save the ordered person-to-bed mapping",
+        "store and show the Staff total, deposit, and remaining amount"
+      ],
+      "must_not": [
+        "substitute a bed or room",
+        "accept a model-invented amount",
+        "create a split booking"
+      ]
+    }
+  ],
+  "pass": "same room for the whole stay, correct person-to-bed mapping, Staff total",
+  "fail": ["split booking", "substituted bed", "model amount", "invented success when no same-room stock exists"]
+}

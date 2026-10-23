@@ -1,0 +1,56 @@
+{
+  "id": "guest-02-solo-package",
+  "title": "Solo package guest",
+  "synthetic": true,
+  "phone": "+34699910002",
+  "collision_checked": false,
+  "party_size": 1,
+  "guests": [
+    {"alias": "Alex", "role": "guest", "gender_stated": false}
+  ],
+  "dates": {
+    "check_in": "2027-06-04",
+    "check_out": "2027-06-08",
+    "stock_pricing_confirmed": false,
+    "source": "Proposed 2027 window only. Not a confirmed stock or Pricing date. Skip must confirm before a live run."
+  },
+  "turns": [
+    {
+      "guest": "Hi, I'm Alex. I want a package for one person, 4 June to 8 June 2027.",
+      "must": [
+        "not infer gender from the name",
+        "default a solo guest to a mixed dorm unless the guest asks otherwise",
+        "show package options from the Staff catalog, including inclusions"
+      ],
+      "must_not": ["ask a gender question with no missing relevant fact", "quote a price from memory"]
+    },
+    {
+      "guest": "The first package, and yes I want the shuttle. I arrive at Bilbao airport at 14:00.",
+      "must": [
+        "ask the shuttle question for a package guest if it was not already answered",
+        "save the actual shuttle choice and the travel details the guest supplied",
+        "price the shuttle from Staff",
+        "offer Staff deposit and full amounts",
+        "render the quote with the euro sign before the amount, drop only a trailing .00, and keep real cents"
+      ],
+      "must_not": [
+        "say the shuttle is confirmed if no transfer record was saved",
+        "send WhatsApp, SMS, or email",
+        "use the phrase check for this booking"
+      ]
+    }
+  ],
+  "quote_style": {
+    "owner_doc": "docs/luna-v3/QUOTE-STYLE.md",
+    "owner_doc_edited_here": false,
+    "checks": [
+      "euro sign before the amount",
+      "omit only .00",
+      "preserve cents",
+      "one person is named naturally, with no name: label",
+      "do not say check for this booking"
+    ]
+  },
+  "pass": "mixed-dorm default, no gender inference, catalog packages, shuttle question, saved choice, Staff deposit and full options",
+  "fail": ["gender inferred from Alex", "memory price", "unsaved shuttle described as confirmed"]
+}
