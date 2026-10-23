@@ -819,6 +819,267 @@ async function main() {
   assert.equal(comparison.repeats, 3);
   assert.equal(comparison.outcomes_by_repeat.length, 3);
 
+  let httpV3 = 0;
+  let httpClassic = 0;
+  const pairHttp = await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': async () => {
+        httpV3 += 1;
+        return { ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }) };
+      },
+      'hermes-luna': async () => {
+        httpClassic += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'classic',
+            limitation: {
+              whatsapp_sends_enabled: false,
+              sms_sends_enabled: false,
+              tenant_whatsapp_suppressed: true,
+            },
+          }),
+        };
+      },
+    },
+    repoRoot,
+  });
+  assert.equal(pairHttp.ok, false);
+  assert.equal(httpV3, 1, 'HTTP-500 must stop the batch');
+  assert.equal(httpClassic, 0, 'HTTP-500 still dispatched the rest of the batch');
+
+  let toV3 = 0;
+  let toClassic = 0;
+  const pairTimeout = await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': async () => {
+        toV3 += 1;
+        throw new Error('tenant simulator timed out');
+      },
+      'hermes-luna': async () => {
+        toClassic += 1;
+        return { ok: true, status: 200, json: async () => ({ ok: true, reply_text: 'classic' }) };
+      },
+    },
+    repoRoot,
+  });
+  assert.equal(pairTimeout.ok, false);
+  assert.equal(toV3, 1, 'first-request timeout must stop the batch');
+  assert.equal(toClassic, 0, 'timeout still dispatched the rest of the batch');
+
+  const extSend = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        reply_text: 'quoted',
+        external_send_allowed: true,
+        limitation: {
+          whatsapp_sends_enabled: false,
+          sms_sends_enabled: false,
+          tenant_whatsapp_suppressed: true,
+        },
+      }),
+    }),
+    repoRoot,
+  });
+  assert.equal(extSend.ok, false);
+  assert.notEqual(extSend.scorecard && extSend.scorecard.this_run && extSend.scorecard.this_run.no_real_sends, true);
+
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'june-31',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote one person 31 June 2027 please.' }],
+      }],
+    }),
+    /calendar|invalid|dialogue/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'june-14-18',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote one person from 14 to 18 June 2027 please.' }],
+      }],
+    }),
+    /window|dialogue|range/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'reversed-dialogue',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote one person from 8 to 4 June 2027 please.' }],
+      }],
+    }),
+    /reversed|window|dialogue|range/i,
+  );
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: true,
+    outDir: tmpDir(),
+    fetchImpl: forbiddenFetch(),
+    repoRoot,
+    scripts: [{
+      id: 'en-dash-ok',
+      phone: quoteScript.phone,
+      dates: quoteScript.dates,
+      turns: [{ guest: 'May I have a quote for 4–8 June?' }],
+    }],
+  });
+
+  function toolsReply(reply, tools) {
+    return async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        reply_text: reply,
+        session_id: 'sess-tools',
+        tool_calls: tools,
+        limitation: {
+          whatsapp_sends_enabled: false,
+          sms_sends_enabled: false,
+          tenant_whatsapp_suppressed: true,
+        },
+      }),
+    });
+  }
+  const twoTurnTools = {
+    id: 'two-turn-tools',
+    phone: quoteScript.phone,
+    dates: quoteScript.dates,
+    turns: [
+      { guest: 'Hi, quote one person 4 to 8 June 2027 please.' },
+      { guest: 'Yes book that stay for 4 to 8 June 2027.' },
+    ],
+  };
+  async function runTools(order) {
+    let i = 0;
+    return runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: false,
+      live: true,
+      liveConfirmed: true,
+      cookie: 'crowsnest-operator=test',
+      scripts: [twoTurnTools],
+      outDir: tmpDir(),
+      fetchImpl: async () => {
+        const tools = order[i] || [];
+        i += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'same reply',
+            session_id: 'sess-tools',
+            tool_calls: tools,
+            limitation: {
+              whatsapp_sends_enabled: false,
+              sms_sends_enabled: false,
+              tenant_whatsapp_suppressed: true,
+            },
+          }),
+        };
+      },
+      repoRoot,
+    });
+  }
+  const toolsA = await runTools([[{ name: 'quote' }], [{ name: 'book' }]]);
+  const toolsB = await runTools([[{ name: 'book' }], [{ name: 'quote' }]]);
+  const turnsA = JSON.parse(fs.readFileSync(toolsA.transcripts[0].path, 'utf8')).turns;
+  const turnsB = JSON.parse(fs.readFileSync(toolsB.transcripts[0].path, 'utf8')).turns;
+  assert.equal(turnsA[0].reply, turnsB[0].reply);
+  assert.notDeepEqual(turnsA.map((turn) => turn.tool_calls), turnsB.map((turn) => turn.tool_calls));
+  assert.notEqual(JSON.stringify(toolsA.scorecard), JSON.stringify(toolsB.scorecard));
+
+  async function pairTools(toolName) {
+    return runner.runPaired({
+      dryRun: false,
+      live: true,
+      liveConfirmed: true,
+      cookie: 'crowsnest-operator=test',
+      scripts: [quoteScript],
+      repeats: 1,
+      outDir: tmpDir(),
+      fetchImplByTarget: {
+        'hermes-luna-clone': toolsReply('same text', [{ name: toolName }]),
+        'hermes-luna': toolsReply('same text', [{ name: 'classic' }]),
+      },
+      repoRoot,
+    });
+  }
+  const cmpA = await pairTools('quote');
+  const cmpB = await pairTools('book');
+  const cmpAjson = fs.readFileSync(cmpA.comparison_path, 'utf8');
+  const cmpBjson = fs.readFileSync(cmpB.comparison_path, 'utf8');
+  assert.notEqual(cmpAjson, cmpBjson, 'tool totals with same reply must change comparison.json');
+
+  const altOrder = [];
+  await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': async () => {
+        altOrder.push('v3');
+        return toolsReply('ok', [{ name: 'quote' }])();
+      },
+      'hermes-luna': async () => {
+        altOrder.push('classic');
+        return toolsReply('ok', [{ name: 'classic' }])();
+      },
+    },
+    repoRoot,
+  });
+  assert.deepEqual(altOrder, ['v3', 'classic', 'classic', 'v3', 'v3', 'classic']);
+
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');
   console.log('sidebyside reserved-phone and 2027 negatives pass');

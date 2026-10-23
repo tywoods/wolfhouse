@@ -180,34 +180,67 @@ function monthNamesInText(text) {
   return found;
 }
 
-function assertDialogueMatches2027(text, label, window) {
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function namedDayRanges(text, yearHint) {
+  const src = String(text || '').replace(/\u2013|\u2014/g, '-');
+  const found = [];
+  const rangeRe = /(\d{1,2})\s*(?:to|-)\s*(\d{1,2})\s+([A-Za-z]+)(?:\s+(20\d{2}))?/gi;
+  let match;
+  while ((match = rangeRe.exec(src))) {
+    const month = MONTH_INDEX[match[3].toLowerCase()];
+    if (!month) continue;
+    found.push({
+      startDay: Number(match[1]),
+      endDay: Number(match[2]),
+      month,
+      year: match[4] ? Number(match[4]) : Number(yearHint),
+    });
+  }
+  const singleRe = /(\d{1,2})\s+([A-Za-z]+)(?:\s+(20\d{2}))?/gi;
+  while ((match = singleRe.exec(src))) {
+    const month = MONTH_INDEX[match[2].toLowerCase()];
+    if (!month) continue;
+    const day = Number(match[1]);
+    const year = match[3] ? Number(match[3]) : Number(yearHint);
+    const already = found.some((range) => range.month === month && range.year === year && day >= range.startDay && day <= range.endDay);
+    if (already) continue;
+    found.push({ startDay: day, endDay: day, month, year });
+  }
+  return found;
+}
+
+function assertDialogueMatches2027(text, label, windows) {
+  const list = (Array.isArray(windows) ? windows : [windows]).filter((window) => window && window.check_in && window.check_out);
   const years = String(text || '').match(/\b(20\d{2})\b/g) || [];
   for (const year of years) {
     if (year !== '2027') {
       throw new Error(label + ' dialogue is not in the 2027 window');
     }
   }
-  if (window && window.check_in && window.check_out) {
-    for (const iso of isoDatesInText(text)) {
-      if (!isRealCalendarDate(iso)) {
-        throw new Error(label + ' dialogue has an invalid calendar date');
-      }
-      if (!dateInWindow(iso, window.check_in, window.check_out)) {
-        throw new Error(label + ' dialogue date is outside the approved window');
-      }
+  if (!list.length) return;
+  for (const iso of isoDatesInText(text)) {
+    if (!isRealCalendarDate(iso)) {
+      throw new Error(label + ' dialogue has an invalid calendar date');
     }
-    const months = monthNamesInText(text);
-    if (months.length) {
-      const startMonth = Number(String(window.check_in).slice(5, 7));
-      const endMonth = Number(String(window.check_out).slice(5, 7));
-      for (const month of months) {
-        const inSpan = startMonth <= endMonth
-          ? month >= startMonth && month <= endMonth
-          : month >= startMonth || month <= endMonth;
-        if (!inSpan) {
-          throw new Error(label + ' dialogue month is outside the approved window');
-        }
-      }
+    if (!list.some((window) => dateInWindow(iso, window.check_in, window.check_out))) {
+      throw new Error(label + ' dialogue date is outside the approved window');
+    }
+  }
+  const yearHint = String(list[0].check_in).slice(0, 4);
+  for (const range of namedDayRanges(text, yearHint)) {
+    if (range.startDay > range.endDay) {
+      throw new Error(label + ' dialogue has a reversed date range');
+    }
+    const startIso = range.year + '-' + pad2(range.month) + '-' + pad2(range.startDay);
+    const endIso = range.year + '-' + pad2(range.month) + '-' + pad2(range.endDay);
+    if (!isRealCalendarDate(startIso) || !isRealCalendarDate(endIso)) {
+      throw new Error(label + ' dialogue has an invalid calendar date');
+    }
+    if (!list.some((window) => dateInWindow(startIso, window.check_in, window.check_out) && dateInWindow(endIso, window.check_in, window.check_out))) {
+      throw new Error(label + ' dialogue date is outside the approved window');
     }
   }
 }
@@ -242,7 +275,7 @@ function assertScript(script) {
     if (typeof turn.guest !== 'string' || turn.guest.trim().length < 8) {
       throw new Error(label + ' is missing guest dialogue');
     }
-    assertDialogueMatches2027(turn.guest, label, script.dates);
+    assertDialogueMatches2027(turn.guest, label, windows);
   }
 }
 
@@ -273,7 +306,8 @@ function noSendEvidence(body) {
   if (!limitation || typeof limitation !== 'object') return false;
   return limitation.whatsapp_sends_enabled === false
     && limitation.sms_sends_enabled === false
-    && limitation.tenant_whatsapp_suppressed === true;
+    && limitation.tenant_whatsapp_suppressed === true
+    && body.external_send_allowed !== true;
 }
 
 function inspectNoSend(body) {
@@ -298,9 +332,9 @@ function inspectNoSend(body) {
   return { ok: true };
 }
 
-function isMissingSafety(cause) {
+function isBatchStop(cause) {
   const code = String((cause && cause.code) || '');
-  return /no_send|tenant_suppression|unsafe_no_send|missing_no_send/i.test(code);
+  return /no_send|tenant_suppression|unsafe_no_send|missing_no_send|request_failed|runtime_timeout|unauthorized|redirect/i.test(code);
 }
 
 function phoneForRun(scriptPhone, runId, index) {
@@ -327,6 +361,7 @@ function scoreRun({ dryRun, executed, scripts, replies, scorecard }) {
         id,
         status: dryRun ? 'pending' : 'recorded',
         replies: scriptReplies.map((row) => row.reply || ''),
+        tool_calls: scriptReplies.map((row) => row.tool_calls || []),
       };
     }),
   };
@@ -577,6 +612,7 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
         row.no_real_sends = reply.no_real_sends === true;
         row.limitation = reply.limitation || null;
         row.status = reply.status || null;
+        row.tool_calls = Array.isArray(reply.tool_calls) ? reply.tool_calls : [];
       }
       return row;
     });
@@ -636,12 +672,20 @@ function alignedOutcomes(v3, classic) {
         index: t,
         v3: (v3Turns[t] && v3Turns[t].reply) || '',
         classic: (classicTurns[t] && classicTurns[t].reply) || '',
+        v3_tools: (v3Turns[t] && v3Turns[t].tool_calls) || [],
+        classic_tools: (classicTurns[t] && classicTurns[t].tool_calls) || [],
       });
     }
     return {
       id,
-      v3: { reply: (v3Turns.find((turn) => turn.reply) || {}).reply || '' },
-      classic: { reply: (classicTurns.find((turn) => turn.reply) || {}).reply || '' },
+      v3: {
+        reply: (v3Turns.find((turn) => turn.reply) || {}).reply || '',
+        tool_calls: v3Turns.flatMap((turn) => turn.tool_calls || []),
+      },
+      classic: {
+        reply: (classicTurns.find((turn) => turn.reply) || {}).reply || '',
+        tool_calls: classicTurns.flatMap((turn) => turn.tool_calls || []),
+      },
       turns,
     };
   });
@@ -659,32 +703,47 @@ async function runPaired(options) {
   for (let i = 0; i < repeats; i += 1) {
     const nonce = crypto.randomBytes(8).toString('hex');
     const runId = String(opts.runId || 'pair') + '-' + String(i) + '-' + nonce;
-    const v3 = await runSideBySide(Object.assign({}, opts, {
-      target: 'hermes-luna-clone',
-      runId: runId + '-v3',
-      outDir: path.join(outDir, 'r' + String(i), 'v3'),
-      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna-clone']) || opts.fetchImpl,
+    const v3First = i % 2 === 0;
+    const runOne = async (targetName, kind) => runSideBySide(Object.assign({}, opts, {
+      target: targetName,
+      runId: runId + '-' + kind,
+      outDir: path.join(outDir, 'r' + String(i), kind),
+      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget[targetName]) || opts.fetchImpl,
     }));
-    if (!v3.ok && isMissingSafety(v3.cause)) {
-      runs.push({ v3, classic: { ok: false, scripts: [], transcripts: [] } });
-      stopped = v3.cause;
-      break;
-    }
-    const classic = await runSideBySide(Object.assign({}, opts, {
-      target: 'hermes-luna',
-      runId: runId + '-classic',
-      outDir: path.join(outDir, 'r' + String(i), 'classic'),
-      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna']) || opts.fetchImpl,
-    }));
-    runs.push({ v3, classic });
-    if (!classic.ok && isMissingSafety(classic.cause)) {
-      stopped = classic.cause;
-      break;
+    let v3;
+    let classic;
+    if (v3First) {
+      v3 = await runOne('hermes-luna-clone', 'v3');
+      if (!v3.ok) {
+        runs.push({ v3, classic: { ok: false, scripts: [], transcripts: [] }, order: ['v3'] });
+        stopped = v3.cause;
+        break;
+      }
+      classic = await runOne('hermes-luna', 'classic');
+      runs.push({ v3, classic, order: ['v3', 'classic'] });
+      if (!classic.ok) {
+        stopped = classic.cause;
+        break;
+      }
+    } else {
+      classic = await runOne('hermes-luna', 'classic');
+      if (!classic.ok) {
+        runs.push({ v3: { ok: false, scripts: [], transcripts: [] }, classic, order: ['classic'] });
+        stopped = classic.cause;
+        break;
+      }
+      v3 = await runOne('hermes-luna-clone', 'v3');
+      runs.push({ v3, classic, order: ['classic', 'v3'] });
+      if (!v3.ok) {
+        stopped = v3.cause;
+        break;
+      }
     }
   }
   const last = runs[runs.length - 1] || { v3: { scripts: [] }, classic: { scripts: [] } };
   const outcomes_by_repeat = runs.map((row, index) => ({
     repeat: index,
+    order: row.order || [],
     outcomes: alignedOutcomes(row.v3, row.classic),
   }));
   const outcomes = alignedOutcomes(last.v3, last.classic);
