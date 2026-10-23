@@ -4,7 +4,8 @@ const TOOL_CONTRACTS = Object.freeze({
   check_availability: { method: 'POST', path: '/staff/bot/luna-v3/check-availability', write: false },
   find_rooms: { method: 'POST', path: '/staff/bot/luna-v3/find-rooms', write: false },
   get_pricing_catalog: { method: 'POST', path: '/staff/bot/luna-v3/pricing-catalog', write: false },
-  quote: { method: 'POST', path: '/staff/bot/luna-v3/quote', write: false },
+  // quote persists the exact agreed selection, so it requires durable write admission.
+  quote: { method: 'POST', path: '/staff/bot/luna-v3/quote', write: true },
   hold_beds: { method: 'POST', path: '/staff/bot/luna-v3/hold-beds', write: true },
   book: { method: 'POST', path: '/staff/bot/luna-v3/book', write: true },
   release_hold: { method: 'POST', path: '/staff/bot/luna-v3/release-hold', write: true },
@@ -31,7 +32,13 @@ const READ_SCHEMAS = Object.freeze({
   check_availability: new Set(['check_in', 'check_out', 'party_size', 'room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   find_rooms: new Set(['check_in', 'check_out', 'party_size', 'preferences']),
   get_pricing_catalog: new Set(['check_in', 'check_out', 'package_ids', 'service_ids']),
-  quote: new Set(['check_in', 'check_out', 'guests', 'selection', 'guest_packages', 'package_id', 'add_ons']),
+  quote: new Set(['operation_key', 'check_in', 'check_out', 'guests', 'selection', 'guest_packages', 'package_id', 'add_ons']),
+  hold_beds: new Set(['operation_key', 'check_in', 'check_out', 'guests', 'assignments', 'quoted_selection']),
+  book: new Set(['operation_key', 'hold_id']),
+  get_booking: new Set(['booking_id']),
+  recover_operation: new Set(['operation_key']),
+  release_hold: new Set(['operation_key', 'hold_id']),
+  handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
 });
 const NESTED_SCHEMAS = Object.freeze({
   guests: new Set(['name', 'explicit_gender']),
@@ -39,6 +46,7 @@ const NESTED_SCHEMAS = Object.freeze({
   selection: new Set(['room_id', 'bed_ids', 'selected_bed_codes', 'room_type', 'room_preference', 'keep_together']),
   guest_packages: new Set(['guest_number', 'package_code']),
   add_ons: new Set(['code', 'days', 'quantity']),
+  assignments: new Set(['bed_code', 'guest_name', 'package_code']),
 });
 
 function assertKnownObject(value, allowed, path) {

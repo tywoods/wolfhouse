@@ -14,6 +14,7 @@ const { calculateWolfhouseQuote } = require('../wolfhouse-quote-calculator');
 const pricingStore = require('../wolfhouse-pricing-store');
 const { resolveSeasonForDate } = require('../wolfhouse-pricing-resolve');
 const { assertSafeToolRequest } = require('./contracts');
+const v3 = require('./v3-operations');
 
 const TENANT = 'wolfhouse-somo';
 const WIRES = Object.freeze({
@@ -21,6 +22,12 @@ const WIRES = Object.freeze({
   findRooms: 'find_rooms',
   getPricingCatalog: 'get_pricing_catalog',
   quote: 'quote',
+  holdBeds: 'hold_beds',
+  book: 'book',
+  getBooking: 'get_booking',
+  recoverOperation: 'recover_operation',
+  releaseHold: 'release_hold',
+  handoffToHuman: 'handoff_to_human',
 });
 
 function trusted(context) {
@@ -55,7 +62,22 @@ async function runAvailability(pg, input) {
     demoCalendarEnrichment: false,
   });
   if (!built.ok) return built;
-  return executeWolfhouseAvailabilityCheck(pg, built.command);
+  const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+  if (!result.ok || !result.body || !Array.isArray(result.body.available_beds)) return result;
+  const held = await pg.query(`SELECT DISTINCT hb.bed_code
+    FROM luna_v3_hold_beds hb JOIN luna_v3_holds h ON h.id=hb.hold_id
+    JOIN clients c ON c.id=h.client_id
+    WHERE c.slug=$1 AND h.state='active' AND h.expires_at>clock_timestamp()
+      AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out]);
+  const heldCodes = new Set(held.rows.map((row) => row.bed_code));
+  const available = result.body.available_beds.filter((bed) => !heldCodes.has(bed.bed_code));
+  const enough = available.length >= Number(input.party_size || 0);
+  const holdRevision = crypto.createHash('sha256').update([...heldCodes].sort().join('\n')).digest('hex').slice(0, 16);
+  return { ...result, body: { ...result.body, available_beds: available,
+    available_count: available.length, has_enough_beds: enough,
+    blockers: enough ? result.body.blockers : [...new Set([...(result.body.blockers || []), 'not_enough_available_beds'])],
+    provenance: { ...result.body.provenance,
+      availability_fingerprint: `${result.body.provenance.availability_fingerprint}:holds:${holdRevision}` } } };
 }
 
 function serviceFailure(result) {
@@ -80,7 +102,7 @@ async function checkAvailability(pg, input = {}, context) {
     bedIds: body.available_beds.map((bed) => bed.bed_code),
     blockers: body.blockers,
     observationRevision: body.provenance.availability_fingerprint,
-    activeHoldInclusion: 'PENDING_DURABLE_HOLD_SCHEMA',
+    activeHoldInclusion: 'authoritative',
   };
 }
 
@@ -105,7 +127,7 @@ async function findRooms(pg, input = {}, context) {
       ? body.room_eligibility.affected_guest_indices : [],
     blockers: body.blockers,
     observationRevision: body.provenance.availability_fingerprint,
-    activeHoldInclusion: 'PENDING_DURABLE_HOLD_SCHEMA',
+    activeHoldInclusion: 'authoritative',
   };
 }
 
@@ -147,6 +169,12 @@ async function getPricingCatalog(pg, input = {}, context) {
 
 async function quote(pg, input = {}, context) {
   trusted(context); validate('quote', input);
+  if (!context.authenticated || context.writeAllowed !== true || !context.sessionId || !context.principalId) {
+    throw Object.assign(new Error('write admission denied'), { status: 403 });
+  }
+  const session = (await pg.query(`SELECT s.id,s.client_id,s.write_admitted FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+    WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context.sessionId, context.principalId])).rows[0];
+  if (!session || session.write_admitted !== true) throw Object.assign(new Error('write admission denied'), { status: 403 });
   const selectedBeds = input.selection.selected_bed_codes || input.selection.bed_ids;
   const availability = await runAvailability(pg, {
     check_in: input.check_in, check_out: input.check_out, party_size: input.guests.length,
@@ -182,7 +210,7 @@ async function quote(pg, input = {}, context) {
     room_rows: current.available_beds, payment_choice: 'deposit',
     payment_distribution: quoteResult.per_guest_deposits || [],
   });
-  return {
+  const receipt = {
     ok: true, source: 'staff_pricing', quoteRevision: offer.offer_revision.offer_fingerprint,
     selectionRevision: current.provenance.availability_fingerprint, expiresAt: null,
     totalCents: quoteResult.total_cents, depositCents: quoteResult.deposit_required_cents,
@@ -190,6 +218,19 @@ async function quote(pg, input = {}, context) {
     lineItems: quoteResult.line_items, perPerson: quoteResult.per_guest_deposits || [],
     eligibilityFacts: { packageEligible: quoteResult.package_eligible, blockers: quoteResult.blockers || [] },
   };
+  const assignments = selectedBeds.map((bedCode, index) => ({
+    bed_code: bedCode,
+    guest_name: input.guests[index] && input.guests[index].name,
+    package_code: ((input.guest_packages || []).find((p) => Number(p.guest_number) === index + 1) || {}).package_code || input.package_id || 'package_none',
+  }));
+  await pg.query(`INSERT INTO luna_v3_selections(client_id,session_id,quote_revision,check_in,check_out,guests,assignments,quote)
+    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
+    ON CONFLICT(client_id,session_id,quote_revision) DO NOTHING`, [session.client_id, session.id,
+    receipt.quoteRevision, input.check_in, input.check_out, JSON.stringify(input.guests), JSON.stringify(assignments),
+    JSON.stringify({ ...receipt, phone: context.guestPhone || null, quoteInput: input,
+      packageCode: input.package_id || null, roomType: input.selection.room_type || 'shared',
+      keepTogether: input.selection.keep_together === true })]);
+  return { ...receipt, quotedSelection: receipt.quoteRevision };
 }
 
 function createOperations(withPgClient) {
@@ -198,4 +239,4 @@ function createOperations(withPgClient) {
   ])));
 }
 
-module.exports = { checkAvailability, findRooms, getPricingCatalog, quote, createOperations };
+module.exports = { checkAvailability, findRooms, getPricingCatalog, quote, ...v3, createOperations };

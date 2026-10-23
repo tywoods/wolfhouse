@@ -1082,13 +1082,14 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
   );
   if (bedConflict) return bedConflict;
 
-  await pg.query('BEGIN');
+  const ownTransaction = execOpts.callerManagedTransaction !== true;
+  if (ownTransaction) await pg.query('BEGIN');
   try {
     if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP
         && typeof execOpts.authorizeAutomaticBooking === 'function') {
       const admission = await execOpts.authorizeAutomaticBooking(pg, command);
       if (!admission || admission.allowed !== true) {
-        await pg.query('ROLLBACK');
+        if (ownTransaction) await pg.query('ROLLBACK');
         const unavailable = !!(admission && admission.unavailable);
         return fail(
           unavailable ? 503 : 403,
@@ -1113,7 +1114,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     if (offerRequired) {
       const freshOffer = await rereadWolfhouseOfferForCommit(pg, command);
       if (!freshOffer.ok) {
-        await pg.query('ROLLBACK');
+        if (ownTransaction) await pg.query('ROLLBACK');
         return {
           ok: false,
           status: freshOffer.status || 409,
@@ -1143,7 +1144,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       const selection = await checkExplicitSelection(pg, clientSlug, assignedBedCodes,
         quoteGuestCount, command.transportBody, checkIn, checkOut);
       if (!selection.ok) {
-        await pg.query('ROLLBACK');
+        if (ownTransaction) await pg.query('ROLLBACK');
         return selection;
       }
     }
@@ -1152,7 +1153,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       ? typeof hooks.enabled === 'function' && hooks.enabled(roomType) && typeof hooks.syncPrivateRoomBlocks === 'function'
       : ['private', 'double'].includes(String(roomType || '').toLowerCase()) || command.roomPreference === 'private';
     if (selectedRooms.some(r => r.selling_mode === 'private') && !willReservePrivate) {
-      await pg.query('ROLLBACK');
+      if (ownTransaction) await pg.query('ROLLBACK');
       return fail(409, 'private_room_requires_private_booking', 'This room requires a whole-room private reservation.', { write_performed: false });
     }
     const r = await pg.query(buildManualBookingCreateSql(), [
@@ -1184,12 +1185,12 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     const result = r.rows[0] || null;
 
     if (!result) {
-      await pg.query('ROLLBACK');
+      if (ownTransaction) await pg.query('ROLLBACK');
       return { ok: false, status: 500, body: { success: false, error: 'no_result_row' } };
     }
 
     if (result.is_duplicate === true) {
-      await pg.query('ROLLBACK');
+      if (ownTransaction) await pg.query('ROLLBACK');
       return {
         ok: true,
         status: 200,
@@ -1203,7 +1204,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     }
 
     if (result.is_blocked === true) {
-      await pg.query('ROLLBACK');
+      if (ownTransaction) await pg.query('ROLLBACK');
       return {
         ok: false,
         status: result.block_reason === 'overlap_conflict' ? 409 : 422,
@@ -1218,7 +1219,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
 
     const bedsInserted = Number(result.beds_inserted || 0);
     if (!result.booking_id || bedsInserted < 1 || bedsInserted !== assignedBedCodes.length) {
-      await pg.query('ROLLBACK');
+      if (ownTransaction) await pg.query('ROLLBACK');
       return {
         ok: false,
         status: 409,
@@ -1391,7 +1392,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         result._pay_outcome = payOutcome;
         result._payment_id = payOutcome.payment_id || null;
       } catch (payErr) {
-        await pg.query('ROLLBACK');
+        if (ownTransaction) await pg.query('ROLLBACK');
         return {
           ok: false,
           status: payErr.code === 'STRIPE_NOT_CONFIGURED' ? 503 : (payErr.code === 'INVALID_PAID_AMOUNT' ? 400 : 422),
@@ -1448,7 +1449,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
           primary_room_code: null,
         });
         if (bedSync && bedSync.error) {
-          await pg.query('ROLLBACK');
+          if (ownTransaction) await pg.query('ROLLBACK');
           return {
             ok: false,
             status: (bedSync.error === 'private_room_room_not_empty' || bedSync.error === 'private_room_bed_block_conflict') ? 409 : 422,
@@ -1465,7 +1466,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         result._bed_block = bedSync;
       }
 
-    await pg.query('COMMIT');
+    if (ownTransaction) await pg.query('COMMIT');
     return {
       ok: true,
       status: 201,
@@ -1481,7 +1482,7 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
       },
     };
   } catch (e) {
-    try { await pg.query('ROLLBACK'); } catch (_) {}
+    try { if (ownTransaction) await pg.query('ROLLBACK'); } catch (_) {}
     throw e;
   }
 }

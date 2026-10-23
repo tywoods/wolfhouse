@@ -21,7 +21,7 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/recover-operation': 'recover_operation',
 });
 
-async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations }) {
+async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession }) {
   const tool = LUNA_V3_ROUTE_TO_TOOL[pathname];
   if (!tool) return null;
   if (String(method || '').toUpperCase() !== 'POST') {
@@ -31,7 +31,13 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
     return { status: 403, body: { ok: false, code: 'luna_v3_tenant_forbidden' } };
   }
   const input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
-  if (!String(input.session_id || '').startsWith('luna-v3:')) {
+  if (!authenticatedPrincipal || !String(authenticatedPrincipal.principalId || '').trim()
+      || typeof resolveSession !== 'function') {
+    return { status: 403, body: { ok: false, code: 'luna_v3_authenticated_context_required' } };
+  }
+  const boundSession = await resolveSession({ selector: input.session_id,
+    principalId: authenticatedPrincipal.principalId, clientSlug });
+  if (!boundSession || !boundSession.sessionId) {
     return { status: 403, body: { ok: false, code: 'luna_v3_session_forbidden' } };
   }
   if (input.external_send_allowed !== false || input.staff_alert_allowed !== false) {
@@ -49,9 +55,11 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   assertSafeToolRequest(tool, modelInput);
   const result = await operation(modelInput, {
     tenantId: clientSlug,
-    // Authentication/principal binding happened before this dispatcher. Model
-    // fields are never copied into this trusted context.
     authenticated: true,
+    sessionId: boundSession.sessionId,
+    principalId: authenticatedPrincipal.principalId,
+    writeAllowed: authenticatedPrincipal.writeAllowed === true && boundSession.writeAllowed === true,
+    guestPhone: boundSession.guestPhone || null,
   });
   return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
 }

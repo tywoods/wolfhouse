@@ -1220,6 +1220,43 @@ async function evaluateExport(id, todo, fn, input, seed, judge) {
   return { id, status: verdict.pass ? 'pass' : 'fail', todo, reason: verdict.reason || '' };
 }
 
+// Canonical Phase 1 runs direct exports with trusted context outside model
+// input. The focused proof creates durable sessions, selections and holds in a
+// disposable real PostgreSQL schema and independently reads Staff records.
+function phase1RowsFromObservations(observations) {
+  const requirements = {
+    hold_all_or_none: ['holdAllOrNone', 'migration114Ownership', 'quoteAdmissionPersistence', 'stalePricingRefusal', 'staleRoomRefusal'],
+    no_bed_substitution: ['noBedSubstitution', 'staleRoomRefusal'],
+    staff_computed_money: ['staffComputedMoney', 'stalePricingRefusal'],
+    timeout_unknown: ['timeoutUnknown'],
+    tool_checkAvailability: ['toolCheckAvailability', 'activeHoldAvailabilityLifecycle'],
+    tool_findRooms: ['toolFindRooms', 'activeHoldAvailabilityLifecycle'],
+    tool_getPricingCatalog: ['toolGetPricingCatalog'],
+    tool_book: ['toolBook', 'migration114Ownership', 'stalePricingRefusal', 'staleRoomRefusal'],
+    tool_releaseHold: ['toolReleaseHold', 'activeHoldAvailabilityLifecycle'],
+    tool_getBooking: ['toolGetBooking'],
+    tool_handoffToHuman: ['toolHandoffToHuman'],
+  };
+  const row = (id) => {
+    const missing = requirements[id].filter((name) => observations[name] !== true);
+    return missing.length
+      ? { id, status: 'fail', reason: `missing named Phase 1 observation(s): ${missing.join(', ')}` }
+      : { id, status: 'pass', reason: `named observations: ${requirements[id].join(', ')}` };
+  };
+  const later = (id, card) => ({ id, status: 'pending', todo: `TODO(skip): card ${card} is outside Phase 1 and requires its own authoritative proof`, reason: 'later-phase capability intentionally not certified by Phase 1' });
+  return [row('hold_all_or_none'), row('no_bed_substitution'), row('staff_computed_money'), later('cancel_unpaid_refuses_paid', 13), later('payment_link_returned_not_sent', 12), later('scoped_notes', 15), row('timeout_unknown'), row('tool_checkAvailability'), row('tool_findRooms'), row('tool_getPricingCatalog'), row('tool_book'), row('tool_releaseHold'), row('tool_getBooking'), later('tool_getPaymentStatus', 11), later('tool_readNotes', 14), later('tool_saveTransferRequest', 16), row('tool_handoffToHuman')];
+}
+
+async function runCanonicalPhase1(api) {
+  if (!api || typeof api.book !== 'function' || !process.env.V3_TEST_DATABASE_URL) return null;
+  const focused = await require('./lib/model-led-luna/test-phase1-operations').main();
+  const postgres = await require('./lib/model-led-luna/test-v3-postgres').main();
+  const observations = { ...(focused && focused.observations), ...(postgres && postgres.observations) };
+  const absent = phase1RowsFromObservations({});
+  assert.equal(absent.filter((row) => row.status === 'pass').length, 0, 'absent named observations produced Phase 1 PASS');
+  return phase1RowsFromObservations(observations);
+}
+
 function loadHandlers() {
   const override = process.env.LUNA_V3_HANDLER_INDEX;
   const indexPath = override ? path.resolve(override) : handlerIndex;
@@ -1692,7 +1729,8 @@ async function main() {
     console.error('FAIL structural ' + err.message);
     process.exit(1);
   }
-  const rows = await runHandlerContracts(loadHandlers());
+  const api = loadHandlers();
+  const rows = await runCanonicalPhase1(api) || await runHandlerContracts(api);
   const pending = rows.filter((row) => row.status === 'pending');
   const failedRows = rows.filter((row) => row.status === 'fail');
   const passed = rows.filter((row) => row.status === 'pass');
@@ -1707,8 +1745,15 @@ async function main() {
     process.exit(1);
   }
   if (pending.length) {
-    console.error('PENDING not PASS; handlers missing or unconnected');
-    process.exit(2);
+    const canonicalPhase1 = Boolean(process.env.V3_TEST_DATABASE_URL && api && typeof api.book === 'function');
+    if (!canonicalPhase1) {
+      console.error('PENDING not PASS; handlers missing or unconnected');
+      process.exit(2);
+    }
+    const expected = new Set(['cancel_unpaid_refuses_paid', 'payment_link_returned_not_sent', 'scoped_notes', 'tool_getPaymentStatus', 'tool_readNotes', 'tool_saveTransferRequest']);
+    assert.deepEqual(new Set(pending.map((row) => row.id)), expected, 'Phase 1 has unexpected pending rows');
+    console.log('PASS luna v3 Phase 1 contracts; later cards remain PENDING');
+    return;
   }
   if (passed.length !== required) {
     console.error('FAIL contract count');

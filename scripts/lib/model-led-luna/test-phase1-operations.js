@@ -27,6 +27,7 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
       observations.push({ sql, params });
       if (/FROM rooms r/.test(sql)) return { rows: rooms };
       if (/FROM booking_beds bb/.test(sql)) return { rows: blocks };
+      if (/FROM luna_v3_hold_beds hb/.test(sql)) return { rows: [] };
       if (/FROM wh_pricing_seasons s/.test(sql)) {
         if (pricingDown) throw new Error('pricing unavailable');
         return { rows: seasons };
@@ -34,20 +35,25 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
       if (/FROM wh_pricing_rules/.test(sql)) return { rows: rules };
       if (/FROM wh_pricing_items/.test(sql)) return { rows: items };
       if (/FROM wh_pricing_transfer_rules/.test(sql)) return { rows: [] };
+      if (/FROM luna_v3_sessions/.test(sql)) return { rows: [{ id: 'session-id', client_id: 'client-id', write_admitted: true }] };
+      if (/INSERT INTO luna_v3_selections/.test(sql)) return { rows: [] };
       throw new Error(`unexpected Staff query: ${sql.slice(0, 80)}`);
     },
   };
 }
 
 async function main() {
-  const context = { tenantId: 'wolfhouse-somo', authenticated: true };
-  assert.deepEqual(Object.keys(api).sort(), ['checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote'].sort());
+  const observations = {};
+  const context = { tenantId: 'wolfhouse-somo', authenticated: true,
+    sessionId: 'luna-v3:test', principalId: 'test-principal', writeAllowed: true };
+  assert.deepEqual(Object.keys(api).sort(), ['checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote',
+    'holdBeds', 'book', 'getBooking', 'recoverOperation', 'releaseHold', 'handoffToHuman'].sort());
 
   const pg = staffPg({ blocks: [{ bed_code: 'R7-B1' }] });
   const available = await api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }, context);
   assert.equal(available.availableCount, 2);
   assert.deepEqual(available.bedIds, ['R10-B1', 'R10-B2']);
-  assert.equal(available.activeHoldInclusion, 'PENDING_DURABLE_HOLD_SCHEMA');
+  assert.equal(available.activeHoldInclusion, 'authoritative');
   assert(pg.observations.some((row) => /booking_beds/.test(row.sql)), 'uses Staff booking blocks query');
 
   const found = await api.findRooms(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2, preferences: { keep_together: true } }, context);
@@ -65,14 +71,14 @@ async function main() {
   assert.deepEqual(unavailable, { ok: false, status: 503, code: 'STAFF_PRICING_UNAVAILABLE' });
 
   await assert.rejects(() => api.quote(pg, {
-    check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
+    operation_key: 'quote-bad', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
     selection: { selected_bed_codes: ['R10-B1', 'R10-B2'], totalCents: 1 }, guest_packages: [], add_ons: [],
   }, context), /authority field|unknown field/);
   await assert.rejects(() => api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2, surprise: true }, context), /unknown field/);
   await assert.rejects(() => api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }), /trusted Wolfhouse context/);
 
   const quoted = await api.quote(staffPg(), {
-    check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
+    operation_key: 'quote-good', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
     selection: { selected_bed_codes: ['R10-B1', 'R10-B2'], room_type: 'shared', keep_together: true },
     package_id: 'malibu', guest_packages: [{ guest_number: 1, package_code: 'malibu' }, { guest_number: 2, package_code: 'malibu' }], add_ons: [],
   }, context);
@@ -81,7 +87,15 @@ async function main() {
   assert(Number.isSafeInteger(quoted.totalCents) && quoted.totalCents > 0);
   assert(Number.isSafeInteger(quoted.depositCents) && quoted.depositCents > 0);
   assert(Number.isSafeInteger(quoted.remainingCents));
+  observations.staffComputedMoney = true;
+  observations.toolCheckAvailability = true;
+  observations.toolFindRooms = true;
+  observations.toolGetPricingCatalog = true;
   console.log('cards 1-4 Staff service observations passed');
+  return { observations };
 }
 
-main().catch((error) => { console.error(error.stack || error); process.exit(1); });
+if (require.main === module) {
+  main().catch((error) => { console.error(error.stack || error); process.exit(1); });
+}
+module.exports = { main };

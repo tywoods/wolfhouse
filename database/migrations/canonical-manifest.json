@@ -1608,6 +1608,15 @@
       "rationale": "Destructive down migration drops room-placement receipts; never selected by the dedicated 110-only forward operator path.",
       "pairsWith": "110_staff_room_fill_create_receipts.sql",
       "sha256": "1ef87b4a98daa6d05b36a60f14bfea7714113e186eba8363094aa6d4729a9980"
+    },
+    {
+      "id": "114_luna_v3_staff_operations",
+      "filename": "114_luna_v3_staff_operations.sql",
+      "order": 105,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Durable session-bound Luna v3 selections, idempotent operations, exact-bed holds, no-alert handoffs, and a common booking/hold occupancy boundary.",
+      "sha256": "3af9c58ad5d3d2ff59d6400c690df2241c43241d7ce9c6695b26100a6e3ff9d8"
     }
   ]
 }

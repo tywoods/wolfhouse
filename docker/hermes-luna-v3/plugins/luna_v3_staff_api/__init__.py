@@ -32,7 +32,7 @@ TOOL_PATHS = {
 }
 TOOL_NAMES = tuple(TOOL_PATHS)
 WRITE_TOOLS = frozenset({
-    "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
+    "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
     "write_note", "save_transfer_request", "handoff_to_human",
 })
 FORBIDDEN_FIELDS = frozenset({
@@ -136,7 +136,7 @@ _TOOL_FIELDS = {
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size", "preferences"),
     "get_pricing_catalog": ("check_in", "check_out", "package_ids", "service_ids"),
-    "quote": ("check_in", "check_out", "guests", "selection", "guest_packages", "add_ons"),
+    "quote": ("operation_key", "check_in", "check_out", "guests", "selection", "guest_packages", "add_ons"),
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
@@ -156,7 +156,7 @@ _TOOL_REQUIRED = {
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size"),
     "get_pricing_catalog": ("check_in", "check_out"),
-    "quote": ("check_in", "check_out", "guests", "selection"),
+    "quote": ("operation_key", "check_in", "check_out", "guests", "selection"),
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),

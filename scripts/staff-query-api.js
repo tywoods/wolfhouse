@@ -1753,7 +1753,7 @@ async function dispatchBotRouteBoundToPrincipalTenant(auth, req, res, query, han
       if (effectiveClientSlug) {
         pinStaffBotRequestEffectiveTenant(req, body, query, effectiveClientSlug);
       }
-      return handler(user, authMode, effectiveClientSlug || null);
+      return handler(user, authMode, effectiveClientSlug || null, body);
     },
   });
 }
@@ -55622,19 +55622,22 @@ async function router(req, res) {
   if (LUNA_V3_ROUTE_TO_TOOL[pathname]) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (_user, _authMode, effectiveClientSlug) => {
-      let body;
-      try {
-        body = JSON.parse(await readBody(req) || '{}');
-      } catch (_) {
-        return send400(res, 'invalid or missing JSON body');
-      }
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (user, _authMode, effectiveClientSlug, body) => {
+      const principalId = String(user && user.staff_user_id || '').trim();
       const result = await dispatchLunaV3StaffRoute({
         pathname,
         method,
         clientSlug: effectiveClientSlug,
         body,
         operations: LUNA_V3_STAFF_OPERATIONS,
+        authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true' },
+        resolveSession: async ({ selector, principalId: requestedPrincipal }) => withPgClient(async (pg) => {
+          if (!selector || !requestedPrincipal) return null;
+          const r = await pg.query(`SELECT s.session_key, s.write_admitted FROM luna_v3_sessions s
+            JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`,
+          [effectiveClientSlug, selector, requestedPrincipal]);
+          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true } : null;
+        }),
       });
       return sendJSON(res, result.status, result.body);
     });
