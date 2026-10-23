@@ -58,7 +58,7 @@ Skip executes. Deckhand scores. Captain reviews the receipts. Do not train on th
 node scripts/verify-luna-v3-contracts.js
 ```
 
-Exit `0` only when every handler contract and every section-3 tool has been awaited against `scripts/lib/model-led-luna/` and the verifier has read the side effect back itself. That directory is Skip's and does not exist yet. The ten tools that are not also a contract export (`book`, `getBooking`, `getPaymentStatus`, and the rest of that list) are checked even when `index.js` exists. They must not disappear.
+Exit `0` only when every handler contract and every section-3 tool has been awaited against `scripts/lib/model-led-luna/index.js` and the verifier has read the side effect back itself. That directory now has Staff HTTP contracts, routes, a staff client, and a scoped notes store. It still has no `index.js` exporting `holdBeds`, `quote`, `cancelUnpaid`, `sendPaymentLink`, `writeNote`, `recoverOperation`, or the section-3 tools. Those rows stay **pending**. The ten tools that are not also a contract export (`book`, `getBooking`, `getPaymentStatus`, and the rest of that list) are checked even when `index.js` exists. They must not disappear.
 
 Handlers are called as `await tool(pg, input)`. `pg` is an observation database with `read`, `write`, `update`, and simple `query` SQL (`select * from <table>`, `insert into <table> (json) values ($1)`, `update <table> set status = $1 where id = $2`). A return value is not proof. If the export is missing, or the function never touches that database, the row stays **pending**. PASS requires the awaited result and the rows the verifier reads after the call to agree, compared with verifier-owned request, stock, and snapshots. A fake that returns a success shape and touches no database must not PASS.
 
@@ -74,10 +74,20 @@ These rows must not PASS from a weak observation:
 
 The script's structural section runs one negative control for each of those holes. Accepting any of them is a structural **fail** (exit `1`), not a product pass.
 
-Until Skip's module exists, the handler rows are **pending**, with a TODO naming the missing or unconnected export. The script still checks these fixtures, rejects success-shaped stubs, and fails if real guest dialogue or substantive acceptance coverage is removed. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed, a negative control was accepted, or a present handler broke a contract.
+Until Skip's `index.js` exports exist and touch the observation DB, the handler rows are **pending**, with a TODO naming the missing or unconnected export. The script still checks these fixtures, rejects success-shaped stubs, and fails if real guest dialogue or substantive acceptance coverage is removed. A pending run exits `2`. Exit `2` is not a PASS and not a product failure. Exit `1` means a fixture check failed, a negative control was accepted, or a present handler broke a contract.
 
 No always-pass stub. A `{ ok: true }` result does not satisfy hold, money, cancel, link, notes, timeout, or any section-3 tool. Proposed 2027 windows, unconfirmed stock and Pricing, unverified phone collisions, and live paid cleanup stay pending. This gate does not run them.
 
+## Side-by-side runner
+
+```sh
+node scripts/verify-luna-v3-sidebyside.js
+node scripts/run-luna-v3-sidebyside.js --dry-run --target hermes-luna-clone
+node scripts/run-luna-v3-sidebyside.js --dry-run --target hermes-luna
+```
+
+`--target` is `hermes-luna-clone` (Luna v3, Crow's Nest tenant `luna-v3`) or `hermes-luna` (Classic, tenant `wolfhouse`). Default is dry-run: it plans the frozen guest turns, writes transcripts, and scores the run as not executed. It does not call Crow's Nest. Live play is `LUNA_V3_SIDEBYSIDE_LIVE=1 node scripts/run-luna-v3-sidebyside.js --live --target hermes-luna-clone` after Skip lands v3. Live still posts `allow_writes: false` and only reserved `+34 699 9xx` phones with 2027 dates. Sunset is not a target.
+
 ## Not done here
 
-No merge, deploy, restart, simulation, send, alert, production change, Sunset change, prune, secret, or real guest data. No source PASS. No five-guest run.
+No merge, deploy, restart, simulation, send, alert, production change, Sunset change, prune, secret, or real guest data. No source PASS. No five-guest run against live bots.
