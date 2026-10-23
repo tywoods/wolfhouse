@@ -35,7 +35,7 @@ class GuardTests(unittest.TestCase):
   self.assertEqual(paths['bots/hermes-orchestrator/workspace/in-use'].action,'skip')
   self.assertEqual(sum(v.action=='delete' for k,v in paths.items() if '/releases/' in k),2)
   c.execute(plan,apply=False); self.assertTrue(eligible.exists())
-  c.execute(plan,apply=True,cfg=cfg); self.assertFalse(eligible.exists())
+  c.execute(plan,apply=True,cfg=cfg); self.assertTrue(eligible.exists())
  def test_host_in_use_and_container_mapping(self):
   c=load('cleanup'); root=self.root
   cand=root/'bots/hermes-captain/artifacts/review-pr1-x'; self.old(cand)
@@ -105,10 +105,10 @@ class GuardTests(unittest.TestCase):
    replacement=self.old(candidate); secret=replacement/'.env'; secret.write_text('secret')
    os.utime(secret,(1_600_000_000,1_600_000_000)); os.utime(replacement,(1_600_000_000,1_600_000_000))
    return original(path,root,*args)
-  with patch.object(c,'secure_delete',side_effect=swap_then_delete):
+  with patch.object(c,'secure_delete',side_effect=swap_then_delete) as delete:
    c.execute(plan,apply=True,cfg=cfg)
+  delete.assert_not_called()
   self.assertTrue(candidate.exists())
-  self.assertTrue((candidate/'.env').exists())
  def test_cleanup_refuses_target_that_becomes_in_use_at_removal(self):
   c=load('cleanup'); now=1_700_000_000; proc=Path(self.t.name)/'proc'
   candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/swapped-in-use')
@@ -120,54 +120,74 @@ class GuardTests(unittest.TestCase):
    os.utime(active,(1_600_000_000,1_600_000_000)); os.utime(replacement,(1_600_000_000,1_600_000_000))
    fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(active)
    return original(path,root,*args)
-  with patch.object(c,'secure_delete',side_effect=swap_then_delete):
+  with patch.object(c,'secure_delete',side_effect=swap_then_delete) as delete:
    c.execute(plan,apply=True,cfg=cfg)
+  delete.assert_not_called()
   self.assertTrue(candidate.exists())
-  self.assertTrue((candidate/'active').exists())
- def test_cleanup_preserves_claim_when_env_appears_after_claim_checks(self):
+ def test_cleanup_refuses_when_env_appears_after_last_check_before_removal(self):
   c=load('cleanup'); now=1_700_000_000
   candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/late-env')
-  cfg=c.Config(self.root,now,'nomatch',set(),{})
-  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
-  def add_env_after_checks(path,root,targets):
+  cfg=c.Config(self.root,now,'nomatch',set(),{}); plan=c.build_plan(cfg)
+  original=c._claimed_target_safe; calls=0
+  def mutate_after_last_check(*args):
    nonlocal calls
-   result=original(path,root,targets); calls+=1
+   safe=original(*args); calls+=1
    if calls==2:
     claimed=next(candidate.parent.glob('.dev01-delete-*'))
-    secret=claimed/'.env'; secret.write_text('late secret'); os.utime(secret,(1_600_000_000,1_600_000_000))
-   return result
-  with patch.object(c,'is_in_use',side_effect=add_env_after_checks):
-   c.execute(plan,apply=True,cfg=cfg)
+    secret=claimed/'.env'; secret.write_text('late secret')
+   return safe
+  with patch.object(c,'_claimed_target_safe',side_effect=mutate_after_last_check):
+   self.assertFalse(c.secure_delete(candidate,self.root,cfg))
   self.assertTrue(candidate.exists()); self.assertTrue((candidate/'.env').exists())
- def test_cleanup_preserves_claim_when_it_becomes_in_use_after_claim_checks(self):
+
+ def test_cleanup_refuses_when_target_becomes_in_use_after_last_check_before_removal(self):
   c=load('cleanup'); now=1_700_000_000; proc=Path(self.t.name)/'proc'
   candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/late-in-use')
   active=candidate/'active'; active.write_text('x'); os.utime(active,(1_600_000_000,1_600_000_000)); os.utime(candidate,(1_600_000_000,1_600_000_000))
-  cfg=c.Config(self.root,now,'nomatch',set(),{},proc_root=proc)
-  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
-  def mark_in_use_after_checks(path,root,targets):
+  cfg=c.Config(self.root,now,'nomatch',set(),{},proc_root=proc); plan=c.build_plan(cfg)
+  original=c._claimed_target_safe; calls=0
+  def mutate_after_last_check(*args):
    nonlocal calls
-   result=original(path,root,targets); calls+=1
+   safe=original(*args); calls+=1
    if calls==2:
-    claimed=next(candidate.parent.glob('.dev01-delete-*'))
-    fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(candidate/'active')
-   return result
-  with patch.object(c,'is_in_use',side_effect=mark_in_use_after_checks):
-   c.execute(plan,apply=True,cfg=cfg)
+    claimed=next(candidate.parent.glob('.dev01-delete-*')); target=claimed/'active'
+    fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(target)
+   return safe
+  with patch.object(c,'_claimed_target_safe',side_effect=mutate_after_last_check):
+   self.assertFalse(c.secure_delete(candidate,self.root,cfg))
   self.assertTrue(candidate.exists()); self.assertTrue((candidate/'active').exists())
- def test_cleanup_preserves_claim_when_parent_moves_after_claim_checks(self):
+
+ def test_cleanup_refuses_when_parent_moves_after_last_check_before_removal(self):
   c=load('cleanup'); now=1_700_000_000
   workspace=self.root/'bots/hermes-orchestrator/workspace'; candidate=self.old(workspace/'late-move')
-  moved=Path(self.t.name)/'moved-workspace'; cfg=c.Config(self.root,now,'nomatch',set(),{})
-  plan=c.build_plan(cfg); original=c.is_in_use; calls=0
-  def move_parent_after_checks(path,root,targets):
+  moved=Path(self.t.name)/'moved-workspace'; cfg=c.Config(self.root,now,'nomatch',set(),{}); plan=c.build_plan(cfg)
+  original=c._claimed_target_safe; calls=0
+  def mutate_after_last_check(*args):
    nonlocal calls
-   result=original(path,root,targets); calls+=1
+   safe=original(*args); calls+=1
    if calls==2: workspace.rename(moved)
-   return result
-  with patch.object(c,'is_in_use',side_effect=move_parent_after_checks):
-   c.execute(plan,apply=True,cfg=cfg)
+   return safe
+  with patch.object(c,'_claimed_target_safe',side_effect=mutate_after_last_check):
+   self.assertFalse(c.secure_delete(candidate,self.root,cfg))
   self.assertTrue((moved/'late-move').exists())
+
+ def test_cleanup_refuses_when_claimed_name_is_replaced_after_last_check_before_removal(self):
+  c=load('cleanup'); now=1_700_000_000
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/late-replace')
+  cfg=c.Config(self.root,now,'nomatch',set(),{}); plan=c.build_plan(cfg)
+  original=c._claimed_target_safe; calls=0; displaced=[]
+  def mutate_after_last_check(*args):
+   nonlocal calls
+   safe=original(*args); calls+=1
+   if calls==2:
+    claimed=next(candidate.parent.glob('.dev01-delete-*'))
+    old=claimed.with_name(claimed.name+'-opened-inode'); claimed.rename(old); displaced.append(old)
+    replacement=claimed; replacement.mkdir(); (replacement/'.env').write_text('protected replacement')
+   return safe
+  with patch.object(c,'_claimed_target_safe',side_effect=mutate_after_last_check):
+   self.assertFalse(c.secure_delete(candidate,self.root,cfg))
+  self.assertTrue(candidate.exists()); self.assertTrue((candidate/'.env').exists())
+  self.assertTrue(displaced[0].exists())
  def test_config_generators(self):
   d=load('daemon_config'); src={'features':{'containerd-snapshotter':True},'log-opts':{'labels':'x'}}
   out=d.merge_config(src); self.assertTrue(out['features']['containerd-snapshotter']); self.assertEqual(out['log-driver'],'json-file'); self.assertEqual(out['log-opts']['max-size'],'20m'); self.assertEqual(out['log-opts']['max-file'],'3'); self.assertEqual(out['log-opts']['labels'],'x')

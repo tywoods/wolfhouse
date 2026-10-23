@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fail-closed /data scratch cleaner. Default mode only prints a plan."""
-import argparse, json, os, re, shutil, stat, subprocess, time
+import argparse, json, os, re, stat, subprocess, time
 from pathlib import Path
 
 DENY_PARTS={'state.db','sessions','memories','auth','SOUL.md','SOUL','config'}
@@ -171,15 +171,16 @@ def secure_delete(path,root,cfg=None):
   claimed_flags=os.O_RDONLY|os.O_NOFOLLOW
   if stat.S_ISDIR(mode):claimed_flags|=os.O_DIRECTORY
   claimed_fd=os.open(claimed,claimed_flags,dir_fd=fd); fds.append(claimed_fd)
-  # Require two stable descriptor-bound snapshots; any late veto restores the claim.
+  # Snapshots cannot exclude a writer/rename in the final check/use gap. Until
+  # the caller can hold an enforceable exclusion through removal, restore the
+  # claim and refuse mutation even when both snapshots are safe.
   if (not _claimed_target_safe(claimed_fd,parent_fd,claimed,path,root,cfg)
       or not _claimed_target_safe(claimed_fd,parent_fd,claimed,path,root,cfg)):
    os.rename(claimed,name,src_dir_fd=fd,dst_dir_fd=fd); claimed=None
    return False
-  if stat.S_ISDIR(mode):shutil.rmtree(claimed,dir_fd=fd)
-  else:os.unlink(claimed,dir_fd=fd)
+  os.rename(claimed,name,src_dir_fd=fd,dst_dir_fd=fd)
   claimed=None
-  return True
+  return False
  except (OSError,ValueError):
   if claimed is not None and parent_fd is not None and name is not None:
    try:os.rename(claimed,name,src_dir_fd=parent_fd,dst_dir_fd=parent_fd)
@@ -190,6 +191,8 @@ def secure_delete(path,root,cfg=None):
 
 def execute(plan,apply=False,cfg=None):
  for d in plan:
+  if apply and d.action=='delete':
+   d=Decision(d.path,'skip','apply-refused-no-writer-exclusion',d.allowed_root,d.days)
   if apply and d.action=='delete' and (d.allowed_root is None or not within_allowed_root(d.path,d.allowed_root)):
    d=Decision(d.path,'skip','outside-allowed-root',d.allowed_root,d.days)
   elif apply and d.action=='delete':
@@ -206,7 +209,7 @@ def execute(plan,apply=False,cfg=None):
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('--root',default='/data'); ap.add_argument('--apply',action='store_true'); ap.add_argument('--protect-file',default=str(Path(__file__).with_name('protect.txt'))); ap.add_argument('--pr-states-json'); ap.add_argument('--proc-root',default='/proc'); a=ap.parse_args()
  root=Path(a.root).resolve()
- if a.apply and root!=Path('/data'): raise SystemExit('refusing --apply outside exact /data')
+ if a.apply: raise SystemExit('refusing --apply: no enforceable writer/rename exclusion is available through removal; report-only mode only')
  regex=''
  try: regex='|'.join(x.strip() for x in Path(a.protect_file).read_text().splitlines() if x.strip() and not x.startswith('#'))
  except OSError: raise SystemExit('protect file unreadable; fail closed')
