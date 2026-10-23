@@ -712,6 +712,9 @@ _STYLE_COPY = {
     'en': {'opener': "Here's your stay 🌊", 'dates': 'Dates', 'room': 'Room', 'package': 'Package',
            'guests': 'Guests', 'total': 'Total', 'booking': 'Booking',
            'saved': '{name}, your booking is saved! 🌊', 'saved_anon': 'Your booking is saved! 🌊',
+           'invoice_saved': "{name}, your booking is saved — here's your invoice 🌊",
+           'invoice_saved_anon': "Your booking is saved — here's your invoice 🌊",
+           'deposit_due': 'Deposit due now',
            'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
            'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
            'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
@@ -719,6 +722,9 @@ _STYLE_COPY = {
     'es': {'opener': 'Aquí tienes tu estancia 🌊', 'dates': 'Fechas', 'room': 'Habitación', 'package': 'Paquete',
            'guests': 'Huéspedes', 'total': 'Total', 'booking': 'Reserva',
            'saved': '{name}, ¡tu reserva está guardada! 🌊', 'saved_anon': '¡Tu reserva está guardada! 🌊',
+           'invoice_saved': '{name}, tu reserva está guardada — aquí tienes la factura 🌊',
+           'invoice_saved_anon': 'Tu reserva está guardada — aquí tienes la factura 🌊',
+           'deposit_due': 'Depósito a pagar ahora',
            'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
            'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
            'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
@@ -726,6 +732,9 @@ _STYLE_COPY = {
     'fr': {'opener': 'Voici votre séjour 🌊', 'dates': 'Dates', 'room': 'Chambre', 'package': 'Formule',
            'guests': 'Personnes', 'total': 'Total', 'booking': 'Réservation',
            'saved': '{name}, votre réservation est enregistrée ! 🌊', 'saved_anon': 'Votre réservation est enregistrée ! 🌊',
+           'invoice_saved': '{name}, votre réservation est enregistrée — voici la facture 🌊',
+           'invoice_saved_anon': 'Votre réservation est enregistrée — voici la facture 🌊',
+           'deposit_due': 'Acompte à payer maintenant',
            'deposit_choice': 'Vous pouvez payer un acompte de {deposit} maintenant ou le total de {total}. Que préférez-vous ?',
            'save': 'J’enregistre cette réservation ?', 'save_updated': 'J’enregistre cette réservation mise à jour ?',
            'remaining': 'Reste après ce paiement', 'balance': 'Solde restant',
@@ -733,6 +742,9 @@ _STYLE_COPY = {
     'de': {'opener': 'Hier ist dein Aufenthalt 🌊', 'dates': 'Daten', 'room': 'Zimmer', 'package': 'Paket',
            'guests': 'Gäste', 'total': 'Gesamt', 'booking': 'Buchung',
            'saved': '{name}, deine Buchung ist gespeichert! 🌊', 'saved_anon': 'Deine Buchung ist gespeichert! 🌊',
+           'invoice_saved': '{name}, deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
+           'invoice_saved_anon': 'Deine Buchung ist gespeichert — hier ist die Rechnung 🌊',
+           'deposit_due': 'Anzahlung jetzt fällig',
            'deposit_choice': 'Du kannst jetzt {deposit} anzahlen oder den vollen Betrag von {total} bezahlen. Was möchtest du?',
            'save': 'Soll ich diese Buchung speichern?', 'save_updated': 'Soll ich diese aktualisierte Buchung speichern?',
            'remaining': 'Danach noch offen', 'balance': 'Restbetrag',
@@ -979,6 +991,100 @@ def _usable_payment_url(value):
     return value.strip() if parsed.scheme == 'https' and bool(hostname) else None
 
 
+def _staff_invoice_lines(plan, offer, language, currency):
+    """Render only a complete, arithmetically self-consistent Staff breakdown."""
+    people = offer.get('per_person')
+    items = offer.get('included_items')
+    total = offer.get('total_cents')
+    count = offer.get('guest_count', plan.get('guest_count'))
+    if (not isinstance(people, list) or not isinstance(items, list)
+            or type(total) is not int or type(count) is not int
+            or count < 1 or len(people) != count):
+        return []
+    guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
+    base_codes = {'package', 'package_proration', 'accommodation_only', 'manual_accommodation'}
+    base_items = [row for row in items if isinstance(row, dict) and
+                  (row.get('code') in base_codes or str(row.get('code') or '').startswith('guest_'))]
+    extra_items = [row for row in items if isinstance(row, dict) and row not in base_items]
+    if not base_items:
+        return []
+    lines = []
+    accommodation_total = 0
+    for index, person in enumerate(people):
+        if not isinstance(person, dict):
+            return []
+        number = person.get('guest_number')
+        accommodation = person.get('accommodation_cents')
+        package = person.get('package_code')
+        if type(number) is not int or number != index + 1 or type(accommodation) is not int or accommodation < 0:
+            return []
+        source = next((row for row in base_items if row.get('guest_number') == number), None)
+        if source is None and len(base_items) == 1:
+            source = base_items[0]
+        nights = source.get('nights') if isinstance(source, dict) else None
+        unit = source.get('unit_cents') if isinstance(source, dict) else None
+        source_count = source.get('guest_count') if isinstance(source, dict) else None
+        if (type(nights) is not int or nights < 1 or type(unit) is not int or unit < 0
+                or unit * nights != accommodation
+                or (source.get('guest_number') is None and source_count != count)):
+            return []
+        guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
+        name = str(guest.get('name') or '').strip()
+        if not name:
+            name = f"{_style_copy(language)['guest']} {number}"
+        package_label = (_final_copy(language, 'accommodation') if package in
+                         ('package_none', 'none', 'accommodation_only', 'no_package')
+                         else str(package or '').removeprefix('package_').replace('_', ' ').title())
+        if not package_label:
+            return []
+        night_words = {'es': ('noche', 'noches'), 'fr': ('nuit', 'nuits'),
+                       'de': ('Nacht', 'Nächte')}.get(language, ('night', 'nights'))
+        night_label = night_words[0] if nights == 1 else night_words[1]
+        lines.append(f"• {name} · {package_label} · {nights} {night_label} × "
+                     f"{_guest_money(unit, currency)} = {_guest_money(accommodation, currency)}")
+        accommodation_total += accommodation
+    labels = {
+        'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
+                            'fr': 'Supplément chambre privée', 'de': 'Privatzimmerzuschlag'},
+        'yoga_class': {'en': 'Yoga class', 'es': 'Clase de yoga', 'fr': 'Cours de yoga', 'de': 'Yogastunde'},
+        'surf_lesson_single': {'en': 'Surf lesson', 'es': 'Clase de surf', 'fr': 'Cours de surf', 'de': 'Surfstunde'},
+        'surf_lesson_multi': {'en': 'Surf lessons', 'es': 'Clases de surf', 'fr': 'Cours de surf', 'de': 'Surfstunden'},
+        'soft_top_rental': {'en': 'Soft board rental', 'es': 'Alquiler de tabla soft', 'fr': 'Location de planche soft', 'de': 'Softboard-Miete'},
+        'hard_board_rental': {'en': 'Hard board rental', 'es': 'Alquiler de tabla rígida', 'fr': 'Location de planche rigide', 'de': 'Hardboard-Miete'},
+        'wetsuit_rental': {'en': 'Wetsuit rental', 'es': 'Alquiler de neopreno', 'fr': 'Location de combinaison', 'de': 'Neoprenanzug-Miete'},
+        'meals': {'en': 'Meals', 'es': 'Comidas', 'fr': 'Repas', 'de': 'Mahlzeiten'},
+    }
+    extras_total = 0
+    for row in extra_items:
+        code = row.get('code')
+        label = labels.get(code, {}).get(language)
+        unit = row.get('unit_cents')
+        amount = row.get('total_cents')
+        if not label or type(unit) is not int or unit < 0 or type(amount) is not int or amount < 0:
+            return []
+        if code == 'room_supplement':
+            quantity = row.get('nights')
+            unit_text = {'en': 'night', 'es': 'noche', 'fr': 'nuit', 'de': 'Nacht'}[language]
+            unit_text += '' if quantity == 1 else {'en': 's', 'es': 's', 'fr': 's', 'de': 'e'}[language]
+            prefix = f"{quantity} {unit_text}"
+        elif type(row.get('days')) is int:
+            quantity = row.get('quantity', row.get('people_count', 1))
+            days = row['days']
+            prefix = f"{quantity} × {days} " + {'en': 'days', 'es': 'días', 'fr': 'jours', 'de': 'Tage'}[language]
+        else:
+            quantity = row.get('quantity', 1)
+            prefix = str(quantity)
+        if type(quantity) is not int or quantity < 1:
+            return []
+        multiplier = quantity * (row.get('days') if type(row.get('days')) is int else 1)
+        if multiplier * unit != amount:
+            return []
+        lines.append(f"• {label} · {prefix} × {_guest_money(unit, currency)} = "
+                     f"{_guest_money(amount, currency)}")
+        extras_total += amount
+    return lines if accommodation_total + extras_total == total else []
+
+
 def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     """Render booking-saved truth without implying a payment was received."""
     copy = _style_copy(language)
@@ -988,6 +1094,10 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
     reference = receipt.get('booking_code') or receipt.get('booking_id')
     currency = offer.get('currency') or receipt.get('currency') or 'EUR'
     total = offer.get('total_cents')
+    invoice_lines = _staff_invoice_lines(plan, offer, language, currency)
+    if invoice_lines:
+        headline = (copy['invoice_saved'].format(name=name) if name
+                    else copy['invoice_saved_anon'])
     # The current payment-link receipt is newer payment truth than the accepted
     # offer. Fall back to the offer only when no link amount was returned.
     split = receipt.get('guest_payment_links')
@@ -1002,14 +1112,18 @@ def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
         paid_or_due = receipt.get('amount_due_cents')
     if type(paid_or_due) is not int and not isinstance(split, list):
         paid_or_due = offer.get('payment_link_amount_cents')
-    lines = [headline, '', f"📌 *{copy['booking']}:* {reference}",
-             f"📅 *{copy['dates']}:* {_styled_dates_value(plan, offer, language, include_nights=True)}",
-             f"🛏️ *{copy['room']}:* {_styled_room_value(plan, offer, language)}",
-             f"👥 *{copy['guests']}:* {offer.get('guest_count', plan.get('guest_count'))}"]
+    if invoice_lines:
+        lines = [headline, '', f"📌 *{copy['booking']}:* {reference}", '', *invoice_lines]
+    else:
+        lines = [headline, '', f"📌 *{copy['booking']}:* {reference}",
+                 f"📅 *{copy['dates']}:* {_styled_dates_value(plan, offer, language, include_nights=True)}",
+                 f"🛏️ *{copy['room']}:* {_styled_room_value(plan, offer, language)}",
+                 f"👥 *{copy['guests']}:* {offer.get('guest_count', plan.get('guest_count'))}"]
     if type(total) is int:
         lines.append(f"💶 *{copy['total']}:* {_guest_money(total, currency)}")
         if type(paid_or_due) is int:
-            lines.append(f"💳 *{copy['due']}:* {_guest_money(paid_or_due, currency)}")
+            due_label = copy['deposit_due'] if invoice_lines and paid_or_due < total else copy['due']
+            lines.append(f"💳 *{due_label}:* {_guest_money(paid_or_due, currency)}")
             remaining = total - paid_or_due
             if remaining:
                 lines.append(f"⏳ *{copy['remaining']}:* {_guest_money(remaining, currency)}")

@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import hashlib
+from copy import deepcopy
 from typing import Any, Dict
 
 # Fail-open input validation (step 3). Defensive import so a missing/broken module
@@ -1123,6 +1124,12 @@ def quote_booking(params, **kwargs):
     total = data.get("quote_total_cents") or quote.get("total_cents") or data.get("total_cents")
     deposit = data.get("deposit_required_cents") or quote.get("deposit_required_cents")
     balance = data.get("balance_due_cents") or quote.get("balance_due_cents")
+    # Freeze Staff's invoice authority with the commercial offer. Receipt copy
+    # must never reconstruct prices from request fields after acceptance.
+    offer_revision = deepcopy(data.get("offer_revision"))
+    if isinstance(offer_revision, dict):
+        offer_revision["per_person"] = deepcopy(data.get("per_person") or quote.get("per_person") or [])
+        offer_revision["included_items"] = deepcopy(data.get("included_items") or quote.get("included_items") or [])
     remaining_after_deposit = None
     if total is not None and deposit is not None:
         try:
@@ -1155,7 +1162,7 @@ def quote_booking(params, **kwargs):
         "tool": "quote_booking",
         # Authority comes only from this Staff response, never request fields.
         "availability": data.get("availability"),
-        "offer_revision": data.get("offer_revision"),
+        "offer_revision": offer_revision,
         "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
         **{key: payload[key] for key in ("guest_name", "guests") if key in payload},
         "total_cents": total,
@@ -5279,7 +5286,7 @@ def register(ctx):
         ("interpret_booking_turn", "Optional compatibility diagnostic for ordinary booking intent. Also proposes a placement-only keep_together=false revision when the guest explicitly agrees to separate rooms, including after a stock refusal. This proposal never authorizes create_booking_from_plan: a fresh checked and presented offer and its acceptance are required.", interpret_booking_turn, intent_interpretation,
          ["action", "action_evidence", "ambiguous", "negated", "conditional", "material_changes", "completions"]),
         ("check_availability", "Check real Wolfhouse bed availability. Use before any availability claim. Preserve explicit whole-party composition and established person facts on availability and carry them into quote; never infer gender from names, a room request, or payment choice. Partial-party facts remain person-bound and must not be generalized. Resolve any needed room/composition choice before quote/payment, never after payment intent.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
-        ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
+        ("quote_booking", "Get a Staff API-backed booking quote. Resolve room choice before payment intent; reuse accepted safe rooms. After payment intent, missing eligibility gets one neutral room-choice recovery, never a gender/composition question. Use before saying totals, deposit, balance, or included items. Carry all selected add_ons (including yoga) when changing room, dates, package or payment; do not drop them just because another field changed. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest asks for a private couples room and private_room_available was true, re-call with room_preference couple_private before create. State the Staff-returned room_supplement and new total, ask whether the new price is OK, and wait for explicit approval before switching or creating. Never hard-code or calculate the supplement.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. Reuse accepted safe room choices without reopening gender/composition intake. If eligibility is missing at this consent/payment boundary, use one neutral room-choice recovery; never guess group_gender. For groups always pass guests:[{name}] (one entry per person, including full payment) so every occupant/bed keeps its own name. Keep payment_choice as selected by the guest. Preserve the accepted add_ons codes and quantities for short AND weekly stays, including yoga; do not add those services again after create. For stays below the returned Admin package_min_nights, use package_none only with the guest's agreement and keep add_ons bundled in the quote. Retain catalog_selections on every quote/create; a catalog refusal is terminal for that selection, not permission to create without it. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
