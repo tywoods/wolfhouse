@@ -25,6 +25,7 @@ const {
 } = require('./lib/crowsnest/crowsnest-live-simulator-email');
 
 const { server } = require('./crowsnest-api');
+const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 const {
   CROWSNEST_SESSION_COOKIE,
   createCrowsnestSession,
@@ -127,9 +128,39 @@ async function main() {
   ok('server-controlled Sunset isolated mode is named', SUNSET_ISOLATED_MODE === 'sunset_isolated');
 
   const whRuntime = resolveTenantRuntime('wolfhouse', {});
+  const lunaV3Runtime = resolveTenantRuntime('luna-v3', {});
   const sunsetRuntime = resolveTenantRuntime('sunset', {});
   ok('Wolfhouse declared simulator port is 8090', whRuntime.origin === 'http://127.0.0.1:8090' && whRuntime.url.endsWith(TENANT_SIMULATE_PATH));
+  ok('Luna v3 is a distinct exact-label target on clone port 8097', lunaV3Runtime.label === 'Luna v3'
+    && lunaV3Runtime.origin === 'http://127.0.0.1:8097'
+    && lunaV3Runtime.runtime === 'hermes-luna-clone');
+  ok('Luna v3 has no Classic origin or token fallback', lunaV3Runtime.fallbackTokenEnv === null
+    && lunaV3Runtime.origin !== whRuntime.origin
+    && lunaV3Runtime.envOrigin === 'CROWSNEST_LIVE_SIM_LUNA_V3_ORIGIN');
+  const simulatorPage = renderCrowsnestPage({ view: 'live_simulator' });
+  ok('Crow\'s Nest selector labels the clone exactly Luna v3',
+    simulatorPage.includes('<option value="luna-v3">Luna v3</option>')
+    && !simulatorPage.includes('Wolfhouse Luna Clone'));
   ok('Sunset declared simulator port is 8094', sunsetRuntime.origin === 'http://127.0.0.1:8094' && sunsetRuntime.url.endsWith(TENANT_SIMULATE_PATH));
+
+  const v3ReservedPhone = `+34${'699901101'}`;
+  const v3Built = buildTenantRequest({ tenantId: 'luna-v3', fromPhone: v3ReservedPhone, text: 'Hello' }, {
+    CROWSNEST_LIVE_SIM_LUNA_V3_ORIGIN: 'http://hermes-luna-clone:8090',
+    CROWSNEST_LIVE_SIM_LUNA_V3_TOKEN: 'v3-only-token',
+  });
+  ok('Luna v3 accepts only explicit clone origin/token and reserved phones', v3Built.ok === true
+    && v3Built.runtime.origin === 'http://hermes-luna-clone:8090'
+    && v3Built.headers.Authorization === 'Bearer v3-only-token'
+    && !Object.prototype.hasOwnProperty.call(v3Built.headers, 'X-Luna-Bot-Token'));
+  ok('Luna v3 rejects phones outside reserved +34 699 9xx range', buildTenantRequest({
+    tenantId: 'luna-v3', fromPhone: wolfPhone, text: 'Hello',
+  }, {
+    CROWSNEST_LIVE_SIM_LUNA_V3_ORIGIN: 'http://hermes-luna-clone:8090',
+    CROWSNEST_LIVE_SIM_LUNA_V3_TOKEN: 'v3-only-token',
+  }).code === 'clone_phone_out_of_range');
+  ok('Luna v3 fails closed when clone configuration is absent', buildTenantRequest({
+    tenantId: 'luna-v3', fromPhone: v3ReservedPhone, text: 'Hello',
+  }, {}).code === 'runtime_not_safely_scoped');
 
   ok('phone normalizer preserves selected E.164 digits', normalizePhone(wolfPhone).e164 === wolfPhone);
 

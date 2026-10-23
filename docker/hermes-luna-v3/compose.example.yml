@@ -1,0 +1,32 @@
+services:
+  hermes-luna-clone:
+    image: ${LUNA_V3_IMAGE:?set reviewed Luna v3 image}
+    container_name: hermes-luna-clone
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8097:8090"
+    cpus: 1.5
+    mem_limit: 1g
+    volumes:
+      - ${LUNA_V3_HOME:?set isolated clone home}:/opt/data
+      - ${LUNA_V3_AUTH_HOME:?set isolated clone auth home}:/opt/data/.auth-shared
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: luna-v3
+      HERMES_DASHBOARD: "0"
+      GENERIC_TIMEZONE: Europe/Madrid
+      LUNA_V3_TENANT_ID: wolfhouse-somo
+      LUNA_V3_STAFF_API_BASE_URL: https://staff-staging.lunafrontdesk.com
+      LUNA_V3_EXTERNAL_SEND_ENABLED: "false"
+      LUNA_V3_STAFF_ALERTS_ENABLED: "false"
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      API_SERVER_PORT: "8090"
+      API_SERVER_KEY: ${CLONE_SIMULATOR_TOKEN:?set clone-only simulator token}
+    env_file:
+      - ${LUNA_V3_ENV_FILE:?set clone-only secret env file}
+    healthcheck:
+      test: ["CMD", "python", "/etc/hermes-luna-v3/bootstrap.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
