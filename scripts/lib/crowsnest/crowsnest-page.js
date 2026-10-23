@@ -3534,6 +3534,7 @@ function renderLiveSimulatorMain() {
               <select id="live-simulator-tenant" name="tenant" data-live-simulator-tenant>
                 <option value="sunset">Sunset Luna</option>
                 <option value="wolfhouse">Wolfhouse Luna</option>
+                <option value="luna-v3">Luna v3</option>
               </select>
             </label>
             <label for="live-simulator-phone" data-live-simulator-whatsapp-field>From phone

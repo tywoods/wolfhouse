@@ -1,0 +1,23 @@
+name: luna-v3-staff-api
+version: "1.0"
+description: Narrow Staff API tools for the isolated model-led Luna v3 clone
+requires_env:
+  - LUNA_V3_STAFF_API_BASE_URL
+  - LUNA_V3_STAFF_API_TOKEN
+  - LUNA_V3_TENANT_ID
+provides_tools:
+  - check_availability
+  - find_rooms
+  - get_pricing_catalog
+  - quote
+  - hold_beds
+  - book
+  - release_hold
+  - get_booking
+  - get_payment_status
+  - send_payment_link
+  - cancel_unpaid
+  - read_notes
+  - write_note
+  - save_transfer_request
+  - handoff_to_human
