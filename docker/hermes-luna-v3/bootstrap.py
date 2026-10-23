@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 FORBIDDEN_ENV = (
     "TELEGRAM_BOT_TOKEN",
@@ -42,5 +43,26 @@ def validate_environment(env: dict[str, str] | None = None) -> None:
         raise RuntimeError(f"forbidden transport credentials present: {','.join(present)}")
 
 
+def validate_effective_platforms(config=None) -> None:
+    """Require the fully resolved gateway configuration to be API-only."""
+    if config is None:
+        from gateway.config import load_gateway_config
+
+        config = load_gateway_config()
+
+    enabled = {
+        getattr(platform, "value", str(platform))
+        for platform, platform_config in config.platforms.items()
+        if platform_config.enabled
+    }
+    if enabled != {"api_server"}:
+        rendered = ",".join(sorted(enabled)) or "none"
+        raise RuntimeError(
+            f"effective gateway platforms must be api_server only; enabled: {rendered}"
+        )
+
+
 if __name__ == "__main__":
     validate_environment()
+    if "--validate-platforms" in sys.argv[1:]:
+        validate_effective_platforms()

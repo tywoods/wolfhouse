@@ -45,6 +45,10 @@ gateway:
 YAML
 chmod 0600 "$HERMES_HOME/config.yaml"
 
+# Resolve the generated config through Hermes' authentic environment override
+# path, then fail closed unless API server is the only enabled platform.
+python /etc/hermes-luna-v3/bootstrap.py --validate-platforms
+
 # Never persist or synthesize messaging credentials in the clone home.
 for forbidden in TELEGRAM_BOT_TOKEN WHATSAPP_CLOUD_ACCESS_TOKEN WHATSAPP_CLOUD_APP_SECRET WHATSAPP_CLOUD_VERIFY_TOKEN WHATSAPP_CLOUD_PHONE_NUMBER_ID META_ACCESS_TOKEN SMTP_PASSWORD EMAIL_ADDRESS EMAIL_PASSWORD EMAIL_IMAP_HOST EMAIL_SMTP_HOST; do
   if printenv "$forbidden" >/dev/null 2>&1 && [ -n "$(printenv "$forbidden")" ]; then

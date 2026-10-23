@@ -89,6 +89,34 @@ class SimulatorRouteTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, name):
                 self.bootstrap.validate_environment({**base, name: value})
 
+    def test_preflight_requires_api_server_as_the_only_effective_platform(self):
+        class PlatformConfig:
+            def __init__(self, enabled):
+                self.enabled = enabled
+
+        class GatewayConfig:
+            def __init__(self, platforms):
+                self.platforms = platforms
+
+        self.bootstrap.validate_effective_platforms(GatewayConfig({
+            "api_server": PlatformConfig(True),
+            "discord": PlatformConfig(False),
+        }))
+
+        contaminated = (
+            {"api_server": True, "discord": True},
+            {"api_server": True, "sms": True},
+            {"api_server": True, "future_transport": True},
+        )
+        for platforms in contaminated:
+            with self.subTest(platforms=platforms), self.assertRaisesRegex(
+                RuntimeError, "api_server only"
+            ):
+                self.bootstrap.validate_effective_platforms(GatewayConfig({
+                    name: PlatformConfig(enabled)
+                    for name, enabled in platforms.items()
+                }))
+
 
 if __name__ == "__main__":
     unittest.main()
