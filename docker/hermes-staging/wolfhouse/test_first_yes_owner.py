@@ -548,6 +548,62 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.interpret_accept('Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
 
+    def test_declining_private_requote_restores_shared_offer_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        shared_fingerprint = shared['offer_revision']['offer_fingerprint']
+
+        self.turn('ask-private', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        self.turn('decline-private', 'No, keep the shared beds')
+        result = ledger.interpret_owner_turn({
+            'action': 'reject', 'action_evidence': 'No, keep the shared beds',
+            'ambiguous': False, 'negated': True, 'conditional': False,
+            'material_changes': [], 'completions': {},
+        })
+        self.assertEqual(result['next_action'], 'do_not_create')
+        state = ledger._transaction(lambda owner, ingress: deepcopy(owner))
+        self.assertEqual(state['checked_offer']['offer_fingerprint'], shared_fingerprint)
+        self.assertEqual(state['plan']['room_type'], 'shared')
+
+        self.turn('later-yes', 'Yes, book the shared beds')
+        self.interpret_accept('Yes, book the shared beds')
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
+        self.assertEqual(prepared['room_type'], 'shared')
+
+    def test_explicit_private_approval_keeps_private_offer_authority(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+
+        self.turn('ask-private-approval', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        self.turn('approve-private', 'Yes, book the private room')
+        self.interpret_accept('Yes, book the private room')
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'],
+                         private['offer_revision']['offer_fingerprint'])
+        self.assertEqual(prepared['room_type'], 'private')
+
     def _checked_offer(self, plan, beds, quote_overrides=None):
         # Mirror the registered quote's canonical wire aliases before Staff's
         # real JS offer builder fingerprints the deterministic offline response.

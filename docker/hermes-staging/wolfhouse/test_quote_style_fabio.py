@@ -134,6 +134,58 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertNotIn("here's your invoice", text)
         self.assertIn("📅 *Dates:*", text)
 
+    def test_saved_booking_receipt_rejects_unconsumed_duplicate_and_inconsistent_rows(self):
+        plan = {**self.plan, "check_out": "2026-11-11", "guest_count": 2,
+                "guests": [{"name": "Jack"}, {"name": "Jill"}]}
+        valid_people = [
+            {"guest_number": 1, "package_code": "waimea",
+             "accommodation_cents": 80000, "subtotal_cents": 80000},
+            {"guest_number": 2, "package_code": "waimea",
+             "accommodation_cents": 80000, "subtotal_cents": 80000},
+        ]
+        valid_items = [
+            {"code": "guest_package_proration", "guest_number": 1, "nights": 10,
+             "unit_cents": 8000, "total_cents": 80000},
+            {"code": "guest_package_proration", "guest_number": 2, "nights": 10,
+             "unit_cents": 8000, "total_cents": 80000},
+        ]
+        cases = {
+            "unknown_guest_extra": valid_items + [
+                {"code": "guest_mystery", "guest_number": 3, "nights": 1,
+                 "unit_cents": 0, "total_cents": 0}],
+            "duplicate_base_line": valid_items + [dict(valid_items[0])],
+            "missing_person_base_line": valid_items[:1],
+            "malformed_extra": valid_items + ["not-a-row"],
+        }
+        receipt = {"booking_code": "WH-FALLBACK", "amount_due_cents": 40000}
+        for label, items in cases.items():
+            with self.subTest(label=label):
+                offer = {**self.offer, **plan, "total_cents": 160000,
+                         "per_person": valid_people, "included_items": items}
+                text = owner._styled_booking_receipt_copy(plan, offer, receipt, "en")
+                self.assertNotIn("here's your invoice", text)
+                self.assertIn("📅 *Dates:*", text)
+        mismatched = [dict(valid_people[0]), {**valid_people[1], "subtotal_cents": 79999}]
+        text = owner._styled_booking_receipt_copy(
+            plan, {**self.offer, **plan, "total_cents": 160000,
+                   "per_person": mismatched, "included_items": valid_items}, receipt, "en")
+        self.assertNotIn("here's your invoice", text)
+        self.assertIn("📅 *Dates:*", text)
+
+    def test_private_quote_discloses_staff_supplement_before_approval(self):
+        plan = {**self.plan, "room_type": "private", "room_preference": "couple_private"}
+        offer = {**self.offer, **plan, "total_cents": 172500,
+                 "included_items": [
+                     {"code": "accommodation_only", "guest_number": 1, "nights": 8,
+                      "unit_cents": 20000, "total_cents": 160000},
+                     {"code": "room_supplement", "quantity": 1,
+                      "unit_cents": 12500, "total_cents": 12500}]}
+        text = owner._styled_quote_copy(plan, offer, "en", create_ready=True)
+        self.assertIn("Private room supplement", text)
+        self.assertIn("€125", text)
+        self.assertIn("💶 *Total:* €1725", text)
+        self.assertLess(text.index("€125"), text.index("Shall I save"))
+
     def test_itemised_per_guest_payment_uses_generic_due_label(self):
         plan = {**self.plan, "payment_choice": "per_guest"}
         offer = {**self.offer, **plan,

@@ -898,6 +898,18 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
                 else:
                     values.append(f'{label} ×{count}' if count != 1 else label)
         if values: lines.append(f"🌊 *{_final_copy(language, 'extras')}:* " + ', '.join(values))
+    supplement_rows = [row for row in (offer.get('included_items') or [])
+                       if isinstance(row, dict) and row.get('code') == 'room_supplement']
+    if offer.get('room_type') == 'private' and len(supplement_rows) == 1:
+        supplement = supplement_rows[0].get('total_cents')
+        if type(supplement) is int and supplement > 0:
+            supplement_label = {
+                'en': 'Private room supplement',
+                'es': 'Suplemento de habitación privada',
+                'fr': 'Supplément chambre privée',
+                'de': 'Privatzimmerzuschlag',
+            }.get(language, 'Private room supplement')
+            lines.append(f"➕ *{supplement_label}:* {_guest_money(supplement, currency)}")
     if type(total) is int:
         due = offer.get('payment_link_amount_cents')
         full_only = (offer.get('full_payment_only') is True
@@ -1002,12 +1014,27 @@ def _staff_invoice_lines(plan, offer, language, currency):
             or count < 1 or len(people) != count):
         return []
     guests = plan.get('guests') if isinstance(plan.get('guests'), list) else []
-    base_codes = {'package', 'package_proration', 'accommodation_only', 'manual_accommodation'}
-    base_items = [row for row in items if isinstance(row, dict) and
-                  (row.get('code') in base_codes or str(row.get('code') or '').startswith('guest_'))]
-    extra_items = [row for row in items if isinstance(row, dict) and row not in base_items]
-    if not base_items:
+    if any(not isinstance(row, dict) for row in items):
         return []
+    base_codes = {'package', 'package_proration', 'accommodation_only', 'manual_accommodation'}
+    guest_base_codes = {f'guest_{code}' for code in base_codes}
+    recognized_base_codes = base_codes | guest_base_codes
+    base_items = [row for row in items if row.get('code') in recognized_base_codes]
+    extra_items = [row for row in items if row not in base_items]
+    if not base_items or any(str(row.get('code') or '').startswith('guest_')
+                             for row in extra_items):
+        return []
+    generic_base = [row for row in base_items if row.get('guest_number') is None]
+    numbered_base = [row for row in base_items if row.get('guest_number') is not None]
+    if ((generic_base and (len(generic_base) != 1 or numbered_base))
+            or (numbered_base and len(numbered_base) != count)):
+        return []
+    numbered_by_guest = {}
+    for row in numbered_base:
+        number = row.get('guest_number')
+        if type(number) is not int or not 1 <= number <= count or number in numbered_by_guest:
+            return []
+        numbered_by_guest[number] = row
     lines = []
     accommodation_total = 0
     for index, person in enumerate(people):
@@ -1018,9 +1045,7 @@ def _staff_invoice_lines(plan, offer, language, currency):
         package = person.get('package_code')
         if type(number) is not int or number != index + 1 or type(accommodation) is not int or accommodation < 0:
             return []
-        source = next((row for row in base_items if row.get('guest_number') == number), None)
-        if source is None and len(base_items) == 1:
-            source = base_items[0]
+        source = numbered_by_guest.get(number) or (generic_base[0] if generic_base else None)
         nights = source.get('nights') if isinstance(source, dict) else None
         unit = source.get('unit_cents') if isinstance(source, dict) else None
         source_count = source.get('guest_count') if isinstance(source, dict) else None
@@ -1048,6 +1073,9 @@ def _staff_invoice_lines(plan, offer, language, currency):
         night_label = night_words[0] if nights == 1 else night_words[1]
         lines.append(f"• {name} · {package_label} · {nights} {night_label} × "
                      f"{_guest_money(unit, currency)} = {_guest_money(accommodation, currency)}")
+        subtotal = person.get('subtotal_cents')
+        if type(subtotal) is not int or subtotal < accommodation:
+            return []
         accommodation_total += accommodation
     labels = {
         'room_supplement': {'en': 'Private room supplement', 'es': 'Suplemento de habitación privada',
@@ -1088,7 +1116,9 @@ def _staff_invoice_lines(plan, offer, language, currency):
         lines.append(f"• {label} · {prefix} × {_guest_money(unit, currency)} = "
                      f"{_guest_money(amount, currency)}")
         extras_total += amount
-    return lines if accommodation_total + extras_total == total else []
+    subtotals_total = sum(person['subtotal_cents'] for person in people)
+    return lines if (accommodation_total + extras_total == total
+                     and subtotals_total == total) else []
 
 
 def _styled_booking_receipt_copy(plan, offer, receipt, language='en'):
@@ -1937,6 +1967,13 @@ def interpret_owner_turn(interpretation):
         if (action != 'accept' or interpretation['ambiguous'] or interpretation['negated']
                 or interpretation['conditional'] or changes):
             # Keep the presentation for a targeted follow-up, but issue no create authority.
+            if interpretation['negated'] or action == 'reject':
+                fallback = state.pop('private_decline_fallback', None)
+                if (isinstance(fallback, dict)
+                        and (state.get('checked_offer') or {}).get('room_type') == 'private'
+                        and (fallback.get('checked_offer') or {}).get('room_type') == 'shared'):
+                    for key, value in fallback.items():
+                        state[key] = deepcopy(value)
             state.update(status='offered', auto_acceptance=False)
             state.pop('acceptance_message', None)
             state.pop('acceptance_raw_digest', None)
@@ -2070,6 +2107,7 @@ def interpret_owner_turn(interpretation):
             }
             checked_ready = False
         raw_digest = hashlib.sha256(raw.encode()).hexdigest()
+        state.pop('private_decline_fallback', None)
         state.update(status='accepted', acceptance_message=ingress['MESSAGE_ID'],
                      acceptance_raw_digest=raw_digest, auto_acceptance=checked_ready,
                      accepted_offer_snapshot=(deepcopy(state['checked_offer'])
@@ -2613,6 +2651,18 @@ def record_quote(params, response):
                 completion_plan['payment_choice'] = 'full'
         previous_checked = state.get('checked_offer')
         previous_plan = state.get('plan') if isinstance(state.get('plan'), dict) else {}
+        previous_presentation = state.get('presentation')
+        if (checked is not None and checked.get('room_type') == 'private'
+                and isinstance(previous_checked, dict)
+                and previous_checked.get('room_type') == 'shared'
+                and isinstance(previous_presentation, dict)):
+            state['private_decline_fallback'] = deepcopy({
+                key: state.get(key) for key in (
+                    'checked_offer', 'presented_offer', 'presentation', 'quote', 'plan',
+                    'completion_plan', 'offer_message')
+            })
+        elif checked is not None and checked.get('room_type') != 'private':
+            state.pop('private_decline_fallback', None)
         total = response.get('total_cents')
         valid = response.get('success') is True and type(total) is int and total > 0
         provisional = _incomplete_payment_revision(response, ingress['tenant'], prepared)
