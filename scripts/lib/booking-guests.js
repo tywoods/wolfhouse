@@ -7,7 +7,6 @@
 
 const { calculateWolfhouseQuote, loadConfig, catalogPackageCodes } = require('./wolfhouse-quote-calculator');
 const { computeStayNights, evaluatePackageEligibility } = require('./wolfhouse-package-night-rules');
-const { wolfhouseStayDepositRateCents, wolfhouseDepositRatesFromConfig } = require('./wolfhouse-stay-deposit');
 
 const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
 const PACKAGE_PREVIEW_CODES = ['malibu', 'uluwatu', 'waimea'];
@@ -147,44 +146,6 @@ function isCatalogPackageCode(code, config) {
   if (!c) return false;
   const pkgs = config && Array.isArray(config.packages) ? config.packages : [];
   return pkgs.some((p) => String(p && p.code || '').trim().toLowerCase() === c);
-}
-
-/**
- * Deposit tier for one guest (anchor: wolfhouse-quote-calculator deposit section).
- */
-function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride, rates) {
-  // Ty locked 2026-09-29: nights only. Package and manual-override no longer
-  // pick the tier. Amounts come from Admin Pricing tiers on config.
-  void packageCode;
-  void isManualOverride;
-  const resolved = rates || wolfhouseDepositRatesFromConfig(config);
-  const rate = wolfhouseStayDepositRateCents(nights, resolved);
-  return rate == null ? 0 : rate;
-}
-
-/**
- * Build per-guest deposit list aligned with guest_packages or uniform package.
- */
-function buildPerGuestDepositList(config, input, nights, guestCount, normalizedGuestPackages, normalizedPackage, isManualOverride) {
-  const list = [];
-  if (normalizedGuestPackages.length > 0) {
-    for (const gp of normalizedGuestPackages) {
-      list.push({
-        guest_number: gp.guest_number,
-        package_code: gp.package_code,
-        deposit_cents: computeGuestDepositTierCents(config, gp.package_code, nights, isManualOverride),
-      });
-    }
-    return list;
-  }
-  for (let i = 1; i <= guestCount; i++) {
-    list.push({
-      guest_number: i,
-      package_code: normalizedPackage,
-      deposit_cents: computeGuestDepositTierCents(config, normalizedPackage, nights, isManualOverride),
-    });
-  }
-  return list;
 }
 
 /**
@@ -364,22 +325,13 @@ function computePackagePricePreview(input, config) {
       packages[code] = withRealInclusions({ success: false, blockers: quote.blockers || [] }, config, code, nights, quote.room_type);
       continue;
     }
-    const perGuestDeposits = buildPerGuestDepositList(
-      config,
-      input,
-      quote.nights,
-      guestCount,
-      [],
-      code,
-      false,
-    );
-    const depositPerGuest = perGuestDeposits[0] ? perGuestDeposits[0].deposit_cents : quote.deposit_required_cents;
+    const depositPerGuest = quote.per_guest_deposits[0].deposit_cents;
     packages[code] = {
       success: true,
       total_cents: quote.total_cents,
       per_person_cents: Math.round(quote.total_cents / guestCount),
       deposit_per_guest_cents: depositPerGuest,
-      deposit_total_cents: depositPerGuest * guestCount,
+      deposit_total_cents: quote.deposit_required_cents,
       currency: quote.currency,
       nights: quote.nights,
       season_code: quote.season_code,
@@ -578,8 +530,6 @@ module.exports = {
   normalizeBotBookingPaymentChoice,
   mapBotBookingCreateErrorToBlockedReason,
   mapBotBookingCreateBlockedHttp,
-  computeGuestDepositTierCents,
-  buildPerGuestDepositList,
   buildPerPersonBreakdown,
   computePackagePricePreview,
   insertBookingGuestsForBooking,

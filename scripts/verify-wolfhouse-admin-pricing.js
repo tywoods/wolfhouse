@@ -1068,9 +1068,12 @@ function uiChecks() {
   ok('Bilbao surfaces its group minimum', html.includes('min group') && html.includes('4'));
   ok('deposits render in euros',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€200.00'));
-  ok('deposit cards name the night bands',
-    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('6 nights or more')
-    && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('5 nights or fewer'));
+  const depositCards = runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html;
+  ok('deposit cards name per-person package tiers, not night bands',
+    depositCards.includes('With package · per person')
+    && depositCards.includes('Accommodation only · per person')
+    && !depositCards.includes('6 nights or more')
+    && !depositCards.includes('5 nights or fewer'));
   ok('the private room supplement renders',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€10.00'));
   ok('promoted extras offer Delete inside the edit panel',

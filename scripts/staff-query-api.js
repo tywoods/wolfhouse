@@ -12398,6 +12398,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
             group_gender: body.group_gender,
             room_preference: body.room_preference,
             gender_preference: body.gender_preference,
+            keep_together: body.keep_together,
             selected_bed_codes: body.selected_bed_codes,
           },
           demoCalendarEnrichment: true,
