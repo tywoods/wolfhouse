@@ -23,7 +23,6 @@ const path = require('path');
 const { evaluatePackageEligibility, validateStaffPackageNightRule } = require('./wolfhouse-package-night-rules');
 const {
   wolfhouseStayDepositRateCents,
-  wolfhouseStayDepositCents,
   wolfhouseDepositRatesFromConfig,
 } = require('./wolfhouse-stay-deposit');
 const { resolveSeasonForDate } = require('./wolfhouse-pricing-resolve');
@@ -86,13 +85,8 @@ function isCatalogPackageCode(config, code) {
 }
 
 function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride, rates) {
-  // Ty locked 2026-09-29: >=6 nights uses the long Admin Pricing rate,
-  // <=5 nights uses the short rate. Package name and manual override do
-  // not pick the tier. Amounts come from config deposits when present.
-  void packageCode;
-  void isManualOverride;
   const resolved = rates || wolfhouseDepositRatesFromConfig(config);
-  const rate = wolfhouseStayDepositRateCents(nights, resolved);
+  const rate = wolfhouseStayDepositRateCents(nights, resolved, isManualOverride ? 'manual_override' : packageCode);
   return rate == null ? 0 : rate;
 }
 
@@ -586,26 +580,14 @@ function calculateWolfhouseQuote(input, config) {
   const total_cents    = subtotal_cents - discount_cents;
 
   // ── 11. Deposit tier ──────────────────────────────────────────────────────
-  // Weekly surf packs (Malibu/Uluwatu/Waimea) use the package deposit even
-  // when a 7+ night stay is priced across more than one week. Custom,
-  // accommodation-only, and under-7-night stays use the short/custom tier.
-  const usesPackageDeposit = (hasGuestPackages
-    ? normalizedGuestPackages.some((gp) => KNOWN_PACKAGES.includes(gp.package_code))
-    : KNOWN_PACKAGES.includes(normalizedPackage))
-    && nights >= 7
-    && !isManualOverride;
+  // Every guest's package selects the Staff Pricing tier. Eligibility was
+  // checked above; nights must not independently select a deposit rate.
   const stayDepositRates = (input && input.stay_deposit_rates)
     || wolfhouseDepositRatesFromConfig(config);
-  const singleTierDepositCents = wolfhouseStayDepositRateCents(nights, stayDepositRates)
-    || (usesPackageDeposit
-      ? config.deposits.tiers.standard_package.amount_cents
-      : config.deposits.tiers.custom_or_short_stay.amount_cents);
+  const singleTierDepositCents = computeGuestDepositTierCents(
+    config, effectivePackageCode, nights, isManualOverride, stayDepositRates,
+  );
 
-  // Deposit is ALWAYS per guest: €200/guest for a named package (7+ nights),
-  // €100/guest for no-package / short stays. Every guest is priced individually
-  // so mixed per-guest packages and any headcount total correctly. (Previously a
-  // non-per-guest booking returned a single flat tier that ignored guest count,
-  // e.g. a 3-guest package deposit came out €200 instead of €600.)
   let per_guest_deposits = [];
   if (guests > 0) {
     if (hasGuestPackages) {
@@ -624,16 +606,6 @@ function calculateWolfhouseQuote(input, config) {
       }
     }
   }
-  const overlayDepositTier = usesPackageDeposit
-    ? (config.deposits && config.deposits.tiers && config.deposits.tiers.standard_package)
-    : (config.deposits && config.deposits.tiers && config.deposits.tiers.custom_or_short_stay);
-  void overlayDepositTier;
-  const ruledDeposit = wolfhouseStayDepositCents(nights, guests, stayDepositRates);
-  let deposit_required_cents = ruledDeposit != null
-    ? ruledDeposit
-    : (per_guest_deposits.length > 0
-      ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
-      : singleTierDepositCents);
 
   // The tier is a ceiling, not permission to collect more than a guest owes.
   // Derive exact commercial shares from the same line items used by per_person;
@@ -647,9 +619,7 @@ function calculateWolfhouseQuote(input, config) {
     ...row,
     deposit_cents: Math.min(row.deposit_cents, depositShares.find((g) => g.guest_number === row.guest_number).subtotal_cents),
   }));
-  if (per_guest_deposits.length) {
-    deposit_required_cents = per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0);
-  }
+  const deposit_required_cents = per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0);
 
   // ── 12. Payment link amount ───────────────────────────────────────────────
   let payment_link_amount_cents = 0;

@@ -1,15 +1,13 @@
 'use strict';
 
-// Ty locked 2026-09-29: stay length is nights. >=6 nights uses the long
-// rate, <=5 nights uses the short rate. Booking deposit is rate × guest count.
-// Amounts come from Admin Pricing when the caller has them
-// (standard_package = long stay, custom_or_short_stay = short stay).
-// Missing admin amounts fall back to €200 / €100. A stored flat €200 must
-// not win when nights and guest count are known. per_booking scope must not
-// collapse the total back to one guest.
-// Exception: per-guest date edits KEEP the historical stored booking deposit;
-// their booking dates are only an envelope, not a new deposit pricing basis.
-
+// Deposit tier follows the guest's package, never the length of the stay.
+// Staff Pricing owns standard_package / custom_or_short_stay amounts (defaults
+// €200 / €100 per person). Keep the legacy long_stay/short_stay rate keys for
+// existing Pricing readers; they now denote package / accommodation tiers.
+// Per-guest date edits KEEP the historical stored booking deposit: their dates
+// are only an envelope, not a new deposit pricing basis.
+const { isWeeklySurfPackage } = require('./wolfhouse-package-night-rules');
+// Deprecated compatibility export only; no deposit decision uses this threshold.
 const LONG_STAY_NIGHTS = 6;
 const LONG_STAY_RATE_CENTS = 20000;
 const SHORT_STAY_RATE_CENTS = 10000;
@@ -67,17 +65,17 @@ function wolfhouseStayNights(checkIn, checkOut) {
   return Number.isInteger(nights) && nights > 0 ? nights : null;
 }
 
-function wolfhouseStayDepositRateCents(nights, rates) {
+function wolfhouseStayDepositRateCents(nights, rates, packageCode) {
   const n = Number(nights);
   if (!Number.isInteger(n) || n < 1) return null;
   const resolved = normalizeStayDepositRates(rates);
   const longRate = resolved ? resolved.long_stay_cents : LONG_STAY_RATE_CENTS;
   const shortRate = resolved ? resolved.short_stay_cents : SHORT_STAY_RATE_CENTS;
-  return n >= LONG_STAY_NIGHTS ? longRate : shortRate;
+  return isWeeklySurfPackage(packageCode) ? longRate : shortRate;
 }
 
-function wolfhouseStayDepositCents(nights, guestCount, rates) {
-  const rate = wolfhouseStayDepositRateCents(nights, rates);
+function wolfhouseStayDepositCents(nights, guestCount, rates, packageCode) {
+  const rate = wolfhouseStayDepositRateCents(nights, rates, packageCode);
   const guests = Number(guestCount);
   if (rate == null || !Number.isInteger(guests) || guests < 1) return null;
   const total = rate * guests;
@@ -96,11 +94,41 @@ function wolfhouseBookingDepositCents(booking, rates) {
     return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
   }
   const useRates = normalizeStayDepositRates(rates) || normalizeStayDepositRates(booking.stay_deposit_rates);
-  const ruled = wolfhouseStayDepositCents(
-    wolfhouseStayNights(booking.check_in, booking.check_out),
-    booking.guest_count,
-    useRates,
-  );
+  const nights = wolfhouseStayNights(booking.check_in, booking.check_out);
+  const metadata = booking.metadata || {};
+  const guestPackages = [booking.guest_packages, metadata.guest_packages, snapshot && snapshot.guest_packages]
+    .find(rows => Array.isArray(rows) && rows.length > 0);
+  const packageCode = booking.package_code || metadata.package_code || (snapshot && snapshot.package_code);
+  const shares = snapshot && snapshot.per_person;
+  let ruled;
+  if (guestPackages || shares != null) {
+    // Current Pricing supplies tiers; the persisted quote supplies each person's
+    // commercial ceiling. A whole-invoice cap cannot preserve a cheap guest's cap.
+    if (shares != null && (!Array.isArray(shares) || shares.length !== Number(booking.guest_count))) return null;
+    const rows = guestPackages || shares.map(person => ({ guest_number: person && person.guest_number, package_code: packageCode }));
+    if (rows.length !== Number(booking.guest_count)) return null;
+    const seen = new Set();
+    const amounts = rows.map(row => {
+      if (!row || typeof row.package_code !== 'string' || !row.package_code.trim()) return null;
+      const rate = wolfhouseStayDepositRateCents(nights, useRates, row.package_code);
+      if (rate == null || shares == null) return rate;
+      const number = row.guest_number;
+      if (!Number.isInteger(number) || number < 1 || number > rows.length || seen.has(number)) return null;
+      seen.add(number);
+      const matches = shares.filter(person => person && person.guest_number === number);
+      if (matches.length !== 1) return null;
+      const person = matches[0];
+      const identity = code => isWeeklySurfPackage(code) ? String(code).trim().toLowerCase() : 'package_none';
+      if (identity(person.package_code) !== identity(row.package_code)
+        || !Number.isSafeInteger(person.subtotal_cents) || person.subtotal_cents < 0) return null;
+      return Math.min(rate, person.subtotal_cents);
+    });
+    if (amounts.some(amount => amount == null)) return null;
+    ruled = amounts.reduce((sum, amount) => sum + amount, 0);
+    if (!Number.isSafeInteger(ruled)) return null;
+  } else {
+    ruled = wolfhouseStayDepositCents(nights, booking.guest_count, useRates, packageCode);
+  }
   if (ruled != null) return ruled;
   if (booking.deposit_required_cents == null || booking.deposit_required_cents === '') return null;
   const stored = Number(booking.deposit_required_cents);
