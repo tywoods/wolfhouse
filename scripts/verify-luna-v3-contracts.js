@@ -435,11 +435,32 @@ function assertFixtureCoverageNegatives() {
     () => assertScriptDates(invalidDate, 'guest-05-lifecycle.json'),
     'invalid calendar date 2027-99-99 stayed eligible',
   );
+  const confirmedTrue = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  confirmedTrue.dates.stock_pricing_confirmed = true;
+  assert.throws(
+    () => assertScriptDates(confirmedTrue, 'guest-05-lifecycle.json'),
+    'stock_pricing_confirmed true stayed eligible',
+  );
+  const confirmedNull = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  confirmedNull.dates.stock_pricing_confirmed = null;
+  assert.throws(
+    () => assertScriptDates(confirmedNull, 'guest-05-lifecycle.json'),
+    'stock_pricing_confirmed null stayed eligible',
+  );
+  const confirmedMissing = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  delete confirmedMissing.dates.stock_pricing_confirmed;
+  assert.throws(
+    () => assertScriptDates(confirmedMissing, 'guest-05-lifecycle.json'),
+    'missing stock_pricing_confirmed stayed eligible',
+  );
   console.log('negative removed-paid-cancel rejected');
   console.log('negative paid-cancel-before-setup rejected');
   console.log('negative dishonest-unpaid-cancel rejected');
   console.log('negative reversed-checkout-steps rejected');
   console.log('negative invalid-date rejected');
+  console.log('negative stock-pricing-true rejected');
+  console.log('negative stock-pricing-null rejected');
+  console.log('negative missing-stock-pricing-confirmed rejected');
 }
 
 function isRealCalendarDate(value) {
@@ -463,6 +484,8 @@ function collectDateWindows(value, found) {
 }
 
 function assertScriptDates(script, label) {
+  assert.equal(script.dates && typeof script.dates === 'object', true, label + ' has no primary date object');
+  assert.equal(script.dates.stock_pricing_confirmed, false, label + ' treated unconfirmed stock or Pricing as confirmed');
   const windows = [];
   collectDateWindows(script, windows);
   assert.equal(windows.length > 0, true, label + ' has no date window');
@@ -471,6 +494,7 @@ function assertScriptDates(script, label) {
     assert.equal(isRealCalendarDate(window.check_out), true, label + ' check_out is not a real calendar date');
     assert.equal(String(window.check_in).startsWith('2027-'), true, label + ' check_in is not a proposed 2027 window');
     assert.equal(String(window.check_out).startsWith('2027-'), true, label + ' check_out is not a proposed 2027 window');
+    if (window === script.dates) continue;
     if (Object.prototype.hasOwnProperty.call(window, 'stock_pricing_confirmed')) {
       assert.equal(window.stock_pricing_confirmed, false, label + ' treated unconfirmed stock or Pricing as confirmed');
     }
