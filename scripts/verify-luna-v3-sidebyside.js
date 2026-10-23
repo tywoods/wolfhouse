@@ -175,6 +175,7 @@ async function main() {
             sms_sends_enabled: false,
             writes_enabled: false,
             payments_enabled: false,
+            tenant_whatsapp_suppressed: true,
           },
         }),
       };
@@ -325,7 +326,7 @@ async function main() {
       json: async () => ({
         ok: true,
         reply_text: 'A 2027 quote.',
-        limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false, writes_enabled: false, payments_enabled: false },
+        limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false, writes_enabled: false, payments_enabled: false, tenant_whatsapp_suppressed: true },
       }),
     }),
     repoRoot,
@@ -434,6 +435,7 @@ async function main() {
           sms_sends_enabled: false,
           writes_enabled: false,
           payments_enabled: false,
+          tenant_whatsapp_suppressed: true,
         },
       }),
     });
@@ -567,7 +569,7 @@ async function main() {
             ok: true,
             reply_text: 'first turn quote',
             session_id: 'sess-first',
-            limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false, writes_enabled: false, payments_enabled: false },
+            limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false, writes_enabled: false, payments_enabled: false, tenant_whatsapp_suppressed: true },
           }),
         };
       }
@@ -615,6 +617,207 @@ async function main() {
   });
   assert.equal(blockedPaid.ok, false);
   assert.equal(blockedPaid.cause && blockedPaid.cause.code, 'BLOCKED');
+
+  const twoTurnTenant = {
+    id: 'two-turn-tenant-safety',
+    phone: quoteScript.phone,
+    dates: quoteScript.dates,
+    turns: [
+      { guest: 'Hi, quote one person 4 to 8 June 2027 please.' },
+      { guest: 'Yes book that stay for 4 to 8 June 2027.' },
+    ],
+  };
+  let tenantCalls = 0;
+  const tenantUnsafe = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [twoTurnTenant],
+    outDir: tmpDir(),
+    fetchImpl: async () => {
+      tenantCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          reply_text: 'proxy off, tenant not suppressed',
+          limitation: {
+            whatsapp_sends_enabled: false,
+            sms_sends_enabled: false,
+            writes_enabled: false,
+            payments_enabled: false,
+          },
+        }),
+      };
+    },
+    repoRoot,
+  });
+  assert.equal(tenantUnsafe.ok, false, 'missing tenant suppression must stop');
+  assert.equal(tenantCalls, 1, 'missing tenant suppression still dispatched later turns');
+  assert.equal(/tenant/i.test(JSON.stringify(tenantUnsafe.cause)), true);
+  assert.notEqual(tenantUnsafe.scorecard && tenantUnsafe.scorecard.this_run && tenantUnsafe.scorecard.this_run.no_real_sends, true);
+
+  let classicCalls = 0;
+  let v3Calls = 0;
+  const pairSafety = await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': async () => {
+        v3Calls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'v3 without tenant suppression',
+            limitation: { whatsapp_sends_enabled: false, sms_sends_enabled: false },
+          }),
+        };
+      },
+      'hermes-luna': async () => {
+        classicCalls += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'classic',
+            limitation: {
+              whatsapp_sends_enabled: false,
+              sms_sends_enabled: false,
+              tenant_whatsapp_suppressed: true,
+            },
+          }),
+        };
+      },
+    },
+    repoRoot,
+  });
+  assert.equal(pairSafety.ok, false);
+  assert.equal(v3Calls, 1, 'pair kept dispatching after missing tenant safety');
+  assert.equal(classicCalls, 0, 'pair continued the other target after missing-safety');
+
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'feb-29',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote one person 2027-02-29 please stay a few nights.' }],
+      }],
+    }),
+    /calendar|invalid|dialogue/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'july-vs-june',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote one person from 4 to 8 July 2027 please.' }],
+      }],
+    }),
+    /window|dialogue|month/i,
+  );
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: true,
+    outDir: tmpDir(),
+    fetchImpl: forbiddenFetch(),
+    repoRoot,
+    scripts: [{
+      id: 'checkout-included',
+      phone: quoteScript.phone,
+      dates: quoteScript.dates,
+      turns: [{ guest: 'Hi, quote one person 2027-06-04 to 2027-06-08 please.' }],
+    }],
+  });
+
+  assert.equal(laterFail.executed, true, 'partial HTTP failure must stay executed');
+  assert.equal(laterFail.dry_run, false);
+  const laterSaved = JSON.parse(fs.readFileSync(laterFail.transcripts[0].path, 'utf8'));
+  assert.equal(laterSaved.executed, true);
+  assert.equal(laterSaved.dry_run, false);
+
+  let timeoutN = 0;
+  const timed = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [twoTurn],
+    outDir: tmpDir(),
+    fetchImpl: async () => {
+      timeoutN += 1;
+      if (timeoutN === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            reply_text: 'before timeout',
+            session_id: 'sess-timeout',
+            limitation: {
+              whatsapp_sends_enabled: false,
+              sms_sends_enabled: false,
+              tenant_whatsapp_suppressed: true,
+            },
+          }),
+        };
+      }
+      throw new Error('tenant simulator timed out');
+    },
+    repoRoot,
+  });
+  assert.equal(timed.ok, false);
+  assert.equal(timed.executed, true);
+  assert.equal(timed.receipts.length, 1);
+  assert.equal(timed.receipts[0].reply, 'before timeout');
+
+  const fullOut = tmpDir();
+  const fullOk = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: fullOut,
+    fetchImpl: mockReply('quoted with receipts'),
+    repoRoot,
+  });
+  assert.equal(fullOk.ok, true);
+  const fullTurns = JSON.parse(fs.readFileSync(fullOk.transcripts[0].path, 'utf8')).turns;
+  assert.equal(typeof fullTurns[0].session_id, 'string');
+  assert.equal(fullTurns[0].no_real_sends, true);
+  assert.equal(fullTurns[0].limitation && fullTurns[0].limitation.whatsapp_sends_enabled, false);
+
+  assert.equal(Array.isArray(pairDefault.outcomes_by_repeat), true);
+  assert.equal(pairDefault.outcomes_by_repeat.length, 3);
+  assert.equal(typeof pairDefault.comparison_path, 'string');
+  assert.equal(fs.existsSync(pairDefault.comparison_path), true);
+  const comparison = JSON.parse(fs.readFileSync(pairDefault.comparison_path, 'utf8'));
+  assert.equal(comparison.repeats, 3);
+  assert.equal(comparison.outcomes_by_repeat.length, 3);
 
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');

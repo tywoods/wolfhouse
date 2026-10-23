@@ -163,7 +163,21 @@ function isoDatesInText(text) {
 }
 
 function dateInWindow(iso, checkIn, checkOut) {
-  return iso >= checkIn && iso < checkOut;
+  return iso >= checkIn && iso <= checkOut;
+}
+
+const MONTH_INDEX = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+};
+
+function monthNamesInText(text) {
+  const found = [];
+  const lower = String(text || '').toLowerCase();
+  for (const [name, month] of Object.entries(MONTH_INDEX)) {
+    if (lower.includes(name)) found.push(month);
+  }
+  return found;
 }
 
 function assertDialogueMatches2027(text, label, window) {
@@ -175,8 +189,24 @@ function assertDialogueMatches2027(text, label, window) {
   }
   if (window && window.check_in && window.check_out) {
     for (const iso of isoDatesInText(text)) {
+      if (!isRealCalendarDate(iso)) {
+        throw new Error(label + ' dialogue has an invalid calendar date');
+      }
       if (!dateInWindow(iso, window.check_in, window.check_out)) {
         throw new Error(label + ' dialogue date is outside the approved window');
+      }
+    }
+    const months = monthNamesInText(text);
+    if (months.length) {
+      const startMonth = Number(String(window.check_in).slice(5, 7));
+      const endMonth = Number(String(window.check_out).slice(5, 7));
+      for (const month of months) {
+        const inSpan = startMonth <= endMonth
+          ? month >= startMonth && month <= endMonth
+          : month >= startMonth || month <= endMonth;
+        if (!inSpan) {
+          throw new Error(label + ' dialogue month is outside the approved window');
+        }
       }
     }
   }
@@ -241,7 +271,9 @@ function writeJson(file, value) {
 function noSendEvidence(body) {
   const limitation = body && body.limitation;
   if (!limitation || typeof limitation !== 'object') return false;
-  return limitation.whatsapp_sends_enabled === false && limitation.sms_sends_enabled === false;
+  return limitation.whatsapp_sends_enabled === false
+    && limitation.sms_sends_enabled === false
+    && limitation.tenant_whatsapp_suppressed === true;
 }
 
 function inspectNoSend(body) {
@@ -254,6 +286,9 @@ function inspectNoSend(body) {
   if (!waOff || !smsOff) {
     return { ok: false, code: 'unsafe_no_send_evidence', error: 'sends not proven off' };
   }
+  if (limitation.tenant_whatsapp_suppressed !== true) {
+    return { ok: false, code: 'missing_tenant_suppression', error: 'tenant WhatsApp suppression missing' };
+  }
   if (body.whatsapp_suppressed === true && limitation.whatsapp_sends_enabled === true) {
     return { ok: false, code: 'contradictory_no_send_evidence', error: 'root vs nested limitation' };
   }
@@ -261,6 +296,11 @@ function inspectNoSend(body) {
     return { ok: false, code: 'contradictory_no_send_evidence', error: 'external_send_allowed true' };
   }
   return { ok: true };
+}
+
+function isMissingSafety(cause) {
+  const code = String((cause && cause.code) || '');
+  return /no_send|tenant_suppression|unsafe_no_send|missing_no_send/i.test(code);
 }
 
 function phoneForRun(scriptPhone, runId, index) {
@@ -295,9 +335,10 @@ function scoreRun({ dryRun, executed, scripts, replies, scorecard }) {
 
 function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard, replies, phones, runId, evidence }) {
   const loaded = { scripts: scripts || [], scorecard: scorecard || {} };
+  const hadTurns = Array.isArray(replies) && replies.length > 0;
   const summary = finishRun({
-    dryRun: true,
-    live: false,
+    dryRun: !hadTurns,
+    live: hadTurns,
     target,
     loaded,
     planned: planned || [],
@@ -309,8 +350,8 @@ function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard
   });
   summary.ok = false;
   summary.cause = cause;
-  summary.executed = false;
-  summary.dry_run = dryRun;
+  summary.executed = hadTurns;
+  summary.dry_run = dryRun === true && !hadTurns;
   summary.receipts = replies || [];
   summary.finished_progress = (replies || []).length;
   if (outDir) {
@@ -418,14 +459,30 @@ async function runSideBySide(options) {
     const replies = [];
     const evidence = { tool_calls: [], session_id: null, errors: [] };
     for (const turn of planned) {
-      const posted = await postTurn({
-        base: opts.crowsnestBase || DEFAULT_BASE,
-        tenant: target.tenant,
-        phone: turn.phone,
-        text: turn.text,
-        fetchImpl,
-        cookie,
-      });
+      let posted;
+      try {
+        posted = await postTurn({
+          base: opts.crowsnestBase || DEFAULT_BASE,
+          tenant: target.tenant,
+          phone: turn.phone,
+          text: turn.text,
+          fetchImpl,
+          cookie,
+        });
+      } catch (err) {
+        return failResult({
+          cause: { code: 'runtime_timeout', error: err && err.message ? err.message : 'turn failed' },
+          target,
+          dryRun,
+          planned,
+          scripts: loaded.scripts,
+          outDir,
+          replies,
+          phones,
+          runId,
+          evidence,
+        });
+      }
       if (posted.redirectRefused) {
         return failResult({
           cause: { code: 'redirect_refused', status: posted.status, error: 'redirect', location: posted.location },
@@ -514,7 +571,13 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
     const turns = (script.turns || []).map((turn, index) => {
       const reply = scriptReplies.find((row) => row.index === index);
       const row = { role: 'guest', text: turn.guest, name: turn.name || null };
-      if (reply) row.reply = reply.reply;
+      if (reply) {
+        row.reply = reply.reply;
+        row.session_id = reply.session_id || null;
+        row.no_real_sends = reply.no_real_sends === true;
+        row.limitation = reply.limitation || null;
+        row.status = reply.status || null;
+      }
       return row;
     });
     const file = path.join(outDir, id + '.json');
@@ -559,36 +622,11 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
   return summary;
 }
 
-async function runPaired(options) {
-  const opts = options || {};
-  const repeats = opts.repeats == null ? 3 : Number(opts.repeats);
-  if (opts.blockRepeats === true) {
-    return { ok: false, cause: { code: 'repeats_blocked', error: 'prescribed repeats blocked' }, repeats: 0, runs: [], outcomes: [] };
-  }
-  const outDir = opts.outDir || path.join(opts.repoRoot || path.resolve(__dirname, '..'), 'tmp', 'luna-v3-sidebyside', 'pair');
-  const runs = [];
-  for (let i = 0; i < repeats; i += 1) {
-    const nonce = crypto.randomBytes(8).toString('hex');
-    const runId = String(opts.runId || 'pair') + '-' + String(i) + '-' + nonce;
-    const v3 = await runSideBySide(Object.assign({}, opts, {
-      target: 'hermes-luna-clone',
-      runId: runId + '-v3',
-      outDir: path.join(outDir, 'r' + String(i), 'v3'),
-      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna-clone']) || opts.fetchImpl,
-    }));
-    const classic = await runSideBySide(Object.assign({}, opts, {
-      target: 'hermes-luna',
-      runId: runId + '-classic',
-      outDir: path.join(outDir, 'r' + String(i), 'classic'),
-      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna']) || opts.fetchImpl,
-    }));
-    runs.push({ v3, classic });
-  }
-  const last = runs[runs.length - 1] || { v3: { scripts: [] }, classic: { scripts: [] } };
-  const ids = new Set([].concat(last.v3.scripts || [], last.classic.scripts || []));
-  const outcomes = Array.from(ids).map((id) => {
-    const v3File = (last.v3.transcripts || []).find((row) => row.id === id);
-    const classicFile = (last.classic.transcripts || []).find((row) => row.id === id);
+function alignedOutcomes(v3, classic) {
+  const ids = new Set([].concat((v3 && v3.scripts) || [], (classic && classic.scripts) || []));
+  return Array.from(ids).map((id) => {
+    const v3File = ((v3 && v3.transcripts) || []).find((row) => row.id === id);
+    const classicFile = ((classic && classic.transcripts) || []).find((row) => row.id === id);
     const v3Turns = v3File ? JSON.parse(fs.readFileSync(v3File.path, 'utf8')).turns : [];
     const classicTurns = classicFile ? JSON.parse(fs.readFileSync(classicFile.path, 'utf8')).turns : [];
     const count = Math.max(v3Turns.length, classicTurns.length);
@@ -607,12 +645,62 @@ async function runPaired(options) {
       turns,
     };
   });
+}
+
+async function runPaired(options) {
+  const opts = options || {};
+  const repeats = opts.repeats == null ? 3 : Number(opts.repeats);
+  if (opts.blockRepeats === true) {
+    return { ok: false, cause: { code: 'repeats_blocked', error: 'prescribed repeats blocked' }, repeats: 0, runs: [], outcomes: [] };
+  }
+  const outDir = opts.outDir || path.join(opts.repoRoot || path.resolve(__dirname, '..'), 'tmp', 'luna-v3-sidebyside', 'pair');
+  const runs = [];
+  let stopped = null;
+  for (let i = 0; i < repeats; i += 1) {
+    const nonce = crypto.randomBytes(8).toString('hex');
+    const runId = String(opts.runId || 'pair') + '-' + String(i) + '-' + nonce;
+    const v3 = await runSideBySide(Object.assign({}, opts, {
+      target: 'hermes-luna-clone',
+      runId: runId + '-v3',
+      outDir: path.join(outDir, 'r' + String(i), 'v3'),
+      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna-clone']) || opts.fetchImpl,
+    }));
+    if (!v3.ok && isMissingSafety(v3.cause)) {
+      runs.push({ v3, classic: { ok: false, scripts: [], transcripts: [] } });
+      stopped = v3.cause;
+      break;
+    }
+    const classic = await runSideBySide(Object.assign({}, opts, {
+      target: 'hermes-luna',
+      runId: runId + '-classic',
+      outDir: path.join(outDir, 'r' + String(i), 'classic'),
+      fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget['hermes-luna']) || opts.fetchImpl,
+    }));
+    runs.push({ v3, classic });
+    if (!classic.ok && isMissingSafety(classic.cause)) {
+      stopped = classic.cause;
+      break;
+    }
+  }
+  const last = runs[runs.length - 1] || { v3: { scripts: [] }, classic: { scripts: [] } };
+  const outcomes_by_repeat = runs.map((row, index) => ({
+    repeat: index,
+    outcomes: alignedOutcomes(row.v3, row.classic),
+  }));
+  const outcomes = alignedOutcomes(last.v3, last.classic);
+  const comparison = { repeats: outcomes_by_repeat.length, outcomes_by_repeat };
+  const comparisonPath = path.join(outDir, 'comparison.json');
+  writeJson(comparisonPath, comparison);
   return {
-    ok: runs.every((row) => row.v3.ok && row.classic.ok),
+    ok: !stopped && runs.length === repeats && runs.every((row) => row.v3.ok && row.classic.ok),
+    cause: stopped || undefined,
     v3: last.v3,
     classic: last.classic,
     outcomes,
-    repeats,
+    outcomes_by_repeat,
+    comparison_path: comparisonPath,
+    repeats: outcomes_by_repeat.length,
+    prescribed_repeats: repeats,
     runs,
   };
 }
