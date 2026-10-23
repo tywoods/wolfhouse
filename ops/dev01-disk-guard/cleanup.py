@@ -138,8 +138,8 @@ def within_allowed_root(path,root):
   return path.resolve(strict=True).is_relative_to(root.resolve(strict=True))
  except (OSError,ValueError):return False
 
-def secure_delete(path,root):
- fds=[]
+def secure_delete(path,root,cfg=None):
+ fds=[]; claimed=None; parent_fd=None; name=None
  try:
   root=Path(root).absolute(); path=Path(path).absolute(); rel=path.relative_to(root)
   if not rel.parts:return False
@@ -147,12 +147,30 @@ def secure_delete(path,root):
   fd=os.open(root,flags); fds.append(fd)
   for part in rel.parts[:-1]:
    fd=os.open(part,flags,dir_fd=fd); fds.append(fd)
-  name=rel.parts[-1]; mode=os.stat(name,dir_fd=fd,follow_symlinks=False).st_mode
+  parent_fd=fd; name=rel.parts[-1]; mode=os.stat(name,dir_fd=fd,follow_symlinks=False).st_mode
   if stat.S_ISLNK(mode):return False
-  if stat.S_ISDIR(mode):shutil.rmtree(name,dir_fd=fd)
-  else:os.unlink(name,dir_fd=fd)
+  claimed=f'.dev01-delete-{os.getpid()}-{time.time_ns()}'
+  os.rename(name,claimed,src_dir_fd=fd,dst_dir_fd=fd)
+  claimed_path=path.with_name(claimed)
+  if cfg is not None:
+   targets=proc_targets(cfg.proc_root)
+   unsafe=(not within_allowed_root(claimed_path,root)
+           or protected(path,cfg.protect_regex)
+           or protected_descendant(claimed_path,cfg.protect_regex)
+           or is_in_use(path,cfg.root,targets)
+           or is_in_use(claimed_path,cfg.root,targets))
+   if unsafe:
+    os.rename(claimed,name,src_dir_fd=fd,dst_dir_fd=fd); claimed=None
+    return False
+  if stat.S_ISDIR(mode):shutil.rmtree(claimed,dir_fd=fd)
+  else:os.unlink(claimed,dir_fd=fd)
+  claimed=None
   return True
- except (OSError,ValueError):return False
+ except (OSError,ValueError):
+  if claimed is not None and parent_fd is not None and name is not None:
+   try:os.rename(claimed,name,src_dir_fd=parent_fd,dst_dir_fd=parent_fd)
+   except OSError:pass
+  return False
  finally:
   for fd in reversed(fds):os.close(fd)
 
@@ -168,7 +186,7 @@ def execute(plan,apply=False,cfg=None):
    if d.action=='delete' and not within_allowed_root(d.path,d.allowed_root):
     d=Decision(d.path,'skip','outside-allowed-root',d.allowed_root,d.days)
   if apply and d.action=='delete':
-   if not secure_delete(d.path,d.allowed_root):d=Decision(d.path,'skip','unsafe-delete-target',d.allowed_root,d.days)
+   if not secure_delete(d.path,d.allowed_root,cfg):d=Decision(d.path,'skip','unsafe-delete-target',d.allowed_root,d.days)
   print(json.dumps(d.as_dict(),sort_keys=True))
 
 def main():

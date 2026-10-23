@@ -95,6 +95,35 @@ class GuardTests(unittest.TestCase):
   plan=c.build_plan(cfg); fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(active)
   c.execute(plan,apply=True,cfg=cfg)
   self.assertTrue(candidate.exists())
+ def test_cleanup_refuses_target_swapped_to_folder_with_env_at_removal(self):
+  c=load('cleanup'); now=1_700_000_000
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/swapped-env')
+  cfg=c.Config(self.root,now,'nomatch',set(),{})
+  plan=c.build_plan(cfg); original=c.secure_delete
+  def swap_then_delete(path,root,*args):
+   candidate.rename(candidate.with_name('swapped-env-original'))
+   replacement=self.old(candidate); secret=replacement/'.env'; secret.write_text('secret')
+   os.utime(secret,(1_600_000_000,1_600_000_000)); os.utime(replacement,(1_600_000_000,1_600_000_000))
+   return original(path,root,*args)
+  with patch.object(c,'secure_delete',side_effect=swap_then_delete):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists())
+  self.assertTrue((candidate/'.env').exists())
+ def test_cleanup_refuses_target_that_becomes_in_use_at_removal(self):
+  c=load('cleanup'); now=1_700_000_000; proc=Path(self.t.name)/'proc'
+  candidate=self.old(self.root/'bots/hermes-orchestrator/workspace/swapped-in-use')
+  cfg=c.Config(self.root,now,'nomatch',set(),{},proc_root=proc)
+  plan=c.build_plan(cfg); original=c.secure_delete
+  def swap_then_delete(path,root,*args):
+   candidate.rename(candidate.with_name('swapped-in-use-original'))
+   replacement=self.old(candidate); active=replacement/'active'; active.write_text('x')
+   os.utime(active,(1_600_000_000,1_600_000_000)); os.utime(replacement,(1_600_000_000,1_600_000_000))
+   fd=proc/'123/fd'; fd.mkdir(parents=True); (fd/'1').symlink_to(active)
+   return original(path,root,*args)
+  with patch.object(c,'secure_delete',side_effect=swap_then_delete):
+   c.execute(plan,apply=True,cfg=cfg)
+  self.assertTrue(candidate.exists())
+  self.assertTrue((candidate/'active').exists())
  def test_config_generators(self):
   d=load('daemon_config'); src={'features':{'containerd-snapshotter':True},'log-opts':{'labels':'x'}}
   out=d.merge_config(src); self.assertTrue(out['features']['containerd-snapshotter']); self.assertEqual(out['log-driver'],'json-file'); self.assertEqual(out['log-opts']['max-size'],'20m'); self.assertEqual(out['log-opts']['max-file'],'3'); self.assertEqual(out['log-opts']['labels'],'x')
