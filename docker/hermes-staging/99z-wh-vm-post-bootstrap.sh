@@ -63,20 +63,6 @@ gateway:
       # Human ops "Chief of Staff" thread — never auto-wake Skipper.
       ignored_channels:
         - "1537017482748100678"
-approvals:
-  mode: smart
-  timeout: 60
-  cron_mode: deny
-  mcp_reload_confirm: true
-  destructive_slash_confirm: false
-command_allowlist:
-- execute_code
-- shell command via -c/-lc flag
-- script execution via -e/-c flag
-- script execution via heredoc
-- git reset --hard (destroys uncommitted changes)
-- sudo with privilege flag (stdin/askpass/shell/list)
-- git force push (rewrites remote history)
 EOF
   # Force jobs-thread retarget on every boot (replace any prior wake/free/
   # ignored channel ids left in the live volume .env).
@@ -98,7 +84,7 @@ EOF
   fi
 fi
 
-if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+if [ "$HERMES_ROLE" = "sunset-email-luna" ] || [ "$HERMES_ROLE" = "sunset-luna-http" ]; then
   # Isolated openai-codex credentials. Never symlink or copy-back to the shared
   # WhatsApp/Skipper auth pool — two containers must not mutate the same file.
   :
@@ -115,17 +101,22 @@ elif [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
 fi
 
 if [ "$HERMES_ROLE" = "seadog" ]; then
-  # Seadog engineering builder. Ty 2026-09-25 evening: gpt-5.6-sol / openai-codex
-  # (Cap plans · Seadog builds · Skipper lands). Was temporarily on grok-4.7 /
-  # xai-oauth while Grok credits lasted; now on sol (Guest Alerts paused). Deckhand stays
-  # on grok until Ty says otherwise.
+  # Seadog is a light Discord chat persona (no guest booking tools). Runs on
+  # openai-codex/gpt-5.5 — the same provider as the orchestrator (Skipper) and the
+  # active_provider in the shared auth store. The Anthropic OAuth subscription path
+  # was tried (to use Claude credits) but Anthropic now rejects Hermes' agent turns
+  # as third-party usage: "Third-party apps now draw from your extra usage... add
+  # more at claude.ai/settings/usage" (HTTP 400), and Hermes auto-suppressed the
+  # anthropic source. The token still works for raw API calls, but not via Hermes.
+  # To move seadog back onto Claude: top up extra usage at claude.ai/settings/usage,
+  # then set provider: anthropic + a claude model here.
   #
   # Water-cooler A2A toolset/plugin is included only when explicitly enabled for
   # this container (WATER_COOLER_A2A_ENABLED=true). Default remains no plugins.
   if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.6-sol
+  default: gpt-5.6-terra
   provider: openai-codex
 agent:
   reasoning_effort: low
@@ -145,22 +136,11 @@ gateway:
 discord:
   ignored_channels:
   - '1562313110243512330'
-approvals:
-  mode: smart
-  timeout: 60
-  cron_mode: deny
-  mcp_reload_confirm: true
-  destructive_slash_confirm: false
-command_allowlist:
-- script execution via heredoc
-- script execution via -e/-c flag
-- shell command via -c/-lc flag
-- execute_code
 EOF
   else
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.6-sol
+  default: gpt-5.6-terra
   provider: openai-codex
 agent:
   reasoning_effort: low
@@ -175,17 +155,6 @@ gateway:
 discord:
   ignored_channels:
   - '1562313110243512330'
-approvals:
-  mode: smart
-  timeout: 60
-  cron_mode: deny
-  mcp_reload_confirm: true
-  destructive_slash_confirm: false
-command_allowlist:
-- script execution via heredoc
-- script execution via -e/-c flag
-- shell command via -c/-lc flag
-- execute_code
 EOF
   fi
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
@@ -258,7 +227,7 @@ EOF
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
-  # Deckhand: isolated Discord engineering worker. xAI grok-4.7 via xai-oauth
+  # Deckhand: isolated Discord engineering worker. xAI grok-4.6 via xai-oauth
   # (shared auth.json) — no Anthropic/OpenAI fallback, no API-key env var.
   # Distinct Discord bot via /etc/hermes-deckhand.env (never reuse Skipper's
   # discord-bot-token).
@@ -267,7 +236,7 @@ if [ "$HERMES_ROLE" = "deckhand" ]; then
   if [ "${WATER_COOLER_A2A_ENABLED:-}" = "true" ]; then
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: grok-4.7
+  default: grok-4.6
   provider: xai-oauth
 agent:
   reasoning_effort: medium
@@ -293,22 +262,11 @@ gateway:
 discord:
   ignored_channels:
   - '1562313110243512330'
-approvals:
-  mode: smart
-  timeout: 60
-  cron_mode: deny
-  mcp_reload_confirm: true
-  destructive_slash_confirm: false
-command_allowlist:
-- script execution via -e/-c flag
-- shell command via -c/-lc flag
-- script execution via heredoc
-- execute_code
 EOF
   else
     cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: grok-4.7
+  default: grok-4.6
   provider: xai-oauth
 agent:
   reasoning_effort: medium
@@ -329,17 +287,6 @@ gateway:
 discord:
   ignored_channels:
   - '1562313110243512330'
-approvals:
-  mode: smart
-  timeout: 60
-  cron_mode: deny
-  mcp_reload_confirm: true
-  destructive_slash_confirm: false
-command_allowlist:
-- script execution via -e/-c flag
-- shell command via -c/-lc flag
-- script execution via heredoc
-- execute_code
 EOF
   fi
   if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
@@ -519,20 +466,16 @@ def _wh_make_hm(_orig):
             _abot = bool(getattr(_author, "bot", False))
             _author_id = getattr(_author, "id", None)
             _me = getattr(getattr(self, "_client", None), "user", None)
-            _me_id = getattr(_me, "id", None)
             _is_self = _me is not None and _author == _me
-            _mentions_me = _me_id is not None and any(
-                getattr(_u, "id", None) == _me_id
-                for _u in (getattr(message, "mentions", None) or [])
-            )
             if not _is_self:
                 if not _abot:
                     _wh_hops[_ch] = 0                    # human resets the chain
                     if _wh_should_skip_human(message):
                         return                           # not for me (policy/routing)
-                elif _author_id == _WH_CHIEF_BOT_ID or _mentions_me:
-                    # Chief jobs and explicit bot mentions are operator-directed
-                    # work: reset the chain and never drop them at the hop cap.
+                elif _author_id == _WH_CHIEF_BOT_ID:
+                    # Chief jobs are operator-directed work: reset the chain and
+                    # never drop them at the hop cap. Peer/unknown bot mentions
+                    # remain capped so a mention cannot reopen a bot loop.
                     _wh_hops[_ch] = 0
                 else:
                     _n = _wh_hops.get(_ch, 0) + 1        # plain peer-bot hop cap
