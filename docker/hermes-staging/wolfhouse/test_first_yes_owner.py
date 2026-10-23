@@ -582,6 +582,33 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
         self.assertEqual(prepared['room_type'], 'shared')
 
+    def test_ordinary_private_decline_without_diagnostic_restores_shared_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        shared_fingerprint = shared['offer_revision']['offer_fingerprint']
+
+        self.turn('ask-private-ordinary', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        # Ordinary model route: no optional interpret_booking_turn call is scheduled.
+        self.turn('decline-private-ordinary', 'No, keep the shared beds')
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'Okay, shared beds.'})
+
+        self.turn('later-generic-yes', 'Yes')
+        self.interpret_accept('Yes')
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
+        self.assertEqual(prepared['room_type'], 'shared')
+
     def test_explicit_private_approval_keeps_private_offer_authority(self):
         ledger.record_quote(self.plan, self.response)
         ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})

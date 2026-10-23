@@ -1057,7 +1057,10 @@ def _staff_invoice_lines(plan, offer, language, currency):
                 or type(source_multiplier) is not int or source_multiplier < 1
                 or unit * nights * source_multiplier != source_total
                 or unit * nights != accommodation
-                or (source_guest_number is None and source_count != count)):
+                or (source_guest_number is None and source_count != count)
+                or (source_guest_number is not None and source_count != 1)
+                or (source_guest_number is not None
+                    and (source or {}).get('package_code') != package)):
             return []
         guest = guests[index] if index < len(guests) and isinstance(guests[index], dict) else {}
         name = str(guest.get('name') or '').strip()
@@ -2166,6 +2169,25 @@ def observe_owner_turn(agent, raw):
             return
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
+        # A private price comparison retains the last shared offer only as a
+        # decline fallback. Explicitly declining that private alternative is a
+        # revocation, not booking authority, and must take effect even when the
+        # model does not schedule the optional intent diagnostic.
+        fallback = state.get('private_decline_fallback')
+        normalized = unicodedata.normalize('NFKC', raw).casefold()
+        private_is_current = (isinstance(state.get('checked_offer'), dict)
+                              and state['checked_offer'].get('room_type') == 'private')
+        fallback_is_shared = (isinstance(fallback, dict)
+                              and isinstance(fallback.get('checked_offer'), dict)
+                              and fallback['checked_offer'].get('room_type') == 'shared')
+        declines_private = bool(re.match(
+            r'^\s*(?:no\b|nope\b|nah\b|not\b|non\b|nein\b)', normalized))
+        selects_shared = bool(re.search(
+            r'\b(?:shared|dorm|compartid[ao]|partag(?:é|e)|mehrbett)\w*\b', normalized))
+        if private_is_current and fallback_is_shared and (declines_private or selects_shared):
+            state.pop('private_decline_fallback', None)
+            for key, value in fallback.items():
+                state[key] = deepcopy(value)
         # A bounded re-quote authorization belongs only to the interpreted ingress
         # that produced it. Any fresh turn must be interpreted independently.
         state.pop('authorized_revision_changes', None)
@@ -2182,9 +2204,9 @@ def observe_owner_turn(agent, raw):
         if detected_language in ('en', 'es', 'fr', 'de'):
             state['guest_language'] = detected_language
         # IDs stay durable for the incarnation; do not age out replay protection.
-        # Raw text is provenance only. It never grants, revokes, or revises booking
-        # authority: every response to an owner presentation must be adjudicated by
-        # interpret_owner_turn, and no presentation means there is nothing to accept.
+        # Raw text is otherwise provenance only. It never grants or revises booking
+        # authority: every acceptance or revision of an owner presentation must be
+        # adjudicated by interpret_owner_turn.
         if isinstance(state.get('presentation'), dict):
             return
     try:

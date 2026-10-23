@@ -172,6 +172,38 @@ class QuoteStyleFabioTests(unittest.TestCase):
         self.assertNotIn("here's your invoice", text)
         self.assertIn("📅 *Dates:*", text)
 
+    def test_saved_booking_receipt_rejects_numbered_rows_that_contradict_person(self):
+        plan = {**self.plan, "check_out": "2026-11-11", "guest_count": 2,
+                "guests": [{"name": "Jack"}, {"name": "Jill"}],
+                "guest_packages": [{"guest_number": 1, "package_code": "waimea"},
+                                   {"guest_number": 2, "package_code": "waimea"}]}
+        people = [
+            {"guest_number": 1, "package_code": "waimea",
+             "accommodation_cents": 80000, "subtotal_cents": 80000},
+            {"guest_number": 2, "package_code": "waimea",
+             "accommodation_cents": 80000, "subtotal_cents": 80000},
+        ]
+        rows = [
+            {"code": "guest_package_proration", "guest_number": 1,
+             "package_code": "waimea", "nights": 10, "guest_count": 1,
+             "unit_cents": 8000, "total_cents": 80000},
+            {"code": "guest_package_proration", "guest_number": 2,
+             "package_code": "waimea", "nights": 10, "guest_count": 1,
+             "unit_cents": 8000, "total_cents": 80000},
+        ]
+        receipt = {"booking_code": "WH-FALLBACK", "amount_due_cents": 40000}
+        cases = {
+            "contradictory_guest_count": [dict(rows[0]), {**rows[1], "guest_count": 99}],
+            "contradictory_package": [dict(rows[0]), {**rows[1], "package_code": "malibu"}],
+        }
+        for label, included_items in cases.items():
+            with self.subTest(label=label):
+                offer = {**self.offer, **plan, "total_cents": 160000,
+                         "per_person": people, "included_items": included_items}
+                text = owner._styled_booking_receipt_copy(plan, offer, receipt, "en")
+                self.assertNotIn("here's your invoice", text)
+                self.assertIn("📅 *Dates:*", text)
+
     def test_private_quote_discloses_staff_supplement_before_approval(self):
         plan = {**self.plan, "room_type": "private", "room_preference": "couple_private"}
         offer = {**self.offer, **plan, "total_cents": 172500,
