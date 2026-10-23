@@ -641,7 +641,10 @@ class FirstYesOwnerTests(unittest.TestCase):
         for index, decline in enumerate((
                 'No, keep the shared beds', 'Actually, no thanks.',
                 "I don't want the private room.", 'I don’t want the private room.',
-                "I don't need the private room.", 'I don’t need the private room.')):
+                "I don't need the private room.", 'I don’t need the private room.',
+                'I would rather not have the private room.', "I don't like a private room.",
+                'I don’t like any private room.', 'No need for a private room.',
+                'Without the private room.')):
             with self.subTest(decline=decline):
                 if index:
                     ledger.record_quote(private_plan, private)

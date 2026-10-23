@@ -2213,15 +2213,17 @@ def observe_owner_turn(agent, raw):
                     or 'do not want' in normalized_raw
                     or "doesn't want" in normalized_raw
                     or 'does not want' in normalized_raw)
-        # Negation rejects the option it directly qualifies. A positive private
-        # selection followed by "not the shared beds" must retain private.
-        private_rejected = any(marker in normalized_raw for marker in (
-            'not the private', 'no private', 'without private', "don't want the private",
-            'do not want the private', "don't need the private", 'do not need the private',
-            'no need for the private', 'rather not private'))
-        shared_rejected = any(marker in normalized_raw for marker in (
-            'not the shared', 'no shared', 'without shared', "don't want the shared",
-            'do not want the shared', "don't need the shared", 'do not need the shared'))
+        # Attribute each negation to the option which follows it; articles and
+        # filler words are not option authority.
+        option_gap = r'(?:\s+(?:a|the|any|have|need|want|like|for))*\s+'
+        private_rejected = bool(re.search(
+            r'\b(?:not|no|without)' + option_gap + r'private\b'
+            r'|\b(?:don\'t|do not|doesn\'t|does not|rather not)' + option_gap + r'private\b'
+            r'|\bno need for' + option_gap + r'private\b', normalized_raw))
+        shared_rejected = bool(re.search(
+            r'\b(?:not|no|without)' + option_gap + r'shared\b'
+            r'|\b(?:don\'t|do not|doesn\'t|does not|rather not)' + option_gap + r'shared\b'
+            r'|\bno need for' + option_gap + r'shared\b', normalized_raw))
         selects_shared = ('shared' in normalized_raw and not shared_rejected
                           and ('private' not in normalized_raw or private_rejected))
         generic_decline = negative and 'private' not in normalized_raw and 'shared' not in normalized_raw
