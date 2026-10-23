@@ -13,6 +13,7 @@ const EXPECTED_TOOLS = [
   'hold_beds', 'book', 'release_hold', 'get_booking',
   'get_payment_status', 'send_payment_link', 'cancel_unpaid', 'read_notes',
   'write_note', 'save_transfer_request', 'handoff_to_human',
+  'recover_operation',
 ];
 
 async function main() {

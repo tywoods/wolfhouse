@@ -16,10 +16,12 @@ const TOOL_CONTRACTS = Object.freeze({
   write_note: { method: 'POST', path: '/staff/bot/luna-v3/notes/write', write: true },
   save_transfer_request: { method: 'POST', path: '/staff/bot/luna-v3/transfer-request', write: true },
   handoff_to_human: { method: 'POST', path: '/staff/bot/luna-v3/handoff', write: true },
+  recover_operation: { method: 'POST', path: '/staff/bot/luna-v3/recover-operation', write: false },
 });
 
 const FORBIDDEN_INPUTS = new Set([
   'amount', 'amount_cents', 'deposit_cents', 'total_cents', 'remaining_cents',
+  'totalCents', 'depositCents', 'remainingCents', 'balanceDueCents',
   'tenant_id', 'staff_api_base_url', 'destination', 'recipient_phone', 'provider_mode',
   'external_send_allowed', 'staff_alert_allowed', 'silently_relax_together', 'auto_assign',
   'send_whatsapp', 'send_sms', 'send_email',

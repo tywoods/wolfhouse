@@ -24,6 +24,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             "hold_beds", "book", "release_hold", "get_booking",
             "get_payment_status", "send_payment_link", "cancel_unpaid", "read_notes",
             "write_note", "save_transfer_request", "handoff_to_human",
+            "recover_operation",
         }
         self.assertEqual(set(plugin.TOOL_NAMES), expected)
         self.assertTrue(all(path.startswith("/staff/bot/luna-v3/") for path in plugin.TOOL_PATHS.values()))
@@ -89,7 +90,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 name: json.loads(registry.dispatch(name, {"probe": name}, task_id="synthetic-runtime"))
                 for name in plugin.TOOL_NAMES
             }
-        self.assertEqual(15, len(calls))
+        self.assertEqual(16, len(calls))
         self.assertEqual(set(plugin.TOOL_NAMES), {name for name, _arguments in calls})
         self.assertTrue(all(arguments == {"probe": name} for name, arguments in calls))
         self.assertTrue(all(value["code"] == "offline_transport_sink" for value in outcomes.values()))

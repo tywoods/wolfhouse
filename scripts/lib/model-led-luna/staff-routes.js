@@ -18,6 +18,7 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/notes/write': 'write_note',
   '/staff/bot/luna-v3/transfer-request': 'save_transfer_request',
   '/staff/bot/luna-v3/handoff': 'handoff_to_human',
+  '/staff/bot/luna-v3/recover-operation': 'recover_operation',
 });
 
 async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations }) {

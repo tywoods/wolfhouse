@@ -210,7 +210,8 @@ const {
   LUNA_V3_ROUTE_TO_TOOL,
   dispatchLunaV3StaffRoute,
 } = require('./lib/model-led-luna/staff-routes');
-const LUNA_V3_STAFF_OPERATIONS = Object.freeze({});
+const { createOperations: createLunaV3StaffOperations } = require('./lib/model-led-luna');
+const LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient);
 const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,

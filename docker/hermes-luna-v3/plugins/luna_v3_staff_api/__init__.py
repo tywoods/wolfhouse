@@ -28,6 +28,7 @@ TOOL_PATHS = {
     "write_note": "/staff/bot/luna-v3/notes/write",
     "save_transfer_request": "/staff/bot/luna-v3/transfer-request",
     "handoff_to_human": "/staff/bot/luna-v3/handoff",
+    "recover_operation": "/staff/bot/luna-v3/recover-operation",
 }
 TOOL_NAMES = tuple(TOOL_PATHS)
 WRITE_TOOLS = frozenset({
@@ -39,6 +40,7 @@ FORBIDDEN_FIELDS = frozenset({
     "tenant_id", "destination", "recipient_phone", "provider_mode", "send_whatsapp",
     "send_sms", "send_email", "external_send_allowed", "staff_alert_allowed",
     "auto_assign", "silently_relax_together",
+    "totalCents", "depositCents", "remainingCents", "balanceDueCents",
 })
 
 
@@ -146,6 +148,7 @@ _TOOL_FIELDS = {
     "write_note": ("text", "context", "booking_reference", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
+    "recover_operation": ("operation_key", "operation_reference"),
 }
 
 
@@ -165,6 +168,7 @@ _TOOL_REQUIRED = {
     "write_note": ("text", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
+    "recover_operation": (),
 }
 
 
