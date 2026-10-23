@@ -1002,8 +1002,8 @@
   }
 
   function depositPolicyTitle(row) {
-    if (row && row.code === 'standard_package') return whT('admin.wh.pricing.depositLongStay', '6 nights or more');
-    if (row && row.code === 'custom_or_short_stay') return whT('admin.wh.pricing.depositShortStay', '5 nights or fewer');
+    if (row && row.code === 'standard_package') return whT('admin.wh.pricing.depositWithPackage', 'With package · per person');
+    if (row && row.code === 'custom_or_short_stay') return whT('admin.wh.pricing.depositAccommodationOnly', 'Accommodation only · per person');
     return (row && row.label) || humanize(row && row.code);
   }
 
@@ -1088,7 +1088,7 @@
       : '';
     return sectionShell('extras',
       whT('admin.wh.pricing.extras', 'Extras'),
-      whT('admin.wh.pricing.extrasNote', 'Per person. 5 nights or fewer and 6 nights or more are the stay deposit rates Totals and guest quotes use.'),
+      whT('admin.wh.pricing.depositPackageNote', 'Deposits are per person: with package or accommodation only, regardless of stay length. Totals and guest quotes use these rates, capped at each guest’s priced total.'),
       html,
       headerExtra,
     );

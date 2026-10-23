@@ -21,18 +21,21 @@ function check(name, ok, detail) {
 }
 
 async function money() {
-  check('7n x 3 = 60000', wolfhouseStayDepositCents(7, 3) === 60000);
-  check('6n x 1 = 20000', wolfhouseStayDepositCents(6, 1) === 20000);
+  const t = require('./verify-package-minimum-transport');
+  const config = await t.loader(t.syntheticPricingPg({ items: t.policyItems(7) }))();
+  check('7n accommodation x 3 = 30000', wolfhouseStayDepositCents(7, 3) === 30000);
+  check('7n package x 3 = 60000', wolfhouseStayDepositCents(7, 3, null, 'waimea') === 60000);
+  check('6n accommodation x 1 = 10000', wolfhouseStayDepositCents(6, 1) === 10000);
   check('5n x 3 = 30000', wolfhouseStayDepositCents(5, 3) === 30000);
   check('5n x 2 = 20000', wolfhouseStayDepositCents(5, 2) === 20000);
   check('missing nights falls through', wolfhouseStayDepositCents(0, 3) == null);
   const adminRates = { long_stay_cents: 25000, short_stay_cents: 15000 };
-  check('admin long rate 6n x 3', wolfhouseStayDepositCents(6, 3, adminRates) === 75000);
+  check('admin package rate 6n x 3', wolfhouseStayDepositCents(6, 3, adminRates, 'waimea') === 75000);
   check('admin short rate 5n x 2', wolfhouseStayDepositCents(5, 2, adminRates) === 30000);
   check('booking rates win over stored flat', wolfhouseBookingDepositCents({
     check_in: '2026-09-26', check_out: '2026-10-03', guest_count: 3,
     deposit_required_cents: 20000, stay_deposit_rates: adminRates,
-  }) === 75000);
+  }) === 45000);
   check('null stored stays unknown', wolfhouseBookingDepositCents({ deposit_required_cents: null }) == null);
   check('explicit zero stored stays zero', wolfhouseBookingDepositCents({ deposit_required_cents: 0 }) === 0);
 
@@ -43,12 +46,12 @@ async function money() {
     deposit_required_cents: 20000,
     total_amount_cents: 119700,
   };
-  check('stored flat 200 does not win', wolfhouseBookingDepositCents(tim) === 60000, String(wolfhouseBookingDepositCents(tim)));
+  check('stored flat 200 does not win', wolfhouseBookingDepositCents(tim) === 30000, String(wolfhouseBookingDepositCents(tim)));
 
   const amount = await bookingDepositLinkAmount(null, tim, [], {
     loadBookingPaymentLedger: async () => ({ invoice_total_cents: 119700 }),
   }, 'deposit');
-  check('deposit link is 60000', amount.ok === true && amount.amountDueCents === 60000, JSON.stringify(amount));
+  check('accommodation deposit link is 30000', amount.ok === true && amount.amountDueCents === 30000, JSON.stringify(amount));
 
   const quote = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
@@ -57,7 +60,7 @@ async function money() {
     guest_count: 3,
     package_code: 'uluwatu',
     payment_choice: 'deposit',
-  });
+  }, config);
   check('quote deposit is 60000', quote && quote.deposit_required_cents === 60000, JSON.stringify({
     success: quote && quote.success,
     deposit: quote && quote.deposit_required_cents,
@@ -71,7 +74,7 @@ async function money() {
     package_code: 'uluwatu',
     payment_choice: 'deposit',
     stay_deposit_rates: { long_stay_cents: 25000, short_stay_cents: 15000 },
-  });
+  }, config);
   check('quote uses admin long rate', adminQuote && adminQuote.deposit_required_cents === 75000, JSON.stringify({
     deposit: adminQuote && adminQuote.deposit_required_cents,
   }));
@@ -84,7 +87,7 @@ async function money() {
     package_code: 'package_none',
     payment_choice: 'deposit',
     stay_deposit_rates: { long_stay_cents: 25000, short_stay_cents: 15000 },
-  });
+  }, config);
   check('quote uses admin short rate', shortQuote && shortQuote.deposit_required_cents === 30000, JSON.stringify({
     nights: shortQuote && shortQuote.nights,
     deposit: shortQuote && shortQuote.deposit_required_cents,
@@ -221,7 +224,7 @@ async function chrome() {
   check('price unbold', Number(geo.weight) < 700, geo.weight);
 
   const deposit = await page.locator('.bc-invoice-deposit-amount').innerText();
-  check('totals deposit 600', deposit === '€600.00', deposit);
+  check('totals accommodation deposit 300', deposit === '€300.00', deposit);
   const align = await page.locator('#bc-inv-totals .ctx-inv-total-amount').evaluateAll((els) => {
     const rights = els.map((e) => e.getBoundingClientRect().right);
     const card = document.getElementById('bc-inv-totals').getBoundingClientRect().right;
