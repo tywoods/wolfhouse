@@ -204,7 +204,10 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
-  if (runtime.token) headers['X-Luna-Bot-Token'] = runtime.token;
+  if (runtime.token) {
+    if (tenant === 'luna-v3') headers.Authorization = `Bearer ${runtime.token}`;
+    else headers['X-Luna-Bot-Token'] = runtime.token;
+  }
 
   return {
     ok: true,

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "runtime" / "simulator_route.py"
+BOOTSTRAP_MODULE = Path(__file__).resolve().parents[1] / "bootstrap.py"
 
 
 class FakeAgent:
@@ -45,6 +46,9 @@ class SimulatorRouteTests(unittest.TestCase):
             raise RuntimeError("unable to load simulator route")
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
+        bootstrap_spec = importlib.util.spec_from_file_location("luna_v3_bootstrap", BOOTSTRAP_MODULE)
+        cls.bootstrap = importlib.util.module_from_spec(bootstrap_spec)
+        bootstrap_spec.loader.exec_module(cls.bootstrap)
 
     def test_reserved_phone_gets_request_bound_session_and_reply(self):
         adapter = FakeAdapter()
@@ -66,6 +70,24 @@ class SimulatorRouteTests(unittest.TestCase):
             response = asyncio.run(self.module.handle_turn(FakeRequest(body), adapter))
             self.assertEqual(response["status"], 400)
             self.assertEqual(response["body"]["code"], code)
+
+    def test_preflight_rejects_every_hermes_transport_activation_input(self):
+        base = {
+            "HERMES_ROLE": "luna-v3",
+            "LUNA_V3_TENANT_ID": "wolfhouse-somo",
+        }
+        contaminated = {
+            "WHATSAPP_ENABLED": "true",
+            "TELEGRAM_BOT_TOKEN": "synthetic-token",
+            "EMAIL_ADDRESS": "review@example.invalid",
+            "EMAIL_PASSWORD": "synthetic-password",
+            "EMAIL_IMAP_HOST": "imap.example.invalid",
+            "EMAIL_SMTP_HOST": "smtp.example.invalid",
+        }
+        self.bootstrap.validate_environment({**base, "WHATSAPP_ENABLED": "false"})
+        for name, value in contaminated.items():
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, name):
+                self.bootstrap.validate_environment({**base, name: value})
 
 
 if __name__ == "__main__":

@@ -179,8 +179,10 @@ def _field_schema(field: str) -> dict[str, Any]:
 
 
 def _handler(name: str):
-    def invoke(**kwargs: Any) -> dict[str, Any]:
-        return call_tool(name, kwargs)
+    def invoke(arguments: dict[str, Any], **_runtime_kwargs: Any) -> str:
+        if not isinstance(arguments, dict):
+            raise TypeError("Hermes tool arguments must be an object")
+        return json.dumps(call_tool(name, arguments), separators=(",", ":"))
 
     return invoke
 

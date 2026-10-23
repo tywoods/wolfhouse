@@ -1,11 +1,13 @@
 import importlib.util
 import json
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 PLUGIN_PATH = Path(__file__).resolve().parent / "__init__.py"
+PLUGIN_ROOT = PLUGIN_PATH.parent.parent
 
 
 class LunaV3PluginContractTests(unittest.TestCase):
@@ -49,6 +51,48 @@ class LunaV3PluginContractTests(unittest.TestCase):
             self.assertFalse(tool["schema"]["parameters"].get("additionalProperties", True))
             if tool["name"] in plugin.WRITE_TOOLS:
                 self.assertIn("operation_key", tool["schema"]["parameters"]["required"])
+
+    def test_authentic_hermes_scanner_discovers_native_manifest(self):
+        sys.path.insert(0, "/opt/hermes")
+        try:
+            from hermes_cli.plugins import PluginManager
+
+            manifests = PluginManager()._scan_directory(PLUGIN_ROOT, "user")
+        finally:
+            sys.path.remove("/opt/hermes")
+        self.assertEqual(["luna-v3-staff-api"], [manifest.name for manifest in manifests])
+        self.assertEqual(["luna-v3-staff-api"], [manifest.key for manifest in manifests])
+        bootstrap = PLUGIN_ROOT.parent / "bootstrap.sh"
+        self.assertIn(
+            'plugin.yaml "$HERMES_HOME/plugins/luna_v3_staff_api/plugin.yaml"',
+            bootstrap.read_text(),
+        )
+
+    def test_every_handler_uses_authentic_registry_dispatch_contract(self):
+        plugin = self.load_plugin()
+        sys.path.insert(0, "/opt/hermes")
+        try:
+            from tools.registry import ToolRegistry
+
+            registry = ToolRegistry()
+        finally:
+            sys.path.remove("/opt/hermes")
+        plugin.register(type("Context", (), {"register_tool": registry.register})())
+        calls = []
+
+        def fake_call_tool(name, arguments):
+            calls.append((name, arguments))
+            return {"ok": False, "code": "offline_transport_sink"}
+
+        with patch.object(plugin, "call_tool", fake_call_tool):
+            outcomes = {
+                name: json.loads(registry.dispatch(name, {"probe": name}, task_id="synthetic-runtime"))
+                for name in plugin.TOOL_NAMES
+            }
+        self.assertEqual(15, len(calls))
+        self.assertEqual(set(plugin.TOOL_NAMES), {name for name, _arguments in calls})
+        self.assertTrue(all(arguments == {"probe": name} for name, arguments in calls))
+        self.assertTrue(all(value["code"] == "offline_transport_sink" for value in outcomes.values()))
 
     def test_request_is_clone_scoped_and_transport_disabled(self):
         plugin = self.load_plugin()

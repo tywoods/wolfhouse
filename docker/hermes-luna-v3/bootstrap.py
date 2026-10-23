@@ -5,12 +5,18 @@ from __future__ import annotations
 import os
 
 FORBIDDEN_ENV = (
+    "TELEGRAM_BOT_TOKEN",
+    "WHATSAPP_ENABLED",
     "WHATSAPP_CLOUD_ACCESS_TOKEN",
     "WHATSAPP_CLOUD_APP_SECRET",
     "WHATSAPP_CLOUD_VERIFY_TOKEN",
     "WHATSAPP_CLOUD_PHONE_NUMBER_ID",
     "META_ACCESS_TOKEN",
     "SMTP_PASSWORD",
+    "EMAIL_ADDRESS",
+    "EMAIL_PASSWORD",
+    "EMAIL_IMAP_HOST",
+    "EMAIL_SMTP_HOST",
 )
 
 
@@ -24,7 +30,14 @@ def validate_environment(env: dict[str, str] | None = None) -> None:
         raise RuntimeError("external sends must remain disabled")
     if values.get("LUNA_V3_STAFF_ALERTS_ENABLED", "false").lower() != "false":
         raise RuntimeError("staff alerts must remain disabled")
-    present = [name for name in FORBIDDEN_ENV if values.get(name)]
+    present = [
+        name for name in FORBIDDEN_ENV
+        if values.get(name)
+        and not (
+            name == "WHATSAPP_ENABLED"
+            and values[name].lower() in {"false", "0", "no"}
+        )
+    ]
     if present:
         raise RuntimeError(f"forbidden transport credentials present: {','.join(present)}")
 

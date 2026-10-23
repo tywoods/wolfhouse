@@ -150,7 +150,8 @@ async function main() {
   });
   ok('Luna v3 accepts only explicit clone origin/token and reserved phones', v3Built.ok === true
     && v3Built.runtime.origin === 'http://hermes-luna-clone:8090'
-    && v3Built.headers['X-Luna-Bot-Token'] === 'v3-only-token');
+    && v3Built.headers.Authorization === 'Bearer v3-only-token'
+    && !Object.prototype.hasOwnProperty.call(v3Built.headers, 'X-Luna-Bot-Token'));
   ok('Luna v3 rejects phones outside reserved +34 699 9xx range', buildTenantRequest({
     tenantId: 'luna-v3', fromPhone: wolfPhone, text: 'Hello',
   }, {
