@@ -526,6 +526,19 @@ class FirstYesOwnerTests(unittest.TestCase):
             'material_changes': [], 'completions': {},
         })
 
+    def interpret_registered_accept(self, evidence):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool['name']] = tool
+            def register_hook(self, *args, **kwargs): pass
+        registry = Registry()
+        plugin.register(registry)
+        return json.loads(registry.tools['interpret_booking_turn']['handler']({
+            'action': 'accept', 'action_evidence': evidence,
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [], 'completions': {},
+        }))
+
     def test_only_owner_final_question_authorizes_contextual_yes(self):
         ledger.record_quote(self.plan, self.response)
         self.turn('not-presented', 'yes')
@@ -547,6 +560,185 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.turn('contextual-yes', 'Yes!')
         self.interpret_accept('Yes!')
         self.assertIs(ledger.prepare_create({})['require_offer_identity'], True)
+
+    def test_declining_private_requote_restores_shared_offer_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        shared_fingerprint = shared['offer_revision']['offer_fingerprint']
+
+        self.turn('ask-private', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        self.turn('decline-private', 'No, keep the shared beds')
+        result = ledger.interpret_owner_turn({
+            'action': 'reject', 'action_evidence': 'No, keep the shared beds',
+            'ambiguous': False, 'negated': True, 'conditional': False,
+            'material_changes': [], 'completions': {},
+        })
+        self.assertEqual(result['next_action'], 'do_not_create')
+        state = ledger._transaction(lambda owner, ingress: deepcopy(owner))
+        self.assertEqual(state['checked_offer']['offer_fingerprint'], shared_fingerprint)
+        self.assertEqual(state['plan']['room_type'], 'shared')
+
+        self.turn('later-yes', 'Yes, book the shared beds')
+        self.interpret_accept('Yes, book the shared beds')
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
+        self.assertEqual(prepared['room_type'], 'shared')
+
+    def registered_create(self, params):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool['name']] = tool
+            def register_hook(self, *args, **kwargs): pass
+        registry = Registry()
+        plugin.register(registry)
+        quote = ledger._transaction(lambda state, ingress: deepcopy(state['quote']))
+        requests = []
+        def staff(path, body):
+            requests.append((path, deepcopy(body)))
+            if path == '/booking-preview':
+                return quote
+            if path == '/availability-check':
+                beds = quote['offer_revision']['room_arrangement']
+                return self._exact_recheck(body, beds)
+            if path == '/bookings/update-contact':
+                return {'success': True, 'email_saved': True, 'email_sent': False}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True,
+                    'booking_id': 'offline-private', 'booking_code': 'OFFLINE-PRIVATE'}
+        from wolfhouse import booking_names
+        token = booking_names._agent.set(self.agent)
+        try:
+            with patch.object(plugin, '_post_bot', side_effect=staff):
+                booking_names.begin_turn(session_id=self.agent.session_id,
+                                         scope=plugin._booking_name_scope())
+                result = json.loads(registry.tools['create_booking_from_plan']['handler'](params))
+        finally:
+            booking_names.end_turn()
+            booking_names._agent.reset(token)
+        return result, requests
+
+    def test_ordinary_private_decline_without_diagnostic_restores_shared_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        shared_fingerprint = shared['offer_revision']['offer_fingerprint']
+
+        self.turn('ask-private-ordinary', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        # Ordinary model route: no optional interpret_booking_turn call is scheduled.
+        for index, decline in enumerate((
+                'No, keep the shared beds', 'Actually, no thanks.',
+                "I don't want the private room.", 'I don’t want the private room.',
+                "I don't need the private room.", 'I don’t need the private room.',
+                'I would rather not have the private room.', "I don't like a private room.",
+                'I don’t like any private room.', 'No need for a private room.',
+                'Without the private room.', 'I would rather not take the private room.',
+                'I dont need the private room.')):
+            with self.subTest(decline=decline):
+                if index:
+                    ledger.record_quote(private_plan, private)
+                    ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+                self.turn(f'decline-private-ordinary-{index}', decline)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'Okay.'})
+                acceptance = ('Yes, save the shared beds, not the private room.'
+                              if index == 0 else 'Yes, save that booking')
+                self.turn(f'later-generic-yes-{index}', acceptance)
+                result, requests = self.registered_create({})
+                self.assertTrue(result.get('success'), result)
+                create = next(body for path, body in requests
+                              if path == '/booking-create-from-plan')
+                self.assertEqual(create['room_type'], 'shared')
+                self.assertEqual(create['selected_bed_codes'], ['M1', 'M2'])
+
+    def test_private_plain_yes_binds_to_displayed_private_offer_on_registered_create(self):
+        for index, approval in enumerate((
+                'Yes, save that booking',
+                'Yes, I approve the €1725 total and €125 supplement. Save that booking',
+                'Yes, book the private room, not the shared beds.')):
+            with self.subTest(approval=approval):
+                if index:
+                    ledger.record_quote(self.plan, self.response)
+                    ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+                private_plan = {**self.plan, 'room_type': 'private',
+                                'room_preference': 'couple_private'}
+                private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                                dict(bed_code='P2', room_code='P', gender_strategy='private')]
+                private = self._checked_offer(private_plan, private_beds, quote_overrides={
+                    'total_cents': 82500, 'deposit_required_cents': 20000,
+                    'payment_link_amount_cents': 82500})
+                self.turn(f'ask-private-plain-{index}', 'How much is a private room?')
+                ledger.record_quote(private_plan, private)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'Shall I save this booking?'})
+                self.turn(f'approve-private-plain-{index}', approval)
+                result, requests = self.registered_create({})
+                self.assertTrue(result.get('success'), result)
+                create = next(body for path, body in requests if path == '/booking-create-from-plan')
+                self.assertEqual(create['room_type'], 'private')
+                self.assertEqual(create['selected_bed_codes'], ['P1', 'P2'])
+
+    def test_private_approval_against_shared_context_keeps_private_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        self.turn('ask-private-context', 'How much is a private room?')
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+        raw = 'Yes, book the private room instead of the shared beds'
+        self.turn('approve-private-context', raw)
+        self.interpret_registered_accept(raw)
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'],
+                         private['offer_revision']['offer_fingerprint'])
+        self.assertEqual(prepared['room_type'], 'private')
+
+    def test_explicit_private_approval_keeps_private_offer_authority(self):
+        ledger.record_quote(self.plan, self.response)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+
+        self.turn('ask-private-approval', 'How much is a private room?')
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+
+        self.turn('approve-private', 'Yes, book the private room')
+        self.interpret_accept('Yes, book the private room')
+        prepared = ledger.prepare_create({})
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'],
+                         private['offer_revision']['offer_fingerprint'])
+        self.assertEqual(prepared['room_type'], 'private')
 
     def _checked_offer(self, plan, beds, quote_overrides=None):
         # Mirror the registered quote's canonical wire aliases before Staff's
