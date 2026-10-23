@@ -2999,6 +2999,21 @@ def prepare_create(params):
                                         include_personal=True):
                 raise QuoteBoundaryError('accepted_quote_changed')
             return PreparedPlan(deepcopy(frozen_dispatch), _current.get(), state['epoch'])
+        # The create tool is the ordinary acceptance route. A private price
+        # inquiry keeps the prior shared presentation as a fallback: it is used
+        # unless this create-turn expressly selects the private alternative.
+        fallback = state.get('private_decline_fallback')
+        private_comparison = (isinstance(fallback, dict)
+                              and isinstance(fallback.get('checked_offer'), dict)
+                              and fallback['checked_offer'].get('room_type') == 'shared'
+                              and (state.get('checked_offer') or {}).get('room_type') == 'private')
+        raw = (state.get('current_turn') or {}).get('raw') or ''
+        chooses_private = bool(set(_evidence_tokens(raw)) & {
+            'private', 'privada', 'privado', 'privée', 'privee', 'privatzimmer'})
+        if private_comparison and not chooses_private:
+            state.pop('private_decline_fallback', None)
+            for key, value in fallback.items():
+                state[key] = deepcopy(value)
         # The model supplies structured completions; Staff revalidates them in
         # this invocation. Names are indexed data, not literal-word evidence.
         baseline = _presentation_plan(state)

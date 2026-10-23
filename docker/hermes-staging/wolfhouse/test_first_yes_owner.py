@@ -595,6 +595,31 @@ class FirstYesOwnerTests(unittest.TestCase):
         self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
         self.assertEqual(prepared['room_type'], 'shared')
 
+    def registered_create(self, params):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool['name']] = tool
+            def register_hook(self, *args, **kwargs): pass
+        registry = Registry()
+        plugin.register(registry)
+        quote = ledger._transaction(lambda state, ingress: deepcopy(state['quote']))
+        requests = []
+        def staff(path, body):
+            requests.append((path, deepcopy(body)))
+            if path == '/booking-preview':
+                return quote
+            if path == '/availability-check':
+                beds = quote['offer_revision']['room_arrangement']
+                return self._exact_recheck(body, beds)
+            if path == '/bookings/update-contact':
+                return {'success': True, 'email_saved': True, 'email_sent': False}
+            self.assertEqual(path, '/booking-create-from-plan')
+            return {'success': True, 'write_performed': True,
+                    'booking_id': 'offline-private', 'booking_code': 'OFFLINE-PRIVATE'}
+        with patch.object(plugin, '_post_bot', side_effect=staff):
+            result = json.loads(registry.tools['create_booking_from_plan']['handler'](params))
+        return result, requests
+
     def test_ordinary_private_decline_without_diagnostic_restores_shared_authority(self):
         shared = deepcopy(self.response)
         ledger.record_quote(self.plan, shared)
@@ -622,11 +647,13 @@ class FirstYesOwnerTests(unittest.TestCase):
                     ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
                 self.turn(f'decline-private-ordinary-{index}', decline)
                 ledger.finalize_offer_response({'completed': True, 'final_response': 'Okay.'})
-                self.turn(f'later-generic-yes-{index}', 'Yes')
-                self.interpret_registered_accept('Yes')
-                prepared = ledger.prepare_create({})
-                self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
-                self.assertEqual(prepared['room_type'], 'shared')
+                self.turn(f'later-generic-yes-{index}', 'Yes, save that booking')
+                result, requests = self.registered_create({})
+                self.assertTrue(result.get('success'), result)
+                create = next(body for path, body in requests
+                              if path == '/booking-create-from-plan')
+                self.assertEqual(create['room_type'], 'shared')
+                self.assertEqual(create['selected_bed_codes'], ['M1', 'M2'])
 
     def test_private_approval_against_shared_context_keeps_private_authority(self):
         shared = deepcopy(self.response)
