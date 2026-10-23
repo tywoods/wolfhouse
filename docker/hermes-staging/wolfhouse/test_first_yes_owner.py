@@ -526,6 +526,19 @@ class FirstYesOwnerTests(unittest.TestCase):
             'material_changes': [], 'completions': {},
         })
 
+    def interpret_registered_accept(self, evidence):
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **tool): self.tools[tool['name']] = tool
+            def register_hook(self, *args, **kwargs): pass
+        registry = Registry()
+        plugin.register(registry)
+        return json.loads(registry.tools['interpret_booking_turn']['handler']({
+            'action': 'accept', 'action_evidence': evidence,
+            'ambiguous': False, 'negated': False, 'conditional': False,
+            'material_changes': [], 'completions': {},
+        }))
+
     def test_only_owner_final_question_authorizes_contextual_yes(self):
         ledger.record_quote(self.plan, self.response)
         self.turn('not-presented', 'yes')
@@ -600,14 +613,42 @@ class FirstYesOwnerTests(unittest.TestCase):
         ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
 
         # Ordinary model route: no optional interpret_booking_turn call is scheduled.
-        self.turn('decline-private-ordinary', 'No, keep the shared beds')
-        ledger.finalize_offer_response({'completed': True, 'final_response': 'Okay, shared beds.'})
+        for index, decline in enumerate((
+                'No, keep the shared beds', 'Actually, no thanks.',
+                "I don't want the private room.")):
+            with self.subTest(decline=decline):
+                if index:
+                    ledger.record_quote(private_plan, private)
+                    ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+                self.turn(f'decline-private-ordinary-{index}', decline)
+                ledger.finalize_offer_response({'completed': True, 'final_response': 'Okay.'})
+                self.turn(f'later-generic-yes-{index}', 'Yes')
+                self.interpret_registered_accept('Yes')
+                prepared = ledger.prepare_create({})
+                self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
+                self.assertEqual(prepared['room_type'], 'shared')
 
-        self.turn('later-generic-yes', 'Yes')
-        self.interpret_accept('Yes')
+    def test_private_approval_against_shared_context_keeps_private_authority(self):
+        shared = deepcopy(self.response)
+        ledger.record_quote(self.plan, shared)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'shared draft'})
+        private_plan = {**self.plan, 'room_type': 'private',
+                        'room_preference': 'couple_private'}
+        private_beds = [dict(bed_code='P1', room_code='P', gender_strategy='private'),
+                        dict(bed_code='P2', room_code='P', gender_strategy='private')]
+        private = self._checked_offer(private_plan, private_beds, quote_overrides={
+            'total_cents': 82500, 'deposit_required_cents': 20000,
+            'payment_link_amount_cents': 82500})
+        self.turn('ask-private-context', 'How much is a private room?')
+        ledger.record_quote(private_plan, private)
+        ledger.finalize_offer_response({'completed': True, 'final_response': 'private draft'})
+        raw = 'Yes, book the private room instead of the shared beds'
+        self.turn('approve-private-context', raw)
+        self.interpret_registered_accept(raw)
         prepared = ledger.prepare_create({})
-        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'], shared_fingerprint)
-        self.assertEqual(prepared['room_type'], 'shared')
+        self.assertEqual(prepared['accepted_offer']['offer_fingerprint'],
+                         private['offer_revision']['offer_fingerprint'])
+        self.assertEqual(prepared['room_type'], 'private')
 
     def test_explicit_private_approval_keeps_private_offer_authority(self):
         ledger.record_quote(self.plan, self.response)

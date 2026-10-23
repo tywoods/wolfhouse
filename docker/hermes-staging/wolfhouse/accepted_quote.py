@@ -1962,6 +1962,22 @@ def interpret_owner_turn(interpretation):
                               missing=[] if ready else ['staff_checked_offer'],
                               next_action='create_booking' if ready else 'revalidate_selected_terms')
             return result
+        fallback = state.get('private_decline_fallback')
+        private_fallback_pending = (isinstance(fallback, dict)
+                                    and isinstance(fallback.get('checked_offer'), dict)
+                                    and fallback['checked_offer'].get('room_type') == 'shared'
+                                    and (state.get('checked_offer') or {}).get('room_type') == 'private')
+        # A private comparison never turns a later bare "yes" into consent for
+        # the higher-priced option. The owner context keeps the shared authority
+        # unless this acceptance expressly selects the private alternative.
+        private_selected = bool(set(_evidence_tokens(raw)) & {
+            'private', 'privada', 'privado', 'privée', 'privee', 'privatzimmer'})
+        if action == 'accept' and private_fallback_pending and not private_selected:
+            state.pop('private_decline_fallback', None)
+            for key, value in fallback.items():
+                state[key] = deepcopy(value)
+            presentation = state.get('presentation')
+            presented = state.get('presented_offer')
         checked_ready = (isinstance(presented, dict)
                          and isinstance(state.get('checked_offer'), dict)
                          and presented == state['checked_offer']
@@ -2169,25 +2185,6 @@ def observe_owner_turn(agent, raw):
             return
         state.setdefault('delta', {})
         state.setdefault('unresolved_change', False)
-        # A private price comparison retains the last shared offer only as a
-        # decline fallback. Explicitly declining that private alternative is a
-        # revocation, not booking authority, and must take effect even when the
-        # model does not schedule the optional intent diagnostic.
-        fallback = state.get('private_decline_fallback')
-        normalized = unicodedata.normalize('NFKC', raw).casefold()
-        private_is_current = (isinstance(state.get('checked_offer'), dict)
-                              and state['checked_offer'].get('room_type') == 'private')
-        fallback_is_shared = (isinstance(fallback, dict)
-                              and isinstance(fallback.get('checked_offer'), dict)
-                              and fallback['checked_offer'].get('room_type') == 'shared')
-        declines_private = bool(re.match(
-            r'^\s*(?:no\b|nope\b|nah\b|not\b|non\b|nein\b)', normalized))
-        selects_shared = bool(re.search(
-            r'\b(?:shared|dorm|compartid[ao]|partag(?:é|e)|mehrbett)\w*\b', normalized))
-        if private_is_current and fallback_is_shared and (declines_private or selects_shared):
-            state.pop('private_decline_fallback', None)
-            for key, value in fallback.items():
-                state[key] = deepcopy(value)
         # A bounded re-quote authorization belongs only to the interpreted ingress
         # that produced it. Any fresh turn must be interpreted independently.
         state.pop('authorized_revision_changes', None)
