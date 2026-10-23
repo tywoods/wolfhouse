@@ -4,10 +4,12 @@
 // scripts/lib/model-led-luna/ exists AND an awaited call leaves state the
 // verifier reads back itself. A missing handler is not a pass. A function
 // that merely exists, or returns a success shape without touching the
-// observation DB, is not a pass. Unsafe writes are fails. Holds, payment
-// links, and timeout recovery stay pending where the real boundary is not
-// observable here. Do not certify those from a refusal flag, a stored
-// string, or an unrelated read.
+// observation DB, is not a pass. Unsafe writes are fails. A second booking
+// beside a valid returned row is a fail. Lifecycle coverage must keep paid
+// cancellation after paid state, the unpaid-cancel prohibition, and ordered
+// checkout steps. Holds, payment links, and timeout recovery stay pending
+// where the real boundary is not observable here. Do not certify those from
+// a refusal flag, a stored string, or an unrelated read.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -178,6 +180,15 @@ function assertRefusalAcceptance(script) {
   assert.equal(accept.must_not.includes('treat the earlier interest sentence as consent'), true);
 }
 
+function lifecycleStepIndex(script, name) {
+  const hits = [];
+  script.turns.forEach((turn, index) => {
+    if (turn && turn.name === name) hits.push(index);
+  });
+  assert.equal(hits.length, 1, 'lifecycle step ' + name + ' is missing or duplicated');
+  return hits[0];
+}
+
 function assertLifecycleBinding(script) {
   const setup = script.turns.find((turn) => turn.name === 'setup_booking');
   const read = script.turns.find((turn) => turn.name === 'read');
@@ -191,10 +202,20 @@ function assertLifecycleBinding(script) {
   assert.equal(script.turns.indexOf(setup) < script.turns.indexOf(read), true, 'read is not bound to a prior booking record');
   assert.equal(!!complete, true, 'missing sandbox payment completion');
   assert.equal(complete.guest, LIFECYCLE_COMPLETE_GUEST);
-  const stepText = JSON.stringify(complete.steps);
-  assert.equal(/sandbox checkout/.test(stepText), true, 'sandbox completion steps are missing');
-  assert.equal(/getPaymentStatus/.test(stepText), true, 'sandbox completion does not call getPaymentStatus');
-  assert.equal(/no live card/.test(stepText), true, 'sandbox completion does not forbid a live card');
+  assert.deepEqual(complete.steps, [
+    {
+      name: 'return_test_url',
+      action: 'Return a test-mode payment URL inside Crow\'s Nest. Do not send WhatsApp, SMS, or email.',
+    },
+    {
+      name: 'complete_sandbox_checkout',
+      action: 'Complete the sandbox checkout on that URL with no live card and no real charge.',
+    },
+    {
+      name: 'confirm_from_staff',
+      action: 'Call getPaymentStatus for the bound booking and confirm only when Staff says paid.',
+    },
+  ], 'checkout steps are missing, duplicated, or out of order');
   assert.equal(timeout.operation, 'getPaymentStatus');
   assert.equal(timeout.fault_point.call, 'getPaymentStatus');
   assert.equal(timeout.fault_point.after, 'sandbox checkout completion');
@@ -218,13 +239,46 @@ function assertLifecycleBinding(script) {
   const payText = JSON.stringify(pay.must) + JSON.stringify(pay.record_binding);
   assert.equal(/use the cancelled booking/i.test(payText), false, 'rebind instructs use of the cancelled booking');
   assert.equal(/phone_first_booking_id/.test(payText), false, 'rebind names phone_first_booking_id');
-  const names = script.turns.map((turn) => turn.name);
-  assert.equal(names.indexOf('setup_booking') < names.indexOf('read'), true);
-  assert.equal(names.indexOf('read') < names.indexOf('cancel_unpaid'), true);
-  assert.equal(names.indexOf('cancel_unpaid') < names.indexOf('sandbox_payment'), true, 'rebind is not after the unpaid cancel');
-  assert.equal(names.indexOf('sandbox_payment') < names.indexOf('sandbox_payment_complete'), true, 'rebind is not before sandbox completion');
-  assert.equal(names.indexOf('sandbox_payment_complete') < names.indexOf('timeout_retry'), true);
-  assert.equal(!!cancel, true, 'missing unpaid cancel before the rebind');
+  const order = [
+    'setup_booking',
+    'read',
+    'cancel_unpaid',
+    'sandbox_payment',
+    'sandbox_payment_complete',
+    'paid_cancel',
+    'timeout_retry',
+  ];
+  const index = {};
+  for (const name of order) index[name] = lifecycleStepIndex(script, name);
+  for (let i = 1; i < order.length; i += 1) {
+    assert.equal(
+      index[order[i - 1]] < index[order[i]],
+      true,
+      order[i] + ' is not after ' + order[i - 1],
+    );
+  }
+  const paid = script.turns[index.paid_cancel];
+  assert.deepEqual(paid.must, [
+    'handoff to a human',
+    'make no refund promise',
+    'not call cancel_unpaid on paid money',
+  ], 'paid cancel lost its handoff and no-refund assertions');
+  assert.deepEqual(paid.must_not, ['erase the payment'], 'paid cancel lost its no-erasure assertion');
+  assert.deepEqual(cancel.must, [
+    'cancel only after Staff shows the booking is unpaid',
+  ], 'unpaid cancel lost its Staff-unpaid requirement');
+  assert.deepEqual(cancel.must_not, [
+    'cancel a paid or uncertain booking',
+  ], 'unpaid cancel lost its paid prohibition');
+  const cancelText = JSON.stringify(cancel.must) + JSON.stringify(cancel.must_not);
+  assert.equal(/cancel even when staff reports paid money/i.test(cancelText), false, 'unpaid cancel instructs cancelling paid money');
+  assert.equal(script.pass, 'unpaid cancel works, paid cancel goes to a human, timeout retry does not duplicate');
+  assert.deepEqual(script.fail, [
+    'paid booking cancelled by Luna',
+    'real send',
+    'duplicate charge or link',
+    'timeout treated as success or as no write',
+  ]);
 }
 
 function assertMust(turn, text, label) {
@@ -345,6 +399,82 @@ function assertFixtureCoverageNegatives() {
     () => assertScorecard(scorecard),
     'scorecard stayed valid after the safety floor and race probes were removed',
   );
+  const removedPaid = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  removedPaid.turns = removedPaid.turns.filter((turn) => turn.name !== 'paid_cancel');
+  delete removedPaid.pass;
+  delete removedPaid.fail;
+  assert.throws(
+    () => assertLifecycleBinding(removedPaid),
+    'lifecycle stayed valid after paid cancellation and pass/fail assertions were removed',
+  );
+  const paidFirst = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  const paidTurn = paidFirst.turns.find((turn) => turn.name === 'paid_cancel');
+  paidFirst.turns = [paidTurn].concat(paidFirst.turns.filter((turn) => turn.name !== 'paid_cancel'));
+  assert.throws(
+    () => assertLifecycleBinding(paidFirst),
+    'lifecycle stayed valid when paid cancellation ran before any booking or payment',
+  );
+  const dishonest = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  const unpaid = dishonest.turns.find((turn) => turn.name === 'cancel_unpaid');
+  unpaid.must = ['Cancel even when Staff reports paid money.'];
+  unpaid.must_not = [];
+  assert.throws(
+    () => assertLifecycleBinding(dishonest),
+    'lifecycle stayed valid after unpaid cancel was told to cancel paid money',
+  );
+  const reversed = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  const complete = reversed.turns.find((turn) => turn.name === 'sandbox_payment_complete');
+  complete.steps = complete.steps.slice().reverse();
+  assert.throws(
+    () => assertLifecycleBinding(reversed),
+    'lifecycle stayed valid after checkout confirmation was placed before the sandbox checkout',
+  );
+  const invalidDate = JSON.parse(JSON.stringify(readJson('guest-05-lifecycle.json')));
+  invalidDate.dates.check_in = '2027-99-99';
+  assert.throws(
+    () => assertScriptDates(invalidDate, 'guest-05-lifecycle.json'),
+    'invalid calendar date 2027-99-99 stayed eligible',
+  );
+  console.log('negative removed-paid-cancel rejected');
+  console.log('negative paid-cancel-before-setup rejected');
+  console.log('negative dishonest-unpaid-cancel rejected');
+  console.log('negative reversed-checkout-steps rejected');
+  console.log('negative invalid-date rejected');
+}
+
+function isRealCalendarDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day;
+}
+
+function collectDateWindows(value, found) {
+  if (!value || typeof value !== 'object') return;
+  if (Object.prototype.hasOwnProperty.call(value, 'check_in') || Object.prototype.hasOwnProperty.call(value, 'check_out')) {
+    found.push(value);
+  }
+  const children = Array.isArray(value) ? value : Object.values(value);
+  for (const child of children) {
+    if (child && typeof child === 'object') collectDateWindows(child, found);
+  }
+}
+
+function assertScriptDates(script, label) {
+  const windows = [];
+  collectDateWindows(script, windows);
+  assert.equal(windows.length > 0, true, label + ' has no date window');
+  for (const window of windows) {
+    assert.equal(isRealCalendarDate(window.check_in), true, label + ' check_in is not a real calendar date');
+    assert.equal(isRealCalendarDate(window.check_out), true, label + ' check_out is not a real calendar date');
+    assert.equal(String(window.check_in).startsWith('2027-'), true, label + ' check_in is not a proposed 2027 window');
+    assert.equal(String(window.check_out).startsWith('2027-'), true, label + ' check_out is not a proposed 2027 window');
+    if (Object.prototype.hasOwnProperty.call(window, 'stock_pricing_confirmed')) {
+      assert.equal(window.stock_pricing_confirmed, false, label + ' treated unconfirmed stock or Pricing as confirmed');
+    }
+  }
 }
 
 function assertRemovingDialogueFails() {
@@ -398,9 +528,7 @@ function assertFixtures() {
     assert.equal(phone.test(script.phone), true, name + ' phone is not an expanded +34 699 9xx number');
     assert.equal(script.collision_checked, false, name);
     assert.equal(script.synthetic, true, name);
-    assert.equal(String(script.dates.check_in).startsWith('2027-'), true, name);
-    assert.equal(String(script.dates.check_out).startsWith('2027-'), true, name);
-    assert.equal(script.dates.stock_pricing_confirmed, false, name);
+    assertScriptDates(script, name);
     assertRealGuestDialogue(script);
   }
 
@@ -680,6 +808,22 @@ function judgeTimeoutUnknown(result, observed, trusted) {
   return pending('bound readback observed; retry effect and uniqueness remain pending');
 }
 
+function createdBookings(observed, trusted) {
+  const seeded = trusted && trusted.seed && Array.isArray(trusted.seed.bookings) ? trusted.seed.bookings : [];
+  const before = new Map(seeded.map((row) => [row.id, JSON.stringify(row)]));
+  return tableRows(observed, 'bookings').filter((row) => {
+    const prior = before.get(row.id);
+    return prior == null || prior !== JSON.stringify(row);
+  });
+}
+
+function bookingPersistenceCalls(observed) {
+  return (observed.calls || []).filter((call) => {
+    if ((call.op === 'write' || call.op === 'update') && call.table === 'bookings') return true;
+    return call.op === 'query' && /\b(?:insert\s+into|update)\s+bookings\b/i.test(call.sql || '');
+  }).length;
+}
+
 function judgeTool(name, result, observed, trusted) {
   const promise = rejectPromise(result);
   if (promise) return promise;
@@ -712,8 +856,12 @@ function judgeTool(name, result, observed, trusted) {
     if (!sawReadOf(observed, 'holds', TRUSTED_BOOK.holdId) || !sawReadOf(observed, 'sessions', TRUSTED_BOOK.session_id) || !sawRead(observed, 'authority') || !sawWrite(observed, 'bookings')) {
       return failed('book did not read the trusted hold, session, and money before persisting');
     }
-    const booking = tableRows(observed, 'bookings').find((row) => row.holdId === TRUSTED_BOOK.holdId);
-    if (!result || !booking || result.bookingId !== booking.id) return failed('returned booking id does not match observed booking');
+    const created = createdBookings(observed, trusted);
+    const writes = bookingPersistenceCalls(observed);
+    if (created.length !== 1 || writes !== 1) return failed('book wrote an extra booking');
+    const booking = created[0];
+    if (!result || result.bookingId !== booking.id) return failed('returned booking id does not match observed booking');
+    if (booking.holdId !== TRUSTED_BOOK.holdId) return failed('book wrote an unrequested hold');
     if (!Array.isArray(booking.beds) || booking.beds.length !== TRUSTED_BOOK.beds.length || booking.beds.some((bed, index) => bed !== TRUSTED_BOOK.beds[index])) {
       return failed('book wrote an unrequested bed');
     }
@@ -1011,7 +1159,7 @@ function seedForTool(name) {
 
 function toolTodo(name, present) {
   if (name === 'book') {
-    return 'TODO(skip): book must persist the trusted hold, tenant, session, guest, beds, and Staff cents; a foreign write is a fail';
+    return 'TODO(skip): book must persist exactly one trusted booking; an extra, foreign, or unrequested booking is a fail';
   }
   if (name === 'getBooking') {
     return 'TODO(skip): getBooking must read the authenticated session binding, not a caller-selected booking id';
@@ -1362,6 +1510,43 @@ async function assertReviewNegatives() {
   assert.equal(wrongBook.status, 'fail', 'negative wrong-tenant-booking was ' + wrongBook.status + ' ' + wrongBook.reason);
   await assertNotPass(wrongBook, 'negative wrong-tenant-booking');
 
+  async function extraForeignBooking(pg, input) {
+    const holds = await pg.read('holds', { id: input.holdId });
+    const sessions = await pg.read('sessions', { id: input.session_id });
+    const money = await pg.read('authority');
+    const hold = holds[0];
+    const session = sessions[0];
+    const stored = await pg.write('bookings', {
+      holdId: hold.id,
+      beds: hold.beds,
+      status: 'booked',
+      tenant_id: session.tenant_id,
+      session_id: session.id,
+      guest: session.guest,
+      totalCents: money[0].totalCents,
+    });
+    await pg.write('bookings', {
+      holdId: 'another-hold',
+      tenant_id: FOREIGN_BOOK.tenant_id,
+      session_id: FOREIGN_BOOK.session_id,
+      guest: FOREIGN_BOOK.guest,
+      beds: FOREIGN_BOOK.beds.slice(),
+      totalCents: FOREIGN_BOOK.totalCents,
+    });
+    return { ok: true, bookingId: stored.id, holdId: hold.id };
+  }
+  const extraBook = await evaluateExport(
+    'tool_book',
+    toolTodo('book', true),
+    extraForeignBooking,
+    toolFixture('book'),
+    seedForTool('book'),
+    (result, observed, trusted) => judgeTool('book', result, observed, trusted),
+  );
+  assert.equal(extraBook.status, 'fail', 'negative extra-foreign-booking was ' + extraBook.status + ' ' + extraBook.reason);
+  assert.equal(extraBook.reason, 'book wrote an extra booking', 'extra booking was not the stated failure: ' + extraBook.reason);
+  await assertNotPass(extraBook, 'negative extra-foreign-booking');
+
   async function argumentId(pg, input) {
     const id = input.bookingId || 'phone-first';
     const rows = await pg.read('bookings', { id });
@@ -1435,6 +1620,7 @@ async function assertReviewNegatives() {
   console.log('negative unavailable-holds rejected');
   console.log('negative paid-state-destroyed rejected');
   console.log('negative wrong-tenant-booking rejected');
+  console.log('negative extra-foreign-booking rejected');
   console.log('negative invalid-checkout rejected');
   console.log('negative unrelated-recovery-read rejected');
   console.log('negative fixture-coverage rejected');
