@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Dev-01 disk cleaner
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Madrid
+Persistent=true
+RandomizedDelaySec=10m
+Unit=dev01-disk-clean.service
+
+[Install]
+WantedBy=timers.target
