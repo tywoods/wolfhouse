@@ -24,7 +24,8 @@ const rules = [
   { id: 'r1', item_type: 'rental', item_code: 'wetsuit_soft_top_combo', season_code: null, unit: 'per_day', amount_cents: 1500, currency: 'EUR', active: true, source: 'db' },
 ];
 
-function staffPg({ blocks = [], pricingDown = false, seasonRows = seasons } = {}) {
+function staffPg({ blocks = [], pricingDown = false, seasonRows = seasons, itemRows = items,
+  ruleRows = rules, transferRows = [], transferDown = false } = {}) {
   const observations = [];
   return {
     observations,
@@ -38,9 +39,12 @@ function staffPg({ blocks = [], pricingDown = false, seasonRows = seasons } = {}
         if (pricingDown) throw new Error('pricing unavailable');
         return { rows: seasonRows };
       }
-      if (/FROM wh_pricing_rules/.test(sql)) return { rows: rules };
-      if (/FROM wh_pricing_items/.test(sql)) return { rows: items };
-      if (/FROM wh_pricing_transfer_rules/.test(sql)) return { rows: [] };
+      if (/FROM wh_pricing_rules/.test(sql)) return { rows: ruleRows };
+      if (/FROM wh_pricing_items/.test(sql)) return { rows: itemRows };
+      if (/FROM wh_pricing_transfer_rules/.test(sql)) {
+        if (transferDown) throw new Error('transfer unavailable');
+        return { rows: transferRows };
+      }
       if (/FROM luna_v3_sessions/.test(sql)) return { rows: [{ id: 'session-id', client_id: 'client-id', write_admitted: true }] };
       if (/INSERT INTO luna_v3_selections/.test(sql)) return { rows: [] };
       if (/INSERT INTO luna_v3_operations/.test(sql)) return { rows: [{ id: 'operation-id', request_fingerprint: params[3], receipt: null }] };
@@ -96,6 +100,50 @@ async function main(api = defaultApi) {
   assert.deepEqual(catalog.transferCatalog, { status: 'empty', options: [] });
   const shortCatalog = await api.getPricingCatalog(staffPg(), { check_in: '2027-07-01', check_out: '2027-07-05' }, context);
   assert.equal(shortCatalog.packageEligibility.status, 'ineligible');
+  const fiveNightPolicyItems = items.map((row) => row.item_code === 'package_min_nights'
+    ? { ...row, metadata: { minimum_nights: 5 } } : row);
+  const changedPolicy = await api.getPricingCatalog(staffPg({ itemRows: fiveNightPolicyItems }),
+    { check_in: '2027-07-01', check_out: '2027-07-06' }, context);
+  assert.deepEqual(changedPolicy.packageEligibility,
+    { status: 'eligible', stayNights: 5, minimumNights: 5, eligible: true, source: 'db' });
+  const absentPolicy = await api.getPricingCatalog(staffPg({ itemRows: items.filter((row) => row.item_type !== 'policy') }),
+    { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.equal(absentPolicy.packageEligibility.minimumNights, 7);
+  assert.equal(absentPolicy.packageEligibility.source, 'config');
+  const malformedItems = items.map((row) => row.item_code === 'package_min_nights'
+    ? { ...row, metadata: { minimum_nights: 'seven' } } : row);
+  const malformedCatalog = await api.getPricingCatalog(staffPg({ itemRows: malformedItems }),
+    { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.deepEqual(malformedCatalog.packageEligibility,
+    { status: 'unavailable', stayNights: 7, minimumNights: null, eligible: false, source: 'db' });
+  const malformedQuote = await api.quote(staffPg({ itemRows: malformedItems }), {
+    operation_key: 'quote-malformed-policy', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }],
+    selection: { selected_bed_codes: ['R10-B1'], room_type: 'shared' }, package_id: 'malibu',
+    guest_packages: [{ guest_number: 1, package_code: 'malibu' }], add_ons: [],
+  }, context);
+  assert.equal(malformedQuote.ok, false);
+  assert.equal(malformedQuote.eligibilityFacts.packageMinimumNights, null);
+  assert.equal(malformedQuote.eligibilityFacts.packageMinimumSource, 'db');
+
+  const transferRule = { airport_code: 'BIO', label: 'Bilbao', aliases: [], requires_package: true,
+    included_when_package: false, min_guest_count: 2, max_guest_count: 6, active: true, sort_order: 1 };
+  const transferPrice = { id: 't1', item_type: 'transfer', item_code: 'BIO', season_code: null,
+    unit: 'flat', amount_cents: 6000, currency: 'EUR', active: true, source: 'db' };
+  const pricedTransfer = await api.getPricingCatalog(staffPg({ transferRows: [transferRule], ruleRows: [...rules, transferPrice] }),
+    { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.deepEqual(pricedTransfer.transferCatalog.options[0], { airportCode: 'BIO', label: 'Bilbao',
+    requiresPackage: true, includedWhenPackage: false, minGuestCount: 2, maxGuestCount: 6,
+    price: { amountCents: 6000, currency: 'EUR', unit: 'flat' } });
+  const missingTransferPrice = await api.getPricingCatalog(staffPg({ transferRows: [transferRule] }),
+    { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.equal(missingTransferPrice.transferCatalog.status, 'loaded');
+  assert.equal(missingTransferPrice.transferCatalog.options[0].price, null, 'missing money remains unknown, never free');
+  assert.notEqual(pricedTransfer.version, missingTransferPrice.version, 'authoritative transfer facts affect catalog revision');
+  const transferFailure = await api.getPricingCatalog(staffPg({ transferDown: true }),
+    { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
+  assert.equal(transferFailure.ok, true, 'transfer read failure does not suppress accommodation catalog');
+  assert.equal(transferFailure.items.some((row) => row.item_type === 'package'), true);
+  assert.deepEqual(transferFailure.transferCatalog, { status: 'unavailable', options: [] });
   const pricingCoverage = api.resolveStaySeasonCoverage([
     { code: 'november', active: true, bookable: true, ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 30 }] },
     { code: 'closed', active: true, bookable: false, ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }] },

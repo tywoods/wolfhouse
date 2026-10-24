@@ -870,6 +870,46 @@ async function main(api = defaultApi) {
     console.log(
       "PASS V3-QUOTE-ADMISSION denied zero selections; each admitted quote persisted one server revision",
     );
+
+    // A comparison is a set of independent persisted offers, not mutable "last quote"
+    // state. Select the earlier offer only after writing a later, different offer and
+    // prove hold creation binds the earlier quote's exact bed and money.
+    const comparisonEarlierInput = {
+      operation_key: "quote-comparison-earlier",
+      check_in: "2028-02-01", check_out: "2028-02-08", guests: [{ name: "Compare" }],
+      selection: { selected_bed_codes: ["R10-B1"], room_type: "shared" },
+      package_id: "malibu", guest_packages: [{ guest_number: 1, package_code: "malibu" }], add_ons: [],
+    };
+    const comparisonEarlier = await api.quote(admin, comparisonEarlierInput, ctx("luna-v3:foreign"));
+    const comparisonLater = await api.quote(admin, {
+      ...comparisonEarlierInput, operation_key: "quote-comparison-later",
+      selection: { selected_bed_codes: ["R10-B2"], room_type: "shared" },
+      package_id: undefined, guest_packages: [], add_ons: [{ code: "cap_class", quantity: 1 }],
+    }, ctx("luna-v3:foreign"));
+    assert.equal(comparisonEarlier.ok, true, JSON.stringify(comparisonEarlier));
+    assert.equal(comparisonLater.ok, true, JSON.stringify(comparisonLater));
+    assert.notEqual(comparisonEarlier.quoteRevision, comparisonLater.quoteRevision);
+    assert.notEqual(comparisonEarlier.totalCents, comparisonLater.totalCents);
+    const comparisonHold = await api.holdBeds(admin, {
+      operation_key: "hold-comparison-earlier", check_in: "2028-02-01", check_out: "2028-02-08",
+      guests: [{ name: "Compare" }],
+      assignments: [{ bed_code: "R10-B1", guest_name: "Compare", package_code: "malibu" }],
+      quoted_selection: comparisonEarlier.quotedSelection,
+    }, ctx("luna-v3:foreign"));
+    assert.equal(comparisonHold.ok, true, JSON.stringify(comparisonHold));
+    const boundComparison = (await admin.query(
+      `SELECT s.quote_revision,s.quote->>'totalCents' total_cents,array_agg(hb.bed_code ORDER BY hb.bed_code) bed_codes
+         FROM luna_v3_holds h JOIN luna_v3_selections s ON s.id=h.selection_id
+         JOIN luna_v3_hold_beds hb ON hb.hold_id=h.id WHERE h.id=$1 GROUP BY h.id,s.id`,
+      [comparisonHold.holdId],
+    )).rows[0];
+    assert.equal(boundComparison.quote_revision, comparisonEarlier.quoteRevision);
+    assert.equal(Number(boundComparison.total_cents), comparisonEarlier.totalCents);
+    assert.deepEqual(boundComparison.bed_codes, ["R10-B1"]);
+    await api.releaseHold(admin, { hold_id: comparisonHold.holdId, operation_key: "release-comparison-earlier" }, ctx("luna-v3:foreign"));
+    observations.comparisonOfferBinding = true;
+    console.log("PASS V3-COMPARISON-BINDING earlier selected offer retains its exact quote revision, money, and bed after later quote");
+
     const exactMoneyInput = {
       ...quoteInput,
       operation_key: "quote-db-only-exact",

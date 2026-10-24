@@ -149,6 +149,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
         selection = quote["properties"]["selection"]
         add_on = quote["properties"]["add_ons"]["items"]
 
+        self.assertEqual({"type": "string", "minLength": 1}, quote["properties"]["package_id"])
+
         self.assertEqual({"name", "explicit_gender"}, set(guest["properties"]))
         self.assertFalse(guest["additionalProperties"])
         self.assertNotIn("guest_id", guest["properties"])

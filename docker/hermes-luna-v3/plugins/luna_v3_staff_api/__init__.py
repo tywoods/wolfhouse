@@ -177,7 +177,7 @@ _TOOL_FIELDS = {
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size", "preferences"),
     "get_pricing_catalog": ("check_in", "check_out", "package_ids", "service_ids"),
-    "quote": ("operation_key", "check_in", "check_out", "guests", "selection", "guest_packages", "add_ons"),
+    "quote": ("operation_key", "check_in", "check_out", "guests", "selection", "package_id", "guest_packages", "add_ons"),
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
