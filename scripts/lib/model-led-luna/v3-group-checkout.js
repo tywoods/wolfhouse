@@ -25,16 +25,54 @@ function createBookingCheckoutAuthority(deps = {}) {
   const build = deps.buildPaymentLinkCommand || defaultBuild;
   const create = deps.createPaymentLink || defaultCreate;
   if (typeof deps.withPgClient !== 'function') throw error('booking_checkout_db_unavailable');
+
   async function createBookingCheckout(args) {
-    const overlapping = await deps.withPgClient(async (pg) => (await pg.query(
+    const overlap = await deps.withPgClient(async (pg) => (await pg.query(
       `SELECT EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NOT NULL
         AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
         AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
-                     NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
-                     NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS active`,
-      [args.bookingId],
-    )).rows[0]);
-    if (overlapping && overlapping.active) throw error('booking_payment_guest_checkout_active', 409);
+          NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
+          NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS active`,
+      [args.bookingId])).rows[0]);
+    if (overlap && overlap.active) throw error('booking_payment_guest_checkout_active', 409);
+
+    // A balance checkout replaces, rather than coexists with, an earlier group
+    // deposit checkout. Provider expiration is verified before publication.
+    if (args.paymentChoice === 'balance') {
+      const previous = await deps.withPgClient(async (pg) => {
+        const row = (await pg.query(`SELECT p.id::text payment_id,COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),
+          NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) checkout_id
+          FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
+            AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
+          ORDER BY p.created_at DESC NULLS LAST,p.id DESC LIMIT 1`, [args.bookingId])).rows[0];
+        return row || null;
+      });
+      if (previous && previous.checkout_id) {
+        const previousId = previous.checkout_id;
+        if (typeof deps.readStripeCheckout !== 'function' || typeof deps.expireStripeCheckout !== 'function')
+          throw error('provider_expiration_unavailable');
+        const providerBefore = await deps.readStripeCheckout(previousId);
+        if (!providerBefore || providerBefore.id !== previousId || providerBefore.livemode !== false
+            || String(providerBefore.payment_status).toLowerCase() !== 'unpaid') throw error('prior_provider_readback_mismatch', 409);
+        if (providerBefore.status === 'open') await deps.expireStripeCheckout(previousId);
+        const expired = await deps.readStripeCheckout(previousId);
+        if (!expired || expired.id !== previousId || expired.status !== 'expired'
+            || String(expired.payment_status).toLowerCase() !== 'unpaid') throw error('prior_provider_expiration_unverified');
+        await deps.withPgClient(async (pg) => {
+          await pg.query('BEGIN');
+          try {
+            const retired = await pg.query(`UPDATE payments SET status='expired',
+              metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('superseded_at',now(),'superseded_by_choice','balance')
+              WHERE id=$1 AND booking_id=$2 AND booking_guest_id IS NULL
+                AND LOWER(COALESCE(status::text,'')) IN ('draft','checkout_created','open','pending') RETURNING id`,
+            [previous.payment_id,args.bookingId]);
+            if (!retired.rows[0]) throw error('prior_checkout_retirement_conflict', 409);
+            await pg.query('COMMIT');
+          } catch (e) { await pg.query('ROLLBACK'); throw e; }
+        });
+      }
+    }
+
     const built = build({
       operation: PAYMENT_LINK_OPERATIONS.CREATE,
       channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
@@ -66,7 +104,24 @@ function createBookingCheckoutAuthority(deps = {}) {
       amountCents: Number(body.amount_due_cents), currency: String(body.currency || 'EUR').toUpperCase(),
       checkoutId, url: provider.url, provider };
   }
-  return { create: createBookingCheckout, read: deps.readStripeCheckout };
+
+  async function readBookingCheckout(args) {
+    if (!args || !args.bookingId || !args.operationKey) throw error('booking_checkout_recovery_identity_required', 400);
+    const key = providerIntentKey(args);
+    const row = await deps.withPgClient(async (pg) => (await pg.query(`SELECT p.id::text payment_id,
+      COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),
+        NULLIF(p.metadata->>'stripe_session_id','')) checkout_id
+      FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
+        AND (p.metadata->>'provider_idempotency_key'=$2 OR p.metadata->>'idempotency_key'=$2)
+      ORDER BY p.created_at DESC NULLS LAST,p.id DESC LIMIT 1`, [args.bookingId, key])).rows[0]);
+    if (!row || !row.checkout_id) return null;
+    const provider = await deps.readStripeCheckout(row.checkout_id);
+    if (!provider || provider.id !== row.checkout_id) return null;
+    return { scope: 'booking', bookingId: args.bookingId, paymentId: row.payment_id,
+      amountCents: Number(provider.amount_total), currency: String(provider.currency || '').toUpperCase(),
+      checkoutId: provider.id, url: provider.url, provider };
+  }
+  return { create: createBookingCheckout, read: readBookingCheckout };
 }
 
 module.exports = { createBookingCheckoutAuthority };

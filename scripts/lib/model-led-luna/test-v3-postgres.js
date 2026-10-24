@@ -179,6 +179,10 @@ async function main(api = defaultApi) {
       path.join(__dirname, "../../../database/migrations/123_luna_v3_one_try_offers.sql"),
       "utf8",
     );
+    const migration124 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/124_luna_v3_fix2_evidence_and_cancel_guard.sql"),
+      "utf8",
+    );
     await admin.query(base);
     await admin.query(migration091);
     await admin.query(
@@ -795,6 +799,7 @@ async function main(api = defaultApi) {
     );
     await admin.query(migration120);
     await admin.query(migration123);
+    await admin.query(migration124);
     console.log(
       "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
@@ -2833,10 +2838,10 @@ async function main(api = defaultApi) {
     assert.equal(
       (
         await admin.query(
-          `SELECT count(*)::int n FROM luna_v3_operations WHERE operation_key IN ('cancel-handoff-fail') OR operation_key LIKE 'cancel-refusal:%' AND receipt->>'reason'='cancel_unpaid_refused' AND receipt->'context'->>'guest_reason'='fail'`,
+          `SELECT count(*)::int n FROM luna_v3_operations WHERE operation_key='cancel-handoff-fail' AND receipt IS NULL`,
         )
       ).rows[0].n,
-      0,
+      1,
     );
     assert.equal((await snapshot(rollbackId)).status, "confirmed");
     observations.cancelUnpaidHandoffAtomicity = true;
@@ -2960,7 +2965,7 @@ async function main(api = defaultApi) {
     const ninput = {
       text: "Guest says BIO at 14:00",
       context: { topic: "transfer" },
-      booking_reference: booked.bookingId,
+      booking_reference: booked.bookingCode,
       operation_key: "note-1",
     };
     const [n1, n2] = await Promise.all([
@@ -3007,7 +3012,7 @@ async function main(api = defaultApi) {
       )
     ).rows[0];
     const missingDeclineInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "declined",
       travel_details: { direction: "departure" },
       operation_key: "transfer-decline-missing",
@@ -3041,7 +3046,7 @@ async function main(api = defaultApi) {
       0,
     );
     const incompleteInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "requested",
       travel_details: { airport: "BIO" },
       operation_key: "transfer-incomplete",
@@ -3070,7 +3075,7 @@ async function main(api = defaultApi) {
       `DELETE FROM wh_pricing_rules WHERE item_type='transfer' AND item_code='BIO'`,
     );
     const unpricedInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "requested",
       travel_details: {
         airport: "BIO",
@@ -3145,7 +3150,7 @@ async function main(api = defaultApi) {
       api.saveTransferRequest(
         await c(),
         {
-          booking_id: booked.bookingId,
+          booking_reference: booked.bookingCode,
           decision: "requested",
           travel_details: travel,
           operation_key: "transfer-1",
@@ -3155,7 +3160,7 @@ async function main(api = defaultApi) {
       api.saveTransferRequest(
         await c(),
         {
-          booking_id: booked.bookingId,
+          booking_reference: booked.bookingCode,
           decision: "requested",
           travel_details: travel,
           operation_key: "transfer-1",
@@ -3190,7 +3195,7 @@ async function main(api = defaultApi) {
     const tr2 = await api.saveTransferRequest(
       admin,
       {
-        booking_id: booked.bookingId,
+        booking_reference: booked.bookingCode,
         decision: "requested",
         travel_details: travel,
         operation_key: "transfer-1",
@@ -3216,7 +3221,7 @@ async function main(api = defaultApi) {
     const declined = await api.saveTransferRequest(
       admin,
       {
-        booking_id: booked.bookingId,
+        booking_reference: booked.bookingCode,
         decision: "declined",
         travel_details: {},
         operation_key: "transfer-declined",
@@ -3321,28 +3326,47 @@ async function main(api = defaultApi) {
     assert.equal(prepared.guests[0].package, "malibu");
     assert.equal(prepared.package_details.name, "Malibu");
     assert.deepEqual(prepared.package_details.includes, ["stay"]);
-    const nonPriceRecorded = await api.checkQuoteBook(admin, {
-      action: "_record_presented", offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.",
-    }, { ...oneTryContext, turnId: "turn:one-try-presented-bad" });
-    assert.equal(nonPriceRecorded.reason, "price_presentation_evidence_required");
+    const nonPriceRecorded = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.", assistant_event_id: "assistant:event:bad",
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-bad" });
+    assert.equal(nonPriceRecorded.reason, "complete_offer_presentation_required");
     const displayedAmount = (Number(prepared.quote.totalCents) / 100).toFixed(2);
-    const misleadingAmount = await api.checkQuoteBook(admin, {
-      action: "_record_presented", offer_reference: prepared.offer_reference,
+    const misleadingAmount = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:misleading",
       assistant_reply: `An unrelated larger amount is €1${displayedAmount}.`,
-    }, { ...oneTryContext, turnId: "turn:one-try-presented-misleading" });
-    assert.equal(misleadingAmount.reason, "price_presentation_evidence_required");
-    const recorded = await api.checkQuoteBook(admin, {
-      action: "_record_presented", offer_reference: prepared.offer_reference, assistant_reply: `Your complete offer is €${displayedAmount}.`,
-    }, { ...oneTryContext, turnId: "turn:one-try-presented" });
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-misleading" });
+    assert.equal(misleadingAmount.reason, "complete_offer_presentation_required");
+    const depositAmount = (Number(prepared.quote.depositCents) / 100).toFixed(2);
+    const presentedInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('a',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const assistantEvent = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest,preceding_inbound_event_id)
+      SELECT s.client_id,s.id,s.principal_id,'assistant_outbound',repeat('b',64),$3::uuid FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId,presentedInbound])).rows[0].id;
+    const recorded = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: assistantEvent,
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented" });
     assert.equal(recorded.recorded, true, JSON.stringify(recorded));
+    const sameTurnConfirm = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: presentedInbound, turnId: "turn:one-try-same-inbound" });
+    assert.equal(sameTurnConfirm.reason, "acceptance_required", JSON.stringify(sameTurnConfirm));
+    const acceptedInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest,created_at)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('c',64),clock_timestamp()+interval '1 millisecond'
+      FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
     const confirmed = await api.checkQuoteBook(admin, {
       action: "confirm", offer_reference: prepared.offer_reference,
-    }, { ...oneTryContext, turnId: "turn:one-try-confirm" });
+    }, { ...oneTryContext, authenticatedInboundEventId: acceptedInbound, turnId: "turn:one-try-confirm" });
     assert.equal(confirmed.state, "booked", JSON.stringify(confirmed));
     assert.equal(Object.hasOwn(confirmed, "bookingId"), false);
     const replayedConfirm = await api.checkQuoteBook(admin, {
       action: "confirm", offer_reference: prepared.offer_reference,
-    }, { ...oneTryContext, turnId: "turn:one-try-confirm-replay" });
+    }, { ...oneTryContext, authenticatedInboundEventId: "inbound:guest:accept-replay", turnId: "turn:one-try-confirm-replay" });
     assert.equal(replayedConfirm.state, "booked", JSON.stringify(replayedConfirm));
     assert.equal(replayedConfirm.booking_reference, confirmed.booking_reference);
     assert.equal((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns WHERE offer_reference=$1 AND presented_at IS NOT NULL AND accepted_at IS NOT NULL`, [prepared.offer_reference])).rows[0].n, 1);

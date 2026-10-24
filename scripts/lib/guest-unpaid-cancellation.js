@@ -21,6 +21,7 @@ function classifyGuestCancellationPaymentEvidence(row, { trustedV3 = false } = {
     row.booking_deposit_paid_cents,
     row.payment_row_count,
     row.payment_positive_count,
+    row.payment_unknown_amount_count,
     row.payment_captured_count,
     row.payment_unknown_status_count,
     row.payment_event_paid_count,
@@ -33,9 +34,9 @@ function classifyGuestCancellationPaymentEvidence(row, { trustedV3 = false } = {
   if (!KNOWN_UNPAID_BOOKING_STATUSES.has(status) || values.some((n) => n === null)) {
     return { eligible: false, reason: 'payment_evidence_unknown' };
   }
-  const [bookingPaid, depositPaid, paymentRows, paymentPositive, paymentCaptured, paymentUnknown, paymentEventPaid,
+  const [bookingPaid, depositPaid, paymentRows, paymentPositive, paymentUnknownAmount, paymentCaptured, paymentUnknown, paymentEventPaid,
     , guestPositive, guestPaid, guestUnknown, guestUnknownAmount] = values;
-  if (paymentUnknown > 0 || guestUnknown > 0 || guestUnknownAmount > 0) {
+  if (paymentUnknownAmount > 0 || paymentUnknown > 0 || guestUnknown > 0 || guestUnknownAmount > 0) {
     return { eligible: false, reason: 'payment_evidence_unknown' };
   }
   const recognizedInertV3Draft = trustedV3
@@ -64,6 +65,7 @@ SELECT TRUE AS booking_found,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND LOWER(COALESCE(p.status::text,'')) IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid') AND COALESCE(p.amount_paid_cents,0)=0 AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NULL) AS payment_inert_draft_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL) AS payment_provider_active_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND COALESCE(p.amount_paid_cents,0)>0) AS payment_positive_count,
+       (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND p.amount_paid_cents IS NULL) AS payment_unknown_amount_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND LOWER(COALESCE(p.status::text,'')) IN ('paid','succeeded','partially_paid','captured')) AS payment_captured_count,
        (SELECT COUNT(*)::int FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired','paid','succeeded','partially_paid','captured')) AS payment_unknown_status_count,
        (SELECT COUNT(*)::int FROM payment_events pe WHERE pe.client_id=b.client_id AND (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated')) AS payment_event_paid_count,
@@ -100,7 +102,7 @@ RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status
 `;
 const GUEST_CANCEL_V3_BOOKING_UPDATE_SQL = GUEST_CANCEL_BOOKING_UPDATE_SQL.replace(
   'AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id)',
-  "AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid') OR COALESCE(p.amount_paid_cents,0)<>0 OR COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL))",
+  "AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id AND (LOWER(COALESCE(p.status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid','cancelled','canceled','expired','failed') OR COALESCE(p.amount_paid_cents,0)<>0 OR COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL))",
 );
 
 const GUEST_CANCEL_PAYMENT_ROWS_LOCK_SQL = `
@@ -130,9 +132,6 @@ async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingC
   const evidenceRow = evidenceRes.rows[0] || null;
   const decision = classifyGuestCancellationPaymentEvidence(evidenceRow, { trustedV3 });
   if (!decision.eligible) return { blocked: true, reason: decision.reason };
-  const updateSql = trustedV3 ? GUEST_CANCEL_V3_BOOKING_UPDATE_SQL : GUEST_CANCEL_BOOKING_UPDATE_SQL;
-  const updateRes = await pg.query(updateSql, [clientSlug, evidenceRow.booking_id, phone]);
-  if (!updateRes.rows[0]) return { blocked: true, reason: 'payment_race_or_evidence_changed' };
   let retiredPaymentCount = 0;
   if (trustedV3) {
     retiredPaymentCount = (await pg.query(
@@ -145,6 +144,9 @@ async function executeGuestUnpaidCancellationBoundary(pg, { clientSlug, bookingC
       [evidenceRow.client_id, evidenceRow.booking_id],
     )).rowCount;
   }
+  const updateSql = trustedV3 ? GUEST_CANCEL_V3_BOOKING_UPDATE_SQL : GUEST_CANCEL_BOOKING_UPDATE_SQL;
+  const updateRes = await pg.query(updateSql, [clientSlug, evidenceRow.booking_id, phone]);
+  if (!updateRes.rows[0]) return { blocked: true, reason: 'payment_race_or_evidence_changed' };
   return { blocked: false, evidenceRow, updatedRow: updateRes.rows[0], retiredPaymentCount };
 }
 

@@ -30,6 +30,20 @@ function replyShowsPrice(reply, totalCents, currency) {
   }
   return false;
 }
+function replyShowsAuthoritativeTerms(reply, quote) {
+  const text = String(reply || '');
+  const lower = text.toLowerCase();
+  if (/\b(?:not|is not|isn't|excluding)\b[^.!?]{0,40}(?:€|eur|total|deposit)/i.test(text)) return false;
+  if (!/\btotal\b/i.test(text) || !/\bdeposit\b/i.test(text)
+      || !replyShowsPrice(text, quote.totalCents, quote.currency)
+      || !replyShowsPrice(text, quote.depositCents, quote.currency)) return false;
+  const q = quote.quoteInput || {};
+  const terms = [q.check_in, q.check_out,
+    ...(q.guests || []).map((g) => g.name),
+    ...((q.selection && q.selection.selected_bed_codes) || []),
+    ...(q.guest_packages || []).map((p) => p.package_code)].filter(Boolean);
+  return terms.every((term) => lower.includes(String(term).toLowerCase()));
+}
 function publicFailure(result) {
   const code = result && (result.code || result.reason) || 'unknown';
   const inputCodes = new Set(['needs_clarification', 'room_eligibility_unknown', 'missing_dates_or_guest_count']);
@@ -58,12 +72,23 @@ function availabilityPreferences(input) {
   };
 }
 function chooseBeds(input, rooms) {
+  const wantedName = String(input.room && input.room.name || '').trim().toLowerCase();
+  const candidates = rooms.rooms || [];
+  const named = wantedName ? candidates.find((room) => [room.roomId, room.roomCode, room.roomName, room.name]
+    .some((value) => String(value || '').trim().toLowerCase() === wantedName)) : null;
+  // A named private/exact request is a constraint, never a hint that may fall
+  // back to a different room. Explicit bed codes must belong to that room too.
+  if (wantedName && input.room && ['private', 'exact'].includes(input.room.kind) && !named) return [];
   const exact = input.room && Array.isArray(input.room.beds) ? input.room.beds : [];
-  if (exact.length) return exact;
+  if (exact.length) {
+    if (named) {
+      const namedCodes = new Set((named.bedOptions || []).map((bed) => String(bed.code)));
+      if (exact.some((code) => !namedCodes.has(String(code)))) return [];
+    }
+    return exact;
+  }
   if (rooms.splitSelection && Array.isArray(rooms.splitSelection.selectedBedCodes)) return rooms.splitSelection.selectedBedCodes;
-  const wantedName = String(input.room && input.room.name || '').toLowerCase();
-  const candidate = (rooms.rooms || []).find((room) => !wantedName || String(room.roomId).toLowerCase() === wantedName)
-    || (rooms.rooms || [])[0];
+  const candidate = named || candidates[0];
   return candidate ? candidate.bedOptions.slice(0, input.guests.length).map((bed) => bed.code) : [];
 }
 function packageSelection(input, catalog) {
@@ -113,81 +138,117 @@ function publicOffer(held, quote, input, reference, catalog) {
 }
 
 function createCheckQuoteBook(deps) {
-  return async function checkQuoteBook(pg, input, context) {
+  async function recordPresented(pg, input, context) {
+    if (!context || context.trustedPresentationRecorder !== true) return publicFailure({ code: 'trusted_recorder_required' });
+    const offer = (await pg.query(`SELECT sel.quote,h.state,h.expires_at FROM luna_v3_holds h
+      JOIN luna_v3_offer_turns ot ON ot.hold_id=h.id JOIN luna_v3_sessions s ON s.id=h.session_id
+      JOIN clients c ON c.id=h.client_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
+    [context.sessionId, context.principalId, input.offer_reference])).rows[0];
+    const quote = offer && offer.quote;
+    if (!offer || offer.state !== 'active' || new Date(offer.expires_at).getTime() <= Date.now()) return publicFailure({ code: 'offer_not_found' });
+    if (!Number.isSafeInteger(quote && quote.depositCents) || quote.depositCents <= 0
+        || !replyShowsAuthoritativeTerms(input.assistant_reply, quote))
+      return publicFailure({ code: 'complete_offer_presentation_required' });
+    const authoritativeTerms = { quoteRevision: quote.quoteRevision, totalCents: quote.totalCents,
+      depositCents: quote.depositCents, remainingCents: quote.remainingCents, currency: quote.currency,
+      checkIn: quote.quoteInput && quote.quoteInput.check_in, checkOut: quote.quoteInput && quote.quoteInput.check_out,
+      guests: quote.quoteInput && quote.quoteInput.guests, selection: quote.quoteInput && quote.quoteInput.selection,
+      packageId: quote.packageCode, addOns: quote.addOns || [] };
+    const recorded = await pg.query(`UPDATE luna_v3_offer_turns ot
+      SET presented_turn_id=$4,presented_at=now(),assistant_event_id=$5,authoritative_terms=$6::jsonb
+      FROM clients c,luna_v3_sessions s,luna_v3_holds h,luna_v3_runtime_events ae
+      WHERE c.slug='wolfhouse-somo' AND s.client_id=c.id AND s.session_key=$1 AND s.principal_id=$2
+        AND h.id=ot.hold_id AND ot.session_id=s.id AND h.offer_reference=$3 AND ot.presented_at IS NULL
+        AND ae.id::text=$5 AND ae.client_id=c.id AND ae.session_id=s.id AND ae.principal_id=s.principal_id
+        AND ae.direction='assistant_outbound' RETURNING h.id`,
+    [context.sessionId, context.principalId, input.offer_reference, context.turnId, input.assistant_event_id, JSON.stringify(authoritativeTerms)]);
+    return recorded.rows[0] ? { ok: true, recorded: true } : publicFailure({ code: 'offer_already_presented' });
+  }
+  async function checkQuoteBook(pg, input, context) {
     if (!context || !context.turnId) return publicFailure({ code: 'trusted_turn_required' });
-    if (input.action === '_record_presented') {
-      if (!String(input.assistant_reply || '').trim()) return publicFailure({ code: 'presentation_evidence_required' });
-      const offer = (await pg.query(`SELECT sel.quote FROM luna_v3_holds h
-        JOIN luna_v3_offer_turns ot ON ot.hold_id=h.id JOIN luna_v3_sessions s ON s.id=h.session_id
-        JOIN clients c ON c.id=h.client_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
-        WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
-      [context.sessionId, context.principalId, input.offer_reference])).rows[0];
-      const quote = offer && offer.quote;
-      if (!replyShowsPrice(input.assistant_reply, quote && quote.totalCents, quote && quote.currency))
-        return publicFailure({ code: 'price_presentation_evidence_required' });
-      const recorded = await pg.query(`UPDATE luna_v3_offer_turns ot SET presented_turn_id=$4,presented_at=now()
-        FROM clients c,luna_v3_sessions s,luna_v3_holds h
-        WHERE c.slug='wolfhouse-somo' AND s.client_id=c.id AND s.session_key=$1 AND s.principal_id=$2
-          AND h.id=ot.hold_id AND ot.session_id=s.id AND h.offer_reference=$3 RETURNING h.id`,
-      [context.sessionId, context.principalId, input.offer_reference, context.turnId]);
-      return recorded.rows[0] ? { ok: true, recorded: true } : publicFailure({ code: 'offer_not_found' });
-    }
     if (input.action === 'prepare') {
-      const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, context);
-      if (!catalog.ok) return publicFailure(catalog);
-      if (input.purpose === 'information') {
-        return { ok: true, state: 'information', reason: 'authoritative_catalog_ready', held: false, booked: false,
-          check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
-      }
-      const count = input.guests.length;
-      const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, context);
-      if (!rooms.ok) return publicFailure(rooms);
-      const beds = chooseBeds(input, rooms);
-      if (beds.length !== count) return publicFailure({ code: 'requested_room_unavailable' });
-      const packages = packageSelection(input, catalog);
-      if (!packages) return { ...publicFailure({ code: 'package_choice_required' }), state: 'needs_choice', next_step: 'ask_guest' };
-      const extras = addOns(input, catalog);
-      if (extras.some((row) => !row.code)) return publicFailure({ code: 'staff_service_unavailable' });
-      const quoteInput = {
-        operation_key: operationKey(context, 'prepare-quote', input), check_in: input.check_in, check_out: input.check_out,
-        guests: guestRows(input), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input).room_type, room_preference: availabilityPreferences(input).room_preference, keep_together: availabilityPreferences(input).keep_together },
-        ...packages, add_ons: extras,
-      };
-      const quote = await deps.quote(pg, quoteInput, context);
-      if (!quote.ok) return publicFailure(quote);
-      const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, context);
-      if (!hold.ok) return publicFailure(hold);
-      const reference = `offer_${digest({ session: context.sessionId, hold: hold.holdId }, 36)}`;
-      await pg.query('BEGIN');
+      await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
       try {
+        const snapshotContext = { ...context, callerManagedTransaction: true };
+        const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
+        const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
+        if (!catalog.ok) return reject(catalog);
+        if (input.purpose === 'information') {
+          const result = { ok: true, state: 'information', reason: 'authoritative_catalog_ready', held: false, booked: false,
+            check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
+          await pg.query('COMMIT'); return result;
+        }
+        const count = input.guests.length;
+        const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, snapshotContext);
+        if (!rooms.ok) return reject(rooms);
+        const beds = chooseBeds(input, rooms);
+        if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
+        const packages = packageSelection(input, catalog);
+        if (!packages) { await pg.query('ROLLBACK'); return { ...publicFailure({ code: 'package_choice_required' }), state: 'needs_choice', next_step: 'ask_guest' }; }
+        const extras = addOns(input, catalog);
+        if (extras.some((row) => !row.code)) return reject({ code: 'staff_service_unavailable' });
+        const quoteInput = {
+          operation_key: operationKey(context, 'prepare-quote', input), check_in: input.check_in, check_out: input.check_out,
+          guests: guestRows(input), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input).room_type, room_preference: availabilityPreferences(input).room_preference, keep_together: availabilityPreferences(input).keep_together },
+          ...packages, add_ons: extras,
+        };
+        const quote = await deps.quote(pg, quoteInput, snapshotContext);
+        if (!quote.ok) return reject(quote);
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
+        await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
+        const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, snapshotContext);
+        if (!hold.ok) return reject(hold);
+        const reference = `offer_${digest({ session: context.sessionId, hold: hold.holdId }, 36)}`;
         const updated = await pg.query(`UPDATE luna_v3_holds SET offer_reference=$1 WHERE id=$2 AND client_id=$3 AND session_id=$4 AND state='active' RETURNING id`, [reference, hold.holdId, session.client_id, session.id]);
         if (!updated.rows[0]) throw new Error('offer_scope_changed');
         await pg.query(`INSERT INTO luna_v3_offer_turns(client_id,session_id,hold_id,offer_reference,prepared_turn_id) VALUES($1,$2,$3,$4,$5)`, [session.client_id, session.id, hold.holdId, reference, context.turnId]);
+        const result = publicOffer(hold, quote, input, reference, catalog);
         await pg.query('COMMIT');
+        return result;
       } catch (error) {
         await pg.query('ROLLBACK');
-        try { await deps.releaseHold(pg, { operation_key: operationKey(context, 'prepare-compensation', input), hold_id: hold.holdId }, context); }
-        catch (_) { error.holdReleaseFailed = true; }
         throw error;
       }
-      return publicOffer(hold, quote, input, reference, catalog);
     }
-    const row = (await pg.query(`SELECT h.id,h.state,h.expires_at,ot.presented_at,ot.presented_turn_id,ot.accepted_at FROM luna_v3_holds h JOIN luna_v3_offer_turns ot ON ot.hold_id=h.id JOIN luna_v3_sessions s ON s.id=h.session_id JOIN clients c ON c.id=h.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`, [context.sessionId, context.principalId, input.offer_reference])).rows[0];
+    const row = (await pg.query(`SELECT h.id,h.state,h.expires_at,ot.presented_at,ot.assistant_event_id,ot.accepted_at,
+      ae.preceding_inbound_event_id::text AS presented_inbound_event_id,ae.created_at AS assistant_event_at
+      FROM luna_v3_holds h JOIN luna_v3_offer_turns ot ON ot.hold_id=h.id
+      JOIN luna_v3_sessions s ON s.id=h.session_id JOIN clients c ON c.id=h.client_id
+      LEFT JOIN luna_v3_runtime_events ae ON ae.id::text=ot.assistant_event_id AND ae.client_id=h.client_id
+        AND ae.session_id=s.id AND ae.principal_id=s.principal_id AND ae.direction='assistant_outbound'
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
+    [context.sessionId, context.principalId, input.offer_reference])).rows[0];
     if (!row) return publicFailure({ code: 'offer_not_found' });
     if (input.action === 'decline') {
       const released = await deps.releaseHold(pg, { operation_key: operationKey(context, 'decline', input), hold_id: row.id }, context);
       return released.ok ? { ok: true, state: 'released', reason: 'offer_released', message: 'The temporary hold was released.', next_step: 'report_release', retry_allowed: false, operation_reference: input.offer_reference } : publicFailure(released);
     }
-    if (!row.presented_at || !row.presented_turn_id || row.presented_turn_id === context.turnId) return publicFailure({ code: 'acceptance_required' });
+    const inboundEvent = context.authenticatedInboundEventId;
+    if (!row.accepted_at && (row.state !== 'active' || new Date(row.expires_at).getTime() <= Date.now())) return publicFailure({ code: 'offer_superseded' });
+    let acceptedInbound = null;
+    if (!row.accepted_at && inboundEvent) {
+      acceptedInbound = (await pg.query(`SELECT e.id::text FROM luna_v3_runtime_events e
+        JOIN luna_v3_sessions s ON s.id=e.session_id JOIN clients c ON c.id=e.client_id
+        WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2
+          AND e.id=$3::uuid AND e.direction='inbound' AND e.created_at > $4::timestamptz`,
+      [context.sessionId, context.principalId, inboundEvent, row.assistant_event_at])).rows[0];
+    }
+    if (!row.presented_at || !row.assistant_event_id || !row.assistant_event_at
+        || (!row.accepted_at && (!acceptedInbound || row.presented_inbound_event_id === inboundEvent)))
+      return publicFailure({ code: 'acceptance_required' });
     if (!row.accepted_at) {
-      const accepted = await pg.query(`UPDATE luna_v3_offer_turns SET accepted_turn_id=$2,accepted_at=now() WHERE offer_reference=$1 AND accepted_at IS NULL AND presented_at IS NOT NULL RETURNING hold_id`, [input.offer_reference, context.turnId]);
+      const accepted = await pg.query(`UPDATE luna_v3_offer_turns SET accepted_turn_id=$2,accepted_at=now(),accepted_inbound_event_id=$3
+        WHERE offer_reference=$1 AND accepted_at IS NULL AND presented_at IS NOT NULL RETURNING hold_id`,
+      [input.offer_reference, context.turnId, inboundEvent]);
       if (!accepted.rows[0]) return publicFailure({ code: 'acceptance_required' });
     }
     const confirmKey = `one-try:confirm:${digest({ session: context.sessionId, offer: input.offer_reference }, 40)}`;
     const booked = await deps.book(pg, { operation_key: confirmKey, hold_id: row.id }, context);
     if (!booked.ok) return publicFailure(booked);
     return { ok: true, state: 'booked', reason: 'accepted_offer_confirmed', message: 'The booking is confirmed.', next_step: 'report_booking', retry_allowed: false, operation_reference: input.offer_reference, booking_reference: booked.bookingCode, status: 'confirmed', payment_state: 'unpaid' };
-  };
+  }
+  checkQuoteBook.recordPresented = recordPresented;
+  return checkQuoteBook;
 }
 module.exports = { createCheckQuoteBook, publicFailure, operationKey, replyShowsPrice };

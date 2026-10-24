@@ -120,6 +120,13 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "staff_alert_allowed": False,
     }
     turn_id = "turn:" + hashlib.sha256((runtime["session_id"] + ":" + json.dumps(arguments, sort_keys=True, separators=(",", ":"))).encode()).hexdigest()[:32]
+    try:
+        from runtime.trusted_turn_context import get_inbound_event
+        inbound_event_id = get_inbound_event()
+    except ImportError:
+        inbound_event_id = ""
+    if not inbound_event_id:
+        raise RuntimeError("trusted persisted inbound event is required")
     request = urllib.request.Request(
         runtime["base_url"] + TOOL_PATHS[name],
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
@@ -128,6 +135,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             "Accept": "application/json",
             "Authorization": "".join(("Be", "arer ", runtime["token"])),
             "X-Luna-V3-Turn-Id": turn_id,
+            "X-Luna-V3-Inbound-Event": inbound_event_id,
         },
         method="POST",
     )
@@ -184,9 +192,9 @@ _TOOL_FIELDS = {
     "get_payment_status": ("booking_reference",),
     "send_payment_link": ("booking_reference", "payment_scope", "guest_position", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
-    "read_notes": ("topic",),
+    "read_notes": ("topic", "booking_reference"),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
-    "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
+    "save_transfer_request": ("booking_reference", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
     "recover_operation": ("tool", "operation_key"),
 }
@@ -207,7 +215,7 @@ _TOOL_REQUIRED = {
     "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
-    "save_transfer_request": ("booking_id", "decision", "operation_key"),
+    "save_transfer_request": ("booking_reference", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
     "recover_operation": ("tool", "operation_key"),
 }

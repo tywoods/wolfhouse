@@ -433,28 +433,32 @@ async function quote(pg, input = {}, context) {
   trusted(context); validate('quote', input);
   const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
   const fp = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
-  await pg.query('BEGIN');
+  const ownsTransaction = !(context && context.callerManagedTransaction);
+  if (ownsTransaction) await pg.query('BEGIN');
   try {
     const s = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context && context.sessionId, context && context.principalId])).rows[0];
     if (!s) throw Object.assign(new Error('write admission denied'), { status: 403 });
     const inserted = await pg.query(`INSERT INTO luna_v3_operations(client_id,session_id,tool,operation_key,request_fingerprint) VALUES($1,$2,'quote',$3,$4) ON CONFLICT(client_id,session_id,tool,operation_key) DO NOTHING RETURNING id,request_fingerprint,receipt`, [s.client_id,s.id,input.operation_key,fp]);
     const op = inserted.rows[0] || (await pg.query(`SELECT id,request_fingerprint,receipt FROM luna_v3_operations WHERE client_id=$1 AND session_id=$2 AND tool='quote' AND operation_key=$3 FOR UPDATE`, [s.client_id,s.id,input.operation_key])).rows[0];
-    if (op.request_fingerprint !== fp) { await pg.query('ROLLBACK'); return { ok:false,outcome:'rejected',status:409,code:'operation_key_payload_mismatch' }; }
-    if (op.receipt) { await pg.query('COMMIT'); return op.receipt; }
+    if (op.request_fingerprint !== fp) { if (ownsTransaction) await pg.query('ROLLBACK'); return { ok:false,outcome:'rejected',status:409,code:'operation_key_payload_mismatch' }; }
+    if (op.receipt) { if (ownsTransaction) await pg.query('COMMIT'); return op.receipt; }
     await pg.query('SAVEPOINT luna_v3_quote_business');
     const receipt = await computeQuote(pg,input,context);
     if (!receipt.ok) await pg.query('ROLLBACK TO SAVEPOINT luna_v3_quote_business');
     const saved = receipt.ok ? { ...receipt, outcome:'applied' } : { ...receipt, outcome:'rejected' };
     await pg.query(`UPDATE luna_v3_operations SET receipt=$2::jsonb,outcome=$3,completed_at=now() WHERE id=$1`, [op.id,JSON.stringify(saved),saved.outcome]);
-    await pg.query('COMMIT'); return saved;
-  } catch (error) { await pg.query('ROLLBACK'); throw error; }
+    if (ownsTransaction) await pg.query('COMMIT'); return saved;
+  } catch (error) { if (ownsTransaction) await pg.query('ROLLBACK'); throw error; }
 }
 
 function createOperations(withPgClient, authorities = {}) {
-  return Object.freeze(Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
+  const operations = Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
     (input, context) => withPgClient((client) => SELECTED_IMPLEMENTATIONS[name](client, input,
       { ...context, staffAuthorities: authorities })),
-  ])));
+  ]));
+  operations._record_offer_presentation = (input, context) => withPgClient((client) =>
+    checkQuoteBook.recordPresented(client, input, { ...context, staffAuthorities: authorities }));
+  return Object.freeze(operations);
 }
 
 const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });

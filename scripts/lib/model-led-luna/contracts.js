@@ -30,7 +30,7 @@ const FORBIDDEN_INPUTS = new Set([
 ]);
 
 const READ_SCHEMAS = Object.freeze({
-  check_quote_book: new Set(['action', 'purpose', 'check_in', 'check_out', 'guests', 'room', 'package', 'add_ons', 'payment', 'offer_reference', 'assistant_reply']),
+  check_quote_book: new Set(['action', 'purpose', 'check_in', 'check_out', 'guests', 'room', 'package', 'add_ons', 'payment', 'offer_reference']),
   check_availability: new Set(['check_in', 'check_out', 'party_size', 'room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   find_rooms: new Set(['check_in', 'check_out', 'party_size', 'preferences']),
   get_pricing_catalog: new Set(['check_in', 'check_out', 'package_ids', 'service_ids']),
@@ -44,9 +44,9 @@ const READ_SCHEMAS = Object.freeze({
   get_payment_status: new Set(['booking_reference']),
   send_payment_link: new Set(['booking_reference', 'payment_scope', 'payment_choice', 'guest_position', 'operation_key']),
   cancel_unpaid: new Set(['booking_reference', 'guest_reason', 'operation_key']),
-  read_notes: new Set(['topic']),
+  read_notes: new Set(['topic', 'booking_reference']),
   write_note: new Set(['text', 'context', 'booking_reference', 'operation_key']),
-  save_transfer_request: new Set(['booking_id', 'decision', 'travel_details', 'operation_key']),
+  save_transfer_request: new Set(['booking_reference', 'decision', 'travel_details', 'operation_key']),
 });
 const NESTED_SCHEMAS = Object.freeze({
   guests: new Set(['name', 'explicit_gender', 'gender']),
@@ -95,7 +95,7 @@ function assertSafeToolRequest(name, input = {}) {
   }
   if (contract.write && name !== 'check_quote_book' && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
   if (name === 'check_quote_book') {
-    if (!['prepare', 'confirm', 'decline', '_record_presented'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
+    if (!['prepare', 'confirm', 'decline'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
       if (!['offer', 'information'].includes(input.purpose)) throw new Error('purpose must be offer or information');
       if (!input.check_in || !input.check_out) throw new Error('check_in and check_out are required for prepare');
@@ -105,7 +105,7 @@ function assertSafeToolRequest(name, input = {}) {
         if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
       }
     } else if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');
-    if (input.action === '_record_presented' && !String(input.assistant_reply || '').trim()) throw new Error('assistant_reply is required');
+
   }
   if (name === 'recover_operation' && (!String(input.tool || '').trim() || !String(input.operation_key || '').trim())) throw new Error('tool and operation_key are required for recover_operation');
   if (name === 'hold_beds') {

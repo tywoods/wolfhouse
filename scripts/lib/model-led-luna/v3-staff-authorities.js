@@ -54,11 +54,22 @@ function createLunaV3StaffAuthorities(dependencies) {
       }
       return d.groupCheckout.create(args);
     },
-    async readBookingCheckout(checkoutId) {
+    async readBookingCheckout(args) {
       if (!d.groupCheckout || typeof d.groupCheckout.read !== 'function') {
         const error = new Error('test_provider_unavailable'); error.code = 'test_provider_unavailable'; throw error;
       }
-      return d.groupCheckout.read(checkoutId);
+      return d.groupCheckout.read(args);
+    },
+    async readCancellationCheckout(checkoutId) {
+      if (!d.stripeLinksEnabled || !d.stripeSecretKey || !d.stripeSecretKey.startsWith('sk_test_'))
+        throw Object.assign(new Error('test_provider_unavailable'), { code: 'test_provider_unavailable' });
+      return d.createStripe(d.stripeSecretKey).checkout.sessions.retrieve(checkoutId);
+    },
+    async expireCancellationCheckout(checkoutId) {
+      if (!d.stripeLinksEnabled || !d.stripeSecretKey || !d.stripeSecretKey.startsWith('sk_test_')
+          || typeof d.expireStripeCheckout !== 'function')
+        throw Object.assign(new Error('test_provider_unavailable'), { code: 'test_provider_unavailable' });
+      return d.expireStripeCheckout(checkoutId);
     },
   };
   for (const name of FORBIDDEN_TRANSPORTS) authorities[name] = transportForbidden(name);

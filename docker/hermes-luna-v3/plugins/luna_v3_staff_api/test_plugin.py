@@ -88,6 +88,11 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 plugin.call_tool("recover_operation", {})
         transport.assert_not_called()
     def load_plugin(self):
+        runtime_root = str(PLUGIN_PATH.parents[2])
+        if runtime_root not in sys.path:
+            sys.path.insert(0, runtime_root)
+        from runtime.trusted_turn_context import bind_inbound_event
+        bind_inbound_event("11111111-1111-4111-8111-111111111111")
         spec = importlib.util.spec_from_file_location("luna_v3_staff_api", PLUGIN_PATH)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

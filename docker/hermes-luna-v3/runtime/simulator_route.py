@@ -65,7 +65,7 @@ def _normalize_phone(value: Any) -> str:
     return f"+{digits}" if digits else ""
 
 
-def _admit_test_session_sync(session_key: str, phone: str) -> dict[str, Any]:
+def _admit_test_session_sync(session_key: str, phone: str, message_digest: str) -> dict[str, Any]:
     base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
     token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
     if not base_url.startswith("https://") or not token:
@@ -74,6 +74,7 @@ def _admit_test_session_sync(session_key: str, phone: str) -> dict[str, Any]:
         "tenant_id": "wolfhouse-somo",
         "session_id": session_key,
         "guest_phone": phone,
+        "message_digest": message_digest,
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }, separators=(",", ":")).encode("utf-8")
@@ -97,22 +98,23 @@ def _admit_test_session_sync(session_key: str, phone: str) -> dict[str, Any]:
     return body
 
 
-def _record_offer_presented_sync(session_key: str, offer_reference: str, reply: str) -> None:
+def _record_offer_presented_sync(session_key: str, offer_reference: str, reply: str, inbound_event_id: str) -> None:
     base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
     token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
     turn_id = "turn:" + hashlib.sha256((session_key + ":presented:" + reply).encode()).hexdigest()[:32]
-    payload = json.dumps({"tenant_id": "wolfhouse-somo", "session_id": session_key, "action": "_record_presented",
-        "offer_reference": offer_reference, "assistant_reply": reply, "external_send_allowed": False, "staff_alert_allowed": False}, separators=(",", ":")).encode()
-    req = urllib.request.Request(base_url + "/staff/bot/luna-v3/check-quote-book", data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": "".join(("Be", "arer ", token)), "X-Luna-V3-Turn-Id": turn_id}, method="POST")
+    payload = json.dumps({"tenant_id": "wolfhouse-somo", "session_id": session_key,
+        "offer_reference": offer_reference, "assistant_reply": reply,
+        "external_send_allowed": False, "staff_alert_allowed": False}, separators=(",", ":")).encode()
+    req = urllib.request.Request(base_url + "/staff/bot/luna-v3/record-offer-presentation", data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": "".join(("Be", "arer ", token)), "X-Luna-V3-Turn-Id": turn_id, "X-Luna-V3-Inbound-Event": inbound_event_id}, method="POST")
     with urllib.request.urlopen(req, timeout=20) as response:
         body = json.loads(response.read().decode())
     if not isinstance(body, dict) or body.get("recorded") is not True:
         raise RuntimeError("offer_presentation_record_failed")
 
 
-async def _admit_test_session(session_key: str, phone: str) -> dict[str, Any]:
-    return await asyncio.to_thread(_admit_test_session_sync, session_key, phone)
+async def _admit_test_session(session_key: str, phone: str, message_digest: str) -> dict[str, Any]:
+    return await asyncio.to_thread(_admit_test_session_sync, session_key, phone, message_digest)
 
 
 async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> dict[str, Any]:
@@ -139,17 +141,23 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     session_key = f"luna-v3:{digest}"
     session_id = f"luna-v3-{digest}"
     try:
-        admission = await (admit_session or _admit_test_session)(session_key, phone)
+        admission = await (admit_session or _admit_test_session)(session_key, phone, hashlib.sha256(text.encode()).hexdigest())
     except Exception:
         return {"status": 503, "body": {"ok": False, "code": "simulator_session_admission_failed"}}
     if not isinstance(admission, dict) or admission.get("admitted") is not True:
         return {"status": 503, "body": {"ok": False, "code": "simulator_session_admission_refused"}}
+    inbound_event_id = str(admission.get("inbound_event_id") or "").strip()
+    if not inbound_event_id:
+        return {"status": 503, "body": {"ok": False, "code": "simulator_inbound_event_missing"}}
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,
     )
     tokens = adapter._bind_api_server_session(session_key=session_key)
+    from runtime.trusted_turn_context import bind_inbound_event, clear_inbound_event
+    inbound_token = bind_inbound_event(inbound_event_id)
     ctx = copy_context()
+    clear_inbound_event(inbound_token)
 
     def run_agent() -> Any:
         return ctx.run(
@@ -184,7 +192,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
               and call["result_summary"].get("state") == "offer"]
     try:
         for offer_reference in filter(None, offers):
-            await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip())
+            await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip(), inbound_event_id)
     except Exception:
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
     return {

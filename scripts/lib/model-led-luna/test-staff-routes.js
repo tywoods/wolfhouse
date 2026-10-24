@@ -16,11 +16,12 @@ const dispatchLunaV3StaffRoute = (args) => rawDispatch({
 });
 
 async function main() {
-  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 17);
+  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 18);
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/check-availability'], 'check_availability');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/handoff'], 'handoff_to_human');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/recover-operation'], 'recover_operation');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/admit-simulator-session'], 'admit_simulator_session');
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/record-offer-presentation'], '_record_offer_presentation');
 
   const admitted = [];
   const admission = await dispatchLunaV3StaffRoute({
@@ -30,6 +31,7 @@ async function main() {
     body: {
       session_id: 'luna-v3:0123456789abcdef01234567',
       guest_phone: '+34699901234',
+      message_digest: 'a'.repeat(64),
       external_send_allowed: false,
       staff_alert_allowed: false,
     },
@@ -44,6 +46,7 @@ async function main() {
     sessionId: 'luna-v3:0123456789abcdef01234567',
     guestPhone: '+34699901234',
     principalId: 'test-principal',
+    messageDigest: 'a'.repeat(64),
   }]);
 
   for (const body of [

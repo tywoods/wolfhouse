@@ -22,7 +22,7 @@ const deps = {
   book: async () => ({ ok: true, bookingCode: 'WH-TEST' }),
 };
 const pg = { async query(sql) {
-  if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+  if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
   if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
   if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
   if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };

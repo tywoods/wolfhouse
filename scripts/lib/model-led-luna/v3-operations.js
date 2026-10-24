@@ -197,7 +197,8 @@ async function revalidateSelection(pg, selection, context) {
 
 async function holdBeds(pg, input, context) {
   const s = await session(pg, context, true);
-  await pg.query("BEGIN");
+  const ownsTransaction = !(context && context.callerManagedTransaction);
+  if (ownsTransaction) await pg.query("BEGIN");
   try {
     const op = await beginOperation(
       pg,
@@ -207,11 +208,11 @@ async function holdBeds(pg, input, context) {
       input,
     );
     if (op.conflict) {
-      await pg.query("ROLLBACK");
+      if (ownsTransaction) await pg.query("ROLLBACK");
       return op.conflict;
     }
     if (op.replay) {
-      await pg.query("COMMIT");
+      if (ownsTransaction) await pg.query("COMMIT");
       return op.replay;
     }
     await pg.query("SAVEPOINT luna_v3_business");
@@ -302,10 +303,10 @@ async function holdBeds(pg, input, context) {
       quoteRevision: sel.quote_revision,
     };
     await finish(pg, op.row.id, receipt, { holdId: h.id });
-    await pg.query("COMMIT");
+    if (ownsTransaction) await pg.query("COMMIT");
     return receipt;
   } catch (e) {
-    await pg.query("ROLLBACK");
+    if (ownsTransaction) await pg.query("ROLLBACK");
     throw e;
   }
 }
@@ -943,6 +944,34 @@ async function cancelUnpaid(pg, input, context) {
       await pg.query("COMMIT");
       return op.replay;
     }
+    // Prepare is durable before any provider request. Finalization below locks
+    // and rechecks all money evidence in a new transaction.
+    await pg.query("COMMIT");
+    let providerBlock = null;
+    const checkoutRows = (await pg.query(`SELECT DISTINCT COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),
+      NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) checkout_id
+      FROM payments p WHERE p.client_id=$1 AND p.booking_id=$2`, [s.client_id, s.selected_booking_id])).rows
+      .map((row) => row.checkout_id).filter(Boolean);
+    const authorities = context.staffAuthorities || {};
+    if (checkoutRows.length && (typeof authorities.readCancellationCheckout !== 'function'
+        || typeof authorities.expireCancellationCheckout !== 'function')) providerBlock = 'provider_reconciliation_unavailable';
+    for (const checkoutId of providerBlock ? [] : checkoutRows) {
+      try {
+        const before = await authorities.readCancellationCheckout(checkoutId);
+        const md = before && before.metadata || {};
+        if (!before || before.id !== checkoutId || before.livemode !== false
+            || md.client_slug !== TENANT || md.booking_id !== s.selected_booking_id
+            || String(before.payment_status).toLowerCase() !== 'unpaid') { providerBlock = 'provider_payment_evidence_unknown'; break; }
+        if (before.status === 'open') await authorities.expireCancellationCheckout(checkoutId);
+        const after = await authorities.readCancellationCheckout(checkoutId);
+        if (!after || after.id !== checkoutId || after.status !== 'expired'
+            || String(after.payment_status).toLowerCase() !== 'unpaid') { providerBlock = 'provider_expiration_unverified'; break; }
+      } catch (_) { providerBlock = 'provider_reconciliation_unavailable'; break; }
+    }
+    await pg.query("BEGIN");
+    const currentOp = (await pg.query(`SELECT request_fingerprint,receipt FROM luna_v3_operations WHERE id=$1 FOR UPDATE`, [op.row.id])).rows[0];
+    if (!currentOp || currentOp.request_fingerprint !== op.fp) throw new Error('cancel_operation_identity_changed');
+    if (currentOp.receipt) { await pg.query('COMMIT'); return currentOp.receipt; }
     const b = (
       await pg.query(
         `SELECT booking_code,phone FROM bookings WHERE id=$1 AND client_id=$2`,
@@ -959,7 +988,7 @@ async function cancelUnpaid(pg, input, context) {
         [s.selected_booking_id],
       )
     ).rows[0].n;
-    const result = await executeGuestUnpaidCancellationBoundary(pg, {
+    const result = providerBlock ? { blocked: true, reason: providerBlock } : await executeGuestUnpaidCancellationBoundary(pg, {
       clientSlug: TENANT,
       bookingCode: b.booking_code,
       phone: b.phone,
@@ -1017,6 +1046,10 @@ async function cancelUnpaid(pg, input, context) {
 }
 async function readNotes(pg, input, context) {
   const s = await session(pg, context);
+  if (input.booking_reference) {
+    const selectedPublic = await selectedByPublicReference(pg, s, input);
+    if (selectedPublic.denied) return selectedPublic.denied;
+  }
   const shared = await getHouseNotes(pg, { clientSlug: TENANT });
   const rows = (
     await pg.query(
@@ -1043,11 +1076,10 @@ async function readNotes(pg, input, context) {
 }
 async function writeNote(pg, input, context) {
   const s = await session(pg, context, true);
-  if (
-    input.booking_reference &&
-    input.booking_reference !== s.selected_booking_id
-  )
-    return fail("booking_selector_forbidden", 403);
+  if (input.booking_reference) {
+    const selectedPublic = await selectedByPublicReference(pg, s, input);
+    if (selectedPublic.denied) return selectedPublic.denied;
+  }
   await pg.query("BEGIN");
   try {
     const op = await beginOperation(
@@ -1065,7 +1097,7 @@ async function writeNote(pg, input, context) {
       await pg.query("COMMIT");
       return op.replay;
     }
-    const bookingId = input.booking_reference || null;
+    const bookingId = input.booking_reference ? s.selected_booking_id : null;
     const n = (
       await pg.query(
         `INSERT INTO luna_v3_notes(client_id,session_id,booking_id,operation_id,text,context) VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING id,version`,
@@ -1098,8 +1130,8 @@ async function writeNote(pg, input, context) {
 }
 async function saveTransferRequest(pg, input, context) {
   const s = await session(pg, context, true);
-  const denied = selected(s, input);
-  if (denied) return denied;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return selectedPublic.denied;
   if (!["requested", "declined"].includes(input.decision))
     return fail("invalid_transfer_decision", 400);
   await pg.query("BEGIN");
@@ -1322,9 +1354,20 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
       checkout = await authorities.createBookingCheckout({ bookingId: s.selected_booking_id,
         paymentChoice: input.payment_choice, operationKey: input.operation_key, principalId: context.principalId });
     } catch (e) {
-      return fail(e.code || e.message || "staff_payment_link_failed", e.httpStatus || 503,
-        { recoveryStatus: "ambiguous", operationKey: input.operation_key });
+      // A provider timeout is not evidence that creation failed. Recover by the
+      // same authoritative operation key before returning an ambiguous result.
+      try {
+        checkout = await authorities.readBookingCheckout({ bookingId: s.selected_booking_id,
+          paymentChoice: input.payment_choice, operationKey: input.operation_key, principalId: context.principalId });
+      } catch (_) { /* preserve the original provider uncertainty below */ }
+      if (!checkout || !checkout.paymentId || !checkout.checkoutId || !checkout.url) {
+        return fail(e.code || e.message || "staff_payment_link_failed", e.httpStatus || 503,
+          { recoveryStatus: "ambiguous", operationKey: input.operation_key });
+      }
     }
+    if (!checkout || !checkout.paymentId || !checkout.checkoutId || !checkout.url
+        || checkout.amountCents <= 0 || String(checkout.currency || '').toUpperCase() !== 'EUR')
+      return reject(fail('provider_readback_invalid', 503));
     const provider = checkout && checkout.provider;
     const receipt = { ok: true, outcome: 'applied', operationKey: input.operation_key,
       paymentScope: 'booking', bookingId: s.selected_booking_id, paymentId: checkout.paymentId,
