@@ -7,6 +7,7 @@ quote state, WhatsApp transport, or reply composer. Staff owns facts and writes.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import urllib.error
 import urllib.request
@@ -28,6 +29,7 @@ def _open_staff(request: Any, base_url: str) -> Any:
     return urllib.request.build_opener(_SameHostRedirectHandler(base_url)).open(request, timeout=20)
 
 TOOL_PATHS = {
+    "check_quote_book": "/staff/bot/luna-v3/check-quote-book",
     "check_availability": "/staff/bot/luna-v3/check-availability",
     "find_rooms": "/staff/bot/luna-v3/find-rooms",
     "get_pricing_catalog": "/staff/bot/luna-v3/pricing-catalog",
@@ -47,7 +49,7 @@ TOOL_PATHS = {
 }
 TOOL_NAMES = tuple(TOOL_PATHS)
 WRITE_TOOLS = frozenset({
-    "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
+    "check_quote_book", "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
     "write_note", "save_transfer_request", "handoff_to_human",
 })
 FORBIDDEN_FIELDS = frozenset({
@@ -112,7 +114,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     _reject_authority_fields(arguments)
     if name == "recover_operation" and (not str(arguments.get("tool", "")).strip() or not str(arguments.get("operation_key", "")).strip()):
         raise ValueError("tool and operation_key are required for recover_operation")
-    if name in WRITE_TOOLS and not str(arguments.get("operation_key", "")).strip():
+    if name in WRITE_TOOLS and name != "check_quote_book" and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
     runtime = _runtime()
@@ -123,6 +125,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }
+    turn_id = "turn:" + hashlib.sha256((runtime["session_id"] + ":" + json.dumps(arguments, sort_keys=True, separators=(",", ":"))).encode()).hexdigest()[:32]
     request = urllib.request.Request(
         runtime["base_url"] + TOOL_PATHS[name],
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
@@ -130,6 +133,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": "".join(("Be", "arer ", runtime["token"])),
+            "X-Luna-V3-Turn-Id": turn_id,
         },
         method="POST",
     )
@@ -174,6 +178,7 @@ TOOLS = tuple({"name": name, "description": f"Luna v3 Staff operation: {name}"} 
 TOOLSET = "luna_v3_staff_api"
 
 _TOOL_FIELDS = {
+    "check_quote_book": ("action", "purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment", "offer_reference"),
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size", "preferences"),
     "get_pricing_catalog": ("check_in", "check_out", "package_ids", "service_ids"),
@@ -194,6 +199,7 @@ _TOOL_FIELDS = {
 
 
 _TOOL_REQUIRED = {
+    "check_quote_book": ("action",),
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size"),
     "get_pricing_catalog": ("check_in", "check_out"),
@@ -214,6 +220,26 @@ _TOOL_REQUIRED = {
 
 
 def _field_schema(field: str) -> dict[str, Any]:
+    if field == "action":
+        return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
+    if field == "purpose":
+        return {"type": "string", "enum": ["offer"]}
+    if field == "offer_reference":
+        return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
+    if field == "room":
+        return {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {
+            "kind": {"type": "string", "enum": ["exact", "private", "shared", "auto"]},
+            "name": {"type": "string", "minLength": 1}, "beds": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
+            "together": {"type": "string", "enum": ["required", "preferred", "not_required"]}}}
+    if field == "package":
+        return {"type": "object", "additionalProperties": False, "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "per_guest": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                "required": ["guest", "name"], "properties": {"guest": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}}}},
+            "anyOf": [{"required": ["name"]}, {"required": ["per_guest"]}]}
+    if field == "payment":
+        return {"type": "object", "additionalProperties": False, "required": ["arrangement"], "properties": {
+            "arrangement": {"type": "string", "enum": ["together", "separately"]}, "choice": {"type": "string", "enum": ["deposit", "balance"]}}}
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
     if field in {"package_ids", "service_ids"}:
@@ -226,6 +252,7 @@ def _field_schema(field: str) -> dict[str, Any]:
                 "properties": {
                     "name": {"type": "string", "minLength": 1},
                     "explicit_gender": {"type": "string", "minLength": 1},
+                    "gender": {"type": "string", "minLength": 1},
                 },
                 "required": ["name"],
                 "additionalProperties": False,
@@ -266,6 +293,7 @@ def _field_schema(field: str) -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "minLength": 1},
+                    "name": {"type": "string", "minLength": 1},
                     "days": {"type": "integer", "minimum": 1, "description": "For a dated rental, the number of distinct requested service dates."},
                     "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, quantity counts people or equipment units, never participant-days."},
                     "dates": {
@@ -275,8 +303,10 @@ def _field_schema(field: str) -> dict[str, Any]:
                         "uniqueItems": True,
                         "description": "The exact service dates for a dated rental; these are retained unchanged.",
                     },
+                    "requested_dates": {"type": "array", "items": {"type": "string", "format": "date"}, "uniqueItems": True},
+                    "people": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
                 },
-                "required": ["code"],
+                "anyOf": [{"required": ["code"]}, {"required": ["name"]}],
                 "additionalProperties": False,
             },
         }

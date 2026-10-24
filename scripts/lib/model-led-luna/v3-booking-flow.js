@@ -81,6 +81,15 @@ function publicOffer(held, quote, input, reference) {
 function createCheckQuoteBook(deps) {
   return async function checkQuoteBook(pg, input, context) {
     if (!context || !context.turnId) return publicFailure({ code: 'trusted_turn_required' });
+    if (input.action === '_record_presented') {
+      if (!String(input.assistant_reply || '').trim()) return publicFailure({ code: 'presentation_evidence_required' });
+      const recorded = await pg.query(`UPDATE luna_v3_offer_turns ot SET presented_turn_id=$4,presented_at=now()
+        FROM clients c,luna_v3_sessions s,luna_v3_holds h
+        WHERE c.slug='wolfhouse-somo' AND s.client_id=c.id AND s.session_key=$1 AND s.principal_id=$2
+          AND h.id=ot.hold_id AND ot.session_id=s.id AND h.offer_reference=$3 RETURNING h.id`,
+      [context.sessionId, context.principalId, input.offer_reference, context.turnId]);
+      return recorded.rows[0] ? { ok: true, recorded: true } : publicFailure({ code: 'offer_not_found' });
+    }
     if (input.action === 'prepare') {
       const count = input.guests.length;
       const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, context);
@@ -119,7 +128,9 @@ function createCheckQuoteBook(deps) {
       const released = await deps.releaseHold(pg, { operation_key: operationKey(context, 'decline', input), hold_id: row.id }, context);
       return released.ok ? { ok: true, state: 'released', reason: 'offer_released', message: 'The temporary hold was released.', next_step: 'report_release', retry_allowed: false, operation_reference: input.offer_reference } : publicFailure(released);
     }
-    if (!row.presented_at || !row.presented_turn_id) return publicFailure({ code: 'acceptance_required' });
+    if (!row.presented_at || !row.presented_turn_id || row.presented_turn_id === context.turnId || row.accepted_at) return publicFailure({ code: 'acceptance_required' });
+    const accepted = await pg.query(`UPDATE luna_v3_offer_turns SET accepted_turn_id=$2,accepted_at=now() WHERE offer_reference=$1 AND accepted_at IS NULL AND presented_at IS NOT NULL RETURNING hold_id`, [input.offer_reference, context.turnId]);
+    if (!accepted.rows[0]) return publicFailure({ code: 'acceptance_required' });
     const booked = await deps.book(pg, { operation_key: operationKey(context, 'confirm', input), hold_id: row.id }, context);
     if (!booked.ok) return publicFailure(booked);
     return { ok: true, state: 'booked', reason: 'accepted_offer_confirmed', message: 'The booking is confirmed.', next_step: 'report_booking', retry_allowed: false, operation_reference: input.offer_reference, booking_reference: booked.bookingCode, status: 'confirmed', payment_state: 'unpaid' };

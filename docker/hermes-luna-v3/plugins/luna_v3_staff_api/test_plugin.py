@@ -94,6 +94,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
     def test_exports_only_model_led_staff_tools(self):
         plugin = self.load_plugin()
         expected = {
+            "check_quote_book",
             "check_availability", "find_rooms", "get_pricing_catalog", "quote",
             "hold_beds", "book", "release_hold", "get_booking",
             "get_payment_status", "send_payment_link", "cancel_unpaid", "read_notes",
@@ -125,7 +126,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         for tool in ctx.tools:
             params = tool["schema"]["parameters"]
             self.assertFalse(params.get("additionalProperties", True))
-            if tool["name"] in plugin.WRITE_TOOLS:
+            if tool["name"] in plugin.WRITE_TOOLS and tool["name"] != "check_quote_book":
                 self.assertIn("operation_key", params["required"])
         by_name = {tool["name"]: tool["schema"]["parameters"] for tool in ctx.tools}
         self.assertIn("quoted_selection", by_name["hold_beds"]["required"])
@@ -151,7 +152,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
 
         self.assertEqual({"type": "string", "minLength": 1}, quote["properties"]["package_id"])
 
-        self.assertEqual({"name", "explicit_gender"}, set(guest["properties"]))
+        self.assertEqual({"name", "explicit_gender", "gender"}, set(guest["properties"]))
         self.assertFalse(guest["additionalProperties"])
         self.assertNotIn("guest_id", guest["properties"])
         self.assertEqual(
@@ -169,21 +170,18 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertFalse(preferences["additionalProperties"])
         self.assertEqual({"room_type", "room_preference", "keep_together", "group_gender", "guests"}, set(preferences["properties"]))
         self.assertNotIn("same_room", preferences["properties"])
-        self.assertEqual({"code", "days", "quantity", "dates"}, set(add_on["properties"]))
+        self.assertEqual({"code", "name", "days", "quantity", "dates", "requested_dates", "people"}, set(add_on["properties"]))
         self.assertEqual("date", add_on["properties"]["dates"]["items"]["format"])
         self.assertFalse(add_on["additionalProperties"])
 
     def test_soul_enforces_staff_truth_and_guest_safe_wording(self):
         soul = (PLUGIN_ROOT.parent / "SOUL.md").read_text()
         for phrase in (
-            "current Staff Pricing is the sole authority",
-            "do not infer open or closed and do not quote it",
-            "After every `book` result, call `get_booking`",
-            "call `read_notes` for the late-check-in procedure",
-            "exact requested calendar dates in the quote `add_ons[].dates` field",
-            "never mention an internal label mismatch to a guest",
-            "For accommodation-only, omit `guest_packages` and `package_id`",
-            "copy only `room_id` and `bed_ids` from the selected `find_rooms` result",
+            "`check_quote_book` is the only model-visible booking transaction path",
+            "Present the complete offer before asking one clear acceptance question",
+            "presented in a prior assistant turn",
+            "Do not retry, repair, recover",
+            "authoritative raw zero-paid evidence",
         ):
             self.assertIn(phrase, soul)
 
@@ -224,7 +222,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 name: json.loads(registry.dispatch(name, {"probe": name}, task_id="synthetic-runtime"))
                 for name in plugin.TOOL_NAMES
             }
-        self.assertEqual(16, len(calls))
+        self.assertEqual(len(plugin.TOOL_NAMES), len(calls))
         self.assertEqual(set(plugin.TOOL_NAMES), {name for name, _arguments in calls})
         self.assertTrue(all(arguments == {"probe": name} for name, arguments in calls))
         self.assertTrue(all(value["code"] == "offline_transport_sink" for value in outcomes.values()))

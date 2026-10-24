@@ -97,6 +97,20 @@ def _admit_test_session_sync(session_key: str, phone: str) -> dict[str, Any]:
     return body
 
 
+def _record_offer_presented_sync(session_key: str, offer_reference: str, reply: str) -> None:
+    base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
+    token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
+    turn_id = "turn:" + hashlib.sha256((session_key + ":presented:" + reply).encode()).hexdigest()[:32]
+    payload = json.dumps({"tenant_id": "wolfhouse-somo", "session_id": session_key, "action": "_record_presented",
+        "offer_reference": offer_reference, "assistant_reply": reply, "external_send_allowed": False, "staff_alert_allowed": False}, separators=(",", ":")).encode()
+    req = urllib.request.Request(base_url + "/staff/bot/luna-v3/check-quote-book", data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": "".join(("Be", "arer ", token)), "X-Luna-V3-Turn-Id": turn_id}, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as response:
+        body = json.loads(response.read().decode())
+    if not isinstance(body, dict) or body.get("recorded") is not True:
+        raise RuntimeError("offer_presentation_record_failed")
+
+
 async def _admit_test_session(session_key: str, phone: str) -> dict[str, Any]:
     return await asyncio.to_thread(_admit_test_session_sync, session_key, phone)
 
@@ -165,6 +179,14 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     if isinstance(messages, list):
         _SESSION_HISTORY[session_id] = messages
     tool_calls = _project_tool_calls(messages)
+    offers = [call.get("result_summary", {}).get("offer_reference") for call in tool_calls
+              if call.get("name") == "check_quote_book" and isinstance(call.get("result_summary"), dict)
+              and call["result_summary"].get("state") == "offer"]
+    try:
+        for offer_reference in filter(None, offers):
+            await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip())
+    except Exception:
+        return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
     return {
         "status": 200,
         "body": {

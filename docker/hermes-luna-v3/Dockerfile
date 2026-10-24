@@ -6,6 +6,9 @@ ENV PYTHONPATH=/etc/hermes-luna-v3/plugins \
     HERMES_DASHBOARD=0
 
 COPY SOUL.md /etc/hermes-luna-v3/SOUL.md
+COPY instructions /etc/hermes-luna-v3/instructions
+COPY contracts /etc/hermes-luna-v3/contracts
+COPY compile_instructions.py /etc/hermes-luna-v3/compile_instructions.py
 COPY plugins /etc/hermes-luna-v3/plugins
 COPY bootstrap.py /etc/hermes-luna-v3/bootstrap.py
 COPY startup.py /etc/hermes-luna-v3/startup.py
@@ -17,6 +20,7 @@ COPY install_simulator_route.py /etc/hermes-luna-v3/install_simulator_route.py
 COPY tests /etc/hermes-luna-v3/tests
 
 RUN chmod +x /etc/cont-init.d/99-luna-v3-bootstrap \
+ && python /etc/hermes-luna-v3/compile_instructions.py \
  && python /etc/hermes-luna-v3/install_simulator_route.py \
  && python /etc/hermes-luna-v3/install_simulator_route.py \
  && python /etc/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v \
