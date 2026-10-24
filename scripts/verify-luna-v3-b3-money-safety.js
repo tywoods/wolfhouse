@@ -1,0 +1,20 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ROOT = path.resolve(__dirname, '..');
+const source = fs.readFileSync(path.join(ROOT, 'scripts/lib/model-led-luna/v3-operations.js'), 'utf8');
+const cancelModule = require('./lib/guest-unpaid-cancellation');
+const cancel = fs.readFileSync(path.join(ROOT, 'scripts/lib/guest-unpaid-cancellation.js'), 'utf8');
+
+assert.match(source, /initializeFreshV3UnpaidEvidence/, 'v3 must explicitly initialize fresh booking money evidence');
+assert.match(source, /created\.status\s*===\s*201[\s\S]*is_duplicate\s*!==\s*true[\s\S]*initializeFreshV3UnpaidEvidence/, 'real writer result must identify fresh bookings before zero evidence initialization');
+assert.match(source, /amount_paid_cents\s*=\s*0[\s\S]*deposit_paid_cents\s*=\s*0[\s\S]*payment_status\s*=\s*'waiting_payment'/i);
+assert.match(source, /booking_guests[\s\S]*amount_paid_cents\s*=\s*0[\s\S]*payment_status\s*=\s*'waiting_payment'/i);
+assert.match(source, /luna_v3_provenance/, 'fresh zero evidence must carry v3 provenance');
+assert.match(cancel, /trustedV3/, 'inert-draft allowance must be an explicit trusted-v3 opt-in');
+assert.match(cancel, /recognized_inert_v3_draft/, 'classifier must distinguish proven inert drafts');
+assert.match(cancelModule.GUEST_CANCEL_V3_BOOKING_UPDATE_SQL, /NOT EXISTS[\s\S]*stripe_checkout_session_id/i, 'v3 cancellation write must reject provider-active drafts');
+assert.doesNotMatch(cancelModule.GUEST_CANCEL_BOOKING_UPDATE_SQL, /stripe_checkout_session_id/i, 'Classic cancellation SQL remains unchanged');
+assert.match(cancel, /executeGuestUnpaidCancellationBoundary\(pg,[\s\S]*trustedV3 = false/, 'Classic/default callers must remain fail-closed');
+console.log('luna v3 B3 money safety: PASS');

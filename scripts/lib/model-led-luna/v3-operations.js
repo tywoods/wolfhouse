@@ -87,6 +87,32 @@ function madridWallTime(date, time) {
 function fail(code, status = 409, extra = {}) {
   return { ok: false, outcome: "rejected", code, status, ...extra };
 }
+async function initializeFreshV3UnpaidEvidence(pg, bookingId) {
+  const booking = await pg.query(
+    `UPDATE bookings
+       SET amount_paid_cents=0,
+           deposit_paid_cents=0,
+           payment_status='waiting_payment',
+           metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('luna_v3_provenance','fresh_one_try')
+     WHERE id=$1
+       AND COALESCE(amount_paid_cents,0)=0
+       AND COALESCE(deposit_paid_cents,0)=0
+       AND LOWER(COALESCE(payment_status::text,'waiting_payment')) IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid')
+     RETURNING id`,
+    [bookingId],
+  );
+  if (booking.rows.length !== 1) {
+    throw Object.assign(new Error("fresh v3 money evidence was not pristine"), {
+      code: "fresh_v3_money_not_pristine",
+    });
+  }
+  await pg.query(
+    `UPDATE booking_guests
+       SET amount_paid_cents=0,payment_status='waiting_payment'
+     WHERE booking_id=$1 AND amount_paid_cents IS NULL`,
+    [bookingId],
+  );
+}
 async function session(pg, context, write = false) {
   if (
     !context ||
@@ -379,6 +405,8 @@ async function book(pg, input, context) {
       );
     const body = created.body || created;
     const bookingId = body.booking_id || body.bookingId;
+    const freshlyCreated = created.status === 201 && body.is_duplicate !== true && body.idempotent !== true;
+    if (freshlyCreated) await initializeFreshV3UnpaidEvidence(pg, bookingId);
     await pg.query(
       `UPDATE luna_v3_holds SET state='converted',booking_id=$2,updated_at=now() WHERE id=$1`,
       [h.id, bookingId],
@@ -649,9 +677,24 @@ async function handoffToHuman(pg, input, context) {
 
 function selected(s, input) {
   if (!s.selected_booking_id) return fail("booking_not_selected", 404);
-  if (!input.booking_id || input.booking_id !== s.selected_booking_id)
+  if (input.booking_id && input.booking_id !== s.selected_booking_id)
     return fail("booking_selector_forbidden", 403);
   return null;
+}
+async function selectedByPublicReference(pg, s, input) {
+  if (!s.selected_booking_id) return { denied: fail("booking_not_selected", 404) };
+  const booking = (await pg.query(
+    `SELECT id,booking_code FROM bookings WHERE id=$1 AND client_id=$2`,
+    [s.selected_booking_id, s.client_id],
+  )).rows[0];
+  if (!booking) return { denied: fail("selected_booking_missing", 404) };
+  // Public contracts reject internal IDs. Keep this compatibility branch only
+  // for trusted direct module callers while every registered tool uses the code.
+  if (input.booking_id !== undefined)
+    return input.booking_id === s.selected_booking_id ? { booking } : { denied: fail("booking_selector_forbidden", 403) };
+  if (String(input.booking_reference || '').trim().toUpperCase() !== String(booking.booking_code).toUpperCase())
+    return { denied: fail("booking_selector_forbidden", 403) };
+  return { booking };
 }
 const NATIVE_STAFF_PAYMENT_SOURCES = Object.freeze({
   cash: "staff_cash",
@@ -677,8 +720,8 @@ function nativeStaffReceiptHasTrustedProvenance(payment) {
 
 async function getPaymentStatus(pg, input, context) {
   const s = await session(pg, context);
-  const denied = selected(s, input);
-  if (denied) return denied;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return selectedPublic.denied;
   const b = (
     await pg.query(
       `SELECT id,booking_code,status::text booking_status,payment_status::text,total_amount_cents,deposit_required_cents,COALESCE(amount_paid_cents,0) paid_cents,balance_due_cents,updated_at FROM bookings WHERE id=$1 AND client_id=$2`,
@@ -756,6 +799,8 @@ async function getPaymentStatus(pg, input, context) {
   const nativeStaffReceipt = nativeStaffReceiptHasTrustedProvenance;
   const associationFor = (paymentId) =>
     associations.filter((a) => a.payment_id === paymentId);
+  const bookingScoped = (payment) =>
+    !payment.booking_guest_id && payment.metadata && payment.metadata.payment_scope === "booking";
   const paidForGuest = (guestId) =>
     payments
       .filter((p) =>
@@ -783,9 +828,9 @@ async function getPaymentStatus(pg, input, context) {
         !guests.some((g) => g.id === a.booking_guest_id),
     ) &&
     !payments.some((p) => associationFor(p.id).length > 1) &&
-    !payments.some(
-      (p) => p.amount_paid_cents > 0 && associationFor(p.id).length !== 1,
-    );
+    !payments.some((p) => p.amount_paid_cents > 0 && (
+      bookingScoped(p) ? associationFor(p.id).length !== 0 : associationFor(p.id).length !== 1
+    ));
   const guestRowsAreValid = !guests.some(
     (g) =>
       ![g.amount_paid_cents, g.deposit_amount_cents].every(
@@ -795,8 +840,11 @@ async function getPaymentStatus(pg, input, context) {
       g.deposit_amount_cents < 0 ||
       g.amount_paid_cents !== paidForGuest(g.id),
   );
+  const bookingScopedPaid = payments
+    .filter(bookingScoped)
+    .reduce((n, p) => n + p.amount_paid_cents, 0);
   const guestTotalMatches =
-    guests.reduce((n, g) => n + g.amount_paid_cents, 0) === b.paid_cents;
+    guests.reduce((n, g) => n + g.amount_paid_cents, 0) + bookingScopedPaid === b.paid_cents;
   const paidPaymentsHaveEvidence = !payments.some(
     (p) =>
       p.amount_paid_cents > 0 &&
@@ -876,8 +924,8 @@ async function getPaymentStatus(pg, input, context) {
 }
 async function cancelUnpaid(pg, input, context) {
   const s = await session(pg, context, true);
-  const denied = selected(s, input);
-  if (denied) return denied;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return selectedPublic.denied;
   await pg.query("BEGIN");
   try {
     const op = await beginOperation(
@@ -915,7 +963,7 @@ async function cancelUnpaid(pg, input, context) {
       clientSlug: TENANT,
       bookingCode: b.booking_code,
       phone: b.phone,
-    });
+    }, { trustedV3: true });
     let receipt;
     if (result.blocked) {
       const handoffInput = {
@@ -1255,22 +1303,52 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
       throw e;
     }
   };
-  const denied = selected(s, input);
-  if (denied) return reject(denied);
-  if (!input.guest_id)
-    return reject(
-      fail("guest_id_required_for_authoritative_payment_target", 400),
-    );
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return reject(selectedPublic.denied);
+  const scope = input.payment_scope || (input.guest_position || input.guest_id ? 'individual' : null);
   if (!["deposit", "full", "balance"].includes(input.payment_choice))
     return reject(fail("unsupported_payment_choice", 400));
+  if (!scope) return reject(fail("payment_scope_required", 400));
+  if (!['individual', 'booking'].includes(scope)) return reject(fail("unsupported_payment_scope", 400));
+  if (scope === 'booking' && (input.guest_position !== undefined || input.guest_id !== undefined)) return reject(fail("guest_selector_forbidden_for_booking_scope", 400));
+  if (scope === 'individual' && input.guest_id === undefined && (!Number.isSafeInteger(input.guest_position) || input.guest_position < 1))
+    return reject(fail("invalid_guest_position", 400));
+  const authorities = context.staffAuthorities || {};
+  if (scope === 'booking') {
+    if (typeof authorities.createBookingCheckout !== 'function' || typeof authorities.readBookingCheckout !== 'function')
+      return reject(fail("staff_payment_link_authority_unavailable", 503));
+    let checkout;
+    try {
+      checkout = await authorities.createBookingCheckout({ bookingId: s.selected_booking_id,
+        paymentChoice: input.payment_choice, operationKey: input.operation_key, principalId: context.principalId });
+    } catch (e) {
+      return fail(e.code || e.message || "staff_payment_link_failed", e.httpStatus || 503,
+        { recoveryStatus: "ambiguous", operationKey: input.operation_key });
+    }
+    const provider = checkout && checkout.provider;
+    const receipt = { ok: true, outcome: 'applied', operationKey: input.operation_key,
+      paymentScope: 'booking', bookingId: s.selected_booking_id, paymentId: checkout.paymentId,
+      amountCents: checkout.amountCents, currency: checkout.currency, url: checkout.url,
+      checkoutId: checkout.checkoutId, mode: 'test', sent: false,
+      externalSendAllowed: false, staffAlertAllowed: false };
+    await pg.query('BEGIN');
+    try {
+      await pg.query(`INSERT INTO luna_v3_payment_links(client_id,session_id,booking_id,operation_id,payment_id,booking_guest_id,payment_scope,payment_choice,amount_cents,currency,provider_checkout_id,provider_url,provider_livemode,provider_readback) VALUES($1,$2,$3,$4,$5,NULL,'booking',$6,$7,$8,$9,$10,false,$11::jsonb) ON CONFLICT(operation_id) DO NOTHING`,
+        [s.client_id,s.id,s.selected_booking_id,op.row.id,checkout.paymentId,input.payment_choice,
+          checkout.amountCents,checkout.currency,checkout.checkoutId,checkout.url,JSON.stringify(provider)]);
+      await finish(pg, op.row.id, receipt, { bookingId: s.selected_booking_id });
+      await pg.query('COMMIT');
+      return receipt;
+    } catch (e) { await pg.query('ROLLBACK'); throw e; }
+  }
   const guest = (
     await pg.query(
-      `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text FROM booking_guests bg WHERE bg.id=$1::uuid AND bg.client_id=$2 AND bg.booking_id=$3`,
-      [input.guest_id, s.client_id, s.selected_booking_id],
+      `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text,bg.guest_number FROM booking_guests bg
+       WHERE bg.client_id=$2 AND bg.booking_id=$3 AND (($1::int IS NOT NULL AND bg.guest_number=$1) OR ($4::uuid IS NOT NULL AND bg.id=$4))`,
+      [input.guest_position || null, s.client_id, s.selected_booking_id, input.guest_id || null],
     )
   ).rows[0];
   if (!guest) return reject(fail("payment_target_guest_mismatch", 403));
-  const authorities = context.staffAuthorities || {};
   const authority = authorities.createGuestCheckout;
   if (
     typeof authority !== "function" ||

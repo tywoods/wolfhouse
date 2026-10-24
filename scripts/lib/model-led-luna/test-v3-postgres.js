@@ -62,7 +62,7 @@ async function freshProcess(payload) {
   );
 }
 const base = `CREATE EXTENSION IF NOT EXISTS pgcrypto; DROP SCHEMA public CASCADE; CREATE SCHEMA public;
-CREATE TYPE booking_status AS ENUM('hold','confirmed','cancelled','expired'); CREATE TYPE payment_status AS ENUM('not_requested','waiting_payment','deposit_paid','paid'); CREATE TYPE payment_record_status AS ENUM('draft'); CREATE TYPE payment_kind AS ENUM('deposit_only','full_amount');
+CREATE TYPE booking_status AS ENUM('hold','confirmed','cancelled','expired'); CREATE TYPE payment_status AS ENUM('not_requested','waiting_payment','deposit_paid','paid'); CREATE TYPE payment_record_status AS ENUM('draft','checkout_created','pending','paid','expired','cancelled','failed'); CREATE TYPE payment_kind AS ENUM('deposit_only','full_amount');
 CREATE TABLE clients(id uuid primary key,slug text unique,settings jsonb default '{}');
 CREATE TABLE tenant_house_notes(id uuid primary key default gen_random_uuid(),client_slug text not null unique,notes text not null default '',updated_at timestamptz not null default now(),updated_by uuid);
 CREATE TABLE rooms(id uuid primary key,client_id uuid references clients,name text,room_code text unique,house text,room_type text default 'shared',capacity int default 2,fill_priority int default 1,sort_order int default 1,gender_strategy text default 'mixed',can_be_matrimonial boolean default false,often_used_by_operator boolean default true,active boolean default true,selling_mode text default 'shared');
@@ -173,6 +173,10 @@ async function main(api = defaultApi) {
         __dirname,
         "../../../database/migrations/120_luna_v3_constraint_ownership_and_transfer_decline.sql",
       ),
+      "utf8",
+    );
+    const migration123 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/123_luna_v3_one_try_offers.sql"),
       "utf8",
     );
     await admin.query(base);
@@ -790,8 +794,9 @@ async function main(api = defaultApi) {
       `COMMENT ON TABLE luna_v3_transfer_requests IS '115_luna_v3_guest_operations v1'`,
     );
     await admin.query(migration120);
+    await admin.query(migration123);
     console.log(
-      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
+      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
     await admin.query(
       `INSERT INTO clients(id,slug) VALUES($1,'wolfhouse-somo')`,
@@ -1479,7 +1484,7 @@ async function main(api = defaultApi) {
       )
     ).rows[0];
     assert.equal(persisted.status, "confirmed");
-    assert.equal(persisted.payment_status, "not_requested");
+    assert.equal(persisted.payment_status, "waiting_payment");
     assert.equal(persisted.beds.length, 2);
     assert.equal(
       (await admin.query("SELECT count(*)::int n FROM bookings")).rows[0].n,
@@ -2023,6 +2028,37 @@ async function main(api = defaultApi) {
     assert.equal(truth.paymentStatus, "unpaid");
     assert.equal(truth.evidenceStatus, "consistent");
     assert.ok(truth.paymentIds.length > 0);
+    const groupPaymentRow = truth.paymentIds[0];
+    await admin.query(
+      `UPDATE payments SET status='paid',amount_due_cents=$2,amount_paid_cents=$2,
+         metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('payment_scope','booking') WHERE id=$1`,
+      [groupPaymentRow, truth.totalCents],
+    );
+    await admin.query(
+      `UPDATE bookings SET payment_status='paid',amount_paid_cents=total_amount_cents,balance_due_cents=0 WHERE id=$1`,
+      [booked.bookingId],
+    );
+    await admin.query(
+      `INSERT INTO payment_events(client_id,booking_id,payment_id,event_type)
+       SELECT client_id,id,$2,'checkout.session.completed' FROM bookings WHERE id=$1`,
+      [booked.bookingId, groupPaymentRow],
+    );
+    const groupPaidTruth = await api.getPaymentStatus(
+      admin,
+      { booking_reference: booked.bookingCode },
+      ctx(ws),
+    );
+    assert.equal(groupPaidTruth.evidenceStatus, "consistent", JSON.stringify(groupPaidTruth));
+    assert.equal(groupPaidTruth.paymentStatus, "paid", JSON.stringify(groupPaidTruth));
+    await admin.query(`DELETE FROM payment_events WHERE payment_id=$1`, [groupPaymentRow]);
+    await admin.query(
+      `UPDATE payments SET status='draft',amount_paid_cents=0,metadata=COALESCE(metadata,'{}'::jsonb)-'payment_scope' WHERE id=$1`,
+      [groupPaymentRow],
+    );
+    await admin.query(
+      `UPDATE bookings SET payment_status='waiting_payment',amount_paid_cents=0,balance_due_cents=total_amount_cents WHERE id=$1`,
+      [booked.bookingId],
+    );
     assert.equal(
       (
         await api.getPaymentStatus(
@@ -2111,7 +2147,7 @@ async function main(api = defaultApi) {
     );
     const paymentGuest = (
       await admin.query(
-        `SELECT id::text,payment_id::text FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`,
+        `SELECT id::text,payment_id::text,guest_number FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`,
         [selectedBooking],
       )
     ).rows[0];
@@ -2351,10 +2387,12 @@ async function main(api = defaultApi) {
           : null,
       operations: registry,
     };
+    const selectedBookingReference = (await admin.query('SELECT booking_code FROM bookings WHERE id=$1', [selectedBooking])).rows[0].booking_code;
     const linkBody = {
       session_id: ws,
-      booking_id: selectedBooking,
-      guest_id: paymentGuest.id,
+      booking_reference: selectedBookingReference,
+      payment_scope: "individual",
+      guest_position: Number(paymentGuest.guest_number),
       payment_choice: "deposit",
       operation_key: "card12-link",
       external_send_allowed: false,
@@ -2473,7 +2511,7 @@ async function main(api = defaultApi) {
     assert.equal(
       (
         await routeNegative({
-          guest_id: "00000000-0000-0000-0000-000000000000",
+          guest_position: 999,
         })
       ).status,
       403,
@@ -3247,6 +3285,78 @@ async function main(api = defaultApi) {
     console.log(
       "PASS route->registry authenticated server-bound composition and cross-principal denial",
     );
+    const oneTryContext = { ...ctx("luna-v3:a"), turnId: "turn:one-try-prepare" };
+    const activeHoldCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_holds WHERE state='active' AND expires_at>now()`)).rows[0].n);
+    const offerTurnCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns`)).rows[0].n);
+    const beforeInformationHolds = await activeHoldCount();
+    const beforeInformationOffers = await offerTurnCount();
+    const information = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "information", check_in: "2035-07-01", check_out: "2035-07-08",
+    }, { ...oneTryContext, turnId: "turn:one-try-information" });
+    assert.equal(information.state, "information", JSON.stringify(information));
+    assert.equal(await activeHoldCount(), beforeInformationHolds);
+    assert.equal(await offerTurnCount(), beforeInformationOffers);
+    await admin.query(`CREATE FUNCTION reject_v3_offer_turn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced_offer_record_failure'; END $$`);
+    await admin.query(`CREATE TRIGGER reject_v3_offer_turn BEFORE INSERT ON luna_v3_offer_turns FOR EACH ROW EXECUTE FUNCTION reject_v3_offer_turn()`);
+    const beforeFailedPrepareHolds = await activeHoldCount();
+    await assert.rejects(() => api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "Atomic Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, { ...oneTryContext, turnId: "turn:one-try-atomic-failure" }), /forced_offer_record_failure/);
+    await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
+    await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
+    assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
+    const prepared = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, oneTryContext);
+    assert.equal(prepared.state, "offer", JSON.stringify(prepared));
+    assert.match(prepared.offer_reference, /^offer_/);
+    assert.equal(Object.hasOwn(prepared, "holdId"), false);
+    assert.equal(prepared.quote.currency, "EUR");
+    assert.ok(Number.isSafeInteger(prepared.quote.totalCents) && prepared.quote.totalCents > 0);
+    assert.equal(prepared.guests[0].bed, "R10-B1");
+    assert.equal(prepared.guests[0].package, "malibu");
+    assert.equal(prepared.package_details.name, "Malibu");
+    assert.deepEqual(prepared.package_details.includes, ["stay"]);
+    const nonPriceRecorded = await api.checkQuoteBook(admin, {
+      action: "_record_presented", offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.",
+    }, { ...oneTryContext, turnId: "turn:one-try-presented-bad" });
+    assert.equal(nonPriceRecorded.reason, "price_presentation_evidence_required");
+    const displayedAmount = (Number(prepared.quote.totalCents) / 100).toFixed(2);
+    const misleadingAmount = await api.checkQuoteBook(admin, {
+      action: "_record_presented", offer_reference: prepared.offer_reference,
+      assistant_reply: `An unrelated larger amount is €1${displayedAmount}.`,
+    }, { ...oneTryContext, turnId: "turn:one-try-presented-misleading" });
+    assert.equal(misleadingAmount.reason, "price_presentation_evidence_required");
+    const recorded = await api.checkQuoteBook(admin, {
+      action: "_record_presented", offer_reference: prepared.offer_reference, assistant_reply: `Your complete offer is €${displayedAmount}.`,
+    }, { ...oneTryContext, turnId: "turn:one-try-presented" });
+    assert.equal(recorded.recorded, true, JSON.stringify(recorded));
+    const confirmed = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, turnId: "turn:one-try-confirm" });
+    assert.equal(confirmed.state, "booked", JSON.stringify(confirmed));
+    assert.equal(Object.hasOwn(confirmed, "bookingId"), false);
+    const replayedConfirm = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, turnId: "turn:one-try-confirm-replay" });
+    assert.equal(replayedConfirm.state, "booked", JSON.stringify(replayedConfirm));
+    assert.equal(replayedConfirm.booking_reference, confirmed.booking_reference);
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns WHERE offer_reference=$1 AND presented_at IS NOT NULL AND accepted_at IS NOT NULL`, [prepared.offer_reference])).rows[0].n, 1);
+    const freshCancel = await api.cancelUnpaid(admin, {
+      booking_reference: confirmed.booking_reference, guest_reason: "plans changed", operation_key: "one-try-fresh-cancel",
+    }, { ...oneTryContext, turnId: "turn:one-try-cancel" });
+    assert.equal(freshCancel.outcome, "applied", JSON.stringify(freshCancel));
+    assert.equal(freshCancel.cancelled, true, JSON.stringify(freshCancel));
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM payments p JOIN bookings b ON b.id=p.booking_id WHERE b.booking_code=$1 AND p.status::text NOT IN ('cancelled','expired','failed')`, [confirmed.booking_reference])).rows[0].n, 0, "cancelled booking retained nonterminal payment rows");
+    const freshCancelAgain = await api.cancelUnpaid(admin, {
+      booking_reference: confirmed.booking_reference, guest_reason: "repeat", operation_key: "one-try-fresh-cancel-again",
+    }, { ...oneTryContext, turnId: "turn:one-try-cancel-again" });
+    assert.equal(freshCancelAgain.ok, false);
+    console.log("PASS V3-ONE-TRY-POSTGRES public prepare/presentation/confirm/replay and one fresh unpaid cancel");
     observations.holdAllOrNone = true;
     observations.noBedSubstitution = true;
     observations.toolBook = true;

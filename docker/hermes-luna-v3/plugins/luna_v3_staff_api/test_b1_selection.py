@@ -2,57 +2,44 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-PLUGIN_PATH = Path(__file__).resolve().parent / "__init__.py"
-SOUL_PATH = PLUGIN_PATH.parent.parent.parent / "SOUL.md"
+ROOT = Path(__file__).resolve().parent
+PLUGIN = ROOT / "__init__.py"
 
 
-def load_plugin():
-    spec = importlib.util.spec_from_file_location("luna_v3_staff_api_b1", PLUGIN_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+class PublicOneTrySelectionTests(unittest.TestCase):
+    def plugin(self):
+        spec = importlib.util.spec_from_file_location("luna_v3_staff_api_b1", PLUGIN)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
-
-class B1RegisteredSelectionTests(unittest.TestCase):
     def schemas(self):
-        plugin = load_plugin()
-        class Registry:
-            def __init__(self): self.tools = {}
-            def register_tool(self, **kwargs): self.tools[kwargs["name"]] = kwargs["schema"]
-        registry = Registry()
-        plugin.register(registry)
-        return registry.tools
+        rows = {}
+        self.plugin().register(type("Context", (), {"register_tool": lambda _self, **kw: rows.__setitem__(kw["name"], kw["schema"])})())
+        return rows
 
-    def test_hold_schema_is_exact_canonical_receipt_shape(self):
-        hold = self.schemas()["hold_beds"]
-        params = hold["parameters"]
-        self.assertEqual(
-            {"operation_key", "check_in", "check_out", "guests", "assignments", "quoted_selection"},
-            set(params["required"]),
-        )
-        assignment = params["properties"]["assignments"]
-        self.assertEqual(1, assignment["minItems"])
-        self.assertEqual(
-            {"bed_code", "guest_name", "package_code"},
-            set(assignment["items"]["required"]),
-        )
-        self.assertIn("package_none", assignment["items"]["properties"]["package_code"]["description"])
-        self.assertIn("copy", hold["description"].lower())
+    def test_retired_booking_and_recovery_tools_are_not_registered(self):
+        schemas = self.schemas()
+        self.assertIn("check_quote_book", schemas)
+        for retired in ("check_availability", "find_rooms", "get_pricing_catalog", "quote", "hold_beds", "book", "release_hold", "recover_operation"):
+            self.assertNotIn(retired, schemas)
 
-    def test_dated_rental_schema_documents_units(self):
-        add_on = self.schemas()["quote"]["parameters"]["properties"]["add_ons"]["items"]
-        self.assertIn("distinct", add_on["properties"]["days"]["description"])
-        self.assertIn("people or equipment", add_on["properties"]["quantity"]["description"])
-        self.assertIn("exact service dates", add_on["properties"]["dates"]["description"])
+    def test_one_try_schema_keeps_internal_identifiers_out(self):
+        params = self.schemas()["check_quote_book"]["parameters"]
+        self.assertEqual(["action"], params["required"])
+        self.assertEqual(["prepare", "confirm", "decline"], params["properties"]["action"]["enum"])
+        for internal in ("operation_key", "hold_id", "booking_id", "room_id", "bed_ids"):
+            self.assertNotIn(internal, params["properties"])
 
-    def test_soul_requires_bounded_recovery_and_fresh_lesson_consent(self):
-        soul = SOUL_PATH.read_text()
+    def test_soul_requires_one_prepare_and_one_distinct_confirm(self):
+        soul = (ROOT.parent.parent / "SOUL.md").read_text()
         for phrase in (
-            "A known rejected hold",
-            "use a new operation key",
-            "recover it with its original operation key first",
-            "fresh explicit yes to the unscheduled alternative",
-            "do not hold or book the older offer",
+            "`check_quote_book` is the only model-visible booking transaction path",
+            "call `check_quote_book` once with `action=prepare`",
+            "presented in a prior assistant turn",
+            "call `check_quote_book` once with `action=confirm`",
+            "Do not retry, repair, recover",
         ):
             self.assertIn(phrase, soul)
 

@@ -74,7 +74,7 @@ async function main(api = defaultApi) {
   const observations = {};
   const context = { tenantId: 'wolfhouse-somo', authenticated: true,
     sessionId: 'luna-v3:test', principalId: 'test-principal', writeAllowed: true };
-  assert.deepEqual(Object.keys(api).sort(), ['checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote',
+  assert.deepEqual(Object.keys(api).sort(), ['checkQuoteBook', 'checkAvailability', 'createOperations', 'findRooms', 'getPricingCatalog', 'quote',
     'holdBeds', 'book', 'getBooking', 'recoverOperation', 'releaseHold', 'handoffToHuman',
     'getPaymentStatus', 'sendPaymentLink', 'cancelUnpaid', 'readNotes', 'writeNote', 'saveTransferRequest'].sort());
 

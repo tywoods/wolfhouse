@@ -3,12 +3,12 @@
 const { assertSafeToolRequest } = require('./contracts');
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
+  '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
   '/staff/bot/luna-v3/check-availability': 'check_availability',
   '/staff/bot/luna-v3/find-rooms': 'find_rooms',
   '/staff/bot/luna-v3/pricing-catalog': 'get_pricing_catalog',
   '/staff/bot/luna-v3/quote': 'quote',
   '/staff/bot/luna-v3/hold-beds': 'hold_beds',
-  '/staff/bot/luna-v3/book': 'book',
   '/staff/bot/luna-v3/release-hold': 'release_hold',
   '/staff/bot/luna-v3/get-booking': 'get_booking',
   '/staff/bot/luna-v3/payment-status': 'get_payment_status',
@@ -74,6 +74,7 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   delete modelInput.session_id;
   delete modelInput.external_send_allowed;
   delete modelInput.staff_alert_allowed;
+  delete modelInput.trusted_turn_id;
   try { assertSafeToolRequest(tool, modelInput); }
   catch (error) { return { status: 400, body: { ok: false, code: 'invalid_tool_request', message: error.message } }; }
   try {
@@ -84,6 +85,7 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       principalId: authenticatedPrincipal.principalId,
       writeAllowed: authenticatedPrincipal.writeAllowed === true && boundSession.writeAllowed === true,
       guestPhone: boundSession.guestPhone || null,
+      turnId: String(authenticatedPrincipal.turnId || '').trim() || null,
     });
     return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
   } catch (error) {

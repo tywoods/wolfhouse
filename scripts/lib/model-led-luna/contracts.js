@@ -1,6 +1,7 @@
 'use strict';
 
 const TOOL_CONTRACTS = Object.freeze({
+  check_quote_book: { method: 'POST', path: '/staff/bot/luna-v3/check-quote-book', write: true },
   check_availability: { method: 'POST', path: '/staff/bot/luna-v3/check-availability', write: false },
   find_rooms: { method: 'POST', path: '/staff/bot/luna-v3/find-rooms', write: false },
   get_pricing_catalog: { method: 'POST', path: '/staff/bot/luna-v3/pricing-catalog', write: false },
@@ -23,12 +24,13 @@ const TOOL_CONTRACTS = Object.freeze({
 const FORBIDDEN_INPUTS = new Set([
   'amount', 'amount_cents', 'deposit_cents', 'total_cents', 'remaining_cents',
   'totalCents', 'depositCents', 'remainingCents', 'balanceDueCents',
-  'tenant_id', 'staff_api_base_url', 'destination', 'recipient_phone', 'provider_mode',
+  'tenant_id', 'staff_api_base_url', 'destination', 'recipient_phone', 'provider_mode', 'currency',
   'external_send_allowed', 'staff_alert_allowed', 'silently_relax_together', 'auto_assign',
   'send_whatsapp', 'send_sms', 'send_email',
 ]);
 
 const READ_SCHEMAS = Object.freeze({
+  check_quote_book: new Set(['action', 'purpose', 'check_in', 'check_out', 'guests', 'room', 'package', 'add_ons', 'payment', 'offer_reference', 'assistant_reply']),
   check_availability: new Set(['check_in', 'check_out', 'party_size', 'room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   find_rooms: new Set(['check_in', 'check_out', 'party_size', 'preferences']),
   get_pricing_catalog: new Set(['check_in', 'check_out', 'package_ids', 'service_ids']),
@@ -39,22 +41,26 @@ const READ_SCHEMAS = Object.freeze({
   recover_operation: new Set(['tool', 'operation_key']),
   release_hold: new Set(['operation_key', 'hold_id']),
   handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
-  get_payment_status: new Set(['booking_id']),
-  send_payment_link: new Set(['booking_id', 'payment_choice', 'guest_id', 'operation_key']),
-  cancel_unpaid: new Set(['booking_id', 'guest_reason', 'operation_key']),
+  get_payment_status: new Set(['booking_reference']),
+  send_payment_link: new Set(['booking_reference', 'payment_scope', 'payment_choice', 'guest_position', 'operation_key']),
+  cancel_unpaid: new Set(['booking_reference', 'guest_reason', 'operation_key']),
   read_notes: new Set(['topic']),
   write_note: new Set(['text', 'context', 'booking_reference', 'operation_key']),
   save_transfer_request: new Set(['booking_id', 'decision', 'travel_details', 'operation_key']),
 });
 const NESTED_SCHEMAS = Object.freeze({
-  guests: new Set(['name', 'explicit_gender']),
+  guests: new Set(['name', 'explicit_gender', 'gender']),
   preferences: new Set(['room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   selection: new Set(['room_id', 'bed_ids', 'selected_bed_codes', 'room_type', 'room_preference', 'keep_together']),
   guest_packages: new Set(['guest_number', 'package_code']),
-  add_ons: new Set(['code', 'days', 'quantity', 'dates']),
+  add_ons: new Set(['code', 'name', 'days', 'quantity', 'dates', 'requested_dates', 'people']),
   assignments: new Set(['bed_code', 'guest_name', 'package_code']),
   context: new Set(['topic', 'kind', 'detail']),
   travel_details: new Set(['airport', 'direction', 'date', 'time', 'flight', 'passengers', 'boards']),
+  room: new Set(['kind', 'name', 'beds', 'together']),
+  package: new Set(['name', 'per_guest']),
+  per_guest: new Set(['guest', 'name']),
+  payment: new Set(['arrangement', 'choice']),
 });
 
 function assertKnownObject(value, allowed, path) {
@@ -87,7 +93,20 @@ function assertSafeToolRequest(name, input = {}) {
     };
     visit(input);
   }
-  if (contract.write && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
+  if (contract.write && name !== 'check_quote_book' && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
+  if (name === 'check_quote_book') {
+    if (!['prepare', 'confirm', 'decline', '_record_presented'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
+    if (input.action === 'prepare') {
+      if (!['offer', 'information'].includes(input.purpose)) throw new Error('purpose must be offer or information');
+      if (!input.check_in || !input.check_out) throw new Error('check_in and check_out are required for prepare');
+      if (input.purpose === 'offer') {
+        if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for offer prepare');
+        if (!input.room || !input.package) throw new Error('room and package are required for offer prepare');
+        if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
+      }
+    } else if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');
+    if (input.action === '_record_presented' && !String(input.assistant_reply || '').trim()) throw new Error('assistant_reply is required');
+  }
   if (name === 'recover_operation' && (!String(input.tool || '').trim() || !String(input.operation_key || '').trim())) throw new Error('tool and operation_key are required for recover_operation');
   if (name === 'hold_beds') {
     if (typeof input.quoted_selection !== 'string' || !input.quoted_selection.trim()) throw new Error('quoted_selection must be a nonempty string');
@@ -107,6 +126,17 @@ function assertSafeToolRequest(name, input = {}) {
       }
     }
   }
+  if (name === 'send_payment_link') {
+    if (!['deposit', 'full', 'balance'].includes(input.payment_choice)) throw new Error('payment_choice must be deposit, full, or balance');
+    if (typeof input.booking_reference !== 'string' || !input.booking_reference.trim()) throw new Error('booking_reference is required');
+    if (input.payment_scope !== undefined && !['individual', 'booking'].includes(input.payment_scope)) throw new Error('payment_scope must be individual or booking');
+    const scope = input.payment_scope || (input.guest_position ? 'individual' : null);
+    if (!scope) throw new Error('payment_scope is required when guest_position is absent');
+    if (scope === 'individual' && (!Number.isSafeInteger(input.guest_position) || input.guest_position < 1)) throw new Error('guest_position must be a positive integer for individual checkout');
+    if (scope === 'booking' && input.guest_position !== undefined) throw new Error('guest_position is forbidden for booking checkout');
+  }
+  if (['get_payment_status', 'cancel_unpaid'].includes(name)
+      && (typeof input.booking_reference !== 'string' || !input.booking_reference.trim())) throw new Error('booking_reference is required');
   return contract;
 }
 

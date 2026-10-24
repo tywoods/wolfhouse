@@ -73,7 +73,13 @@ const LOCKED_GUEST_SQL = `SELECT bg.id::text AS booking_guest_id, bg.client_id::
  COALESCE((SELECT SUM(p.amount_paid_cents) FROM payments p WHERE p.client_id=bg.client_id
  AND p.booking_id=bg.booking_id AND p.booking_guest_id=bg.id AND p.status='paid'),0)::bigint AS amount_paid_cents,
  EXISTS(SELECT 1 FROM payments p WHERE p.client_id=bg.client_id AND p.booking_id=bg.booking_id
- AND p.booking_guest_id IS NULL AND p.status='paid' AND p.amount_paid_cents>0) AS has_unallocated_booking_payment
+ AND p.booking_guest_id IS NULL AND p.status='paid' AND p.amount_paid_cents>0) AS has_unallocated_booking_payment,
+ EXISTS(SELECT 1 FROM payments p WHERE p.client_id=bg.client_id AND p.booking_id=bg.booking_id
+ AND p.booking_guest_id IS NULL AND p.status IN ('draft','checkout_created')
+ AND COALESCE(p.metadata->>'payment_scope','booking')='booking'
+ AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
+              NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
+              NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS has_active_booking_checkout
  FROM booking_guests bg JOIN bookings b ON b.id=bg.booking_id JOIN clients c ON c.id=bg.client_id
  WHERE bg.id=$1::uuid AND c.slug=$2`;
 
@@ -103,6 +109,13 @@ function sameIntent(op, target, amount) {
 }
 
 function assertGuestCollectionAllocated(guest) {
+  if (guest && guest.has_active_booking_checkout) {
+    const err = new Error('guest_payment_booking_checkout_active');
+    err.httpStatus = 409;
+    err.publicMessage = 'A whole-booking checkout is active or unresolved. Reconcile or retire it before collecting from a guest.';
+    err.snapshotChanged = true;
+    throw err;
+  }
   // A booking receipt is not a guest allocation. Never infer a split or silently
   // collect the unchanged guest share on top of money received for the booking.
   if (guest && guest.has_unallocated_booking_payment) {

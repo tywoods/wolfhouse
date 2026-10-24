@@ -870,11 +870,13 @@ async function loadLockedDepositCheckout(pg, command, booking, execOpts) {
 }
 
 function reusedBookingCheckout(booking, row, paymentTarget) {
+  const metadata = parsePaymentMetadata(row.metadata);
   return { ok: true, status: 200, body: {
     success: true, created: false, idempotent: true, payment_target: paymentTarget,
     booking_code: booking.booking_code, payment_id: row.payment_id,
     amount_due_cents: Number(row.amount_due_cents), payment_status: 'payment_link_created',
     checkout_url: row.checkout_url, payment_link_url: row.checkout_url,
+    stripe_checkout_session_id: row.stripe_checkout_session_id || metadata.stripe_session_id || null,
     lifecycle: PAYMENT_LINK_LIFECYCLE.CHECKOUT_CREATED,
   } };
 }
@@ -979,6 +981,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
 
   const pmMeta = {
     source: 'staff_payment_link',
+    payment_scope: 'booking',
     checkout_preparation: command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL ? 'pending' : null,
     payment_target: paymentTarget,
     method: 'payment_link',
@@ -1094,9 +1097,11 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         payment_id: draftPaymentId,
         payment_kind: paymentKind,
         payment_target: paymentTarget,
+        payment_scope: 'booking',
         source: 'staff_payment_link',
         idempotency_key: command.idempotencyKey,
       },
+      idempotencyKey: command.idempotencyKey,
     });
   } catch (stripeErr) {
     if (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL) {
@@ -1155,6 +1160,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         payment_target: paymentTarget,
         booking_code: booking.booking_code,
         payment_id: draftPaymentId,
+        stripe_checkout_session_id: session.id,
         amount_due_cents: amountDueCents,
         payment_status: 'payment_link_created',
         payment_link_url: session.url,
