@@ -5,13 +5,58 @@ const fs = require('fs');
 const path = require('path');
 const {
   LUNA_V3_ROUTE_TO_TOOL,
-  dispatchLunaV3StaffRoute,
+  dispatchLunaV3StaffRoute: rawDispatch,
 } = require('./staff-routes');
 
+const dispatchLunaV3StaffRoute = (args) => rawDispatch({
+  authenticatedPrincipal: { principalId: 'test-principal', writeAllowed: true },
+  resolveSession: async ({ selector, principalId }) => selector === 'luna-v3:test-phone-hash' && principalId === 'test-principal'
+    ? { sessionId: selector, writeAllowed: true } : null,
+  ...args,
+});
+
 async function main() {
-  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 15);
+  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 17);
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/check-availability'], 'check_availability');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/handoff'], 'handoff_to_human');
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/recover-operation'], 'recover_operation');
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/admit-simulator-session'], 'admit_simulator_session');
+
+  const admitted = [];
+  const admission = await dispatchLunaV3StaffRoute({
+    pathname: '/staff/bot/luna-v3/admit-simulator-session',
+    method: 'POST',
+    clientSlug: 'wolfhouse-somo',
+    body: {
+      session_id: 'luna-v3:0123456789abcdef01234567',
+      guest_phone: '+34699901234',
+      external_send_allowed: false,
+      staff_alert_allowed: false,
+    },
+    admitSimulatorSession: async (request) => {
+      admitted.push(request);
+      return { ok: true, admitted: true };
+    },
+  });
+  assert.strictEqual(admission.status, 200);
+  assert.deepStrictEqual(admitted, [{
+    clientSlug: 'wolfhouse-somo',
+    sessionId: 'luna-v3:0123456789abcdef01234567',
+    guestPhone: '+34699901234',
+    principalId: 'test-principal',
+  }]);
+
+  for (const body of [
+    { session_id: 'luna-v3:not-a-digest', guest_phone: '+34699901234', external_send_allowed: false, staff_alert_allowed: false },
+    { session_id: 'luna-v3:0123456789abcdef01234567', guest_phone: '+34611111111', external_send_allowed: false, staff_alert_allowed: false },
+  ]) {
+    const rejected = await dispatchLunaV3StaffRoute({
+      pathname: '/staff/bot/luna-v3/admit-simulator-session', method: 'POST', clientSlug: 'wolfhouse-somo', body,
+      admitSimulatorSession: async () => { throw new Error('must not run'); },
+    });
+    assert.strictEqual(rejected.status, 403);
+    assert.strictEqual(rejected.body.code, 'luna_v3_simulator_scope_forbidden');
+  }
 
   const seen = [];
   const response = await dispatchLunaV3StaffRoute({
@@ -19,8 +64,10 @@ async function main() {
     method: 'POST',
     clientSlug: 'wolfhouse-somo',
     body: {
+      client_slug: 'wolfhouse-somo',
       tenant_id: 'wolfhouse-somo',
       session_id: 'luna-v3:test-phone-hash',
+      operation_key: 'quote-route-1',
       check_in: '2027-11-05',
       check_out: '2027-11-15',
       guests: [{ name: 'Guest A' }],
@@ -29,17 +76,21 @@ async function main() {
       staff_alert_allowed: false,
     },
     operations: {
-      quote: async (input) => {
-        seen.push(input);
+      quote: async (input, context) => {
+        seen.push({ input, context });
         return { ok: true, source: 'staff_pricing', total_cents: 12345 };
       },
     },
   });
   assert.strictEqual(response.status, 200);
   assert.strictEqual(response.body.source, 'staff_pricing');
-  assert.strictEqual(seen[0].tenant_id, 'wolfhouse-somo');
-  assert.strictEqual(seen[0].external_send_allowed, false);
-  assert.strictEqual(seen[0].staff_alert_allowed, false);
+  assert.strictEqual(seen[0].context.tenantId, 'wolfhouse-somo');
+  assert.strictEqual(seen[0].context.authenticated, true);
+  assert.strictEqual(seen[0].input.client_slug, undefined);
+  assert.strictEqual(seen[0].input.tenant_id, undefined);
+  assert.strictEqual(seen[0].input.session_id, undefined);
+  assert.strictEqual(seen[0].input.external_send_allowed, undefined);
+  assert.strictEqual(seen[0].input.staff_alert_allowed, undefined);
 
   const wrongTenant = await dispatchLunaV3StaffRoute({
     pathname: '/staff/bot/luna-v3/quote', method: 'POST', clientSlug: 'sunset', body: {}, operations: {},
@@ -52,7 +103,7 @@ async function main() {
   assert.strictEqual(sendsOn.status, 403);
   const missing = await dispatchLunaV3StaffRoute({
     pathname: '/staff/bot/luna-v3/hold-beds', method: 'POST', clientSlug: 'wolfhouse-somo',
-    body: { session_id: 'luna-v3:x', external_send_allowed: false, staff_alert_allowed: false }, operations: {},
+    body: { session_id: 'luna-v3:test-phone-hash', external_send_allowed: false, staff_alert_allowed: false }, operations: {},
   });
   assert.strictEqual(missing.status, 503);
   assert.strictEqual(missing.body.code, 'luna_v3_tool_not_registered');

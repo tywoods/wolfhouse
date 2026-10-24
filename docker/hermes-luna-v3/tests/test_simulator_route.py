@@ -8,22 +8,48 @@ BOOTSTRAP_MODULE = Path(__file__).resolve().parents[1] / "bootstrap.py"
 
 
 class FakeAgent:
-    def run_conversation(self, **kwargs):
-        class Result:
-            failed = False
-            error = None
-            final_response = f"reply:{kwargs['user_message']}"
+    def __init__(self):
+        self.calls = []
+        self.results = []
 
-        return Result()
+    def run_conversation(self, **kwargs):
+        self.calls.append(kwargs)
+        text = kwargs["user_message"]
+        history = list(kwargs.get("conversation_history") or [])
+        messages = history + [
+            {"role": "user", "content": text},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{
+                    "id": f"call-{len(self.calls)}",
+                    "type": "function",
+                    "function": {"name": "check_availability", "arguments": '{"guests":2}'},
+                }],
+            },
+            {"role": "tool", "tool_call_id": f"call-{len(self.calls)}", "content": '{"ok":true}'},
+            {"role": "assistant", "content": f"reply:{text}"},
+        ]
+        result = {
+            "failed": False,
+            "error": None,
+            "final_response": f"reply:{text}",
+            "messages": messages,
+        }
+        self.results.append(result)
+        return result
 
 
 class FakeAdapter:
+    def __init__(self):
+        self.agent = FakeAgent()
+
     def _check_auth(self, request):
         return None
 
     def _create_agent(self, **kwargs):
         self.agent_kwargs = kwargs
-        return FakeAgent()
+        return self.agent
 
     def _bind_api_server_session(self, *, session_key):
         self.bound_session_key = session_key
@@ -52,14 +78,84 @@ class SimulatorRouteTests(unittest.TestCase):
 
     def test_reserved_phone_gets_request_bound_session_and_reply(self):
         adapter = FakeAdapter()
+        admitted = []
+
+        async def admit(session_key, phone):
+            admitted.append((session_key, phone))
+            return {"ok": True, "admitted": True}
+
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 008", "text": "hello", "allow_writes": False}),
             adapter,
+            admit_session=admit,
         ))
         self.assertEqual(response["status"], 200)
         self.assertEqual(response["body"]["reply_text"], "reply:hello")
         self.assertTrue(adapter.bound_session_key.startswith("luna-v3:"))
         self.assertEqual(adapter.agent_kwargs["gateway_session_key"], adapter.bound_session_key)
+        self.assertEqual(admitted, [(
+            adapter.bound_session_key,
+            self.module._normalize_phone("+34 699 901 008"),
+        )])
+
+    def test_follow_up_receives_the_same_sessions_previous_messages(self):
+        adapter = FakeAdapter()
+
+        async def admit(_session_key, _phone):
+            return {"ok": True, "admitted": True}
+
+        first = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 009", "text": "price for one?"}),
+            adapter,
+            admit_session=admit,
+        ))
+        second = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 009", "text": "and for 2 people?"}),
+            adapter,
+            admit_session=admit,
+        ))
+
+        self.assertEqual(first["status"], 200)
+        self.assertEqual(second["status"], 200)
+        self.assertIsNone(adapter.agent.calls[0]["conversation_history"])
+        self.assertEqual(
+            adapter.agent.calls[1]["conversation_history"],
+            adapter.agent.results[0]["messages"],
+        )
+
+    def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
+        adapter = FakeAdapter()
+
+        async def admitted(_session_key, _phone):
+            return {"ok": True, "admitted": True}
+
+        response = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 010", "text": "price for two?"}),
+            adapter,
+            admit_session=admitted,
+        ))
+        self.assertEqual(response["body"]["tool_calls"], [{
+            "name": "check_availability",
+            "args": {"guests": 2},
+            "result_summary": {"ok": True},
+        }])
+        self.assertEqual(response["body"]["effective_capability"], {
+            "capability": "wolfhouse_staging_booking_test_link",
+            "admitted": True,
+            "reasons": [],
+            "outcome": "ADMITTED",
+        })
+
+        async def refused(_session_key, _phone):
+            return {"ok": True, "admitted": False, "reasons": ["not_admitted"]}
+
+        refused_response = asyncio.run(self.module.handle_turn(
+            FakeRequest({"thread": "+34 699 901 011", "text": "price?"}),
+            adapter,
+            admit_session=refused,
+        ))
+        self.assertEqual(refused_response["status"], 503)
+        self.assertNotIn("effective_capability", refused_response["body"])
 
     def test_rejects_non_reserved_phone_and_caller_write_authority(self):
         adapter = FakeAdapter()

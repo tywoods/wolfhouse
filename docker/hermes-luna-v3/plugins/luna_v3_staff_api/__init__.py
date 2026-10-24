@@ -10,7 +10,22 @@ import json
 import os
 import urllib.error
 import urllib.request
+import urllib.parse
 from typing import Any
+
+class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, admitted_url: str):
+        parsed = urllib.parse.urlsplit(admitted_url)
+        self.admitted_origin = (parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port or (443 if parsed.scheme.lower() == "https" else None))
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        target = urllib.parse.urlsplit(newurl)
+        target_origin = (target.scheme.lower(), (target.hostname or "").lower(), target.port or (443 if target.scheme.lower() == "https" else None))
+        if target.username or target.password or target_origin != self.admitted_origin or target.scheme.lower() != "https":
+            raise urllib.error.HTTPError(newurl, code, "cross-origin redirect denied", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+def _open_staff(request: Any, base_url: str) -> Any:
+    return urllib.request.build_opener(_SameHostRedirectHandler(base_url)).open(request, timeout=20)
 
 TOOL_PATHS = {
     "check_availability": "/staff/bot/luna-v3/check-availability",
@@ -28,10 +43,11 @@ TOOL_PATHS = {
     "write_note": "/staff/bot/luna-v3/notes/write",
     "save_transfer_request": "/staff/bot/luna-v3/transfer-request",
     "handoff_to_human": "/staff/bot/luna-v3/handoff",
+    "recover_operation": "/staff/bot/luna-v3/recover-operation",
 }
 TOOL_NAMES = tuple(TOOL_PATHS)
 WRITE_TOOLS = frozenset({
-    "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
+    "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
     "write_note", "save_transfer_request", "handoff_to_human",
 })
 FORBIDDEN_FIELDS = frozenset({
@@ -39,6 +55,7 @@ FORBIDDEN_FIELDS = frozenset({
     "tenant_id", "destination", "recipient_phone", "provider_mode", "send_whatsapp",
     "send_sms", "send_email", "external_send_allowed", "staff_alert_allowed",
     "auto_assign", "silently_relax_together",
+    "totalCents", "depositCents", "remainingCents", "balanceDueCents",
 })
 
 
@@ -93,6 +110,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         raise ValueError(f"unknown Luna v3 tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
+    if name == "recover_operation" and (not str(arguments.get("tool", "")).strip() or not str(arguments.get("operation_key", "")).strip()):
+        raise ValueError("tool and operation_key are required for recover_operation")
     if name in WRITE_TOOLS and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
@@ -115,15 +134,39 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with _open_staff(request, runtime["base_url"]) as response:
             body = json.loads(response.read().decode("utf-8"))
             if not isinstance(body, dict):
                 return {"ok": False, "code": "malformed_staff_response"}
             return body
     except urllib.error.HTTPError as exc:
-        return {"ok": False, "status": exc.code, "code": "staff_tool_rejected", "outcome_unknown": exc.code >= 500}
+        result: dict[str, Any] = {"ok": False, "status": exc.code}
+        try: staff = json.loads(exc.read().decode("utf-8"))
+        except (ValueError, UnicodeError): staff = {}
+        if isinstance(staff, dict):
+            for field in ("code", "reason_code", "error"):
+                value = staff.get(field)
+                if isinstance(value, str) and value and len(value) <= 160:
+                    result[field] = value
+            if exc.code == 409:
+                for field in ("reason", "handoffId", "handoffOperationKey"):
+                    value = staff.get(field)
+                    if isinstance(value, str) and value and len(value) <= 160:
+                        result[field] = value
+                if isinstance(staff.get("requiredHumanHandoff"), bool):
+                    result["requiredHumanHandoff"] = staff["requiredHumanHandoff"]
+            if isinstance(staff.get("outcome_unknown"), bool):
+                result["outcome_unknown"] = staff["outcome_unknown"]
+            if exc.code < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
+                result["recoveryStatus"] = staff["recoveryStatus"]
+            if exc.code < 500 and staff.get("outcome") in {"rejected", "unknown"}:
+                result["outcome"] = staff["outcome"]
+        result.setdefault("code", "staff_tool_rejected")
+        result.setdefault("recoveryStatus", "unknown" if exc.code >= 500 else "rejected")
+        result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
+        return result
     except (urllib.error.URLError, TimeoutError):
-        return {"ok": False, "status": 503, "code": "staff_tool_unreachable", "outcome_unknown": True}
+        return {"ok": False, "status": 503, "recoveryStatus": "unknown", "outcome": "unknown", "code": "staff_tool_unreachable"}
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.
@@ -134,18 +177,19 @@ _TOOL_FIELDS = {
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size", "preferences"),
     "get_pricing_catalog": ("check_in", "check_out", "package_ids", "service_ids"),
-    "quote": ("check_in", "check_out", "guests", "selection", "guest_packages", "add_ons"),
+    "quote": ("operation_key", "check_in", "check_out", "guests", "selection", "guest_packages", "add_ons"),
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
-    "get_booking": ("booking_id", "phone"),
+    "get_booking": ("booking_id",),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": ("topic",),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
+    "recover_operation": ("tool", "operation_key"),
 }
 
 
@@ -153,27 +197,109 @@ _TOOL_REQUIRED = {
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size"),
     "get_pricing_catalog": ("check_in", "check_out"),
-    "quote": ("check_in", "check_out", "guests", "selection"),
-    "hold_beds": ("assignments", "check_in", "check_out", "guests", "operation_key"),
+    "quote": ("operation_key", "check_in", "check_out", "guests", "selection"),
+    "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
+    "recover_operation": ("tool", "operation_key"),
 }
 
 
 def _field_schema(field: str) -> dict[str, Any]:
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
-    if field in {"guests", "assignments", "guest_packages", "add_ons", "package_ids", "service_ids"}:
-        return {"type": "array", "items": {"type": "object"}}
-    if field in {"preferences", "selection", "quoted_selection", "travel_details"}:
+    if field in {"package_ids", "service_ids"}:
+        return {"type": "array", "items": {"type": "string", "minLength": 1}}
+    if field == "guests":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "explicit_gender": {"type": "string", "minLength": 1},
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        }
+    if field == "assignments":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "bed_code": {"type": "string", "minLength": 1},
+                    "guest_name": {"type": "string", "minLength": 1},
+                    "package_code": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
+        }
+    if field == "guest_packages":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "guest_number": {"type": "integer", "minimum": 1},
+                    "package_code": {"type": "string", "minLength": 1},
+                },
+                "required": ["guest_number", "package_code"],
+                "additionalProperties": False,
+            },
+        }
+    if field == "add_ons":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "minLength": 1},
+                    "days": {"type": "integer", "minimum": 1},
+                    "quantity": {"type": "integer", "minimum": 1},
+                    "dates": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "date"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                },
+                "required": ["code"],
+                "additionalProperties": False,
+            },
+        }
+    if field == "context":
+        return {
+            "type": "object",
+            "properties": {
+                key: {"type": "string", "minLength": 1, "maxLength": 500}
+                for key in ("topic", "kind", "detail")
+            },
+            "additionalProperties": False,
+        }
+    if field == "selection":
+        return {
+            "type": "object",
+            "properties": {
+                "room_id": {"type": "string", "minLength": 1},
+                "bed_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "selected_bed_codes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "room_type": {"type": "string", "minLength": 1},
+                "room_preference": {"type": "string", "minLength": 1},
+                "keep_together": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        }
+    if field in {"preferences", "travel_details"}:
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 

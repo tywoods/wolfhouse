@@ -1608,6 +1608,78 @@
       "rationale": "Destructive down migration drops room-placement receipts; never selected by the dedicated 110-only forward operator path.",
       "pairsWith": "110_staff_room_fill_create_receipts.sql",
       "sha256": "1ef87b4a98daa6d05b36a60f14bfea7714113e186eba8363094aa6d4729a9980"
+    },
+    {
+      "id": "114_luna_v3_staff_operations",
+      "filename": "114_luna_v3_staff_operations.sql",
+      "order": 105,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Fallback consolidation: durable Luna v3 staff objects plus the final guest-phone and private_optional exact-bed invariant formerly split across 116 and 118. Shared-object migrations remain forward-only entries.",
+      "sha256": "7579430b90d7d85ce89b885380a9bc929d9a9dc41fe5dac503795de7b6a3d184"
+    },
+    {
+      "id": "115_luna_v3_guest_operations",
+      "filename": "115_luna_v3_guest_operations.sql",
+      "order": 106,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Durable session-scoped Luna v3 notes, verified test-checkout receipts, and unscheduled transfer requests.",
+      "sha256": "05e11b557758f1cfa9b928e8a691545cc10fa161c65decc52a0c19f7262ec289"
+    },
+    {
+      "id": "116_luna_v3_session_phone_and_hold_invariant",
+      "filename": "116_luna_v3_session_phone_and_hold_invariant.sql",
+      "order": null,
+      "classification": "superseded",
+      "inForwardChain": false,
+      "rationale": "Historical compatibility artifact; its Luna-v3-only effects are consolidated into migration 114.",
+      "sha256": "ae6c7774a084437b1e339d83e8195ba30f48ba259eb2e127981d6be741bdd3f7"
+    },
+    {
+      "id": "117_cancel_unpaid_payment_race_guard",
+      "filename": "117_cancel_unpaid_payment_race_guard.sql",
+      "order": 107,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
+      "sha256": "dcc963bb4fa43e72ad346ddc1b4d26af9d058896f75b6aef73606e3e4a74d5eb"
+    },
+    {
+      "id": "118_luna_v3_private_optional_hold_eligibility",
+      "filename": "118_luna_v3_private_optional_hold_eligibility.sql",
+      "order": null,
+      "classification": "superseded",
+      "inForwardChain": false,
+      "rationale": "Historical compatibility artifact; its Luna-v3-only effect is consolidated into migration 114.",
+      "sha256": "b474816fbb8baa0397679451032c519a93b14f9ca92e342dc91e74a5a4b8758a"
+    },
+    {
+      "id": "119_luna_v3_guest_payment_history",
+      "filename": "119_luna_v3_guest_payment_history.sql",
+      "order": 108,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
+      "sha256": "2d01ed032995d4182221095db43c395f4b644243a0205f16f1b5a2c1827754de"
+    },
+    {
+      "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
+      "filename": "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
+      "order": 109,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
+      "sha256": "18f5cf74aa993fe0cdfa393772e53e00d086a52cfeb4e2f32ee9c45b4010a81e"
+    },
+    {
+      "id": "121_wolfhouse_confirmed_rental_prices",
+      "filename": "121_wolfhouse_confirmed_rental_prices.sql",
+      "order": 110,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Promote Ale-confirmed Wolfhouse per-day rental prices into authoritative Staff Pricing without overwriting any existing active Staff rule.",
+      "sha256": "8e65c18983042f64d3f81650e86418f5424155d5e7f25e9c69e93b2e16469910"
     }
   ]
 }

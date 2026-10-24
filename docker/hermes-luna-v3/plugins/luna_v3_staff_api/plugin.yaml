@@ -21,3 +21,4 @@ provides_tools:
   - write_note
   - save_transfer_request
   - handoff_to_human
+  - recover_operation

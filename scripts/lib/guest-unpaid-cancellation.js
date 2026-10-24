@@ -61,8 +61,8 @@ SELECT TRUE AS booking_found,
        (SELECT COUNT(*)::int FROM payment_events pe WHERE pe.client_id=b.client_id AND (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated')) AS payment_event_paid_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id) AS guest_row_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND COALESCE(bg.amount_paid_cents,0)>0) AS guest_positive_count,
-       (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_paid_status_count,
-       (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired','paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_unknown_status_count,
+       (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status::text,'')) IN ('paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_paid_status_count,
+       (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND LOWER(COALESCE(bg.payment_status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired','paid','deposit_paid','partially_paid','succeeded','captured')) AS guest_unknown_status_count,
        (SELECT COUNT(*)::int FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND bg.amount_paid_cents IS NULL) AS guest_unknown_amount_count,
        NOT (
          (COALESCE(b.amount_paid_cents,0)=0 AND COALESCE(b.deposit_paid_cents,0)=0 AND LOWER(COALESCE(b.payment_status::text,'')) IN ('deposit_paid','partially_paid','paid'))
@@ -87,7 +87,7 @@ WHERE b.client_id=c.id
   AND LOWER(COALESCE(b.payment_status::text,'')) IN ('not_requested','waiting_payment','unpaid','pending','failed')
   AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.client_id=b.client_id AND p.booking_id=b.id)
   AND NOT EXISTS (SELECT 1 FROM payment_events pe WHERE pe.client_id=b.client_id AND (pe.booking_id=b.id OR EXISTS (SELECT 1 FROM payments ep WHERE ep.client_id=b.client_id AND ep.booking_id=b.id AND ep.id=pe.payment_id)) AND LOWER(COALESCE(pe.event_type,'')) IN ('checkout.session.completed','checkout.session.async_payment_succeeded','payment_intent.succeeded','charge.succeeded','payment_intent.amount_capturable_updated'))
-  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (bg.amount_paid_cents IS NULL OR bg.amount_paid_cents>0 OR LOWER(COALESCE(bg.payment_status,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
+  AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.client_id=b.client_id AND bg.booking_id=b.id AND (bg.amount_paid_cents IS NULL OR bg.amount_paid_cents>0 OR LOWER(COALESCE(bg.payment_status::text,'')) NOT IN ('not_requested','waiting_payment','pending','created','open','draft','checkout_created','unpaid','failed','cancelled','canceled','expired')))
 RETURNING b.id::text AS booking_id, b.booking_code, b.status::text AS status
 `;
 

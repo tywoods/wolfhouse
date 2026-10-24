@@ -216,7 +216,10 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     phone,
     payload,
     headers,
-    limitation: buildLiveSimulatorLimitation({ allStaffToolWrites: tenant === 'sunset' }),
+    limitation: buildLiveSimulatorLimitation({
+      allStaffToolWrites: tenant === 'sunset',
+      v3TestMode: tenant === 'luna-v3',
+    }),
   };
 }
 
@@ -224,23 +227,24 @@ function buildLiveSimulatorLimitation(options = {}) {
   const bookingOnlyMode = options.bookingOnlyMode === true;
   const isolatedMode = options.isolatedMode === true;
   const allStaffToolWrites = options.allStaffToolWrites === true;
+  const v3TestMode = options.v3TestMode === true;
   return {
     staging_only: true,
-    writes_enabled: allStaffToolWrites,
-    staff_tool_writes_enabled: allStaffToolWrites,
-    booking_writes_enabled: allStaffToolWrites || bookingOnlyMode || isolatedMode,
-    booking_write_mode: allStaffToolWrites ? 'sunset_all_staff_tools' : (isolatedMode ? SUNSET_ISOLATED_MODE : (bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null)),
+    writes_enabled: allStaffToolWrites || v3TestMode,
+    staff_tool_writes_enabled: allStaffToolWrites || v3TestMode,
+    booking_writes_enabled: allStaffToolWrites || v3TestMode || bookingOnlyMode || isolatedMode,
+    booking_write_mode: v3TestMode ? 'luna_v3_test' : (allStaffToolWrites ? 'sunset_all_staff_tools' : (isolatedMode ? SUNSET_ISOLATED_MODE : (bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null))),
     whatsapp_sends_enabled: false,
     sms_sends_enabled: false,
-    payments_enabled: allStaffToolWrites,
+    payments_enabled: allStaffToolWrites || v3TestMode,
     waiver_creation_enabled: allStaffToolWrites,
-    test_payments_enabled: allStaffToolWrites || isolatedMode,
-    payment_status_enabled: allStaffToolWrites || isolatedMode,
+    test_payments_enabled: allStaffToolWrites || v3TestMode || isolatedMode,
+    payment_status_enabled: allStaffToolWrites || v3TestMode || isolatedMode,
     waiver_registration_enabled: allStaffToolWrites || isolatedMode,
-    limitation_flag: allStaffToolWrites ? 'sunset_staff_tools_enabled_external_transport_suppressed' : (isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled')),
+    limitation_flag: v3TestMode ? 'luna_v3_test_staff_writes_enabled_external_transport_suppressed' : (allStaffToolWrites ? 'sunset_staff_tools_enabled_external_transport_suppressed' : (isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled'))),
     // Sunset exposes every Staff tool. External transport is a separate,
     // permanent adapter boundary represented by the *_sends_enabled fields.
-    denied_actions: allStaffToolWrites ? [] : WRITE_DENY_LIST.slice(),
+    denied_actions: (allStaffToolWrites || v3TestMode) ? [] : WRITE_DENY_LIST.slice(),
   };
 }
 

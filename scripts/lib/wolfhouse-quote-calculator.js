@@ -206,14 +206,20 @@ function calculateWolfhouseQuote(input, config) {
     }
     normalizedGuestPackages = guest_packages.map((item, idx) => {
       const code = normalizePkgCode(item && item.package_code);
-      const guestNumber = item && item.guest_number != null ? Number(item.guest_number) : idx + 1;
+      const suppliedGuestNumber = item && item.guest_number;
+      const guestNumber = suppliedGuestNumber == null ? idx + 1 : Number(suppliedGuestNumber);
+      if (!Number.isSafeInteger(guestNumber) || guestNumber < 1 || guestNumber > guests) {
+        blockers.push(`guest_number must be an integer from 1 to ${guests} for guest package row ${idx + 1}`);
+      }
       if (!code) blockers.push(`package_code is required for guest ${idx + 1}`);
       if (code && !KNOWN_PACKAGES.includes(code) && !isNoPackageCode(code)) {
         blockers.push(`unknown package_code "${code}" for guest ${idx + 1} — staff review required`);
         staff_review_required = true;
       }
-      return { guest_number: Number.isInteger(guestNumber) && guestNumber > 0 ? guestNumber : idx + 1, package_code: code };
+      return { guest_number: guestNumber, package_code: code };
     });
+    const ordinals = normalizedGuestPackages.map((item) => item.guest_number);
+    if (new Set(ordinals).size !== ordinals.length) blockers.push('guest_number values must be unique');
   }
   const hasGuestPackages = normalizedGuestPackages.length > 0;
 

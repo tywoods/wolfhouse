@@ -210,7 +210,10 @@ const {
   LUNA_V3_ROUTE_TO_TOOL,
   dispatchLunaV3StaffRoute,
 } = require('./lib/model-led-luna/staff-routes');
-const LUNA_V3_STAFF_OPERATIONS = Object.freeze({});
+const { createOperations: createLunaV3StaffOperations } = require('./lib/model-led-luna');
+const { createLunaV3StaffAuthorities } = require('./lib/model-led-luna/v3-staff-authorities');
+let LUNA_V3_STAFF_AUTHORITIES;
+let LUNA_V3_STAFF_OPERATIONS;
 const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
@@ -1315,6 +1318,23 @@ function stripeCheckoutRedirectUrlsDistinct() {
   return stripeCheckoutSessionSuccessUrl() !== stripeCheckoutSessionCancelUrl();
 }
 
+// Bind the production authority boundary only after Stripe configuration has
+// initialized. Payment checkout is test-mode only; every conventional
+// message/alert/outbox adapter is connected to an explicit fail-closed
+// boundary on this exact registry authority object.
+LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
+  resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
+  stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+  stripeSecretKey: STRIPE_SECRET_KEY,
+  checkoutRedirectUrlsConfigured: stripeCheckoutRedirectUrlsConfigured,
+  checkoutSuccessUrl: stripeCheckoutSessionSuccessUrl,
+  checkoutCancelUrl: stripeCheckoutSessionCancelUrl,
+  withPgClient,
+  perGuestCheckout: require('./lib/per-guest-checkout'),
+  createStripe: (secret) => require('stripe')(secret),
+});
+LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, LUNA_V3_STAFF_AUTHORITIES);
+
 function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
   return buildPaymentLinkObservability({
     booking_code: pm && pm.booking_code,
@@ -1752,7 +1772,7 @@ async function dispatchBotRouteBoundToPrincipalTenant(auth, req, res, query, han
       if (effectiveClientSlug) {
         pinStaffBotRequestEffectiveTenant(req, body, query, effectiveClientSlug);
       }
-      return handler(user, authMode, effectiveClientSlug || null);
+      return handler(user, authMode, effectiveClientSlug || null, body);
     },
   });
 }
@@ -55621,19 +55641,49 @@ async function router(req, res) {
   if (LUNA_V3_ROUTE_TO_TOOL[pathname]) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (_user, _authMode, effectiveClientSlug) => {
-      let body;
-      try {
-        body = JSON.parse(await readBody(req) || '{}');
-      } catch (_) {
-        return send400(res, 'invalid or missing JSON body');
-      }
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (user, _authMode, effectiveClientSlug, body) => {
+      const principalId = String(user && user.staff_user_id || '').trim();
       const result = await dispatchLunaV3StaffRoute({
         pathname,
         method,
         clientSlug: effectiveClientSlug,
         body,
         operations: LUNA_V3_STAFF_OPERATIONS,
+        authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true' },
+        admitSimulatorSession: async ({ clientSlug: admittedSlug, sessionId, guestPhone, principalId: admittedPrincipal }) => withPgClient(async (pg) => {
+          if (process.env.LUNA_V3_TEST_WRITES !== 'true' || admittedSlug !== 'wolfhouse-somo') {
+            return { ok: false, status: 403, code: 'luna_v3_simulator_scope_forbidden' };
+          }
+          await pg.query('BEGIN');
+          try {
+            const client = (await pg.query('SELECT id FROM clients WHERE slug=$1 FOR SHARE', [admittedSlug])).rows[0];
+            if (!client) {
+              await pg.query('ROLLBACK');
+              return { ok: false, status: 403, code: 'luna_v3_tenant_forbidden' };
+            }
+            await pg.query(`INSERT INTO luna_v3_sessions(client_id,session_key,principal_id,write_admitted,guest_phone)
+              VALUES($1,$2,$3,true,$4)
+              ON CONFLICT(client_id,session_key) DO UPDATE SET
+                principal_id=EXCLUDED.principal_id,write_admitted=true,guest_phone=EXCLUDED.guest_phone,updated_at=now()`,
+            [client.id, sessionId, admittedPrincipal, guestPhone]);
+            await pg.query(`INSERT INTO conversations(client_id,display_name,phone,language,needs_human,status,bot_mode,metadata)
+              SELECT $1,'Luna v3 TEST simulator',$2,'en',false,'open','bot',$3::jsonb
+              WHERE NOT EXISTS (SELECT 1 FROM conversations WHERE client_id=$1 AND phone=$2)`,
+            [client.id, guestPhone, JSON.stringify({ test_only: true, source: 'crowsnest_luna_v3' })]);
+            await pg.query('COMMIT');
+            return { ok: true, admitted: true };
+          } catch (error) {
+            await pg.query('ROLLBACK');
+            throw error;
+          }
+        }),
+        resolveSession: async ({ selector, principalId: requestedPrincipal }) => withPgClient(async (pg) => {
+          if (!selector || !requestedPrincipal) return null;
+          const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone FROM luna_v3_sessions s
+            JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`,
+          [effectiveClientSlug, selector, requestedPrincipal]);
+          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true, guestPhone: r.rows[0].guest_phone } : null;
+        }),
       });
       return sendJSON(res, result.status, result.body);
     });
