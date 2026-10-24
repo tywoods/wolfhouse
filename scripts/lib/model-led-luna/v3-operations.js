@@ -653,6 +653,28 @@ function selected(s, input) {
     return fail("booking_selector_forbidden", 403);
   return null;
 }
+const NATIVE_STAFF_PAYMENT_SOURCES = Object.freeze({
+  cash: "staff_cash",
+  bank_transfer: "staff_bank_transfer",
+  in_store: "staff_in_store",
+});
+
+function nativeStaffReceiptHasTrustedProvenance(payment) {
+  const metadata = payment && payment.metadata;
+  if (!metadata || !Object.prototype.hasOwnProperty.call(NATIVE_STAFF_PAYMENT_SOURCES, metadata.method))
+    return false;
+  return (
+    payment.status === "paid" &&
+    payment.amount_paid_cents > 0 &&
+    NATIVE_STAFF_PAYMENT_SOURCES[metadata.method] === metadata.source &&
+    metadata.staff_portal === true &&
+    metadata.payment_scope === "guest" &&
+    metadata.booking_guest_id === payment.booking_guest_id &&
+    typeof metadata.idempotency_key === "string" &&
+    metadata.idempotency_key.length > 0
+  );
+}
+
 async function getPaymentStatus(pg, input, context) {
   const s = await session(pg, context);
   const denied = selected(s, input);
@@ -731,20 +753,7 @@ async function getPaymentStatus(pg, input, context) {
     );
   // Native Staff receipts have no provider event. Admit only the exact
   // method/source pairs written by recordStaffManualPayment.
-  const nativeStaffReceipt = (p) =>
-    p.status === "paid" &&
-    p.amount_paid_cents > 0 &&
-    p.metadata &&
-    {
-      cash: "staff_cash",
-      bank_transfer: "staff_bank_transfer",
-      in_store: "staff_in_store",
-    }[p.metadata.method] === p.metadata.source &&
-    p.metadata.staff_portal === true &&
-    p.metadata.payment_scope === "guest" &&
-    p.metadata.booking_guest_id === p.booking_guest_id &&
-    typeof p.metadata.idempotency_key === "string" &&
-    p.metadata.idempotency_key.length > 0;
+  const nativeStaffReceipt = nativeStaffReceiptHasTrustedProvenance;
   const associationFor = (paymentId) =>
     associations.filter((a) => a.payment_id === paymentId);
   const paidForGuest = (guestId) =>
@@ -1424,6 +1433,10 @@ module.exports = {
   writeNote,
   saveTransferRequest,
 };
+Object.defineProperty(module.exports, "nativeStaffReceiptHasTrustedProvenance", {
+  value: nativeStaffReceiptHasTrustedProvenance,
+  enumerable: false,
+});
 Object.defineProperty(module.exports, "madridWallTime", {
   value: madridWallTime,
   enumerable: false,

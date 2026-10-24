@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const defaultApi = require('./index');
+const v3Operations = require('./v3-operations');
 
 const rooms = [
   { room_id: 'r10', room_code: 'R10', room_name: 'Room 10', room_type: 'shared', selling_mode: 'shared', capacity: 2, fill_priority: 1, room_sort_order: 1, gender_strategy: 'mixed', bed_id: 'b10a', bed_code: 'R10-B1', bed_label: '1', bed_number: 1, bed_active: true, bed_sellable: true },
@@ -46,6 +47,22 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
 }
 
 async function main(api = defaultApi) {
+  assert.equal(
+    v3Operations.nativeStaffReceiptHasTrustedProvenance({
+      status: 'paid', amount_paid_cents: 1000, booking_guest_id: 'guest-1',
+      metadata: { staff_portal: true, payment_scope: 'guest', booking_guest_id: 'guest-1', idempotency_key: 'missing-both' },
+    }),
+    false,
+    'manual payment evidence rejects missing method and source',
+  );
+  assert.equal(
+    v3Operations.nativeStaffReceiptHasTrustedProvenance({
+      status: 'paid', amount_paid_cents: 1000, booking_guest_id: 'guest-1',
+      metadata: { method: 'crypto', staff_portal: true, payment_scope: 'guest', booking_guest_id: 'guest-1', idempotency_key: 'unsupported-method' },
+    }),
+    false,
+    'manual payment evidence rejects unsupported method with missing source',
+  );
   const observations = {};
   const context = { tenantId: 'wolfhouse-somo', authenticated: true,
     sessionId: 'luna-v3:test', principalId: 'test-principal', writeAllowed: true };

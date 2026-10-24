@@ -218,8 +218,59 @@ def _field_schema(field: str) -> dict[str, Any]:
         return {"type": "integer", "minimum": 1}
     if field in {"package_ids", "service_ids"}:
         return {"type": "array", "items": {"type": "string", "minLength": 1}}
-    if field in {"guests", "assignments", "guest_packages", "add_ons"}:
-        return {"type": "array", "items": {"type": "object"}}
+    if field == "guests":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "explicit_gender": {"type": "string", "minLength": 1},
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        }
+    if field == "assignments":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "bed_code": {"type": "string", "minLength": 1},
+                    "guest_name": {"type": "string", "minLength": 1},
+                    "package_code": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
+        }
+    if field == "guest_packages":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "guest_number": {"type": "integer", "minimum": 1},
+                    "package_code": {"type": "string", "minLength": 1},
+                },
+                "required": ["guest_number", "package_code"],
+                "additionalProperties": False,
+            },
+        }
+    if field == "add_ons":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "minLength": 1},
+                    "days": {"type": "integer", "minimum": 1},
+                    "quantity": {"type": "integer", "minimum": 1},
+                },
+                "required": ["code"],
+                "additionalProperties": False,
+            },
+        }
     if field == "context":
         return {
             "type": "object",
@@ -229,7 +280,20 @@ def _field_schema(field: str) -> dict[str, Any]:
             },
             "additionalProperties": False,
         }
-    if field in {"preferences", "selection", "travel_details"}:
+    if field == "selection":
+        return {
+            "type": "object",
+            "properties": {
+                "room_id": {"type": "string", "minLength": 1},
+                "bed_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "selected_bed_codes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "room_type": {"type": "string", "minLength": 1},
+                "room_preference": {"type": "string", "minLength": 1},
+                "keep_together": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        }
+    if field in {"preferences", "travel_details"}:
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 

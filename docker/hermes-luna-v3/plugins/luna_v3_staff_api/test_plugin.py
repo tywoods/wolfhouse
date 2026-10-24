@@ -135,6 +135,31 @@ class LunaV3PluginContractTests(unittest.TestCase):
             self.assertEqual("string", by_name["get_pricing_catalog"]["properties"][field]["items"]["type"])
         self.assertNotIn("phone", by_name["get_booking"]["properties"])
 
+    def test_quote_schema_teaches_clone_the_strict_staff_shape(self):
+        plugin = self.load_plugin()
+
+        class Context:
+            def __init__(self): self.tools = []
+            def register_tool(self, **kwargs): self.tools.append(kwargs)
+
+        ctx = Context()
+        plugin.register(ctx)
+        quote = next(tool for tool in ctx.tools if tool["name"] == "quote")["schema"]["parameters"]
+        guest = quote["properties"]["guests"]["items"]
+        selection = quote["properties"]["selection"]
+
+        self.assertEqual({"name", "explicit_gender"}, set(guest["properties"]))
+        self.assertFalse(guest["additionalProperties"])
+        self.assertNotIn("guest_id", guest["properties"])
+        self.assertEqual(
+            {"room_id", "bed_ids", "selected_bed_codes", "room_type", "room_preference", "keep_together"},
+            set(selection["properties"]),
+        )
+        self.assertFalse(selection["additionalProperties"])
+        self.assertNotIn("assignments", selection["properties"])
+        self.assertNotIn("same_room_required", selection["properties"])
+        self.assertEqual({"type": "boolean"}, selection["properties"]["keep_together"])
+
     def test_authentic_hermes_scanner_discovers_native_manifest(self):
         sys.path.insert(0, "/opt/hermes")
         try:
