@@ -438,7 +438,14 @@ function saveIdentityLedger(file, ledger) {
   });
 }
 
+function isReservedPhoneString(value) {
+  return typeof value === 'string' && RESERVED_PHONE.test(value);
+}
+
 function reserveIdentity(used, ledger, tenant, phone) {
+  if (typeof phone !== 'string') {
+    return { ok: false, identity: tenant + '|', phone };
+  }
   const identity = tenant + '|' + phone;
   if (used.has(phone) || ledger.phones.has(phone) || ledger.identities.has(identity)) {
     return { ok: false, identity, phone };
@@ -456,7 +463,7 @@ function allocateWirePhone(used, ledger, tenant) {
   while (n < 100000) {
     const phone = '+346999' + String(n).padStart(5, '0');
     n += 1;
-    if (!RESERVED_PHONE.test(phone)) {
+    if (!isReservedPhoneString(phone)) {
       throw new Error('reserved phone pool exhausted');
     }
     const reserved = reserveIdentity(seen, book, tenant, phone);
@@ -597,7 +604,7 @@ async function runSideBySide(options) {
           const id = script.id || script._file;
           if (Object.prototype.hasOwnProperty.call(plan, id)) {
             const plannedPhone = plan[id];
-            if (!RESERVED_PHONE.test(plannedPhone)) {
+            if (!isReservedPhoneString(plannedPhone)) {
               return { ok: false, code: 'invalid_identity', error: 'identity is not a reserved test phone' };
             }
             const reserved = reserveIdentity(usedPhones, book, target.tenant, plannedPhone);
@@ -612,7 +619,7 @@ async function runSideBySide(options) {
               return { ok: false, code: 'phone_pool_exhausted', error: err && err.message ? err.message : 'reserved phone pool exhausted' };
             }
           }
-          if (!RESERVED_PHONE.test(nextPhones[id])) {
+          if (!isReservedPhoneString(nextPhones[id])) {
             return { ok: false, code: 'invalid_identity', error: 'identity is not a reserved test phone' };
           }
         }

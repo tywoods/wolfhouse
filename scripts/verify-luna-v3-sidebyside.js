@@ -1529,6 +1529,22 @@ async function main() {
   assert.equal(badPlan.ok, false);
   assert.equal(badPlan._calls, 0, 'invalid identityPlan must not dispatch');
 
+  const arrayLedger = path.join(tmpDir(), 'array-plan.json');
+  const arrayPhone = reservedSuffix('10024');
+  const arrayBefore = fs.existsSync(arrayLedger) ? fs.readFileSync(arrayLedger, 'utf8') : '';
+  const arrayPlan = await liveOnce({
+    identityLedger: arrayLedger,
+    identityPlan: { 'ledger-case': [arrayPhone] },
+  });
+  assert.equal(arrayPlan.ok, false);
+  assert.equal(arrayPlan.cause && arrayPlan.cause.code, 'invalid_identity');
+  assert.equal(arrayPlan._calls, 0, 'array identityPlan must not dispatch');
+  const arrayAfter = fs.existsSync(arrayLedger) ? fs.readFileSync(arrayLedger, 'utf8') : '';
+  assert.equal(arrayAfter, arrayBefore, 'array identityPlan must leave the ledger unchanged');
+  const arrayFollow = await liveOnce({ identityLedger: arrayLedger });
+  assert.equal(arrayFollow.ok, true);
+  assert.equal(arrayFollow._calls, 1, 'normal run after array identityPlan must succeed');
+
   const used = new Set();
   for (let n = 0; n < 100000; n += 1) {
     used.add('+' + '34' + '6999' + String(n).padStart(5, '0'));
