@@ -17,9 +17,11 @@ const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
 const { assertSafeToolRequest } = require('./contracts');
 const v3 = require('./v3-operations');
+const { createCheckQuoteBook } = require('./v3-booking-flow');
 
 const TENANT = 'wolfhouse-somo';
 const WIRES = Object.freeze({
+  checkQuoteBook: 'check_quote_book',
   checkAvailability: 'check_availability',
   findRooms: 'find_rooms',
   getPricingCatalog: 'get_pricing_catalog',
@@ -455,7 +457,8 @@ function createOperations(withPgClient, authorities = {}) {
   ])));
 }
 
-const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
+const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });
+const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkQuoteBook, checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
 Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});

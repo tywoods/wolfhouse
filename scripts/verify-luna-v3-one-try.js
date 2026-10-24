@@ -1,0 +1,45 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { assertSafeToolRequest, TOOL_CONTRACTS } = require('./lib/model-led-luna/contracts');
+const { createCheckQuoteBook } = require('./lib/model-led-luna/v3-booking-flow');
+
+assert.equal(TOOL_CONTRACTS.check_quote_book.path, '/staff/bot/luna-v3/check-quote-book');
+assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'not-an-id' }), /valid public/);
+assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'prepare', guests: [{ name: 'A' }, { name: 'B' }], room: { kind: 'private' }, package: { name: 'none' } }), /payment arrangement/);
+assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', {
+  action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
+  guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },
+  package: { name: 'none' }, add_ons: [], payment: { arrangement: 'separately' },
+}));
+
+const calls = [];
+const deps = {
+  findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }] }] }),
+  getPricingCatalog: async () => ({ ok: true, packages: [{ code: 'package_none', name: 'none' }], services: [], rentals: [] }),
+  quote: async (_pg, input) => { calls.push(['quote', input]); return { ok: true, quote: { totalCents: 10000 }, holdInput: { check_in: input.check_in, check_out: input.check_out, guests: input.guests, assignments: [{ bed_code: 'BED-1', guest_name: 'A', package_code: 'package_none' }], quoted_selection: 'quote-rev' } }; },
+  holdBeds: async (_pg, input) => { calls.push(['hold', input]); return { ok: true, holdId: '11111111-1111-4111-8111-111111111111', expiresAt: '2027-03-01T12:15:00Z', assignments: [{ bedCode: 'BED-1', packageCode: 'package_none' }] }; },
+  releaseHold: async () => ({ ok: true }),
+  book: async () => ({ ok: true, bookingCode: 'WH-TEST' }),
+};
+const pg = { async query(sql) {
+  if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+  if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
+  if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
+  if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
+  throw new Error(`unexpected SQL: ${sql}`);
+} };
+const run = createCheckQuoteBook(deps);
+(async () => {
+  const result = await run(pg, {
+    action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
+    guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },
+    package: { name: 'none' }, add_ons: [], payment: { arrangement: 'separately' },
+  }, { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:00000001' });
+  assert.equal(result.state, 'offer');
+  assert.match(result.offer_reference, /^offer_/);
+  assert.equal('holdId' in result, false, 'internal hold UUID must not cross public result');
+  assert.equal(calls.filter(([name]) => name === 'quote').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'hold').length, 1);
+  assert.equal(calls[0][1].operation_key.startsWith('one-try:'), true);
+  console.log('luna v3 one-try public flow: PASS');
+})().catch((error) => { console.error(error); process.exitCode = 1; });
