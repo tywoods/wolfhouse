@@ -1853,6 +1853,21 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
                         target_assignment_name = normalize(item.get('guest_name'))
                         item['guest_name'] = '<completed-name-%s>' % guest_index
+            distribution = revision.get('payment_distribution')
+            if isinstance(distribution, list) and guest_index < len(distribution):
+                row = distribution[guest_index]
+                if isinstance(row, dict):
+                    if normalize(row.get('guest_name')) == target_assignment_name:
+                        row['guest_name'] = '<completed-name-%s>' % guest_index
+                    else:
+                        return False
+                elif (isinstance(row, (list, tuple)) and len(row) == 4
+                      and row[0] == guest_index
+                      and normalize(row[1]) == target_assignment_name):
+                    distribution[guest_index] = (
+                        guest_index, '<completed-name-%s>' % guest_index, row[2], row[3])
+                else:
+                    return False
             hints = revision.get('room_name_hints')
             if isinstance(hints, list):
                 matching_hints = ([hint for hint in hints

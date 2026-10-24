@@ -262,6 +262,17 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertFalse(self.ledger._completion_revision_matches(
                         prior, current, payment_choice=payment_choice))
 
+                    # The same indexed guest may complete a surname; Staff updates
+                    # that payer label but not the person, bed, or amount.
+                    current = deepcopy(prior)
+                    current['guest_bed_assignments'][0]['guest_name'] = 'Alex Smith'
+                    current['payment_distribution'] = [
+                        {'guest_name': 'Alex Smith', 'amount_due_cents': 10000, 'currency': 'EUR'},
+                        {'guest_name': 'Sam', 'amount_due_cents': 10000, 'currency': 'EUR'}]
+                    self.assertTrue(self.ledger._completion_revision_matches(
+                        prior, current, payment_choice=payment_choice,
+                        guest_completions=[{'guest_index': 0, 'completed_name': 'Alex Smith'}]))
+
     def test_split_distribution_change_requires_new_presentation_before_create(self):
         """Same-total per-person changes are material on both split refresh routes."""
         for route in ('newly-selected', 'explicit-refresh'):
