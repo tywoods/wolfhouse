@@ -1080,6 +1080,216 @@ async function main() {
   });
   assert.deepEqual(altOrder, ['v3', 'classic', 'classic', 'v3', 'v3', 'classic']);
 
+  function reservedSuffix(suffix) {
+    return '+' + '34' + '6999' + suffix;
+  }
+  const collideA = {
+    id: 'collide-a',
+    phone: reservedSuffix('00001'),
+    dates: quoteScript.dates,
+    turns: [{ guest: 'Hi, quote one person 4 to 8 June 2027 please.' }],
+  };
+  const collideB = {
+    id: 'collide-b',
+    phone: reservedSuffix('00002'),
+    dates: quoteScript.dates,
+    turns: [{ guest: 'Hi, quote one person 4 to 8 June 2027 please.' }],
+  };
+  const wireIdentities = [];
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [collideA, collideB],
+    runId: 'collision-51991',
+    outDir: tmpDir(),
+    fetchImpl: async (url, init) => {
+      const sent = JSON.parse(init.body);
+      wireIdentities.push(String(sent.tenant) + '|' + String(sent.from_phone));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          reply_text: 'quoted',
+          limitation: {
+            whatsapp_sends_enabled: false,
+            sms_sends_enabled: false,
+            tenant_whatsapp_suppressed: true,
+          },
+        }),
+      };
+    },
+    repoRoot,
+  });
+  assert.equal(wireIdentities.length, 2);
+  assert.equal(new Set(wireIdentities).size, 2, 'tenant+phone identities must be unique');
+
+  const laterNoSend = laterFail.scorecard && laterFail.scorecard.this_run && laterFail.scorecard.this_run.no_real_sends;
+  assert.notEqual(laterNoSend, true, 'later 500 must not certify no_real_sends');
+  assert.equal(Array.isArray(laterFail.attempts) && laterFail.attempts.some((row) => row.outcome === 'error' || row.outcome === 'unknown'), true);
+
+  const firstTimeout = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImpl: async () => {
+      throw new Error('tenant simulator timed out');
+    },
+    repoRoot,
+  });
+  assert.equal(firstTimeout.ok, false);
+  assert.notEqual(firstTimeout.dry_run, true, 'first-call timeout must not look like a dry run');
+  assert.notEqual(firstTimeout.scorecard && firstTimeout.scorecard.this_run && firstTimeout.scorecard.this_run.dry_run, true);
+  assert.equal(firstTimeout.executed, true);
+  assert.equal(Array.isArray(firstTimeout.attempts) && firstTimeout.attempts[0] && firstTimeout.attempts[0].outcome !== 'ok', true);
+
+  let redirectClassic = 0;
+  const pairRedirect = await runner.runPaired({
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    outDir: tmpDir(),
+    fetchImplByTarget: {
+      'hermes-luna-clone': async () => ({
+        ok: true,
+        status: 302,
+        headers: { location: 'https://crowsnest.lunafrontdesk.com/elsewhere' },
+        json: async () => ({
+          ok: true,
+          reply_text: 'redirected success',
+          limitation: {
+            whatsapp_sends_enabled: false,
+            sms_sends_enabled: false,
+            tenant_whatsapp_suppressed: true,
+          },
+        }),
+      }),
+      'hermes-luna': async () => {
+        redirectClassic += 1;
+        return toolsReply('classic', [{ name: 'classic' }])();
+      },
+    },
+    repoRoot,
+  });
+  assert.equal(pairRedirect.ok, false);
+  assert.equal(redirectClassic, 0, '302 must not count as success or continue the batch');
+
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'agosto-julio',
+        phone: quoteScript.phone,
+        dates: { check_in: '2027-07-14', check_out: '2027-07-18', stock_pricing_confirmed: false },
+        turns: [{ guest: 'Hola, presupuesto del 14 al 18 de agosto de 2027 por favor.' }],
+      }],
+    }),
+    /window|dialogue|agosto|month/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'junio-32',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hola, del 31 al 32 de junio de 2027 por favor.' }],
+      }],
+    }),
+    /calendar|invalid|dialogue/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'reversed-iso',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote 2027-06-08 to 2027-06-04 please.' }],
+      }],
+    }),
+    /reversed|window|dialogue|range/i,
+  );
+  await assert.rejects(
+    () => runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: true,
+      outDir: tmpDir(),
+      fetchImpl: forbiddenFetch(),
+      repoRoot,
+      scripts: [{
+        id: 'june-14-18-english',
+        phone: quoteScript.phone,
+        dates: quoteScript.dates,
+        turns: [{ guest: 'Hi, quote June 14-18 2027 please.' }],
+      }],
+    }),
+    /window|dialogue|range/i,
+  );
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: true,
+    outDir: tmpDir(),
+    fetchImpl: forbiddenFetch(),
+    repoRoot,
+    scripts: [{
+      id: 'spanish-ok',
+      phone: quoteScript.phone,
+      dates: { check_in: '2027-08-14', check_out: '2027-08-18', stock_pricing_confirmed: false },
+      turns: [{ guest: 'Hola, somos dos y queremos un presupuesto del 14 al 18 de agosto de 2027 en dormitorio mixto. Gracias.' }],
+    }],
+  });
+
+  let paidCalls = 0;
+  const paidScript = {
+    id: 'paid-cancel-handoff',
+    phone: quoteScript.phone,
+    dates: quoteScript.dates,
+    turns: [{ guest: 'I already paid for 4 to 8 June 2027. I need to cancel that booking.' }],
+    prerequisites: { paid_booking: { required: true, present: true } },
+  };
+  const paidBlocked = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [paidScript],
+    outDir: tmpDir(),
+    prerequisiteEvidence: {
+      ['wolfhouse-clone|' + quoteScript.phone]: { paid_booking: true },
+    },
+    fetchImpl: async () => {
+      paidCalls += 1;
+      return toolsReply('should not send', [])();
+    },
+    repoRoot,
+  });
+  assert.equal(paidBlocked.ok, false);
+  assert.equal(paidBlocked.cause && paidBlocked.cause.code, 'BLOCKED');
+  assert.equal(paidCalls, 0, 'paid-booking must bind to the resolved tenant/phone');
+
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');
   console.log('sidebyside reserved-phone and 2027 negatives pass');

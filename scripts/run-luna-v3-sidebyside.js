@@ -169,6 +169,8 @@ function dateInWindow(iso, checkIn, checkOut) {
 const MONTH_INDEX = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
   july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
 };
 
 function monthNamesInText(text) {
@@ -195,6 +197,28 @@ function namedDayRanges(text, yearHint) {
     found.push({
       startDay: Number(match[1]),
       endDay: Number(match[2]),
+      month,
+      year: match[4] ? Number(match[4]) : Number(yearHint),
+    });
+  }
+  const esRange = /(\d{1,2})\s*(?:al|a|-)\s*(\d{1,2})\s+de\s+([a-záéíóúñ]+)(?:\s+de\s+(20\d{2}))?/gi;
+  while ((match = esRange.exec(src))) {
+    const month = MONTH_INDEX[match[3].toLowerCase()];
+    if (!month) continue;
+    found.push({
+      startDay: Number(match[1]),
+      endDay: Number(match[2]),
+      month,
+      year: match[4] ? Number(match[4]) : Number(yearHint),
+    });
+  }
+  const monthFirst = /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})\s*(?:to|-)\s*(\d{1,2})(?:\s*,?\s*(20\d{2}))?/gi;
+  while ((match = monthFirst.exec(src))) {
+    const month = MONTH_INDEX[match[1].toLowerCase()];
+    if (!month) continue;
+    found.push({
+      startDay: Number(match[2]),
+      endDay: Number(match[3]),
       month,
       year: match[4] ? Number(match[4]) : Number(yearHint),
     });
@@ -227,6 +251,12 @@ function assertDialogueMatches2027(text, label, windows) {
     }
     if (!list.some((window) => dateInWindow(iso, window.check_in, window.check_out))) {
       throw new Error(label + ' dialogue date is outside the approved window');
+    }
+  }
+  const isoList = isoDatesInText(text);
+  for (let i = 0; i < isoList.length - 1; i += 1) {
+    if (isoList[i] > isoList[i + 1]) {
+      throw new Error(label + ' dialogue has a reversed date range');
     }
   }
   const yearHint = String(list[0].check_in).slice(0, 4);
@@ -337,20 +367,29 @@ function isBatchStop(cause) {
   return /no_send|tenant_suppression|unsafe_no_send|missing_no_send|request_failed|runtime_timeout|unauthorized|redirect/i.test(code);
 }
 
-function phoneForRun(scriptPhone, runId, index) {
-  const digest = crypto.createHash('sha256').update(String(runId) + ':' + String(index) + ':' + String(scriptPhone)).digest('hex');
-  const n = parseInt(digest.slice(0, 8), 16) % 100000;
-  return '+346999' + String(n).padStart(5, '0');
+function allocateWirePhone(used) {
+  const seen = used || new Set();
+  let n = 0;
+  let phone;
+  do {
+    phone = '+346999' + String(n).padStart(5, '0');
+    n += 1;
+    if (n > 100000) throw new Error('reserved phone pool exhausted');
+  } while (seen.has(phone));
+  seen.add(phone);
+  return phone;
 }
 
-function scoreRun({ dryRun, executed, scripts, replies, scorecard }) {
+function scoreRun({ dryRun, executed, scripts, replies, scorecard, attempts }) {
   const replyFingerprint = crypto.createHash('sha256').update(replies.map((row) => row.reply || '').join('\n')).digest('hex');
+  const attemptList = Array.isArray(attempts) ? attempts : [];
+  const attemptsClean = attemptList.length === 0 || attemptList.every((row) => row.outcome === 'ok');
   const thisRun = {
     executed,
     dry_run: dryRun,
     safety_floor_certified: false,
     beats_classic: null,
-    no_real_sends: executed ? replies.length > 0 && replies.every((row) => row.no_real_sends) : false,
+    no_real_sends: executed && attemptsClean && replies.length > 0 && replies.every((row) => row.no_real_sends),
     reply_fingerprint: executed ? replyFingerprint : null,
     observations: { writes: 'blocked', payments: 'blocked' },
     reason: dryRun ? 'dry_run_not_executed' : 'transcripts captured; safety floor stays uncertified without Staff observations',
@@ -368,12 +407,14 @@ function scoreRun({ dryRun, executed, scripts, replies, scorecard }) {
   return Object.assign({}, scorecard, { this_run: thisRun });
 }
 
-function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard, replies, phones, runId, evidence }) {
+function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard, replies, phones, runId, evidence, attempts }) {
   const loaded = { scripts: scripts || [], scorecard: scorecard || {} };
-  const hadTurns = Array.isArray(replies) && replies.length > 0;
+  const attemptList = Array.isArray(attempts) ? attempts : [];
+  const attempted = attemptList.length > 0 || (Array.isArray(replies) && replies.length > 0);
+  const liveAttempt = dryRun !== true && attempted;
   const summary = finishRun({
-    dryRun: !hadTurns,
-    live: hadTurns,
+    dryRun: !liveAttempt,
+    live: liveAttempt,
     target,
     loaded,
     planned: planned || [],
@@ -382,12 +423,14 @@ function failResult({ cause, target, dryRun, planned, scripts, outDir, scorecard
     runId: runId || 'failed',
     outDir,
     evidence: evidence || { tool_calls: [], session_id: null, errors: [] },
+    attempts: attemptList,
   });
   summary.ok = false;
   summary.cause = cause;
-  summary.executed = hadTurns;
-  summary.dry_run = dryRun === true && !hadTurns;
+  summary.executed = liveAttempt;
+  summary.dry_run = dryRun === true;
   summary.receipts = replies || [];
+  summary.attempts = attemptList;
   summary.finished_progress = (replies || []).length;
   if (outDir) {
     const summaryPath = path.join(outDir, 'summary.json');
@@ -422,13 +465,16 @@ async function postTurn({ base, tenant, phone, text, fetchImpl, cookie }) {
     redirect: 'manual',
   });
   const status = Number(response && response.status) || 0;
-  if (status >= 300 && status < 400) {
+  if (status < 200 || status >= 300) {
     const location = headerGet(response.headers, 'location') || headerGet(response.headers, 'Location');
-    let locOrigin = '';
-    try { locOrigin = new URL(location, origin).origin; } catch { locOrigin = String(location || ''); }
-    if (!APPROVED_ORIGINS.includes(locOrigin)) {
-      return { url, status, redirectRefused: true, location, body: {} };
-    }
+    return {
+      url,
+      status,
+      nonSuccess: true,
+      redirectRefused: status >= 300 && status < 400,
+      location,
+      body: {},
+    };
   }
   const parsed = response && typeof response.json === 'function' ? await response.json() : {};
   return { url, status, body: parsed };
@@ -448,10 +494,11 @@ async function runSideBySide(options) {
     : loadFrozenScripts(repoRoot, opts.set);
   for (const script of loaded.scripts) assertScript(script);
   const runId = String(opts.runId || Date.now());
+  const usedPhones = opts.usedPhones || new Set();
   const phones = {};
-  loaded.scripts.forEach((script, index) => {
+  loaded.scripts.forEach((script) => {
     const id = script.id || script._file;
-    phones[id] = live ? phoneForRun(script.phone, runId, index) : script.phone;
+    phones[id] = live ? allocateWirePhone(usedPhones) : script.phone;
   });
   const planned = planTurns(loaded.scripts, phones);
   const stamp = target.id;
@@ -459,12 +506,17 @@ async function runSideBySide(options) {
   fs.mkdirSync(outDir, { recursive: true });
 
   for (const script of loaded.scripts) {
+    const id = script.id || script._file;
+    const resolvedPhone = phones[id];
+    const identity = target.tenant + '|' + resolvedPhone;
     const pre = script.prerequisites || {};
+    const bound = opts.prerequisiteEvidence || {};
     for (const key of Object.keys(pre)) {
       const item = pre[key];
-      if (item && item.required === true && item.present === false) {
+      if (!item || item.required !== true) continue;
+      if (!(bound[identity] && bound[identity][key] === true)) {
         return failResult({
-          cause: { code: 'BLOCKED', error: key + ' prerequisite absent' },
+          cause: { code: 'BLOCKED', error: key + ' prerequisite not bound to ' + identity },
           target,
           dryRun,
           planned,
@@ -492,7 +544,21 @@ async function runSideBySide(options) {
       throw new Error('live run requires an injected fetchImpl in this lane');
     }
     const replies = [];
+    const attempts = [];
     const evidence = { tool_calls: [], session_id: null, errors: [] };
+    const failLive = (cause) => failResult({
+      cause,
+      target,
+      dryRun,
+      planned,
+      scripts: loaded.scripts,
+      outDir,
+      replies,
+      phones,
+      runId,
+      evidence,
+      attempts,
+    });
     for (const turn of planned) {
       let posted;
       try {
@@ -505,42 +571,31 @@ async function runSideBySide(options) {
           cookie,
         });
       } catch (err) {
-        return failResult({
-          cause: { code: 'runtime_timeout', error: err && err.message ? err.message : 'turn failed' },
-          target,
-          dryRun,
-          planned,
-          scripts: loaded.scripts,
-          outDir,
-          replies,
-          phones,
-          runId,
-          evidence,
-        });
+        attempts.push({ script_id: turn.script_id, index: turn.index, outcome: 'error', error: err && err.message ? err.message : 'turn failed' });
+        return failLive({ code: 'runtime_timeout', error: err && err.message ? err.message : 'turn failed' });
       }
-      if (posted.redirectRefused) {
-        return failResult({
-          cause: { code: 'redirect_refused', status: posted.status, error: 'redirect', location: posted.location },
-          target,
-          dryRun,
-          planned,
-          scripts: loaded.scripts,
-          outDir,
-          replies,
-          phones,
-          runId,
-          evidence,
+      if (posted.nonSuccess || posted.redirectRefused || posted.status < 200 || posted.status >= 300) {
+        attempts.push({ script_id: turn.script_id, index: turn.index, outcome: 'error', status: posted.status });
+        const code = posted.status === 401
+          ? 'unauthorized'
+          : (posted.redirectRefused ? 'redirect_refused' : 'request_failed');
+        return failLive({
+          code,
+          status: posted.status,
+          error: posted.status === 401 ? 'unauthorized' : (posted.redirectRefused ? 'redirect' : 'non-success status'),
+          location: posted.location,
         });
       }
       const body = posted.body || {};
-      if (posted.status === 401 || posted.status >= 400 || body.ok === false || body.success === false) {
-        const cause = {
+      if (body.ok === false || body.success === false) {
+        attempts.push({ script_id: turn.script_id, index: turn.index, outcome: 'error', status: posted.status });
+        return failLive({
           status: posted.status,
           error: body.error || body.code || 'request_failed',
-          code: body.code || (posted.status === 401 ? 'unauthorized' : 'request_failed'),
-        };
-        return failResult({ cause, target, dryRun, planned, scripts: loaded.scripts, outDir, replies, phones, runId, evidence });
+          code: body.code || 'request_failed',
+        });
       }
+      attempts.push({ script_id: turn.script_id, index: turn.index, outcome: 'ok', status: posted.status });
       const sendCheck = inspectNoSend(body);
       replies.push({
         script_id: turn.script_id,
@@ -554,18 +609,8 @@ async function runSideBySide(options) {
         limitation: body.limitation || null,
       });
       if (!sendCheck.ok) {
-        return failResult({
-          cause: { code: sendCheck.code, error: sendCheck.error },
-          target,
-          dryRun,
-          planned,
-          scripts: loaded.scripts,
-          outDir,
-          replies,
-          phones,
-          runId,
-          evidence,
-        });
+        attempts[attempts.length - 1].outcome = 'unknown';
+        return failLive({ code: sendCheck.code, error: sendCheck.error });
       }
       if (Array.isArray(body.tool_calls)) evidence.tool_calls.push(...body.tool_calls);
       if (body.session_id) evidence.session_id = body.session_id;
@@ -581,6 +626,7 @@ async function runSideBySide(options) {
       runId,
       outDir,
       evidence,
+      attempts,
     });
   }
 
@@ -598,7 +644,7 @@ async function runSideBySide(options) {
   });
 }
 
-function finishRun({ dryRun, live, target, loaded, planned, replies, phones, runId, outDir, evidence }) {
+function finishRun({ dryRun, live, target, loaded, planned, replies, phones, runId, outDir, evidence, attempts }) {
   const transcripts = [];
   for (const script of loaded.scripts) {
     const id = script.id || script._file;
@@ -643,12 +689,14 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
     scripts: loaded.scripts.map((script) => script.id || script._file),
     planned_turns: planned,
     transcripts,
+    attempts: Array.isArray(attempts) ? attempts : [],
     scorecard: scoreRun({
       dryRun,
       executed: live,
       scripts: loaded.scripts,
       replies,
       scorecard: loaded.scorecard,
+      attempts: Array.isArray(attempts) ? attempts : [],
     }),
   };
   const summaryPath = path.join(outDir, 'summary.json');
@@ -698,6 +746,7 @@ async function runPaired(options) {
     return { ok: false, cause: { code: 'repeats_blocked', error: 'prescribed repeats blocked' }, repeats: 0, runs: [], outcomes: [] };
   }
   const outDir = opts.outDir || path.join(opts.repoRoot || path.resolve(__dirname, '..'), 'tmp', 'luna-v3-sidebyside', 'pair');
+  const usedPhones = opts.usedPhones || new Set();
   const runs = [];
   let stopped = null;
   for (let i = 0; i < repeats; i += 1) {
@@ -709,6 +758,7 @@ async function runPaired(options) {
       runId: runId + '-' + kind,
       outDir: path.join(outDir, 'r' + String(i), kind),
       fetchImpl: (opts.fetchImplByTarget && opts.fetchImplByTarget[targetName]) || opts.fetchImpl,
+      usedPhones,
     }));
     let v3;
     let classic;
