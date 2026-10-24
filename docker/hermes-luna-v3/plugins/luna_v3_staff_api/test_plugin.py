@@ -173,6 +173,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
             "call `read_notes` for the late-check-in procedure",
             "exact requested calendar dates in the quote `add_ons[].dates` field",
             "never mention an internal label mismatch to a guest",
+            "For accommodation-only, omit `guest_packages` and `package_id`",
+            "copy only `room_id` and `bed_ids` from the selected `find_rooms` result",
         ):
             self.assertIn(phrase, soul)
 
