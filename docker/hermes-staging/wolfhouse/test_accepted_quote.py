@@ -151,6 +151,33 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertTrue(checked['require_offer_identity'])
         self.assertEqual(checked['accepted_offer'], self.response['offer_revision'])
 
+    def test_per_guest_canonical_deposit_survives_revalidation_and_restatement(self):
+        """Staff prices split deposits as deposit, without changing guest intent."""
+        plan = deepcopy(self.plan)
+        plan['payment_choice'] = 'per_guest'
+        response = self.checked(plan)
+        response['offer_revision'].update(
+            payment_choice='deposit', per_guest_payment_links=True,
+            payment_link_amount_cents=response['offer_revision']['deposit_required_cents'])
+        self.turn('per-guest-offer', 'Quote separate deposit links')
+        self.ledger.record_quote(plan, response)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        self.assertEqual(
+            self.ledger._transaction(lambda state, ingress: state['presentation']['plan']['payment_choice']),
+            'per_guest')
+        self.assertEqual(
+            self.ledger._transaction(lambda state, ingress: state['presentation']['payment_choices']),
+            ['per_guest'])
+
+        self.turn('per-guest-create', 'Create it with separate deposit links')
+        refresh = self.ledger.prepare_create({'payment_choice': 'per_guest'})
+        self.assertTrue(refresh.revalidation)
+        self.assertEqual(refresh['payment_choice'], 'per_guest')
+        self.ledger.record_quote(refresh, response)
+
+        created = self.ledger.prepare_create({'payment_choice': 'per_guest'})
+        self.assertEqual(created['payment_choice'], 'per_guest')
+
     def model_waits(self, message, raw):
         from agent import conversation_loop
         from wolfhouse.offline_ingress_harness import gateway_ingress

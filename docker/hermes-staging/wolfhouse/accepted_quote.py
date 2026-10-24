@@ -2557,6 +2557,14 @@ def _checked_plan(prepared, response, tenant):
             or (offer.get('payment_choice') == 'full'
                 and offer.get('payment_link_amount_cents') != offer.get('total_cents'))):
         return None
+    requested_payment = prepared.get('payment_choice')
+    canonical_split_deposit = (
+        requested_payment == 'per_guest'
+        and offer.get('payment_choice') == 'deposit'
+        and offer.get('per_guest_payment_links') is True)
+    if (offer.get('payment_choice') != requested_payment
+            and not canonical_split_deposit):
+        return None
     assignments = offer.get('guest_bed_assignments')
     count = offer.get('guest_count')
     if (type(count) is not int or count < 1 or not isinstance(assignments, list)
@@ -2578,6 +2586,10 @@ def _checked_plan(prepared, response, tenant):
     for key in _FIELDS + _CHECKED_FIELDS:
         if key in offer:
             plan[key] = deepcopy(offer[key])
+    if canonical_split_deposit:
+        # Staff prices individual deposit links through its canonical deposit
+        # tier. That does not replace the guest's split-payment instruction.
+        plan['payment_choice'] = 'per_guest'
     # Staff's offer normalizer fingerprints code/quantity, while the checked
     # request can also carry rental days. Preserve the actual quoted request
     # when its normalized projection matches, rather than dropping duration.
@@ -3760,7 +3772,15 @@ def finalize_offer_response(result):
             if type(quote.get('total_cents')) is int:
                 choices.append('full')
         elif isinstance(offer, dict) and offer.get('payment_choice'):
-            choices.append(offer['payment_choice'])
+            shown_plan = _presentation_plan(state)
+            if (shown_plan.get('payment_choice') == 'per_guest'
+                    and offer.get('payment_choice') == 'deposit'
+                    and offer.get('per_guest_payment_links') is True):
+                # The canonical Staff revision labels split links as deposit;
+                # authorize the intent presented to the guest, not that tier.
+                choices.append('per_guest')
+            else:
+                choices.append(offer['payment_choice'])
         state['presentation'] = {
             'tenant': ingress['tenant'],
             'scope': deepcopy(state['scope']),

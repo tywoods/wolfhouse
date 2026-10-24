@@ -1069,7 +1069,13 @@ function buildPaymentChoicePersonalityCtx(fields, lang, total, deposit) {
     ? `\n\n${buildManualAddonsNote(lang, cls.pending_manual)}`
     : '';
   const hasCollectedAddons = cls.priced.length + cls.pending_manual.length > 0;
-  return { deposit, total, hasCollectedAddons, manualNote };
+  return {
+    deposit,
+    total,
+    guestCount: fields.guest_count,
+    hasCollectedAddons,
+    manualNote,
+  };
 }
 
 function buildReplyForState(state, ctx) {
