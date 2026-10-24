@@ -151,12 +151,26 @@ def _material_projection(plan, revision=None, *, include_personal=False):
             packages.append((index, row))
     services = set(_normalized_selection_rows(value('add_ons')))
     services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
+    distribution = revision.get('payment_distribution')
+    if revision.get('per_guest_payment_links') is True:
+        if not isinstance(distribution, list):
+            distribution = None
+        else:
+            distribution = [
+                (index,
+                 ' '.join(str(row.get('guest_name') or '').split()).casefold(),
+                 row.get('amount_due_cents', row.get('amount_cents')),
+                 row.get('currency') or revision.get('currency'))
+                for index, row in enumerate(distribution) if isinstance(row, dict)]
+            if len(distribution) != len(revision.get('payment_distribution') or []):
+                distribution = None
     projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
         'guest_count': value('guest_count'), 'room_type': value('room_type'),
         'keep_together': value('keep_together') is True,
         'allocation': allocation, 'package_code': value('package_code'),
         'guest_packages': packages,
+        'payment_distribution': distribution,
         'services': sorted(services, key=lambda item: _encode(item)),
         # Price and currency are accepted Staff-owned commercial terms.
         'total_cents': revision.get('total_cents'),
@@ -990,9 +1004,20 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
         package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
         party_size = offer.get('guest_count', plan.get('guest_count'))
-        if (language in ('en', 'es') and package_code
-                and package_code not in ('package_none', 'none', 'accommodation_only', 'no_package')):
-            # Package stays ask about the shuttle before any payment handling.
+        package_codes = [package_code]
+        package_codes.extend(
+            str(row.get('package_code') or row.get('code') or '').strip()
+            for row in (plan.get('guest_packages') or []) if isinstance(row, dict))
+        package_selected = any(code and code not in (
+            'package_none', 'none', 'accommodation_only', 'no_package') for code in package_codes)
+        shuttle_resolved = (
+            'pending_transfers' in plan
+            or plan.get('shuttle_needed') is False
+            or plan.get('needs_shuttle') is False
+            or str(plan.get('shuttle_choice') or '').strip().casefold()
+            in ('no', 'none', 'declined', 'not_needed'))
+        if language in ('en', 'es') and package_selected and not shuttle_resolved:
+            # Package stays ask once about the unresolved shuttle before payment.
             question = copy['shuttle_choice']
         elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
             question = copy['group_payment_choice']

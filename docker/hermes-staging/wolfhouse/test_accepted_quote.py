@@ -224,6 +224,46 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(created['payment_choice'], 'per_guest')
         self.assertEqual(created['accepted_offer'], completed['offer_revision'])
 
+    def test_split_distribution_change_requires_new_presentation_before_create(self):
+        """Same-total per-person changes are material on both split refresh routes."""
+        for route in ('newly-selected', 'explicit-refresh'):
+            with self.subTest(route=route):
+                self.agent.session_id = f'split-distribution-{route}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'payment_choice': 'per_guest'}
+                response = self.checked(plan)
+                response['offer_revision'].update(
+                    payment_choice='deposit', per_guest_payment_links=True,
+                    payment_distribution=[
+                        {'guest_name': 'Alex', 'amount_due_cents': 20000, 'currency': 'EUR'},
+                        {'guest_name': 'Sam', 'amount_due_cents': 20000, 'currency': 'EUR'},
+                    ])
+                response['offer_revision']['total_cents'] = 40000
+                response['total_cents'] = 40000
+                if route == 'newly-selected':
+                    plan['payment_choice'] = None
+                    response['payment_choice_needed'] = True
+                self.turn(f'split-distribution-offer-{route}', 'Quote split deposits')
+                self.ledger.record_quote(plan, response)
+                self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+                if route == 'newly-selected':
+                    raw = 'per_guest'
+                    self.turn(f'split-distribution-pick-{route}', raw)
+                    self.interpret(raw, completions={
+                        'payment_choice': {'value': 'per_guest', 'evidence': 'per_guest'}})
+                    refresh = self.ledger.prepare_quote({})
+                else:
+                    self.turn(f'split-distribution-create-{route}', 'Create separate links')
+                    refresh = self.ledger.prepare_create({'payment_choice': 'per_guest'})
+                changed = deepcopy(response)
+                changed['offer_revision']['payment_distribution'][0]['amount_due_cents'] = 20001
+                changed['offer_revision']['payment_distribution'][1]['amount_due_cents'] = 19999
+                self.ledger.record_quote(refresh, changed)
+                state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+                self.assertNotEqual(state.get('accepted_offer'), changed['offer_revision'])
+                with self.assertRaises(self.ledger.QuoteBoundaryError):
+                    self.ledger.prepare_create({})
+
     def test_group_payment_finalizer_uses_split_choice_and_keeps_shuttle_before_payment(self):
         """The real Python finalizer owns group choice and package shuttle order."""
         for language, raw, expected in (
@@ -259,6 +299,27 @@ class OwnerHostileTests(unittest.TestCase):
             {'completed': True, 'final_response': 'model draft', 'messages': []})
         self.assertIn('Do you need an airport shuttle?', shown['final_response'])
         self.assertNotIn('Would you like to pay together', shown['final_response'])
+
+        for language, expected in (
+            ('en', 'Would you like to pay together'),
+            ('es', '¿Preferís pagar juntos'),
+        ):
+            with self.subTest(shuttle_resolved=language):
+                resolved = {**plan, 'language': language, 'shuttle_needed': False}
+                text = self.ledger._styled_quote_copy(
+                    resolved, response['offer_revision'], language, create_ready=False)
+                self.assertIn(expected, text)
+                self.assertNotIn('airport shuttle', text)
+                self.assertNotIn('traslado desde el aeropuerto', text)
+
+        per_person = {**self.plan, 'package_code': 'package_none',
+                      'guest_packages': [{'guest_index': 0, 'package_code': 'surf_week'}]}
+        per_person.pop('payment_choice')
+        per_person_response = self.checked({**per_person, 'payment_choice': 'deposit'})
+        per_person_text = self.ledger._styled_quote_copy(
+            per_person, per_person_response['offer_revision'], 'en', create_ready=False)
+        self.assertIn('Do you need an airport shuttle?', per_person_text)
+        self.assertNotIn('Would you like to pay together', per_person_text)
 
     def test_finalizer_keeps_solo_and_full_only_exceptions(self):
         self.agent.session_id = 'solo-payment-finalizer'
