@@ -131,13 +131,35 @@ async function findRooms(pg, input = {}, context) {
     if (!grouped.has(bed.room_code)) grouped.set(bed.room_code, { roomId: bed.room_code, roomType: bed.room_type, bedOptions: [] });
     grouped.get(bed.room_code).bedOptions.push({ bedId: bed.bed_code, code: bed.bed_code });
   }
-  const rooms = [...grouped.values()].filter((room) => room.bedOptions.length >= input.party_size);
+  const splitPermitted = Boolean(input.preferences) && input.preferences.keep_together === false;
+  const rooms = [...grouped.values()].filter((room) => splitPermitted || room.bedOptions.length >= input.party_size);
+  let splitSelection = null;
+  const proposedBeds = splitPermitted && Array.isArray(body.selected_bed_codes)
+    ? body.selected_bed_codes.slice(0, input.party_size) : [];
+  if (proposedBeds.length === input.party_size) {
+    const checked = await runAvailability(pg, {
+      check_in: input.check_in, check_out: input.check_out, party_size: input.party_size,
+      guests: input.preferences.guests || [], selected_bed_codes: proposedBeds,
+      room_type: input.preferences.room_type, room_preference: input.preferences.room_preference,
+      keep_together: false,
+    });
+    const exact = checked.ok && checked.body && checked.body.exact_bed_eligibility;
+    if (exact && exact.eligible === true) {
+      splitSelection = {
+        selectedBedCodes: proposedBeds,
+        guestBedAssignments: (exact.guest_bed_assignments || []).map((row) => ({
+          guestIndex: row.guest_index, guestName: row.guest_name, bedCode: row.bed_code,
+        })),
+      };
+    }
+  }
   return {
     ok: true,
     roomIds: rooms.map((room) => room.roomId),
     rooms,
     selectedRoomId: null,
     selectedBedIds: [],
+    splitSelection,
     missingEligibilityFacts: body.room_eligibility && body.room_eligibility.status === 'unsure'
       ? body.room_eligibility.affected_guest_indices : [],
     blockers: body.blockers,
@@ -387,6 +409,13 @@ async function computeQuote(pg, input = {}, context) {
     guest_name: input.guests[index] && input.guests[index].name,
     package_code: ((input.guest_packages || []).find((p) => Number(p.guest_number) === index + 1) || {}).package_code || input.package_id || 'package_none',
   }));
+  const holdInput = {
+    check_in: input.check_in,
+    check_out: input.check_out,
+    guests: input.guests.map((guest) => ({ ...guest })),
+    assignments: assignments.map((assignment) => ({ ...assignment })),
+    quoted_selection: receipt.quoteRevision,
+  };
   if (!context.revalidationOnly) await pg.query(`INSERT INTO luna_v3_selections(client_id,session_id,quote_revision,check_in,check_out,guests,assignments,quote)
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
     ON CONFLICT(client_id,session_id,quote_revision) DO NOTHING`, [session.client_id, session.id,
@@ -394,7 +423,7 @@ async function computeQuote(pg, input = {}, context) {
     JSON.stringify({ ...receipt, phone: context.guestPhone || null, addOns: input.add_ons || [], quoteInput: input,
       packageCode: input.package_id || null, roomType: input.selection.room_type || 'shared',
       keepTogether: input.selection.keep_together === true })]);
-  return { ...receipt, quotedSelection: receipt.quoteRevision };
+  return { ...receipt, quotedSelection: receipt.quoteRevision, holdInput };
 }
 
 async function quote(pg, input = {}, context) {

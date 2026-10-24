@@ -89,7 +89,17 @@ function assertSafeToolRequest(name, input = {}) {
   }
   if (contract.write && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
   if (name === 'recover_operation' && (!String(input.tool || '').trim() || !String(input.operation_key || '').trim())) throw new Error('tool and operation_key are required for recover_operation');
-  if (name === 'hold_beds' && typeof input.quoted_selection !== 'string') throw new Error('quoted_selection must be a string');
+  if (name === 'hold_beds') {
+    if (typeof input.quoted_selection !== 'string' || !input.quoted_selection.trim()) throw new Error('quoted_selection must be a nonempty string');
+    if (!Array.isArray(input.guests) || !Array.isArray(input.assignments) || input.assignments.length === 0
+        || input.assignments.length !== input.guests.length) throw new Error('hold assignments must match ordered guests');
+    input.assignments.forEach((assignment, index) => {
+      if (!assignment || !['bed_code', 'guest_name', 'package_code'].every((field) => typeof assignment[field] === 'string' && assignment[field].trim())) {
+        throw new Error('hold assignments require bed_code, guest_name, and package_code');
+      }
+      if (assignment.guest_name !== input.guests[index].name) throw new Error('hold assignments must match ordered guests');
+    });
+  }
   if (name === 'get_pricing_catalog') {
     for (const field of ['package_ids', 'service_ids']) {
       if (input[field] !== undefined && (!Array.isArray(input[field]) || input[field].some((value) => typeof value !== 'string' || !value.trim()))) {
