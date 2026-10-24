@@ -48,6 +48,9 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
     return { status: 503, body: { ok: false, code: 'luna_v3_tool_not_registered', tool } };
   }
   const modelInput = { ...input };
+  // The generic bot wrapper pins the tenant by adding client_slug. That is
+  // trusted transport context, not a model tool argument.
+  delete modelInput.client_slug;
   delete modelInput.tenant_id;
   delete modelInput.session_id;
   delete modelInput.external_send_allowed;

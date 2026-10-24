@@ -27,6 +27,7 @@ async function main() {
     method: 'POST',
     clientSlug: 'wolfhouse-somo',
     body: {
+      client_slug: 'wolfhouse-somo',
       tenant_id: 'wolfhouse-somo',
       session_id: 'luna-v3:test-phone-hash',
       operation_key: 'quote-route-1',
@@ -48,6 +49,7 @@ async function main() {
   assert.strictEqual(response.body.source, 'staff_pricing');
   assert.strictEqual(seen[0].context.tenantId, 'wolfhouse-somo');
   assert.strictEqual(seen[0].context.authenticated, true);
+  assert.strictEqual(seen[0].input.client_slug, undefined);
   assert.strictEqual(seen[0].input.tenant_id, undefined);
   assert.strictEqual(seen[0].input.session_id, undefined);
   assert.strictEqual(seen[0].input.external_send_allowed, undefined);
