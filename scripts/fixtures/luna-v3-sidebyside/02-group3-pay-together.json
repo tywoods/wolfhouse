@@ -1,0 +1,55 @@
+{
+  "id": "group3-pay-together",
+  "title": "Three guests, one shared deposit",
+  "synthetic": true,
+  "phone": "+34699910022",
+  "collision_checked": false,
+  "party_size": 3,
+  "dates": {
+    "check_in": "2027-07-02",
+    "check_out": "2027-07-09",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Hello, we are three friends. Mixed dorms from 2 to 9 July 2027. Could we have a quote?",
+      "must": [
+        "ask whether they pay together or separately",
+        "quote from Staff Pricing"
+      ]
+    },
+    {
+      "guest": "Our names are Luis, Sofia and Pablo.",
+      "must": [
+        "use the given names"
+      ]
+    },
+    {
+      "guest": "We will pay together, one deposit for the three of us.",
+      "must": [
+        "one deposit for the party",
+        "Staff total and deposit, not a made-up split"
+      ]
+    },
+    {
+      "guest": "Yes, book that shared payment please.",
+      "must": [
+        "save the booking",
+        "one payment link for the group"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Group of 3 asked pay-together vs separate; they choose one deposit; Staff quote; booking saved.",
+    "quote_source": "staff_pricing",
+    "pay_together": true,
+    "booking_saved": true,
+    "unpaid_shows_confirmed": true
+  },
+  "contact": "Luis",
+  "occupants": [
+    "Luis",
+    "Sofia",
+    "Pablo"
+  ]
+}

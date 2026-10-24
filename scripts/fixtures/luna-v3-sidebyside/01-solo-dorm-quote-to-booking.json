@@ -1,0 +1,48 @@
+{
+  "id": "solo-dorm-quote-to-booking",
+  "title": "Solo mixed-dorm quote then booking",
+  "synthetic": true,
+  "phone": "+34699910021",
+  "collision_checked": false,
+  "party_size": 1,
+  "dates": {
+    "check_in": "2027-06-04",
+    "check_out": "2027-06-08",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Hi, it is just me. Mixed dorm from 4 to 8 June 2027. Can I get a quote please?",
+      "must": [
+        "quote mixed dorm from Staff Pricing",
+        "deposit is 100 euros for one person without a package"
+      ]
+    },
+    {
+      "guest": "My name is Marta.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
+      "guest": "Yes, that works. Please book it.",
+      "must": [
+        "save the booking",
+        "unpaid booking shows as confirmed",
+        "amounts match the Staff quote"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Staff quote, 100 euro deposit for one person, booking saved, unpaid shows confirmed.",
+    "quote_source": "staff_pricing",
+    "deposit_euros_per_person": 100,
+    "package": false,
+    "booking_saved": true,
+    "unpaid_shows_confirmed": true
+  },
+  "contact": "Marta",
+  "occupants": [
+    "Marta"
+  ]
+}

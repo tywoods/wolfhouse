@@ -1,0 +1,8 @@
+[Unit]
+Description=Dev-01 fail-closed disk cleaner (dry run)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/wolfhouse/WH/ops/dev01-disk-guard
+ExecStart=/usr/bin/ionice -c 3 /usr/bin/nice -n 19 /usr/bin/python3 cleanup.py
+ExecStartPost=/usr/bin/ionice -c 3 /usr/bin/nice -n 19 /bin/sh worktree-prune-dry-run.sh

@@ -79,8 +79,10 @@ section('B. Deposit math — per guest vs whole booking');
     uses_per_guest_deposits: true,
   });
   check('B2', trioPerGuest.deposit_required_cents === 60000, '3 guests × €200 = €600 booking deposit');
-  check('B3', trioPerGuest.per_guest_deposits.length === 3, 'three per-guest deposit rows');
-  check('B4', trioPerGuest.per_guest_deposits.every((r) => r.deposit_cents === 20000), 'each guest €200');
+  check('B3', Array.isArray(trioPerGuest.per_guest_deposits)
+    && trioPerGuest.per_guest_deposits.length === 3, 'three per-guest deposit rows');
+  check('B4', Array.isArray(trioPerGuest.per_guest_deposits)
+    && trioPerGuest.per_guest_deposits.every((r) => r.deposit_cents === 20000), 'each guest €200');
 
   const trioLegacy = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',
@@ -235,6 +237,11 @@ section('H. Per-guest create path — guest_name + payment_choice');
   check('H1', bodyOnlyGuests.primary_name === 'Tyler', 'primary_name from guests array');
   const perGuestPay = normalizeBotBookingPaymentChoice('per_guest');
   check('H2', perGuestPay.payment_choice === 'deposit' && perGuestPay.per_guest_payment_links, 'per_guest → deposit links');
+  const botPreviewStart = staffApiSrc.indexOf('async function handleBotBookingPreview(req, res, user, authMode) {');
+  const botPreviewEnd = staffApiSrc.indexOf('// Route:', botPreviewStart + 1);
+  const botPreviewSource = staffApiSrc.slice(botPreviewStart, botPreviewEnd < 0 ? undefined : botPreviewEnd);
+  check('H2a', botPreviewSource.includes('normalizeBotBookingPaymentChoice(paymentChoiceRaw)'),
+    'bot booking preview uses create-compatible per_guest normalization');
   check('H3', mapBotBookingCreateErrorToBlockedReason('guest_name is required') === 'guest_name_missing', 'error mapped to blocked_reason');
   check('H4', staffApiSrc.includes('resolveAndMarkConversationNeedsHuman'), 'handoff resolves session phone');
   check('H5', bookingCreateSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
