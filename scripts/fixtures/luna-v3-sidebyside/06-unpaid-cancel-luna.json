@@ -1,0 +1,60 @@
+{
+  "id": "unpaid-cancel-luna",
+  "title": "Unpaid cancel, Luna cancels herself",
+  "synthetic": true,
+  "phone": "+34699910026",
+  "collision_checked": false,
+  "party_size": 1,
+  "dates": {
+    "check_in": "2027-06-04",
+    "check_out": "2027-06-08",
+    "stock_pricing_confirmed": false
+  },
+  "turns": [
+    {
+      "guest": "Hi, one mixed dorm bed 4 to 8 June 2027. Can I get a quote please?",
+      "must": [
+        "Staff quote"
+      ]
+    },
+    {
+      "guest": "My name is Iker.",
+      "must": [
+        "use the given name"
+      ]
+    },
+    {
+      "guest": "Yes, please book that unpaid stay.",
+      "must": [
+        "save the booking",
+        "unpaid shows as confirmed"
+      ]
+    },
+    {
+      "guest": "Before I cancel, confirm Staff shows it unpaid with no payment taken.",
+      "must": [
+        "Staff shows unpaid",
+        "no payment"
+      ]
+    },
+    {
+      "guest": "Please cancel that unpaid booking.",
+      "must": [
+        "Luna cancels it herself",
+        "no handoff"
+      ]
+    }
+  ],
+  "pass": {
+    "summary": "Unpaid booking was confirmed; Luna cancels it herself after Staff says unpaid.",
+    "quote_source": "staff_pricing",
+    "booking_saved": true,
+    "unpaid_shows_confirmed": true,
+    "luna_cancels": true,
+    "handoff_to_human": false
+  },
+  "contact": "Iker",
+  "occupants": [
+    "Iker"
+  ]
+}

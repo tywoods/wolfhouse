@@ -151,12 +151,36 @@ def _material_projection(plan, revision=None, *, include_personal=False):
             packages.append((index, row))
     services = set(_normalized_selection_rows(value('add_ons')))
     services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
+    distribution = revision.get('payment_distribution')
+    if isinstance(distribution, list):
+        if not isinstance(distribution, list):
+            distribution = None
+        else:
+            normalized_distribution = []
+            for index, row in enumerate(distribution):
+                if isinstance(row, dict):
+                    normalized_distribution.append((
+                        index,
+                        ' '.join(str(row.get('guest_name') or '').split()).casefold(),
+                        row.get('amount_due_cents', row.get('amount_cents')),
+                        row.get('currency') or revision.get('currency')))
+                elif (isinstance(row, (list, tuple)) and len(row) == 4
+                      and row[0] == index):
+                    # Stored owner projections are already canonical tuples.
+                    normalized_distribution.append(tuple(row))
+                else:
+                    normalized_distribution = None
+                    break
+            distribution = normalized_distribution
+            if distribution is not None and len(distribution) != len(revision.get('payment_distribution') or []):
+                distribution = None
     projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
         'guest_count': value('guest_count'), 'room_type': value('room_type'),
         'keep_together': value('keep_together') is True,
         'allocation': allocation, 'package_code': value('package_code'),
         'guest_packages': packages,
+        'payment_distribution': distribution,
         'services': sorted(services, key=lambda item: _encode(item)),
         # Price and currency are accepted Staff-owned commercial terms.
         'total_cents': revision.get('total_cents'),
@@ -716,6 +740,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': "Your booking is saved — here's your invoice 🌊",
            'deposit_due': 'Deposit due now',
            'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
+           'group_payment_choice': 'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?',
+           'shuttle_choice': 'Do you need an airport shuttle?',
            'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
            'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
            'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
@@ -726,6 +752,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': 'Tu reserva está guardada — aquí tienes la factura 🌊',
            'deposit_due': 'Depósito a pagar ahora',
            'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
+           'group_payment_choice': '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?',
+           'shuttle_choice': '¿Necesitáis traslado desde el aeropuerto?',
            'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
            'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
            'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
@@ -984,9 +1012,29 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             lines.append(f"💳 *{_final_copy(language, 'individual')}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
-        question = copy['deposit_choice'].format(
-            deposit=_guest_money(offer['deposit_required_cents'], currency),
-            total=_guest_money(total, currency))
+        package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
+        party_size = offer.get('guest_count', plan.get('guest_count'))
+        package_codes = [package_code]
+        package_codes.extend(
+            str(row.get('package_code') or row.get('code') or '').strip()
+            for row in (plan.get('guest_packages') or []) if isinstance(row, dict))
+        package_selected = any(code and code not in (
+            'package_none', 'none', 'accommodation_only', 'no_package') for code in package_codes)
+        shuttle_resolved = (
+            'pending_transfers' in plan
+            or plan.get('shuttle_needed') is False
+            or plan.get('needs_shuttle') is False
+            or str(plan.get('shuttle_choice') or '').strip().casefold()
+            in ('no', 'none', 'declined', 'not_needed'))
+        if language in ('en', 'es') and package_selected and not shuttle_resolved:
+            # Package stays ask once about the unresolved shuttle before payment.
+            question = copy['shuttle_choice']
+        elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
+            question = copy['group_payment_choice']
+        else:
+            question = copy['deposit_choice'].format(
+                deposit=_guest_money(offer['deposit_required_cents'], currency),
+                total=_guest_money(total, currency))
     if question:
         lines.extend(['', question])
     return '\n'.join(lines)
@@ -1756,20 +1804,25 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                 person_plan, after.get('room_name_hints'))):
         before['gender_preference'] = None
     if payment_choice:
-        if payment_choice not in ('deposit', 'full'):
+        if payment_choice not in ('deposit', 'full', 'per_guest'):
             return False
+        canonical_choice = 'deposit' if payment_choice == 'per_guest' else payment_choice
         expected_amount = (after.get('deposit_required_cents')
-                           if payment_choice == 'deposit' else after.get('total_cents'))
+                           if canonical_choice == 'deposit' else after.get('total_cents'))
         prior_choice = before.get('payment_choice')
         prior_amount = (before.get('deposit_required_cents')
                         if prior_choice == 'deposit' else before.get('total_cents'))
         if (type(expected_amount) is not int
+                or after.get('payment_choice') != canonical_choice
+                or (payment_choice == 'per_guest' and after.get('per_guest_payment_links') is not True)
                 or after.get('payment_link_amount_cents') != expected_amount
                 or prior_choice not in ('deposit', 'full')
                 or before.get('payment_link_amount_cents') != prior_amount):
             return False
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
+        before.pop('per_guest_payment_links', None)
+        after.pop('per_guest_payment_links', None)
         before.pop('payment_link_amount_cents', None)
         after.pop('payment_link_amount_cents', None)
     completions = guest_completions or ([{'guest_index': guest_index,
@@ -1800,6 +1853,21 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                     if isinstance(item, dict) and item.get('guest_index') == guest_index:
                         target_assignment_name = normalize(item.get('guest_name'))
                         item['guest_name'] = '<completed-name-%s>' % guest_index
+            distribution = revision.get('payment_distribution')
+            if isinstance(distribution, list) and guest_index < len(distribution):
+                row = distribution[guest_index]
+                if isinstance(row, dict):
+                    if normalize(row.get('guest_name')) == target_assignment_name:
+                        row['guest_name'] = '<completed-name-%s>' % guest_index
+                    else:
+                        return False
+                elif (isinstance(row, (list, tuple)) and len(row) == 4
+                      and row[0] == guest_index
+                      and normalize(row[1]) == target_assignment_name):
+                    distribution[guest_index] = (
+                        guest_index, '<completed-name-%s>' % guest_index, row[2], row[3])
+                else:
+                    return False
             hints = revision.get('room_name_hints')
             if isinstance(hints, list):
                 matching_hints = ([hint for hint in hints
@@ -1850,7 +1918,7 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         for revision in (before, after):
             if not revision.get('room_name_hints'):
                 revision.pop('room_name_hints', None)
-    return (_material_projection(before) == _material_projection(after)
+    return (_material_projection({}, before) == _material_projection({}, after)
             and before.get('client_slug') == after.get('client_slug')
             and before.get('total_cents') == after.get('total_cents')
             and before.get('currency') == after.get('currency')
@@ -2552,6 +2620,14 @@ def _checked_plan(prepared, response, tenant):
             or (offer.get('payment_choice') == 'full'
                 and offer.get('payment_link_amount_cents') != offer.get('total_cents'))):
         return None
+    requested_payment = prepared.get('payment_choice')
+    canonical_split_deposit = (
+        requested_payment == 'per_guest'
+        and offer.get('payment_choice') == 'deposit'
+        and offer.get('per_guest_payment_links') is True)
+    if (offer.get('payment_choice') != requested_payment
+            and not canonical_split_deposit):
+        return None
     assignments = offer.get('guest_bed_assignments')
     count = offer.get('guest_count')
     if (type(count) is not int or count < 1 or not isinstance(assignments, list)
@@ -2573,6 +2649,10 @@ def _checked_plan(prepared, response, tenant):
     for key in _FIELDS + _CHECKED_FIELDS:
         if key in offer:
             plan[key] = deepcopy(offer[key])
+    if canonical_split_deposit:
+        # Staff prices individual deposit links through its canonical deposit
+        # tier. That does not replace the guest's split-payment instruction.
+        plan['payment_choice'] = 'per_guest'
     # Staff's offer normalizer fingerprints code/quantity, while the checked
     # request can also carry rental days. Preserve the actual quoted request
     # when its normalized projection matches, rather than dropping duration.
@@ -2740,6 +2820,11 @@ def record_quote(params, response):
                                  if pending_eligibility else None)
             eligibility_value = ((pending_eligibility or {}).get('value')
                                  if pending_eligibility else None)
+            canonical_split_completion = (
+                pending_payment == 'per_guest'
+                and response.get('offer_revision', {}).get('payment_choice') == 'deposit'
+                and response.get('offer_revision', {}).get('per_guest_payment_links') is True
+                and 'per_guest' in prior.get('payment_choices', []))
             terms_unchanged = (
                 _request_plan_matches_canonical_people(
                     expected_plan, plan, prior_revision, new_revision)
@@ -2754,7 +2839,7 @@ def record_quote(params, response):
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
-                and (not pending_payment or (
+                and (not pending_payment or canonical_split_completion or (
                     response.get('offer_revision', {}).get('payment_choice') == pending_payment
                     and pending_payment in prior.get('payment_choices', [])))
             )
@@ -2810,6 +2895,12 @@ def record_quote(params, response):
             prior_plan = presentation.get('plan') or {}
             material_matches = _same_material_offer(
                 prior_plan, plan, prior_revision, revision)
+            if not material_matches and same_people and names:
+                # A checked indexed surname completion may update that payer label;
+                # compare it through the same authorized completion equivalence.
+                material_matches = _completion_revision_matches(
+                    prior_revision, revision, guest_completions=names,
+                    person_plan=plan)
             completed_named_revision = (bool(rows)
                 and all(isinstance(row, dict) and str(row.get('guest_name') or '').strip()
                         for row in rows))
@@ -3747,12 +3838,27 @@ def finalize_offer_response(result):
               and quote.get('deposit_required_cents') == quote.get('total_cents')):
             choices.append('full')
         elif quote.get('payment_choice_needed') is True:
-            if type(quote.get('deposit_required_cents')) is int:
+            deposit = quote.get('deposit_required_cents', revision.get('deposit_required_cents'))
+            total = quote.get('total_cents', revision.get('total_cents'))
+            if type(deposit) is int:
                 choices.append('deposit')
-            if type(quote.get('total_cents')) is int:
+                party_size = _presentation_plan(state).get('guest_count')
+                if type(party_size) is not int:
+                    party_size = revision.get('guest_count')
+                if type(party_size) is int and party_size >= 2:
+                    choices.append('per_guest')
+            if type(total) is int:
                 choices.append('full')
         elif isinstance(offer, dict) and offer.get('payment_choice'):
-            choices.append(offer['payment_choice'])
+            shown_plan = _presentation_plan(state)
+            if (shown_plan.get('payment_choice') == 'per_guest'
+                    and offer.get('payment_choice') == 'deposit'
+                    and offer.get('per_guest_payment_links') is True):
+                # The canonical Staff revision labels split links as deposit;
+                # authorize the intent presented to the guest, not that tier.
+                choices.append('per_guest')
+            else:
+                choices.append(offer['payment_choice'])
         state['presentation'] = {
             'tenant': ingress['tenant'],
             'scope': deepcopy(state['scope']),

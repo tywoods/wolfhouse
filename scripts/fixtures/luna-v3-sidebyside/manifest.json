@@ -1,0 +1,29 @@
+{
+  "id": "DH-V3-SIDEBYSIDE-SCENARIOS-20261023T2204",
+  "lane": "luna-v3-sidebyside-scenarios",
+  "status": "frozen_scripts_not_executed",
+  "targets": [
+    "hermes-luna-clone",
+    "hermes-luna"
+  ],
+  "phone_rule": {
+    "prefix": "+346999",
+    "meaning": "reserved +34 699 9xx"
+  },
+  "date_rule": {
+    "year": 2027,
+    "stock_pricing_confirmed": false
+  },
+  "scripts": [
+    "01-solo-dorm-quote-to-booking.json",
+    "02-group3-pay-together.json",
+    "03-group3-pay-separately.json",
+    "04-package-deposit-200.json",
+    "05-switch-private-extra-quoted.json",
+    "06-unpaid-cancel-luna.json",
+    "07-paid-cancel-handoff.json",
+    "08-november-stay.json",
+    "09-no-beds-left.json",
+    "10-spanish.json"
+  ]
+}
