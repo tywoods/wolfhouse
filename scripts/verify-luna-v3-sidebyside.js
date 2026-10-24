@@ -472,6 +472,51 @@ async function main() {
   assert.equal(scoredA.scorecard.this_run.observations.writes, 'blocked');
   assert.equal(scoredA.scorecard.this_run.observations.payments, 'blocked');
 
+  const admittedOut = tmpDir();
+  const admittedLive = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    runId: 'run-admitted-write',
+    outDir: admittedOut,
+    identityLedger: path.join(admittedOut, 'ledger.json'),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        reply_text: 'TEST booking write admitted for June 2027',
+        session_id: 'sess-admitted-write',
+        tool_calls: [{
+          name: 'create_booking',
+          result_summary: 'success=True; booking_id=wh-test-1',
+          booking_id: 'wh-test-1',
+          effective_capability: {
+            capability: 'wolfhouse_staging_booking_test_link',
+            admitted: true,
+            outcome: 'ADMITTED',
+            stripe_mode: 'test',
+          },
+        }],
+        limitation: {
+          whatsapp_sends_enabled: false,
+          sms_sends_enabled: false,
+          writes_enabled: false,
+          payments_enabled: false,
+          tenant_whatsapp_suppressed: true,
+        },
+      }),
+    }),
+    repoRoot,
+  });
+  assert.equal(admittedLive.ok, true);
+  assert.equal(admittedLive.scorecard.this_run.observations.writes, 'admitted');
+  assert.equal(admittedLive.scorecard.this_run.observations.payments, 'blocked');
+  assert.equal(dry.scorecard.this_run.observations.writes, 'unknown');
+
   const pair = await runner.runPaired({
     dryRun: false,
     live: true,
@@ -1567,6 +1612,7 @@ async function main() {
   console.log('sidebyside cap origins pass');
   console.log('sidebyside cap dates pass');
   console.log('sidebyside cap paired-comparison pass');
+  console.log('sidebyside cap writes-observation pass');
 }
 
 main().catch((err) => {
