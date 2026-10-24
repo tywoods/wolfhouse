@@ -371,16 +371,63 @@ function defaultIdentityLedger(repoRoot) {
   return path.join(repoRoot, 'tmp', 'luna-v3-sidebyside', 'reserved-identities.json');
 }
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withIdentityLock(file, fn) {
+  const lockPath = String(file) + '.lock';
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const start = Date.now();
+  for (;;) {
+    let fd;
+    try {
+      fd = fs.openSync(lockPath, 'wx');
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      if (Date.now() - start > 10000) {
+        return { ok: false, code: 'ledger_lock_timeout', error: 'identity ledger lock timeout' };
+      }
+      sleepMs(20);
+      continue;
+    }
+    try {
+      return fn();
+    } finally {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+      try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+    }
+  }
+}
+
 function loadIdentityLedger(file) {
   try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return {
-      phones: new Set(data.phones || []),
-      identities: new Set(data.identities || []),
-    };
-  } catch {
-    return { phones: new Set(), identities: new Set() };
+    fs.accessSync(file, fs.constants.F_OK);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ok: true, phones: new Set(), identities: new Set() };
+    }
+    return { ok: false, code: 'ledger_unreadable', error: err.code || err.message };
   }
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    return { ok: false, code: 'ledger_unreadable', error: err.code || err.message };
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { ok: false, code: 'ledger_unreadable', error: 'truncated or invalid json' };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.phones) || !Array.isArray(data.identities)) {
+    return { ok: false, code: 'ledger_unreadable', error: 'wrong-shape ledger' };
+  }
+  if (!data.phones.every((row) => typeof row === 'string') || !data.identities.every((row) => typeof row === 'string')) {
+    return { ok: false, code: 'ledger_unreadable', error: 'wrong-shape ledger' };
+  }
+  return { ok: true, phones: new Set(data.phones), identities: new Set(data.identities) };
 }
 
 function saveIdentityLedger(file, ledger) {
@@ -406,9 +453,12 @@ function allocateWirePhone(used, ledger, tenant) {
   const seen = used || new Set();
   const book = ledger || { phones: new Set(), identities: new Set() };
   let n = 0;
-  while (n <= 100000) {
+  while (n < 100000) {
     const phone = '+346999' + String(n).padStart(5, '0');
     n += 1;
+    if (!RESERVED_PHONE.test(phone)) {
+      throw new Error('reserved phone pool exhausted');
+    }
     const reserved = reserveIdentity(seen, book, tenant, phone);
     if (reserved.ok) return phone;
   }
@@ -534,32 +584,57 @@ async function runSideBySide(options) {
   fs.mkdirSync(outDir, { recursive: true });
   const usedPhones = opts.usedPhones || new Set();
   const ledgerFile = opts.identityLedger || defaultIdentityLedger(repoRoot);
-  const ledger = loadIdentityLedger(ledgerFile);
   const phones = {};
   if (live) {
-    const plan = opts.identityPlan && typeof opts.identityPlan === 'object' ? opts.identityPlan : {};
-    for (const script of loaded.scripts) {
-      const id = script.id || script._file;
-      if (Object.prototype.hasOwnProperty.call(plan, id)) {
-        const reserved = reserveIdentity(usedPhones, ledger, target.tenant, plan[id]);
-        if (!reserved.ok) {
-          return failResult({
-            cause: { code: 'reused_identity', error: 'identity already reserved', identity: reserved.identity },
-            target,
-            dryRun,
-            planned: [],
-            scripts: loaded.scripts,
-            outDir,
-            phones,
-            runId,
-          });
+    let locked;
+    try {
+      locked = withIdentityLock(ledgerFile, () => {
+        const book = loadIdentityLedger(ledgerFile);
+        if (!book.ok) return book;
+        const plan = opts.identityPlan && typeof opts.identityPlan === 'object' ? opts.identityPlan : {};
+        const nextPhones = {};
+        for (const script of loaded.scripts) {
+          const id = script.id || script._file;
+          if (Object.prototype.hasOwnProperty.call(plan, id)) {
+            const plannedPhone = plan[id];
+            if (!RESERVED_PHONE.test(plannedPhone)) {
+              return { ok: false, code: 'invalid_identity', error: 'identity is not a reserved test phone' };
+            }
+            const reserved = reserveIdentity(usedPhones, book, target.tenant, plannedPhone);
+            if (!reserved.ok) {
+              return { ok: false, code: 'reused_identity', error: 'identity already reserved', identity: reserved.identity };
+            }
+            nextPhones[id] = plannedPhone;
+          } else {
+            try {
+              nextPhones[id] = allocateWirePhone(usedPhones, book, target.tenant);
+            } catch (err) {
+              return { ok: false, code: 'phone_pool_exhausted', error: err && err.message ? err.message : 'reserved phone pool exhausted' };
+            }
+          }
+          if (!RESERVED_PHONE.test(nextPhones[id])) {
+            return { ok: false, code: 'invalid_identity', error: 'identity is not a reserved test phone' };
+          }
         }
-        phones[id] = plan[id];
-      } else {
-        phones[id] = allocateWirePhone(usedPhones, ledger, target.tenant);
-      }
+        saveIdentityLedger(ledgerFile, book);
+        return { ok: true, phones: nextPhones };
+      });
+    } catch (err) {
+      locked = { ok: false, code: 'ledger_unreadable', error: err && err.message ? err.message : 'ledger lock failed' };
     }
-    saveIdentityLedger(ledgerFile, ledger);
+    if (!locked || !locked.ok) {
+      return failResult({
+        cause: { code: (locked && locked.code) || 'ledger_unreadable', error: (locked && locked.error) || 'identity ledger blocked', identity: locked && locked.identity },
+        target,
+        dryRun,
+        planned: [],
+        scripts: loaded.scripts,
+        outDir,
+        phones,
+        runId,
+      });
+    }
+    Object.assign(phones, locked.phones);
   } else {
     loaded.scripts.forEach((script) => {
       const id = script.id || script._file;

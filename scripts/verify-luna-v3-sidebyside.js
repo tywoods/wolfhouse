@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { Worker } = require('node:worker_threads');
 
 const repoRoot = path.resolve(__dirname, '..');
 const runnerPath = path.join(repoRoot, 'scripts', 'run-luna-v3-sidebyside.js');
@@ -1413,6 +1414,132 @@ async function main() {
   assert.equal(reuse.ok, false);
   assert.equal(/reused|identity/i.test(JSON.stringify(reuse.cause)), true);
   assert.equal(reuseCalls, 0, 'reused identity plan must not dispatch');
+
+  function liveScript() {
+    return {
+      id: 'ledger-case',
+      phone: reservedSuffix('10023'),
+      dates: quoteScript.dates,
+      turns: [{ guest: 'Hi, quote one person 4 to 8 June 2027 please.' }],
+    };
+  }
+  async function liveOnce(extra) {
+    let calls = 0;
+    const result = await runner.runSideBySide(Object.assign({
+      target: 'hermes-luna-clone',
+      dryRun: false,
+      live: true,
+      liveConfirmed: true,
+      cookie: 'crowsnest-operator=test',
+      scripts: [liveScript()],
+      outDir: tmpDir(),
+      fetchImpl: async () => {
+        calls += 1;
+        return liveOk();
+      },
+      repoRoot,
+    }, extra));
+    result._calls = calls;
+    return result;
+  }
+
+  const truncatedLedger = path.join(tmpDir(), 'truncated.json');
+  fs.writeFileSync(truncatedLedger, '{ "phones": [');
+  const truncated = await liveOnce({ identityLedger: truncatedLedger });
+  assert.equal(truncated.ok, false);
+  assert.equal(truncated._calls, 0, 'truncated ledger must not dispatch');
+
+  const wrongShapeLedger = path.join(tmpDir(), 'wrong-shape.json');
+  fs.writeFileSync(wrongShapeLedger, JSON.stringify({ phones: 'nope' }));
+  const wrongShape = await liveOnce({ identityLedger: wrongShapeLedger });
+  assert.equal(wrongShape.ok, false);
+  assert.equal(wrongShape._calls, 0, 'wrong-shape ledger must not dispatch');
+
+  const unreadableLedger = path.join(tmpDir(), 'unreadable-ledger');
+  fs.mkdirSync(unreadableLedger);
+  const unreadable = await liveOnce({ identityLedger: unreadableLedger });
+  assert.equal(unreadable.ok, false);
+  assert.equal(unreadable._calls, 0, 'unreadable ledger must not dispatch');
+
+  const raceLedger = path.join(tmpDir(), 'race-identities.json');
+  const workerSource = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    const runner = require(workerData.runnerPath);
+    (async () => {
+      const ids = [];
+      await runner.runSideBySide({
+        target: 'hermes-luna-clone',
+        dryRun: false,
+        live: true,
+        liveConfirmed: true,
+        cookie: 'crowsnest-operator=test',
+        scripts: workerData.scripts,
+        identityLedger: workerData.ledger,
+        outDir: workerData.outDir,
+        repoRoot: workerData.repoRoot,
+        fetchImpl: async (url, init) => {
+          const sent = JSON.parse(init.body);
+          ids.push(String(sent.tenant) + '|' + String(sent.from_phone));
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              reply_text: 'quoted',
+              limitation: {
+                whatsapp_sends_enabled: false,
+                sms_sends_enabled: false,
+                tenant_whatsapp_suppressed: true,
+              },
+            }),
+          };
+        },
+      });
+      parentPort.postMessage(ids);
+    })().catch((err) => {
+      parentPort.postMessage({ error: String(err && err.stack ? err.stack : err) });
+    });
+  `;
+  function runWorker(outDir) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(workerSource, {
+        eval: true,
+        workerData: {
+          runnerPath,
+          repoRoot,
+          ledger: raceLedger,
+          outDir,
+          scripts: [liveScript()],
+        },
+      });
+      worker.once('message', resolve);
+      worker.once('error', reject);
+    });
+  }
+  const raced = await Promise.all([runWorker(tmpDir()), runWorker(tmpDir())]);
+  const racedIds = raced.flat();
+  assert.equal(raced.some((row) => row && row.error), false, raced.map((row) => row && row.error).filter(Boolean).join('\\n'));
+  assert.equal(racedIds.length, 2);
+  assert.equal(new Set(racedIds).size, 2, 'two processes must not reserve the same tenant+phone');
+
+  const badPlan = await liveOnce({
+    identityLedger: path.join(tmpDir(), 'bad-plan.json'),
+    identityPlan: { 'ledger-case': '+' + '15' + '555' + '00123' },
+  });
+  assert.equal(badPlan.ok, false);
+  assert.equal(badPlan._calls, 0, 'invalid identityPlan must not dispatch');
+
+  const used = new Set();
+  for (let n = 0; n < 100000; n += 1) {
+    used.add('+' + '34' + '6999' + String(n).padStart(5, '0'));
+  }
+  const exhausted = await liveOnce({
+    identityLedger: path.join(tmpDir(), 'exhausted.json'),
+    usedPhones: used,
+  });
+  assert.equal(exhausted.ok, false);
+  assert.equal(/exhaust/i.test(JSON.stringify(exhausted.cause)), true);
+  assert.equal(exhausted._calls, 0, 'full pool must not dispatch a six-digit suffix');
 
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');
