@@ -13,11 +13,13 @@ const seasons = [{ id: 's1', code: 'summer', label: 'Summer', priority: 1, booka
 const items = [
   { id: 'i1', item_type: 'package', item_code: 'malibu', label: 'Malibu', metadata: { includes: ['stay', 'surf'], min_days: 7 }, active: true, sort_order: 1, source: 'db' },
   { id: 'i2', item_type: 'policy', item_code: 'package_min_nights', label: 'Minimum nights', metadata: { minimum_nights: 7 }, active: true, sort_order: 2, source: 'db' },
+  { id: 'i3', item_type: 'rental', item_code: 'wetsuit_soft_top_combo', label: 'Wetsuit + Soft board combo', metadata: {}, active: true, sort_order: 3, source: 'db' },
 ];
 const rules = [
   { id: 'p1', item_type: 'package', item_code: 'malibu', season_code: 'summer', unit: 'per_person_per_week', amount_cents: 50000, currency: 'EUR', active: true, source: 'db' },
   { id: 'd1', item_type: 'deposit', item_code: 'standard_package', season_code: null, unit: 'per_person', amount_cents: 10000, currency: 'EUR', active: true, source: 'db' },
   { id: 'd2', item_type: 'deposit', item_code: 'custom_or_short_stay', season_code: null, unit: 'per_person', amount_cents: 5000, currency: 'EUR', active: true, source: 'db' },
+  { id: 'r1', item_type: 'rental', item_code: 'wetsuit_soft_top_combo', season_code: null, unit: 'per_day', amount_cents: 1500, currency: 'EUR', active: true, source: 'db' },
 ];
 
 function staffPg({ blocks = [], pricingDown = false } = {}) {
@@ -108,6 +110,16 @@ async function main(api = defaultApi) {
   assert(Number.isSafeInteger(quoted.totalCents) && quoted.totalCents > 0);
   assert(Number.isSafeInteger(quoted.depositCents) && quoted.depositCents > 0);
   assert(Number.isSafeInteger(quoted.remainingCents));
+
+  const shortStayRental = await api.quote(staffPg(), {
+    operation_key: 'quote-short-rental', check_in: '2027-07-01', check_out: '2027-07-06', guests: [{ name: 'Tom' }],
+    selection: { selected_bed_codes: ['R10-B1'], room_type: 'shared' },
+    add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1 }],
+  }, context);
+  assert.equal(shortStayRental.ok, true, JSON.stringify(shortStayRental));
+  assert.equal(shortStayRental.totalCents, 42000, 'accommodation-only 5-night stay plus three rental days');
+  assert.equal(shortStayRental.depositCents, 5000, 'short stay uses Staff custom deposit tier');
+  assert(shortStayRental.lineItems.some((row) => row.code === 'wetsuit_soft_top_combo' && row.total_cents === 4500));
   observations.staffComputedMoney = true;
   observations.toolCheckAvailability = true;
   observations.toolFindRooms = true;

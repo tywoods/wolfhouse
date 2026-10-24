@@ -1671,6 +1671,15 @@
       "inForwardChain": true,
       "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
       "sha256": "18f5cf74aa993fe0cdfa393772e53e00d086a52cfeb4e2f32ee9c45b4010a81e"
+    },
+    {
+      "id": "121_wolfhouse_confirmed_rental_prices",
+      "filename": "121_wolfhouse_confirmed_rental_prices.sql",
+      "order": 110,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Promote Ale-confirmed Wolfhouse per-day rental prices into authoritative Staff Pricing without overwriting any existing active Staff rule.",
+      "sha256": "8e65c18983042f64d3f81650e86418f5424155d5e7f25e9c69e93b2e16469910"
     }
   ]
 }

@@ -259,7 +259,12 @@ async function computeQuote(pg, input = {}, context) {
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
     guest_count: input.guests.length, guests: input.guests,
-    guest_packages: guestPackages, package_code: input.package_id || null,
+    guest_packages: guestPackages,
+    // A guest who asks for a bed without selecting a surf package is an
+    // accommodation-only quote. Keep the calculator's existing Staff-priced
+    // Malibu reference path, rather than rejecting an omitted package as if it
+    // were an unknown commercial choice.
+    package_code: input.package_id || (guestPackages.length ? null : 'package_none'),
     room_type: input.selection.room_type || 'shared', add_ons: input.add_ons || [],
     payment_choice: 'deposit', uses_per_guest_deposits: true,
   }, config);
