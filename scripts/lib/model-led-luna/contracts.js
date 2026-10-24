@@ -23,7 +23,7 @@ const TOOL_CONTRACTS = Object.freeze({
 const FORBIDDEN_INPUTS = new Set([
   'amount', 'amount_cents', 'deposit_cents', 'total_cents', 'remaining_cents',
   'totalCents', 'depositCents', 'remainingCents', 'balanceDueCents',
-  'tenant_id', 'staff_api_base_url', 'destination', 'recipient_phone', 'provider_mode',
+  'tenant_id', 'staff_api_base_url', 'destination', 'recipient_phone', 'provider_mode', 'currency',
   'external_send_allowed', 'staff_alert_allowed', 'silently_relax_together', 'auto_assign',
   'send_whatsapp', 'send_sms', 'send_email',
 ]);
@@ -40,7 +40,7 @@ const READ_SCHEMAS = Object.freeze({
   release_hold: new Set(['operation_key', 'hold_id']),
   handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
   get_payment_status: new Set(['booking_id']),
-  send_payment_link: new Set(['booking_id', 'payment_choice', 'guest_id', 'operation_key']),
+  send_payment_link: new Set(['booking_id', 'payment_scope', 'payment_choice', 'guest_id', 'operation_key']),
   cancel_unpaid: new Set(['booking_id', 'guest_reason', 'operation_key']),
   read_notes: new Set(['topic']),
   write_note: new Set(['text', 'context', 'booking_reference', 'operation_key']),
@@ -106,6 +106,16 @@ function assertSafeToolRequest(name, input = {}) {
         throw new Error(`${field} must be an array of strings`);
       }
     }
+  }
+  if (name === 'send_payment_link') {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!['deposit', 'full', 'balance'].includes(input.payment_choice)) throw new Error('payment_choice must be deposit, full, or balance');
+    if (input.booking_id !== undefined && !uuid.test(String(input.booking_id))) throw new Error('booking_id must be a valid UUID');
+    if (input.payment_scope !== undefined && !['individual', 'booking'].includes(input.payment_scope)) throw new Error('payment_scope must be individual or booking');
+    const scope = input.payment_scope || (input.guest_id ? 'individual' : null);
+    if (!scope) throw new Error('payment_scope is required when guest_id is absent');
+    if (scope === 'individual' && !uuid.test(String(input.guest_id || ''))) throw new Error('guest_id must be a valid UUID for individual checkout');
+    if (scope === 'booking' && input.guest_id !== undefined) throw new Error('guest_id is forbidden for booking checkout');
   }
   return contract;
 }

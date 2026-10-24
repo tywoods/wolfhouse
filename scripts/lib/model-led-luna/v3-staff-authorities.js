@@ -45,6 +45,21 @@ function createLunaV3StaffAuthorities(dependencies) {
       }
       return d.createStripe(d.stripeSecretKey).checkout.sessions.retrieve(checkoutId);
     },
+    async createBookingCheckout(args) {
+      if (!d.stripeLinksEnabled || !d.stripeSecretKey || !d.stripeSecretKey.startsWith('sk_test_')
+          || !d.checkoutRedirectUrlsConfigured() || !d.groupCheckout) {
+        const error = new Error('test_provider_unavailable');
+        error.code = 'test_provider_unavailable';
+        throw error;
+      }
+      return d.groupCheckout.create(args);
+    },
+    async readBookingCheckout(checkoutId) {
+      if (!d.groupCheckout || typeof d.groupCheckout.read !== 'function') {
+        const error = new Error('test_provider_unavailable'); error.code = 'test_provider_unavailable'; throw error;
+      }
+      return d.groupCheckout.read(checkoutId);
+    },
   };
   for (const name of FORBIDDEN_TRANSPORTS) authorities[name] = transportForbidden(name);
   return Object.freeze(authorities);

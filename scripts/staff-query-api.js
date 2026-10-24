@@ -1322,6 +1322,20 @@ function stripeCheckoutRedirectUrlsDistinct() {
 // initialized. Payment checkout is test-mode only; every conventional
 // message/alert/outbox adapter is connected to an explicit fail-closed
 // boundary on this exact registry authority object.
+const lunaV3GroupStripe = STRIPE_SECRET_KEY ? require('stripe')(STRIPE_SECRET_KEY) : null;
+const lunaV3GroupCheckout = lunaV3GroupStripe ? require('./lib/model-led-luna/v3-group-checkout').createBookingCheckoutAuthority({
+  withPgClient,
+  readStripeCheckout: (id) => lunaV3GroupStripe.checkout.sessions.retrieve(id),
+  paymentExecOpts: {
+    ...paymentLinkServiceExecOpts(lunaV3GroupStripe),
+    loadBookingPaymentLedger: async (pg, booking) => {
+      const services = await loadBookingServiceRecords(pg, 'wolfhouse-somo', booking.booking_code);
+      const payments = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, ['wolfhouse-somo', booking.booking_code]);
+      const transfers = await listBookingTransfersForBooking(pg, { client_slug: 'wolfhouse-somo', booking_id: booking.booking_id });
+      return bookingLedgerBalanceFromRows(booking, services.rows, payments.rows, transfers);
+    },
+  },
+}) : null;
 LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
   resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
   stripeLinksEnabled: STRIPE_LINKS_ENABLED,
@@ -1331,6 +1345,7 @@ LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
   checkoutCancelUrl: stripeCheckoutSessionCancelUrl,
   withPgClient,
   perGuestCheckout: require('./lib/per-guest-checkout'),
+  groupCheckout: lunaV3GroupCheckout,
   createStripe: (secret) => require('stripe')(secret),
 });
 LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, LUNA_V3_STAFF_AUTHORITIES);
@@ -8909,7 +8924,7 @@ function paymentLinkServiceExecOpts(stripe) {
       metadata: sessionOpts.metadata || {},
       success_url: stripeCheckoutSessionSuccessUrl(),
       cancel_url: stripeCheckoutSessionCancelUrl(),
-    }),
+    }, { idempotencyKey: sessionOpts.idempotencyKey }),
   };
 }
 

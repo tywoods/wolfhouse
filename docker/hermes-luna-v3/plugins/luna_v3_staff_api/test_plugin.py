@@ -20,7 +20,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             def __init__(self): self.tools = {}
             def register_tool(self, **kwargs): self.tools[kwargs["name"]] = kwargs["schema"]["parameters"]
         registry = Registry(); plugin.register(registry)
-        self.assertIn("guest_id", registry.tools["send_payment_link"]["required"])
+        self.assertNotIn("guest_id", registry.tools["send_payment_link"]["required"])
         self.assertEqual("object", registry.tools["write_note"]["properties"]["context"]["type"])
         self.assertEqual("object", registry.tools["handoff_to_human"]["properties"]["context"]["type"])
         self.assertNotIn("operation_reference", registry.tools["recover_operation"]["properties"])

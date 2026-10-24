@@ -979,6 +979,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
 
   const pmMeta = {
     source: 'staff_payment_link',
+    payment_scope: 'booking',
     checkout_preparation: command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL ? 'pending' : null,
     payment_target: paymentTarget,
     method: 'payment_link',
@@ -1094,9 +1095,11 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         payment_id: draftPaymentId,
         payment_kind: paymentKind,
         payment_target: paymentTarget,
+        payment_scope: 'booking',
         source: 'staff_payment_link',
         idempotency_key: command.idempotencyKey,
       },
+      idempotencyKey: command.idempotencyKey,
     });
   } catch (stripeErr) {
     if (command.channel === PAYMENT_LINK_CHANNELS.STAFF_PORTAL) {
@@ -1155,6 +1158,7 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         payment_target: paymentTarget,
         booking_code: booking.booking_code,
         payment_id: draftPaymentId,
+        stripe_checkout_session_id: session.id,
         amount_due_cents: amountDueCents,
         payment_status: 'payment_link_created',
         payment_link_url: session.url,
