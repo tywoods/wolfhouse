@@ -16,7 +16,7 @@ const TARGETS = Object.freeze({
   'hermes-luna-clone': Object.freeze({
     id: 'hermes-luna-clone',
     runtime: 'hermes-luna-clone',
-    tenant: 'wolfhouse-clone',
+    tenant: 'luna-v3',
     label: 'Luna v3',
   }),
   'hermes-luna': Object.freeze({
