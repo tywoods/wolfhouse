@@ -120,6 +120,8 @@ async function main(api = defaultApi) {
   assert.equal(shortStayRental.totalCents, 42000, 'accommodation-only 5-night stay plus three rental days');
   assert.equal(shortStayRental.depositCents, 5000, 'short stay uses Staff custom deposit tier');
   assert(shortStayRental.lineItems.some((row) => row.code === 'wetsuit_soft_top_combo' && row.total_cents === 4500));
+  assert.equal(shortStayRental.lineItems.find((row) => row.code === 'wetsuit_soft_top_combo').label,
+    'Wetsuit + Soft board combo (3 days × 1 person × 15€)');
   observations.staffComputedMoney = true;
   observations.toolCheckAvailability = true;
   observations.toolFindRooms = true;

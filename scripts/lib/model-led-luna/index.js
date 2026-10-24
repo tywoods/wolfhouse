@@ -194,7 +194,8 @@ async function loadV3DbOnlyQuoteConfig(pg) {
         ...(rule.unit === 'per_lesson' ? { price_cents_each: cents } : {}) };
     } else if (rule.item_type === 'rental') {
       const code = rule.item_code.split('__')[0];
-      config.add_ons[code] = { code, price_cents: cents, pricing_unit: rule.unit };
+      const item = byItem.get(`rental:${code}`);
+      config.add_ons[code] = { code, name: item && item.label, price_cents: cents, pricing_unit: rule.unit };
     }
   }
   for (const required of ['standard_package','custom_or_short_stay']) if (!config.deposits.tiers[required]) throw Object.assign(new Error(`missing Staff deposit tier ${required}`), { code:'staff_deposit_tier_unavailable' });
