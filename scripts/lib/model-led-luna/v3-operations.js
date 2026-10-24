@@ -1257,12 +1257,43 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
   };
   const denied = selected(s, input);
   if (denied) return reject(denied);
-  if (!input.guest_id)
-    return reject(
-      fail("guest_id_required_for_authoritative_payment_target", 400),
-    );
+  const scope = input.payment_scope || (input.guest_id ? 'individual' : null);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!["deposit", "full", "balance"].includes(input.payment_choice))
     return reject(fail("unsupported_payment_choice", 400));
+  if (!scope) return reject(fail("payment_scope_required", 400));
+  if (!['individual', 'booking'].includes(scope)) return reject(fail("unsupported_payment_scope", 400));
+  if (scope === 'booking' && input.guest_id) return reject(fail("guest_selector_forbidden_for_booking_scope", 400));
+  if (scope === 'individual' && !uuid.test(String(input.guest_id || '')))
+    return reject(fail("invalid_guest_id", 400));
+  const authorities = context.staffAuthorities || {};
+  if (scope === 'booking') {
+    if (typeof authorities.createBookingCheckout !== 'function' || typeof authorities.readBookingCheckout !== 'function')
+      return reject(fail("staff_payment_link_authority_unavailable", 503));
+    let checkout;
+    try {
+      checkout = await authorities.createBookingCheckout({ bookingId: s.selected_booking_id,
+        paymentChoice: input.payment_choice, operationKey: input.operation_key, principalId: context.principalId });
+    } catch (e) {
+      return fail(e.code || e.message || "staff_payment_link_failed", e.httpStatus || 503,
+        { recoveryStatus: "ambiguous", operationKey: input.operation_key });
+    }
+    const provider = checkout && checkout.provider;
+    const receipt = { ok: true, outcome: 'applied', operationKey: input.operation_key,
+      paymentScope: 'booking', bookingId: s.selected_booking_id, paymentId: checkout.paymentId,
+      amountCents: checkout.amountCents, currency: checkout.currency, url: checkout.url,
+      checkoutId: checkout.checkoutId, mode: 'test', sent: false,
+      externalSendAllowed: false, staffAlertAllowed: false };
+    await pg.query('BEGIN');
+    try {
+      await pg.query(`INSERT INTO luna_v3_payment_links(client_id,session_id,booking_id,operation_id,payment_id,booking_guest_id,payment_scope,payment_choice,amount_cents,currency,provider_checkout_id,provider_url,provider_livemode,provider_readback) VALUES($1,$2,$3,$4,$5,NULL,'booking',$6,$7,$8,$9,$10,false,$11::jsonb) ON CONFLICT(operation_id) DO NOTHING`,
+        [s.client_id,s.id,s.selected_booking_id,op.row.id,checkout.paymentId,input.payment_choice,
+          checkout.amountCents,checkout.currency,checkout.checkoutId,checkout.url,JSON.stringify(provider)]);
+      await finish(pg, op.row.id, receipt, { bookingId: s.selected_booking_id });
+      await pg.query('COMMIT');
+      return receipt;
+    } catch (e) { await pg.query('ROLLBACK'); throw e; }
+  }
   const guest = (
     await pg.query(
       `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text FROM booking_guests bg WHERE bg.id=$1::uuid AND bg.client_id=$2 AND bg.booking_id=$3`,
@@ -1270,7 +1301,6 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
     )
   ).rows[0];
   if (!guest) return reject(fail("payment_target_guest_mismatch", 403));
-  const authorities = context.staffAuthorities || {};
   const authority = authorities.createGuestCheckout;
   if (
     typeof authority !== "function" ||

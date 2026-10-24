@@ -55,7 +55,7 @@ FORBIDDEN_FIELDS = frozenset({
     "tenant_id", "destination", "recipient_phone", "provider_mode", "send_whatsapp",
     "send_sms", "send_email", "external_send_allowed", "staff_alert_allowed",
     "auto_assign", "silently_relax_together",
-    "totalCents", "depositCents", "remainingCents", "balanceDueCents",
+    "totalCents", "depositCents", "remainingCents", "balanceDueCents", "currency",
 })
 
 
@@ -183,7 +183,7 @@ _TOOL_FIELDS = {
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": ("booking_id",),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "payment_scope", "guest_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": ("topic",),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
@@ -203,7 +203,7 @@ _TOOL_REQUIRED = {
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
@@ -214,6 +214,12 @@ _TOOL_REQUIRED = {
 
 
 def _field_schema(field: str) -> dict[str, Any]:
+    if field == "payment_scope":
+        return {"type": "string", "enum": ["individual", "booking"]}
+    if field == "payment_choice":
+        return {"type": "string", "enum": ["deposit", "full", "balance"]}
+    if field in {"guest_id", "booking_id"}:
+        return {"type": "string", "format": "uuid"}
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
     if field in {"package_ids", "service_ids"}:
