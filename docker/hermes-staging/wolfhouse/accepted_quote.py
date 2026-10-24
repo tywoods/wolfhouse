@@ -1756,20 +1756,25 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
                 person_plan, after.get('room_name_hints'))):
         before['gender_preference'] = None
     if payment_choice:
-        if payment_choice not in ('deposit', 'full'):
+        if payment_choice not in ('deposit', 'full', 'per_guest'):
             return False
+        canonical_choice = 'deposit' if payment_choice == 'per_guest' else payment_choice
         expected_amount = (after.get('deposit_required_cents')
-                           if payment_choice == 'deposit' else after.get('total_cents'))
+                           if canonical_choice == 'deposit' else after.get('total_cents'))
         prior_choice = before.get('payment_choice')
         prior_amount = (before.get('deposit_required_cents')
                         if prior_choice == 'deposit' else before.get('total_cents'))
         if (type(expected_amount) is not int
+                or after.get('payment_choice') != canonical_choice
+                or (payment_choice == 'per_guest' and after.get('per_guest_payment_links') is not True)
                 or after.get('payment_link_amount_cents') != expected_amount
                 or prior_choice not in ('deposit', 'full')
                 or before.get('payment_link_amount_cents') != prior_amount):
             return False
         before.pop('payment_choice', None)
         after.pop('payment_choice', None)
+        before.pop('per_guest_payment_links', None)
+        after.pop('per_guest_payment_links', None)
         before.pop('payment_link_amount_cents', None)
         after.pop('payment_link_amount_cents', None)
     completions = guest_completions or ([{'guest_index': guest_index,
@@ -3749,6 +3754,9 @@ def finalize_offer_response(result):
         elif quote.get('payment_choice_needed') is True:
             if type(quote.get('deposit_required_cents')) is int:
                 choices.append('deposit')
+                party_size = _presentation_plan(state).get('guest_count')
+                if type(party_size) is int and party_size >= 2:
+                    choices.append('per_guest')
             if type(quote.get('total_cents')) is int:
                 choices.append('full')
         elif isinstance(offer, dict) and offer.get('payment_choice'):

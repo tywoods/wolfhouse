@@ -405,6 +405,14 @@ class CaptainR1R5Tests(unittest.TestCase):
         self.assertFalse(accepted_quote._completion_revision_matches(
             before, after, guest_completions=[completions[0], completions[0]]))
 
+    def test_per_guest_completion_accepts_canonical_deposit_revision(self):
+        before = {'payment_choice': 'deposit', 'deposit_required_cents': 60000,
+                  'total_cents': 150000, 'payment_link_amount_cents': 60000,
+                  'guest_bed_assignments': []}
+        after = {**before, 'per_guest_payment_links': True}
+        self.assertTrue(accepted_quote._completion_revision_matches(
+            before, after, payment_choice='per_guest'))
+
     def test_r5_current_user_outweighs_synthetic_internal_draft(self):
         draft = "Es ist ein interner Fehler aufgetreten."
         history = [{'role': 'user', 'content': "Please help me book"}]

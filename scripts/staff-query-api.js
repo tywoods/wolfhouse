@@ -12242,9 +12242,9 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     body.room_preference,
   );
   const paymentChoiceRaw = String(body.payment_choice || '').trim();
-  const paymentChoiceStaffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
-  const paymentChoice = paymentChoiceStaffNorm
-    ? manualBookingQuotePaymentChoice(paymentChoiceStaffNorm)
+  const paymentChoiceBotNorm = normalizeBotBookingPaymentChoice(paymentChoiceRaw);
+  const paymentChoice = paymentChoiceBotNorm
+    ? paymentChoiceBotNorm.payment_choice
     : paymentChoiceRaw;
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
   const language      = String(body.language || 'en').trim().slice(0, 10);
