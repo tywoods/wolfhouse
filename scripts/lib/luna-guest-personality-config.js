@@ -175,8 +175,16 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
       return parts.join('\n\n');
     },
     ask_payment_choice: (ctx) => {
-      const { deposit, total, hasCollectedAddons, manualNote } = ctx;
+      const { deposit, total, guestCount, hasCollectedAddons, manualNote } = ctx;
       if (!deposit || !total) return null;
+      if (Number(guestCount) >= 2) {
+        if (trimStr(lang).toLowerCase() === 'es') {
+          return '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?';
+        }
+        if (trimStr(lang).toLowerCase() === 'en') {
+          return 'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?';
+        }
+      }
       const note = manualNote || '';
       if (hasCollectedAddons) {
         return (t('ask_payment_choice_with_extras', { deposit, total }, 'service_added')
