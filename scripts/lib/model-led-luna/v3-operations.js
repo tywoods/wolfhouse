@@ -379,19 +379,6 @@ async function book(pg, input, context) {
       );
     const body = created.body || created;
     const bookingId = body.booking_id || body.bookingId;
-    for (const addOn of h.selection.quote.addOns || []) {
-      if (!Number.isSafeInteger(addOn.days) || !Number.isSafeInteger(addOn.quantity)
-        || !Array.isArray(addOn.dates) || addOn.dates.length !== addOn.days) continue;
-      await pg.query(
-        `UPDATE booking_service_records
-            SET quantity=$2::int
-          WHERE booking_id=$1
-            AND metadata->>'rental_days'=$3
-            AND metadata->>'rental_people'=$2::text
-            AND metadata->'requested_dates'=$4::jsonb`,
-        [bookingId, addOn.quantity, String(addOn.days), JSON.stringify(addOn.dates)],
-      );
-    }
     await pg.query(
       `UPDATE luna_v3_holds SET state='converted',booking_id=$2,updated_at=now() WHERE id=$1`,
       [h.id, bookingId],

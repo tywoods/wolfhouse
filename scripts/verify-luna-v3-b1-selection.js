@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { Client } = require('pg');
 const api = require('./lib/model-led-luna');
 const { assertSafeToolRequest } = require('./lib/model-led-luna/contracts');
+const { formatServiceRecordForSchedule } = require('./lib/staff-booking-services-schedule');
 
 const beds = [
   { room_id:'r3',room_code:'R3',room_name:'Room 3',room_type:'shared',selling_mode:'shared',capacity:4,fill_priority:1,room_sort_order:1,gender_strategy:'mixed',bed_id:'r3b1',bed_code:'R3-B1',bed_label:'1',bed_number:1,bed_active:true,bed_sellable:true },
@@ -129,9 +130,21 @@ async function verifyDatedRentalsInPostgres() {
         [booked.bookingId],
       )).rows;
       assert.deepEqual(serviceRows, ['surfboard', 'wetsuit'].map((serviceType) => ({
-        service_type: serviceType, service_date: rentalCase.dates[0], quantity: rentalCase.quantity,
+        service_type: serviceType, service_date: rentalCase.dates[0], quantity: rentalCase.days,
         requested_dates: rentalCase.dates, rental_days: rentalCase.days, rental_people: rentalCase.quantity,
       })), 'independent SQL service-record readback lost dated rental days or quantity');
+      if (rentalCase.quantity === 4) {
+        const staffRows = (await client.query(
+          `SELECT id,service_type,service_date,quantity,amount_due_cents,amount_paid_cents,status,payment_status,metadata
+             FROM booking_service_records WHERE booking_id=$1 ORDER BY service_type`,
+          [booked.bookingId],
+        )).rows;
+        for (const row of staffRows) {
+          const publicService = formatServiceRecordForSchedule(row);
+          assert.equal(publicService.quantity * publicService.people_count, 8,
+            `Staff services read must expose 8 participant-days for ${row.service_type}`);
+        }
+      }
     }
   } finally {
     await client.end();
