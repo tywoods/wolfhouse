@@ -1283,9 +1283,40 @@ async function runCanonicalPhase1(api) {
     }),
     'canonical suite accepted a substituted broken selected handler',
   );
+  await assert.rejects(
+    () => postgresSuite.main({
+      ...api,
+      createOperations: (...args) => ({
+        ...api.createOperations(...args),
+        send_payment_link: async () => { throw new Error('injected selected payment handler failure'); },
+      }),
+    }),
+    'canonical suite accepted a throwing selected payment handler',
+  );
+  await assert.rejects(
+    () => postgresSuite.main({
+      ...api,
+      createOperations: (...args) => ({
+        ...api.createOperations(...args),
+        book: async () => ({ ok: true, bookingId: 'child-only-broken' }),
+      }),
+    }),
+    'canonical suite accepted a child-registry-only broken booking handler',
+  );
   const focused = await focusedSuite.main(api);
   const postgres = await postgresSuite.main(api);
   const observations = { ...(focused && focused.observations), ...(postgres && postgres.observations) };
+  const partial = { ...observations };
+  delete partial.holdAllOrNone;
+  const partialRows = phase1RowsFromObservations(partial);
+  const partialHold = partialRows.find((row) => row.id === 'hold_all_or_none');
+  assert.equal(partialHold.status, 'fail', 'one missing required observation key did not fail its mapped row');
+  assert.match(partialHold.reason, /holdAllOrNone/, 'missing-key failure did not name the required key');
+  assert.equal(
+    partialRows.find((row) => row.id === 'scoped_notes').status,
+    phase1RowsFromObservations(observations).find((row) => row.id === 'scoped_notes').status,
+    'one missing key changed an unrelated mapped row',
+  );
   const absent = phase1RowsFromObservations({});
   assert.equal(absent.filter((row) => row.status === 'pass').length, 0, 'absent named observations produced Phase 1 PASS');
   return phase1RowsFromObservations(observations);

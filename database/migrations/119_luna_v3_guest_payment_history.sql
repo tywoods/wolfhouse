@@ -24,6 +24,10 @@ BEGIN
                   WHERE table_schema='public' AND table_name='payments'
                     AND column_name='booking_guest_id')
   THEN RAISE EXCEPTION '119_refused: payments.booking_guest_id is missing'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM payments p JOIN booking_guests g ON g.payment_id=p.id
+     WHERE p.booking_guest_id IS NOT NULL AND p.booking_guest_id<>g.id
+  ) THEN RAISE EXCEPTION '119_refused: conflicting guest owners for payment'; END IF;
 
   SELECT count(*) INTO present FROM (
     SELECT 1 WHERE to_regclass('public.luna_v3_guest_payments') IS NOT NULL
@@ -86,7 +90,7 @@ BEGIN
       IF NEW.payment_id IS NOT NULL THEN
         INSERT INTO luna_v3_guest_payments(client_id,booking_id,booking_guest_id,payment_id)
         VALUES(NEW.client_id,NEW.booking_id,NEW.id,NEW.payment_id)
-        ON CONFLICT DO NOTHING;
+        ON CONFLICT (client_id,booking_id,booking_guest_id,payment_id) DO NOTHING;
       END IF;
       RETURN NEW;
     END $function$;
@@ -120,7 +124,9 @@ BEGIN
        AND (SELECT array_agg(a.attname ORDER BY u.ord)
               FROM unnest(c.confkey) WITH ORDINALITY u(attnum,ord)
               JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=u.attnum)
-           = ARRAY['id','payment_id','booking_id','client_id']::name[];
+           = ARRAY['id','payment_id','booking_id','client_id']::name[]
+       AND c.confdeltype='r' AND c.confupdtype='a' AND c.confmatchtype='s'
+       AND NOT c.condeferrable AND NOT c.condeferred AND c.convalidated;
     IF old_name IS NULL THEN RAISE EXCEPTION '119_refused: exact 115 guest pointer constraint missing'; END IF;
     IF (SELECT obj_description(oid,'pg_constraint') FROM pg_constraint
          WHERE conrelid='public.luna_v3_payment_links'::regclass AND conname=old_name) IS NOT NULL
@@ -146,6 +152,6 @@ SELECT p.client_id,p.booking_id,p.booking_guest_id,p.id
 UNION
 SELECT g.client_id,g.booking_id,g.id,g.payment_id
   FROM booking_guests g WHERE g.payment_id IS NOT NULL
-ON CONFLICT DO NOTHING;
+ON CONFLICT (client_id,booking_id,booking_guest_id,payment_id) DO NOTHING;
 
 COMMIT;

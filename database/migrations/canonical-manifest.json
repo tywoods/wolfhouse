@@ -1661,7 +1661,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
-      "sha256": "648ae685ad71f08b2b22519842aab597beb12c897cbca3ccdebeda632bca5a78"
+      "sha256": "51fdace638314cd7b9052c8eb753fdcba68bf024c6d089c5c7c71ec3b247e285"
     },
     {
       "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
@@ -1670,7 +1670,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
-      "sha256": "bb0d554515e5ad89042b6fd7f976f4be2aa889e17c3a03fafd172fbc906fb153"
+      "sha256": "18f5cf74aa993fe0cdfa393772e53e00d086a52cfeb4e2f32ee9c45b4010a81e"
     }
   ]
 }
