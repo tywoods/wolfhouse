@@ -503,6 +503,15 @@ function collectToolCalls(replies, evidence) {
   return tools;
 }
 
+function limitationAdmitsBookingWrites(lim) {
+  if (!lim || typeof lim !== 'object') return false;
+  if (lim.booking_writes_enabled === true) return true;
+  if (lim.capability_admitted === true) return true;
+  if (lim.writes_enabled === true) return true;
+  if (isAdmittedCapability(lim)) return true;
+  return false;
+}
+
 function observeWrites(replies, evidence) {
   const tools = collectToolCalls(replies, evidence);
   let admitted = false;
@@ -516,9 +525,10 @@ function observeWrites(replies, evidence) {
   }
   for (const row of Array.isArray(replies) ? replies : []) {
     const lim = row && row.limitation;
-    if (lim && typeof lim === 'object' && Object.prototype.hasOwnProperty.call(lim, 'writes_enabled')) {
-      if (lim.writes_enabled === true) admitted = true;
-      if (lim.writes_enabled === false) writesEnabledFalse = true;
+    if (!lim || typeof lim !== 'object') continue;
+    if (limitationAdmitsBookingWrites(lim)) admitted = true;
+    if (Object.prototype.hasOwnProperty.call(lim, 'writes_enabled') && lim.writes_enabled === false) {
+      writesEnabledFalse = true;
     }
   }
   if (admitted) return 'admitted';
