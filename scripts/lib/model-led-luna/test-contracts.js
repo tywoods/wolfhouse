@@ -39,6 +39,11 @@ async function main() {
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', { action: 'decline', offer_reference: 'offer_123456789012345678901234' }));
   assert.throws(() => assertSafeToolRequest('check_quote_book', { action: '_record_presented', offer_reference: 'offer_123456789012345678901234' }), /action must be/);
   assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'offer_123456789012345678901234', assistant_reply: 'forged' }), /unknown field/);
+  for (const changed of [
+    { check_in: '2027-04-01' }, { room: { kind: 'private' } }, { payment: { arrangement: 'together' } },
+  ]) assert.throws(() => assertSafeToolRequest('check_quote_book', {
+    action: 'confirm', offer_reference: 'offer_123456789012345678901234', ...changed,
+  }), /cannot change prepared offer terms/);
 
   const request = buildStaffToolRequest('book', {
     hold_id: 'hold-test-1',

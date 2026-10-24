@@ -34,14 +34,18 @@ function replyShowsAuthoritativeTerms(reply, quote) {
   const text = String(reply || '');
   const lower = text.toLowerCase();
   if (/\b(?:not|is not|isn't|excluding)\b[^.!?]{0,40}(?:€|eur|total|deposit)/i.test(text)) return false;
-  if (!/\btotal\b/i.test(text) || !/\bdeposit\b/i.test(text)
-      || !replyShowsPrice(text, quote.totalCents, quote.currency)
-      || !replyShowsPrice(text, quote.depositCents, quote.currency)) return false;
+  const labelledPrice = (label, cents) => {
+    const amount = String(cents / 100).replace('.', '[.,]');
+    const money = `(?:€\\s*${amount}|${amount}\\s*(?:€|EUR))`;
+    return new RegExp(`(?:\\b${label}\\b[^.!?]{0,32}${money}|${money}[^.!?]{0,32}\\b${label}\\b)`, 'i').test(text);
+  };
+  if (!labelledPrice('total', quote.totalCents) || !labelledPrice('deposit', quote.depositCents)) return false;
   const q = quote.quoteInput || {};
   const terms = [q.check_in, q.check_out,
     ...(q.guests || []).map((g) => g.name),
     ...((q.selection && q.selection.selected_bed_codes) || []),
-    ...(q.guest_packages || []).map((p) => p.package_code)].filter(Boolean);
+    ...(q.guest_packages || []).map((p) => p.package_code), q.package_id,
+    ...(q.add_ons || []).flatMap((a) => [a.code, ...(a.dates || [])])].filter(Boolean);
   return terms.every((term) => lower.includes(String(term).toLowerCase()));
 }
 function publicFailure(result) {
@@ -170,7 +174,7 @@ function createCheckQuoteBook(deps) {
     if (input.action === 'prepare') {
       await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
       try {
-        const snapshotContext = { ...context, callerManagedTransaction: true };
+        const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
         const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
         if (!catalog.ok) return reject(catalog);
@@ -178,6 +182,16 @@ function createCheckQuoteBook(deps) {
           const result = { ok: true, state: 'information', reason: 'authoritative_catalog_ready', held: false, booked: false,
             check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
           await pg.query('COMMIT'); return result;
+        }
+        const replayReference = `offer_${digest({ session: context.sessionId, input }, 36)}`;
+        const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
+          COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
+          FROM luna_v3_holds h JOIN luna_v3_sessions s ON s.id=h.session_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
+          WHERE s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
+        [context.sessionId, context.principalId, replayReference])).rows[0];
+        if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
+          await pg.query('COMMIT');
+          return publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference, catalog);
         }
         const count = input.guests.length;
         const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, snapshotContext);
@@ -199,7 +213,7 @@ function createCheckQuoteBook(deps) {
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
         const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, snapshotContext);
         if (!hold.ok) return reject(hold);
-        const reference = `offer_${digest({ session: context.sessionId, hold: hold.holdId }, 36)}`;
+        const reference = replayReference;
         const updated = await pg.query(`UPDATE luna_v3_holds SET offer_reference=$1 WHERE id=$2 AND client_id=$3 AND session_id=$4 AND state='active' RETURNING id`, [reference, hold.holdId, session.client_id, session.id]);
         if (!updated.rows[0]) throw new Error('offer_scope_changed');
         await pg.query(`INSERT INTO luna_v3_offer_turns(client_id,session_id,hold_id,offer_reference,prepared_turn_id) VALUES($1,$2,$3,$4,$5)`, [session.client_id, session.id, hold.holdId, reference, context.turnId]);
@@ -251,4 +265,4 @@ function createCheckQuoteBook(deps) {
   checkQuoteBook.recordPresented = recordPresented;
   return checkQuoteBook;
 }
-module.exports = { createCheckQuoteBook, publicFailure, operationKey, replyShowsPrice };
+module.exports = { createCheckQuoteBook, publicFailure, operationKey, replyShowsPrice, replyShowsAuthoritativeTerms };

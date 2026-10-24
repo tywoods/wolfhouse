@@ -955,6 +955,7 @@ async function cancelUnpaid(pg, input, context) {
     const authorities = context.staffAuthorities || {};
     if (checkoutRows.length && (typeof authorities.readCancellationCheckout !== 'function'
         || typeof authorities.expireCancellationCheckout !== 'function')) providerBlock = 'provider_reconciliation_unavailable';
+    const retiredCheckoutIds = [];
     for (const checkoutId of providerBlock ? [] : checkoutRows) {
       try {
         const before = await authorities.readCancellationCheckout(checkoutId);
@@ -966,7 +967,15 @@ async function cancelUnpaid(pg, input, context) {
         const after = await authorities.readCancellationCheckout(checkoutId);
         if (!after || after.id !== checkoutId || after.status !== 'expired'
             || String(after.payment_status).toLowerCase() !== 'unpaid') { providerBlock = 'provider_expiration_unverified'; break; }
+        retiredCheckoutIds.push(checkoutId);
       } catch (_) { providerBlock = 'provider_reconciliation_unavailable'; break; }
+    }
+    if (!providerBlock && retiredCheckoutIds.length) {
+      await pg.query(`UPDATE payments SET status='expired'::payment_record_status,
+        stripe_checkout_session_id=NULL,checkout_url=NULL,
+        metadata=(COALESCE(metadata,'{}'::jsonb) - 'stripe_checkout_session_id' - 'stripe_session_id' - 'checkout_url' - 'provider_idempotency_key' - 'idempotency_key' - 'checkout_preparation')
+        WHERE client_id=$1 AND booking_id=$2 AND COALESCE(NULLIF(stripe_checkout_session_id,''),NULLIF(metadata->>'stripe_checkout_session_id',''),NULLIF(metadata->>'stripe_session_id',''))=ANY($3::text[])`,
+      [s.client_id, s.selected_booking_id, retiredCheckoutIds]);
     }
     await pg.query("BEGIN");
     const currentOp = (await pg.query(`SELECT request_fingerprint,receipt FROM luna_v3_operations WHERE id=$1 FOR UPDATE`, [op.row.id])).rows[0];
@@ -1365,10 +1374,23 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
           { recoveryStatus: "ambiguous", operationKey: input.operation_key });
       }
     }
-    if (!checkout || !checkout.paymentId || !checkout.checkoutId || !checkout.url
-        || checkout.amountCents <= 0 || String(checkout.currency || '').toUpperCase() !== 'EUR')
-      return reject(fail('provider_readback_invalid', 503));
     const provider = checkout && checkout.provider;
+    const providerMetadata = provider && provider.metadata || {};
+    const providerValid = provider && provider.id === checkout.checkoutId && provider.url === checkout.url
+      && provider.livemode === false && provider.status === 'open'
+      && String(provider.payment_status || '').toLowerCase() === 'unpaid'
+      && Number(provider.expires_at) > Math.floor(Date.now() / 1000)
+      && require('../per-guest-checkout').validUrl(provider.url)
+      && provider.amount_total === checkout.amountCents
+      && String(provider.currency || '').toUpperCase() === String(checkout.currency || '').toUpperCase()
+      && providerMetadata.client_slug === TENANT
+      && providerMetadata.booking_id === String(s.selected_booking_id)
+      && providerMetadata.payment_id === String(checkout.paymentId)
+      && providerMetadata.payment_scope === 'booking';
+    if (!checkout || !checkout.paymentId || !checkout.checkoutId || !checkout.url
+        || checkout.amountCents <= 0 || String(checkout.currency || '').toUpperCase() !== 'EUR'
+        || !providerValid)
+      return reject(fail('provider_readback_invalid', 503));
     const receipt = { ok: true, outcome: 'applied', operationKey: input.operation_key,
       paymentScope: 'booking', bookingId: s.selected_booking_id, paymentId: checkout.paymentId,
       amountCents: checkout.amountCents, currency: checkout.currency, url: checkout.url,

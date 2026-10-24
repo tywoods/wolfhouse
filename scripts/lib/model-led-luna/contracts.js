@@ -104,7 +104,11 @@ function assertSafeToolRequest(name, input = {}) {
         if (!input.room || !input.package) throw new Error('room and package are required for offer prepare');
         if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
       }
-    } else if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');
+    } else {
+      if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');
+      const changed = Object.keys(input).filter((key) => !['action', 'offer_reference'].includes(key));
+      if (changed.length) throw new Error('confirm or decline cannot change prepared offer terms');
+    }
 
   }
   if (name === 'recover_operation' && (!String(input.tool || '').trim() || !String(input.operation_key || '').trim())) throw new Error('tool and operation_key are required for recover_operation');

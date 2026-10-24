@@ -41,6 +41,50 @@ async function main() {
   assert.equal(created.amountCents, 20000);
   assert.equal(created.scope, 'booking');
   assert.equal(calls.length, 1);
-  console.log('PASS b2 contracts and booking checkout adapter');
+
+  let createdCalls = 0;
+  const pendingAuthority = group.createBookingCheckoutAuthority({
+    withPgClient: async fn => fn({ query: async () => ({ rows: [{ guest_active: false, other_group_active: true }] }) }),
+    buildPaymentLinkCommand: () => { throw new Error('must not build'); },
+  });
+  await assert.rejects(() => pendingAuthority.create({ bookingId: uuid, paymentChoice: 'deposit', operationKey: 'new-group', principalId: 'staff' }),
+    error => error.code === 'booking_payment_group_checkout_active');
+
+  let capturedIntentKey = null;
+  let expiredCalls = 0;
+  const retryAuthority = group.createBookingCheckoutAuthority({
+    withPgClient: async fn => fn({ query: async (sql, params) => {
+      if (/AS guest_active/.test(sql)) { capturedIntentKey = params[1]; return { rows: [{ guest_active: false, other_group_active: false }] }; }
+      if (/intent_key/.test(sql)) return { rows: [{ payment_id: 'pay-1', checkout_id: 'cs_test_1', intent_key: capturedIntentKey }] };
+      return { rows: [] };
+    } }),
+    buildPaymentLinkCommand: opts => ({ ok: true, command: opts }),
+    createPaymentLink: async () => { createdCalls += 1; return { ok: true, body: { payment_id: 'pay-1', amount_due_cents: 20000,
+      currency: 'EUR', checkout_url: 'https://checkout.stripe.com/c/pay', stripe_checkout_session_id: 'cs_test_1' } }; },
+    readStripeCheckout: async () => ({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay', livemode: false,
+      status: 'open', payment_status: 'unpaid', amount_total: 20000, currency: 'eur', expires_at: Math.floor(Date.now()/1000)+3600,
+      metadata: { client_slug: 'wolfhouse-somo', booking_id: uuid, payment_id: 'pay-1', payment_scope: 'booking' } }),
+    expireStripeCheckout: async () => { expiredCalls += 1; },
+  });
+  await retryAuthority.create({ bookingId: uuid, paymentChoice: 'balance', operationKey: 'same-balance', principalId: 'staff' });
+  assert.equal(expiredCalls, 0, 'same balance intent must not expire its own checkout');
+
+  let recoveryRead = true;
+  const recoveryAuthority = group.createBookingCheckoutAuthority({
+    withPgClient: async fn => fn({ query: async (sql) => {
+      if (/SELECT p.id::text payment_id/.test(sql) && recoveryRead) { recoveryRead = false; return { rows: [{ payment_id: 'pay-2', checkout_id: null }] }; }
+      if (/AS guest_active/.test(sql)) return { rows: [{ guest_active: false, other_group_active: false }] };
+      return { rows: [] };
+    } }),
+    buildPaymentLinkCommand: opts => ({ ok: true, command: opts }),
+    createPaymentLink: async () => ({ ok: true, body: { payment_id: 'pay-2', amount_due_cents: 20000,
+      currency: 'EUR', checkout_url: 'https://checkout.stripe.com/c/recovered', stripe_checkout_session_id: 'cs_test_recovered' } }),
+    readStripeCheckout: async () => ({ id: 'cs_test_recovered', url: 'https://checkout.stripe.com/c/recovered', livemode: false,
+      status: 'open', payment_status: 'unpaid', amount_total: 20000, currency: 'eur', expires_at: Math.floor(Date.now()/1000)+3600,
+      metadata: { client_slug: 'wolfhouse-somo', booking_id: uuid, payment_id: 'pay-2', payment_scope: 'booking' } }),
+  });
+  const recovered = await recoveryAuthority.read({ bookingId: uuid, paymentChoice: 'deposit', operationKey: 'lost-response', principalId: 'staff' });
+  assert.equal(recovered.checkoutId, 'cs_test_recovered');
+  console.log('PASS b2 contracts, exclusion, idempotent retry, and lost-response recovery');
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });

@@ -63,7 +63,7 @@ function availabilityBody(input, assignmentMode = false) {
   };
 }
 
-async function runAvailability(pg, input) {
+async function runAvailability(pg, input, context = {}) {
   const built = buildWolfhouseAvailabilityCommand({
     channel: AVAILABILITY_CHANNELS.VERTICAL_ADAPTER,
     trustedClientSlug: TENANT,
@@ -78,7 +78,9 @@ async function runAvailability(pg, input) {
     FROM luna_v3_hold_beds hb JOIN luna_v3_holds h ON h.id=hb.hold_id
     JOIN clients c ON c.id=h.client_id
     WHERE c.slug=$1 AND h.state='active' AND h.expires_at>clock_timestamp()
-      AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out]);
+      AND ($4::text IS NULL OR h.session_id<>(SELECT id FROM luna_v3_sessions WHERE client_id=h.client_id AND session_key=$4 LIMIT 1))
+      AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out,
+        context.ignoreOwnHolds === true || context.revalidationOnly === true ? context.sessionId || null : null]);
   const heldCodes = new Set(held.rows.map((row) => row.bed_code));
   const available = result.body.available_beds.filter((bed) => !heldCodes.has(bed.bed_code));
   const selected = Array.isArray(input.selected_bed_codes) ? input.selected_bed_codes : [];
@@ -107,7 +109,7 @@ function serviceFailure(result) {
 
 async function checkAvailability(pg, input = {}, context) {
   trusted(context); validate('checkAvailability', input);
-  const result = await runAvailability(pg, input);
+  const result = await runAvailability(pg, input, context);
   if (!result.ok) return serviceFailure(result);
   const body = result.body;
   return {
@@ -125,7 +127,7 @@ async function checkAvailability(pg, input = {}, context) {
 
 async function findRooms(pg, input = {}, context) {
   trusted(context); validate('findRooms', input);
-  const result = await runAvailability(pg, input);
+  const result = await runAvailability(pg, input, context);
   if (!result.ok) return serviceFailure(result);
   const body = result.body;
   const grouped = new Map();
@@ -144,7 +146,7 @@ async function findRooms(pg, input = {}, context) {
       guests: input.preferences.guests || [], selected_bed_codes: proposedBeds,
       room_type: input.preferences.room_type, room_preference: input.preferences.room_preference,
       keep_together: false,
-    });
+    }, context);
     const exact = checked.ok && checked.body && checked.body.exact_bed_eligibility;
     if (exact && exact.eligible === true) {
       splitSelection = {
@@ -353,7 +355,7 @@ async function computeQuote(pg, input = {}, context) {
     guests: input.guests, selected_bed_codes: selectedBeds,
     room_type: input.selection.room_type, room_preference: input.selection.room_preference,
     keep_together: input.selection.keep_together,
-  });
+  }, context);
   if (!availability.ok) return serviceFailure(availability);
   const current = availability.body;
   if (!current.exact_bed_eligibility || current.exact_bed_eligibility.eligible !== true) {

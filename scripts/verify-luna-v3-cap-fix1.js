@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { createCheckQuoteBook, replyShowsPrice } = require('./lib/model-led-luna/v3-booking-flow');
+const { createCheckQuoteBook, replyShowsPrice, replyShowsAuthoritativeTerms } = require('./lib/model-led-luna/v3-booking-flow');
 const { LUNA_V3_ROUTE_TO_TOOL } = require('./lib/model-led-luna/staff-routes');
 const { assertSafeToolRequest } = require('./lib/model-led-luna/contracts');
 
@@ -36,7 +36,8 @@ function deps(overrides = {}) {
 
 async function testCompleteOffer() {
   const pg = { async query(sql) {
-    if (sql.startsWith('BEGIN') || ['COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [] };
+    if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+    if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
     if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
@@ -56,7 +57,8 @@ async function testCompleteOffer() {
 async function testFailedOfferWriteRollsBackHold() {
   let released = 0;
   const pg = { async query(sql) {
-    if (sql.startsWith('BEGIN') || sql === 'ROLLBACK') return { rows: [] };
+    if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+    if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
     if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) throw new Error('offer write failed');
@@ -69,6 +71,16 @@ async function testFailedOfferWriteRollsBackHold() {
 async function main() {
   assert.equal(replyShowsPrice('The offer is €123.45.', 12345, 'EUR'), true);
   assert.equal(replyShowsPrice('An unrelated larger amount is €1123.45.', 12345, 'EUR'), false);
+  const presentationQuote = { totalCents: 12345, depositCents: 3000, currency: 'EUR', quoteInput: {
+    check_in: '2027-03-01', check_out: '2027-03-08', guests: [{ name: 'A' }],
+    selection: { selected_bed_codes: ['BED-1'] }, guest_packages: [{ package_code: 'malibu' }],
+    add_ons: [{ code: 'board', dates: ['2027-03-02'] }],
+  } };
+  const complete = 'Total €123.45; deposit €30.00; 2027-03-01 to 2027-03-08; A; BED-1; malibu; board on 2027-03-02.';
+  assert.equal(replyShowsAuthoritativeTerms(complete, presentationQuote), true);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu; ', ''), presentationQuote), false);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('board on 2027-03-02', ''), presentationQuote), false);
   assert.equal(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/book'], undefined, 'legacy public book route must be closed');
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', input));
   await testCompleteOffer();

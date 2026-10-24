@@ -144,7 +144,22 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             body = json.loads(response.read().decode("utf-8"))
             if not isinstance(body, dict):
                 return {"ok": False, "code": "malformed_staff_response"}
-            return body
+            private = {"bookingId", "paymentId", "paymentIds", "checkoutId", "guestId",
+                       "transferId", "authoritativeTransferId", "holdId", "consumedHoldId",
+                       "authorityKey", "payments", "events", "booking_id", "payment_id",
+                       "checkout_id", "transfer_id", "authoritative_transfer_id", "hold_id"}
+            if name == "get_booking":
+                private |= {"id", "phone", "booking_code", "payment_status", "total_amount_cents",
+                            "deposit_required_cents", "paid_cents", "balance_due_cents", "updated_at"}
+            if name == "get_payment_status":
+                private |= {"guests", "associations", "provider", "provider_readback"}
+            def redact(value: Any) -> Any:
+                if isinstance(value, list):
+                    return [redact(item) for item in value]
+                if isinstance(value, dict):
+                    return {key: redact(item) for key, item in value.items() if key not in private}
+                return value
+            return redact(body)
     except urllib.error.HTTPError as exc:
         result: dict[str, Any] = {"ok": False, "status": exc.code}
         try: staff = json.loads(exc.read().decode("utf-8"))
@@ -387,6 +402,17 @@ def register(ctx: Any) -> None:
                 "additionalProperties": False,
             },
         }
+        if name == "check_quote_book":
+            schema["parameters"]["allOf"] = [
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "information"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out"]}},
+                {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]},
+                 "then": {"required": ["offer_reference"], "not": {"anyOf": [
+                     {"required": [field]} for field in ("purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment")
+                 ]}}},
+            ]
         ctx.register_tool(
             name=name,
             toolset=TOOLSET,

@@ -27,27 +27,35 @@ function createBookingCheckoutAuthority(deps = {}) {
   if (typeof deps.withPgClient !== 'function') throw error('booking_checkout_db_unavailable');
 
   async function createBookingCheckout(args) {
+    const intentKey = providerIntentKey(args);
     const overlap = await deps.withPgClient(async (pg) => (await pg.query(
       `SELECT EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NOT NULL
         AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
         AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
           NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
-          NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS active`,
-      [args.bookingId])).rows[0]);
-    if (overlap && overlap.active) throw error('booking_payment_guest_checkout_active', 409);
+          NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS guest_active,
+        EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
+          AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
+          AND COALESCE(p.metadata->>'provider_idempotency_key',p.metadata->>'idempotency_key','')<>$2
+          AND ($3<>'balance' OR COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),
+            NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) IS NULL)) AS other_group_active`,
+      [args.bookingId,intentKey,args.paymentChoice])).rows[0]);
+    if (overlap && overlap.guest_active) throw error('booking_payment_guest_checkout_active', 409);
+    if (overlap && overlap.other_group_active) throw error('booking_payment_group_checkout_active', 409);
 
     // A balance checkout replaces, rather than coexists with, an earlier group
     // deposit checkout. Provider expiration is verified before publication.
     if (args.paymentChoice === 'balance') {
       const previous = await deps.withPgClient(async (pg) => {
         const row = (await pg.query(`SELECT p.id::text payment_id,COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),
-          NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) checkout_id
+          NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) checkout_id,
+          COALESCE(p.metadata->>'provider_idempotency_key',p.metadata->>'idempotency_key') intent_key
           FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
             AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
           ORDER BY p.created_at DESC NULLS LAST,p.id DESC LIMIT 1`, [args.bookingId])).rows[0];
         return row || null;
       });
-      if (previous && previous.checkout_id) {
+      if (previous && previous.checkout_id && previous.intent_key !== intentKey) {
         const previousId = previous.checkout_id;
         if (typeof deps.readStripeCheckout !== 'function' || typeof deps.expireStripeCheckout !== 'function')
           throw error('provider_expiration_unavailable');
@@ -78,7 +86,7 @@ function createBookingCheckoutAuthority(deps = {}) {
       channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
       trustedClientSlug: 'wolfhouse-somo',
       bookingId: args.bookingId,
-      idempotencyKey: providerIntentKey(args),
+      idempotencyKey: intentKey,
       actor: { staff_user_id: args.principalId },
       target: 'booking',
       paymentChoice: args.paymentChoice,
@@ -114,7 +122,12 @@ function createBookingCheckoutAuthority(deps = {}) {
       FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
         AND (p.metadata->>'provider_idempotency_key'=$2 OR p.metadata->>'idempotency_key'=$2)
       ORDER BY p.created_at DESC NULLS LAST,p.id DESC LIMIT 1`, [args.bookingId, key])).rows[0]);
-    if (!row || !row.checkout_id) return null;
+    if (!row || !row.checkout_id) {
+      // Stripe may have accepted the idempotent create before the local checkout
+      // id was persisted. Reissue the exact authority command so Stripe returns
+      // the same session and the service can complete local persistence.
+      return createBookingCheckout(args);
+    }
     const provider = await deps.readStripeCheckout(row.checkout_id);
     if (!provider || provider.id !== row.checkout_id) return null;
     return { scope: 'booking', bookingId: args.bookingId, paymentId: row.payment_id,
