@@ -30,13 +30,6 @@ def _open_staff(request: Any, base_url: str) -> Any:
 
 TOOL_PATHS = {
     "check_quote_book": "/staff/bot/luna-v3/check-quote-book",
-    "check_availability": "/staff/bot/luna-v3/check-availability",
-    "find_rooms": "/staff/bot/luna-v3/find-rooms",
-    "get_pricing_catalog": "/staff/bot/luna-v3/pricing-catalog",
-    "quote": "/staff/bot/luna-v3/quote",
-    "hold_beds": "/staff/bot/luna-v3/hold-beds",
-    "book": "/staff/bot/luna-v3/book",
-    "release_hold": "/staff/bot/luna-v3/release-hold",
     "get_booking": "/staff/bot/luna-v3/get-booking",
     "get_payment_status": "/staff/bot/luna-v3/payment-status",
     "send_payment_link": "/staff/bot/luna-v3/payment-link",
@@ -45,11 +38,13 @@ TOOL_PATHS = {
     "write_note": "/staff/bot/luna-v3/notes/write",
     "save_transfer_request": "/staff/bot/luna-v3/transfer-request",
     "handoff_to_human": "/staff/bot/luna-v3/handoff",
-    "recover_operation": "/staff/bot/luna-v3/recover-operation",
 }
-TOOL_NAMES = tuple(TOOL_PATHS)
+TOOL_NAMES = (
+    "check_quote_book", "get_booking", "get_payment_status", "send_payment_link",
+    "cancel_unpaid", "read_notes", "write_note", "save_transfer_request", "handoff_to_human",
+)
 WRITE_TOOLS = frozenset({
-    "check_quote_book", "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
+    "check_quote_book", "send_payment_link", "cancel_unpaid",
     "write_note", "save_transfer_request", "handoff_to_human",
 })
 FORBIDDEN_FIELDS = frozenset({
@@ -108,12 +103,11 @@ def _reject_authority_fields(value: Any, path: str = "arguments") -> None:
 
 
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-    if name not in TOOL_PATHS:
-        raise ValueError(f"unknown Luna v3 tool: {name}")
+    if name not in TOOL_NAMES:
+        raise ValueError(f"unknown Luna v3 public tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
-    if name == "recover_operation" and (not str(arguments.get("tool", "")).strip() or not str(arguments.get("operation_key", "")).strip()):
-        raise ValueError("tool and operation_key are required for recover_operation")
+
     if name in WRITE_TOOLS and name != "check_quote_book" and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 

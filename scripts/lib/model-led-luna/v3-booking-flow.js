@@ -49,7 +49,8 @@ function chooseBeds(input, rooms) {
   return candidate ? candidate.bedOptions.slice(0, input.guests.length).map((bed) => bed.code) : [];
 }
 function packageSelection(input, catalog) {
-  const byName = new Map((catalog.packages || []).flatMap((pkg) => [[String(pkg.name || '').toLowerCase(), pkg.code], [String(pkg.code || '').toLowerCase(), pkg.code]]));
+  const packages = catalog.packages || (catalog.items || []).filter((item) => item.item_type === 'package').map((item) => ({ name: item.label, code: item.item_code }));
+  const byName = new Map(packages.flatMap((pkg) => [[String(pkg.name || '').toLowerCase(), pkg.code], [String(pkg.code || '').toLowerCase(), pkg.code]]));
   const resolve = (name) => name === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
   if (input.package && Array.isArray(input.package.per_guest)) {
     const rows = input.package.per_guest.map((row) => ({ guest_number: row.guest, package_code: resolve(row.name) }));
@@ -59,7 +60,9 @@ function packageSelection(input, catalog) {
   return code ? { package_id: code } : null;
 }
 function addOns(input, catalog) {
-  const all = [...(catalog.services || []), ...(catalog.rentals || [])];
+  const all = catalog.items
+    ? catalog.items.filter((item) => item.item_type === 'service').map((item) => ({ name: item.label, code: item.item_code }))
+    : [...(catalog.services || []), ...(catalog.rentals || [])];
   const byName = new Map(all.flatMap((item) => [[String(item.name || '').toLowerCase(), item.code], [String(item.code || '').toLowerCase(), item.code]]));
   return (input.add_ons || []).map((item) => ({
     code: byName.get(String(item.name || '').toLowerCase()),

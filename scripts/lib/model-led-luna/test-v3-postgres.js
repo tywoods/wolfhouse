@@ -175,6 +175,10 @@ async function main(api = defaultApi) {
       ),
       "utf8",
     );
+    const migration123 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/123_luna_v3_one_try_offers.sql"),
+      "utf8",
+    );
     await admin.query(base);
     await admin.query(migration091);
     await admin.query(
@@ -790,8 +794,9 @@ async function main(api = defaultApi) {
       `COMMENT ON TABLE luna_v3_transfer_requests IS '115_luna_v3_guest_operations v1'`,
     );
     await admin.query(migration120);
+    await admin.query(migration123);
     console.log(
-      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
+      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
     await admin.query(
       `INSERT INTO clients(id,slug) VALUES($1,'wolfhouse-somo')`,
@@ -3247,6 +3252,26 @@ async function main(api = defaultApi) {
     console.log(
       "PASS route->registry authenticated server-bound composition and cross-principal denial",
     );
+    const oneTryContext = { ...ctx("luna-v3:a"), turnId: "turn:one-try-prepare" };
+    const prepared = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, oneTryContext);
+    assert.equal(prepared.state, "offer", JSON.stringify(prepared));
+    assert.match(prepared.offer_reference, /^offer_/);
+    assert.equal(Object.hasOwn(prepared, "holdId"), false);
+    const recorded = await api.checkQuoteBook(admin, {
+      action: "_record_presented", offer_reference: prepared.offer_reference, assistant_reply: "Your complete TEST offer is ready.",
+    }, { ...oneTryContext, turnId: "turn:one-try-presented" });
+    assert.equal(recorded.recorded, true, JSON.stringify(recorded));
+    const confirmed = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, turnId: "turn:one-try-confirm" });
+    assert.equal(confirmed.state, "booked", JSON.stringify(confirmed));
+    assert.equal(Object.hasOwn(confirmed, "bookingId"), false);
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns WHERE offer_reference=$1 AND presented_at IS NOT NULL AND accepted_at IS NOT NULL`, [prepared.offer_reference])).rows[0].n, 1);
+    console.log("PASS V3-ONE-TRY-POSTGRES public prepare/presentation/confirm with internal IDs retained by Staff");
     observations.holdAllOrNone = true;
     observations.noBedSubstitution = true;
     observations.toolBook = true;
