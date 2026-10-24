@@ -147,6 +147,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         quote = next(tool for tool in ctx.tools if tool["name"] == "quote")["schema"]["parameters"]
         guest = quote["properties"]["guests"]["items"]
         selection = quote["properties"]["selection"]
+        add_on = quote["properties"]["add_ons"]["items"]
 
         self.assertEqual({"name", "explicit_gender"}, set(guest["properties"]))
         self.assertFalse(guest["additionalProperties"])
@@ -159,6 +160,21 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertNotIn("assignments", selection["properties"])
         self.assertNotIn("same_room_required", selection["properties"])
         self.assertEqual({"type": "boolean"}, selection["properties"]["keep_together"])
+        self.assertEqual({"code", "days", "quantity", "dates"}, set(add_on["properties"]))
+        self.assertEqual("date", add_on["properties"]["dates"]["items"]["format"])
+        self.assertFalse(add_on["additionalProperties"])
+
+    def test_soul_enforces_staff_truth_and_guest_safe_wording(self):
+        soul = (PLUGIN_ROOT.parent / "SOUL.md").read_text()
+        for phrase in (
+            "current Staff Pricing is the sole authority",
+            "do not infer open or closed and do not quote it",
+            "After every `book` result, call `get_booking`",
+            "call `read_notes` for the late-check-in procedure",
+            "exact requested calendar dates in the quote `add_ons[].dates` field",
+            "never mention an internal label mismatch to a guest",
+        ):
+            self.assertIn(phrase, soul)
 
     def test_authentic_hermes_scanner_discovers_native_manifest(self):
         sys.path.insert(0, "/opt/hermes")

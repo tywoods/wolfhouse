@@ -179,6 +179,7 @@ function normalizeLunaBookingAddOnsInput(addOns) {
       || code === 'wetsuit_soft_top_combo' || code === 'wetsuit_hard_board_combo') {
       const days = raw.days != null ? Math.max(1, parseInt(raw.days, 10) || 1) : rentalDaysFromAddOn(raw);
       const item = { code, days };
+      if (Array.isArray(raw.dates)) item.dates = raw.dates.map((date) => String(date));
       if (raw.quantity != null || raw.people != null) {
         item.quantity = rentalPeopleFromAddOn(raw, 1);
       }
@@ -313,6 +314,9 @@ function normalizeQuoteAddOnsForCombo(addOns, guestCount) {
       const bIdx = list.findIndex((a, j) => !used.has(j) && a.code === boardCode);
       if (bIdx < 0) continue;
       const bDays = rentalDaysFromAddOn(list[bIdx]);
+      const wetsuitDates = Array.isArray(list[i].dates) ? list[i].dates : null;
+      const boardDates = Array.isArray(list[bIdx].dates) ? list[bIdx].dates : null;
+      if ((wetsuitDates || boardDates) && JSON.stringify(wetsuitDates) !== JSON.stringify(boardDates)) continue;
       const overlap = Math.min(wDays, bDays);
       if (overlap <= 0) continue;
 
@@ -322,7 +326,7 @@ function normalizeQuoteAddOnsForCombo(addOns, guestCount) {
         rentalPeopleFromAddOn(list[i], defaultPeople),
         rentalPeopleFromAddOn(list[bIdx], defaultPeople),
       );
-      out.push({ code: comboCode, days: overlap, quantity: people });
+      out.push({ code: comboCode, days: overlap, quantity: people, ...(wetsuitDates ? { dates: wetsuitDates.slice(0, overlap) } : {}) });
       const extraBoard = bDays - overlap;
       const extraWetsuit = wDays - overlap;
       if (extraBoard > 0) out.push({ code: boardCode, days: extraBoard, quantity: people });

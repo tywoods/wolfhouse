@@ -165,6 +165,7 @@ async function loadV3DbOnlyQuoteConfig(pg) {
   const base = await loadBookingQuoteConfigWithOverlay(pg);
   const config = JSON.parse(JSON.stringify(base));
   config.packages = [];
+  config.seasons = data.seasons;
   config.add_ons = {};
   config.room_supplements = {};
   config.deposits = { tiers: {} };
@@ -206,6 +207,47 @@ function catalogRevision(data) {
   return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 24);
 }
 
+function resolveStaySeasonCoverage(seasons, checkIn, checkOut) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(checkIn || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(checkOut || ''))) return null;
+  const start = new Date(`${checkIn}T00:00:00Z`);
+  const end = new Date(`${checkOut}T00:00:00Z`);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return null;
+  const nights = [];
+  for (let date = new Date(start); date < end; date.setUTCDate(date.getUTCDate() + 1)) {
+    const iso = date.toISOString().slice(0, 10);
+    const season = resolveSeasonForDate(seasons, iso);
+    nights.push({ date: iso, seasonCode: season && season.code || null, bookable: season ? season.bookable !== false : null });
+  }
+  const missingDates = nights.filter((night) => !night.seasonCode).map((night) => night.date);
+  const closedDates = nights.filter((night) => night.seasonCode && night.bookable === false).map((night) => night.date);
+  return {
+    status: missingDates.length ? 'unpriceable' : closedDates.length ? 'closed' : 'bookable',
+    missingDates,
+    closedDates,
+    nights,
+  };
+}
+
+function isIsoCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function validateRentalDateSelections(addOns, pricingAddOns, checkIn, checkOut) {
+  for (const addOn of Array.isArray(addOns) ? addOns : []) {
+    const pricing = pricingAddOns && pricingAddOns[addOn.code];
+    if (!pricing || pricing.pricing_unit !== 'per_day') continue;
+    if (!Array.isArray(addOn.dates) || addOn.dates.length === 0) return { ok: false, code: 'rental_dates_required', addOnCode: addOn.code };
+    if (!Number.isSafeInteger(addOn.days) || addOn.days !== addOn.dates.length) return { ok: false, code: 'rental_dates_duration_mismatch', addOnCode: addOn.code };
+    const unique = new Set(addOn.dates);
+    if (unique.size !== addOn.dates.length || addOn.dates.some((date) => !isIsoCalendarDate(date) || date < checkIn || date >= checkOut)) {
+      return { ok: false, code: 'rental_dates_invalid', addOnCode: addOn.code };
+    }
+  }
+  return { ok: true };
+}
+
 async function getPricingCatalog(pg, input = {}, context) {
   trusted(context); validate('getPricingCatalog', input);
   let data;
@@ -220,6 +262,7 @@ async function getPricingCatalog(pg, input = {}, context) {
   return {
     ok: true, source: 'staff_pricing', version: catalogRevision(data),
     checkIn: input.check_in, checkOut: input.check_out,
+    seasonCoverage: resolveStaySeasonCoverage(data.seasons, input.check_in, input.check_out),
     seasons: data.seasons, items, rules, transferOptions: data.transfers,
   };
 }
@@ -257,6 +300,15 @@ async function computeQuote(pg, input = {}, context) {
   let config;
   try { config = await loadV3DbOnlyQuoteConfig(pg); }
   catch (error) { return { ok: false, status: 503, code: error.code || 'STAFF_PRICING_UNAVAILABLE' }; }
+  const seasonCoverage = resolveStaySeasonCoverage(config.seasons, input.check_in, input.check_out);
+  if (!seasonCoverage || seasonCoverage.status === 'unpriceable') {
+    return { ok: false, status: 422, code: 'staff_pricing_season_missing', seasonCoverage, handoffRequired: true };
+  }
+  if (seasonCoverage.status === 'closed') {
+    return { ok: false, status: 422, code: 'staff_pricing_season_closed', seasonCoverage, handoffRequired: false };
+  }
+  const rentalDates = validateRentalDateSelections(input.add_ons, config.add_ons, input.check_in, input.check_out);
+  if (!rentalDates.ok) return { ok: false, status: 422, ...rentalDates };
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
     guest_count: input.guests.length, guests: input.guests,
@@ -337,4 +389,5 @@ function createOperations(withPgClient, authorities = {}) {
 const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
+Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});
 Object.freeze(module.exports);

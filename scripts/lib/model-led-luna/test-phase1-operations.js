@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict');
 const defaultApi = require('./index');
 const v3Operations = require('./v3-operations');
+const { normalizeQuoteAddOnsForCombo } = require('../guest-addon-pricing');
+const { buildManualBookingServiceRecordRows } = require('../manual-booking-service-records');
 
 const rooms = [
   { room_id: 'r10', room_code: 'R10', room_name: 'Room 10', room_type: 'shared', selling_mode: 'shared', capacity: 2, fill_priority: 1, room_sort_order: 1, gender_strategy: 'mixed', bed_id: 'b10a', bed_code: 'R10-B1', bed_label: '1', bed_number: 1, bed_active: true, bed_sellable: true },
@@ -22,7 +24,7 @@ const rules = [
   { id: 'r1', item_type: 'rental', item_code: 'wetsuit_soft_top_combo', season_code: null, unit: 'per_day', amount_cents: 1500, currency: 'EUR', active: true, source: 'db' },
 ];
 
-function staffPg({ blocks = [], pricingDown = false } = {}) {
+function staffPg({ blocks = [], pricingDown = false, seasonRows = seasons } = {}) {
   const observations = [];
   return {
     observations,
@@ -34,7 +36,7 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
       if (/FROM luna_v3_hold_beds hb/.test(sql)) return { rows: [] };
       if (/FROM wh_pricing_seasons s/.test(sql)) {
         if (pricingDown) throw new Error('pricing unavailable');
-        return { rows: seasons };
+        return { rows: seasonRows };
       }
       if (/FROM wh_pricing_rules/.test(sql)) return { rows: rules };
       if (/FROM wh_pricing_items/.test(sql)) return { rows: items };
@@ -89,9 +91,26 @@ async function main(api = defaultApi) {
   assert.equal(catalog.source, 'staff_pricing');
   assert.equal(catalog.items[0].metadata.includes[1], 'surf');
   assert.equal(catalog.rules.find((row) => row.item_code === 'malibu').amount_cents, 50000);
+  assert.equal(catalog.seasonCoverage.status, 'bookable');
+  const pricingCoverage = api.resolveStaySeasonCoverage([
+    { code: 'november', active: true, bookable: true, ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 30 }] },
+    { code: 'closed', active: true, bookable: false, ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }] },
+  ], '2026-11-29', '2026-12-02');
+  assert.equal(pricingCoverage.status, 'closed');
+  assert.deepEqual(pricingCoverage.closedDates, ['2026-12-01']);
+  assert.equal(api.resolveStaySeasonCoverage([], '2026-07-01', '2026-07-03').status, 'unpriceable');
 
   const unavailable = await api.getPricingCatalog(staffPg({ pricingDown: true }), { check_in: '2027-07-01', check_out: '2027-07-08' }, context);
   assert.deepEqual(unavailable, { ok: false, status: 503, code: 'STAFF_PRICING_UNAVAILABLE' });
+
+  const novemberOnly = [{ id: 's2', code: 'november', label: 'November', priority: 1, bookable: true, active: true, sort_order: 1,
+    ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 30 }] }];
+  const missingSeasonQuote = await api.quote(staffPg({ seasonRows: novemberOnly }), {
+    operation_key: 'quote-missing-season', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }],
+    selection: { selected_bed_codes: ['R10-B1'], room_type: 'shared' }, add_ons: [],
+  }, context);
+  assert.equal(missingSeasonQuote.code, 'staff_pricing_season_missing');
+  assert.equal(missingSeasonQuote.handoffRequired, true);
 
   await assert.rejects(() => api.quote(pg, {
     operation_key: 'quote-bad', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
@@ -114,7 +133,7 @@ async function main(api = defaultApi) {
   const shortStayRental = await api.quote(staffPg(), {
     operation_key: 'quote-short-rental', check_in: '2027-07-01', check_out: '2027-07-06', guests: [{ name: 'Tom' }],
     selection: { selected_bed_codes: ['R10-B1'], room_type: 'shared' },
-    add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1 }],
+    add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1, dates: ['2027-07-02', '2027-07-03', '2027-07-04'] }],
   }, context);
   assert.equal(shortStayRental.ok, true, JSON.stringify(shortStayRental));
   assert.equal(shortStayRental.totalCents, 42000, 'accommodation-only 5-night stay plus three rental days');
@@ -122,6 +141,23 @@ async function main(api = defaultApi) {
   assert(shortStayRental.lineItems.some((row) => row.code === 'wetsuit_soft_top_combo' && row.total_cents === 4500));
   assert.equal(shortStayRental.lineItems.find((row) => row.code === 'wetsuit_soft_top_combo').label,
     'Wetsuit + Soft board combo (3 days × 1 person × 15€)');
+  const datedAddOns = normalizeQuoteAddOnsForCombo([
+    { code: 'wetsuit_soft_top_combo', days: 3, quantity: 1, dates: ['2027-07-02', '2027-07-03', '2027-07-04'] },
+  ], 1);
+  assert.deepEqual(datedAddOns[0].dates, ['2027-07-02', '2027-07-03', '2027-07-04']);
+  const serviceRows = buildManualBookingServiceRecordRows({
+    addOns: datedAddOns, quote: { line_items: shortStayRental.lineItems }, clientSlug: 'wolfhouse-somo',
+    bookingId: '00000000-0000-0000-0000-000000000001', bookingCode: 'V3-DATED', guestName: 'Tom', guestCount: 1,
+  });
+  assert(serviceRows.length >= 2);
+  assert(serviceRows.every((row) => row.service_date === '2027-07-02'));
+  assert(serviceRows.every((row) => JSON.stringify(row.metadata.requested_dates) === JSON.stringify(['2027-07-02', '2027-07-03', '2027-07-04'])));
+  const missingRentalDates = await api.quote(staffPg(), {
+    operation_key: 'quote-rental-without-dates', check_in: '2027-07-01', check_out: '2027-07-06', guests: [{ name: 'Tom' }],
+    selection: { selected_bed_codes: ['R10-B1'], room_type: 'shared' },
+    add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1 }],
+  }, context);
+  assert.equal(missingRentalDates.code, 'rental_dates_required');
   observations.staffComputedMoney = true;
   observations.toolCheckAvailability = true;
   observations.toolFindRooms = true;

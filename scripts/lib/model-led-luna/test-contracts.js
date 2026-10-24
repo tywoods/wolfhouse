@@ -27,6 +27,10 @@ async function main() {
   assert.throws(() => assertSafeToolRequest('hold_beds', { operation_key: '' }), /operation_key/);
   assert.throws(() => assertSafeToolRequest('send_payment_link', { amount_cents: 123 }), /model-supplied authority field/);
   assert.throws(() => assertSafeToolRequest('find_rooms', { silently_relax_together: true }), /authority field/);
+  assert.doesNotThrow(() => assertSafeToolRequest('quote', {
+    operation_key: 'rental-dates',
+    add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1, dates: ['2026-11-13', '2026-11-14', '2026-11-15'] }],
+  }));
 
   const request = buildStaffToolRequest('book', {
     hold_id: 'hold-test-1',

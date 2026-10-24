@@ -51,7 +51,7 @@ const NESTED_SCHEMAS = Object.freeze({
   preferences: new Set(['room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   selection: new Set(['room_id', 'bed_ids', 'selected_bed_codes', 'room_type', 'room_preference', 'keep_together']),
   guest_packages: new Set(['guest_number', 'package_code']),
-  add_ons: new Set(['code', 'days', 'quantity']),
+  add_ons: new Set(['code', 'days', 'quantity', 'dates']),
   assignments: new Set(['bed_code', 'guest_name', 'package_code']),
   context: new Set(['topic', 'kind', 'detail']),
   travel_details: new Set(['airport', 'direction', 'date', 'time', 'flight', 'passengers', 'boards']),

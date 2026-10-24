@@ -65,7 +65,7 @@ function buildManualBookingServiceRecordRows({
   }
 
   function pushRow({
-    serviceType, quantity, amountDueCents, sourceAddonCode, metadataExtra,
+    serviceType, serviceDate = null, quantity, amountDueCents, sourceAddonCode, metadataExtra,
   }) {
     const meta = {
       source_addon_code: sourceAddonCode,
@@ -78,7 +78,7 @@ function buildManualBookingServiceRecordRows({
       booking_code:       bookingCode,
       guest_name:         guestName,
       service_type:       serviceType,
-      service_date:       null,
+      service_date:       serviceDate,
       quantity:           Math.max(1, Number(quantity) || 1),
       status:             'confirmed',
       amount_due_cents:   amt,
@@ -97,14 +97,17 @@ function buildManualBookingServiceRecordRows({
     const people = Math.max(1, parseInt(addon.quantity, 10) || parseInt(addon.people, 10) || Math.max(1, Number(guestCount) || 1));
     const liAmt = quoteLineItemAmount(quote, addon.code);
     const boardVariant = boardVariantForAddonCode(addon.code);
+    const requestedDates = Array.isArray(addon.dates) ? addon.dates : [];
     const comboMeta = {
       rental_days: days,
       rental_people: people,
+      requested_dates: requestedDates,
       source_quote_line_code: addon.code,
       board_variant: boardVariant,
     };
     pushRow({
       serviceType: 'wetsuit',
+      serviceDate: requestedDates[0] || null,
       quantity: days,
       amountDueCents: 0,
       sourceAddonCode: addon.code,
@@ -118,6 +121,7 @@ function buildManualBookingServiceRecordRows({
     const boardUnit = quoteLineItemUnitCents(quote, addon.code, days * people);
     pushRow({
       serviceType: 'surfboard',
+      serviceDate: requestedDates[0] || null,
       quantity: days,
       amountDueCents: liAmt != null ? liAmt : 0,
       sourceAddonCode: addon.code,
@@ -148,14 +152,17 @@ function buildManualBookingServiceRecordRows({
     const unitCents = quoteLineItemUnitCents(quote, addon.code, days * people);
     const boardVariant = boardVariantForAddonCode(addon.code);
     const staffUi = staffUiTypeForAddonCode(addon.code);
+    const requestedDates = Array.isArray(addon.dates) ? addon.dates : [];
     pushRow({
       serviceType,
+      serviceDate: requestedDates[0] || null,
       quantity: days,
       amountDueCents: liAmt != null ? liAmt : 0,
       sourceAddonCode: addon.code,
       metadataExtra: {
         rental_days: days,
         rental_people: people,
+        requested_dates: requestedDates,
         source_quote_line_code: addon.code,
         pricing_addon_code: addon.code,
         unit_cents: unitCents,

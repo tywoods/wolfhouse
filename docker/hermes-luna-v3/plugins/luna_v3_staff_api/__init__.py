@@ -266,6 +266,12 @@ def _field_schema(field: str) -> dict[str, Any]:
                     "code": {"type": "string", "minLength": 1},
                     "days": {"type": "integer", "minimum": 1},
                     "quantity": {"type": "integer", "minimum": 1},
+                    "dates": {
+                        "type": "array",
+                        "items": {"type": "string", "format": "date"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
                 },
                 "required": ["code"],
                 "additionalProperties": False,
