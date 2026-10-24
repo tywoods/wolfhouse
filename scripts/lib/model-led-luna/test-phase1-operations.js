@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const api = require('./index');
+const defaultApi = require('./index');
 
 const rooms = [
   { room_id: 'r10', room_code: 'R10', room_name: 'Room 10', room_type: 'shared', selling_mode: 'shared', capacity: 2, fill_priority: 1, room_sort_order: 1, gender_strategy: 'mixed', bed_id: 'b10a', bed_code: 'R10-B1', bed_label: '1', bed_number: 1, bed_active: true, bed_sellable: true },
@@ -45,7 +45,7 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
   };
 }
 
-async function main() {
+async function main(api = defaultApi) {
   const observations = {};
   const context = { tenantId: 'wolfhouse-somo', authenticated: true,
     sessionId: 'luna-v3:test', principalId: 'test-principal', writeAllowed: true };

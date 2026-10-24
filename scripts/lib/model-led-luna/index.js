@@ -78,8 +78,13 @@ async function runAvailability(pg, input) {
   const heldCodes = new Set(held.rows.map((row) => row.bed_code));
   const available = result.body.available_beds.filter((bed) => !heldCodes.has(bed.bed_code));
   const selected = Array.isArray(input.selected_bed_codes) ? input.selected_bed_codes : [];
-  const exact = selected.length ? { ...(result.body.exact_bed_eligibility || {}), eligible:selected.every(code=>available.some(b=>b.bed_code===code)), unavailable_bed_codes:selected.filter(code=>!available.some(b=>b.bed_code===code)) } : result.body.exact_bed_eligibility;
-  const enough = available.length >= Number(input.party_size || 0);
+  const authorityExact = result.body.exact_bed_eligibility || {};
+  const heldSelected = selected.filter(code=>heldCodes.has(code));
+  // Holds only add a narrow inventory refusal. Never erase a Staff eligibility refusal.
+  const exact = selected.length ? { ...authorityExact,
+    eligible:authorityExact.eligible === true && heldSelected.length === 0,
+    unavailable_bed_codes:[...new Set([...(authorityExact.unavailable_bed_codes || []),...heldSelected])] } : authorityExact;
+  const enough = result.body.has_enough_beds !== false && available.length >= Number(input.party_size || 0);
   const holdRevision = crypto.createHash('sha256').update([...heldCodes].sort().join('\n')).digest('hex').slice(0, 16);
   return { ...result, body: { ...result.body, available_beds: available, exact_bed_eligibility: exact,
     available_count: available.length, has_enough_beds: enough,

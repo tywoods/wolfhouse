@@ -1634,7 +1634,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Server-owned bounded Luna v3 guest phone and final locked exact-bed eligibility invariant.",
-      "sha256": "d1e3cc96c4bb9fbe9f2d07e17e7bca2c048c42978538fb0642718ff399b6658c"
+      "sha256": "ae6c7774a084437b1e339d83e8195ba30f48ba259eb2e127981d6be741bdd3f7"
     },
     {
       "id": "117_cancel_unpaid_payment_race_guard",
@@ -1643,7 +1643,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
-      "sha256": "73690cfdad1cb26b4eb4ec9167fa2550e1d9e494dc9f2391905f77342ec58117"
+      "sha256": "dcc963bb4fa43e72ad346ddc1b4d26af9d058896f75b6aef73606e3e4a74d5eb"
     },
     {
       "id": "118_luna_v3_private_optional_hold_eligibility",

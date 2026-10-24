@@ -110,7 +110,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         raise ValueError(f"unknown Luna v3 tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
-    if name in WRITE_TOOLS and not str(arguments.get("operation_key", "")).strip():
+    if (name in WRITE_TOOLS or name == "recover_operation") and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
     runtime = _runtime()
@@ -146,6 +146,13 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 value = staff.get(field)
                 if isinstance(value, str) and value and len(value) <= 160:
                     result[field] = value
+            if exc.code == 409:
+                for field in ("reason", "handoffId", "handoffOperationKey"):
+                    value = staff.get(field)
+                    if isinstance(value, str) and value and len(value) <= 160:
+                        result[field] = value
+                if isinstance(staff.get("requiredHumanHandoff"), bool):
+                    result["requiredHumanHandoff"] = staff["requiredHumanHandoff"]
             if isinstance(staff.get("outcome_unknown"), bool):
                 result["outcome_unknown"] = staff["outcome_unknown"]
             if exc.code < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
@@ -200,7 +207,7 @@ _TOOL_REQUIRED = {
     "write_note": ("text", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
-    "recover_operation": (),
+    "recover_operation": ("operation_key",),
 }
 
 
@@ -211,7 +218,16 @@ def _field_schema(field: str) -> dict[str, Any]:
         return {"type": "array", "items": {"type": "string", "minLength": 1}}
     if field in {"guests", "assignments", "guest_packages", "add_ons"}:
         return {"type": "array", "items": {"type": "object"}}
-    if field in {"preferences", "selection", "travel_details", "context"}:
+    if field == "context":
+        return {
+            "type": "object",
+            "properties": {
+                key: {"type": "string", "minLength": 1, "maxLength": 500}
+                for key in ("topic", "kind", "detail")
+            },
+            "additionalProperties": False,
+        }
+    if field in {"preferences", "selection", "travel_details"}:
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 

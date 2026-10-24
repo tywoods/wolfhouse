@@ -24,6 +24,12 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual("object", registry.tools["write_note"]["properties"]["context"]["type"])
         self.assertEqual("object", registry.tools["handoff_to_human"]["properties"]["context"]["type"])
         self.assertNotIn("operation_reference", registry.tools["recover_operation"]["properties"])
+        self.assertIn("operation_key", registry.tools["recover_operation"]["required"])
+        for name in ("write_note", "handoff_to_human"):
+            context = registry.tools[name]["properties"]["context"]
+            self.assertEqual({"topic", "kind", "detail"}, set(context["properties"]))
+            self.assertFalse(context["additionalProperties"])
+            self.assertTrue(all(field["maxLength"] == 500 for field in context["properties"].values()))
 
     def test_http_error_fields_and_cross_host_redirect(self):
         plugin = self.load_plugin()
@@ -41,6 +47,43 @@ class LunaV3PluginContractTests(unittest.TestCase):
             failed = plugin.call_tool("get_payment_status", {"booking_id":"b1"})
         self.assertEqual("unknown", failed["outcome"])
         self.assertEqual("unknown", failed["recoveryStatus"])
+
+    def test_staff_409_preserves_bounded_handoff_receipt(self):
+        plugin = self.load_plugin()
+        body = {
+            "reason": "payment evidence needs Staff review",
+            "requiredHumanHandoff": True,
+            "handoffId": "handoff-123",
+            "handoffOperationKey": "cancel-refusal:abc",
+            "ignored": "not admitted",
+        }
+        error = urllib.error.HTTPError("https://staff.example/x", 409, "Conflict", None,
+                                      io.BytesIO(json.dumps(body).encode()))
+        env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
+            result = plugin.call_tool("cancel_unpaid", {"operation_key":"cancel-1"})
+        for field in ("reason", "requiredHumanHandoff", "handoffId", "handoffOperationKey"):
+            self.assertEqual(body[field], result[field])
+        self.assertNotIn("ignored", result)
+
+        body["reason"] = "r" * 161
+        body["handoffId"] = 7
+        body["handoffOperationKey"] = "k" * 161
+        error = urllib.error.HTTPError("https://staff.example/x", 409, "Conflict", None,
+                                      io.BytesIO(json.dumps(body).encode()))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
+            bounded = plugin.call_tool("cancel_unpaid", {"operation_key":"cancel-2"})
+        self.assertNotIn("reason", bounded)
+        self.assertNotIn("handoffId", bounded)
+        self.assertNotIn("handoffOperationKey", bounded)
+        self.assertTrue(bounded["requiredHumanHandoff"])
+
+    def test_recover_operation_rejects_missing_key_before_transport(self):
+        plugin = self.load_plugin()
+        with patch.object(plugin, "_open_staff") as transport:
+            with self.assertRaisesRegex(ValueError, "operation_key is required"):
+                plugin.call_tool("recover_operation", {})
+        transport.assert_not_called()
     def load_plugin(self):
         spec = importlib.util.spec_from_file_location("luna_v3_staff_api", PLUGIN_PATH)
         module = importlib.util.module_from_spec(spec)

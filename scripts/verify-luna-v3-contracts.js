@@ -1257,8 +1257,17 @@ function phase1RowsFromObservations(observations) {
 
 async function runCanonicalPhase1(api) {
   if (!api || typeof api.book !== 'function' || !process.env.V3_TEST_DATABASE_URL) return null;
-  const focused = await require('./lib/model-led-luna/test-phase1-operations').main();
-  const postgres = await require('./lib/model-led-luna/test-v3-postgres').main();
+  const focusedSuite = require('./lib/model-led-luna/test-phase1-operations');
+  const postgresSuite = require('./lib/model-led-luna/test-v3-postgres');
+  await assert.rejects(
+    () => focusedSuite.main({
+      ...api,
+      checkAvailability: async () => ({ availableCount: 999, bedIds: [], activeHoldInclusion: 'broken' }),
+    }),
+    'canonical suite accepted a substituted broken selected handler',
+  );
+  const focused = await focusedSuite.main(api);
+  const postgres = await postgresSuite.main(api);
   const observations = { ...(focused && focused.observations), ...(postgres && postgres.observations) };
   const absent = phase1RowsFromObservations({});
   assert.equal(absent.filter((row) => row.status === 'pass').length, 0, 'absent named observations produced Phase 1 PASS');

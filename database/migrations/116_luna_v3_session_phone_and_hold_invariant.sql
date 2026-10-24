@@ -3,7 +3,7 @@
 BEGIN;
 
 DO $ownership$
-DECLARE marker text;
+DECLARE marker text; hold_marker text;
 BEGIN
   IF to_regclass('public.luna_v3_sessions') IS NULL OR to_regclass('public.luna_v3_hold_beds') IS NULL THEN
     RAISE EXCEPTION '116_refused: migration 114 objects are missing';
@@ -11,6 +11,17 @@ BEGIN
   IF to_regprocedure('public.luna_v3_hold_beds_reject_overlap()') IS NULL
      OR position('booking_beds_overlap_conflict' in pg_get_functiondef(to_regprocedure('public.luna_v3_hold_beds_reject_overlap()'))) = 0
   THEN RAISE EXCEPTION '116_refused: 114 hold invariant is missing or foreign'; END IF;
+  SELECT obj_description(to_regprocedure('public.luna_v3_hold_beds_reject_overlap()'),'pg_proc') INTO hold_marker;
+  IF hold_marker IS NULL THEN
+    -- 114 predates the ownership comment. Its stored PL/pgSQL source is stable
+    -- across server pretty-printers, so admit only that exact predecessor body.
+    IF (SELECT md5(prosrc) FROM pg_proc
+          WHERE oid=to_regprocedure('public.luna_v3_hold_beds_reject_overlap()'))
+       IS DISTINCT FROM '9be3799a04b79b394d331fadb688ead0'
+    THEN RAISE EXCEPTION '116_refused: unmarked hold invariant is not the exact 114 predecessor'; END IF;
+  ELSIF hold_marker IS DISTINCT FROM '116_luna_v3_session_phone_and_hold_invariant v1; extends 114-owned object' THEN
+    RAISE EXCEPTION '116_refused: hold invariant is foreign/newer (comment=%)',hold_marker;
+  END IF;
   SELECT obj_description(to_regprocedure('public.booking_beds_reject_overlap()'),'pg_proc') INTO marker;
   IF marker IS DISTINCT FROM '114_luna_v3_staff_operations v1; preserves 091 and extends common occupancy boundary' THEN
     RAISE EXCEPTION '116_refused: booking occupancy function is not 114-owned (comment=%)',marker;

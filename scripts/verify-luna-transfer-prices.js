@@ -101,15 +101,10 @@ async function main() {
     assert.equal(result.body.client_slug, WH);
     assert.equal(result.body.read_only, true);
     assert.equal(result.body.availability_checked, false);
-    assert.deepEqual(result.body.transfers, [
-      { airport_code: 'SDR', label: 'Santander', price: { amount_cents: 2500, currency: 'EUR', unit: 'flat', source: 'config' },
-        eligibility: { min_guest_count: null, max_guest_count: null, requires_package: false, included_when_package: true, source: 'config' } },
-      { airport_code: 'BIO', label: 'Bilbao', price: { amount_cents: 1500, currency: 'EUR', unit: 'per_person', source: 'config' },
-        eligibility: { min_guest_count: 4, max_guest_count: null, requires_package: true, included_when_package: false, source: 'config' } },
-    ]);
+    assert.deepEqual(result.body.transfers, [], 'missing DB eligibility rows must not expose static transfers');
     assert.equal(h.queries.length, 2);
     assert.ok(h.queries.every(q => q.args[0] === WH));
-    console.log('PASS config fallback through real SQL/handler JSON: both units, nullable bounds, no availability/write');
+    console.log('PASS missing DB rows: no static eligibility/inclusion or free transfer fallback');
     await verifyConfigured(h);
     console.log('PASS production validator/store -> independent SQL -> Luna JSON: max 1/8/99/null, prices unchanged, reader SELECT-only');
     const queryCount = h.queries.length;
@@ -134,6 +129,9 @@ async function verifyConfigured(h, values = [1, 8, 99, null]) {
   const { validateTransferRuleBody } = require('./lib/wolfhouse-pricing-writes');
   const { saveTransferRule } = require('./lib/wolfhouse-pricing-store');
   let result;
+  await h.db.query(`INSERT INTO wh_pricing_rules
+    (client_slug,item_type,item_code,season_code,unit,amount_cents,currency,active)
+    VALUES($1,'transfer','SDR',NULL,'flat',2500,'EUR',true)`, [WH]);
   for (const max of values) {
     const parsed = validateTransferRuleBody({ airport_code: 'SDR', label: 'Santander',
       aliases: [], requires_package: false, min_guest_count: 1,
@@ -151,7 +149,7 @@ async function verifyConfigured(h, values = [1, 8, 99, null]) {
     assert.equal(row.eligibility.max_guest_count, max);
     assert.equal(row.eligibility.min_guest_count, 1);
     assert.equal(row.eligibility.source, 'db');
-    assert.deepEqual(row.price, { amount_cents: 2500, currency: 'EUR', unit: 'flat', source: 'config' });
+    assert.deepEqual(row.price, { amount_cents: 2500, currency: 'EUR', unit: 'flat', source: 'db' });
     assert.deepEqual(await h.db.query('SELECT * FROM wh_pricing_transfer_rules ORDER BY airport_code'), before);
   }
   const custom = validateTransferRuleBody({ airport_code: 'MAD', label: 'Madrid', aliases: [],
@@ -163,6 +161,10 @@ async function verifyConfigured(h, values = [1, 8, 99, null]) {
   const missingFare = result.body.transfers.find(r => r.airport_code === 'MAD');
   assert.equal(missingFare.price, null, 'missing custom fare must not become free or disappear');
   assert.equal(missingFare.eligibility.max_guest_count, 4);
+  await h.db.query("UPDATE wh_pricing_transfer_rules SET active=false WHERE airport_code='SDR'");
+  result = await h.invoke();
+  assert.equal(result.body.transfers.some(r => r.airport_code === 'SDR'), false,
+    'missing/inactive eligibility row must refuse even when DB price and static rule exist');
   return result;
 }
 
