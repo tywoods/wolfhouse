@@ -24,6 +24,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual("object", registry.tools["write_note"]["properties"]["context"]["type"])
         self.assertEqual("object", registry.tools["handoff_to_human"]["properties"]["context"]["type"])
         self.assertNotIn("operation_reference", registry.tools["recover_operation"]["properties"])
+        self.assertIn("tool", registry.tools["recover_operation"]["required"])
         self.assertIn("operation_key", registry.tools["recover_operation"]["required"])
         for name in ("write_note", "handoff_to_human"):
             context = registry.tools[name]["properties"]["context"]
@@ -81,7 +82,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
     def test_recover_operation_rejects_missing_key_before_transport(self):
         plugin = self.load_plugin()
         with patch.object(plugin, "_open_staff") as transport:
-            with self.assertRaisesRegex(ValueError, "operation_key is required"):
+            with self.assertRaisesRegex(ValueError, "tool and operation_key are required"):
                 plugin.call_tool("recover_operation", {})
         transport.assert_not_called()
     def load_plugin(self):

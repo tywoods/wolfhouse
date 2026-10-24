@@ -211,27 +211,9 @@ const {
   dispatchLunaV3StaffRoute,
 } = require('./lib/model-led-luna/staff-routes');
 const { createOperations: createLunaV3StaffOperations } = require('./lib/model-led-luna');
-// Bind real Staff/provider authorities in the registry. They are deliberately
-// absent from model input and resolved only when the operation executes.
-const LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, {
-  resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
-  async createGuestCheckout(args) {
-    if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SECRET_KEY.startsWith('sk_test_')
-        || !stripeCheckoutRedirectUrlsConfigured()) {
-      const err = new Error('test_provider_unavailable'); err.code = 'test_provider_unavailable'; throw err;
-    }
-    return require('./lib/per-guest-checkout').run({
-      ...args, withPgClient, stripe: require('stripe')(STRIPE_SECRET_KEY), clientSlug: 'wolfhouse-somo',
-      actorId: args.principalId, successUrl: stripeCheckoutSessionSuccessUrl(), cancelUrl: stripeCheckoutSessionCancelUrl(),
-    });
-  },
-  async readGuestCheckout(checkoutId) {
-    if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SECRET_KEY.startsWith('sk_test_')) {
-      const err = new Error('test_provider_unavailable'); err.code = 'test_provider_unavailable'; throw err;
-    }
-    return require('stripe')(STRIPE_SECRET_KEY).checkout.sessions.retrieve(checkoutId);
-  },
-});
+const { createLunaV3StaffAuthorities } = require('./lib/model-led-luna/v3-staff-authorities');
+let LUNA_V3_STAFF_AUTHORITIES;
+let LUNA_V3_STAFF_OPERATIONS;
 const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
@@ -1335,6 +1317,23 @@ function stripeCheckoutRedirectUrlsConfigured() {
 function stripeCheckoutRedirectUrlsDistinct() {
   return stripeCheckoutSessionSuccessUrl() !== stripeCheckoutSessionCancelUrl();
 }
+
+// Bind the production authority boundary only after Stripe configuration has
+// initialized. Payment checkout is test-mode only; every conventional
+// message/alert/outbox adapter is connected to an explicit fail-closed
+// boundary on this exact registry authority object.
+LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
+  resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
+  stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+  stripeSecretKey: STRIPE_SECRET_KEY,
+  checkoutRedirectUrlsConfigured: stripeCheckoutRedirectUrlsConfigured,
+  checkoutSuccessUrl: stripeCheckoutSessionSuccessUrl,
+  checkoutCancelUrl: stripeCheckoutSessionCancelUrl,
+  withPgClient,
+  perGuestCheckout: require('./lib/per-guest-checkout'),
+  createStripe: (secret) => require('stripe')(secret),
+});
+LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, LUNA_V3_STAFF_AUTHORITIES);
 
 function guestPaymentLinkObservability(pm, checkoutUrl, sessionId) {
   return buildPaymentLinkObservability({

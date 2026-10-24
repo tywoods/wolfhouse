@@ -232,6 +232,16 @@ async function computeQuote(pg, input = {}, context) {
     WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context.sessionId, context.principalId])).rows[0];
   if (!session || session.write_admitted !== true) throw Object.assign(new Error('write admission denied'), { status: 403 });
   const selectedBeds = input.selection.selected_bed_codes || input.selection.bed_ids;
+  const suppliedGuestPackages = input.guest_packages || [];
+  if (suppliedGuestPackages.length) {
+    const ordinals = suppliedGuestPackages.map((row) => row && row.guest_number);
+    const validOrdinals = ordinals.every(Number.isSafeInteger)
+      && new Set(ordinals).size === input.guests.length
+      && ordinals.length === input.guests.length
+      && ordinals.every((ordinal) => ordinal >= 1 && ordinal <= input.guests.length);
+    if (!validOrdinals) return { ok: false, status: 422, code: 'invalid_guest_package_ordinals' };
+  }
+  const guestPackages = [...suppliedGuestPackages].sort((a, b) => a.guest_number - b.guest_number);
   const availability = await runAvailability(pg, {
     check_in: input.check_in, check_out: input.check_out, party_size: input.guests.length,
     guests: input.guests, selected_bed_codes: selectedBeds,
@@ -249,7 +259,7 @@ async function computeQuote(pg, input = {}, context) {
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
     guest_count: input.guests.length, guests: input.guests,
-    guest_packages: input.guest_packages || [], package_code: input.package_id || null,
+    guest_packages: guestPackages, package_code: input.package_id || null,
     room_type: input.selection.room_type || 'shared', add_ons: input.add_ons || [],
     payment_choice: 'deposit', uses_per_guest_deposits: true,
   }, config);
@@ -262,7 +272,7 @@ async function computeQuote(pg, input = {}, context) {
   const offer = buildCheckedWolfhousePreviewOffer({
     client_slug: TENANT, quote: quoteResult,
     availability: { ...current, availability_checked: true, status: 'checked', selected_bed_codes: selectedBeds },
-    guests: input.guests, guest_packages: input.guest_packages || [], add_ons: input.add_ons || [],
+    guests: input.guests, guest_packages: guestPackages, add_ons: input.add_ons || [],
     room_rows: current.available_beds, payment_choice: 'deposit',
     payment_distribution: quoteResult.per_guest_deposits || [],
   });
@@ -313,10 +323,12 @@ async function quote(pg, input = {}, context) {
 
 function createOperations(withPgClient, authorities = {}) {
   return Object.freeze(Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
-    (input, context) => withPgClient((client) => module.exports[name](client, input,
+    (input, context) => withPgClient((client) => SELECTED_IMPLEMENTATIONS[name](client, input,
       { ...context, staffAuthorities: authorities })),
   ])));
 }
 
-module.exports = { checkAvailability, findRooms, getPricingCatalog, quote, ...v3, createOperations };
+const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
+module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
+Object.freeze(module.exports);

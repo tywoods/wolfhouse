@@ -1653,6 +1653,24 @@
       "inForwardChain": true,
       "rationale": "Extend the 116-owned exact-bed hold invariant to admit private_optional rooms without rewriting canonical migration history.",
       "sha256": "b474816fbb8baa0397679451032c519a93b14f9ca92e342dc91e74a5a4b8758a"
+    },
+    {
+      "id": "119_luna_v3_guest_payment_history",
+      "filename": "119_luna_v3_guest_payment_history.sql",
+      "order": 110,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
+      "sha256": "f99a6886639d623f1fb6aadb8885b1f4d50a6953a230f6d0f96cba131880ee69"
+    },
+    {
+      "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
+      "filename": "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
+      "order": 111,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",
+      "sha256": "bb0d554515e5ad89042b6fd7f976f4be2aa889e17c3a03fafd172fbc906fb153"
     }
   ]
 }

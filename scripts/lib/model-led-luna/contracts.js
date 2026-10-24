@@ -36,7 +36,7 @@ const READ_SCHEMAS = Object.freeze({
   hold_beds: new Set(['operation_key', 'check_in', 'check_out', 'guests', 'assignments', 'quoted_selection']),
   book: new Set(['operation_key', 'hold_id']),
   get_booking: new Set(['booking_id']),
-  recover_operation: new Set(['operation_key']),
+  recover_operation: new Set(['tool', 'operation_key']),
   release_hold: new Set(['operation_key', 'hold_id']),
   handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
   get_payment_status: new Set(['booking_id']),
@@ -88,6 +88,7 @@ function assertSafeToolRequest(name, input = {}) {
     visit(input);
   }
   if (contract.write && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
+  if (name === 'recover_operation' && (!String(input.tool || '').trim() || !String(input.operation_key || '').trim())) throw new Error('tool and operation_key are required for recover_operation');
   if (name === 'hold_beds' && typeof input.quoted_selection !== 'string') throw new Error('quoted_selection must be a string');
   if (name === 'get_pricing_catalog') {
     for (const field of ['package_ids', 'service_ids']) {

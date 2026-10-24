@@ -110,7 +110,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         raise ValueError(f"unknown Luna v3 tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
-    if (name in WRITE_TOOLS or name == "recover_operation") and not str(arguments.get("operation_key", "")).strip():
+    if name == "recover_operation" and (not str(arguments.get("tool", "")).strip() or not str(arguments.get("operation_key", "")).strip()):
+        raise ValueError("tool and operation_key are required for recover_operation")
+    if name in WRITE_TOOLS and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
     runtime = _runtime()
@@ -187,7 +189,7 @@ _TOOL_FIELDS = {
     "write_note": ("text", "context", "booking_reference", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
-    "recover_operation": ("operation_key",),
+    "recover_operation": ("tool", "operation_key"),
 }
 
 
@@ -207,7 +209,7 @@ _TOOL_REQUIRED = {
     "write_note": ("text", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
-    "recover_operation": ("operation_key",),
+    "recover_operation": ("tool", "operation_key"),
 }
 
 

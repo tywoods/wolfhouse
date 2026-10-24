@@ -617,6 +617,10 @@ function sawWrite(observed, table) {
   });
 }
 
+function sawTransport(observed) {
+  return (observed.calls || []).some((call) => call.op === 'transport');
+}
+
 function readMatches(call, table, id) {
   if (!call) return false;
   if (call.op === 'read' && call.table === table) {
@@ -779,6 +783,7 @@ function judgeLinkNotSent(result, observed) {
   if (result.whatsapp || result.sms || result.email) return failed('a transport was used');
   if (result.mode !== 'test') return failed('link mode is not test');
   if (!observed || !observed.touched) return unconnected();
+  if (sawTransport(observed)) return failed('a connected transport was invoked');
   if (sawWrite(observed, 'sends') || tableRows(observed, 'sends').length) return failed('a send row was written');
   const links = tableRows(observed, 'links');
   const storedUrl = links.map((row) => row.url).find((url) => url);
@@ -1060,6 +1065,18 @@ function createObservationDb(seed) {
       if (!row) return null;
       Object.assign(row, JSON.parse(JSON.stringify(patch || {})));
       return JSON.parse(JSON.stringify(row));
+    },
+    async sendWhatsApp(message) {
+      note('transport', { transport: 'whatsapp', message });
+      return { sent: true };
+    },
+    async sendSms(message) {
+      note('transport', { transport: 'sms', message });
+      return { sent: true };
+    },
+    async sendEmail(message) {
+      note('transport', { transport: 'email', message });
+      return { sent: true };
     },
   };
   return {
@@ -1664,6 +1681,24 @@ async function assertReviewNegatives() {
   assert.equal(badLink.status, 'fail', 'negative invalid-checkout was ' + badLink.status + ' ' + badLink.reason);
   await assertNotPass(badLink, 'negative invalid-checkout');
 
+  async function deliberatelySendingLink(pg) {
+    await pg.read('bookings');
+    const stored = await pg.write('links', { url: 'https://pay.test/sandbox-deposit', mode: 'test' });
+    await pg.sendWhatsApp({ url: stored.url });
+    return { ok: true, url: stored.url, sent: false, mode: 'test' };
+  }
+  const sendingLink = await evaluateExport(
+    link.id,
+    link.todo,
+    deliberatelySendingLink,
+    contractFixture(link.id),
+    seedFor(link.id),
+    link.judge,
+  );
+  assert.equal(sendingLink.status, 'fail', 'negative deliberately-sending implementation was ' + sendingLink.status + ' ' + sendingLink.reason);
+  assert.equal(sendingLink.reason, 'a connected transport was invoked');
+  await assertNotPass(sendingLink, 'deliberately-sending implementation');
+
   const timeout = HANDLER_CONTRACTS.find((item) => item.id === 'timeout_unknown');
   async function unrelatedRecovery(pg) {
     await pg.read('rooms');
@@ -1705,6 +1740,7 @@ async function assertReviewNegatives() {
   console.log('negative wrong-tenant-booking rejected');
   console.log('negative extra-foreign-booking rejected');
   console.log('negative invalid-checkout rejected');
+  console.log('negative connected deliberately-sending transport rejected');
   console.log('negative unrelated-recovery-read rejected');
   console.log('negative fixture-coverage rejected');
 }
