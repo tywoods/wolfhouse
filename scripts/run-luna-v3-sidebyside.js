@@ -472,7 +472,71 @@ function allocateWirePhone(used, ledger, tenant) {
   throw new Error('reserved phone pool exhausted');
 }
 
-function scoreRun({ dryRun, executed, scripts, replies, scorecard, attempts }) {
+function isAdmittedCapability(cap) {
+  if (!cap || typeof cap !== 'object') return false;
+  if (cap.admitted === true) return true;
+  return String(cap.outcome || '').toUpperCase() === 'ADMITTED';
+}
+
+function isDeniedCapability(cap) {
+  if (!cap || typeof cap !== 'object') return false;
+  if (cap.admitted === false) return true;
+  return /DENIED|BLOCKED|REFUSED/i.test(String(cap.outcome || ''));
+}
+
+function isBookingWriteReceipt(tool) {
+  if (!tool || typeof tool !== 'object') return false;
+  if (tool.booking_write === true || tool.wrote_booking === true) return true;
+  if (typeof tool.booking_id === 'string' && tool.booking_id.trim()) return true;
+  const name = String(tool.name || tool.tool || '');
+  if (!/create_booking|save_booking|hold_beds|holdBeds|write_booking/i.test(name)) return false;
+  const summary = String(tool.result_summary || '');
+  return tool.ok === true || /success\s*=\s*true/i.test(summary);
+}
+
+function collectToolCalls(replies, evidence) {
+  const tools = [];
+  for (const row of Array.isArray(replies) ? replies : []) {
+    if (Array.isArray(row.tool_calls)) tools.push(...row.tool_calls);
+  }
+  if (evidence && Array.isArray(evidence.tool_calls)) tools.push(...evidence.tool_calls);
+  return tools;
+}
+
+function limitationAdmitsBookingWrites(lim) {
+  if (!lim || typeof lim !== 'object') return false;
+  if (lim.booking_writes_enabled === true) return true;
+  if (lim.capability_admitted === true) return true;
+  if (lim.writes_enabled === true) return true;
+  if (isAdmittedCapability(lim)) return true;
+  return false;
+}
+
+function observeWrites(replies, evidence) {
+  const tools = collectToolCalls(replies, evidence);
+  let admitted = false;
+  let denied = false;
+  let writesEnabledFalse = false;
+  for (const tool of tools) {
+    const cap = tool && tool.effective_capability;
+    if (isAdmittedCapability(cap)) admitted = true;
+    else if (isDeniedCapability(cap)) denied = true;
+    if (isBookingWriteReceipt(tool)) admitted = true;
+  }
+  for (const row of Array.isArray(replies) ? replies : []) {
+    const lim = row && row.limitation;
+    if (!lim || typeof lim !== 'object') continue;
+    if (limitationAdmitsBookingWrites(lim)) admitted = true;
+    if (Object.prototype.hasOwnProperty.call(lim, 'writes_enabled') && lim.writes_enabled === false) {
+      writesEnabledFalse = true;
+    }
+  }
+  if (admitted) return 'admitted';
+  if (denied || writesEnabledFalse) return 'blocked';
+  return 'unknown';
+}
+
+function scoreRun({ dryRun, executed, scripts, replies, scorecard, attempts, evidence }) {
   const replyFingerprint = crypto.createHash('sha256').update(replies.map((row) => row.reply || '').join('\n')).digest('hex');
   const attemptList = Array.isArray(attempts) ? attempts : [];
   const attemptsClean = attemptList.length === 0 || attemptList.every((row) => row.outcome === 'ok');
@@ -483,7 +547,7 @@ function scoreRun({ dryRun, executed, scripts, replies, scorecard, attempts }) {
     beats_classic: null,
     no_real_sends: executed && attemptsClean && replies.length > 0 && replies.every((row) => row.no_real_sends),
     reply_fingerprint: executed ? replyFingerprint : null,
-    observations: { writes: 'blocked', payments: 'blocked' },
+    observations: { writes: observeWrites(replies, evidence), payments: 'blocked' },
     reason: dryRun ? 'dry_run_not_executed' : 'transcripts captured; safety floor stays uncertified without Staff observations',
     scripts: scripts.map((script) => {
       const id = script.id || script._file;
@@ -842,6 +906,7 @@ function finishRun({ dryRun, live, target, loaded, planned, replies, phones, run
       replies,
       scorecard: loaded.scorecard,
       attempts: Array.isArray(attempts) ? attempts : [],
+      evidence,
     }),
   };
   const summaryPath = path.join(outDir, 'summary.json');
@@ -996,6 +1061,7 @@ module.exports = {
   runPaired,
   loadFrozenScripts,
   operatorSessionFrom,
+  observeWrites,
 };
 
 if (require.main === module) {

@@ -472,6 +472,94 @@ async function main() {
   assert.equal(scoredA.scorecard.this_run.observations.writes, 'blocked');
   assert.equal(scoredA.scorecard.this_run.observations.payments, 'blocked');
 
+  const admittedOut = tmpDir();
+  const admittedLive = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [quoteScript],
+    runId: 'run-admitted-write',
+    outDir: admittedOut,
+    identityLedger: path.join(admittedOut, 'ledger.json'),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        reply_text: 'TEST booking write admitted for June 2027',
+        session_id: 'sess-admitted-write',
+        tool_calls: [{
+          name: 'create_booking',
+          result_summary: 'success=True; booking_id=wh-test-1',
+          booking_id: 'wh-test-1',
+          effective_capability: {
+            capability: 'wolfhouse_staging_booking_test_link',
+            admitted: true,
+            outcome: 'ADMITTED',
+            stripe_mode: 'test',
+          },
+        }],
+        limitation: {
+          whatsapp_sends_enabled: false,
+          sms_sends_enabled: false,
+          writes_enabled: false,
+          payments_enabled: false,
+          tenant_whatsapp_suppressed: true,
+        },
+      }),
+    }),
+    repoRoot,
+  });
+  assert.equal(admittedLive.ok, true);
+  assert.equal(admittedLive.scorecard.this_run.observations.writes, 'admitted');
+  assert.equal(admittedLive.scorecard.this_run.observations.payments, 'blocked');
+  assert.equal(dry.scorecard.this_run.observations.writes, 'unknown');
+
+  const admittedLimitation = {
+    whatsapp_sends_enabled: false,
+    sms_sends_enabled: false,
+    writes_enabled: false,
+    booking_writes_enabled: true,
+    capability_admitted: true,
+    outcome: 'ADMITTED',
+    payments_enabled: false,
+    tenant_whatsapp_suppressed: true,
+  };
+  async function admittedLimitationRun(label, toolCalls) {
+    const out = tmpDir();
+    return runner.runSideBySide({
+      target: 'hermes-luna-clone',
+      dryRun: false,
+      live: true,
+      liveConfirmed: true,
+      cookie: 'crowsnest-operator=test',
+      scripts: [quoteScript],
+      runId: 'run-admitted-' + label,
+      outDir: out,
+      identityLedger: path.join(out, 'ledger.json'),
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          reply_text: 'quoted eighty euros for June 2027 without writing',
+          session_id: 'sess-admitted-' + label,
+          tool_calls: toolCalls,
+          limitation: admittedLimitation,
+        }),
+      }),
+      repoRoot,
+    });
+  }
+  const quoteOnlyAdmitted = await admittedLimitationRun('quote-only', [{ name: 'quote' }]);
+  assert.equal(quoteOnlyAdmitted.ok, true);
+  assert.equal(quoteOnlyAdmitted.scorecard.this_run.observations.writes, 'admitted');
+  const noToolAdmitted = await admittedLimitationRun('no-tool', []);
+  assert.equal(noToolAdmitted.ok, true);
+  assert.equal(noToolAdmitted.scorecard.this_run.observations.writes, 'admitted');
+
   const pair = await runner.runPaired({
     dryRun: false,
     live: true,
@@ -1567,6 +1655,7 @@ async function main() {
   console.log('sidebyside cap origins pass');
   console.log('sidebyside cap dates pass');
   console.log('sidebyside cap paired-comparison pass');
+  console.log('sidebyside cap writes-observation pass');
 }
 
 main().catch((err) => {
