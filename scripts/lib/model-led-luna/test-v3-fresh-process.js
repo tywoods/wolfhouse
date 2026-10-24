@@ -1,7 +1,9 @@
 'use strict';
 
 const { Client } = require('pg');
-const api = require('./index');
+const api = process.env.V3_SELECTED_API_MODULE
+  ? require(require('node:path').resolve(process.env.V3_SELECTED_API_MODULE))
+  : require('./index');
 
 async function main() {
   const url = process.env.V3_TEST_DATABASE_URL;

@@ -122,12 +122,13 @@ async function releaseHold(pg,input,context){const s=await session(pg,context,tr
 async function persistHandoff(pg,s,input) {
  const op=await beginOperation(pg,s,'handoff_to_human',input.operation_key,input);
  if(op.conflict)return op.conflict;if(op.replay)return op.replay;
- if(input.booking_id&&input.booking_id!==s.selected_booking_id)return fail('booking_selector_forbidden',403);
+ await pg.query('SAVEPOINT luna_v3_business');
+ if(input.booking_id&&input.booking_id!==s.selected_booking_id)return rejectKnown(pg,op,fail('booking_selector_forbidden',403));
  const h=(await pg.query(`INSERT INTO luna_v3_handoffs(client_id,session_id,booking_id,reason,context) VALUES($1,$2,$3,$4,$5::jsonb) RETURNING id`,[s.client_id,s.id,s.selected_booking_id,input.reason,JSON.stringify(input.context||{})])).rows[0];
  const receipt={ok:true,outcome:'applied',operationKey:input.operation_key,handoffId:h.id,reason:input.reason,bookingId:s.selected_booking_id,sent:false,externalSendAllowed:false,staffAlertAllowed:false};
  return finish(pg,op.row.id,receipt,{bookingId:s.selected_booking_id});
 }
-async function handoffToHuman(pg,input,context){const s=await session(pg,context,true);await pg.query('BEGIN');try{const receipt=await persistHandoff(pg,s,input);if(!receipt.ok){await pg.query('ROLLBACK');return receipt;}await pg.query('COMMIT');return receipt;}catch(e){await pg.query('ROLLBACK');throw e;}}
+async function handoffToHuman(pg,input,context){const s=await session(pg,context,true);await pg.query('BEGIN');try{const receipt=await persistHandoff(pg,s,input);await pg.query('COMMIT');return receipt;}catch(e){await pg.query('ROLLBACK');throw e;}}
 
 function selected(s,input){if(!s.selected_booking_id)return fail('booking_not_selected',404);if(!input.booking_id||input.booking_id!==s.selected_booking_id)return fail('booking_selector_forbidden',403);return null;}
 async function getPaymentStatus(pg,input,context){
@@ -136,13 +137,13 @@ async function getPaymentStatus(pg,input,context){
  const payments=(await pg.query(`SELECT to_jsonb(p) row FROM payments p WHERE p.client_id=$1 AND p.booking_id=$2 ORDER BY p.created_at,p.id`,[s.client_id,b.id])).rows.map(x=>x.row);
  const guests=(await pg.query(`SELECT id,guest_number,guest_name,payment_id,payment_status::text,amount_paid_cents,deposit_amount_cents FROM booking_guests WHERE client_id=$1 AND booking_id=$2 ORDER BY guest_number,id`,[s.client_id,b.id])).rows;
  const events=(await pg.query(`SELECT id,payment_id,event_type FROM payment_events WHERE client_id=$1 AND booking_id=$2 ORDER BY id`,[s.client_id,b.id])).rows;
- const associations=(await pg.query(`SELECT booking_guest_id::text,payment_id::text FROM luna_v3_guest_payments WHERE client_id=$1 AND booking_id=$2 ORDER BY payment_id`,[s.client_id,b.id])).rows;
+ const associations=(await pg.query(`SELECT booking_guest_id::text,payment_id::text FROM luna_v3_guest_payments WHERE client_id=$1 AND booking_id=$2 UNION SELECT booking_guest_id::text,id::text FROM payments WHERE client_id=$1 AND booking_id=$2 AND booking_guest_id IS NOT NULL ORDER BY payment_id`,[s.client_id,b.id])).rows;
  const nums=[b.total_amount_cents,b.deposit_required_cents,b.paid_cents,b.balance_due_cents];let evidenceStatus=nums.every(Number.isSafeInteger)?'consistent':'unknown';
  const currencies=[...new Set(payments.map(p=>String(p.currency||'').trim().toUpperCase()).filter(Boolean))];
  if(!payments.length||payments.some(p=>p.booking_id!==b.id||p.client_id!==s.client_id||!Number.isSafeInteger(p.amount_due_cents)||!Number.isSafeInteger(p.amount_paid_cents)))evidenceStatus=evidenceStatus==='unknown'?'unknown':'inconsistent';
  if(currencies.length!==1)evidenceStatus=currencies.length?'inconsistent':'unknown';
  const paymentRowPaid=(p)=>/^(paid|succeeded|captured|partial|partially_paid)$/i.test(String(p.status||''));
- const successful=(e)=>/^(succeeded|paid|captured)$/i.test(String(e.event_type||''));
+ const successful=(e)=>/^(succeeded|paid|captured|checkout\.session\.completed)$/i.test(String(e.event_type||''));
  const associationFor=(paymentId)=>associations.filter(a=>a.payment_id===paymentId);
  const paidForGuest=(guestId)=>payments.filter(p=>associationFor(p.id).some(a=>a.booking_guest_id===guestId)).reduce((n,p)=>n+p.amount_paid_cents,0);
  if(evidenceStatus==='consistent'&&(nums.some(n=>n<0)||b.deposit_required_cents>b.total_amount_cents||b.paid_cents+b.balance_due_cents!==b.total_amount_cents||payments.some(p=>p.amount_due_cents<0||p.amount_paid_cents<0||p.amount_paid_cents>p.amount_due_cents||(p.amount_paid_cents>0&&!paymentRowPaid(p))||(p.amount_paid_cents===0&&paymentRowPaid(p)))||payments.reduce((n,p)=>n+p.amount_paid_cents,0)!==b.paid_cents||associations.some(a=>!payments.some(p=>p.id===a.payment_id)||!guests.some(g=>g.id===a.booking_guest_id))||payments.some(p=>p.amount_paid_cents>0&&associationFor(p.id).length!==1)||guests.some(g=>![g.amount_paid_cents,g.deposit_amount_cents].every(Number.isSafeInteger)||g.amount_paid_cents<0||g.deposit_amount_cents<0||g.amount_paid_cents!==paidForGuest(g.id))||guests.reduce((n,g)=>n+g.amount_paid_cents,0)!==b.paid_cents||payments.some(p=>p.amount_paid_cents>0&&!events.some(e=>e.payment_id===p.id&&successful(e)))||events.some(e=>e.payment_id&&!payments.some(p=>p.id===e.payment_id))||events.some(e=>successful(e)&&(!e.payment_id||!payments.some(p=>p.id===e.payment_id&&p.amount_paid_cents>0)))||guests.some(g=>/(deposit_paid|paid)/i.test(g.payment_status||'')&&g.amount_paid_cents<=0)||guests.some(g=>g.amount_paid_cents>0&&!/(deposit_paid|paid)/i.test(g.payment_status||''))||/(deposit_paid|paid)/i.test(b.payment_status||'')&&b.paid_cents<=0||b.booking_status==='cancelled'&&b.paid_cents>0))evidenceStatus='inconsistent';
@@ -185,7 +186,8 @@ async function sendPaymentLinkAuthoritative(pg,input,context){
  if(typeof authority!=='function'||typeof authorities.readGuestCheckout!=='function')return fail('staff_payment_link_authority_unavailable',503);
  const target=input.payment_choice==='deposit'?'deposit':input.payment_choice==='full'?'full_share':'remaining_share';
 
- let checkout;try{checkout=await authority({guestId:guest.id,paymentTarget:target,principalId:context.principalId,trustedGuestPhone:context.guestPhone});}
+ const operationConnectionPid=(await pg.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+ let checkout;try{checkout=await authority({guestId:guest.id,paymentTarget:target,principalId:context.principalId,trustedGuestPhone:context.guestPhone,operationConnectionPid});}
  catch(e){return fail(e.code||e.message||'staff_payment_link_failed',e.httpStatus||503,{recoveryStatus:'ambiguous',operationKey:input.operation_key});}
  if(checkout&&checkout.zero)return reject(fail('nothing_payable',422),{bookingId:guest.booking_id});
  const finalized=(await pg.query(`SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text FROM booking_guests bg WHERE bg.id=$1::uuid AND bg.client_id=$2 AND bg.booking_id=$3`,[guest.id,s.client_id,s.selected_booking_id])).rows[0];

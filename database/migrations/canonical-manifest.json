@@ -1661,7 +1661,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
-      "sha256": "f99a6886639d623f1fb6aadb8885b1f4d50a6953a230f6d0f96cba131880ee69"
+      "sha256": "648ae685ad71f08b2b22519842aab597beb12c897cbca3ccdebeda632bca5a78"
     },
     {
       "id": "120_luna_v3_constraint_ownership_and_transfer_decline",

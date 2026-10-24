@@ -122,6 +122,9 @@ BEGIN
               JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=u.attnum)
            = ARRAY['id','payment_id','booking_id','client_id']::name[];
     IF old_name IS NULL THEN RAISE EXCEPTION '119_refused: exact 115 guest pointer constraint missing'; END IF;
+    IF (SELECT obj_description(oid,'pg_constraint') FROM pg_constraint
+         WHERE conrelid='public.luna_v3_payment_links'::regclass AND conname=old_name) IS NOT NULL
+    THEN RAISE EXCEPTION '119_refused: predecessor guest pointer constraint ownership is foreign/newer'; END IF;
     EXECUTE format('ALTER TABLE luna_v3_payment_links DROP CONSTRAINT %I',old_name);
     ALTER TABLE luna_v3_payment_links
       ADD CONSTRAINT luna_v3_payment_links_guest_payment_history_fk
