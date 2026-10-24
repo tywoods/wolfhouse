@@ -152,17 +152,27 @@ def _material_projection(plan, revision=None, *, include_personal=False):
     services = set(_normalized_selection_rows(value('add_ons')))
     services.update(_normalized_selection_rows(value('catalog_selections'), catalog=True))
     distribution = revision.get('payment_distribution')
-    if revision.get('per_guest_payment_links') is True:
+    if isinstance(distribution, list):
         if not isinstance(distribution, list):
             distribution = None
         else:
-            distribution = [
-                (index,
-                 ' '.join(str(row.get('guest_name') or '').split()).casefold(),
-                 row.get('amount_due_cents', row.get('amount_cents')),
-                 row.get('currency') or revision.get('currency'))
-                for index, row in enumerate(distribution) if isinstance(row, dict)]
-            if len(distribution) != len(revision.get('payment_distribution') or []):
+            normalized_distribution = []
+            for index, row in enumerate(distribution):
+                if isinstance(row, dict):
+                    normalized_distribution.append((
+                        index,
+                        ' '.join(str(row.get('guest_name') or '').split()).casefold(),
+                        row.get('amount_due_cents', row.get('amount_cents')),
+                        row.get('currency') or revision.get('currency')))
+                elif (isinstance(row, (list, tuple)) and len(row) == 4
+                      and row[0] == index):
+                    # Stored owner projections are already canonical tuples.
+                    normalized_distribution.append(tuple(row))
+                else:
+                    normalized_distribution = None
+                    break
+            distribution = normalized_distribution
+            if distribution is not None and len(distribution) != len(revision.get('payment_distribution') or []):
                 distribution = None
     projection = {
         'check_in': value('check_in'), 'check_out': value('check_out'),
@@ -1893,7 +1903,7 @@ def _completion_revision_matches(prior, current, *, payment_choice=None,
         for revision in (before, after):
             if not revision.get('room_name_hints'):
                 revision.pop('room_name_hints', None)
-    return (_material_projection(before) == _material_projection(after)
+    return (_material_projection({}, before) == _material_projection({}, after)
             and before.get('client_slug') == after.get('client_slug')
             and before.get('total_cents') == after.get('total_cents')
             and before.get('currency') == after.get('currency')

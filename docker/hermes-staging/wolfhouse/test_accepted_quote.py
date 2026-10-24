@@ -224,6 +224,44 @@ class OwnerHostileTests(unittest.TestCase):
         self.assertEqual(created['payment_choice'], 'per_guest')
         self.assertEqual(created['accepted_offer'], completed['offer_revision'])
 
+    def test_completion_normalizes_split_distribution_tuples_without_losing_amount_mapping(self):
+        """Owner-stored split tuples and Staff dicts compare by person and cents."""
+        prior = deepcopy(self.response['offer_revision'])
+        prior.update(payment_choice='deposit', per_guest_payment_links=True,
+                     payment_distribution=[
+                         (0, 'alex', 10000, 'EUR'), (1, 'sam', 10000, 'EUR')])
+        current = deepcopy(prior)
+        current['payment_distribution'] = [
+            {'guest_name': 'Alex', 'amount_due_cents': 10000, 'currency': 'EUR'},
+            {'guest_name': 'Sam', 'amount_due_cents': 10000, 'currency': 'EUR'}]
+        self.assertTrue(self.ledger._completion_revision_matches(
+            prior, current, payment_choice='per_guest'))
+        current['payment_distribution'][0]['amount_due_cents'] = 10001
+        current['payment_distribution'][1]['amount_due_cents'] = 9999
+        self.assertFalse(self.ledger._completion_revision_matches(
+            prior, current, payment_choice='per_guest'))
+
+    def test_completion_normalizes_payment_distribution_for_localized_split_and_names(self):
+        """EN/ES split choice and an indexed surname completion preserve the offer."""
+        for language in ('en', 'es'):
+            for payment_choice, separate in (('deposit', False), ('per_guest', True)):
+                with self.subTest(language=language, payment_choice=payment_choice):
+                    prior = deepcopy(self.response['offer_revision'])
+                    prior.update(payment_choice='deposit',
+                                 per_guest_payment_links=separate,
+                                 payment_distribution=[
+                                     (0, 'alex', 10000, 'EUR'), (1, 'sam', 10000, 'EUR')])
+                    current = deepcopy(prior)
+                    current['payment_distribution'] = [
+                        {'guest_name': 'Alex', 'amount_due_cents': 10000, 'currency': 'EUR'},
+                        {'guest_name': 'Sam', 'amount_due_cents': 10000, 'currency': 'EUR'}]
+                    self.assertTrue(self.ledger._completion_revision_matches(
+                        prior, current, payment_choice=payment_choice))
+                    current['payment_distribution'][0]['amount_due_cents'] = 10001
+                    current['payment_distribution'][1]['amount_due_cents'] = 9999
+                    self.assertFalse(self.ledger._completion_revision_matches(
+                        prior, current, payment_choice=payment_choice))
+
     def test_split_distribution_change_requires_new_presentation_before_create(self):
         """Same-total per-person changes are material on both split refresh routes."""
         for route in ('newly-selected', 'explicit-refresh'):
