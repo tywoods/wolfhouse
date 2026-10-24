@@ -291,15 +291,28 @@ def _field_schema(field: str) -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "room_id": {"type": "string", "minLength": 1},
-                "bed_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
-                "selected_bed_codes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "bed_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": True},
+                "selected_bed_codes": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": True},
                 "room_type": {"type": "string", "minLength": 1},
                 "room_preference": {"type": "string", "minLength": 1},
                 "keep_together": {"type": "boolean"},
             },
             "additionalProperties": False,
+            "anyOf": [{"required": ["selected_bed_codes"]}, {"required": ["bed_ids"]}],
         }
-    if field in {"preferences", "travel_details"}:
+    if field == "preferences":
+        return {
+            "type": "object",
+            "properties": {
+                "room_type": {"type": "string", "minLength": 1},
+                "room_preference": {"type": "string", "minLength": 1},
+                "keep_together": {"type": "boolean"},
+                "group_gender": {"type": "string", "minLength": 1},
+                "guests": _field_schema("guests"),
+            },
+            "additionalProperties": False,
+        }
+    if field == "travel_details":
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 
@@ -318,9 +331,14 @@ def register(ctx: Any) -> None:
     for name in TOOL_NAMES:
         fields = _TOOL_FIELDS[name]
         required = list(_TOOL_REQUIRED[name])
+        descriptions = {
+            "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
+            "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
+            "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",
+        }
         schema = {
             "name": name,
-            "description": f"Use Staff authority for {name.replace('_', ' ')}; never invent the result.",
+            "description": descriptions.get(name, f"Use Staff authority for {name.replace('_', ' ')}; never invent the result."),
             "parameters": {
                 "type": "object",
                 "properties": {field: _field_schema(field) for field in fields},

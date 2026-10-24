@@ -92,6 +92,10 @@ async function main(api = defaultApi) {
   assert.equal(catalog.items[0].metadata.includes[1], 'surf');
   assert.equal(catalog.rules.find((row) => row.item_code === 'malibu').amount_cents, 50000);
   assert.equal(catalog.seasonCoverage.status, 'bookable');
+  assert.deepEqual(catalog.packageEligibility, { status: 'eligible', stayNights: 7, minimumNights: 7, eligible: true, source: 'db' });
+  assert.deepEqual(catalog.transferCatalog, { status: 'empty', options: [] });
+  const shortCatalog = await api.getPricingCatalog(staffPg(), { check_in: '2027-07-01', check_out: '2027-07-05' }, context);
+  assert.equal(shortCatalog.packageEligibility.status, 'ineligible');
   const pricingCoverage = api.resolveStaySeasonCoverage([
     { code: 'november', active: true, bookable: true, ranges: [{ start_month: 11, start_day: 1, end_month: 11, end_day: 30 }] },
     { code: 'closed', active: true, bookable: false, ranges: [{ start_month: 12, start_day: 1, end_month: 12, end_day: 31 }] },
@@ -111,6 +115,17 @@ async function main(api = defaultApi) {
   }, context);
   assert.equal(missingSeasonQuote.code, 'staff_pricing_season_missing');
   assert.equal(missingSeasonQuote.handoffRequired, true);
+
+  const missingBeds = await api.quote(staffPg(), {
+    operation_key: 'quote-missing-beds', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }], selection: {},
+  }, context);
+  assert.equal(missingBeds.status, 422);
+  assert.equal(missingBeds.code, 'exact_bed_selection_required');
+  const aliasConflict = await api.quote(staffPg(), {
+    operation_key: 'quote-alias-conflict', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }],
+    selection: { selected_bed_codes: ['R10-B1'], bed_ids: ['R10-B2'] },
+  }, context);
+  assert.equal(aliasConflict.code, 'conflicting_bed_selection_aliases');
 
   await assert.rejects(() => api.quote(pg, {
     operation_key: 'quote-bad', check_in: '2027-07-01', check_out: '2027-07-08', guests: [{ name: 'A' }, { name: 'B' }],
