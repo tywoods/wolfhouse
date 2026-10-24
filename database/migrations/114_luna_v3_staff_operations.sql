@@ -2,7 +2,92 @@
 -- Durable Luna v3 sessions, exact-bed holds, operation receipts and no-alert handoffs.
 BEGIN;
 
-CREATE TABLE luna_v3_sessions (
+-- Replay is allowed only over the historical Luna-owned predecessors or this
+-- consolidated definition. Refuse before replacing any hold invariant or
+-- adopting a same-named phone constraint.
+DO $replay_ownership$
+DECLARE
+  hold_oid oid;
+  hold_marker text;
+  trigger_oid oid;
+  trigger_def text;
+  trigger_marker text;
+  phone_oid oid;
+  phone_def text;
+  phone_marker text;
+  phone_column_exists boolean := false;
+  phone_column_marker text;
+BEGIN
+  hold_oid := to_regprocedure('public.luna_v3_hold_beds_reject_overlap()');
+  IF hold_oid IS NOT NULL THEN
+    SELECT obj_description(hold_oid,'pg_proc') INTO hold_marker;
+    IF hold_marker IS NULL THEN
+      IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=hold_oid)
+         IS DISTINCT FROM '9be3799a04b79b394d331fadb688ead0' THEN
+        RAISE EXCEPTION '114_refused: unmarked hold invariant is not the exact historical 114 predecessor';
+      END IF;
+    ELSIF hold_marker NOT IN (
+      '116_luna_v3_session_phone_and_hold_invariant v1; extends 114-owned object',
+      '118_luna_v3_private_optional_hold_eligibility v1; extends 116-owned object',
+      '114_luna_v3_staff_operations v2; consolidated 116 and 118'
+    ) THEN
+      RAISE EXCEPTION '114_refused: hold invariant ownership is foreign/newer (%)',hold_marker;
+    END IF;
+  END IF;
+
+  IF to_regclass('public.luna_v3_hold_beds') IS NOT NULL THEN
+    SELECT oid,pg_get_triggerdef(oid,false),obj_description(oid,'pg_trigger')
+      INTO trigger_oid,trigger_def,trigger_marker
+      FROM pg_trigger
+     WHERE tgrelid='public.luna_v3_hold_beds'::regclass
+       AND tgname='luna_v3_hold_beds_reject_overlap_trg'
+       AND NOT tgisinternal;
+    IF trigger_oid IS NOT NULL THEN
+      IF trigger_def IS DISTINCT FROM
+           'CREATE TRIGGER luna_v3_hold_beds_reject_overlap_trg BEFORE INSERT OR UPDATE OF hold_id, client_id, bed_id ON public.luna_v3_hold_beds FOR EACH ROW EXECUTE FUNCTION luna_v3_hold_beds_reject_overlap()'
+      THEN RAISE EXCEPTION '114_refused: hold trigger definition is foreign/newer'; END IF;
+      IF trigger_marker IS NOT NULL
+         AND trigger_marker IS DISTINCT FROM '114_luna_v3_staff_operations v2; consolidated trigger' THEN
+        RAISE EXCEPTION '114_refused: hold trigger ownership is foreign/newer (%)',trigger_marker;
+      END IF;
+    END IF;
+  END IF;
+
+  IF to_regclass('public.luna_v3_sessions') IS NOT NULL THEN
+    SELECT true,col_description('public.luna_v3_sessions'::regclass,attnum)
+      INTO phone_column_exists,phone_column_marker
+      FROM pg_attribute
+     WHERE attrelid='public.luna_v3_sessions'::regclass
+       AND attname='guest_phone'
+       AND NOT attisdropped;
+    IF phone_column_exists AND phone_column_marker IS NULL THEN
+      RAISE EXCEPTION '114_refused: existing guest_phone column is unowned';
+    END IF;
+    IF phone_column_marker IS NOT NULL
+       AND phone_column_marker NOT IN (
+         '116 server-owned trusted guest phone; never request-body authority',
+         '114 server-owned trusted guest phone; never request-body authority'
+       ) THEN
+      RAISE EXCEPTION '114_refused: guest_phone column ownership is foreign/newer (%)',phone_column_marker;
+    END IF;
+    SELECT oid,pg_get_constraintdef(oid,false),obj_description(oid,'pg_constraint')
+      INTO phone_oid,phone_def,phone_marker
+      FROM pg_constraint
+     WHERE conrelid='public.luna_v3_sessions'::regclass
+       AND conname='luna_v3_sessions_guest_phone_bounded';
+    IF phone_oid IS NOT NULL THEN
+      IF phone_def IS DISTINCT FROM
+           'CHECK (((guest_phone IS NULL) OR (((octet_length(guest_phone) >= 3) AND (octet_length(guest_phone) <= 40)) AND (guest_phone = btrim(guest_phone)))))'
+      THEN RAISE EXCEPTION '114_refused: phone constraint definition is foreign/newer'; END IF;
+      IF phone_marker IS NOT NULL
+         AND phone_marker IS DISTINCT FROM '120_luna_v3_constraint_ownership_and_transfer_decline v1' THEN
+        RAISE EXCEPTION '114_refused: phone constraint ownership is foreign/newer (%)',phone_marker;
+      END IF;
+    END IF;
+  END IF;
+END $replay_ownership$;
+
+CREATE TABLE IF NOT EXISTS luna_v3_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   session_key text NOT NULL,
@@ -15,7 +100,7 @@ CREATE TABLE luna_v3_sessions (
   CHECK (session_key LIKE 'luna-v3:%')
 );
 
-CREATE TABLE luna_v3_selections (
+CREATE TABLE IF NOT EXISTS luna_v3_selections (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   session_id uuid NOT NULL REFERENCES luna_v3_sessions(id) ON DELETE CASCADE,
@@ -33,7 +118,7 @@ CREATE TABLE luna_v3_selections (
   CHECK (jsonb_typeof(quote) = 'object')
 );
 
-CREATE TABLE luna_v3_holds (
+CREATE TABLE IF NOT EXISTS luna_v3_holds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   session_id uuid NOT NULL REFERENCES luna_v3_sessions(id) ON DELETE CASCADE,
@@ -49,7 +134,7 @@ CREATE TABLE luna_v3_holds (
   CHECK ((state = 'converted') = (booking_id IS NOT NULL))
 );
 
-CREATE TABLE luna_v3_hold_beds (
+CREATE TABLE IF NOT EXISTS luna_v3_hold_beds (
   hold_id uuid NOT NULL REFERENCES luna_v3_holds(id) ON DELETE CASCADE,
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   bed_id uuid NOT NULL REFERENCES beds(id) ON DELETE RESTRICT,
@@ -59,9 +144,9 @@ CREATE TABLE luna_v3_hold_beds (
   PRIMARY KEY (hold_id, guest_ordinal),
   UNIQUE (hold_id, bed_id)
 );
-CREATE INDEX luna_v3_hold_beds_occupancy_idx ON luna_v3_hold_beds(client_id, bed_id);
+CREATE INDEX IF NOT EXISTS luna_v3_hold_beds_occupancy_idx ON luna_v3_hold_beds(client_id, bed_id);
 
-CREATE TABLE luna_v3_operations (
+CREATE TABLE IF NOT EXISTS luna_v3_operations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   session_id uuid NOT NULL REFERENCES luna_v3_sessions(id) ON DELETE CASCADE,
@@ -77,7 +162,7 @@ CREATE TABLE luna_v3_operations (
   UNIQUE (client_id, session_id, tool, operation_key)
 );
 
-CREATE TABLE luna_v3_handoffs (
+CREATE TABLE IF NOT EXISTS luna_v3_handoffs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   session_id uuid NOT NULL REFERENCES luna_v3_sessions(id) ON DELETE CASCADE,
@@ -97,7 +182,9 @@ BEGIN
     oid := to_regprocedure(signature);
     IF oid IS NULL THEN RAISE EXCEPTION '114_refused: required 091 function % is missing', signature; END IF;
     SELECT obj_description(oid,'pg_proc') INTO owned;
-    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1'
+       AND owned IS DISTINCT FROM '114_luna_v3_staff_operations v1; preserves 091 and extends common occupancy boundary'
+       AND owned IS DISTINCT FROM '114_luna_v3_staff_operations v2; preserves 091 and extends common occupancy boundary' THEN
       RAISE EXCEPTION '114_refused: function % is not expected 091-owned definition (comment=%)', signature, owned;
     END IF;
   END LOOP;
@@ -136,16 +223,33 @@ BEGIN
   IF conflict_row IS NOT NULL THEN RAISE EXCEPTION 'booking_beds_overlap_conflict'; END IF;
   RETURN NEW;
 END $$;
-COMMENT ON FUNCTION booking_beds_reject_overlap() IS '114_luna_v3_staff_operations v1; preserves 091 and extends common occupancy boundary';
+COMMENT ON FUNCTION booking_beds_reject_overlap() IS '114_luna_v3_staff_operations v2; preserves 091 and extends common occupancy boundary';
 
 -- Hold insertion uses the identical bed lock and rejects ordinary occupancy even
 -- when an application-level availability check is bypassed.
-CREATE FUNCTION luna_v3_hold_beds_reject_overlap() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE h luna_v3_holds%ROWTYPE; conflict_row uuid;
+ALTER TABLE luna_v3_sessions ADD COLUMN IF NOT EXISTS guest_phone text;
+DO $phone_constraint$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.luna_v3_sessions'::regclass
+                   AND conname='luna_v3_sessions_guest_phone_bounded') THEN
+    ALTER TABLE luna_v3_sessions ADD CONSTRAINT luna_v3_sessions_guest_phone_bounded
+      CHECK (guest_phone IS NULL OR (octet_length(guest_phone) BETWEEN 3 AND 40 AND guest_phone=btrim(guest_phone)));
+  END IF;
+END $phone_constraint$;
+COMMENT ON COLUMN luna_v3_sessions.guest_phone IS '114 server-owned trusted guest phone; never request-body authority';
+
+CREATE OR REPLACE FUNCTION luna_v3_hold_beds_reject_overlap() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE h luna_v3_holds%ROWTYPE; conflict_row uuid; eligible boolean;
 BEGIN
   SELECT * INTO h FROM luna_v3_holds WHERE id=NEW.hold_id;
   IF h.id IS NULL OR h.client_id<>NEW.client_id THEN RAISE EXCEPTION 'luna_v3_hold_scope_invalid'; END IF;
   PERFORM pg_advisory_xact_lock(booking_occupancy_lock_key('bed',NEW.bed_id));
+  SELECT b.active AND COALESCE(b.sellable,true) AND r.active
+    AND COALESCE(r.selling_mode,'shared') IN ('shared','private','private_optional')
+    INTO eligible FROM beds b JOIN rooms r ON r.id=b.room_id AND r.client_id=b.client_id
+   WHERE b.id=NEW.bed_id AND b.client_id=NEW.client_id AND b.bed_code=NEW.bed_code
+   FOR KEY SHARE OF b,r;
+  IF eligible IS DISTINCT FROM true THEN RAISE EXCEPTION 'luna_v3_hold_bed_ineligible'; END IF;
   SELECT bb.id INTO conflict_row FROM booking_beds bb JOIN bookings bk ON bk.id=bb.booking_id
    WHERE bb.client_id=NEW.client_id AND bb.bed_id=NEW.bed_id
      AND bb.assignment_start_date<h.check_out AND bb.assignment_end_date>h.check_in
@@ -153,8 +257,11 @@ BEGIN
   IF conflict_row IS NOT NULL THEN RAISE EXCEPTION 'booking_beds_overlap_conflict'; END IF;
   RETURN NEW;
 END $$;
+COMMENT ON FUNCTION luna_v3_hold_beds_reject_overlap() IS '114_luna_v3_staff_operations v2; consolidated 116 and 118';
+DROP TRIGGER IF EXISTS luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds;
 CREATE TRIGGER luna_v3_hold_beds_reject_overlap_trg BEFORE INSERT OR UPDATE OF hold_id,client_id,bed_id
  ON luna_v3_hold_beds FOR EACH ROW EXECUTE FUNCTION luna_v3_hold_beds_reject_overlap();
+COMMENT ON TRIGGER luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds IS '114_luna_v3_staff_operations v2; consolidated trigger';
 
 -- Preserve 091's inactive-booking reactivation guard and extend it to holds.
 CREATE OR REPLACE FUNCTION bookings_occupancy_status_guard() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -178,6 +285,6 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-COMMENT ON FUNCTION bookings_occupancy_status_guard() IS '114_luna_v3_staff_operations v1; preserves 091 and extends common occupancy boundary';
+COMMENT ON FUNCTION bookings_occupancy_status_guard() IS '114_luna_v3_staff_operations v2; preserves 091 and extends common occupancy boundary';
 
 COMMIT;

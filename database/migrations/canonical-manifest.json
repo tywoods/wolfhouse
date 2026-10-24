@@ -1615,8 +1615,8 @@
       "order": 105,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Durable session-bound Luna v3 selections, idempotent operations, exact-bed holds, no-alert handoffs, and a common booking/hold occupancy boundary.",
-      "sha256": "3af9c58ad5d3d2ff59d6400c690df2241c43241d7ce9c6695b26100a6e3ff9d8"
+      "rationale": "Fallback consolidation: durable Luna v3 staff objects plus the final guest-phone and private_optional exact-bed invariant formerly split across 116 and 118. Shared-object migrations remain forward-only entries.",
+      "sha256": "7579430b90d7d85ce89b885380a9bc929d9a9dc41fe5dac503795de7b6a3d184"
     },
     {
       "id": "115_luna_v3_guest_operations",
@@ -1630,16 +1630,16 @@
     {
       "id": "116_luna_v3_session_phone_and_hold_invariant",
       "filename": "116_luna_v3_session_phone_and_hold_invariant.sql",
-      "order": 107,
-      "classification": "canonical_forward",
-      "inForwardChain": true,
-      "rationale": "Server-owned bounded Luna v3 guest phone and final locked exact-bed eligibility invariant.",
+      "order": null,
+      "classification": "superseded",
+      "inForwardChain": false,
+      "rationale": "Historical compatibility artifact; its Luna-v3-only effects are consolidated into migration 114.",
       "sha256": "ae6c7774a084437b1e339d83e8195ba30f48ba259eb2e127981d6be741bdd3f7"
     },
     {
       "id": "117_cancel_unpaid_payment_race_guard",
       "filename": "117_cancel_unpaid_payment_race_guard.sql",
-      "order": 108,
+      "order": 107,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
@@ -1648,16 +1648,16 @@
     {
       "id": "118_luna_v3_private_optional_hold_eligibility",
       "filename": "118_luna_v3_private_optional_hold_eligibility.sql",
-      "order": 109,
-      "classification": "canonical_forward",
-      "inForwardChain": true,
-      "rationale": "Extend the 116-owned exact-bed hold invariant to admit private_optional rooms without rewriting canonical migration history.",
+      "order": null,
+      "classification": "superseded",
+      "inForwardChain": false,
+      "rationale": "Historical compatibility artifact; its Luna-v3-only effect is consolidated into migration 114.",
       "sha256": "b474816fbb8baa0397679451032c519a93b14f9ca92e342dc91e74a5a4b8758a"
     },
     {
       "id": "119_luna_v3_guest_payment_history",
       "filename": "119_luna_v3_guest_payment_history.sql",
-      "order": 110,
+      "order": 108,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Preserve tenant/booking/guest scoped historical payment associations when the authoritative guest payment pointer is replaced.",
@@ -1666,7 +1666,7 @@
     {
       "id": "120_luna_v3_constraint_ownership_and_transfer_decline",
       "filename": "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
-      "order": 111,
+      "order": 109,
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Adopt the exact legacy Luna v3 phone constraint without rewriting migration 116 and require durable authoritative linkage for successful transfer declines.",

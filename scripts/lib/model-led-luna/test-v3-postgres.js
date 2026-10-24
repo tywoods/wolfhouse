@@ -293,24 +293,169 @@ async function main(api = defaultApi) {
     await admin.query(migration091);
     await admin.query(migration);
     await admin.query(migration115);
-    const predecessor114 = (
-      await admin.query(
-        `SELECT pg_get_functiondef('luna_v3_hold_beds_reject_overlap()'::regprocedure) body`,
-      )
-    ).rows[0].body;
     await admin.query(
-      `CREATE OR REPLACE FUNCTION luna_v3_hold_beds_reject_overlap() RETURNS trigger LANGUAGE plpgsql AS $$DECLARE h luna_v3_holds%ROWTYPE; conflict_row uuid; BEGIN RAISE EXCEPTION 'booking_beds_overlap_conflict'; END$$`,
+      `COMMENT ON FUNCTION luna_v3_hold_beds_reject_overlap() IS 'foreign hold owner'`,
     );
-    await assert.rejects(admin.query(migration116), /exact 114 predecessor/);
+    const foreignHoldBefore = (
+      await admin.query(
+        `SELECT pg_get_functiondef('luna_v3_hold_beds_reject_overlap()'::regprocedure) body,obj_description('luna_v3_hold_beds_reject_overlap()'::regprocedure,'pg_proc') marker`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /hold invariant ownership is foreign\/newer/);
     await admin.query("ROLLBACK");
-    await admin.query(predecessor114);
-    await admin.query(migration116);
-    await admin.query(migration118);
-    const marker118 = (
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT pg_get_functiondef('luna_v3_hold_beds_reject_overlap()'::regprocedure) body,obj_description('luna_v3_hold_beds_reject_overlap()'::regprocedure,'pg_proc') marker`,
+        )
+      ).rows[0],
+      foreignHoldBefore,
+      "114 mutated a foreign-owned hold invariant before refusal",
+    );
+    await admin.query(
+      `COMMENT ON FUNCTION luna_v3_hold_beds_reject_overlap() IS '114_luna_v3_staff_operations v2; consolidated 116 and 118'`,
+    );
+    await admin.query(
+      `COMMENT ON TRIGGER luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds IS 'foreign trigger owner'`,
+    );
+    const foreignTriggerMarkerBefore = (
+      await admin.query(
+        `SELECT oid::text,pg_get_triggerdef(oid,false) def,obj_description(oid,'pg_trigger') marker FROM pg_trigger WHERE tgrelid='luna_v3_hold_beds'::regclass AND tgname='luna_v3_hold_beds_reject_overlap_trg' AND NOT tgisinternal`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /hold trigger ownership is foreign\/newer/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT oid::text,pg_get_triggerdef(oid,false) def,obj_description(oid,'pg_trigger') marker FROM pg_trigger WHERE tgrelid='luna_v3_hold_beds'::regclass AND tgname='luna_v3_hold_beds_reject_overlap_trg' AND NOT tgisinternal`,
+        )
+      ).rows[0],
+      foreignTriggerMarkerBefore,
+      "114 mutated a foreign-owned hold trigger before refusal",
+    );
+    await admin.query(
+      `DROP TRIGGER luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds; CREATE TRIGGER luna_v3_hold_beds_reject_overlap_trg BEFORE INSERT ON luna_v3_hold_beds FOR EACH ROW EXECUTE FUNCTION luna_v3_hold_beds_reject_overlap()`,
+    );
+    const foreignTriggerDefinitionBefore = (
+      await admin.query(
+        `SELECT oid::text,pg_get_triggerdef(oid,false) def,obj_description(oid,'pg_trigger') marker FROM pg_trigger WHERE tgrelid='luna_v3_hold_beds'::regclass AND tgname='luna_v3_hold_beds_reject_overlap_trg' AND NOT tgisinternal`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /hold trigger definition is foreign\/newer/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT oid::text,pg_get_triggerdef(oid,false) def,obj_description(oid,'pg_trigger') marker FROM pg_trigger WHERE tgrelid='luna_v3_hold_beds'::regclass AND tgname='luna_v3_hold_beds_reject_overlap_trg' AND NOT tgisinternal`,
+        )
+      ).rows[0],
+      foreignTriggerDefinitionBefore,
+      "114 mutated a foreign same-name hold trigger before refusal",
+    );
+    await admin.query(
+      `DROP TRIGGER luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds; CREATE TRIGGER luna_v3_hold_beds_reject_overlap_trg BEFORE INSERT OR UPDATE OF hold_id,client_id,bed_id ON luna_v3_hold_beds FOR EACH ROW EXECUTE FUNCTION luna_v3_hold_beds_reject_overlap(); COMMENT ON TRIGGER luna_v3_hold_beds_reject_overlap_trg ON luna_v3_hold_beds IS '114_luna_v3_staff_operations v2; consolidated trigger'`,
+    );
+    await admin.query(
+      `COMMENT ON COLUMN luna_v3_sessions.guest_phone IS NULL`,
+    );
+    const unmarkedPhoneColumnBefore = (
+      await admin.query(
+        `SELECT attname,atttypid::regtype::text type,col_description('luna_v3_sessions'::regclass,attnum) marker FROM pg_attribute WHERE attrelid='luna_v3_sessions'::regclass AND attname='guest_phone' AND NOT attisdropped`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /existing guest_phone column is unowned/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT attname,atttypid::regtype::text type,col_description('luna_v3_sessions'::regclass,attnum) marker FROM pg_attribute WHERE attrelid='luna_v3_sessions'::regclass AND attname='guest_phone' AND NOT attisdropped`,
+        )
+      ).rows[0],
+      unmarkedPhoneColumnBefore,
+      "114 adopted an unmarked guest_phone column before refusal",
+    );
+    await admin.query(
+      `COMMENT ON COLUMN luna_v3_sessions.guest_phone IS 'foreign phone column owner'`,
+    );
+    const foreignPhoneColumnBefore = (
+      await admin.query(
+        `SELECT col_description('luna_v3_sessions'::regclass,attnum) marker FROM pg_attribute WHERE attrelid='luna_v3_sessions'::regclass AND attname='guest_phone' AND NOT attisdropped`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /guest_phone column ownership is foreign\/newer/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT col_description('luna_v3_sessions'::regclass,attnum) marker FROM pg_attribute WHERE attrelid='luna_v3_sessions'::regclass AND attname='guest_phone' AND NOT attisdropped`,
+        )
+      ).rows[0],
+      foreignPhoneColumnBefore,
+      "114 mutated a foreign-owned guest_phone column before refusal",
+    );
+    await admin.query(
+      `COMMENT ON COLUMN luna_v3_sessions.guest_phone IS '114 server-owned trusted guest phone; never request-body authority'`,
+    );
+    await admin.query(
+      `COMMENT ON CONSTRAINT luna_v3_sessions_guest_phone_bounded ON luna_v3_sessions IS 'foreign phone owner'`,
+    );
+    const foreignPhoneMarkerBefore = (
+      await admin.query(
+        `SELECT oid::text,pg_get_constraintdef(oid,false) def,obj_description(oid,'pg_constraint') marker FROM pg_constraint WHERE conrelid='luna_v3_sessions'::regclass AND conname='luna_v3_sessions_guest_phone_bounded'`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /phone constraint ownership is foreign\/newer/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT oid::text,pg_get_constraintdef(oid,false) def,obj_description(oid,'pg_constraint') marker FROM pg_constraint WHERE conrelid='luna_v3_sessions'::regclass AND conname='luna_v3_sessions_guest_phone_bounded'`,
+        )
+      ).rows[0],
+      foreignPhoneMarkerBefore,
+      "114 mutated a foreign-owned phone constraint before refusal",
+    );
+    await admin.query(
+      `COMMENT ON CONSTRAINT luna_v3_sessions_guest_phone_bounded ON luna_v3_sessions IS NULL`,
+    );
+    await admin.query(
+      `ALTER TABLE luna_v3_sessions DROP CONSTRAINT luna_v3_sessions_guest_phone_bounded; ALTER TABLE luna_v3_sessions ADD CONSTRAINT luna_v3_sessions_guest_phone_bounded CHECK (guest_phone IS NULL OR octet_length(guest_phone) <= 80)`,
+    );
+    const foreignPhoneDefinitionBefore = (
+      await admin.query(
+        `SELECT oid::text,pg_get_constraintdef(oid,false) def,obj_description(oid,'pg_constraint') marker FROM pg_constraint WHERE conrelid='luna_v3_sessions'::regclass AND conname='luna_v3_sessions_guest_phone_bounded'`,
+      )
+    ).rows[0];
+    await assert.rejects(admin.query(migration), /phone constraint definition is foreign\/newer/);
+    await admin.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await admin.query(
+          `SELECT oid::text,pg_get_constraintdef(oid,false) def,obj_description(oid,'pg_constraint') marker FROM pg_constraint WHERE conrelid='luna_v3_sessions'::regclass AND conname='luna_v3_sessions_guest_phone_bounded'`,
+        )
+      ).rows[0],
+      foreignPhoneDefinitionBefore,
+      "114 mutated a foreign same-name phone constraint before refusal",
+    );
+    await admin.query(
+      `ALTER TABLE luna_v3_sessions DROP CONSTRAINT luna_v3_sessions_guest_phone_bounded; ALTER TABLE luna_v3_sessions ADD CONSTRAINT luna_v3_sessions_guest_phone_bounded CHECK (guest_phone IS NULL OR (octet_length(guest_phone) BETWEEN 3 AND 40 AND guest_phone=btrim(guest_phone)))`,
+    );
+    const consolidated114Marker = (
       await admin.query(
         `SELECT obj_description('luna_v3_hold_beds_reject_overlap()'::regprocedure,'pg_proc') marker`,
       )
     ).rows[0].marker;
+    assert.equal(
+      consolidated114Marker,
+      "114_luna_v3_staff_operations v2; consolidated 116 and 118",
+    );
+    await admin.query(
+      `CREATE OR REPLACE FUNCTION luna_v3_hold_beds_reject_overlap() RETURNS trigger LANGUAGE plpgsql AS $$DECLARE h luna_v3_holds%ROWTYPE; conflict_row uuid; BEGIN RAISE EXCEPTION 'booking_beds_overlap_conflict'; END$$`,
+    );
+    await assert.rejects(admin.query(migration116), /foreign\/newer/);
+    await admin.query("ROLLBACK");
+    await admin.query(migration);
     await assert.rejects(admin.query(migration116), /foreign\/newer/);
     await admin.query("ROLLBACK");
     assert.equal(
@@ -319,8 +464,8 @@ async function main(api = defaultApi) {
           `SELECT obj_description('luna_v3_hold_beds_reject_overlap()'::regprocedure,'pg_proc') marker`,
         )
       ).rows[0].marker,
-      marker118,
-      "116 replaced 118-owned function",
+      consolidated114Marker,
+      "superseded migration 116 replaced the consolidated 114 invariant",
     );
     await admin.query(migration117);
     await admin.query(
@@ -565,8 +710,8 @@ async function main(api = defaultApi) {
     console.log(
       "PASS V3-MADRID-WALL-TIME exact transition offsets; ambiguous/nonexistent refused",
     );
-    // Real 116 -> 120 upgrade: an unrelated, independently named phone check must
-    // retain its identity and metadata while 120 adopts only 116's own constraint.
+    // Fresh consolidated-114 -> retained-forward-migrations path: an unrelated,
+    // independently named phone check must retain its identity and metadata.
     await admin.query(base);
     await admin.query(migration091);
     await admin.query(migration);
@@ -574,9 +719,7 @@ async function main(api = defaultApi) {
     await admin.query(
       `ALTER TABLE luna_v3_sessions ADD COLUMN IF NOT EXISTS guest_phone text; ALTER TABLE luna_v3_sessions ADD CONSTRAINT ext_phone_12 CHECK (guest_phone IS NULL OR octet_length(guest_phone)<=12); COMMENT ON CONSTRAINT ext_phone_12 ON luna_v3_sessions IS 'foreign phone policy';`,
     );
-    await admin.query(migration116);
     await admin.query(migration117);
-    await admin.query(migration118);
     await admin.query(migration119);
     const foreignPhoneBefore = (
       await admin.query(
@@ -601,9 +744,7 @@ async function main(api = defaultApi) {
     await admin.query(migration091);
     await admin.query(migration);
     await admin.query(migration115);
-    await admin.query(migration116);
     await admin.query(migration117);
-    await admin.query(migration118);
     const pointerName = (
       await admin.query(
         `SELECT conname FROM pg_constraint WHERE conrelid='luna_v3_payment_links'::regclass AND confrelid='booking_guests'::regclass AND contype='f' AND array_length(conkey,1)=4`,
@@ -622,9 +763,7 @@ async function main(api = defaultApi) {
     await admin.query(migration091);
     await admin.query(migration);
     await admin.query(migration115);
-    await admin.query(migration116);
     await admin.query(migration117);
-    await admin.query(migration118);
     await admin.query(migration119);
     await admin.query(
       `COMMENT ON TABLE luna_v3_transfer_requests IS 'foreign late preflight canary'`,
@@ -652,7 +791,7 @@ async function main(api = defaultApi) {
     );
     await admin.query(migration120);
     console.log(
-      "PASS V3-R20-MIGRATIONS full 116->120 foreign phone preservation/rejection, deferred FK refusal, and mutation-free preflight refusal",
+      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
     await admin.query(
       `INSERT INTO clients(id,slug) VALUES($1,'wolfhouse-somo')`,
@@ -1058,7 +1197,7 @@ async function main(api = defaultApi) {
     );
     await ordinary.query("ROLLBACK");
     console.log("PASS V3-HOLD-RACES v3-v3 and v3-vs-ordinary");
-    // R20: start an ordinary booking-bed writer while holdBeds is paused after
+    // Start an ordinary booking-bed writer while holdBeds is paused after
     // reaching its first hold-bed INSERT. Every actor has an independent client.
     const gate = await c(),
       inFlightHold = await c(),
@@ -1149,9 +1288,9 @@ async function main(api = defaultApi) {
       inFlightProbe.end(),
     ]);
     console.log(
-      "PASS V3-R20-INFLIGHT-HOLD-RACE hold paused at first hold-bed insert; independent ordinary writer waited on occupancy lock then lost",
+      "PASS V3-INFLIGHT-HOLD-RACE hold paused at first hold-bed insert; independent ordinary writer waited on occupancy lock then lost",
     );
-    // R20: prove the first hold-bed INSERT happened even though the second fails,
+    // Prove the first hold-bed INSERT happened even though the second fails,
     // using a nontransactional sequence, then prove every transactional row rolled back.
     await admin.query(
       `CREATE SEQUENCE r20_first_hold_bed_seen; CREATE FUNCTION r20_fail_second_hold_bed() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.guest_ordinal=1 THEN PERFORM nextval('r20_first_hold_bed_seen'); ELSIF NEW.guest_ordinal=2 THEN RAISE EXCEPTION 'injected_second_hold_bed_failure'; END IF; RETURN NEW; END$$; CREATE TRIGGER r20_fail_second_hold_bed_trg BEFORE INSERT ON luna_v3_hold_beds FOR EACH ROW EXECUTE FUNCTION r20_fail_second_hold_bed()`,
@@ -1228,7 +1367,7 @@ async function main(api = defaultApi) {
       "DROP TRIGGER r20_fail_second_hold_bed_trg ON luna_v3_hold_beds; DROP FUNCTION r20_fail_second_hold_bed(); DROP SEQUENCE r20_first_hold_bed_seen",
     );
     console.log(
-      "PASS V3-R20-HOLD-ROLLBACK first insert observed nontransactionally; hold, hold-bed and operation rows rolled back",
+      "PASS V3-HOLD-ROLLBACK first insert observed nontransactionally; hold, hold-bed and operation rows rolled back",
     );
     const before = (await admin.query("SELECT count(*)::int n FROM bookings"))
       .rows[0].n;
@@ -1387,7 +1526,7 @@ async function main(api = defaultApi) {
       "persisted bed/room UUID identity drift",
     );
     console.log(
-      "PASS V3-R20-MIXED-PACKAGE full persisted person/bed/room/package/date tuples and independently capped cents",
+      "PASS V3-MIXED-PACKAGE full persisted person/bed/room/package/date tuples and independently capped cents",
     );
     await admin.query(
       `UPDATE booking_beds SET guest_name='WRONG NAME' WHERE booking_id=$1`,
@@ -1954,7 +2093,7 @@ async function main(api = defaultApi) {
         amountCents: 1000,
         method,
         idempotencyKey: `r21-native-${method}`,
-        actorLabel: "R21 test",
+        actorLabel: "native payment ownership test",
       });
       nativeReceipts.push(receipt);
       assert.equal(receipt.payment.payment_status, "paid");
@@ -2040,7 +2179,7 @@ async function main(api = defaultApi) {
       [selectedBooking],
     );
     console.log(
-      "PASS V3-R21-PAYMENT all native Staff method/source pairs accepted; async provider evidence preserved; first contradictory association rejected",
+      "PASS V3-NATIVE-PAYMENT-OWNERSHIP all native Staff method/source pairs accepted; async provider evidence preserved; first contradictory association rejected",
     );
     const providerSessions = new Map(),
       transport = { whatsapp: 0, sms: 0, email: 0, staffAlerts: 0, outbox: 0 };

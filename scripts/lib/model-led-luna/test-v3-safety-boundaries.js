@@ -74,7 +74,7 @@ for (const malformed of [
 ])
   assert.equal(quote(malformed).success, false, JSON.stringify(malformed));
 console.log(
-  "PASS R17-6 calculator rejects malformed ordinals and accepts reversed valid order",
+  "PASS V3-ORDINAL-BOUNDARY calculator rejects malformed ordinals and accepts reversed valid order",
 );
 
 assert.equal(Object.isFrozen(api), true);
@@ -241,7 +241,7 @@ const registry = api.createOperations(async (fn) =>
     /luna_v3_transfer_requests_authoritative_required_120/,
   );
   console.log(
-    "PASS R17-7/8/12 identity check, authoritative decline, truthful selected-dispatch negative, connected production transport boundaries fail closed, constraint ownership guards",
+    "PASS V3-SAFETY-BOUNDARIES identity check, authoritative decline, truthful selected-dispatch negative, connected production transport boundaries fail closed, constraint ownership guards",
   );
 })().catch((error) => {
   throw error;
