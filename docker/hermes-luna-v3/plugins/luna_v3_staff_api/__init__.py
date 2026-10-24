@@ -234,13 +234,15 @@ def _field_schema(field: str) -> dict[str, Any]:
     if field == "assignments":
         return {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
                     "bed_code": {"type": "string", "minLength": 1},
                     "guest_name": {"type": "string", "minLength": 1},
-                    "package_code": {"type": "string", "minLength": 1},
+                    "package_code": {"type": "string", "minLength": 1, "description": "Exact accepted package code; accommodation-only is explicit package_none."},
                 },
+                "required": ["bed_code", "guest_name", "package_code"],
                 "additionalProperties": False,
             },
         }
@@ -264,13 +266,14 @@ def _field_schema(field: str) -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "minLength": 1},
-                    "days": {"type": "integer", "minimum": 1},
-                    "quantity": {"type": "integer", "minimum": 1},
+                    "days": {"type": "integer", "minimum": 1, "description": "For a dated rental, the number of distinct requested service dates."},
+                    "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, quantity counts people or equipment units, never participant-days."},
                     "dates": {
                         "type": "array",
                         "items": {"type": "string", "format": "date"},
                         "minItems": 1,
                         "uniqueItems": True,
+                        "description": "The exact service dates for a dated rental; these are retained unchanged.",
                     },
                 },
                 "required": ["code"],
@@ -335,6 +338,7 @@ def register(ctx: Any) -> None:
             "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
             "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
             "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",
+            "hold_beds": "Copy the canonical hold input returned by the accepted quote, add one stable operation key, and hold exactly those dates, ordered guests, beds, and package codes.",
         }
         schema = {
             "name": name,

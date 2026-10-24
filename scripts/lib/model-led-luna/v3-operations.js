@@ -523,7 +523,7 @@ async function recoverOperation(pg, input, context) {
     return {
       ok: true,
       status: 200,
-      recoveryStatus: "saved",
+      recoveryStatus: o.outcome === "rejected" ? "rejected" : "saved",
       outcome: o.outcome,
       readBack: true,
       tool: o.tool,
