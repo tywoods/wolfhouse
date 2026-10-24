@@ -39,11 +39,16 @@ BEGIN
       AND conname='luna_v3_payment_links_guest_payment_history_fk'
     UNION ALL SELECT 1 FROM pg_trigger WHERE tgrelid='public.booking_guests'::regclass
       AND tgname='luna_v3_preserve_guest_payment_history_trg' AND NOT tgisinternal
+    UNION ALL SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.luna_v3_guest_payments')
+      AND tgname='luna_v3_validate_guest_payment_history_trg' AND NOT tgisinternal
   ) objects;
-  IF present NOT IN (0,6) THEN
-    RAISE EXCEPTION '119_refused: partial installation (%/6 objects)',present;
+  IF present NOT IN (0,6,7) OR (present=6 AND EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.luna_v3_guest_payments')
+      AND tgname='luna_v3_validate_guest_payment_history_trg' AND NOT tgisinternal
+  )) THEN
+    RAISE EXCEPTION '119_refused: partial installation (%/7 objects)',present;
   END IF;
-  IF present=6 THEN
+  IF present IN (6,7) THEN
     SELECT string_agg(name,', ' ORDER BY name) INTO bad FROM (
       SELECT 'table' name WHERE obj_description('public.luna_v3_guest_payments'::regclass,'pg_class') IS DISTINCT FROM marker
       UNION ALL SELECT 'index' WHERE obj_description('public.luna_v3_guest_payments_payment_uq'::regclass,'pg_class') IS DISTINCT FROM marker
@@ -51,12 +56,37 @@ BEGIN
       UNION ALL SELECT 'guest-key' WHERE (SELECT obj_description(oid,'pg_constraint') FROM pg_constraint WHERE conrelid='public.booking_guests'::regclass AND conname='booking_guests_id_booking_client_uq_119') IS DISTINCT FROM marker
       UNION ALL SELECT 'link-fk' WHERE (SELECT obj_description(oid,'pg_constraint') FROM pg_constraint WHERE conrelid='public.luna_v3_payment_links'::regclass AND conname='luna_v3_payment_links_guest_payment_history_fk') IS DISTINCT FROM marker
       UNION ALL SELECT 'trigger' WHERE (SELECT obj_description(oid,'pg_trigger') FROM pg_trigger WHERE tgrelid='public.booking_guests'::regclass AND tgname='luna_v3_preserve_guest_payment_history_trg' AND NOT tgisinternal) IS DISTINCT FROM marker
+      UNION ALL SELECT 'history-trigger' WHERE present=7 AND (SELECT obj_description(oid,'pg_trigger') FROM pg_trigger WHERE tgrelid='public.luna_v3_guest_payments'::regclass AND tgname='luna_v3_validate_guest_payment_history_trg' AND NOT tgisinternal) IS DISTINCT FROM marker
     ) foreign_objects;
     IF bad IS NOT NULL THEN
       RAISE EXCEPTION '119_refused: foreign/newer owned objects: %',bad;
     END IF;
   END IF;
 END $preflight$;
+
+-- An owned replay deliberately repairs this owned body.  The history-table
+-- branch rejects the first contradictory association, before an inconsistent
+-- row can exist; the booking_guests branch preserves every pointer revision.
+CREATE OR REPLACE FUNCTION luna_v3_preserve_guest_payment_history() RETURNS trigger
+LANGUAGE plpgsql AS $function$
+DECLARE payment_owner uuid;
+BEGIN
+  IF TG_TABLE_NAME='luna_v3_guest_payments' THEN
+    SELECT booking_guest_id INTO payment_owner FROM payments
+      WHERE id=NEW.payment_id AND booking_id=NEW.booking_id AND client_id=NEW.client_id;
+    IF payment_owner IS NOT NULL AND payment_owner<>NEW.booking_guest_id THEN
+      RAISE EXCEPTION 'luna_v3_guest_payment_owner_conflict';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.payment_id IS NOT NULL THEN
+    INSERT INTO luna_v3_guest_payments(client_id,booking_id,booking_guest_id,payment_id)
+    VALUES(NEW.client_id,NEW.booking_id,NEW.id,NEW.payment_id)
+    ON CONFLICT (client_id,booking_id,booking_guest_id,payment_id) DO NOTHING;
+  END IF;
+  RETURN NEW;
+END $function$;
+COMMENT ON FUNCTION luna_v3_preserve_guest_payment_history() IS '119_luna_v3_guest_payment_history v1';
 
 DO $install$
 DECLARE old_name text;
@@ -84,17 +114,6 @@ BEGIN
       ON luna_v3_guest_payments(client_id,booking_id,payment_id);
     COMMENT ON INDEX luna_v3_guest_payments_payment_uq IS '119_luna_v3_guest_payment_history v1';
 
-    CREATE FUNCTION luna_v3_preserve_guest_payment_history() RETURNS trigger
-    LANGUAGE plpgsql AS $function$
-    BEGIN
-      IF NEW.payment_id IS NOT NULL THEN
-        INSERT INTO luna_v3_guest_payments(client_id,booking_id,booking_guest_id,payment_id)
-        VALUES(NEW.client_id,NEW.booking_id,NEW.id,NEW.payment_id)
-        ON CONFLICT (client_id,booking_id,booking_guest_id,payment_id) DO NOTHING;
-      END IF;
-      RETURN NEW;
-    END $function$;
-    COMMENT ON FUNCTION luna_v3_preserve_guest_payment_history() IS '119_luna_v3_guest_payment_history v1';
     CREATE TRIGGER luna_v3_preserve_guest_payment_history_trg
       AFTER INSERT OR UPDATE OF payment_id ON booking_guests
       FOR EACH ROW EXECUTE FUNCTION luna_v3_preserve_guest_payment_history();
@@ -141,6 +160,18 @@ BEGIN
       '119_luna_v3_guest_payment_history v1';
   END IF;
 END $install$;
+
+DO $history_trigger$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.luna_v3_guest_payments'::regclass
+      AND tgname='luna_v3_validate_guest_payment_history_trg' AND NOT tgisinternal) THEN
+    CREATE TRIGGER luna_v3_validate_guest_payment_history_trg
+      BEFORE INSERT OR UPDATE OF client_id,booking_id,booking_guest_id,payment_id ON luna_v3_guest_payments
+      FOR EACH ROW EXECUTE FUNCTION luna_v3_preserve_guest_payment_history();
+    COMMENT ON TRIGGER luna_v3_validate_guest_payment_history_trg ON luna_v3_guest_payments IS
+      '119_luna_v3_guest_payment_history v1';
+  END IF;
+END $history_trigger$;
 
 -- Replay-safe backfill.  payments.booking_guest_id is the historical authority;
 -- booking_guests.payment_id contributes the current pointer for older rows where
