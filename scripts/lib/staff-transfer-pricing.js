@@ -11,14 +11,20 @@ async function loadStaffTransferConfig(pg, clientSlug) {
   const dbRules = await loadRules(pg, config.client_slug);
   const dbTransferRules = await loadTransferRules(pg, config.client_slug);
   const { transfers } = buildAdminPricingView({ transferConfig: config, dbRules, dbTransferRules });
+  const authoritativePrices = new Map(dbRules
+    .filter((rule) => rule.item_type === 'transfer' && rule.active !== false)
+    .map((rule) => [String(rule.item_code || '').toUpperCase(), rule]));
   return {
     ...config,
     airports: transfers.map((r) => ({ code: r.airport_code, label: r.label,
       iata: r.airport_code, aliases: r.aliases || [] })),
-    rules: transfers.map((r) => ({ ...r,
-      flat_price_cents: r.price && r.price.unit === 'flat' ? r.price.amount_cents : null,
-      per_person_extra_cents: r.price && r.price.unit === 'per_person' ? r.price.amount_cents : null,
-    })),
+    rules: transfers.map((r) => {
+      const price = authoritativePrices.get(String(r.airport_code || '').toUpperCase()) || null;
+      return { ...r,
+        flat_price_cents: price && price.unit === 'flat' ? price.amount_cents : null,
+        per_person_extra_cents: price && price.unit === 'per_person' ? price.amount_cents : null,
+      };
+    }),
   };
 }
 

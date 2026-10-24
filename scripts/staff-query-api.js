@@ -214,6 +214,7 @@ const { createOperations: createLunaV3StaffOperations } = require('./lib/model-l
 // Bind real Staff/provider authorities in the registry. They are deliberately
 // absent from model input and resolved only when the operation executes.
 const LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, {
+  resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
   async createGuestCheckout(args) {
     if (!STRIPE_LINKS_ENABLED || !STRIPE_SECRET_KEY || !STRIPE_SECRET_KEY.startsWith('sk_test_')
         || !stripeCheckoutRedirectUrlsConfigured()) {

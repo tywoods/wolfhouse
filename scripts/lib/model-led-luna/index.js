@@ -77,9 +77,11 @@ async function runAvailability(pg, input) {
       AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out]);
   const heldCodes = new Set(held.rows.map((row) => row.bed_code));
   const available = result.body.available_beds.filter((bed) => !heldCodes.has(bed.bed_code));
+  const selected = Array.isArray(input.selected_bed_codes) ? input.selected_bed_codes : [];
+  const exact = selected.length ? { ...(result.body.exact_bed_eligibility || {}), eligible:selected.every(code=>available.some(b=>b.bed_code===code)), unavailable_bed_codes:selected.filter(code=>!available.some(b=>b.bed_code===code)) } : result.body.exact_bed_eligibility;
   const enough = available.length >= Number(input.party_size || 0);
   const holdRevision = crypto.createHash('sha256').update([...heldCodes].sort().join('\n')).digest('hex').slice(0, 16);
-  return { ...result, body: { ...result.body, available_beds: available,
+  return { ...result, body: { ...result.body, available_beds: available, exact_bed_eligibility: exact,
     available_count: available.length, has_enough_beds: enough,
     blockers: enough ? result.body.blockers : [...new Set([...(result.body.blockers || []), 'not_enough_available_beds'])],
     provenance: { ...result.body.provenance,
@@ -190,6 +192,7 @@ async function loadV3DbOnlyQuoteConfig(pg) {
       config.add_ons[code] = { code, price_cents: cents, pricing_unit: rule.unit };
     }
   }
+  for (const required of ['standard_package','custom_or_short_stay']) if (!config.deposits.tiers[required]) throw Object.assign(new Error(`missing Staff deposit tier ${required}`), { code:'staff_deposit_tier_unavailable' });
   return config;
 }
 
@@ -215,7 +218,7 @@ async function getPricingCatalog(pg, input = {}, context) {
   };
 }
 
-async function quote(pg, input = {}, context) {
+async function computeQuote(pg, input = {}, context) {
   trusted(context); validate('quote', input);
   if (!context.authenticated || context.writeAllowed !== true || !context.sessionId || !context.principalId) {
     throw Object.assign(new Error('write admission denied'), { status: 403 });
@@ -271,7 +274,7 @@ async function quote(pg, input = {}, context) {
     guest_name: input.guests[index] && input.guests[index].name,
     package_code: ((input.guest_packages || []).find((p) => Number(p.guest_number) === index + 1) || {}).package_code || input.package_id || 'package_none',
   }));
-  await pg.query(`INSERT INTO luna_v3_selections(client_id,session_id,quote_revision,check_in,check_out,guests,assignments,quote)
+  if (!context.revalidationOnly) await pg.query(`INSERT INTO luna_v3_selections(client_id,session_id,quote_revision,check_in,check_out,guests,assignments,quote)
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)
     ON CONFLICT(client_id,session_id,quote_revision) DO NOTHING`, [session.client_id, session.id,
     receipt.quoteRevision, input.check_in, input.check_out, JSON.stringify(input.guests), JSON.stringify(assignments),
@@ -279,6 +282,28 @@ async function quote(pg, input = {}, context) {
       packageCode: input.package_id || null, roomType: input.selection.room_type || 'shared',
       keepTogether: input.selection.keep_together === true })]);
   return { ...receipt, quotedSelection: receipt.quoteRevision };
+}
+
+async function quote(pg, input = {}, context) {
+  if (context && context.revalidationOnly) return computeQuote(pg, input, context);
+  trusted(context); validate('quote', input);
+  const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
+  const fp = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
+  await pg.query('BEGIN');
+  try {
+    const s = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context && context.sessionId, context && context.principalId])).rows[0];
+    if (!s) throw Object.assign(new Error('write admission denied'), { status: 403 });
+    const inserted = await pg.query(`INSERT INTO luna_v3_operations(client_id,session_id,tool,operation_key,request_fingerprint) VALUES($1,$2,'quote',$3,$4) ON CONFLICT(client_id,session_id,tool,operation_key) DO NOTHING RETURNING id,request_fingerprint,receipt`, [s.client_id,s.id,input.operation_key,fp]);
+    const op = inserted.rows[0] || (await pg.query(`SELECT id,request_fingerprint,receipt FROM luna_v3_operations WHERE client_id=$1 AND session_id=$2 AND tool='quote' AND operation_key=$3 FOR UPDATE`, [s.client_id,s.id,input.operation_key])).rows[0];
+    if (op.request_fingerprint !== fp) { await pg.query('ROLLBACK'); return { ok:false,outcome:'rejected',status:409,code:'operation_key_payload_mismatch' }; }
+    if (op.receipt) { await pg.query('COMMIT'); return op.receipt; }
+    await pg.query('SAVEPOINT luna_v3_quote_business');
+    const receipt = await computeQuote(pg,input,context);
+    if (!receipt.ok) await pg.query('ROLLBACK TO SAVEPOINT luna_v3_quote_business');
+    const saved = receipt.ok ? { ...receipt, outcome:'applied' } : { ...receipt, outcome:'rejected' };
+    await pg.query(`UPDATE luna_v3_operations SET receipt=$2::jsonb,outcome=$3,completed_at=now() WHERE id=$1`, [op.id,JSON.stringify(saved),saved.outcome]);
+    await pg.query('COMMIT'); return saved;
+  } catch (error) { await pg.query('ROLLBACK'); throw error; }
 }
 
 function createOperations(withPgClient, authorities = {}) {
@@ -289,3 +314,4 @@ function createOperations(withPgClient, authorities = {}) {
 }
 
 module.exports = { checkAvailability, findRooms, getPricingCatalog, quote, ...v3, createOperations };
+Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});

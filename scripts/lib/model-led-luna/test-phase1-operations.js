@@ -25,6 +25,7 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
     observations,
     async query(sql, params) {
       observations.push({ sql, params });
+      if (/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT)/.test(sql)) return { rows: [] };
       if (/FROM rooms r/.test(sql)) return { rows: rooms };
       if (/FROM booking_beds bb/.test(sql)) return { rows: blocks };
       if (/FROM luna_v3_hold_beds hb/.test(sql)) return { rows: [] };
@@ -37,6 +38,8 @@ function staffPg({ blocks = [], pricingDown = false } = {}) {
       if (/FROM wh_pricing_transfer_rules/.test(sql)) return { rows: [] };
       if (/FROM luna_v3_sessions/.test(sql)) return { rows: [{ id: 'session-id', client_id: 'client-id', write_admitted: true }] };
       if (/INSERT INTO luna_v3_selections/.test(sql)) return { rows: [] };
+      if (/INSERT INTO luna_v3_operations/.test(sql)) return { rows: [{ id: 'operation-id', request_fingerprint: params[3], receipt: null }] };
+      if (/UPDATE luna_v3_operations/.test(sql)) return { rows: [] };
       throw new Error(`unexpected Staff query: ${sql.slice(0, 80)}`);
     },
   };

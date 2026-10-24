@@ -10,7 +10,22 @@ import json
 import os
 import urllib.error
 import urllib.request
+import urllib.parse
 from typing import Any
+
+class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, admitted_url: str):
+        parsed = urllib.parse.urlsplit(admitted_url)
+        self.admitted_origin = (parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port or (443 if parsed.scheme.lower() == "https" else None))
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        target = urllib.parse.urlsplit(newurl)
+        target_origin = (target.scheme.lower(), (target.hostname or "").lower(), target.port or (443 if target.scheme.lower() == "https" else None))
+        if target.username or target.password or target_origin != self.admitted_origin or target.scheme.lower() != "https":
+            raise urllib.error.HTTPError(newurl, code, "cross-origin redirect denied", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+def _open_staff(request: Any, base_url: str) -> Any:
+    return urllib.request.build_opener(_SameHostRedirectHandler(base_url)).open(request, timeout=20)
 
 TOOL_PATHS = {
     "check_availability": "/staff/bot/luna-v3/check-availability",
@@ -117,13 +132,30 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with _open_staff(request, runtime["base_url"]) as response:
             body = json.loads(response.read().decode("utf-8"))
             if not isinstance(body, dict):
                 return {"ok": False, "code": "malformed_staff_response"}
             return body
     except urllib.error.HTTPError as exc:
-        return {"ok": False, "status": exc.code, "recoveryStatus": "unknown" if exc.code >= 500 else "rejected", "outcome": "unknown" if exc.code >= 500 else "rejected", "code": "staff_tool_rejected"}
+        result: dict[str, Any] = {"ok": False, "status": exc.code}
+        try: staff = json.loads(exc.read().decode("utf-8"))
+        except (ValueError, UnicodeError): staff = {}
+        if isinstance(staff, dict):
+            for field in ("code", "reason_code", "error"):
+                value = staff.get(field)
+                if isinstance(value, str) and value and len(value) <= 160:
+                    result[field] = value
+            if isinstance(staff.get("outcome_unknown"), bool):
+                result["outcome_unknown"] = staff["outcome_unknown"]
+            if exc.code < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
+                result["recoveryStatus"] = staff["recoveryStatus"]
+            if exc.code < 500 and staff.get("outcome") in {"rejected", "unknown"}:
+                result["outcome"] = staff["outcome"]
+        result.setdefault("code", "staff_tool_rejected")
+        result.setdefault("recoveryStatus", "unknown" if exc.code >= 500 else "rejected")
+        result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
+        return result
     except (urllib.error.URLError, TimeoutError):
         return {"ok": False, "status": 503, "recoveryStatus": "unknown", "outcome": "unknown", "code": "staff_tool_unreachable"}
 
@@ -142,13 +174,13 @@ _TOOL_FIELDS = {
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": ("booking_id",),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": ("topic",),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
-    "recover_operation": ("operation_key", "operation_reference"),
+    "recover_operation": ("operation_key",),
 }
 
 
@@ -162,7 +194,7 @@ _TOOL_REQUIRED = {
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
     "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "payment_choice", "operation_key"),
+    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
@@ -179,7 +211,7 @@ def _field_schema(field: str) -> dict[str, Any]:
         return {"type": "array", "items": {"type": "string", "minLength": 1}}
     if field in {"guests", "assignments", "guest_packages", "add_ons"}:
         return {"type": "array", "items": {"type": "object"}}
-    if field in {"preferences", "selection", "travel_details"}:
+    if field in {"preferences", "selection", "travel_details", "context"}:
         return {"type": "object"}
     return {"type": "string", "minLength": 1}
 

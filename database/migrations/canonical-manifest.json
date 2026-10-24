@@ -1644,6 +1644,15 @@
       "inForwardChain": true,
       "rationale": "Serialize payment evidence insertion against terminal unpaid cancellation and reject late evidence for cancelled bookings.",
       "sha256": "73690cfdad1cb26b4eb4ec9167fa2550e1d9e494dc9f2391905f77342ec58117"
+    },
+    {
+      "id": "118_luna_v3_private_optional_hold_eligibility",
+      "filename": "118_luna_v3_private_optional_hold_eligibility.sql",
+      "order": 109,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Extend the 116-owned exact-bed hold invariant to admit private_optional rooms without rewriting canonical migration history.",
+      "sha256": "b474816fbb8baa0397679451032c519a93b14f9ca92e342dc91e74a5a4b8758a"
     }
   ]
 }

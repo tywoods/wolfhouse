@@ -3,7 +3,10 @@ import json
 import os
 import sys
 import unittest
+import io
+import urllib.error
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 PLUGIN_PATH = Path(__file__).resolve().parent / "__init__.py"
@@ -11,6 +14,33 @@ PLUGIN_ROOT = PLUGIN_PATH.parent.parent
 
 
 class LunaV3PluginContractTests(unittest.TestCase):
+    def test_corrected_schemas_and_dispatch_contract(self):
+        plugin = self.load_plugin()
+        class Registry:
+            def __init__(self): self.tools = {}
+            def register_tool(self, **kwargs): self.tools[kwargs["name"]] = kwargs["schema"]["parameters"]
+        registry = Registry(); plugin.register(registry)
+        self.assertIn("guest_id", registry.tools["send_payment_link"]["required"])
+        self.assertEqual("object", registry.tools["write_note"]["properties"]["context"]["type"])
+        self.assertEqual("object", registry.tools["handoff_to_human"]["properties"]["context"]["type"])
+        self.assertNotIn("operation_reference", registry.tools["recover_operation"]["properties"])
+
+    def test_http_error_fields_and_cross_host_redirect(self):
+        plugin = self.load_plugin()
+        error = urllib.error.HTTPError("https://staff.example/x", 409, "Conflict", None, io.BytesIO(b'{"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":true,"evil":"drop"}'))
+        env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
+            result = plugin.call_tool("get_payment_status", {"booking_id":"b1"})
+        self.assertEqual({"ok":False,"status":409,"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":True,"recoveryStatus":"rejected","outcome":"rejected"}, result)
+        handler = plugin._SameHostRedirectHandler("https://staff.example")
+        for unsafe in ("https://evil.example/x", "https://staff.example:444/x", "http://staff.example/x", "https://user@staff.example/x"):
+            with self.assertRaises(urllib.error.HTTPError):
+                handler.redirect_request(mock.Mock(), None, 302, "Found", {}, unsafe)
+        server_error = urllib.error.HTTPError("https://staff.example/x", 503, "Unavailable", {}, io.BytesIO(b'{"outcome":"applied","recoveryStatus":"saved","code":"temporary"}'))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=server_error):
+            failed = plugin.call_tool("get_payment_status", {"booking_id":"b1"})
+        self.assertEqual("unknown", failed["outcome"])
+        self.assertEqual("unknown", failed["recoveryStatus"])
     def load_plugin(self):
         spec = importlib.util.spec_from_file_location("luna_v3_staff_api", PLUGIN_PATH)
         module = importlib.util.module_from_spec(spec)
@@ -128,7 +158,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             "LUNA_V3_EXTERNAL_SEND_ENABLED": "false",
             "LUNA_V3_STAFF_ALERTS_ENABLED": "false",
         }
-        with patch.dict(os.environ, env, clear=True), patch("urllib.request.urlopen", fake_urlopen):
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=lambda request, _base: fake_urlopen(request, 20)):
             result = plugin.call_tool("find_rooms", {"check_in": "2027-11-05", "check_out": "2027-11-15", "party_size": 2})
 
         self.assertTrue(result["ok"])
