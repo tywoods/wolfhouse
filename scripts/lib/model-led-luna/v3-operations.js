@@ -87,6 +87,31 @@ function madridWallTime(date, time) {
 function fail(code, status = 409, extra = {}) {
   return { ok: false, outcome: "rejected", code, status, ...extra };
 }
+async function initializeFreshV3UnpaidEvidence(pg, bookingId) {
+  const booking = await pg.query(
+    `UPDATE bookings
+       SET amount_paid_cents=0,
+           deposit_paid_cents=0,
+           payment_status='waiting_payment',
+           metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('luna_v3_provenance','fresh_one_try')
+     WHERE id=$1
+       AND amount_paid_cents IS NULL
+       AND deposit_paid_cents IS NULL
+     RETURNING id`,
+    [bookingId],
+  );
+  if (booking.rows.length !== 1) {
+    throw Object.assign(new Error("fresh v3 money evidence was not pristine"), {
+      code: "fresh_v3_money_not_pristine",
+    });
+  }
+  await pg.query(
+    `UPDATE booking_guests
+       SET amount_paid_cents=0,payment_status='waiting_payment'
+     WHERE booking_id=$1 AND amount_paid_cents IS NULL`,
+    [bookingId],
+  );
+}
 async function session(pg, context, write = false) {
   if (
     !context ||
@@ -379,6 +404,7 @@ async function book(pg, input, context) {
       );
     const body = created.body || created;
     const bookingId = body.booking_id || body.bookingId;
+    if (body.created === true) await initializeFreshV3UnpaidEvidence(pg, bookingId);
     await pg.query(
       `UPDATE luna_v3_holds SET state='converted',booking_id=$2,updated_at=now() WHERE id=$1`,
       [h.id, bookingId],
@@ -915,7 +941,7 @@ async function cancelUnpaid(pg, input, context) {
       clientSlug: TENANT,
       bookingCode: b.booking_code,
       phone: b.phone,
-    });
+    }, { trustedV3: true });
     let receipt;
     if (result.blocked) {
       const handoffInput = {
