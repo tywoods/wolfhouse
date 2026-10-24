@@ -716,6 +716,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': "Your booking is saved — here's your invoice 🌊",
            'deposit_due': 'Deposit due now',
            'deposit_choice': 'You can pay a {deposit} deposit now or the full {total}. Which would you like?',
+           'group_payment_choice': 'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?',
+           'shuttle_choice': 'Do you need an airport shuttle?',
            'save': 'Shall I save this booking?', 'save_updated': 'Shall I save this updated booking?',
            'remaining': 'Remaining after this payment', 'balance': 'Remaining balance',
            'due': 'Due now', 'link': 'Payment link', 'guest': 'guest', 'guests_word': 'guests'},
@@ -726,6 +728,8 @@ _STYLE_COPY = {
            'invoice_saved_anon': 'Tu reserva está guardada — aquí tienes la factura 🌊',
            'deposit_due': 'Depósito a pagar ahora',
            'deposit_choice': 'Puedes pagar ahora un depósito de {deposit} o el total de {total}. ¿Cuál prefieres?',
+           'group_payment_choice': '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?',
+           'shuttle_choice': '¿Necesitáis traslado desde el aeropuerto?',
            'save': '¿Guardo esta reserva?', 'save_updated': '¿Guardo esta reserva actualizada?',
            'remaining': 'Pendiente después de este pago', 'balance': 'Saldo restante',
            'due': 'A pagar ahora', 'link': 'Enlace de pago', 'guest': 'huésped', 'guests_word': 'huéspedes'},
@@ -984,9 +988,18 @@ def _styled_quote_copy(plan, offer, language='en', *, create_ready=True, updated
             lines.append(f"💳 *{_final_copy(language, 'individual')}:* " + '; '.join(values))
     question = copy['save_updated' if updated else 'save'] if create_ready else None
     if not create_ready and type(offer.get('deposit_required_cents')) is int and type(total) is int:
-        question = copy['deposit_choice'].format(
-            deposit=_guest_money(offer['deposit_required_cents'], currency),
-            total=_guest_money(total, currency))
+        package_code = str(offer.get('package_code') or plan.get('package_code') or '').strip()
+        party_size = offer.get('guest_count', plan.get('guest_count'))
+        if (language in ('en', 'es') and package_code
+                and package_code not in ('package_none', 'none', 'accommodation_only', 'no_package')):
+            # Package stays ask about the shuttle before any payment handling.
+            question = copy['shuttle_choice']
+        elif language in ('en', 'es') and type(party_size) is int and party_size >= 2:
+            question = copy['group_payment_choice']
+        else:
+            question = copy['deposit_choice'].format(
+                deposit=_guest_money(offer['deposit_required_cents'], currency),
+                total=_guest_money(total, currency))
     if question:
         lines.extend(['', question])
     return '\n'.join(lines)
@@ -2757,6 +2770,11 @@ def record_quote(params, response):
                                  if pending_eligibility else None)
             eligibility_value = ((pending_eligibility or {}).get('value')
                                  if pending_eligibility else None)
+            canonical_split_completion = (
+                pending_payment == 'per_guest'
+                and response.get('offer_revision', {}).get('payment_choice') == 'deposit'
+                and response.get('offer_revision', {}).get('per_guest_payment_links') is True
+                and 'per_guest' in prior.get('payment_choices', []))
             terms_unchanged = (
                 _request_plan_matches_canonical_people(
                     expected_plan, plan, prior_revision, new_revision)
@@ -2771,7 +2789,7 @@ def record_quote(params, response):
                 and response.get('total_cents') == prior_quote.get('total_cents')
                 and response.get('deposit_required_cents') == prior_quote.get('deposit_required_cents')
                 and response.get('currency') == prior_quote.get('currency')
-                and (not pending_payment or (
+                and (not pending_payment or canonical_split_completion or (
                     response.get('offer_revision', {}).get('payment_choice') == pending_payment
                     and pending_payment in prior.get('payment_choices', [])))
             )
@@ -3764,12 +3782,16 @@ def finalize_offer_response(result):
               and quote.get('deposit_required_cents') == quote.get('total_cents')):
             choices.append('full')
         elif quote.get('payment_choice_needed') is True:
-            if type(quote.get('deposit_required_cents')) is int:
+            deposit = quote.get('deposit_required_cents', revision.get('deposit_required_cents'))
+            total = quote.get('total_cents', revision.get('total_cents'))
+            if type(deposit) is int:
                 choices.append('deposit')
                 party_size = _presentation_plan(state).get('guest_count')
+                if type(party_size) is not int:
+                    party_size = revision.get('guest_count')
                 if type(party_size) is int and party_size >= 2:
                     choices.append('per_guest')
-            if type(quote.get('total_cents')) is int:
+            if type(total) is int:
                 choices.append('full')
         elif isinstance(offer, dict) and offer.get('payment_choice'):
             shown_plan = _presentation_plan(state)

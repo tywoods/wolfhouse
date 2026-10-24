@@ -178,6 +178,121 @@ class OwnerHostileTests(unittest.TestCase):
         created = self.ledger.prepare_create({'payment_choice': 'per_guest'})
         self.assertEqual(created['payment_choice'], 'per_guest')
 
+    def test_missing_choice_split_completion_clears_revalidation_before_create(self):
+        """A canonical deposit revision is the validated completion of split intent."""
+        self.agent.session_id = 'missing-choice-split-completion'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = deepcopy(self.plan)
+        plan['payment_choice'] = None
+        from wolfhouse.test_first_yes_owner import FirstYesOwnerTests
+        beds = [dict(bed_code='M1', room_code='M', gender_strategy='mixed'),
+                dict(bed_code='M2', room_code='M', gender_strategy='mixed')]
+        preview = FirstYesOwnerTests._checked_offer(
+            object.__new__(FirstYesOwnerTests), {**plan, 'payment_choice': 'deposit'}, beds)
+        initial = {
+            'success': True, 'total_cents': 20000, 'deposit_required_cents': 10000,
+            'remaining_after_deposit_cents': 10000, 'currency': 'EUR',
+            'payment_choice_needed': True, 'offer_revision': deepcopy(preview['offer_revision']),
+            'availability': deepcopy(preview['availability']),
+        }
+        self.turn('missing-choice-offer', 'Quote us')
+        self.ledger.record_quote(plan, initial)
+        self.ledger.finalize_offer_response({'completed': True, 'final_response': 'draft'})
+        state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertTrue(state['quote']['payment_choice_needed'], state)
+        self.assertEqual(state['presentation']['payment_choices'],
+                         ['deposit', 'per_guest', 'full'])
+
+        raw = 'We will pay per_guest'
+        self.turn('choose-split', raw)
+        accepted = self.interpret(raw, completions={
+            'payment_choice': {'value': 'per_guest', 'evidence': 'per_guest'}})
+        self.assertTrue(accepted['accepted'])
+        self.assertFalse(accepted['create_ready'])
+        revalidation = self.ledger.prepare_quote({})
+        self.assertEqual(revalidation['payment_choice'], 'per_guest')
+        completed = self.checked(revalidation)
+        completed['offer_revision'].update(
+            payment_choice='deposit', per_guest_payment_links=True,
+            payment_link_amount_cents=completed['offer_revision']['deposit_required_cents'])
+        self.ledger.record_quote(revalidation, completed)
+
+        state = self.ledger._transaction(lambda owner, _ingress: deepcopy(owner))
+        self.assertNotIn('pending_payment_completion', state)
+        self.assertFalse(self.ledger.prepare_create({}).revalidation)
+        created = self.ledger.prepare_create({})
+        self.assertEqual(created['payment_choice'], 'per_guest')
+        self.assertEqual(created['accepted_offer'], completed['offer_revision'])
+
+    def test_group_payment_finalizer_uses_split_choice_and_keeps_shuttle_before_payment(self):
+        """The real Python finalizer owns group choice and package shuttle order."""
+        for language, raw, expected in (
+            ('en', 'Please quote for both of us',
+             'Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?'),
+            ('es', 'Quiero reservar para los dos',
+             '¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?'),
+        ):
+            with self.subTest(language=language):
+                self.agent.session_id = f'group-choice-finalizer-{language}'
+                self.db.create_session(self.agent.session_id, source='whatsapp')
+                plan = {**self.plan, 'language': language}
+                plan.pop('payment_choice')
+                response = self.checked({**plan, 'payment_choice': 'deposit'})
+                response['payment_choice_needed'] = True
+                self.turn(f'group-choice-{language}', raw)
+                self.ledger.record_quote(plan, response)
+                shown = self.ledger.finalize_offer_response(
+                    {'completed': True, 'final_response': 'model draft', 'messages': []})
+                self.assertIn(expected, shown['final_response'])
+                self.assertNotIn('deposit now or the full', shown['final_response'])
+                self.assertNotIn('depósito de €100 o el total', shown['final_response'])
+
+        self.agent.session_id = 'package-shuttle-before-payment'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        plan = {**self.plan, 'package_code': 'package_surf_week'}
+        plan.pop('payment_choice')
+        response = self.checked({**plan, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.turn('package-shuttle', 'Quote the surf package')
+        self.ledger.record_quote(plan, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'model draft', 'messages': []})
+        self.assertIn('Do you need an airport shuttle?', shown['final_response'])
+        self.assertNotIn('Would you like to pay together', shown['final_response'])
+
+    def test_finalizer_keeps_solo_and_full_only_exceptions(self):
+        self.agent.session_id = 'solo-payment-finalizer'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        solo = {**self.plan, 'guest_count': 1, 'guests': [{'name': 'Alex'}],
+                'selected_bed_codes': ['M1']}
+        solo.pop('payment_choice')
+        response = self.checked({**solo, 'payment_choice': 'deposit'})
+        response['payment_choice_needed'] = True
+        self.turn('solo-payment', 'Quote one bed')
+        self.ledger.record_quote(solo, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'model draft', 'messages': []})
+        self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?',
+                      shown['final_response'])
+        self.assertNotIn('pay together', shown['final_response'])
+
+        self.agent.session_id = 'full-only-finalizer'
+        self.db.create_session(self.agent.session_id, source='whatsapp')
+        full_only = {**solo, 'payment_choice': None}
+        response = self.checked({**full_only, 'payment_choice': 'full'})
+        response.update(full_payment_only=True, payment_choice_needed=False,
+                        deposit_required_cents=response['total_cents'])
+        response['offer_revision'].update(payment_choice='full',
+                                          deposit_required_cents=response['total_cents'],
+                                          payment_link_amount_cents=response['total_cents'],
+                                          full_payment_only=True)
+        self.turn('full-only', 'Quote one bed')
+        self.ledger.record_quote(full_only, response)
+        shown = self.ledger.finalize_offer_response(
+            {'completed': True, 'final_response': 'model draft', 'messages': []})
+        self.assertIn('Would you like this exact offer?', shown['final_response'])
+        self.assertNotIn('pay together', shown['final_response'])
+
     def model_waits(self, message, raw):
         from agent import conversation_loop
         from wolfhouse.offline_ingress_harness import gateway_ingress
@@ -808,7 +923,7 @@ class OwnerHostileTests(unittest.TestCase):
                           'content': 'Total: 200.00 EUR. Deposit: 100.00 EUR. Would you like deposit or full?'}],
         })
         self.assertNotIn('Would you like deposit or full?', shown['final_response'])
-        self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?', shown['final_response'])
+        self.assertIn('Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?', shown['final_response'])
         raw = 'dale, book it — Mateo Ríos. send deposit link if needed'
         self.turn('incomplete-accept', raw)
         result = self.ledger.interpret_owner_turn({
@@ -1016,7 +1131,7 @@ class OwnerHostileTests(unittest.TestCase):
                     self.assertTrue(quoted['offer_revision']['offer_fingerprint'])
                     shown = self.ledger.finalize_offer_response(
                         {'completed': True, 'final_response': 'model draft', 'messages': []})
-                    self.assertIn('You can pay a €100 deposit now or the full €200. Which would you like?', shown['final_response'])
+                    self.assertIn('Would you like to pay together (one person pays the deposit for everyone) or separately (each person gets their own deposit link)?', shown['final_response'])
                     raw = f'I choose {choice}'
                     self.turn(f'producer-accept-{choice}', raw)
                     interpreted = json.loads(registry.tools['interpret_booking_turn']['handler']({
@@ -2809,7 +2924,7 @@ class OwnerHostileTests(unittest.TestCase):
         shown = self.ledger.finalize_offer_response(
             {'completed': True, 'final_response': 'draft', 'messages': []})
         self.assertIn('💶 *Total:* €200', shown['final_response'])
-        self.assertIn('Puedes pagar ahora un depósito de €100 o el total de €200. ¿Cuál prefieres?', shown['final_response'])
+        self.assertIn('¿Preferís pagar juntos (una persona paga el depósito de todos) o por separado (cada uno recibe su propio enlace de depósito)?', shown['final_response'])
 
         self.agent.session_id = 'sim19-spanish-refusal'
         self.db.create_session(self.agent.session_id, source='whatsapp')
@@ -2823,8 +2938,8 @@ class OwnerHostileTests(unittest.TestCase):
 
     def test_sim19_complete_incomplete_and_refusal_are_fully_localized(self):
         cases = {
-            'en': ('Please book this room', 'Accommodation only', 'Which would you like?', 'Availability checked', 'I could not verify'),
-            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Cuál prefieres?', 'Disponibilidad comprobada', 'No pude verificar'),
+            'en': ('Please book this room', 'Accommodation only', 'Would you like to pay together', 'Availability checked', 'I could not verify'),
+            'es': ('Quiero reservar esta habitación', 'Solo alojamiento', '¿Preferís pagar juntos', 'Disponibilidad comprobada', 'No pude verificar'),
             'fr': ('Bonjour, je voudrais réserver cette chambre', 'Hébergement seul', 'Que préférez-vous ?', 'Disponibilité vérifiée', "Je n'ai pas encore pu vérifier"),
             'de': ('Hallo, ich möchte dieses Zimmer buchen', 'Nur Unterkunft', 'Was möchtet ihr?', 'Verfügbarkeit geprüft', 'Ich konnte noch kein geeignetes Bett'),
         }
