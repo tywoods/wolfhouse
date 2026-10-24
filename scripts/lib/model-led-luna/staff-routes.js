@@ -19,9 +19,10 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/transfer-request': 'save_transfer_request',
   '/staff/bot/luna-v3/handoff': 'handoff_to_human',
   '/staff/bot/luna-v3/recover-operation': 'recover_operation',
+  '/staff/bot/luna-v3/admit-simulator-session': 'admit_simulator_session',
 });
 
-async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession }) {
+async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession, admitSimulatorSession }) {
   const tool = LUNA_V3_ROUTE_TO_TOOL[pathname];
   if (!tool) return null;
   if (String(method || '').toUpperCase() !== 'POST') {
@@ -32,8 +33,26 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   }
   const input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
   if (!authenticatedPrincipal || !String(authenticatedPrincipal.principalId || '').trim()
-      || typeof resolveSession !== 'function') {
+      || (tool !== 'admit_simulator_session' && typeof resolveSession !== 'function')) {
     return { status: 403, body: { ok: false, code: 'luna_v3_authenticated_context_required' } };
+  }
+  if (tool === 'admit_simulator_session') {
+    const sessionId = String(input.session_id || '').trim();
+    const guestPhone = String(input.guest_phone || '').trim();
+    const scoped = /^luna-v3:[0-9a-f]{24}$/.test(sessionId)
+      && /^\+346999\d{5,6}$/.test(guestPhone)
+      && input.external_send_allowed === false
+      && input.staff_alert_allowed === false
+      && authenticatedPrincipal.writeAllowed === true
+      && typeof admitSimulatorSession === 'function';
+    if (!scoped) return { status: 403, body: { ok: false, code: 'luna_v3_simulator_scope_forbidden' } };
+    const admitted = await admitSimulatorSession({
+      clientSlug,
+      sessionId,
+      guestPhone,
+      principalId: authenticatedPrincipal.principalId,
+    });
+    return { status: admitted && admitted.ok === false ? (admitted.status || 422) : 200, body: admitted };
   }
   const boundSession = await resolveSession({ selector: input.session_id,
     principalId: authenticatedPrincipal.principalId, clientSlug });

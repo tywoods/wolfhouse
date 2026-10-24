@@ -55650,6 +55650,33 @@ async function router(req, res) {
         body,
         operations: LUNA_V3_STAFF_OPERATIONS,
         authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true' },
+        admitSimulatorSession: async ({ clientSlug: admittedSlug, sessionId, guestPhone, principalId: admittedPrincipal }) => withPgClient(async (pg) => {
+          if (process.env.LUNA_V3_TEST_WRITES !== 'true' || admittedSlug !== 'wolfhouse-somo') {
+            return { ok: false, status: 403, code: 'luna_v3_simulator_scope_forbidden' };
+          }
+          await pg.query('BEGIN');
+          try {
+            const client = (await pg.query('SELECT id FROM clients WHERE slug=$1 FOR SHARE', [admittedSlug])).rows[0];
+            if (!client) {
+              await pg.query('ROLLBACK');
+              return { ok: false, status: 403, code: 'luna_v3_tenant_forbidden' };
+            }
+            await pg.query(`INSERT INTO luna_v3_sessions(client_id,session_key,principal_id,write_admitted,guest_phone)
+              VALUES($1,$2,$3,true,$4)
+              ON CONFLICT(client_id,session_key) DO UPDATE SET
+                principal_id=EXCLUDED.principal_id,write_admitted=true,guest_phone=EXCLUDED.guest_phone,updated_at=now()`,
+            [client.id, sessionId, admittedPrincipal, guestPhone]);
+            await pg.query(`INSERT INTO conversations(client_id,display_name,phone,language,needs_human,status,bot_mode,metadata)
+              SELECT $1,'Luna v3 TEST simulator',$2,'en',false,'open','bot',$3::jsonb
+              WHERE NOT EXISTS (SELECT 1 FROM conversations WHERE client_id=$1 AND phone=$2)`,
+            [client.id, guestPhone, JSON.stringify({ test_only: true, source: 'crowsnest_luna_v3' })]);
+            await pg.query('COMMIT');
+            return { ok: true, admitted: true };
+          } catch (error) {
+            await pg.query('ROLLBACK');
+            throw error;
+          }
+        }),
         resolveSession: async ({ selector, principalId: requestedPrincipal }) => withPgClient(async (pg) => {
           if (!selector || !requestedPrincipal) return null;
           const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone FROM luna_v3_sessions s

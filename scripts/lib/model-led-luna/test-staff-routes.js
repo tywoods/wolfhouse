@@ -16,10 +16,47 @@ const dispatchLunaV3StaffRoute = (args) => rawDispatch({
 });
 
 async function main() {
-  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 16);
+  assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 17);
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/check-availability'], 'check_availability');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/handoff'], 'handoff_to_human');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/recover-operation'], 'recover_operation');
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/admit-simulator-session'], 'admit_simulator_session');
+
+  const admitted = [];
+  const admission = await dispatchLunaV3StaffRoute({
+    pathname: '/staff/bot/luna-v3/admit-simulator-session',
+    method: 'POST',
+    clientSlug: 'wolfhouse-somo',
+    body: {
+      session_id: 'luna-v3:0123456789abcdef01234567',
+      guest_phone: '+34699901234',
+      external_send_allowed: false,
+      staff_alert_allowed: false,
+    },
+    admitSimulatorSession: async (request) => {
+      admitted.push(request);
+      return { ok: true, admitted: true };
+    },
+  });
+  assert.strictEqual(admission.status, 200);
+  assert.deepStrictEqual(admitted, [{
+    clientSlug: 'wolfhouse-somo',
+    sessionId: 'luna-v3:0123456789abcdef01234567',
+    guestPhone: '+34699901234',
+    principalId: 'test-principal',
+  }]);
+
+  for (const body of [
+    { session_id: 'luna-v3:not-a-digest', guest_phone: '+34699901234', external_send_allowed: false, staff_alert_allowed: false },
+    { session_id: 'luna-v3:0123456789abcdef01234567', guest_phone: '+34611111111', external_send_allowed: false, staff_alert_allowed: false },
+  ]) {
+    const rejected = await dispatchLunaV3StaffRoute({
+      pathname: '/staff/bot/luna-v3/admit-simulator-session', method: 'POST', clientSlug: 'wolfhouse-somo', body,
+      admitSimulatorSession: async () => { throw new Error('must not run'); },
+    });
+    assert.strictEqual(rejected.status, 403);
+    assert.strictEqual(rejected.body.code, 'luna_v3_simulator_scope_forbidden');
+  }
 
   const seen = [];
   const response = await dispatchLunaV3StaffRoute({

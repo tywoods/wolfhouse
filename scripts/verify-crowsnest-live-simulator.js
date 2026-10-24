@@ -152,6 +152,14 @@ async function main() {
     && v3Built.runtime.origin === 'http://hermes-luna-clone:8090'
     && v3Built.headers.Authorization === 'Bearer v3-only-token'
     && !Object.prototype.hasOwnProperty.call(v3Built.headers, 'X-Luna-Bot-Token'));
+  ok('Luna v3 advertises TEST Staff writes while external transport remains suppressed',
+    v3Built.limitation.writes_enabled === true
+    && v3Built.limitation.staff_tool_writes_enabled === true
+    && v3Built.limitation.booking_writes_enabled === true
+    && v3Built.limitation.payments_enabled === true
+    && v3Built.limitation.whatsapp_sends_enabled === false
+    && v3Built.limitation.sms_sends_enabled === false
+    && v3Built.limitation.limitation_flag === 'luna_v3_test_staff_writes_enabled_external_transport_suppressed');
   ok('Luna v3 rejects phones outside reserved +34 699 9xx range', buildTenantRequest({
     tenantId: 'luna-v3', fromPhone: wolfPhone, text: 'Hello',
   }, {

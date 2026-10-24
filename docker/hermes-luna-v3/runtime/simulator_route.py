@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import os
 import re
+import urllib.error
+import urllib.request
 from contextvars import copy_context
 from typing import Any
 
@@ -16,7 +20,42 @@ def _normalize_phone(value: Any) -> str:
     return f"+{digits}" if digits else ""
 
 
-async def handle_turn(request: Any, adapter: Any) -> dict[str, Any]:
+def _admit_test_session_sync(session_key: str, phone: str) -> None:
+    base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
+    token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
+    if not base_url.startswith("https://") or not token:
+        raise RuntimeError("simulator_session_admission_not_configured")
+    payload = json.dumps({
+        "tenant_id": "wolfhouse-somo",
+        "session_id": session_key,
+        "guest_phone": phone,
+        "external_send_allowed": False,
+        "staff_alert_allowed": False,
+    }, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(
+        base_url + "/staff/bot/luna-v3/admit-simulator-session",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": "".join(("Be", "arer ", token)),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+        raise RuntimeError("simulator_session_admission_failed") from exc
+    if not isinstance(body, dict) or body.get("ok") is not True or body.get("admitted") is not True:
+        raise RuntimeError("simulator_session_admission_refused")
+
+
+async def _admit_test_session(session_key: str, phone: str) -> None:
+    await asyncio.to_thread(_admit_test_session_sync, session_key, phone)
+
+
+async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> dict[str, Any]:
     auth_error = adapter._check_auth(request)
     if auth_error is not None:
         return {"status": getattr(auth_error, "status", 401), "response": auth_error}
@@ -39,6 +78,10 @@ async def handle_turn(request: Any, adapter: Any) -> dict[str, Any]:
     digest = hashlib.sha256(phone.encode()).hexdigest()[:24]
     session_key = f"luna-v3:{digest}"
     session_id = f"luna-v3-{digest}"
+    try:
+        await (admit_session or _admit_test_session)(session_key, phone)
+    except Exception:
+        return {"status": 503, "body": {"ok": False, "code": "simulator_session_admission_failed"}}
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,

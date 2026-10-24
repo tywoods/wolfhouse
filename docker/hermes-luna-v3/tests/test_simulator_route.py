@@ -52,14 +52,21 @@ class SimulatorRouteTests(unittest.TestCase):
 
     def test_reserved_phone_gets_request_bound_session_and_reply(self):
         adapter = FakeAdapter()
+        admitted = []
+
+        async def admit(session_key, phone):
+            admitted.append((session_key, phone))
+
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 008", "text": "hello", "allow_writes": False}),
             adapter,
+            admit_session=admit,
         ))
         self.assertEqual(response["status"], 200)
         self.assertEqual(response["body"]["reply_text"], "reply:hello")
         self.assertTrue(adapter.bound_session_key.startswith("luna-v3:"))
         self.assertEqual(adapter.agent_kwargs["gateway_session_key"], adapter.bound_session_key)
+        self.assertEqual(admitted, [(adapter.bound_session_key, "+34699901008")])
 
     def test_rejects_non_reserved_phone_and_caller_write_authority(self):
         adapter = FakeAdapter()
