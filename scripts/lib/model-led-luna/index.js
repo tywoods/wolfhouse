@@ -12,7 +12,9 @@ const {
 } = require('../luna-front-desk-accommodation-booking-create-service');
 const { calculateWolfhouseQuote } = require('../wolfhouse-quote-calculator');
 const pricingStore = require('../wolfhouse-pricing-store');
-const { resolveSeasonForDate } = require('../wolfhouse-pricing-resolve');
+const { resolveSeasonForDate, resolvePackageMinimumNights } = require('../wolfhouse-pricing-resolve');
+const { computeStayNights } = require('../wolfhouse-package-night-rules');
+const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
 const { assertSafeToolRequest } = require('./contracts');
 const v3 = require('./v3-operations');
 
@@ -149,9 +151,8 @@ async function loadStrictPricing(pg) {
     const seasons = await pricingStore.loadSeasons(pg, TENANT);
     const rules = await pricingStore.loadRules(pg, TENANT);
     const items = await pricingStore.loadItems(pg, TENANT);
-    const transfers=[];
     if (!seasons.length || !rules.length || !items.length) throw new Error('empty authoritative Pricing');
-    return { seasons, rules, items, transfers };
+    return { seasons, rules, items };
   } catch (cause) {
     const error = new Error('authoritative Staff Pricing is unavailable');
     error.code = 'STAFF_PRICING_UNAVAILABLE'; error.cause = cause; throw error;
@@ -169,11 +170,17 @@ async function loadV3DbOnlyQuoteConfig(pg) {
   config.add_ons = {};
   config.room_supplements = {};
   config.deposits = { tiers: {} };
+  const effectivePackageMinimum = resolvePackageMinimumNights(base, data.items);
+  config.package_min_nights = effectivePackageMinimum.value;
+  config.package_min_nights_source = effectivePackageMinimum.source;
   const byItem = new Map(data.items.map((item) => [`${item.item_type}:${item.item_code}`, item]));
   for (const item of data.items.filter((row) => row.item_type === 'package')) {
     const meta = item.metadata || {};
     config.packages.push({ code: item.item_code, name: item.label,
-      min_days: Number(meta.min_days) || 7, allow_daily_proration: meta.allow_daily_proration !== false,
+      description: item.description == null ? null : item.description,
+      includes: Array.isArray(meta.includes) ? meta.includes : null,
+      min_days: Number.isSafeInteger(meta.min_days) && meta.min_days > 0 ? meta.min_days : null,
+      allow_daily_proration: meta.allow_daily_proration !== false,
       seasonal_prices: {} });
   }
   for (const rule of data.rules) {
@@ -259,11 +266,30 @@ async function getPricingCatalog(pg, input = {}, context) {
   const codes = new Set(items.map((item) => `${item.item_type}:${item.item_code}`));
   const rules = data.rules.filter((rule) => codes.has(`${rule.item_type}:${rule.item_code}`)
     || ['deposit', 'supplement'].includes(rule.item_type));
+  const minimum = resolvePackageMinimumNights(await loadBookingQuoteConfigWithOverlay(pg), data.items);
+  const stayNights = computeStayNights(input.check_in, input.check_out);
+  const eligible = minimum.value != null && Number.isInteger(stayNights) && stayNights >= minimum.value;
+  const packageEligibility = { status: minimum.value == null ? 'unavailable' : eligible ? 'eligible' : 'ineligible',
+    stayNights, minimumNights: minimum.value, eligible, source: minimum.source };
+  let transferCatalog;
+  try {
+    const loaded = await loadStaffTransferConfig(pg, TENANT);
+    const options = (loaded.rules || []).map((rule) => ({
+      airportCode: rule.airport_code, label: rule.label,
+      requiresPackage: rule.requires_package === true, includedWhenPackage: rule.included_when_package === true,
+      minGuestCount: Number.isSafeInteger(rule.min_guest_count) ? rule.min_guest_count : null,
+      maxGuestCount: Number.isSafeInteger(rule.max_guest_count) ? rule.max_guest_count : null,
+      price: rule.price ? { amountCents: rule.price.amount_cents, currency: rule.price.currency, unit: rule.price.unit } : null,
+    }));
+    transferCatalog = { status: options.length ? 'loaded' : 'empty', options };
+  } catch (_) { transferCatalog = { status: 'unavailable', options: [] }; }
+  const revisionData = { ...data, packageEligibility, transfers: transferCatalog };
   return {
-    ok: true, source: 'staff_pricing', version: catalogRevision(data),
+    ok: true, source: 'staff_pricing', version: catalogRevision(revisionData),
     checkIn: input.check_in, checkOut: input.check_out,
     seasonCoverage: resolveStaySeasonCoverage(data.seasons, input.check_in, input.check_out),
-    seasons: data.seasons, items, rules, transferOptions: data.transfers,
+    seasons: data.seasons, items, rules, packageEligibility,
+    transferCatalog, transferOptions: transferCatalog.options,
   };
 }
 
@@ -272,10 +298,22 @@ async function computeQuote(pg, input = {}, context) {
   if (!context.authenticated || context.writeAllowed !== true || !context.sessionId || !context.principalId) {
     throw Object.assign(new Error('write admission denied'), { status: 403 });
   }
+  const canonicalBeds = input.selection && input.selection.selected_bed_codes;
+  const compatibilityBeds = input.selection && input.selection.bed_ids;
+  if (canonicalBeds !== undefined && compatibilityBeds !== undefined
+      && JSON.stringify(canonicalBeds) !== JSON.stringify(compatibilityBeds)) {
+    return { ok: false, status: 422, code: 'conflicting_bed_selection_aliases' };
+  }
+  const selectedBeds = canonicalBeds !== undefined ? canonicalBeds : compatibilityBeds;
+  if (!Array.isArray(selectedBeds) || selectedBeds.length === 0
+      || selectedBeds.some((code) => typeof code !== 'string' || !code.trim())
+      || new Set(selectedBeds).size !== selectedBeds.length
+      || !Array.isArray(input.guests) || selectedBeds.length !== input.guests.length) {
+    return { ok: false, status: 422, code: 'exact_bed_selection_required' };
+  }
   const session = (await pg.query(`SELECT s.id,s.client_id,s.write_admitted FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
     WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context.sessionId, context.principalId])).rows[0];
   if (!session || session.write_admitted !== true) throw Object.assign(new Error('write admission denied'), { status: 403 });
-  const selectedBeds = input.selection.selected_bed_codes || input.selection.bed_ids;
   const suppliedGuestPackages = input.guest_packages || [];
   if (suppliedGuestPackages.length) {
     const ordinals = suppliedGuestPackages.map((row) => row && row.guest_number);
@@ -325,7 +363,9 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.total_cents)
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
-    return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable' };
+    return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
+      eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
+        packageMinimumSource: config.package_min_nights_source } };
   }
   const offer = buildCheckedWolfhousePreviewOffer({
     client_slug: TENANT, quote: quoteResult,

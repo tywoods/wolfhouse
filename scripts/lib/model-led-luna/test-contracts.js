@@ -32,6 +32,11 @@ async function main() {
     add_ons: [{ code: 'wetsuit_soft_top_combo', days: 3, quantity: 1, dates: ['2026-11-13', '2026-11-14', '2026-11-15'] }],
   }));
 
+  assert.doesNotThrow(() => assertSafeToolRequest('find_rooms', { preferences: {
+    keep_together: true, group_gender: 'mixed', guests: [{ name: 'A', explicit_gender: 'woman' }],
+  } }));
+  assert.throws(() => assertSafeToolRequest('find_rooms', { preferences: { same_room: true } }), /unknown field/);
+
   const request = buildStaffToolRequest('book', {
     hold_id: 'hold-test-1',
     operation_key: 'v3:test:book:1',

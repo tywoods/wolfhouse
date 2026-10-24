@@ -149,6 +149,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
         selection = quote["properties"]["selection"]
         add_on = quote["properties"]["add_ons"]["items"]
 
+        self.assertEqual({"type": "string", "minLength": 1}, quote["properties"]["package_id"])
+
         self.assertEqual({"name", "explicit_gender"}, set(guest["properties"]))
         self.assertFalse(guest["additionalProperties"])
         self.assertNotIn("guest_id", guest["properties"])
@@ -160,6 +162,13 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertNotIn("assignments", selection["properties"])
         self.assertNotIn("same_room_required", selection["properties"])
         self.assertEqual({"type": "boolean"}, selection["properties"]["keep_together"])
+        self.assertEqual(1, selection["properties"]["selected_bed_codes"]["minItems"])
+        self.assertTrue(selection["properties"]["selected_bed_codes"]["uniqueItems"])
+        self.assertIn("anyOf", selection)
+        preferences = next(tool for tool in ctx.tools if tool["name"] == "find_rooms")["schema"]["parameters"]["properties"]["preferences"]
+        self.assertFalse(preferences["additionalProperties"])
+        self.assertEqual({"room_type", "room_preference", "keep_together", "group_gender", "guests"}, set(preferences["properties"]))
+        self.assertNotIn("same_room", preferences["properties"])
         self.assertEqual({"code", "days", "quantity", "dates"}, set(add_on["properties"]))
         self.assertEqual("date", add_on["properties"]["dates"]["items"]["format"])
         self.assertFalse(add_on["additionalProperties"])
