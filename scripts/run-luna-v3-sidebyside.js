@@ -367,17 +367,52 @@ function isBatchStop(cause) {
   return /no_send|tenant_suppression|unsafe_no_send|missing_no_send|request_failed|runtime_timeout|unauthorized|redirect/i.test(code);
 }
 
-function allocateWirePhone(used) {
+function defaultIdentityLedger(repoRoot) {
+  return path.join(repoRoot, 'tmp', 'luna-v3-sidebyside', 'reserved-identities.json');
+}
+
+function loadIdentityLedger(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return {
+      phones: new Set(data.phones || []),
+      identities: new Set(data.identities || []),
+    };
+  } catch {
+    return { phones: new Set(), identities: new Set() };
+  }
+}
+
+function saveIdentityLedger(file, ledger) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeJson(file, {
+    phones: Array.from(ledger.phones),
+    identities: Array.from(ledger.identities),
+  });
+}
+
+function reserveIdentity(used, ledger, tenant, phone) {
+  const identity = tenant + '|' + phone;
+  if (used.has(phone) || ledger.phones.has(phone) || ledger.identities.has(identity)) {
+    return { ok: false, identity, phone };
+  }
+  used.add(phone);
+  ledger.phones.add(phone);
+  ledger.identities.add(identity);
+  return { ok: true, identity, phone };
+}
+
+function allocateWirePhone(used, ledger, tenant) {
   const seen = used || new Set();
+  const book = ledger || { phones: new Set(), identities: new Set() };
   let n = 0;
-  let phone;
-  do {
-    phone = '+346999' + String(n).padStart(5, '0');
+  while (n <= 100000) {
+    const phone = '+346999' + String(n).padStart(5, '0');
     n += 1;
-    if (n > 100000) throw new Error('reserved phone pool exhausted');
-  } while (seen.has(phone));
-  seen.add(phone);
-  return phone;
+    const reserved = reserveIdentity(seen, book, tenant, phone);
+    if (reserved.ok) return phone;
+  }
+  throw new Error('reserved phone pool exhausted');
 }
 
 function scoreRun({ dryRun, executed, scripts, replies, scorecard, attempts }) {
@@ -494,16 +529,44 @@ async function runSideBySide(options) {
     : loadFrozenScripts(repoRoot, opts.set);
   for (const script of loaded.scripts) assertScript(script);
   const runId = String(opts.runId || Date.now());
-  const usedPhones = opts.usedPhones || new Set();
-  const phones = {};
-  loaded.scripts.forEach((script) => {
-    const id = script.id || script._file;
-    phones[id] = live ? allocateWirePhone(usedPhones) : script.phone;
-  });
-  const planned = planTurns(loaded.scripts, phones);
   const stamp = target.id;
   const outDir = opts.outDir || path.join(repoRoot, 'tmp', 'luna-v3-sidebyside', stamp);
   fs.mkdirSync(outDir, { recursive: true });
+  const usedPhones = opts.usedPhones || new Set();
+  const ledgerFile = opts.identityLedger || defaultIdentityLedger(repoRoot);
+  const ledger = loadIdentityLedger(ledgerFile);
+  const phones = {};
+  if (live) {
+    const plan = opts.identityPlan && typeof opts.identityPlan === 'object' ? opts.identityPlan : {};
+    for (const script of loaded.scripts) {
+      const id = script.id || script._file;
+      if (Object.prototype.hasOwnProperty.call(plan, id)) {
+        const reserved = reserveIdentity(usedPhones, ledger, target.tenant, plan[id]);
+        if (!reserved.ok) {
+          return failResult({
+            cause: { code: 'reused_identity', error: 'identity already reserved', identity: reserved.identity },
+            target,
+            dryRun,
+            planned: [],
+            scripts: loaded.scripts,
+            outDir,
+            phones,
+            runId,
+          });
+        }
+        phones[id] = plan[id];
+      } else {
+        phones[id] = allocateWirePhone(usedPhones, ledger, target.tenant);
+      }
+    }
+    saveIdentityLedger(ledgerFile, ledger);
+  } else {
+    loaded.scripts.forEach((script) => {
+      const id = script.id || script._file;
+      phones[id] = script.phone;
+    });
+  }
+  const planned = planTurns(loaded.scripts, phones);
 
   for (const script of loaded.scripts) {
     const id = script.id || script._file;

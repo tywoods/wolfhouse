@@ -1290,6 +1290,130 @@ async function main() {
   assert.equal(paidBlocked.cause && paidBlocked.cause.code, 'BLOCKED');
   assert.equal(paidCalls, 0, 'paid-booking must bind to the resolved tenant/phone');
 
+  function liveOk() {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        reply_text: 'quoted',
+        limitation: {
+          whatsapp_sends_enabled: false,
+          sms_sends_enabled: false,
+          tenant_whatsapp_suppressed: true,
+        },
+      }),
+    };
+  }
+  const identityScriptA = {
+    id: 'identity-a',
+    phone: reservedSuffix('10021'),
+    dates: quoteScript.dates,
+    turns: [{ guest: 'Hi, quote one person 4 to 8 June 2027 please.' }],
+  };
+  const identityScriptB = {
+    id: 'identity-b',
+    phone: reservedSuffix('10022'),
+    dates: quoteScript.dates,
+    turns: [{ guest: 'Hi, quote one person 4 to 8 June 2027 please.' }],
+  };
+  const ledgerFile = path.join(tmpDir(), 'reserved-identities.json');
+  async function capturePaired(identities) {
+    return runner.runPaired({
+      dryRun: false,
+      live: true,
+      liveConfirmed: true,
+      cookie: 'crowsnest-operator=test',
+      scripts: [identityScriptA, identityScriptB],
+      identityLedger: ledgerFile,
+      outDir: tmpDir(),
+      fetchImplByTarget: {
+        'hermes-luna-clone': async (url, init) => {
+          const sent = JSON.parse(init.body);
+          identities.push(String(sent.tenant) + '|' + String(sent.from_phone));
+          return liveOk();
+        },
+        'hermes-luna': async (url, init) => {
+          const sent = JSON.parse(init.body);
+          identities.push(String(sent.tenant) + '|' + String(sent.from_phone));
+          return liveOk();
+        },
+      },
+      repoRoot,
+    });
+  }
+  const batchOne = [];
+  const batchTwo = [];
+  await capturePaired(batchOne);
+  await capturePaired(batchTwo);
+  assert.equal(batchOne.length, 12);
+  assert.equal(batchTwo.length, 12);
+  assert.equal(new Set(batchOne).size, 12);
+  assert.equal(new Set(batchTwo).size, 12);
+  const overlap = batchOne.filter((id) => batchTwo.includes(id));
+  assert.equal(overlap.length, 0, 'separate invocations must not reuse tenant+phone identities');
+
+  const restartLedger = path.join(tmpDir(), 'restart-identities.json');
+  const firstRestart = [];
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [identityScriptA, identityScriptB],
+    identityLedger: restartLedger,
+    outDir: tmpDir(),
+    fetchImpl: async (url, init) => {
+      const sent = JSON.parse(init.body);
+      firstRestart.push(String(sent.tenant) + '|' + String(sent.from_phone));
+      return liveOk();
+    },
+    repoRoot,
+  });
+  const secondRestart = [];
+  await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [identityScriptA, identityScriptB],
+    identityLedger: restartLedger,
+    outDir: tmpDir(),
+    fetchImpl: async (url, init) => {
+      const sent = JSON.parse(init.body);
+      secondRestart.push(String(sent.tenant) + '|' + String(sent.from_phone));
+      return liveOk();
+    },
+    repoRoot,
+  });
+  assert.equal(firstRestart.length, 2);
+  assert.equal(secondRestart.length, 2);
+  assert.equal(firstRestart.some((id) => secondRestart.includes(id)), false, 'restart must not reuse tenant+phone identities');
+
+  const reusedPhone = firstRestart[0].split('|')[1];
+  let reuseCalls = 0;
+  const reuse = await runner.runSideBySide({
+    target: 'hermes-luna-clone',
+    dryRun: false,
+    live: true,
+    liveConfirmed: true,
+    cookie: 'crowsnest-operator=test',
+    scripts: [identityScriptA],
+    identityLedger: restartLedger,
+    identityPlan: { 'identity-a': reusedPhone },
+    outDir: tmpDir(),
+    fetchImpl: async () => {
+      reuseCalls += 1;
+      return liveOk();
+    },
+    repoRoot,
+  });
+  assert.equal(reuse.ok, false);
+  assert.equal(/reused|identity/i.test(JSON.stringify(reuse.cause)), true);
+  assert.equal(reuseCalls, 0, 'reused identity plan must not dispatch');
+
   console.log('sidebyside dry-run clone pass');
   console.log('sidebyside dry-run classic pass');
   console.log('sidebyside reserved-phone and 2027 negatives pass');
