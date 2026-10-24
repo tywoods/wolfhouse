@@ -13,6 +13,51 @@ from contextvars import copy_context
 from typing import Any
 
 _RESERVED_PHONE = re.compile(r"^\+346999\d{5,6}$")
+_SESSION_HISTORY: dict[str, list[dict[str, Any]]] = {}
+
+
+def _value(source: Any, name: str, default: Any = None) -> Any:
+    return source.get(name, default) if isinstance(source, dict) else getattr(source, name, default)
+
+
+def _json_or_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _project_tool_calls(messages: Any) -> list[dict[str, Any]]:
+    if not isinstance(messages, list):
+        return []
+    start = max(
+        (index for index, message in enumerate(messages) if _value(message, "role") == "user"),
+        default=-1,
+    )
+    current = messages[start + 1:]
+    results = {
+        _value(message, "tool_call_id"): _json_or_text(_value(message, "content"))
+        for message in current
+        if _value(message, "role") == "tool" and _value(message, "tool_call_id")
+    }
+    projected: list[dict[str, Any]] = []
+    for message in current:
+        if _value(message, "role") != "assistant":
+            continue
+        for call in _value(message, "tool_calls", []) or []:
+            function = _value(call, "function", {}) or {}
+            call_id = _value(call, "id")
+            name = _value(function, "name") or _value(call, "name")
+            if not name:
+                continue
+            projected.append({
+                "name": name,
+                "args": _json_or_text(_value(function, "arguments", _value(call, "arguments", {}))) or {},
+                "result_summary": results.get(call_id),
+            })
+    return projected
 
 
 def _normalize_phone(value: Any) -> str:
@@ -20,7 +65,7 @@ def _normalize_phone(value: Any) -> str:
     return f"+{digits}" if digits else ""
 
 
-def _admit_test_session_sync(session_key: str, phone: str) -> None:
+def _admit_test_session_sync(session_key: str, phone: str) -> dict[str, Any]:
     base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
     token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
     if not base_url.startswith("https://") or not token:
@@ -49,10 +94,11 @@ def _admit_test_session_sync(session_key: str, phone: str) -> None:
         raise RuntimeError("simulator_session_admission_failed") from exc
     if not isinstance(body, dict) or body.get("ok") is not True or body.get("admitted") is not True:
         raise RuntimeError("simulator_session_admission_refused")
+    return body
 
 
-async def _admit_test_session(session_key: str, phone: str) -> None:
-    await asyncio.to_thread(_admit_test_session_sync, session_key, phone)
+async def _admit_test_session(session_key: str, phone: str) -> dict[str, Any]:
+    return await asyncio.to_thread(_admit_test_session_sync, session_key, phone)
 
 
 async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> dict[str, Any]:
@@ -79,9 +125,11 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     session_key = f"luna-v3:{digest}"
     session_id = f"luna-v3-{digest}"
     try:
-        await (admit_session or _admit_test_session)(session_key, phone)
+        admission = await (admit_session or _admit_test_session)(session_key, phone)
     except Exception:
         return {"status": 503, "body": {"ok": False, "code": "simulator_session_admission_failed"}}
+    if not isinstance(admission, dict) or admission.get("admitted") is not True:
+        return {"status": 503, "body": {"ok": False, "code": "simulator_session_admission_refused"}}
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,
@@ -93,7 +141,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         return ctx.run(
             agent.run_conversation,
             user_message=text,
-            conversation_history=None,
+            conversation_history=_SESSION_HISTORY.get(session_id),
             task_id=session_id,
         )
 
@@ -113,6 +161,10 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     reply = result.get("final_response", "") if isinstance(result, dict) else getattr(result, "final_response", "")
     if not reply.strip():
         return {"status": 502, "body": {"ok": False, "code": "missing_reply"}}
+    messages = _value(result, "messages", [])
+    if isinstance(messages, list):
+        _SESSION_HISTORY[session_id] = messages
+    tool_calls = _project_tool_calls(messages)
     return {
         "status": 200,
         "body": {
@@ -121,8 +173,14 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             "thread": phone,
             "guest_phone": phone,
             "session_id": session_id,
-            "tool_calls": [],
+            "tool_calls": tool_calls,
             "warnings": [],
+            "effective_capability": {
+                "capability": "wolfhouse_staging_booking_test_link",
+                "admitted": True,
+                "reasons": [],
+                "outcome": "ADMITTED",
+            },
             "whatsapp_suppressed": True,
             "external_send_allowed": False,
             "staff_alert_allowed": False,
