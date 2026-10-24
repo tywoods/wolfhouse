@@ -2895,6 +2895,12 @@ def record_quote(params, response):
             prior_plan = presentation.get('plan') or {}
             material_matches = _same_material_offer(
                 prior_plan, plan, prior_revision, revision)
+            if not material_matches and same_people and names:
+                # A checked indexed surname completion may update that payer label;
+                # compare it through the same authorized completion equivalence.
+                material_matches = _completion_revision_matches(
+                    prior_revision, revision, guest_completions=names,
+                    person_plan=plan)
             completed_named_revision = (bool(rows)
                 and all(isinstance(row, dict) and str(row.get('guest_name') or '').strip()
                         for row in rows))
