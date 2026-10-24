@@ -41,9 +41,9 @@ const READ_SCHEMAS = Object.freeze({
   recover_operation: new Set(['tool', 'operation_key']),
   release_hold: new Set(['operation_key', 'hold_id']),
   handoff_to_human: new Set(['operation_key', 'reason', 'context', 'booking_id', 'conversation_id']),
-  get_payment_status: new Set(['booking_id']),
-  send_payment_link: new Set(['booking_id', 'payment_scope', 'payment_choice', 'guest_id', 'operation_key']),
-  cancel_unpaid: new Set(['booking_id', 'guest_reason', 'operation_key']),
+  get_payment_status: new Set(['booking_reference']),
+  send_payment_link: new Set(['booking_reference', 'payment_scope', 'payment_choice', 'guest_position', 'operation_key']),
+  cancel_unpaid: new Set(['booking_reference', 'guest_reason', 'operation_key']),
   read_notes: new Set(['topic']),
   write_note: new Set(['text', 'context', 'booking_reference', 'operation_key']),
   save_transfer_request: new Set(['booking_id', 'decision', 'travel_details', 'operation_key']),
@@ -97,9 +97,13 @@ function assertSafeToolRequest(name, input = {}) {
   if (name === 'check_quote_book') {
     if (!['prepare', 'confirm', 'decline', '_record_presented'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
-      if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for prepare');
-      if (!input.room || !input.package) throw new Error('room and package are required for prepare');
-      if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
+      if (!['offer', 'information'].includes(input.purpose)) throw new Error('purpose must be offer or information');
+      if (!input.check_in || !input.check_out) throw new Error('check_in and check_out are required for prepare');
+      if (input.purpose === 'offer') {
+        if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for offer prepare');
+        if (!input.room || !input.package) throw new Error('room and package are required for offer prepare');
+        if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
+      }
     } else if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');
     if (input.action === '_record_presented' && !String(input.assistant_reply || '').trim()) throw new Error('assistant_reply is required');
   }
@@ -123,15 +127,16 @@ function assertSafeToolRequest(name, input = {}) {
     }
   }
   if (name === 'send_payment_link') {
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!['deposit', 'full', 'balance'].includes(input.payment_choice)) throw new Error('payment_choice must be deposit, full, or balance');
-    if (input.booking_id !== undefined && !uuid.test(String(input.booking_id))) throw new Error('booking_id must be a valid UUID');
+    if (typeof input.booking_reference !== 'string' || !input.booking_reference.trim()) throw new Error('booking_reference is required');
     if (input.payment_scope !== undefined && !['individual', 'booking'].includes(input.payment_scope)) throw new Error('payment_scope must be individual or booking');
-    const scope = input.payment_scope || (input.guest_id ? 'individual' : null);
-    if (!scope) throw new Error('payment_scope is required when guest_id is absent');
-    if (scope === 'individual' && !uuid.test(String(input.guest_id || ''))) throw new Error('guest_id must be a valid UUID for individual checkout');
-    if (scope === 'booking' && input.guest_id !== undefined) throw new Error('guest_id is forbidden for booking checkout');
+    const scope = input.payment_scope || (input.guest_position ? 'individual' : null);
+    if (!scope) throw new Error('payment_scope is required when guest_position is absent');
+    if (scope === 'individual' && (!Number.isSafeInteger(input.guest_position) || input.guest_position < 1)) throw new Error('guest_position must be a positive integer for individual checkout');
+    if (scope === 'booking' && input.guest_position !== undefined) throw new Error('guest_position is forbidden for booking checkout');
   }
+  if (['get_payment_status', 'cancel_unpaid'].includes(name)
+      && (typeof input.booking_reference !== 'string' || !input.booking_reference.trim())) throw new Error('booking_reference is required');
   return contract;
 }
 

@@ -181,9 +181,9 @@ _TOOL_FIELDS = {
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": ("booking_id",),
-    "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
-    "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
+    "get_payment_status": ("booking_reference",),
+    "send_payment_link": ("booking_reference", "payment_scope", "guest_position", "payment_choice", "operation_key"),
+    "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
     "read_notes": ("topic",),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
@@ -202,9 +202,9 @@ _TOOL_REQUIRED = {
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
-    "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
-    "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
+    "get_payment_status": ("booking_reference",),
+    "send_payment_link": ("booking_reference", "payment_scope", "payment_choice", "operation_key"),
+    "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
     "save_transfer_request": ("booking_id", "decision", "operation_key"),
@@ -217,30 +217,35 @@ def _field_schema(field: str) -> dict[str, Any]:
     if field == "action":
         return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
     if field == "purpose":
-        return {"type": "string", "enum": ["offer"]}
+        return {"type": "string", "enum": ["offer", "information"]}
     if field == "offer_reference":
         return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
     if field == "room":
         return {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {
-            "kind": {"type": "string", "enum": ["exact", "private", "shared", "auto"]},
+            "kind": {"type": "string", "enum": ["exact", "private", "shared", "women_only", "auto"]},
             "name": {"type": "string", "minLength": 1}, "beds": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
             "together": {"type": "string", "enum": ["required", "preferred", "not_required"]}}}
     if field == "package":
         return {"type": "object", "additionalProperties": False, "properties": {
             "name": {"type": "string", "minLength": 1},
             "per_guest": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                "required": ["guest", "name"], "properties": {"guest": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}}}},
+                "required": ["guest", "name"], "properties": {"guest": {"type": "integer", "minimum": 1}, "name": {"type": "string", "minLength": 1}}}}},
             "anyOf": [{"required": ["name"]}, {"required": ["per_guest"]}]}
     if field == "payment":
         return {"type": "object", "additionalProperties": False, "required": ["arrangement"], "properties": {
             "arrangement": {"type": "string", "enum": ["together", "separately"]}, "choice": {"type": "string", "enum": ["deposit", "balance"]}}}
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
+    if field == "guest_position":
+        return {"type": "integer", "minimum": 1}
+    if field == "payment_scope":
+        return {"type": "string", "enum": ["individual", "booking"]}
     if field in {"package_ids", "service_ids"}:
         return {"type": "array", "items": {"type": "string", "minLength": 1}}
     if field == "guests":
         return {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
@@ -289,7 +294,7 @@ def _field_schema(field: str) -> dict[str, Any]:
                     "code": {"type": "string", "minLength": 1},
                     "name": {"type": "string", "minLength": 1},
                     "days": {"type": "integer", "minimum": 1, "description": "For a dated rental, the number of distinct requested service dates."},
-                    "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, quantity counts people or equipment units, never participant-days."},
+                    "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, count is people or equipment units, never participant-days."},
                     "dates": {
                         "type": "array",
                         "items": {"type": "string", "format": "date"},

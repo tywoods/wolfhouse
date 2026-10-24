@@ -5,7 +5,7 @@ const { createCheckQuoteBook } = require('./lib/model-led-luna/v3-booking-flow')
 
 assert.equal(TOOL_CONTRACTS.check_quote_book.path, '/staff/bot/luna-v3/check-quote-book');
 assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'not-an-id' }), /valid public/);
-assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'prepare', guests: [{ name: 'A' }, { name: 'B' }], room: { kind: 'private' }, package: { name: 'none' } }), /payment arrangement/);
+assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08', guests: [{ name: 'A' }, { name: 'B' }], room: { kind: 'private' }, package: { name: 'none' } }), /payment arrangement/);
 assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', {
   action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
   guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },

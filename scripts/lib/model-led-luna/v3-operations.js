@@ -95,8 +95,9 @@ async function initializeFreshV3UnpaidEvidence(pg, bookingId) {
            payment_status='waiting_payment',
            metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('luna_v3_provenance','fresh_one_try')
      WHERE id=$1
-       AND amount_paid_cents IS NULL
-       AND deposit_paid_cents IS NULL
+       AND COALESCE(amount_paid_cents,0)=0
+       AND COALESCE(deposit_paid_cents,0)=0
+       AND LOWER(COALESCE(payment_status::text,'waiting_payment')) IN ('not_requested','waiting_payment','pending','created','open','draft','unpaid')
      RETURNING id`,
     [bookingId],
   );
@@ -404,7 +405,8 @@ async function book(pg, input, context) {
       );
     const body = created.body || created;
     const bookingId = body.booking_id || body.bookingId;
-    if (body.created === true) await initializeFreshV3UnpaidEvidence(pg, bookingId);
+    const freshlyCreated = created.status === 201 && body.is_duplicate !== true && body.idempotent !== true;
+    if (freshlyCreated) await initializeFreshV3UnpaidEvidence(pg, bookingId);
     await pg.query(
       `UPDATE luna_v3_holds SET state='converted',booking_id=$2,updated_at=now() WHERE id=$1`,
       [h.id, bookingId],
@@ -675,9 +677,24 @@ async function handoffToHuman(pg, input, context) {
 
 function selected(s, input) {
   if (!s.selected_booking_id) return fail("booking_not_selected", 404);
-  if (!input.booking_id || input.booking_id !== s.selected_booking_id)
+  if (input.booking_id && input.booking_id !== s.selected_booking_id)
     return fail("booking_selector_forbidden", 403);
   return null;
+}
+async function selectedByPublicReference(pg, s, input) {
+  if (!s.selected_booking_id) return { denied: fail("booking_not_selected", 404) };
+  const booking = (await pg.query(
+    `SELECT id,booking_code FROM bookings WHERE id=$1 AND client_id=$2`,
+    [s.selected_booking_id, s.client_id],
+  )).rows[0];
+  if (!booking) return { denied: fail("selected_booking_missing", 404) };
+  // Public contracts reject internal IDs. Keep this compatibility branch only
+  // for trusted direct module callers while every registered tool uses the code.
+  if (input.booking_id !== undefined)
+    return input.booking_id === s.selected_booking_id ? { booking } : { denied: fail("booking_selector_forbidden", 403) };
+  if (String(input.booking_reference || '').trim().toUpperCase() !== String(booking.booking_code).toUpperCase())
+    return { denied: fail("booking_selector_forbidden", 403) };
+  return { booking };
 }
 const NATIVE_STAFF_PAYMENT_SOURCES = Object.freeze({
   cash: "staff_cash",
@@ -703,8 +720,8 @@ function nativeStaffReceiptHasTrustedProvenance(payment) {
 
 async function getPaymentStatus(pg, input, context) {
   const s = await session(pg, context);
-  const denied = selected(s, input);
-  if (denied) return denied;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return selectedPublic.denied;
   const b = (
     await pg.query(
       `SELECT id,booking_code,status::text booking_status,payment_status::text,total_amount_cents,deposit_required_cents,COALESCE(amount_paid_cents,0) paid_cents,balance_due_cents,updated_at FROM bookings WHERE id=$1 AND client_id=$2`,
@@ -782,6 +799,8 @@ async function getPaymentStatus(pg, input, context) {
   const nativeStaffReceipt = nativeStaffReceiptHasTrustedProvenance;
   const associationFor = (paymentId) =>
     associations.filter((a) => a.payment_id === paymentId);
+  const bookingScoped = (payment) =>
+    !payment.booking_guest_id && payment.metadata && payment.metadata.payment_scope === "booking";
   const paidForGuest = (guestId) =>
     payments
       .filter((p) =>
@@ -809,9 +828,9 @@ async function getPaymentStatus(pg, input, context) {
         !guests.some((g) => g.id === a.booking_guest_id),
     ) &&
     !payments.some((p) => associationFor(p.id).length > 1) &&
-    !payments.some(
-      (p) => p.amount_paid_cents > 0 && associationFor(p.id).length !== 1,
-    );
+    !payments.some((p) => p.amount_paid_cents > 0 && (
+      bookingScoped(p) ? associationFor(p.id).length !== 0 : associationFor(p.id).length !== 1
+    ));
   const guestRowsAreValid = !guests.some(
     (g) =>
       ![g.amount_paid_cents, g.deposit_amount_cents].every(
@@ -821,8 +840,11 @@ async function getPaymentStatus(pg, input, context) {
       g.deposit_amount_cents < 0 ||
       g.amount_paid_cents !== paidForGuest(g.id),
   );
+  const bookingScopedPaid = payments
+    .filter(bookingScoped)
+    .reduce((n, p) => n + p.amount_paid_cents, 0);
   const guestTotalMatches =
-    guests.reduce((n, g) => n + g.amount_paid_cents, 0) === b.paid_cents;
+    guests.reduce((n, g) => n + g.amount_paid_cents, 0) + bookingScopedPaid === b.paid_cents;
   const paidPaymentsHaveEvidence = !payments.some(
     (p) =>
       p.amount_paid_cents > 0 &&
@@ -902,8 +924,8 @@ async function getPaymentStatus(pg, input, context) {
 }
 async function cancelUnpaid(pg, input, context) {
   const s = await session(pg, context, true);
-  const denied = selected(s, input);
-  if (denied) return denied;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return selectedPublic.denied;
   await pg.query("BEGIN");
   try {
     const op = await beginOperation(
@@ -1281,17 +1303,16 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
       throw e;
     }
   };
-  const denied = selected(s, input);
-  if (denied) return reject(denied);
-  const scope = input.payment_scope || (input.guest_id ? 'individual' : null);
-  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const selectedPublic = await selectedByPublicReference(pg, s, input);
+  if (selectedPublic.denied) return reject(selectedPublic.denied);
+  const scope = input.payment_scope || (input.guest_position || input.guest_id ? 'individual' : null);
   if (!["deposit", "full", "balance"].includes(input.payment_choice))
     return reject(fail("unsupported_payment_choice", 400));
   if (!scope) return reject(fail("payment_scope_required", 400));
   if (!['individual', 'booking'].includes(scope)) return reject(fail("unsupported_payment_scope", 400));
-  if (scope === 'booking' && input.guest_id) return reject(fail("guest_selector_forbidden_for_booking_scope", 400));
-  if (scope === 'individual' && !uuid.test(String(input.guest_id || '')))
-    return reject(fail("invalid_guest_id", 400));
+  if (scope === 'booking' && (input.guest_position !== undefined || input.guest_id !== undefined)) return reject(fail("guest_selector_forbidden_for_booking_scope", 400));
+  if (scope === 'individual' && input.guest_id === undefined && (!Number.isSafeInteger(input.guest_position) || input.guest_position < 1))
+    return reject(fail("invalid_guest_position", 400));
   const authorities = context.staffAuthorities || {};
   if (scope === 'booking') {
     if (typeof authorities.createBookingCheckout !== 'function' || typeof authorities.readBookingCheckout !== 'function')
@@ -1322,8 +1343,9 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
   }
   const guest = (
     await pg.query(
-      `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text FROM booking_guests bg WHERE bg.id=$1::uuid AND bg.client_id=$2 AND bg.booking_id=$3`,
-      [input.guest_id, s.client_id, s.selected_booking_id],
+      `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text,bg.guest_number FROM booking_guests bg
+       WHERE bg.client_id=$2 AND bg.booking_id=$3 AND (($1::int IS NOT NULL AND bg.guest_number=$1) OR ($4::uuid IS NOT NULL AND bg.id=$4))`,
+      [input.guest_position || null, s.client_id, s.selected_booking_id, input.guest_id || null],
     )
   ).rows[0];
   if (!guest) return reject(fail("payment_target_guest_mismatch", 403));

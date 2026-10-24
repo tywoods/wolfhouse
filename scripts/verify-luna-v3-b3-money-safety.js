@@ -8,7 +8,7 @@ const cancelModule = require('./lib/guest-unpaid-cancellation');
 const cancel = fs.readFileSync(path.join(ROOT, 'scripts/lib/guest-unpaid-cancellation.js'), 'utf8');
 
 assert.match(source, /initializeFreshV3UnpaidEvidence/, 'v3 must explicitly initialize fresh booking money evidence');
-assert.match(source, /created\s*===\s*true[\s\S]*initializeFreshV3UnpaidEvidence/, 'only explicitly fresh bookings may initialize zero evidence');
+assert.match(source, /created\.status\s*===\s*201[\s\S]*is_duplicate\s*!==\s*true[\s\S]*initializeFreshV3UnpaidEvidence/, 'real writer result must identify fresh bookings before zero evidence initialization');
 assert.match(source, /amount_paid_cents\s*=\s*0[\s\S]*deposit_paid_cents\s*=\s*0[\s\S]*payment_status\s*=\s*'waiting_payment'/i);
 assert.match(source, /booking_guests[\s\S]*amount_paid_cents\s*=\s*0[\s\S]*payment_status\s*=\s*'waiting_payment'/i);
 assert.match(source, /luna_v3_provenance/, 'fresh zero evidence must carry v3 provenance');

@@ -4,27 +4,28 @@ const { assertSafeToolRequest } = require('./lib/model-led-luna/contracts');
 
 async function main() {
   const uuid = '11111111-1111-4111-8111-111111111111';
+  const bookingReference = 'WH-1';
   assert.doesNotThrow(() => assertSafeToolRequest('send_payment_link', {
-    booking_id: uuid, payment_scope: 'individual', guest_id: uuid,
+    booking_reference: bookingReference, payment_scope: 'individual', guest_position: 1,
     payment_choice: 'deposit', operation_key: 'tom-deposit',
   }));
   assert.doesNotThrow(() => assertSafeToolRequest('send_payment_link', {
-    booking_id: uuid, payment_scope: 'booking', payment_choice: 'balance', operation_key: 'group-balance',
+    booking_reference: bookingReference, payment_scope: 'booking', payment_choice: 'balance', operation_key: 'group-balance',
   }));
   const rejected = [
-    { booking_id: uuid, payment_scope: 'individual', guest_id: 'Tom', payment_choice: 'deposit', operation_key: 'x1' },
-    { booking_id: uuid, payment_scope: 'individual', guest_id: '1', payment_choice: 'full', operation_key: 'x2' },
-    { booking_id: uuid, payment_scope: 'booking', guest_id: uuid, payment_choice: 'deposit', operation_key: 'x3' },
-    { booking_id: uuid, payment_scope: 'booking', payment_choice: 'card', operation_key: 'x4' },
-    { booking_id: uuid, payment_scope: 'booking', payment_choice: 'deposit', amount_cents: 10000, operation_key: 'x5' },
-    { booking_id: uuid, payment_choice: 'deposit', operation_key: 'x6' },
+    { booking_reference: bookingReference, payment_scope: 'individual', guest_position: 'Tom', payment_choice: 'deposit', operation_key: 'x1' },
+    { booking_reference: bookingReference, payment_scope: 'individual', guest_position: 0, payment_choice: 'full', operation_key: 'x2' },
+    { booking_reference: bookingReference, payment_scope: 'booking', guest_position: 1, payment_choice: 'deposit', operation_key: 'x3' },
+    { booking_reference: bookingReference, payment_scope: 'booking', payment_choice: 'card', operation_key: 'x4' },
+    { booking_reference: bookingReference, payment_scope: 'booking', payment_choice: 'deposit', amount_cents: 10000, operation_key: 'x5' },
+    { booking_reference: bookingReference, payment_choice: 'deposit', operation_key: 'x6' },
   ];
   for (const value of rejected) assert.throws(() => assertSafeToolRequest('send_payment_link', value));
 
   const group = require('./lib/model-led-luna/v3-group-checkout');
   const calls = [];
   const authority = group.createBookingCheckoutAuthority({
-    withPgClient: async fn => fn({}),
+    withPgClient: async fn => fn({ query: async () => ({ rows: [{ active: false }] }) }),
     buildPaymentLinkCommand: opts => ({ ok: true, command: { ...opts, paymentTarget: opts.transportBody.payment_target } }),
     createPaymentLink: async (_pg, command, exec) => {
       calls.push({ command, exec });

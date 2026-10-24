@@ -20,7 +20,10 @@ class LunaV3PluginContractTests(unittest.TestCase):
             def __init__(self): self.tools = {}
             def register_tool(self, **kwargs): self.tools[kwargs["name"]] = kwargs["schema"]["parameters"]
         registry = Registry(); plugin.register(registry)
-        self.assertIn("guest_id", registry.tools["send_payment_link"]["required"])
+        self.assertIn("booking_reference", registry.tools["send_payment_link"]["required"])
+        self.assertIn("payment_scope", registry.tools["send_payment_link"]["required"])
+        self.assertNotIn("guest_position", registry.tools["send_payment_link"]["required"])
+        self.assertIn("guest_position", registry.tools["send_payment_link"]["properties"])
         self.assertEqual("object", registry.tools["write_note"]["properties"]["context"]["type"])
         self.assertEqual("object", registry.tools["handoff_to_human"]["properties"]["context"]["type"])
         for retired in ("check_availability", "find_rooms", "get_pricing_catalog", "quote", "hold_beds", "book", "release_hold", "recover_operation"):
@@ -36,7 +39,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         error = urllib.error.HTTPError("https://staff.example/x", 409, "Conflict", None, io.BytesIO(b'{"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":true,"evil":"drop"}'))
         env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
-            result = plugin.call_tool("get_payment_status", {"booking_id":"b1"})
+            result = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
         self.assertEqual({"ok":False,"status":409,"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":True,"recoveryStatus":"rejected","outcome":"rejected"}, result)
         handler = plugin._SameHostRedirectHandler("https://staff.example")
         for unsafe in ("https://evil.example/x", "https://staff.example:444/x", "http://staff.example/x", "https://user@staff.example/x"):
@@ -44,7 +47,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 handler.redirect_request(mock.Mock(), None, 302, "Found", {}, unsafe)
         server_error = urllib.error.HTTPError("https://staff.example/x", 503, "Unavailable", {}, io.BytesIO(b'{"outcome":"applied","recoveryStatus":"saved","code":"temporary"}'))
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=server_error):
-            failed = plugin.call_tool("get_payment_status", {"booking_id":"b1"})
+            failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
         self.assertEqual("unknown", failed["outcome"])
         self.assertEqual("unknown", failed["recoveryStatus"])
 

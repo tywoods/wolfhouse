@@ -9,7 +9,6 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/pricing-catalog': 'get_pricing_catalog',
   '/staff/bot/luna-v3/quote': 'quote',
   '/staff/bot/luna-v3/hold-beds': 'hold_beds',
-  '/staff/bot/luna-v3/book': 'book',
   '/staff/bot/luna-v3/release-hold': 'release_hold',
   '/staff/bot/luna-v3/get-booking': 'get_booking',
   '/staff/bot/luna-v3/payment-status': 'get_payment_status',

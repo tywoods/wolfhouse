@@ -26,6 +26,15 @@ function createBookingCheckoutAuthority(deps = {}) {
   const create = deps.createPaymentLink || defaultCreate;
   if (typeof deps.withPgClient !== 'function') throw error('booking_checkout_db_unavailable');
   async function createBookingCheckout(args) {
+    const overlapping = await deps.withPgClient(async (pg) => (await pg.query(
+      `SELECT EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NOT NULL
+        AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
+        AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
+                     NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
+                     NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS active`,
+      [args.bookingId],
+    )).rows[0]);
+    if (overlapping && overlapping.active) throw error('booking_payment_guest_checkout_active', 409);
     const built = build({
       operation: PAYMENT_LINK_OPERATIONS.CREATE,
       channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
