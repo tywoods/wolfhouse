@@ -193,8 +193,34 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 limit = 160 if field in bounded_fields else 500
                 if isinstance(value, str) and value and len(value) <= limit:
                     result[field] = value
-            if staff.get("classification") in {"validation", "authorization", "conflict", "internal", "transport", "http"}:
+            if staff.get("classification") in {"validation", "authorization", "configuration", "conflict", "internal", "transport", "http"}:
                 result["classification"] = staff["classification"]
+            pricing_failure = staff.get("pricing_failure")
+            if isinstance(pricing_failure, dict):
+                choice = pricing_failure.get("choice")
+                safe_choice = None
+                if isinstance(choice, dict) and set(choice).issubset({"item_type", "item_code", "season_code"}):
+                    candidate = {key: choice.get(key) for key in ("item_type", "item_code", "season_code")}
+                    if (
+                        isinstance(candidate["item_type"], str) and 0 < len(candidate["item_type"]) <= 80
+                        and isinstance(candidate["item_code"], str) and 0 < len(candidate["item_code"]) <= 160
+                        and (candidate["season_code"] is None or isinstance(candidate["season_code"], str) and 0 < len(candidate["season_code"]) <= 80)
+                    ):
+                        safe_choice = candidate
+                price_kind = pricing_failure.get("price_kind")
+                recovery_action = pricing_failure.get("recovery_action")
+                if (
+                    pricing_failure.get("type") == "pricing_failure"
+                    and price_kind in {"stay", "package", "service", "add_on", "rental", "lesson"}
+                    and isinstance(recovery_action, str) and recovery_action == result.get("next_step")
+                    and safe_choice is not None
+                ):
+                    result["pricing_failure"] = {
+                        "type": "pricing_failure",
+                        "price_kind": price_kind,
+                        "choice": safe_choice,
+                        "recovery_action": recovery_action,
+                    }
             if isinstance(staff.get("retry_allowed"), bool):
                 result["retry_allowed"] = staff["retry_allowed"]
             field_errors = staff.get("field_errors")

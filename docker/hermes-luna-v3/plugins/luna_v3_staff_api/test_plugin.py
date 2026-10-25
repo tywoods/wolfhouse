@@ -79,6 +79,26 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual("unknown", failed["outcome"])
         self.assertEqual("unknown", failed["recoveryStatus"])
 
+        pricing_body = {
+            "ok": False,
+            "code": "staff_lesson_price_missing",
+            "classification": "configuration",
+            "field_errors": [{"path": "add_ons", "code": "staff_lesson_price_missing", "message": "no price configured for service 'surf_lesson_single'"}],
+            "next_step": "ask_staff_to_configure_lesson_price",
+            "retry_allowed": False,
+            "pricing_failure": {
+                "type": "pricing_failure",
+                "price_kind": "lesson",
+                "choice": {"item_type": "service", "item_code": "surf_lesson_single", "season_code": None},
+                "recovery_action": "ask_staff_to_configure_lesson_price",
+            },
+        }
+        pricing_error = urllib.error.HTTPError("https://staff.example/x", 422, "Unprocessable", {}, io.BytesIO(json.dumps(pricing_body).encode()))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=pricing_error):
+            pricing = plugin.call_tool("check_quote_book", {"action": "prepare"})
+        self.assertEqual("configuration", pricing["classification"])
+        self.assertEqual(pricing_body["pricing_failure"], pricing["pricing_failure"])
+
         malformed = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'<html>bad gateway</html>'))
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=malformed):
             failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
