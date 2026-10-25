@@ -131,17 +131,20 @@ function publicFailure(result) {
     operation_reference: result && result.operationReference || null,
   };
 }
-function guestRows(input) {
-  return input.guests.map((guest) => ({ name: guest.name, explicit_gender: guest.explicit_gender || guest.gender || null }));
+function guestRows(input, privateQuoteLabels = false) {
+  return input.guests.map((guest, index) => ({
+    name: guest.name || (privateQuoteLabels ? `Quote guest ${index + 1}` : undefined),
+    explicit_gender: guest.explicit_gender || guest.gender || null,
+  }));
 }
-function availabilityPreferences(input) {
+function availabilityPreferences(input, privateQuoteLabels = false) {
   const room = input.room || {};
   return {
     room_type: room.kind === 'private' ? 'double' : room.kind === 'women_only' ? 'female' : room.kind === 'shared' ? 'dorm' : undefined,
     room_preference: room.kind === 'private' ? 'private' : room.name || undefined,
     keep_together: room.together === 'required' ? true : room.together === 'not_required' ? false : undefined,
     group_gender: room.kind === 'women_only' ? 'female' : undefined,
-    guests: guestRows(input),
+    guests: guestRows(input, privateQuoteLabels),
   };
 }
 function chooseBeds(input, rooms) {
@@ -167,7 +170,12 @@ function chooseBeds(input, rooms) {
 function packageSelection(input, catalog) {
   const packages = catalog.packages || (catalog.items || []).filter((item) => item.item_type === 'package').map((item) => ({ name: item.label, code: item.item_code }));
   const byName = new Map(packages.flatMap((pkg) => [[String(pkg.name || '').toLowerCase(), pkg.code], [String(pkg.code || '').toLowerCase(), pkg.code]]));
-  const resolve = (name) => name === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
+  const shortStay = (catalog.items || []).find((item) => item.item_type === 'deposit' && item.item_code === 'custom_or_short_stay');
+  if (shortStay) {
+    byName.set(String(shortStay.label || '').toLowerCase(), 'package_none');
+    byName.set('custom_or_short_stay', 'package_none');
+  }
+  const resolve = (name) => String(name || '').toLowerCase() === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
   if (input.package && Array.isArray(input.package.per_guest)) {
     const rows = input.package.per_guest.map((row) => ({ guest_number: row.guest, package_code: resolve(row.name) }));
     return rows.every((row) => row.package_code) ? { guest_packages: rows } : null;
@@ -211,6 +219,26 @@ function publicOffer(held, quote, input, reference, catalog) {
   };
 }
 
+function publicQuote(quote, input, beds, packages, catalog) {
+  const assignments = input.guests.map((guest, index) => ({
+    bed_code: beds[index],
+    package_code: packages.guest_packages
+      ? (packages.guest_packages.find((row) => row.guest_number === index + 1) || {}).package_code
+      : packages.package_id,
+  }));
+  return {
+    ok: true, state: 'quote', reason: 'authoritative_quote_ready', message: 'Staff priced this stay without holding it.',
+    next_step: 'present_quote', retry_allowed: false, held: false, booked: false,
+    check_in: input.check_in, check_out: input.check_out,
+    guests: input.guests.map((guest, index) => ({ position: index + 1,
+      ...(guest.name ? { name: guest.name } : {}),
+      bed: assignments[index].bed_code, package: assignments[index].package_code })),
+    quote: { totalCents: quote.totalCents, depositCents: quote.depositCents, remainingCents: quote.remainingCents,
+      currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
+    package_details: selectedPackageDetails(input, catalog || {}, assignments),
+  };
+}
+
 function createCheckQuoteBook(deps) {
   async function recordPresented(pg, input, context) {
     if (!context || context.trustedPresentationRecorder !== true) return publicFailure({ code: 'trusted_recorder_required' });
@@ -250,7 +278,7 @@ function createCheckQuoteBook(deps) {
         // same input in that turn returns the same offer, while a later turn
         // starts a new lifecycle even when the guest returns A→B→A.
         const replayReference = `offer_${digest({ session: context.sessionId, turn: context.turnId, input }, 36)}`;
-        if (input.purpose !== 'information') {
+        if (input.purpose === 'offer') {
           const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
             FROM luna_v3_holds h JOIN luna_v3_sessions s ON s.id=h.session_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
@@ -263,13 +291,14 @@ function createCheckQuoteBook(deps) {
         }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
         if (!catalog.ok) return reject(catalog);
-        if (input.purpose === 'information') {
-          const result = { ok: true, state: 'information', reason: 'authoritative_catalog_ready', held: false, booked: false,
+        if (input.purpose === 'catalog' || input.purpose === 'information') {
+          const result = { ok: true, state: input.purpose, reason: 'authoritative_catalog_ready', held: false, booked: false,
             check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
           await pg.query('COMMIT'); return result;
         }
         const count = input.guests.length;
-        const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, snapshotContext);
+        const quoteOnly = input.purpose === 'quote';
+        const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input, quoteOnly) }, snapshotContext);
         if (!rooms.ok) return reject(rooms);
         const beds = chooseBeds(input, rooms);
         if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
@@ -279,11 +308,16 @@ function createCheckQuoteBook(deps) {
         if (extras.some((row) => !row.code)) return reject({ code: 'staff_service_unavailable' });
         const quoteInput = {
           operation_key: operationKey(context, 'prepare-quote', input), check_in: input.check_in, check_out: input.check_out,
-          guests: guestRows(input), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input).room_type, room_preference: availabilityPreferences(input).room_preference, keep_together: availabilityPreferences(input).keep_together },
+          guests: guestRows(input, quoteOnly), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input, quoteOnly).room_type, room_preference: availabilityPreferences(input, quoteOnly).room_preference, keep_together: availabilityPreferences(input, quoteOnly).keep_together },
           ...packages, add_ons: extras,
         };
         const quote = await deps.quote(pg, quoteInput, snapshotContext);
         if (!quote.ok) return reject(quote);
+        if (input.purpose === 'quote') {
+          const result = publicQuote(quote, input, beds, packages, catalog);
+          await pg.query('COMMIT');
+          return result;
+        }
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
         const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, snapshotContext);

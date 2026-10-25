@@ -97,12 +97,17 @@ function assertSafeToolRequest(name, input = {}) {
   if (name === 'check_quote_book') {
     if (!['prepare', 'confirm', 'decline'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
-      if (!['offer', 'information'].includes(input.purpose)) throw new Error('purpose must be offer or information');
+      if (!['catalog', 'quote', 'offer'].includes(input.purpose)) throw new Error('purpose must be catalog, quote, or offer');
       if (!input.check_in || !input.check_out) throw new Error('check_in and check_out are required for prepare');
-      if (input.purpose === 'offer') {
-        if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for offer prepare');
-        if (!input.room || !input.package) throw new Error('room and package are required for offer prepare');
-        if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
+      if (input.purpose === 'quote' || input.purpose === 'offer') {
+        if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for quote or offer prepare');
+        if (!input.room || !input.package) throw new Error('room and package are required for quote or offer prepare');
+        if (input.purpose === 'quote' && input.payment !== undefined) throw new Error('payment is not priced for quote prepare');
+        if (input.purpose === 'offer') {
+          if (input.guests.some((guest) => !String(guest && guest.name || '').trim())) throw new Error('guest names are required for offer prepare');
+          if (!input.payment || !['together', 'separately'].includes(input.payment.arrangement)) throw new Error('payment arrangement is required for offer prepare');
+        }
+        if (!Array.isArray(input.add_ons)) throw new Error('add_ons are required for quote or offer prepare');
       }
     } else {
       if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');

@@ -240,7 +240,7 @@ def _field_schema(field: str) -> dict[str, Any]:
     if field == "action":
         return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
     if field == "purpose":
-        return {"type": "string", "enum": ["offer", "information"]}
+        return {"type": "string", "enum": ["catalog", "quote", "offer"]}
     if field == "offer_reference":
         return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
     if field == "room":
@@ -276,7 +276,6 @@ def _field_schema(field: str) -> dict[str, Any]:
                     "explicit_gender": {"type": "string", "minLength": 1},
                     "gender": {"type": "string", "minLength": 1},
                 },
-                "required": ["name"],
                 "additionalProperties": False,
             },
         }
@@ -387,6 +386,7 @@ def register(ctx: Any) -> None:
         fields = _TOOL_FIELDS[name]
         required = list(_TOOL_REQUIRED[name])
         descriptions = {
+            "check_quote_book": "Use Staff authority for catalog discovery, stay pricing, or a held offer. A guest asking for a price, total, or quote needs purpose=quote, which returns authoritative money without creating a hold. Quote guests may be empty objects when names are unknown; never invent names, and do not send payment because Staff does not price it. Use purpose=catalog only to explain choices without a requested total; use purpose=offer only when the guest wants an option held. Never call quote or offer until dates, guest count, room requirement, package, and add_ons (an empty array is valid) are known; offer additionally requires real ordered guest names and payment arrangement. If required facts are missing, ask the guest instead and do not call this tool or hand off.",
             "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
             "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
             "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",
@@ -404,9 +404,12 @@ def register(ctx: Any) -> None:
         }
         if name == "check_quote_book":
             schema["parameters"]["allOf"] = [
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "quote"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons"], "not": {"required": ["payment"]}}},
                 {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]},
-                 "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
-                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "information"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"],
+                          "properties": {"guests": {"items": {"required": ["name"]}}}}},
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "catalog"}}, "required": ["action", "purpose"]},
                  "then": {"required": ["check_in", "check_out"]}},
                 {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]},
                  "then": {"required": ["offer_reference"], "not": {"anyOf": [
