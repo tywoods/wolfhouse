@@ -217,6 +217,10 @@ async function main(api = defaultApi) {
       path.join(__dirname, "../../../database/migrations/128_luna_v3_prepare_owner_release.sql"),
       "utf8",
     );
+    const migration129 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/129_luna_v3_prepare_control_plane.sql"),
+      "utf8",
+    );
     await admin.query(base);
     await admin.query(migration091);
     await admin.query(
@@ -841,6 +845,34 @@ async function main(api = defaultApi) {
     await admin.query(migration127); // lease migration is rerunnable
     await admin.query(migration128);
     await admin.query(migration128); // owner-release migration is rerunnable
+    await admin.query(migration129);
+    await admin.query(migration129); // control-plane migration is rerunnable
+    // Partial-state recovery, rather than replay alone: each retained forward
+    // migration must recreate an independently missing catalog object.
+    await admin.query(`ALTER TABLE luna_v3_runtime_events DROP CONSTRAINT luna_v3_runtime_event_capability_pair`);
+    await admin.query(migration126);
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM pg_constraint WHERE conrelid='luna_v3_runtime_events'::regclass AND conname='luna_v3_runtime_event_capability_pair'`)).rows[0].n, 1);
+    await admin.query(`DROP INDEX luna_v3_prepare_attempts_open_lease_idx`);
+    await admin.query(migration127);
+    assert.equal((await admin.query(`SELECT to_regclass('luna_v3_prepare_attempts_open_lease_idx') IS NOT NULL ok`)).rows[0].ok, true);
+    await admin.query(`DROP INDEX luna_v3_prepare_attempts_released_open_idx`);
+    await admin.query(migration128);
+    assert.equal((await admin.query(`SELECT to_regclass('luna_v3_prepare_attempts_released_open_idx') IS NOT NULL ok`)).rows[0].ok, true);
+    await admin.query(`DROP INDEX luna_v3_prepare_attempts_control_reconcile_idx`);
+    await admin.query(migration129);
+    assert.equal((await admin.query(`SELECT to_regclass('luna_v3_prepare_attempts_control_reconcile_idx') IS NOT NULL ok`)).rows[0].ok, true);
+    await admin.query(`INSERT INTO clients(id,slug) VALUES('99999999-0000-4000-8000-000000000001','migration-partial-test');
+      INSERT INTO luna_v3_sessions(id,client_id,session_key,principal_id,write_admitted)
+      VALUES('99999999-0000-4000-8000-000000000002','99999999-0000-4000-8000-000000000001','luna-v3:migration-partial','migration-test',true)`);
+    const legacyEvent = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      VALUES('99999999-0000-4000-8000-000000000001','99999999-0000-4000-8000-000000000002','migration-test','inbound',repeat('9',64)) RETURNING client_id,session_id,id`)).rows[0];
+    await admin.query(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint)
+      VALUES($1,$2,$3,repeat('9',64))`, [legacyEvent.client_id, legacyEvent.session_id, legacyEvent.id]);
+    await admin.query(migration129);
+    assert.deepEqual((await admin.query(`SELECT execution_owner,lease_expires_at IS NOT NULL leased,owner_released_at IS NOT NULL released
+      FROM luna_v3_prepare_attempts WHERE inbound_event_id=$1`, [legacyEvent.id])).rows[0],
+    { execution_owner: null, leased: true, released: true });
+    console.log('PASS V3-MIGRATIONS-126-129 partial catalog recovery and legacy nullable/open attempt reconciliation');
     console.log(
       "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
@@ -3461,18 +3493,52 @@ async function main(api = defaultApi) {
     await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
     await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
     assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
+    // The business connection remains healthy, but its terminal receipt write
+    // persistently fails.  The independent control connection must converge the
+    // attempt to durable unknown and the business transaction must not apply.
+    await admin.query(`CREATE FUNCTION reject_prepare_applied_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.outcome='applied' THEN RAISE EXCEPTION 'forced_prepare_terminal_failure'; END IF; RETURN NEW; END $$`);
+    await admin.query(`CREATE TRIGGER reject_prepare_applied_receipt BEFORE UPDATE ON luna_v3_prepare_attempts
+      FOR EACH ROW EXECUTE FUNCTION reject_prepare_applied_receipt()`);
+    const failedTerminalInbound = await persistedInbound('f'.repeat(64));
+    const terminalFailureInput = {
+      action: "prepare", purpose: "offer", check_in: "2036-01-01", check_out: "2036-01-08",
+      guests: [{ name: "Terminal Failure" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    };
+    const terminalBefore = await activeHoldCount();
+    const terminalBusiness = await c();
+    const terminalUnknown = await api.checkQuoteBook(terminalBusiness, terminalFailureInput, {
+      ...oneTryContext, authenticatedInboundEventId: failedTerminalInbound,
+      withPrepareControlClient: async (fn) => { const x = await c(); try { return await fn(x); } finally { await x.end(); } },
+    });
+    assert.equal(terminalUnknown.outcome, 'unknown', JSON.stringify(terminalUnknown));
+    assert.equal((await terminalBusiness.query('SELECT 1 AS alive')).rows[0].alive, 1, 'business backend did not remain alive');
+    await terminalBusiness.end();
+    await admin.query(`DROP TRIGGER reject_prepare_applied_receipt ON luna_v3_prepare_attempts; DROP FUNCTION reject_prepare_applied_receipt()`);
+    assert.equal(await activeHoldCount(), terminalBefore, 'terminal receipt failure applied business hold');
+    const terminalReplay = await api.checkQuoteBook(await c(), terminalFailureInput,
+      { ...oneTryContext, authenticatedInboundEventId: failedTerminalInbound });
+    assert.deepEqual(terminalReplay, terminalUnknown, 'durable control-plane unknown did not replay');
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM luna_v3_prepare_attempts WHERE inbound_event_id=$1 AND outcome='unknown' AND receipt IS NOT NULL`,
+      [failedTerminalInbound])).rows[0].n, 1);
+    console.log('PASS V3-PREPARE-CONTROL independent terminal-failure convergence; backend alive; no apply and no rerun');
     const pluginPrepare = (guestName) => ({
       action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
       guests: [{ name: guestName }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
       package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
     });
+    const withFreshClient = async (fn) => {
+      const client = await c();
+      try { return await fn(client); } finally { await client.end(); }
+    };
     const dispatchRegistered = async (request) => dispatchLunaV3StaffRoute({
       pathname: "/staff/bot/luna-v3/check-quote-book", method: "POST", clientSlug: "wolfhouse-somo",
       body: request.body,
       authenticatedPrincipal: { principalId: oneTryContext.principalId, writeAllowed: true,
         turnId: request.turn_id, inboundEventId: request.inbound_event_id },
       resolveSession: async () => ({ sessionId: oneTryContext.sessionId, writeAllowed: true, guestPhone: oneTryContext.guestPhone }),
-      operations: api.createOperations((fn) => fn(admin)),
+      operations: api.createOperations(withFreshClient),
     });
     const inboundA1 = await persistedInbound('1'.repeat(64));
     const inboundB = await persistedInbound('2'.repeat(64));
@@ -3483,7 +3549,7 @@ async function main(api = defaultApi) {
     assert.equal(sameEventReplay.offer_reference, lifecycleA1.offer_reference, "same persisted event did not replay");
     const lifecycleB = (await dispatchRegistered(await registeredPluginRequest(inboundB, pluginPrepare("Lifecycle B")))).body;
     const lifecycleA2 = (await dispatchRegistered(await registeredPluginRequest(inboundA2, pluginPrepare("One Try")))).body;
-    assert.notEqual(lifecycleB.offer_reference, lifecycleA1.offer_reference);
+    assert.notEqual(lifecycleB.offer_reference, lifecycleA1.offer_reference, JSON.stringify({ lifecycleA1, lifecycleB, lifecycleA2 }));
     assert.notEqual(lifecycleA2.offer_reference, lifecycleA1.offer_reference, "real plugin A→B→A reused a lifecycle reference");
     assert.notEqual(lifecycleA2.offer_reference, lifecycleB.offer_reference);
     const prepared = lifecycleA2;

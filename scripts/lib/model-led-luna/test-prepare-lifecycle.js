@@ -13,7 +13,7 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false, fail
       if (attempts.has(key)) return { rows: [] };
       const row = { id: `attempt-${attempts.size + 1}`, request_fingerprint: params[3], outcome: 'started', receipt: null,
         created_at: '2000-01-01T00:00:00Z', execution_owner: params[4], execution_backend_pid: 42,
-        execution_backend_start: '2026-01-01T00:00:00Z' };
+        execution_backend_start: '2026-01-01T00:00:00Z', lease_expires_at: '2999-01-01T00:00:00Z' };
       attempts.set(key, row); return { rows: [row] };
     }
     if (/FROM pg_stat_activity/.test(sql) || /SELECT 1 FROM pg_stat_activity/.test(sql)) return { rows: [{ '?column?': 1 }] };
@@ -23,6 +23,11 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false, fail
     }
     if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
       const row = [...attempts.values()].find((value) => value.id === params[0]);
+      if (/lease_expires_at=now\(\)\+interval/.test(sql)) return { rows: row ? [{ id: row.id }] : [] };
+      if (/SET owner_released_at=COALESCE/.test(sql)) {
+        if (row && row.outcome === 'started') row.owner_released_at = new Date().toISOString();
+        return { rows: [] };
+      }
       if (failTerminalUpdates > 0) { failTerminalUpdates -= 1; throw new Error('injected receipt update failure'); }
       if (row && row.outcome === 'started') {
         const outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];

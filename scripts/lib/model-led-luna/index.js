@@ -467,7 +467,9 @@ async function quote(pg, input = {}, context) {
 function createOperations(withPgClient, authorities = {}) {
   const operations = Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
     (input, context) => withPgClient((client) => SELECTED_IMPLEMENTATIONS[name](client, input,
-      { ...context, staffAuthorities: authorities })),
+      { ...context, staffAuthorities: authorities,
+        // A prepare's control plane checks out independently of its business client.
+        ...(wire === 'check_quote_book' ? { withPrepareControlClient: withPgClient } : {}) })),
   ]));
   operations._record_offer_presentation = (input, context) => withPgClient((client) =>
     checkQuoteBook.recordPresented(client, input, { ...context, staffAuthorities: authorities }));

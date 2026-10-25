@@ -34,10 +34,13 @@ const deps = {
 let attempt;
 const pg = { async query(sql, params = []) {
   if (/INSERT INTO luna_v3_prepare_attempts/.test(sql)) {
-    attempt = { id: 'attempt-1', request_fingerprint: params[3], outcome: 'started', receipt: null };
+    attempt = { id: 'attempt-1', request_fingerprint: params[3], outcome: 'started', receipt: null,
+      lease_expires_at: '2999-01-01T00:00:00Z' };
     return { rows: [attempt] };
   }
   if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
+    if (/lease_expires_at=now\(\)\+interval/.test(sql)) return { rows: [{ id: attempt.id }] };
+    if (/SET owner_released_at=COALESCE/.test(sql)) return { rows: [] };
     attempt.receipt = JSON.parse(params[1]); attempt.outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
     return { rows: [{ id: attempt.id, receipt: attempt.receipt }] };
   }

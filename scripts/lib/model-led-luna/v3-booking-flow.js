@@ -244,14 +244,16 @@ function createCheckQuoteBook(deps) {
       if (!inboundEvent) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
       const requestFingerprint = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
       const executionOwner = crypto.randomUUID();
+      const withControl = typeof context.withPrepareControlClient === 'function'
+        ? context.withPrepareControlClient : async (fn) => fn(pg);
+      const controlQuery = (sql, params) => withControl((control) => control.query(sql, params));
       // Reserve in autocommit before validation/business work.  This row therefore
       // survives every later rollback and the unique event key serializes parallel calls.
-      const reserved = await pg.query(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint,
-          execution_owner,execution_backend_pid,execution_backend_start,heartbeat_at,lease_expires_at)
-        SELECT s.client_id,s.id,e.id,$4,$5,pg_backend_pid(),a.backend_start,now(),now()+interval '24 hours'
+      const reserved = await controlQuery(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint,
+          execution_owner,heartbeat_at,lease_expires_at)
+        SELECT s.client_id,s.id,e.id,$4,$5,now(),now()+interval '30 seconds'
         FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
         JOIN luna_v3_runtime_events e ON e.client_id=c.id AND e.session_id=s.id
-        JOIN pg_stat_activity a ON a.pid=pg_backend_pid()
         WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2
           AND e.id=$3::uuid AND e.direction='inbound'
         ON CONFLICT(client_id,session_id,inbound_event_id) DO NOTHING
@@ -259,8 +261,8 @@ function createCheckQuoteBook(deps) {
       [context.sessionId, context.principalId, inboundEvent, requestFingerprint, executionOwner]);
       let attempt = reserved.rows[0];
       if (!attempt) {
-        attempt = (await pg.query(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt,a.created_at,
-            a.execution_owner,a.execution_backend_pid,a.execution_backend_start,a.lease_expires_at,a.owner_released_at
+        attempt = (await controlQuery(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt,a.created_at,
+            a.execution_owner,a.lease_expires_at,a.owner_released_at
           FROM luna_v3_prepare_attempts a JOIN luna_v3_sessions s ON s.id=a.session_id JOIN clients c ON c.id=a.client_id
           WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND a.inbound_event_id=$3::uuid`,
         [context.sessionId, context.principalId, inboundEvent])).rows[0];
@@ -272,30 +274,46 @@ function createCheckQuoteBook(deps) {
         // a legitimate catalog/availability call may run for an arbitrary time.
         // pg_stat_activity's (pid,backend_start) pair survives app disconnects,
         // distinguishes PID reuse, and disappears when the owning DB session dies.
-        const ownerAlive = (await pg.query(`SELECT 1 FROM pg_stat_activity
-          WHERE pid=$1 AND backend_start=$2::timestamptz`,
-        [attempt.execution_backend_pid, attempt.execution_backend_start])).rows[0];
-        if (attempt.owner_released_at || !ownerAlive) {
+        if (attempt.owner_released_at || (attempt.lease_expires_at
+            && new Date(attempt.lease_expires_at).getTime() <= Date.now())) {
           const unknown = publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
             message: 'Staff could not verify the outcome of this prepare attempt.', next_step: 'wait_for_verified_result' });
-          const reconciled = (await pg.query(`UPDATE luna_v3_prepare_attempts
-            SET receipt=$2::jsonb,outcome='unknown',completed_at=now()
+          const reconciled = (await controlQuery(`UPDATE luna_v3_prepare_attempts
+            SET receipt=$2::jsonb,outcome='unknown',completed_at=now(),owner_released_at=COALESCE(owner_released_at,now())
             WHERE id=$1 AND outcome='started' AND receipt IS NULL
-              AND (owner_released_at IS NOT NULL OR NOT EXISTS (SELECT 1 FROM pg_stat_activity
-                WHERE pid=execution_backend_pid AND backend_start=execution_backend_start))
+              AND (owner_released_at IS NOT NULL OR lease_expires_at <= now())
             RETURNING receipt`, [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' })])).rows[0]
-            || (await pg.query('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+            || (await controlQuery('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
           if (reconciled && reconciled.receipt) return reconciled.receipt;
         }
         return publicFailure({ code: 'prepare_event_in_progress', classification: 'conflict', next_step: 'wait_for_verified_result' });
       }
+      let heartbeatError = null;
+      let heartbeatRunning = false;
+      const heartbeat = async () => {
+        if (heartbeatRunning) return;
+        heartbeatRunning = true;
+        try {
+          const renewed = await controlQuery(`UPDATE luna_v3_prepare_attempts
+            SET heartbeat_at=now(),lease_expires_at=now()+interval '30 seconds'
+            WHERE id=$1 AND execution_owner=$2::uuid AND outcome='started' AND receipt IS NULL
+              AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING id`, [attempt.id, executionOwner]);
+          if (!renewed.rows[0]) heartbeatError = new Error('prepare_control_lease_lost');
+        } catch (error) { heartbeatError = error; }
+        finally { heartbeatRunning = false; }
+      };
+      const heartbeatTimer = setInterval(() => { void heartbeat(); }, 10000);
+      heartbeatTimer.unref?.();
+      const assertLease = async () => { await heartbeat(); if (heartbeatError) throw heartbeatError; };
       const finish = async (receipt, outcome) => {
         const saved = { ...receipt, outcome };
-        const won = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now(),heartbeat_at=now()
-          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$4::uuid RETURNING receipt`,
+        const won = await controlQuery(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now(),
+            heartbeat_at=now(),owner_released_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$4::uuid
+            AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
         [attempt.id, JSON.stringify(saved), outcome, executionOwner]);
         if (won.rows[0] && won.rows[0].receipt) return won.rows[0].receipt;
-        const durable = (await pg.query('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+        const durable = (await controlQuery('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
         if (durable && durable.receipt) return durable.receipt;
         throw new Error('prepare_terminal_write_lost');
       };
@@ -305,7 +323,10 @@ function createCheckQuoteBook(deps) {
           return await finish(publicFailure({ code: error.code || 'invalid_tool_request', path: error.path || '$',
             fieldMessage: error.message }), 'rejected');
         }
-        await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        // The independently committed heartbeat may advance after business work
+        // begins. READ COMMITTED lets the atomic business+receipt terminal write
+        // observe that renewal; REPEATABLE READ would falsely self-conflict.
+        await pg.query('BEGIN ISOLATION LEVEL READ COMMITTED');
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
         const reject = async (failure) => { await pg.query('ROLLBACK'); return await finish(publicFailure(failure), 'rejected'); };
         // A turn is the idempotency boundary for preparation. Replaying the
@@ -380,12 +401,15 @@ function createCheckQuoteBook(deps) {
         if (input.purpose === 'quote') {
           const result = publicQuote(quote, input, beds, packages, catalog);
           const saved = { ...result, outcome: 'applied' };
-          const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),heartbeat_at=now()
-            WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING id`,
+          await assertLease();
+          const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),
+              heartbeat_at=now(),owner_released_at=now()
+            WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid
+              AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
           [attempt.id, JSON.stringify(saved), executionOwner]);
           if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
           await pg.query('COMMIT');
-          return saved;
+          return terminal.rows[0].receipt;
         }
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
@@ -401,12 +425,15 @@ function createCheckQuoteBook(deps) {
         [JSON.stringify(quoteWithPresentation.packageDetails), hold.holdId, session.client_id, session.id]);
         const result = publicOffer(hold, quoteWithPresentation, input, reference, catalog);
         const saved = { ...result, outcome: 'applied' };
-        const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),heartbeat_at=now()
-          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING id`,
+        await assertLease();
+        const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),
+            heartbeat_at=now(),owner_released_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid
+            AND owner_released_at IS NULL AND lease_expires_at > now() RETURNING receipt`,
         [attempt.id, JSON.stringify(saved), executionOwner]);
         if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
         await pg.query('COMMIT');
-        return saved;
+        return terminal.rows[0].receipt;
       } catch (error) {
         try { await pg.query('ROLLBACK'); } catch (_) { /* connection may already be aborted */ }
         const unknown = publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
@@ -417,7 +444,7 @@ function createCheckQuoteBook(deps) {
           // returned sessions alive. This final, independent autocommit marks
           // the invocation released and terminalizes unknown atomically.
           try {
-            const released = await pg.query(`UPDATE luna_v3_prepare_attempts
+            const released = await controlQuery(`UPDATE luna_v3_prepare_attempts
               SET owner_released_at=now(),receipt=$2::jsonb,outcome='unknown',completed_at=now(),heartbeat_at=now()
               WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING receipt`,
             [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' }), executionOwner]);
@@ -425,6 +452,11 @@ function createCheckQuoteBook(deps) {
           } catch (_) { /* disconnected: later owner-death reconciliation converges */ }
           return { ...unknown, outcome: 'unknown' };
         }
+      } finally {
+        clearInterval(heartbeatTimer);
+        try { await controlQuery(`UPDATE luna_v3_prepare_attempts SET owner_released_at=COALESCE(owner_released_at,now())
+          WHERE id=$1 AND execution_owner=$2::uuid AND outcome='started' AND receipt IS NULL`, [attempt.id, executionOwner]); }
+        catch (_) { /* expiry is the fail-closed fallback when control storage is unavailable */ }
       }
     }
     const row = (await pg.query(`SELECT h.id,h.state,h.expires_at,ot.presented_at,ot.assistant_event_id,ot.accepted_at,
