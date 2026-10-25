@@ -13,7 +13,7 @@
     "guests": {
       "type": "array", "minItems": 1,
       "items": {
-        "type": "object", "additionalProperties": false, "required": ["name"],
+        "type": "object", "additionalProperties": false,
         "properties": {"name": {"type": "string", "minLength": 1}, "explicit_gender": {"type": "string", "minLength": 1}, "gender": {"type": "string", "minLength": 1}}
       }
     },
@@ -59,7 +59,8 @@
     "offer_reference": {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
   },
   "allOf": [
-    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"enum": ["quote", "offer"]}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
+    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "quote"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons"], "not": {"required": ["payment"]}}},
+    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"], "properties": {"guests": {"items": {"required": ["name"]}}}}},
     {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "catalog"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out"]}},
     {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]}, "then": {"required": ["offer_reference"], "not": {"anyOf": [
       {"required": ["purpose"]}, {"required": ["check_in"]}, {"required": ["check_out"]}, {"required": ["guests"]},

@@ -131,17 +131,20 @@ function publicFailure(result) {
     operation_reference: result && result.operationReference || null,
   };
 }
-function guestRows(input) {
-  return input.guests.map((guest) => ({ name: guest.name, explicit_gender: guest.explicit_gender || guest.gender || null }));
+function guestRows(input, privateQuoteLabels = false) {
+  return input.guests.map((guest, index) => ({
+    name: guest.name || (privateQuoteLabels ? `Quote guest ${index + 1}` : undefined),
+    explicit_gender: guest.explicit_gender || guest.gender || null,
+  }));
 }
-function availabilityPreferences(input) {
+function availabilityPreferences(input, privateQuoteLabels = false) {
   const room = input.room || {};
   return {
     room_type: room.kind === 'private' ? 'double' : room.kind === 'women_only' ? 'female' : room.kind === 'shared' ? 'dorm' : undefined,
     room_preference: room.kind === 'private' ? 'private' : room.name || undefined,
     keep_together: room.together === 'required' ? true : room.together === 'not_required' ? false : undefined,
     group_gender: room.kind === 'women_only' ? 'female' : undefined,
-    guests: guestRows(input),
+    guests: guestRows(input, privateQuoteLabels),
   };
 }
 function chooseBeds(input, rooms) {
@@ -167,7 +170,12 @@ function chooseBeds(input, rooms) {
 function packageSelection(input, catalog) {
   const packages = catalog.packages || (catalog.items || []).filter((item) => item.item_type === 'package').map((item) => ({ name: item.label, code: item.item_code }));
   const byName = new Map(packages.flatMap((pkg) => [[String(pkg.name || '').toLowerCase(), pkg.code], [String(pkg.code || '').toLowerCase(), pkg.code]]));
-  const resolve = (name) => name === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
+  const shortStay = (catalog.items || []).find((item) => item.item_type === 'deposit' && item.item_code === 'custom_or_short_stay');
+  if (shortStay) {
+    byName.set(String(shortStay.label || '').toLowerCase(), 'package_none');
+    byName.set('custom_or_short_stay', 'package_none');
+  }
+  const resolve = (name) => String(name || '').toLowerCase() === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
   if (input.package && Array.isArray(input.package.per_guest)) {
     const rows = input.package.per_guest.map((row) => ({ guest_number: row.guest, package_code: resolve(row.name) }));
     return rows.every((row) => row.package_code) ? { guest_packages: rows } : null;
@@ -222,12 +230,12 @@ function publicQuote(quote, input, beds, packages, catalog) {
     ok: true, state: 'quote', reason: 'authoritative_quote_ready', message: 'Staff priced this stay without holding it.',
     next_step: 'present_quote', retry_allowed: false, held: false, booked: false,
     check_in: input.check_in, check_out: input.check_out,
-    guests: input.guests.map((guest, index) => ({ position: index + 1, name: guest.name,
+    guests: input.guests.map((guest, index) => ({ position: index + 1,
+      ...(guest.name ? { name: guest.name } : {}),
       bed: assignments[index].bed_code, package: assignments[index].package_code })),
     quote: { totalCents: quote.totalCents, depositCents: quote.depositCents, remainingCents: quote.remainingCents,
       currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
     package_details: selectedPackageDetails(input, catalog || {}, assignments),
-    payment_arrangement: input.payment && input.payment.arrangement,
   };
 }
 
@@ -283,13 +291,14 @@ function createCheckQuoteBook(deps) {
         }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
         if (!catalog.ok) return reject(catalog);
-        if (input.purpose === 'catalog') {
-          const result = { ok: true, state: 'catalog', reason: 'authoritative_catalog_ready', held: false, booked: false,
+        if (input.purpose === 'catalog' || input.purpose === 'information') {
+          const result = { ok: true, state: input.purpose, reason: 'authoritative_catalog_ready', held: false, booked: false,
             check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
           await pg.query('COMMIT'); return result;
         }
         const count = input.guests.length;
-        const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, snapshotContext);
+        const quoteOnly = input.purpose === 'quote';
+        const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input, quoteOnly) }, snapshotContext);
         if (!rooms.ok) return reject(rooms);
         const beds = chooseBeds(input, rooms);
         if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
@@ -299,7 +308,7 @@ function createCheckQuoteBook(deps) {
         if (extras.some((row) => !row.code)) return reject({ code: 'staff_service_unavailable' });
         const quoteInput = {
           operation_key: operationKey(context, 'prepare-quote', input), check_in: input.check_in, check_out: input.check_out,
-          guests: guestRows(input), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input).room_type, room_preference: availabilityPreferences(input).room_preference, keep_together: availabilityPreferences(input).keep_together },
+          guests: guestRows(input, quoteOnly), selection: { selected_bed_codes: beds, bed_ids: beds, room_type: availabilityPreferences(input, quoteOnly).room_type, room_preference: availabilityPreferences(input, quoteOnly).room_preference, keep_together: availabilityPreferences(input, quoteOnly).keep_together },
           ...packages, add_ons: extras,
         };
         const quote = await deps.quote(pg, quoteInput, snapshotContext);

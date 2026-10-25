@@ -59,6 +59,7 @@ async function testCompleteOffer() {
 async function testQuoteOnlyPricesWithoutHolding() {
   let holdCalls = 0;
   let writeQueries = 0;
+  let observedQuoteInput;
   const pg = { async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     writeQueries += 1;
@@ -68,8 +69,8 @@ async function testQuoteOnlyPricesWithoutHolding() {
   const quoteInput = failedConversation.expected_tool.arguments;
   const result = await createCheckQuoteBook(deps({
     findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }, { code: 'BED-2' }] }] }),
-    getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'package', item_code: 'short_stay', label: 'Custom Or Short Stay' }] }),
-    quote: async () => ({ ok: true, totalCents: 24690, depositCents: 6000, remainingCents: 18690, currency: 'EUR', lineItems: [], perPerson: [] }),
+    getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' }] }),
+    quote: async (_pg, args) => { observedQuoteInput = args; return { ok: true, totalCents: 24690, depositCents: 6000, remainingCents: 18690, currency: 'EUR', lineItems: [], perPerson: [] }; },
     holdBeds: async () => { holdCalls += 1; throw new Error('quote-only must not hold'); },
   }))(pg, quoteInput, { ...context, turnId: 'turn:failed-v3-quote-regression' });
   assert.equal(result.state, 'quote');
@@ -78,6 +79,17 @@ async function testQuoteOnlyPricesWithoutHolding() {
   assert.equal(result.booked, false);
   assert.equal(result.quote.totalCents, 24690);
   assert.equal(result.quote.currency, 'EUR');
+  assert.deepEqual(result.guests, [
+    { position: 1, bed: 'BED-1', package: 'package_none' },
+    { position: 2, bed: 'BED-2', package: 'package_none' },
+  ]);
+  assert.deepEqual(observedQuoteInput.guests, [
+    { name: 'Quote guest 1', explicit_gender: null },
+    { name: 'Quote guest 2', explicit_gender: null },
+  ]);
+  assert.equal(observedQuoteInput.package_id, 'package_none');
+  assert.equal(observedQuoteInput.payment, undefined);
+  assert.equal(result.payment_arrangement, undefined);
   assert.equal(result.offer_reference, undefined);
   assert.equal(holdCalls, 0);
   assert.equal(writeQueries, 0);

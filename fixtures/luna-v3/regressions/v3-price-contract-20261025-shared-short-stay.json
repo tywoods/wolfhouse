@@ -19,13 +19,12 @@
       "check_in": "2026-11-10",
       "check_out": "2026-11-12",
       "guests": [
-        {"name": "Adult 1"},
-        {"name": "Adult 2"}
+        {},
+        {}
       ],
       "room": {"kind": "shared"},
       "package": {"name": "Custom Or Short Stay"},
-      "add_ons": [],
-      "payment": {"arrangement": "together"}
+      "add_ons": []
     }
   },
   "expected_result": {

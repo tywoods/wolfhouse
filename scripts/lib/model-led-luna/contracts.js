@@ -102,8 +102,12 @@ function assertSafeToolRequest(name, input = {}) {
       if (input.purpose === 'quote' || input.purpose === 'offer') {
         if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for quote or offer prepare');
         if (!input.room || !input.package) throw new Error('room and package are required for quote or offer prepare');
-        if (input.guests.length > 1 && (!input.payment || !['together', 'separately'].includes(input.payment.arrangement))) throw new Error('group payment arrangement is required');
-        if (!Array.isArray(input.add_ons) || !input.payment) throw new Error('add_ons and payment are required for quote or offer prepare');
+        if (input.purpose === 'quote' && input.payment !== undefined) throw new Error('payment is not priced for quote prepare');
+        if (input.purpose === 'offer') {
+          if (input.guests.some((guest) => !String(guest && guest.name || '').trim())) throw new Error('guest names are required for offer prepare');
+          if (!input.payment || !['together', 'separately'].includes(input.payment.arrangement)) throw new Error('payment arrangement is required for offer prepare');
+        }
+        if (!Array.isArray(input.add_ons)) throw new Error('add_ons are required for quote or offer prepare');
       }
     } else {
       if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(input.offer_reference || ''))) throw new Error('valid public offer_reference is required');

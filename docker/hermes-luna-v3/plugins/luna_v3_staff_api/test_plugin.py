@@ -161,6 +161,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertTrue(schema.get("allOf"))
         self.assertNotIn("operation_key", schema["properties"])
         self.assertEqual({"name", "explicit_gender", "gender"}, set(guest["properties"]))
+        self.assertNotIn("required", guest, "quote guests must not require invented names")
         self.assertFalse(guest["additionalProperties"])
         self.assertNotIn("guest_id", guest["properties"])
         self.assertEqual({"code", "name", "days", "quantity", "dates", "requested_dates", "people"}, set(add_on["properties"]))
