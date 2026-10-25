@@ -63,6 +63,91 @@ const NESTED_SCHEMAS = Object.freeze({
   payment: new Set(['arrangement', 'choice']),
 });
 
+const PUBLIC_TOOL_NAMES = Object.freeze([
+  'check_quote_book', 'get_booking', 'get_payment_status', 'send_payment_link',
+  'cancel_unpaid', 'read_notes', 'write_note', 'save_transfer_request', 'handoff_to_human',
+]);
+const SUPPORTED_CATALOG_KINDS = Object.freeze(['package', 'service', 'rental']);
+
+function jsonSchemaFor(name) {
+  const properties = Object.fromEntries([...READ_SCHEMAS[name]].map((field) => [field, { type: 'string' }]));
+  const requiredByTool = {
+    check_quote_book: ['action'], get_booking: [], get_payment_status: ['booking_reference'],
+    send_payment_link: ['booking_reference', 'payment_scope', 'payment_choice', 'operation_key'],
+    cancel_unpaid: ['booking_reference', 'guest_reason', 'operation_key'], read_notes: [],
+    write_note: ['text', 'operation_key'], save_transfer_request: ['booking_reference', 'decision', 'operation_key'],
+    handoff_to_human: ['reason', 'operation_key'],
+  };
+  if (name === 'check_quote_book') Object.assign(properties, {
+    action: { type: 'string', enum: ['prepare', 'confirm', 'decline'] }, purpose: { type: 'string', enum: ['catalog', 'quote', 'offer'] },
+    guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: {
+      name: { type: 'string', minLength: 1 }, explicit_gender: { type: 'string', minLength: 1 }, gender: { type: 'string', minLength: 1 } } } },
+    add_ons: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      code: { type: 'string' }, name: { type: 'string' }, days: { type: 'integer', minimum: 1 }, quantity: { type: 'integer', minimum: 1 },
+      dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, requested_dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, people: { type: 'array', items: { type: 'string' }, uniqueItems: true } } } },
+    room: { type: 'object' }, package: { type: 'object' }, payment: { type: 'object' },
+  });
+  return Object.freeze({ type: 'object', properties, required: requiredByTool[name], additionalProperties: false });
+}
+const MODEL_TOOL_SCHEMAS = Object.freeze(Object.fromEntries(PUBLIC_TOOL_NAMES.map((name) => [name, jsonSchemaFor(name)])));
+
+function refusalEnvelope(failure = {}, context = {}) {
+  const code = String(failure.code || 'internal_failure');
+  const classification = failure.classification || (code.includes('transport') ? 'transport' : code.includes('internal') ? 'internal' : 'validation');
+  return { ok: false, code, message: 'I could not safely complete that booking action.',
+    field_errors: Array.isArray(failure.field_errors) ? failure.field_errors : [{ path: failure.path || '$', code, message: failure.fieldMessage || (classification === 'validation' ? 'The request was not accepted.' : 'Staff could not return a usable result.') }],
+    next_step: failure.next_step || (classification === 'validation' ? 'correct_request' : 'wait_for_verified_result'),
+    retry_allowed: false, correlation_id: context.correlationId || context.turnId || null };
+}
+
+function normalizeCheckQuoteBook(input) {
+  assertSafeToolRequest('check_quote_book', input);
+  return JSON.parse(JSON.stringify(input));
+}
+function canonicalChoice(items, kind, choice) {
+  const wanted = String(choice || '').trim().toLowerCase();
+  return items.find((item) => item.item_type === kind && [item.item_code, item.label].some((value) => String(value || '').trim().toLowerCase() === wanted));
+}
+function buildCanonicalQuoteInput(input, catalog, beds, context = {}) {
+  const fail = (code, path, next_step = 'ask_guest') => refusalEnvelope({ code, path, next_step }, context);
+  const items = Array.isArray(catalog && catalog.items) ? catalog.items : [];
+  const packageChoice = input.package && input.package.name;
+  const selectedPackage = canonicalChoice(items, 'package', packageChoice);
+  const stayOnly = canonicalChoice(items, 'deposit', packageChoice);
+  const packageId = selectedPackage ? selectedPackage.item_code : stayOnly && stayOnly.item_code === 'custom_or_short_stay' ? 'package_none' : null;
+  if (!packageId) return fail('package_choice_required', 'package.name');
+  const extras = [];
+  for (const [index, addOn] of (input.add_ons || []).entries()) {
+    const item = SUPPORTED_CATALOG_KINDS.slice(1).map((kind) => canonicalChoice(items, kind, addOn.code || addOn.name)).find(Boolean);
+    if (!item) return fail('staff_service_unavailable', `add_ons[${index}]`);
+    const dates = addOn.dates || addOn.requested_dates;
+    const quantity = Number.isSafeInteger(addOn.quantity) ? addOn.quantity : Array.isArray(addOn.people) ? addOn.people.length : 1;
+    if (quantity < 1) return fail('invalid_quantity', `add_ons[${index}].quantity`);
+    if (item.item_type === 'rental' && (!Array.isArray(dates) || !dates.length)) return fail('rental_dates_required', `add_ons[${index}].dates`);
+    if (item.item_type === 'rental' && (new Set(dates).size !== dates.length || dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < input.check_in || date >= input.check_out))) return fail('rental_dates_invalid', `add_ons[${index}].dates`);
+    if (addOn.days !== undefined && addOn.days !== dates.length) return fail('rental_dates_duration_mismatch', `add_ons[${index}].days`);
+    extras.push({ code: item.item_code, ...(dates ? { dates, days: dates.length } : {}), quantity });
+  }
+  const operationKey = require('node:crypto').createHash('sha256').update(JSON.stringify({ session: context.sessionId, turn: context.turnId, input })).digest('base64url').slice(0, 40);
+  return { ok: true, value: { operation_key: `one-try:prepare-quote:${operationKey}`, check_in: input.check_in, check_out: input.check_out,
+    guests: input.guests.map((guest, index) => ({ name: guest.name || `Quote guest ${index + 1}`, explicit_gender: guest.explicit_gender || guest.gender || null })),
+    selection: { selected_bed_codes: beds, room_type: input.room.kind === 'private' ? 'double' : input.room.kind === 'women_only' ? 'female' : input.room.kind === 'shared' ? 'dorm' : undefined,
+      room_preference: input.room.name, keep_together: input.room.together === 'required' ? true : input.room.together === 'not_required' ? false : undefined },
+    package_id: packageId, add_ons: extras } };
+}
+
+function validateCanonicalAddOns(addOns, pricingAddOns, checkIn, checkOut, context = {}) {
+  for (const [index, addOn] of (Array.isArray(addOns) ? addOns : []).entries()) {
+    const pricing = pricingAddOns && pricingAddOns[addOn.code];
+    if (!pricing || pricing.pricing_unit !== 'per_day') continue;
+    const path = `add_ons[${index}]`;
+    if (!Array.isArray(addOn.dates) || !addOn.dates.length) return refusalEnvelope({ code: 'rental_dates_required', path: `${path}.dates` }, context);
+    if (!Number.isSafeInteger(addOn.days) || addOn.days !== addOn.dates.length) return refusalEnvelope({ code: 'rental_dates_duration_mismatch', path: `${path}.days` }, context);
+    if (new Set(addOn.dates).size !== addOn.dates.length || addOn.dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < checkIn || date >= checkOut)) return refusalEnvelope({ code: 'rental_dates_invalid', path: `${path}.dates` }, context);
+  }
+  return { ok: true };
+}
+
 function assertKnownObject(value, allowed, path) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} must be an object`);
   for (const [key, item] of Object.entries(value)) {
@@ -170,4 +255,5 @@ function buildStaffToolRequest(name, input, runtime) {
   };
 }
 
-module.exports = { TOOL_CONTRACTS, assertSafeToolRequest, buildStaffToolRequest };
+module.exports = { TOOL_CONTRACTS, PUBLIC_TOOL_NAMES, MODEL_TOOL_SCHEMAS, SUPPORTED_CATALOG_KINDS,
+  assertSafeToolRequest, buildStaffToolRequest, normalizeCheckQuoteBook, buildCanonicalQuoteInput, validateCanonicalAddOns, refusalEnvelope };

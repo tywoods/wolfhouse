@@ -40,7 +40,17 @@ class LunaV3PluginContractTests(unittest.TestCase):
         env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
             result = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
-        self.assertEqual({"ok":False,"status":409,"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":True,"recoveryStatus":"rejected","outcome":"rejected"}, result)
+        self.assertEqual("booking_paid", result["code"])
+        self.assertEqual("money_uncertain", result["reason_code"])
+        self.assertEqual("refused", result["error"])
+        self.assertEqual(409, result["status"])
+        self.assertEqual("http", result["classification"])
+        self.assertEqual("wait_for_verified_result", result["next_step"])
+        self.assertFalse(result["retry_allowed"])
+        self.assertEqual([{"path":"$","code":"staff_tool_rejected","message":"Staff could not return a usable result."}], result["field_errors"])
+        self.assertTrue(result["outcome_unknown"])
+        self.assertEqual("rejected", result["recoveryStatus"])
+        self.assertEqual("rejected", result["outcome"])
         handler = plugin._SameHostRedirectHandler("https://staff.example")
         for unsafe in ("https://evil.example/x", "https://staff.example:444/x", "http://staff.example/x", "https://user@staff.example/x"):
             with self.assertRaises(urllib.error.HTTPError):

@@ -15,7 +15,7 @@ assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', {
 const calls = [];
 const deps = {
   findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }] }] }),
-  getPricingCatalog: async () => ({ ok: true, packages: [{ code: 'package_none', name: 'none' }], services: [], rentals: [] }),
+  getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' }] }),
   quote: async (_pg, input) => { calls.push(['quote', input]); return { ok: true, quote: { totalCents: 10000 }, holdInput: { check_in: input.check_in, check_out: input.check_out, guests: input.guests, assignments: [{ bed_code: 'BED-1', guest_name: 'A', package_code: 'package_none' }], quoted_selection: 'quote-rev' } }; },
   holdBeds: async (_pg, input) => { calls.push(['hold', input]); return { ok: true, holdId: '11111111-1111-4111-8111-111111111111', expiresAt: '2027-03-01T12:15:00Z', assignments: [{ bedCode: 'BED-1', packageCode: 'package_none' }] }; },
   releaseHold: async () => ({ ok: true }),
@@ -34,7 +34,7 @@ const run = createCheckQuoteBook(deps);
   const result = await run(pg, {
     action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
     guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },
-    package: { name: 'none' }, add_ons: [], payment: { arrangement: 'separately' },
+    package: { name: 'Custom Or Short Stay' }, add_ons: [], payment: { arrangement: 'separately' },
   }, { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:00000001' });
   assert.equal(result.state, 'offer');
   assert.match(result.offer_reference, /^offer_/);

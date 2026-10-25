@@ -15,7 +15,7 @@ const pricingStore = require('../wolfhouse-pricing-store');
 const { resolveSeasonForDate, resolvePackageMinimumNights } = require('../wolfhouse-pricing-resolve');
 const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
-const { assertSafeToolRequest } = require('./contracts');
+const { assertSafeToolRequest, validateCanonicalAddOns } = require('./contracts');
 const v3 = require('./v3-operations');
 const { createCheckQuoteBook } = require('./v3-booking-flow');
 
@@ -261,26 +261,6 @@ function resolveStaySeasonCoverage(seasons, checkIn, checkOut) {
   };
 }
 
-function isIsoCalendarDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function validateRentalDateSelections(addOns, pricingAddOns, checkIn, checkOut) {
-  for (const addOn of Array.isArray(addOns) ? addOns : []) {
-    const pricing = pricingAddOns && pricingAddOns[addOn.code];
-    if (!pricing || pricing.pricing_unit !== 'per_day') continue;
-    if (!Array.isArray(addOn.dates) || addOn.dates.length === 0) return { ok: false, code: 'rental_dates_required', addOnCode: addOn.code };
-    if (!Number.isSafeInteger(addOn.days) || addOn.days !== addOn.dates.length) return { ok: false, code: 'rental_dates_duration_mismatch', addOnCode: addOn.code };
-    const unique = new Set(addOn.dates);
-    if (unique.size !== addOn.dates.length || addOn.dates.some((date) => !isIsoCalendarDate(date) || date < checkIn || date >= checkOut)) {
-      return { ok: false, code: 'rental_dates_invalid', addOnCode: addOn.code };
-    }
-  }
-  return { ok: true };
-}
-
 async function getPricingCatalog(pg, input = {}, context) {
   trusted(context); validate('getPricingCatalog', input);
   let data;
@@ -371,8 +351,8 @@ async function computeQuote(pg, input = {}, context) {
   if (seasonCoverage.status === 'closed') {
     return { ok: false, status: 422, code: 'staff_pricing_season_closed', seasonCoverage, handoffRequired: false };
   }
-  const rentalDates = validateRentalDateSelections(input.add_ons, config.add_ons, input.check_in, input.check_out);
-  if (!rentalDates.ok) return { ok: false, status: 422, ...rentalDates };
+  const rentalDates = validateCanonicalAddOns(input.add_ons, config.add_ons, input.check_in, input.check_out, context);
+  if (!rentalDates.ok) return { ...rentalDates, status: 422 };
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
     guest_count: input.guests.length, guests: input.guests,
