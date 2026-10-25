@@ -33,7 +33,7 @@ assert.equal(built.ok, true, JSON.stringify(built));
 assert.equal(built.value.package_id, 'package_none');
 assert.deepEqual(built.value.add_ons, [
   { code: 'soft_top', dates, days: 5, quantity: 1 },
-  { code: 'wetsuit', dates, days: 5, quantity: 1 },
+  { code: 'wetsuit', dates, days: 5, quantity: 1, people: ['Tom'] },
 ]);
 
 for (const kind of SUPPORTED_CATALOG_KINDS) {
@@ -48,7 +48,7 @@ for (const kind of SUPPORTED_CATALOG_KINDS) {
 const badDate = buildCanonicalQuoteInput({ ...request, add_ons: [{ name: 'Wetsuit rental', quantity: 1, dates: ['2026-11-23'] }] }, catalog, ['BED-1'], { sessionId: 's', turnId: 'bad' });
 assert.equal(badDate.ok, false);
 assert.equal(badDate.code, 'rental_dates_invalid');
-assert.deepEqual(Object.keys(badDate).sort(), ['code', 'correlation_id', 'field_errors', 'message', 'next_step', 'ok', 'retry_allowed'].sort());
+assert.deepEqual(Object.keys(badDate).sort(), ['classification', 'code', 'correlation_id', 'field_errors', 'message', 'next_step', 'ok', 'retry_allowed'].sort());
 assert.equal(badDate.field_errors[0].path, 'add_ons[0].dates');
 
 const noPackage = buildCanonicalQuoteInput({ ...request, package: { name: 'No package' } }, catalog, ['BED-1'], { sessionId: 's', turnId: 'no-package' });
@@ -58,6 +58,26 @@ const transport = refusalEnvelope({ code: 'staff_transport_non_json', path: '$',
 assert.equal(transport.correlation_id, 'c1');
 assert.equal(transport.retry_allowed, false);
 assert.equal(transport.field_errors[0].code, 'staff_transport_non_json');
+
+// The compatibility export must delegate to the one Staff-owned executable.
+const owner = require('./lib/model-led-luna/staff-request-contract');
+assert.strictEqual(buildCanonicalQuoteInput, owner.normalizeQuoteRequest);
+for (const [mutation, code, path] of [
+  [{ check_in: '2027-02-30', check_out: '2027-03-02' }, 'stay_dates_invalid', 'check_in'],
+  [{ guests: [] }, 'guests_required', 'guests'],
+  [{ add_ons: [{ name: 'Wetsuit rental', quantity: 0, dates: ['2026-11-18'] }] }, 'invalid_quantity', 'add_ons[0].quantity'],
+  [{ add_ons: [{ name: 'Wetsuit rental', people: [], dates: ['2026-11-18'] }] }, 'add_on_people_required', 'add_ons[0].people'],
+  [{ add_ons: [{ name: 'Wetsuit rental', quantity: 1, dates: ['2026-11-18'], requested_dates: ['2026-11-19'] }] }, 'conflicting_date_aliases', 'add_ons[0].dates'],
+]) {
+  const refused = buildCanonicalQuoteInput({ ...request, ...mutation }, catalog, ['BED-1'], { correlationId: 'root-control' });
+  assert.equal(refused.ok, false, JSON.stringify(mutation));
+  assert.equal(refused.code, code);
+  assert.equal(refused.field_errors[0].path, path);
+  assert.equal(refused.correlation_id, 'root-control');
+}
+const lessonCatalog = { items: [...catalog.items, { item_type: 'service', item_code: 'lesson', label: 'Surf lesson', pricing_units: ['per_lesson'] }] };
+const lesson = buildCanonicalQuoteInput({ ...request, add_ons: [{ name: 'Surf lesson', quantity: 1, dates: ['2026-11-18', '2026-11-19'] }] }, lessonCatalog, ['BED-1']);
+assert.equal(lesson.code, 'lesson_multi_date_count_required');
 
 const bookingFlow = fs.readFileSync(require.resolve('./lib/model-led-luna/v3-booking-flow'), 'utf8');
 const index = fs.readFileSync(require.resolve('./lib/model-led-luna'), 'utf8');

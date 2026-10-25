@@ -5,6 +5,8 @@ import sys
 import unittest
 import io
 import urllib.error
+import subprocess
+import tempfile
 from pathlib import Path
 from unittest import mock
 from unittest.mock import patch
@@ -14,6 +16,22 @@ PLUGIN_ROOT = PLUGIN_PATH.parent.parent
 
 
 class LunaV3PluginContractTests(unittest.TestCase):
+    def test_clean_home_installed_plugin_loads_generated_contract(self):
+        with tempfile.TemporaryDirectory() as clean:
+            home = Path(clean)
+            subprocess.run([
+                "sh", "-c",
+                'install -d -m 0700 "$1/plugins/luna_v3_staff_api" "$1/contracts" && '
+                'install -m 0600 "$2/plugins/luna_v3_staff_api/__init__.py" "$1/plugins/luna_v3_staff_api/__init__.py" && '
+                'install -m 0600 "$2/contracts/check_quote_book.schema.json" "$1/contracts/check_quote_book.schema.json"',
+                "install-contract", str(home), str(PLUGIN_ROOT.parent),
+            ], check=True)
+            installed = home / "plugins/luna_v3_staff_api/__init__.py"
+            spec = importlib.util.spec_from_file_location("installed_luna_v3", installed)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.assertEqual("https://lunafrontdesk.com/contracts/luna-v3/check-quote-book.json", module._CHECK_QUOTE_BOOK_SCHEMA["$id"])
+
     def test_corrected_schemas_and_dispatch_contract(self):
         plugin = self.load_plugin()
         class Registry:
@@ -60,6 +78,12 @@ class LunaV3PluginContractTests(unittest.TestCase):
             failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
         self.assertEqual("unknown", failed["outcome"])
         self.assertEqual("unknown", failed["recoveryStatus"])
+
+        malformed = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'<html>bad gateway</html>'))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=malformed):
+            failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
+        self.assertEqual("staff_transport_http_non_json", failed["code"])
+        self.assertEqual("transport", failed["classification"])
 
     def test_staff_409_preserves_bounded_handoff_receipt(self):
         plugin = self.load_plugin()

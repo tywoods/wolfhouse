@@ -153,11 +153,13 @@
           },
           "quantity": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Number of people or equipment units; never participant-days."
           },
           "days": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Number of distinct requested dates."
           },
           "people": {
             "type": "array",
@@ -165,6 +167,7 @@
               "type": "string",
               "minLength": 1
             },
+            "minItems": 1,
             "uniqueItems": true
           },
           "dates": {
@@ -174,7 +177,8 @@
               "format": "date"
             },
             "minItems": 1,
-            "uniqueItems": true
+            "uniqueItems": true,
+            "description": "Exact selected dates. A service with multiple dates is refused until Staff has an explicit count interpretation."
           },
           "requested_dates": {
             "type": "array",

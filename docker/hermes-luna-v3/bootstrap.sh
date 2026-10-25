@@ -12,10 +12,11 @@ fi
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 python /etc/hermes-luna-v3/bootstrap.py
-install -d -m 0700 "$HERMES_HOME/plugins/luna_v3_staff_api" "$HERMES_HOME/sessions"
+install -d -m 0700 "$HERMES_HOME/plugins/luna_v3_staff_api" "$HERMES_HOME/contracts" "$HERMES_HOME/sessions"
 install -m 0600 /etc/hermes-luna-v3/SOUL.md "$HERMES_HOME/SOUL.md"
 install -m 0600 /etc/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py "$HERMES_HOME/plugins/luna_v3_staff_api/__init__.py"
 install -m 0600 /etc/hermes-luna-v3/plugins/luna_v3_staff_api/plugin.yaml "$HERMES_HOME/plugins/luna_v3_staff_api/plugin.yaml"
+install -m 0600 /etc/hermes-luna-v3/contracts/check_quote_book.schema.json "$HERMES_HOME/contracts/check_quote_book.schema.json"
 
 cat > "$HERMES_HOME/config.yaml" <<'YAML'
 model:
@@ -51,6 +52,7 @@ runtime_owner="$(stat -c '%u:%g' "$HERMES_HOME")"
 chown -R "$runtime_owner" \
   "$HERMES_HOME/SOUL.md" \
   "$HERMES_HOME/config.yaml" \
+  "$HERMES_HOME/contracts" \
   "$HERMES_HOME/plugins/luna_v3_staff_api"
 
 # Resolve the generated config through Hermes' authentic environment override

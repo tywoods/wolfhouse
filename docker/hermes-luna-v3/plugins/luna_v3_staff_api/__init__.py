@@ -177,9 +177,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 return value
             return redact(body)
     except urllib.error.HTTPError as exc:
+        try:
+            staff = json.loads(exc.read().decode("utf-8"))
+        except (ValueError, UnicodeError):
+            return {**_refusal("staff_transport_http_non_json", "transport", exc.code),
+                    "recoveryStatus": "unknown", "outcome": "unknown"}
         result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code)
-        try: staff = json.loads(exc.read().decode("utf-8"))
-        except (ValueError, UnicodeError): staff = {}
         if isinstance(staff, dict):
             bounded_fields = {"code", "reason_code", "reason", "error", "next_step", "correlation_id"}
             for field in ("code", "reason_code", "reason", "error", "message", "next_step", "correlation_id"):
@@ -187,6 +190,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 limit = 160 if field in bounded_fields else 500
                 if isinstance(value, str) and value and len(value) <= limit:
                     result[field] = value
+            if staff.get("classification") in {"validation", "authorization", "conflict", "internal", "transport", "http"}:
+                result["classification"] = staff["classification"]
             if isinstance(staff.get("retry_allowed"), bool):
                 result["retry_allowed"] = staff["retry_allowed"]
             field_errors = staff.get("field_errors")
