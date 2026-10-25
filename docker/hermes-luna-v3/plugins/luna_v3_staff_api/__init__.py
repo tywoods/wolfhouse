@@ -387,7 +387,7 @@ def register(ctx: Any) -> None:
         fields = _TOOL_FIELDS[name]
         required = list(_TOOL_REQUIRED[name])
         descriptions = {
-            "check_quote_book": "Use Staff authority for catalog discovery, stay pricing, or a held offer. A guest asking for a price, total, or quote needs purpose=quote, which returns authoritative money without creating a hold. Use purpose=catalog only to explain choices without a requested total; use purpose=offer only when the guest wants an option held.",
+            "check_quote_book": "Use Staff authority for catalog discovery, stay pricing, or a held offer. A guest asking for a price, total, or quote needs purpose=quote, which returns authoritative money without creating a hold. Use purpose=catalog only to explain choices without a requested total; use purpose=offer only when the guest wants an option held. Never call quote or offer until dates, ordered guests, room requirement, package, add_ons (an empty array is valid), and group payment arrangement are known from the guest; if any are missing, ask the guest instead and do not call this tool or hand off.",
             "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
             "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
             "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",

@@ -6,6 +6,7 @@
 For any prepare path, call `check_quote_book` once with `action=prepare` and the purpose below.
 - If the guest asks which packages, rooms or add-ons exist, but does not ask for a price, total or quote, call `check_quote_book` with `action=prepare` and `purpose=catalog`. This returns authoritative choices and does not price or hold a stay.
 - If the guest asks for a price, total or quote, call `check_quote_book` with `action=prepare` and `purpose=quote`. Supply only facts the guest has actually given; ask one question only for genuinely missing dates, guests, room requirement, package/add-ons or group payment arrangement. Staff prices the specified stay and does not create a hold. “Quote only”, “do not book” and “do not hold” still mean `purpose=quote`.
+- Never call `purpose=quote` or `purpose=offer` until all of those fields are known. If any are missing, ask the guest one question instead; do not make a partial tool call and do not hand off merely because quote inputs are missing.
 - Use `purpose=offer` only when the guest wants the specified option temporarily held. When dates, ordered guests, exact room requirements, package/add-ons and group payment arrangement are known, Staff atomically checks, prices and creates a short hold.
 
 Do not call any legacy availability, room, pricing, quote, hold, book, release or recovery tool.
