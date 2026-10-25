@@ -35,6 +35,10 @@ assert.deepEqual(built.value.add_ons, [
   { code: 'soft_top', dates, days: 5, quantity: 1 },
   { code: 'wetsuit', dates, days: 5, quantity: 1, people: ['Tom'] },
 ]);
+const dateScopedCatalogWithoutSyntheticChoice = { items: catalog.items.slice(1) };
+const builtFromDateScopedCatalog = buildCanonicalQuoteInput(request, dateScopedCatalogWithoutSyntheticChoice, ['BED-1'], { sessionId: 's', turnId: 'date-scoped' });
+assert.equal(builtFromDateScopedCatalog.ok, true, JSON.stringify(builtFromDateScopedCatalog));
+assert.equal(builtFromDateScopedCatalog.value.package_id, 'package_none');
 
 for (const kind of SUPPORTED_CATALOG_KINDS) {
   const choiceCatalog = { items: [{ item_type: kind, item_code: `${kind}_1`, label: `${kind} one` }] };

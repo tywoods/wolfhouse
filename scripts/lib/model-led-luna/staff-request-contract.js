@@ -159,7 +159,13 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
   if (!Array.isArray(beds) || beds.length !== input.guests.length || beds.some((bed) => !String(bed || '').trim())) {
     return fail('exact_bed_selection_required', 'room.beds');
   }
-  const items = Array.isArray(catalog && catalog.items) ? catalog.items : [];
+  // Accommodation-only is a protocol choice owned by this contract, not a
+  // tenant pricing-catalog row. Inject it at the normalization boundary so
+  // every caller (including the live booking flow) resolves package_none the
+  // same way even when its date-scoped catalog only contains priced items.
+  const catalogItems = Array.isArray(catalog && catalog.items) ? catalog.items : [];
+  const items = [ACCOMMODATION_ONLY,
+    ...catalogItems.filter((item) => !(item.item_type === 'package' && item.item_code === ACCOMMODATION_ONLY.item_code))];
   const resolvePackage = (reference) => {
     const resolved = resolveCatalogChoice(items, ['package'], reference);
     if (resolved.conflict) return { conflict: true };
