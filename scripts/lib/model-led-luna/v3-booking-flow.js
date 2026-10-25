@@ -203,7 +203,10 @@ function createCheckQuoteBook(deps) {
       try {
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
         const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
-        const replayReference = `offer_${digest({ session: context.sessionId, input }, 36)}`;
+        // A turn is the idempotency boundary for preparation. Replaying the
+        // same input in that turn returns the same offer, while a later turn
+        // starts a new lifecycle even when the guest returns A→B→A.
+        const replayReference = `offer_${digest({ session: context.sessionId, turn: context.turnId, input }, 36)}`;
         if (input.purpose !== 'information') {
           const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments

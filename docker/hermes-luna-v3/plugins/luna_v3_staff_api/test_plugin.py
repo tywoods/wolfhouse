@@ -136,6 +136,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual(["prepare", "confirm", "decline"], by_name["check_quote_book"]["properties"]["action"]["enum"])
         self.assertNotIn("operation_key", by_name["check_quote_book"]["properties"])
         self.assertNotIn("phone", by_name["get_booking"]["properties"])
+        self.assertIn("booking_reference", by_name["get_booking"]["properties"])
+        self.assertNotIn("booking_id", by_name["get_booking"]["properties"])
 
     def test_check_quote_book_schema_teaches_public_one_try_shape(self):
         plugin = self.load_plugin()

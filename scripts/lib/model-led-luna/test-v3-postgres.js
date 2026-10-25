@@ -1615,8 +1615,14 @@ async function main(api = defaultApi) {
     );
     assert.equal(Number(persisted.balance_due_cents), q1.totalCents);
     observations.exactPackageBedsDatesMoney = true;
-    const read = await api.getBooking(await c(), {}, ctx(ws));
-    assert.equal(read.bookingId, booked.bookingId);
+    const read = await api.getBooking(await c(), { booking_reference: booked.bookingCode }, ctx(ws));
+    assert.equal(read.bookingReference, booked.bookingCode);
+    for (const internal of ["bookingId", "booking_id", "id", "booking_code", "phone", "client_id"])
+      assert.equal(Object.hasOwn(read, internal), false, `public get_booking leaked ${internal}`);
+    assert.equal(read.totalCents, q1.totalCents);
+    assert.equal(read.depositCents, q1.depositCents);
+    assert.equal(read.paidCents, 0);
+    assert.equal(read.balanceDueCents, q1.totalCents);
     assert.equal(read.status, "confirmed");
     assert.equal(read.paymentStatus, "unpaid");
     assert.deepEqual(
@@ -1630,7 +1636,7 @@ async function main(api = defaultApi) {
     );
     const forged = await api.getBooking(
       await c(),
-      { booking_id: "00000000-0000-0000-0000-000000000000" },
+      { booking_reference: "WH-FORGED" },
       ctx(ws),
     );
     assert.equal(forged.ok, false);
@@ -3312,7 +3318,7 @@ async function main(api = defaultApi) {
     await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
     await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
     assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
-    const prepared = await api.checkQuoteBook(admin, {
+    let prepared = await api.checkQuoteBook(admin, {
       action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
       guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
       package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
@@ -3326,6 +3332,26 @@ async function main(api = defaultApi) {
     assert.equal(prepared.guests[0].package, "malibu");
     assert.equal(prepared.package_details.name, "Malibu");
     assert.deepEqual(prepared.package_details.includes, ["stay"]);
+    const sameTurnPrepared = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, oneTryContext);
+    assert.equal(sameTurnPrepared.offer_reference, prepared.offer_reference, "same-turn prepare did not replay");
+    const lifecycleB = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "Lifecycle B" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, { ...oneTryContext, turnId: "turn:one-try-lifecycle-b" });
+    const lifecycleA2 = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, { ...oneTryContext, turnId: "turn:one-try-lifecycle-a2" });
+    assert.notEqual(lifecycleB.offer_reference, prepared.offer_reference);
+    assert.notEqual(lifecycleA2.offer_reference, prepared.offer_reference, "A→B→A reused a lifecycle reference");
+    assert.notEqual(lifecycleA2.offer_reference, lifecycleB.offer_reference);
+    prepared = lifecycleA2;
     const nonPriceRecorded = await api.checkQuoteBook.recordPresented(admin, {
       offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.", assistant_event_id: "assistant:event:bad",
     }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-bad" });

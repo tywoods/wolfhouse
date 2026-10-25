@@ -203,7 +203,7 @@ _TOOL_FIELDS = {
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
-    "get_booking": ("booking_id",),
+    "get_booking": ("booking_reference",),
     "get_payment_status": ("booking_reference",),
     "send_payment_link": ("booking_reference", "payment_scope", "guest_position", "payment_choice", "operation_key"),
     "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),

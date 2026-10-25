@@ -476,18 +476,26 @@ async function book(pg, input, context) {
 async function getBooking(pg, input, context) {
   const s = await session(pg, context, false);
   if (!s.selected_booking_id) return fail("booking_not_selected", 404);
-  if (input.booking_id && input.booking_id !== s.selected_booking_id)
-    return fail("booking_selector_forbidden", 403);
   const r = await pg.query(
-    `SELECT b.id,b.booking_code,b.phone,b.metadata->'add_ons_at_create' add_ons,b.check_in,b.check_out,b.status::text,payment_status::text,b.total_amount_cents,b.deposit_required_cents,COALESCE(b.amount_paid_cents,0) paid_cents,b.balance_due_cents,b.updated_at,COALESCE((SELECT jsonb_agg(jsonb_build_object('guestNumber',bg.guest_number,'guestName',bg.guest_name,'bedCode',bg.assigned_bed_code,'roomCode',bg.assigned_room_code,'packageCode',COALESCE(bg.metadata->>'package_code',b.metadata->'guest_packages'->(bg.guest_number-1)->>'package_code')) ORDER BY bg.guest_number,bg.id) FROM booking_guests bg WHERE bg.booking_id=b.id AND bg.client_id=b.client_id),'[]') assignments FROM bookings b WHERE b.id=$1 AND b.client_id=$2`,
+    `SELECT b.booking_code,b.metadata->'add_ons_at_create' add_ons,b.check_in,b.check_out,b.status::text,payment_status::text,b.total_amount_cents,b.deposit_required_cents,COALESCE(b.amount_paid_cents,0) paid_cents,b.balance_due_cents,b.updated_at,COALESCE((SELECT jsonb_agg(jsonb_build_object('guestNumber',bg.guest_number,'guestName',bg.guest_name,'bedCode',bg.assigned_bed_code,'roomCode',bg.assigned_room_code,'packageCode',COALESCE(bg.metadata->>'package_code',b.metadata->'guest_packages'->(bg.guest_number-1)->>'package_code')) ORDER BY bg.guest_number,bg.id) FROM booking_guests bg WHERE bg.booking_id=b.id AND bg.client_id=b.client_id),'[]') assignments FROM bookings b WHERE b.id=$1 AND b.client_id=$2`,
     [s.selected_booking_id, s.client_id],
   );
   if (!r.rows[0]) return fail("selected_booking_missing", 404);
   const row = r.rows[0];
+  if (input.booking_reference && input.booking_reference !== row.booking_code)
+    return fail("booking_selector_forbidden", 403);
   return {
     ok: true,
-    bookingId: row.id,
-    ...row,
+    bookingReference: row.booking_code,
+    checkIn: row.check_in,
+    checkOut: row.check_out,
+    status: row.status,
+    totalCents: Number(row.total_amount_cents),
+    depositCents: Number(row.deposit_required_cents),
+    paidCents: Number(row.paid_cents),
+    balanceDueCents: Number(row.balance_due_cents),
+    updatedAt: row.updated_at,
+    assignments: row.assignments || [],
     addOns: row.add_ons || [],
     paymentStatus: ["not_requested", "waiting_payment"].includes(
       row.payment_status,
