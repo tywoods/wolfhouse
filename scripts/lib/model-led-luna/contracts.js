@@ -59,8 +59,8 @@ const NESTED_SCHEMAS = Object.freeze({
   context: new Set(['topic', 'kind', 'detail']),
   travel_details: new Set(['airport', 'direction', 'date', 'time', 'flight', 'passengers', 'boards']),
   room: new Set(['kind', 'name', 'beds', 'together']),
-  package: new Set(['name', 'per_guest']),
-  per_guest: new Set(['guest', 'name']),
+  package: new Set(['code', 'name', 'per_guest']),
+  per_guest: new Set(['guest', 'code', 'name']),
   payment: new Set(['arrangement', 'choice']),
 });
 
@@ -144,6 +144,7 @@ function assertSafeToolRequest(name, input = {}) {
   }
   if (contract.write && name !== 'check_quote_book' && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
   if (name === 'check_quote_book') {
+    staffRequestContract.validateSharedRequest(input);
     if (!['prepare', 'confirm', 'decline'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
       if (!['catalog', 'quote', 'offer'].includes(input.purpose)) throw new Error('purpose must be catalog, quote, or offer');

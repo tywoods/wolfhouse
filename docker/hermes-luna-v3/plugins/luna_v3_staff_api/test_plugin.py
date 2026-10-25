@@ -85,6 +85,13 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual("staff_transport_http_non_json", failed["code"])
         self.assertEqual("transport", failed["classification"])
 
+        null_gateway = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'null'))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=null_gateway):
+            failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
+        self.assertEqual("staff_transport_http_malformed", failed["code"])
+        self.assertEqual("transport", failed["classification"])
+        self.assertRegex(failed["correlation_id"], r"^turn:")
+
     def test_staff_409_preserves_bounded_handoff_receipt(self):
         plugin = self.load_plugin()
         body = {

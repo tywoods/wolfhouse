@@ -18,11 +18,11 @@ from typing import Any
 _CHECK_QUOTE_BOOK_SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "check_quote_book.schema.json").read_text())
 
 
-def _refusal(code: str, classification: str, status: int | None = None) -> dict[str, Any]:
+def _refusal(code: str, classification: str, status: int | None = None, correlation_id: str | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {"ok": False, "code": code, "classification": classification,
         "message": "I could not safely complete that booking action.",
         "field_errors": [{"path": "$", "code": code, "message": "Staff could not return a usable result."}],
-        "next_step": "wait_for_verified_result", "retry_allowed": False, "correlation_id": None}
+        "next_step": "wait_for_verified_result", "retry_allowed": False, "correlation_id": correlation_id}
     if status is not None:
         result["status"] = status
     return result
@@ -157,9 +157,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             try:
                 body = json.loads(response.read().decode("utf-8"))
             except (ValueError, UnicodeError):
-                return _refusal("staff_transport_non_json", "transport", getattr(response, "status", 200))
+                return _refusal("staff_transport_non_json", "transport", getattr(response, "status", 200), turn_id)
             if not isinstance(body, dict):
-                return _refusal("malformed_staff_response", "transport", getattr(response, "status", 200))
+                return _refusal("malformed_staff_response", "transport", getattr(response, "status", 200), turn_id)
             private = {"bookingId", "paymentId", "paymentIds", "checkoutId", "guestId",
                        "transferId", "authoritativeTransferId", "holdId", "consumedHoldId",
                        "authorityKey", "payments", "events", "booking_id", "payment_id",
@@ -180,9 +180,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         try:
             staff = json.loads(exc.read().decode("utf-8"))
         except (ValueError, UnicodeError):
-            return {**_refusal("staff_transport_http_non_json", "transport", exc.code),
+            return {**_refusal("staff_transport_http_non_json", "transport", exc.code, turn_id),
                     "recoveryStatus": "unknown", "outcome": "unknown"}
-        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code)
+        if not isinstance(staff, dict):
+            return {**_refusal("staff_transport_http_malformed", "transport", exc.code, turn_id),
+                    "recoveryStatus": "unknown", "outcome": "unknown"}
+        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code, turn_id)
         if isinstance(staff, dict):
             bounded_fields = {"code", "reason_code", "reason", "error", "next_step", "correlation_id"}
             for field in ("code", "reason_code", "reason", "error", "message", "next_step", "correlation_id"):
@@ -223,9 +226,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
         return result
     except (urllib.error.URLError, TimeoutError):
-        return {**_refusal("staff_tool_unreachable", "transport", 503), "recoveryStatus": "unknown", "outcome": "unknown"}
+        return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown"}
     except Exception:
-        return _refusal("staff_plugin_internal_failure", "internal", 500)
+        return _refusal("staff_plugin_internal_failure", "internal", 500, turn_id)
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.

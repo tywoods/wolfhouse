@@ -111,6 +111,17 @@ async function main() {
   assert.strictEqual(missing.status, 503);
   assert.strictEqual(missing.body.code, 'luna_v3_tool_not_registered');
 
+  const preserved = await dispatchLunaV3StaffRoute({
+    pathname: '/staff/bot/luna-v3/payment-status', method: 'POST', clientSlug: 'wolfhouse-somo',
+    body: { session_id: 'luna-v3:test-phone-hash', booking_reference: 'WH-1', external_send_allowed: false, staff_alert_allowed: false },
+    authenticatedPrincipal: { principalId: 'test-principal', writeAllowed: true, turnId: 'route-correlation' },
+    operations: { get_payment_status: async () => ({ ok: false, code: 'postgres_price_missing', classification: 'internal',
+      next_step: 'wait_for_staff_price_configuration', correlation_id: null }) },
+  });
+  assert.strictEqual(preserved.body.classification, 'internal');
+  assert.strictEqual(preserved.body.correlation_id, 'route-correlation');
+  assert.strictEqual(preserved.body.next_step, 'wait_for_staff_price_configuration');
+
   const staffSource = fs.readFileSync(path.join(__dirname, '..', '..', 'staff-query-api.js'), 'utf8');
   assert(staffSource.includes("require('./lib/model-led-luna/staff-routes')"));
   assert(staffSource.includes('dispatchLunaV3StaffRoute({'));

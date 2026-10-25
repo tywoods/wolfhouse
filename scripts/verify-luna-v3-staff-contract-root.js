@@ -68,6 +68,7 @@ for (const [mutation, code, path] of [
   [{ add_ons: [{ name: 'Wetsuit rental', quantity: 0, dates: ['2026-11-18'] }] }, 'invalid_quantity', 'add_ons[0].quantity'],
   [{ add_ons: [{ name: 'Wetsuit rental', people: [], dates: ['2026-11-18'] }] }, 'add_on_people_required', 'add_ons[0].people'],
   [{ add_ons: [{ name: 'Wetsuit rental', quantity: 1, dates: ['2026-11-18'], requested_dates: ['2026-11-19'] }] }, 'conflicting_date_aliases', 'add_ons[0].dates'],
+  [{ add_ons: [{ name: 'Wetsuit rental', people: ['Tom', 'Tom'], dates: ['2026-11-18'] }] }, 'invalid_tool_request', 'add_ons[0].people'],
 ]) {
   const refused = buildCanonicalQuoteInput({ ...request, ...mutation }, catalog, ['BED-1'], { correlationId: 'root-control' });
   assert.equal(refused.ok, false, JSON.stringify(mutation));
@@ -75,9 +76,37 @@ for (const [mutation, code, path] of [
   assert.equal(refused.field_errors[0].path, path);
   assert.equal(refused.correlation_id, 'root-control');
 }
+for (const [kind, selection, availableCatalog] of [
+  ['package', { package: { code: 'package_1', name: 'Package two' }, add_ons: [] }, { items: [
+    { item_type: 'package', item_code: 'package_1', label: 'Package one' },
+    { item_type: 'package', item_code: 'package_2', label: 'Package two' },
+  ] }],
+  ['service', { add_ons: [{ code: 'service_1', name: 'Service two', quantity: 1 }] }, { items: [
+    ...catalog.items.slice(0, 1),
+    { item_type: 'service', item_code: 'service_1', label: 'Service one' },
+    { item_type: 'service', item_code: 'service_2', label: 'Service two' },
+  ] }],
+  ['rental', { add_ons: [{ code: 'rental_1', name: 'Rental two', quantity: 1, dates: ['2026-11-18'] }] }, { items: [
+    ...catalog.items.slice(0, 1),
+    { item_type: 'rental', item_code: 'rental_1', label: 'Rental one' },
+    { item_type: 'rental', item_code: 'rental_2', label: 'Rental two' },
+  ] }],
+]) {
+  const refused = buildCanonicalQuoteInput({ ...request, ...selection }, availableCatalog, ['BED-1'], { correlationId: `choice-${kind}` });
+  assert.equal(refused.ok, false, kind);
+  assert.equal(refused.code, 'catalog_choice_conflict', kind);
+  assert.equal(refused.correlation_id, `choice-${kind}`, kind);
+}
 const lessonCatalog = { items: [...catalog.items, { item_type: 'service', item_code: 'lesson', label: 'Surf lesson', pricing_units: ['per_lesson'] }] };
 const lesson = buildCanonicalQuoteInput({ ...request, add_ons: [{ name: 'Surf lesson', quantity: 1, dates: ['2026-11-18', '2026-11-19'] }] }, lessonCatalog, ['BED-1']);
 assert.equal(lesson.code, 'lesson_multi_date_count_required');
+
+const { publicFailure } = require('./lib/model-led-luna/v3-booking-flow');
+const composedFailure = publicFailure({ code: 'postgres_price_missing', classification: 'internal',
+  next_step: 'wait_for_staff_price_configuration', correlation_id: 'pg-correlation' });
+assert.equal(composedFailure.classification, 'internal');
+assert.equal(composedFailure.next_step, 'wait_for_staff_price_configuration');
+assert.equal(composedFailure.correlation_id, 'pg-correlation');
 
 const bookingFlow = fs.readFileSync(require.resolve('./lib/model-led-luna/v3-booking-flow'), 'utf8');
 const index = fs.readFileSync(require.resolve('./lib/model-led-luna'), 'utf8');

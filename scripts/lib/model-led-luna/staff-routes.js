@@ -3,7 +3,7 @@
 const { assertSafeToolRequest } = require('./contracts');
 const { refusalEnvelope } = require('./staff-request-contract');
 
-const refuse = (code, classification = 'validation', extra = {}) => refusalEnvelope({ code, classification, ...extra });
+const refuse = (code, classification = 'validation', extra = {}, context = {}) => refusalEnvelope({ code, classification, ...extra }, context);
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
@@ -30,7 +30,8 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   const tool = LUNA_V3_ROUTE_TO_TOOL[pathname];
   if (!tool) return null;
   const correlation_id = authenticatedPrincipal && (authenticatedPrincipal.correlationId || authenticatedPrincipal.turnId) || null;
-  const reject = (code, classification = 'validation', extra = {}) => refuse(code, classification, { correlation_id, ...extra });
+  const reject = (code, classification = 'validation', extra = {}) => refuse(code, classification, extra,
+    { correlationId: extra.correlation_id || correlation_id });
   if (String(method || '').toUpperCase() !== 'POST') {
     return { status: 405, body: reject('method_not_allowed') };
   }

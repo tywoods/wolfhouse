@@ -13,7 +13,7 @@ const checkQuoteBookSchema = {
     check_in: date, check_out: date,
     guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: { name: nonempty, explicit_gender: nonempty, gender: nonempty } } },
     room: { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { type: 'string', enum: ['exact','private','shared','women_only','auto'] }, name: nonempty, beds: { type:'array', items:nonempty, uniqueItems:true }, together: { type:'string', enum:['required','preferred','not_required'] } } },
-    package: { type:'object', additionalProperties:false, properties:{ name:nonempty, per_guest:{ type:'array', minItems:1, items:{ type:'object', additionalProperties:false, required:['guest','name'], properties:{ guest:{type:'integer',minimum:1}, name:nonempty } } } }, anyOf:[{required:['name']},{required:['per_guest']}] },
+    package: { type:'object', additionalProperties:false, properties:{ code:nonempty, name:nonempty, per_guest:{ type:'array', minItems:1, items:{ type:'object', additionalProperties:false, required:['guest'], properties:{ guest:{type:'integer',minimum:1}, code:nonempty, name:nonempty }, anyOf:[{required:['code']},{required:['name']}] } } }, anyOf:[{required:['code']},{required:['name']},{required:['per_guest']}] },
     add_ons: { type:'array', items:{ type:'object', additionalProperties:false, properties:{ name:nonempty, code:nonempty, quantity:{type:'integer',minimum:1,description:'Number of people or equipment units; never participant-days.'}, days:{type:'integer',minimum:1,description:'Number of distinct requested dates.'}, people:{type:'array',items:nonempty,minItems:1,uniqueItems:true}, dates:{type:'array',items:date,minItems:1,uniqueItems:true,description:'Exact selected dates. A service with multiple dates is refused until Staff has an explicit count interpretation.'}, requested_dates:{type:'array',items:date,minItems:1,uniqueItems:true} }, anyOf:[{required:['code']},{required:['name']}] } },
     payment:{type:'object',additionalProperties:false,required:['arrangement'],properties:{arrangement:{type:'string',enum:['together','separately']},choice:{type:'string',enum:['deposit','balance']}}},
     offer_reference:{type:'string',pattern:'^offer_[A-Za-z0-9_-]{24,80}$'},
@@ -31,6 +31,22 @@ function refusalEnvelope(failure={}, context={}) {
 }
 const choice = (items, kind, wanted) => items.find((item) => item.item_type === kind
   && [item.item_code, item.label].some((value) => String(value || '').trim().toLowerCase() === String(wanted || '').trim().toLowerCase()));
+function validateSharedRequest(input) {
+  for (const [index, addOn] of (input && Array.isArray(input.add_ons) ? input.add_ons : []).entries()) {
+    if (Array.isArray(addOn && addOn.people) && new Set(addOn.people).size !== addOn.people.length) {
+      const error = new Error(`add_ons[${index}].people must contain unique people`);
+      error.path = `add_ons[${index}].people`;
+      throw error;
+    }
+  }
+}
+function resolveChoice(items, kind, reference) {
+  const byCode = reference && reference.code !== undefined ? choice(items, kind, reference.code) : null;
+  const byName = reference && reference.name !== undefined ? choice(items, kind, reference.name) : null;
+  if (reference && reference.code !== undefined && reference.name !== undefined && (byCode || byName)
+      && (!byCode || !byName || byCode.item_code !== byName.item_code)) return { conflict: true };
+  return { item: byCode || byName };
+}
 
 function validDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
@@ -41,6 +57,8 @@ function validDate(value) {
 function normalizeQuoteRequest(input, catalog, beds, context = {}) {
   const fail = (code, path) => refusalEnvelope({ code, path, next_step: 'ask_guest' }, context);
   if (!input || typeof input !== 'object') return fail('invalid_quote_request', '$');
+  try { validateSharedRequest(input); }
+  catch (error) { return fail('invalid_tool_request', error.path || '$'); }
   if (!validDate(input.check_in) || !validDate(input.check_out) || input.check_out <= input.check_in) {
     return fail('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out');
   }
@@ -50,11 +68,13 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
     return fail('exact_bed_selection_required', 'room.beds');
   }
   const items = Array.isArray(catalog && catalog.items) ? catalog.items : [];
-  const resolvePackage = (name) => {
-    const selected = choice(items, 'package', name);
-    if (selected) return selected.item_code;
-    const stayOnly = choice(items, 'deposit', name);
-    return stayOnly && stayOnly.item_code === 'custom_or_short_stay' ? 'package_none' : null;
+  const resolvePackage = (reference) => {
+    const resolved = resolveChoice(items, 'package', reference);
+    if (resolved.conflict) return { conflict: true };
+    const selected = resolved.item;
+    if (selected) return { code: selected.item_code };
+    const stayOnly = choice(items, 'deposit', reference && (reference.code || reference.name));
+    return { code: stayOnly && stayOnly.item_code === 'custom_or_short_stay' ? 'package_none' : null };
   };
   const packages = {};
   if (input.package && Array.isArray(input.package.per_guest)) {
@@ -62,22 +82,26 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
     const seen = new Set(); const rows = [];
     for (const row of input.package.per_guest) {
       if (!row || row.guest < 1 || row.guest > input.guests.length || seen.has(row.guest)) return fail('guest_package_invalid', 'package.per_guest');
-      seen.add(row.guest); const code = resolvePackage(row.name);
-      if (!code) return fail('package_choice_required', `package.per_guest[${rows.length}].name`);
-      rows.push({ guest_number: row.guest, package_code: code });
+      seen.add(row.guest); const resolved = resolvePackage(row);
+      if (resolved.conflict) return fail('catalog_choice_conflict', `package.per_guest[${rows.length}]`);
+      if (!resolved.code) return fail('package_choice_required', `package.per_guest[${rows.length}]`);
+      rows.push({ guest_number: row.guest, package_code: resolved.code });
     }
     if (rows.length !== input.guests.length) return fail('guest_package_incomplete', 'package.per_guest');
     packages.guest_packages = rows.sort((a, b) => a.guest_number - b.guest_number);
   } else {
-    const code = resolvePackage(input.package && input.package.name);
-    if (!code) return fail('package_choice_required', 'package.name');
-    packages.package_id = code;
+    const resolved = resolvePackage(input.package);
+    if (resolved.conflict) return fail('catalog_choice_conflict', 'package');
+    if (!resolved.code) return fail('package_choice_required', 'package');
+    packages.package_id = resolved.code;
   }
   if (!Array.isArray(input.add_ons)) return fail('add_ons_required', 'add_ons');
   const extras = [];
   for (const [index, addOn] of input.add_ons.entries()) {
     const path = `add_ons[${index}]`;
-    const item = choice(items, 'service', addOn && (addOn.code || addOn.name)) || choice(items, 'rental', addOn && (addOn.code || addOn.name));
+    const service = resolveChoice(items, 'service', addOn); const rental = resolveChoice(items, 'rental', addOn);
+    if (service.conflict || rental.conflict) return fail('catalog_choice_conflict', path);
+    const item = service.item || rental.item;
     if (!item) return fail('staff_service_unavailable', path);
     if (addOn.dates !== undefined && addOn.requested_dates !== undefined
         && JSON.stringify(addOn.dates) !== JSON.stringify(addOn.requested_dates)) return fail('conflicting_date_aliases', `${path}.dates`);
@@ -101,4 +125,4 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
       room_preference: input.room.name, keep_together: input.room.together === 'required' ? true : input.room.together === 'not_required' ? false : undefined },
     ...packages, add_ons: extras } };
 }
-module.exports={CHECK_QUOTE_BOOK_FIELDS,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope};
+module.exports={CHECK_QUOTE_BOOK_FIELDS,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope,validateSharedRequest};

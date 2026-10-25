@@ -120,7 +120,8 @@ function replyShowsAuthoritativeTerms(reply, quote) {
 }
 function publicFailure(result) {
   const code = result && (result.code || result.reason) || 'unknown';
-  return { ...refusalEnvelope({ code, field_errors: result && result.field_errors, next_step: result && result.next_step },
+  return { ...refusalEnvelope({ code, classification: result && result.classification,
+    field_errors: result && result.field_errors, next_step: result && result.next_step },
     { correlationId: result && result.correlation_id }), reason: code };
 }
 function guestRows(input, privateQuoteLabels = false) {
