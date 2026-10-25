@@ -287,12 +287,12 @@ function createCheckQuoteBook(deps) {
       try {
         try { validateSharedRequest(input); }
         catch (error) {
-          return finish(publicFailure({ code: error.code || 'invalid_tool_request', path: error.path || '$',
+          return await finish(publicFailure({ code: error.code || 'invalid_tool_request', path: error.path || '$',
             fieldMessage: error.message }), 'rejected');
         }
         await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
-        const reject = async (failure) => { await pg.query('ROLLBACK'); return finish(publicFailure(failure), 'rejected'); };
+        const reject = async (failure) => { await pg.query('ROLLBACK'); return await finish(publicFailure(failure), 'rejected'); };
         // A turn is the idempotency boundary for preparation. Replaying the
         // same input in that turn returns the same offer, while a later turn
         // starts a new lifecycle even when the guest returns A→B→A.
@@ -305,16 +305,16 @@ function createCheckQuoteBook(deps) {
           [context.sessionId, context.principalId, replayReference])).rows[0];
           if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
             await pg.query('COMMIT');
-            return finish(publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference), 'applied');
+            return await finish(publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference), 'applied');
           }
         }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
-        if (!catalog.ok) return reject(catalog);
+        if (!catalog.ok) return await reject(catalog);
         if (Object.hasOwn(context, 'issuedCapabilityRevision')) {
           const issued = context.issuedCapabilitySnapshot;
           if (!issued || !context.issuedCapabilityRevision || issued.revision !== context.issuedCapabilityRevision
               || !Array.isArray(issued.choices)) {
-            return reject({ code: 'capability_snapshot_binding_missing', classification: 'authorization',
+            return await reject({ code: 'capability_snapshot_binding_missing', classification: 'authorization',
               next_step: 'wait_for_new_guest_message' });
           }
           const current = new Map((catalog.items || []).map((item) => [item.item_code, item]));
@@ -326,7 +326,7 @@ function createCheckQuoteBook(deps) {
             const item = current.get(code);
             if (!shown || !item || shown.label !== item.label || shown.description !== (item.description || null)
                 || JSON.stringify(shown.includes || []) !== JSON.stringify((item.metadata && item.metadata.includes) || [])) {
-              return reject({ code: 'stale_capability_choice', classification: 'conflict', path: 'package',
+              return await reject({ code: 'stale_capability_choice', classification: 'conflict', path: 'package',
                 message: `Staff's meaning for choice '${code}' changed after it was shown.`,
                 fieldMessage: `Choice '${code}' must be selected again from the current Staff options.`,
                 next_step: 'wait_for_new_guest_message' });
@@ -338,15 +338,15 @@ function createCheckQuoteBook(deps) {
         const quoteOnly = input.purpose === 'quote';
         const preferences = buildAvailabilityInput(input, quoteOnly);
         const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences }, snapshotContext);
-        if (!rooms.ok) return reject(rooms);
+        if (!rooms.ok) return await reject(rooms);
         const beds = selectCatalogBeds(input, rooms);
-        if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
+        if (beds.length !== count) return await reject({ code: 'requested_room_unavailable' });
         const built = buildCanonicalQuoteInput(input, catalog, beds, context);
-        if (!built.ok) return reject(built);
+        if (!built.ok) return await reject(built);
         const quoteInput = { ...built.value, operation_key: `one-try:prepare:${digest({ session: context.sessionId, inboundEvent }, 40)}` };
         const packages = { package_id: quoteInput.package_id, guest_packages: quoteInput.guest_packages };
         const quote = await deps.quote(pg, quoteInput, snapshotContext);
-        if (!quote.ok) return reject(quote);
+        if (!quote.ok) return await reject(quote);
         if (input.purpose === 'quote') {
           const result = publicQuote(quote, input, beds, packages, catalog);
           const saved = { ...result, outcome: 'applied' };
@@ -358,7 +358,7 @@ function createCheckQuoteBook(deps) {
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
         const hold = await deps.holdBeds(pg, { operation_key: operationKey(context, 'prepare-hold', input), ...quote.holdInput }, snapshotContext);
-        if (!hold.ok) return reject(hold);
+        if (!hold.ok) return await reject(hold);
         const reference = replayReference;
         const updated = await pg.query(`UPDATE luna_v3_holds SET offer_reference=$1 WHERE id=$2 AND client_id=$3 AND session_id=$4 AND state='active' RETURNING id`, [reference, hold.holdId, session.client_id, session.id]);
         if (!updated.rows[0]) throw new Error('offer_scope_changed');

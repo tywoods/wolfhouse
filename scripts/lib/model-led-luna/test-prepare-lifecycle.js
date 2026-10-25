@@ -3,8 +3,10 @@ const assert = require('node:assert/strict');
 const { createCheckQuoteBook, publicFailure } = require('./v3-booking-flow');
 const { normalizeQuoteRequest } = require('./staff-request-contract');
 
-function harness({ rooms = true, quoteFailure = null, throwCatalog = false } = {}) {
-  const attempts = new Map(); let executions = 0;
+function harness({ rooms = true, quoteFailure = null, throwCatalog = false, failBegin = false,
+  failCommit = false, failTerminalUpdates = 0 } = {}) {
+  const attempts = new Map(); let executions = 0; let inTx = false; let staged = null;
+  let beginFailures = failBegin ? 1 : 0; let commitFailures = failCommit ? 1 : 0;
   const pg = { async query(sql, params = []) {
     if (/INSERT INTO luna_v3_prepare_attempts/.test(sql)) {
       const key = params[2];
@@ -15,10 +17,21 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false } = {
     if (/FROM luna_v3_prepare_attempts/.test(sql)) return { rows: [attempts.get(params[2])].filter(Boolean) };
     if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
       const row = [...attempts.values()].find((value) => value.id === params[0]);
-      if (row && row.outcome === 'started') { row.receipt = JSON.parse(params[1]); row.outcome = params[2]; }
+      if (failTerminalUpdates > 0) { failTerminalUpdates -= 1; throw new Error('injected receipt update failure'); }
+      if (row && row.outcome === 'started') {
+        const mutation = { row, receipt: JSON.parse(params[1]), outcome: params[2] };
+        if (inTx) staged = mutation;
+        else { row.receipt = mutation.receipt; row.outcome = mutation.outcome; }
+      }
       return { rows: [] };
     }
-    if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [] };
+    if (/^BEGIN/.test(sql)) { if (beginFailures-- > 0) throw new Error('injected BEGIN failure'); inTx = true; return { rows: [] }; }
+    if (sql === 'COMMIT') {
+      if (commitFailures-- > 0) throw new Error('injected COMMIT failure');
+      if (staged) { staged.row.receipt = staged.receipt; staged.row.outcome = staged.outcome; }
+      staged = null; inTx = false; return { rows: [] };
+    }
+    if (sql === 'ROLLBACK') { staged = null; inTx = false; return { rows: [] }; }
     throw new Error(`unexpected SQL: ${sql.slice(0, 60)}`);
   } };
   const deps = {
@@ -65,6 +78,21 @@ async function run() {
   const u1 = await execute(unknown, input, event1);
   assert.equal(u1.outcome, 'unknown');
   assert.deepEqual(await execute(unknown, input, event1), u1, 'unknown is terminal and replays');
+
+  for (const [name, options, value] of [
+    ['BEGIN', { failBegin: true }, input],
+    ['validation receipt UPDATE', { failTerminalUpdates: 1 }, { ...input, guests: [] }],
+    ['business rejection receipt UPDATE', { rooms: false, failTerminalUpdates: 1 }, input],
+    ['success receipt UPDATE', { failTerminalUpdates: 1 }, input],
+    ['success COMMIT', { failCommit: true }, input],
+  ]) {
+    const fault = harness(options);
+    const first = await execute(fault, value, event1);
+    assert.equal(first.outcome, 'unknown', `${name} failure must be caught and terminalized`);
+    const before = fault.executions();
+    assert.deepEqual(await execute(fault, value, event1), first, `${name} terminal receipt must replay`);
+    assert.equal(fault.executions(), before, `${name} replay must not rerun business work`);
+  }
 
   assert.equal(publicFailure({ code: 'staff_pricing_unavailable', message: 'Rental wetsuit has no configured price.',
     field_errors: [{ path: 'add_ons[0]', code: 'staff_pricing_unavailable', message: 'Rental wetsuit has no configured price.' }] }).field_errors[0].message,
