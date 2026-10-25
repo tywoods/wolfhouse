@@ -65,6 +65,10 @@ assert.equal(transport.field_errors[0].code, 'staff_transport_non_json');
 
 // The compatibility export must delegate to the one Staff-owned executable.
 const owner = require('./lib/model-led-luna/staff-request-contract');
+const staffOperationsOwner = require('./lib/model-led-luna');
+const exposedOperations = staffOperationsOwner.createOperations(async () => {}, {});
+assert.equal(typeof exposedOperations.getBookingCapabilitySnapshot, 'function');
+assert.equal(Object.keys(exposedOperations).includes('getBookingCapabilitySnapshot'), false);
 assert.deepEqual(MODEL_TOOL_SCHEMAS.check_quote_book.properties.purpose.enum, ['quote', 'offer']);
 assert.equal(MODEL_TOOL_SCHEMAS.lookup_booking_catalog, undefined, 'catalog lookup must not be model-visible');
 assert.equal(owner.checkQuoteBookSchema['x-staff-public-catalog'].accommodation_only.item_code, 'package_none');

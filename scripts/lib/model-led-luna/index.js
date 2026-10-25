@@ -474,6 +474,12 @@ function createOperations(withPgClient, authorities = {}) {
   ]));
   operations._record_offer_presentation = (input, context) => withPgClient((client) =>
     checkQuoteBook.recordPresented(client, input, { ...context, staffAuthorities: authorities }));
+  // Simulator admission runs inside its own transaction and must use the same
+  // Staff-owned capability operation with that transaction's pg client.
+  Object.defineProperty(operations, 'getBookingCapabilitySnapshot', {
+    value: getBookingCapabilitySnapshot,
+    enumerable: false,
+  });
   return Object.freeze(operations);
 }
 
