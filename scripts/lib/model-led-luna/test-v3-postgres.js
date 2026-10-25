@@ -2889,6 +2889,32 @@ async function main(api = defaultApi) {
     console.log(
       "PASS V3-CANCEL-ZERO-PAYMENT confirmed genuine zero-payment cancellation preserves booking_beds and releases occupancy 1->0",
     );
+    const retiredPaymentId = await makeCancelBooking("C13-RETIRED-PAYMENT");
+    await admin.query(
+      `UPDATE bookings SET metadata=COALESCE(metadata,'{}'::jsonb)||'{"luna_v3_provenance":"fresh_one_try"}'::jsonb WHERE id=$1`,
+      [retiredPaymentId],
+    );
+    await admin.query(
+      `INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents,metadata) VALUES($1,$2,'expired','deposit_only','EUR',3000,0,'{}')`,
+      [ids.client, retiredPaymentId],
+    );
+    await setSelected(ws, retiredPaymentId);
+    const retiredPaymentCancellation = await api.cancelUnpaid(
+      await c(),
+      {
+        booking_id: retiredPaymentId,
+        guest_reason: "provider checkout expired",
+        operation_key: "cancel-retired-payment",
+      },
+      ctx(ws),
+    );
+    assert.equal(retiredPaymentCancellation.cancelled, true);
+    assert.notEqual(retiredPaymentCancellation.reason, "payment_exists");
+    assert.equal((await snapshot(retiredPaymentId)).status, "cancelled");
+    observations.cancelUnpaidRetiredPayment = true;
+    console.log(
+      "PASS V3-CANCEL-RETIRED-PAYMENT trusted-v3 cancels after expired zero-money local/provider payment evidence has cleared identifiers",
+    );
     const paymentWinsId = await makeCancelBooking("C13-RACE-PAYMENT-WINS");
     await setSelected(ws, paymentWinsId);
     const payWinner = await c(),
