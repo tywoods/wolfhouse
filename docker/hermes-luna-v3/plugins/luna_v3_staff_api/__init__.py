@@ -7,6 +7,7 @@ quote state, WhatsApp transport, or reply composer. Staff owns facts and writes.
 from __future__ import annotations
 
 import json
+import io
 import hashlib
 import os
 import urllib.error
@@ -182,6 +183,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 error = TimeoutError("injected Staff response timeout")
                 record_exchange(status=getattr(response, "status", 200), raw=raw, exception=error)
                 raise error
+            elif fault == "http-422":
+                raise urllib.error.HTTPError(request.full_url, 422, "injected Staff rejection", {}, io.BytesIO(b'{"code":"injected_validation","classification":"validation","reason":"injected owner validation refusal","next_step":"correct_request","retry_allowed":false}'))
+            elif fault == "exception":
+                raise RuntimeError("injected Staff boundary exception")
             elif fault == "non-json":
                 raw = b"CAP-HARNESS-NON-JSON"
             elif fault == "malformed":

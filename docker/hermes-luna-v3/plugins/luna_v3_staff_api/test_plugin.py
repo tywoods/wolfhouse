@@ -148,6 +148,31 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertNotIn("handoffOperationKey", bounded)
         self.assertTrue(bounded["requiredHumanHandoff"])
 
+    def test_harness_captures_http_422_generic_exception_and_timeout_exception(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return b'{"ok":true}'
+        expected = {"http-422": (422, None, "injected_validation"), "exception": (None, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable")}
+        for index, (fault, (status, exception_type, code)) in enumerate(expected.items(), 1):
+            with self.subTest(fault=fault):
+                bind_inbound_event(f"11111111-1111-4111-8111-1111111111{index:02d}")
+                evidence = []; tokens = bind_harness_evidence(evidence, fault)
+                try:
+                    with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", return_value=Response()):
+                        result = plugin.call_tool("check_quote_book", {"action":"prepare"})
+                finally:
+                    clear_harness_evidence(tokens)
+                self.assertEqual(code, result["code"])
+                self.assertEqual(1, len(evidence))
+                self.assertEqual(fault, evidence[0]["fault"])
+                self.assertEqual(status, evidence[0].get("status"))
+                self.assertEqual(exception_type, evidence[0].get("exception_type"))
+
     def test_retired_recovery_is_not_callable(self):
         plugin = self.load_plugin()
         with patch.object(plugin, "_open_staff") as transport:

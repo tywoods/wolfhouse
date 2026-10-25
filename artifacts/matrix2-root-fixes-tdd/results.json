@@ -1,19 +1,36 @@
 {
-  "starting_head": "f84cf6e0d6aebf6e0600240f5a2e035585ad7044",
+  "starting_head": "e5e75b1a53c19e3002ad2a02cda3279e7b3b7201",
   "branch": "fix/v3-stayonly-contract-20261025",
-  "tdd_red": {
-    "command": "python3 scripts/test-luna-v3-rendered-reply-harness.py",
-    "result": "FAILED (failures=1, errors=1): valid_state_receipt absent; N/A/incomplete controls present"
-  },
+  "generated_utc": "2026-10-25T23:22:10Z",
+  "tdd_red": [
+    {
+      "command": "python3 scripts/test-luna-v3-rendered-reply-harness.py",
+      "result": "FAILED (failures=4, errors=1): semantic score was not on the verdict path; controls were incomplete/metadata-only; HTTP 422 and generic exception proof were absent; missing kinds did not fail closed; continuation lacked both raw/event linkage"
+    },
+    {
+      "command": "python3 scripts/test-luna-v3-rendered-reply-harness.py",
+      "result": "FAILED (errors=1): live prepare arguments were not yet compared to the owner-derived complete control"
+    }
+  ],
   "green": [
-    {"command":"python3 scripts/test-luna-v3-rendered-reply-harness.py","result":"8 tests OK"},
-    {"command":"python3 -m unittest docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v","result":"14 tests OK"},
+    {"command":"python3 scripts/test-luna-v3-rendered-reply-harness.py","result":"12 tests OK"},
+    {"command":"python3 -m unittest docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v","result":"15 tests OK"},
     {"command":"python3 -m unittest docker/hermes-luna-v3/tests/test_simulator_route.py -v","result":"7 tests OK"},
     {"command":"node scripts/lib/model-led-luna/test-prepare-lifecycle.js","result":"passed"},
     {"command":"node scripts/lib/model-led-luna/test-staff-routes.js","result":"passed"},
     {"command":"node scripts/verify-luna-v3-cap-fix1.js","result":"PASS"}
   ],
+  "implemented_offline_source_proof": {
+    "semantic_score_is_verdict_input": true,
+    "prepare_count_is_per_inbound_event": true,
+    "owner_derived_control_is_compared_to_live_prepare_arguments": true,
+    "required_kinds_fail_closed": ["accommodation", "package", "rental", "service", "two lesson products"],
+    "complete_cells": ["stay", "packages", "rentals", "services", "two lesson products", "mixed", "multi-guest"],
+    "fault_receipts": ["HTTP 422 status", "RuntimeError exception type", "TimeoutError exception type"],
+    "continuation_receipts": ["first raw bytes", "second raw bytes", "both inbound event IDs", "specific refusal", "corrected success", "new prepare event ID"],
+    "no_retries": true
+  },
   "live_model_proof": false,
-  "blocker": "OPENAI_API_KEY, LUNA_MATRIX_SIMULATOR_URL, LUNA_MATRIX_SIMULATOR_TOKEN, and LUNA_V3_HARNESS_TRACE_TOKEN are all absent. No keys were refreshed, copied, or searched for.",
-  "db_error_diagnosis": "Blocked: archived packet contains no failed Staff HTTP bytes or Staff/PG exception receipt. No database cause was guessed. Failure classification/status preservation was fixed at boundaries."
+  "live_blocker": "LUNA_MATRIX_SIMULATOR_URL is absent, so there is no sanctioned isolated Dev-01 simulator endpoint on which to execute the authenticated model/runtime matrix. Other credential environment values, if present, were neither read nor copied. No live PASS is claimed.",
+  "db_error_diagnosis": "Blocked: the historic packet still contains no failed Staff HTTP bytes or Staff/PG exception receipt. No database cause was guessed."
 }

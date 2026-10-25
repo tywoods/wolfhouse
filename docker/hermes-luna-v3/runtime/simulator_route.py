@@ -174,7 +174,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
 
     trace_allowed = _harness_trace_allowed(request)
     fault = getattr(request, "headers", {}).get("X-Luna-V3-Harness-Fault", "") if trace_allowed else ""
-    if fault not in {"", "non-json", "malformed", "timeout"}:
+    if fault not in {"", "non-json", "malformed", "http-422", "exception", "timeout"}:
         return {"status": 400, "body": {"ok": False, "code": "invalid_harness_fault"}}
     continuation_consumed = False
     continuation_ref = str(body.get("continuation_ref") or "")

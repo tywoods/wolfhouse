@@ -45,9 +45,13 @@ def make_cases(snapshot,fixture):
  for c in choices:
   if not isinstance(c,dict) or not c.get("kind") or not c.get("code"): raise SystemExit("BLOCKED: malformed live Staff choice")
   if c.get("active",True): by_kind.setdefault(c["kind"],[]).append(c)
+ required={"accommodation","package","rental","service"}
+ lesson_rows=[c for c in by_kind.get("service",[]) if "lesson" in " ".join(str(c.get(k,"")) for k in ("code","label","product","category")).lower()]
+ missing=sorted(required-set(by_kind))
+ if missing or len(lesson_rows)<2: raise SystemExit(f"BLOCKED: missing required active capability kinds or two lesson products: kinds={missing}, lessons={len(lesson_rows)}")
  out=[]
  def add(cid,prompt,expect,choice=None,prepare=True,continuation=False,fault=None,control=None):
-  default={"guests":["Alex"],"room":{"kind":"shared"},"package":"package_none","add_ons":[]} if prepare else None
+  default={"check_in":fixture["valid_dates"]["check_in"],"check_out":fixture["valid_dates"]["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":"package_none","add_ons":[]} if prepare else None
   out.append({"id":cid,"prompt":prompt,"expect":expect,"choice":choice,"prepare_required":prepare,"continuation":continuation,"fault":fault,"control":control or default})
  good=fixture["valid_dates"]; bad=fixture["invalid_dates"]
  gd=f'{good["check_in"]} to {good["check_out"]}'; bd=f'{bad["check_in"]} to {bad["check_out"]}'
@@ -58,16 +62,50 @@ def make_cases(snapshot,fixture):
   for c in rows:
    label=c.get("label") or c["code"]
    dates=f" on {good['check_in']}" if kind in ('rental','service') else ''
-   control={"guests":["Alex"],"room":{"kind":"shared"},"package":c['code'] if kind=='package' else 'package_none',"add_ons":[] if kind=='package' else [{"code":c['code'],"quantity":1,"people":["Alex"],"dates":[good['check_in']]}]}
+   control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":c['code'] if kind=='package' else 'package_none',"add_ons":[] if kind=='package' else [{"code":c['code'],"quantity":1,"people":["Alex"],"dates":[good['check_in']]}]}
    add(f"{kind}-{c['code']}-success",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c,control=control)
    add(f"{kind}-{c['code']}-refusal",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c,control=control)
- add("mixed",f"Quote accommodation and every compatible active package, rental, service and lesson for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed")
- add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Preserve exact Staff amounts and terms; do not hold or book.","quote")
+ mixed_addons=[{"code":c["code"],"quantity":1,"people":["Alex"],"dates":[good["check_in"]]} for kind in ("rental","service") for c in by_kind[kind]]
+ mixed_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":by_kind["package"][0]["code"],"add_ons":mixed_addons}
+ add("mixed",f"Quote accommodation plus {by_kind['package'][0]['code']} and these active extras: {', '.join(x['code'] for x in mixed_addons)}, for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed",control=mixed_control)
+ group_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex","Sam","Jo"],"room":{"kind":"shared","together":"preferred"},"package":"package_none","add_ons":[]}
+ add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Keep them together if available; preserve exact Staff amounts and terms; do not hold or book.","quote",control=group_control)
  advertised=(by_kind.get('package') or [{'code':'package_none','label':'Accommodation only'}])[0]
  add("genuine-continuation",f"Quote {advertised.get('label')} ({advertised['code']}) for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",advertised,continuation=True)
  add("missing-dates-clarification","I would like a quote for accommodation only for Alex in a shared room.","clarification",prepare=False)
- for fault in ("non-json","malformed","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
+ for fault in ("non-json","malformed","http-422","exception","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
+ for case in out:
+  if case["expect"]=="refusal" or case["continuation"]:
+   case["control"]={**case["control"],"check_in":bad["check_in"],"check_out":bad["check_out"]}
+  if case["continuation"]:
+   case["corrected_control"]={**case["control"],"check_in":good["check_in"],"check_out":good["check_out"]}
+  if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {case['id']}")
  return out
+
+def validate_control(case,choices):
+ control=case.get("control")
+ if not isinstance(control,dict) or not all(control.get(k) for k in ("check_in","check_out","guests","room","package")) or not isinstance(control.get("add_ons"),list): return False
+ active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active",True)}
+ if control["package"] not in active: return False
+ for addon in control["add_ons"]:
+  if not isinstance(addon,dict) or addon.get("code") not in active or type(addon.get("quantity")) is not int or addon["quantity"]<1: return False
+  requirements=active[addon["code"]].get("requirements") or {}
+  if requirements.get("dates") and not addon.get("dates"): return False
+  if requirements.get("participants") and not addon.get("people"): return False
+ return True
+
+def control_matches_prepare(control,args):
+ if not isinstance(control,dict) or not isinstance(args,dict): return False
+ if any(args.get(k)!=control.get(k) for k in ("check_in","check_out")): return False
+ guest_names=[g.get("name") if isinstance(g,dict) else g for g in args.get("guests") or []]
+ if guest_names!=control.get("guests"): return False
+ room=args.get("room") or {}
+ if not isinstance(room,dict) or room.get("kind")!=control.get("room",{}).get("kind") or control.get("room",{}).get("together") and room.get("together")!=control["room"]["together"]: return False
+ package=args.get("package"); package_code=package.get("code") or package.get("name") if isinstance(package,dict) else package
+ if package_code!=control.get("package"): return False
+ def addon_key(row):
+  return (row.get("code") or row.get("name"),row.get("quantity"),tuple(row.get("dates") or row.get("requested_dates") or []),tuple(row.get("people") or []))
+ return sorted(addon_key(x) for x in args.get("add_ons") or [])==sorted(addon_key(x) for x in control.get("add_ons") or [])
 
 STATE_FIELDS={"booking_count","hold_count","payment_count","external_send_count","staff_alert_count"}
 def valid_state_receipt(value,thread):
@@ -79,9 +117,37 @@ def semantic_score(case,reply,calls,results,fault_exchange):
  elif not results: fidelity=False
  else:
   result=results[-1] if isinstance(results[-1],dict) else {}; text=str(reply or '').lower()
-  fidelity=(result.get('ok') is True and any(str(v).lower() in text for k,v in result.items() if k in ('message','reason','next_step'))) or (result.get('ok') is False and any(str(result.get(k,'')).lower() in text for k in ('message','reason','next_step') if result.get(k)))
- if case.get('fault'): fidelity=bool(fault_exchange and fault_exchange.get('fault')==case['fault'] and any(x in str(reply).lower() for x in ('cannot verify','could not verify','uncertain')))
+  fidelity=any(str(v).lower() in text for k,v in result.items() if k in ('message','reason','next_step','total_cents','amount_cents','deposit_cents') and v is not None)
+ if case.get('fault'):
+  fault_ok=bool(fault_exchange and fault_exchange.get('fault')==case['fault'])
+  if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
+  if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
+  if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
+  fidelity=bool(fault_ok and any(x in str(reply).lower() for x in ('cannot verify','could not verify','uncertain')))
  return {"clarification":bool(clarification and '?' in str(reply) and prepared==0),"progress":progress,"fidelity":fidelity}
+
+def _event_parts(body):
+ trace=body.get("harness_trace") if isinstance(body,dict) else None; messages=trace.get("messages") if isinstance(trace,dict) else []
+ start=max((i for i,m in enumerate(messages) if isinstance(m,dict) and m.get("role")=="user"),default=-1)
+ current=messages[start+1:]; calls=[]
+ for m in current:
+  if isinstance(m,dict) and m.get("role")=="assistant": calls.extend(m.get("tool_calls") or [])
+ prepare=[c for c in calls if ((c.get("function") or {}).get("name") or c.get("name"))=="check_quote_book" and (((c.get("function") or {}).get("arguments_parsed") or c.get("arguments_parsed") or {}).get("action")=="prepare")]
+ results=[m.get("content_parsed") for m in current if isinstance(m,dict) and m.get("role")=="tool"]
+ exchanges=trace.get("staff_http_exchanges") if isinstance(trace,dict) else []
+ return prepare,results,exchanges or []
+
+def score_events(case,events):
+ rows=[]
+ for event in events:
+  body=event.get("response") or {}; calls,results,exchanges=_event_parts(body); event_case=dict(case)
+  if case.get("continuation"): event_case["expect"]="refusal" if not rows else "quote"
+  score=semantic_score(event_case,body.get("reply_text"),calls,results,exchanges[-1] if exchanges else None)
+  expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
+  function=(calls[0].get("function") or {}) if len(calls)==1 else {}
+  arguments=function.get("arguments_parsed") or calls[0].get("arguments_parsed") if len(calls)==1 else None
+  rows.append({"event_id":event.get("event_id"),"prepare_count":len(calls),"owner_control_matches":control_matches_prepare(expected_control,arguments) if expected_control else None,"semantic":score})
+ return rows
 
 def scalars(v,prefix="$"):
  out=[]
@@ -160,20 +226,36 @@ def main():
    state=pre_wire.get("parsed")
    payload={"thread":phone,"text":case["prompt"],"external_send_allowed":False,"capture_continuation":case["continuation"]}
    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case["fault"])
-   body=wire["parsed"] or {}; event_receipts=[{"request":payload,"http":redact({k:v for k,v in wire.items() if k!='raw'}),"response":redact(body),"raw_sha256":digest_bytes(wire["raw"])}]
+   body=wire["parsed"] or {}; event_receipts=[]
+   def retain_event(event_wire,event_body,event_payload,event_number):
+    trace=event_body.get("harness_trace") if isinstance(event_body,dict) else None
+    event_id=trace.get("inbound_event_id") if isinstance(trace,dict) else None
+    raw_name=f"raw/{seq:04d}-event-{event_number}.bin"; (out/raw_name).parent.mkdir(exist_ok=True); (out/raw_name).write_bytes(event_wire["raw"])
+    event_receipts.append({"event_id":event_id,"request":event_payload,"http":redact({k:v for k,v in event_wire.items() if k not in ('raw','parsed')}),"response":event_body,"raw_file":raw_name,"raw_sha256":digest_bytes(event_wire["raw"])})
+   retain_event(wire,body,payload,1)
    if case["continuation"] and body.get("continuation_ref"):
     correction=f"Correct the specific refusal by changing dates to {fixture['valid_dates']['check_in']} through {fixture['valid_dates']['check_out']}; keep the advertised selection {case['choice']['code']}."
     next_payload={"thread":phone,"text":correction,"continuation_ref":body["continuation_ref"],"external_send_allowed":False,"refusal_correction":True}
     wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,next_payload)
-    body=wire["parsed"] or {}; event_receipts.append({"request":next_payload,"http":redact({k:v for k,v in wire.items() if k!='raw'}),"response":redact(body),"raw_sha256":digest_bytes(wire["raw"])})
+    body=wire["parsed"] or {}; retain_event(wire,body,next_payload,2)
    post_wire=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})
    post=post_wire.get("parsed")
    checks,fields=judge(case,body,state if isinstance(state,dict) else {},post if isinstance(post,dict) else {})
+   event_scores=score_events(case,event_receipts)
+   semantic_ok=all(row["semantic"]["progress"] and (row["semantic"]["clarification"] if case["expect"]=="clarification" else row["semantic"]["fidelity"]) for row in event_scores)
+   checks["one_prepare_per_turn"]=all(row["prepare_count"]==(0 if case["expect"]=="clarification" else 1) for row in event_scores)
+   checks["owner_complete_control_used"]=all(row["owner_control_matches"] is not False for row in event_scores)
+   checks["all_semantic_scores_pass"]=semantic_ok
+   linkage={}
+   if case["continuation"] and len(event_receipts)==2:
+    first_calls,first_results,_=_event_parts(event_receipts[0]["response"]); second_calls,second_results,_=_event_parts(event_receipts[1]["response"])
+    linkage={"refusal_event_id":event_receipts[0]["event_id"],"corrected_event_id":event_receipts[1]["event_id"],"new_prepare_event_id":event_receipts[1]["event_id"] if len(second_calls)==1 else None,
+     "specific_refusal":next((r for r in first_results if isinstance(r,dict) and r.get("ok") is False),None),"corrected_success":next((r for r in second_results if isinstance(r,dict) and r.get("ok") is True),None)}
+    checks["first_refusal_then_success"]=bool(linkage["refusal_event_id"] and linkage["corrected_event_id"] and linkage["refusal_event_id"]!=linkage["corrected_event_id"] and linkage["specific_refusal"] and linkage["corrected_success"] and linkage["new_prepare_event_id"])
    checks["typed_authenticated_state_receipts"]=pre_wire.get("status")==200 and post_wire.get("status")==200 and valid_state_receipt(state,phone) and valid_state_receipt(post,phone)
    checks["durable_no_side_effects"]=checks["typed_authenticated_state_receipts"] and all(state[k]==post[k] for k in STATE_FIELDS)
    passed=all(checks.values())
-   raw_name=f"raw/{seq:04d}.bin"; (out/raw_name).parent.mkdir(exist_ok=True); (out/raw_name).write_bytes(wire["raw"])
-   rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error"),"raw_file":raw_name,"raw_sha256":digest_bytes(wire["raw"])},"response":redact(body),"event_receipts":event_receipts,"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
+   rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error")},"response":redact(body),"event_receipts":redact(event_receipts),"continuation_linkage":redact(linkage),"semantic_score":event_scores,"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
  manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
  result={"schema":"luna-v3-cap-authentic-results/v2","manifest_sha256":digest(manifest),"records":records,"pass":all(r.get("verdict") in ("PASS","N/A") for r in records)}
  (out/"manifest.json").write_bytes(canon(manifest)+b"\n"); (out/"results.json").write_bytes(canon(result)+b"\n")
