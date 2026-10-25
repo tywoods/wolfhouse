@@ -209,6 +209,12 @@ async function loadV3DbOnlyQuoteConfig(pg) {
       allow_daily_proration: meta.allow_daily_proration !== false,
       seasonal_prices: {} });
   }
+  // Preserve every active choice even if its Staff Pricing rule is absent. The
+  // calculator, as pricing owner, converts the explicit hole to a typed failure.
+  for (const item of data.items.filter((row) => ['service', 'rental'].includes(row.item_type))) {
+    config.add_ons[item.item_code] = { code: item.item_code, name: item.label,
+      item_type: item.item_type, missing_price: true };
+  }
   for (const rule of data.rules) {
     const cents = Number(rule.amount_cents);
     if (!Number.isSafeInteger(cents) || cents < 0) throw Object.assign(new Error('invalid authoritative Pricing row'), { code: 'STAFF_PRICING_UNAVAILABLE' });
@@ -224,12 +230,12 @@ async function loadV3DbOnlyQuoteConfig(pg) {
     } else if (rule.item_type === 'service') {
       const item = byItem.get(`service:${rule.item_code}`);
       config.add_ons[rule.item_code] = { code: rule.item_code, name: item && item.label,
-        pricing_unit: rule.unit, price_cents: cents,
+        item_type: 'service', pricing_unit: rule.unit, price_cents: cents,
         ...(rule.unit === 'per_lesson' ? { price_cents_each: cents } : {}) };
     } else if (rule.item_type === 'rental') {
       const code = rule.item_code.split('__')[0];
       const item = byItem.get(`rental:${code}`);
-      config.add_ons[code] = { code, name: item && item.label, price_cents: cents, pricing_unit: rule.unit };
+      config.add_ons[code] = { code, name: item && item.label, item_type: 'rental', price_cents: cents, pricing_unit: rule.unit };
     }
   }
   for (const required of ['standard_package','custom_or_short_stay']) if (!config.deposits.tiers[required]) throw Object.assign(new Error(`missing Staff deposit tier ${required}`), { code:'staff_deposit_tier_unavailable' });
@@ -369,17 +375,7 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.total_cents)
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
-    const missingPackagePrice = quoteResult && Array.isArray(quoteResult.blockers)
-      ? quoteResult.blockers.map((message) => String(message).match(/^no price configured for package "([^"]+)" in season "([^"]+)"$/)).find(Boolean)
-      : null;
-    if (missingPackagePrice) {
-      const diagnostic = `no price configured for package '${missingPackagePrice[1]}' in season '${missingPackagePrice[2]}'`;
-      return { ok: false, status: 422, code: 'staff_package_price_missing', classification: 'configuration',
-        field_errors: [{ path: 'package', code: 'staff_package_price_missing', message: diagnostic }],
-        next_step: 'ask_staff_to_configure_package_price', retry_allowed: false,
-        eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
-          packageMinimumSource: config.package_min_nights_source } };
-    }
+    if (quoteResult && quoteResult.pricing_failure) return quoteResult;
     return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
       eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
         packageMinimumSource: config.package_min_nights_source } };
