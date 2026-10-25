@@ -50,7 +50,8 @@ function createBookingCheckoutAuthority(deps = {}) {
         AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
         AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
           NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
-          NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS guest_active,
+          NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),
+          NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL) AS guest_active,
         EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
           AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
           AND COALESCE(p.metadata->>'provider_idempotency_key',p.metadata->>'idempotency_key','')<>$2

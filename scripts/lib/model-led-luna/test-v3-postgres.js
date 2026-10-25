@@ -3484,6 +3484,19 @@ async function main(api = defaultApi) {
       assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1.`,
     }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-omitted-package" });
     assert.equal(omittedPackage.reason, "complete_offer_presentation_required");
+    const excludedPackage = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:excluded-package",
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu includes stay. Accommodation only, no malibu package included.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-excluded-package" });
+    assert.equal(excludedPackage.reason, "complete_offer_presentation_required");
+    const afterExcludedPackageInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('e',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const confirmAfterExcludedPackage = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: afterExcludedPackageInbound, turnId: "turn:one-try-confirm-after-excluded-package" });
+    assert.equal(confirmAfterExcludedPackage.reason, "acceptance_required", JSON.stringify(confirmAfterExcludedPackage));
     const presentedInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
       SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('a',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
       WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,

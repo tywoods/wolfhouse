@@ -1013,6 +1013,17 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       await pg.query('SELECT id FROM bookings WHERE id = $1::uuid AND client_id = $2 FOR UPDATE',
         [booking.booking_id, booking.client_id]);
       const latestRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
+      const personalCheckoutActive = latestRows.some((row) => {
+        if (!row.booking_guest_id || !['draft', 'checkout_created', 'open', 'pending'].includes(row.payment_status)) return false;
+        const md = parsePaymentMetadata(row.metadata);
+        return !!(row.checkout_url || row.stripe_checkout_session_id || md.stripe_checkout_session_id
+          || md.stripe_session_id || md.checkout_url || md.provider_idempotency_key
+          || md.idempotency_key || md.checkout_preparation);
+      });
+      if (personalCheckoutActive) {
+        await pg.query('ROLLBACK');
+        return fail(409, 'booking_payment_guest_checkout_active', 'A personal checkout is already active for this booking.');
+      }
       const pending = latestRows.some((row) => {
         const md = parsePaymentMetadata(row.metadata);
         if (isTrustedFreshV3InertDraft(booking, row)) return false;

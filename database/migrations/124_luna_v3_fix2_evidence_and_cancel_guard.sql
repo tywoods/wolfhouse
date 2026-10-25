@@ -116,14 +116,16 @@ BEGIN
   IF LOWER(COALESCE(NEW.status::text,'')) NOT IN ('draft','checkout_created','open','pending') THEN RETURN NEW; END IF;
   IF COALESCE(NULLIF(to_jsonb(NEW)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(NEW)->>'checkout_url',''),
       NULLIF(NEW.metadata->>'stripe_checkout_session_id',''),NULLIF(NEW.metadata->>'stripe_session_id',''),
-      NULLIF(NEW.metadata->>'checkout_url',''),NULLIF(NEW.metadata->>'provider_idempotency_key','')) IS NULL THEN RETURN NEW; END IF;
+      NULLIF(NEW.metadata->>'checkout_url',''),NULLIF(NEW.metadata->>'provider_idempotency_key',''),
+      NULLIF(NEW.metadata->>'idempotency_key',''),NULLIF(NEW.metadata->>'checkout_preparation','')) IS NULL THEN RETURN NEW; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.booking_id::text, 124));
   SELECT EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=NEW.booking_id AND p.id IS DISTINCT FROM NEW.id
     AND ((NEW.booking_guest_id IS NULL AND p.booking_guest_id IS NOT NULL) OR (NEW.booking_guest_id IS NOT NULL AND p.booking_guest_id IS NULL))
     AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
     AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
       NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
-      NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) INTO opposite_exists;
+      NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),
+      NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL) INTO opposite_exists;
   IF opposite_exists THEN RAISE EXCEPTION 'mixed_booking_checkout_scope' USING ERRCODE='23514'; END IF;
   RETURN NEW;
 END $scope$;

@@ -1,5 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { createCheckQuoteBook, replyShowsPrice, replyShowsAuthoritativeTerms } = require('./lib/model-led-luna/v3-booking-flow');
 const { LUNA_V3_ROUTE_TO_TOOL } = require('./lib/model-led-luna/staff-routes');
 const { assertSafeToolRequest } = require('./lib/model-led-luna/contracts');
@@ -129,12 +131,35 @@ async function main() {
     'a later noncanonical inclusion claim must invalidate the presentation');
   assert.equal(replyShowsAuthoritativeTerms(`${complete} Correction: lessons are excluded.`, presentationQuote), false,
     'a later exclusion of a canonical inclusion must invalidate the presentation');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} Accommodation only, no board included.`, presentationQuote), false,
+    'an explicit exclusion of a selected add-on must invalidate the presentation');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} Accommodation only, no malibu package included.`, presentationQuote), false,
+    'an explicit exclusion of the selected package must invalidate the presentation');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} No extra charge for board quantity 3.`, presentationQuote), true,
+    'a waived add-on fee is not an exclusion of the selected add-on');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} No additional fee for the malibu package.`, presentationQuote), true,
+    'a waived package fee is not an exclusion of the selected package');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} Board quantity 3 is not optional.`, presentationQuote), true,
+    'a mandatory selected add-on is not an exclusion');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €123.450; deposit €300.00'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00 and €123.45 deposit'), presentationQuote), false,
     'a second amount before the deposit label must not let swapped money pass');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu includes bed and lessons; ', ''), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('board quantity 3 on 2027-03-02', ''), presentationQuote), false);
+  const paymentServiceSource = fs.readFileSync(path.join(__dirname, 'lib/luna-front-desk-payment-link-service.js'), 'utf8');
+  const lockedCheckoutGuard = paymentServiceSource.slice(
+    paymentServiceSource.indexOf("SELECT id FROM bookings WHERE id = $1::uuid AND client_id = $2 FOR UPDATE"),
+    paymentServiceSource.indexOf('if (useFreshLedger) {', paymentServiceSource.indexOf("SELECT id FROM bookings WHERE id = $1::uuid AND client_id = $2 FOR UPDATE")),
+  );
+  assert.match(lockedCheckoutGuard, /booking_guest_id/,
+    'booking-coordinated group checkout guard must recheck personal checkout evidence under the booking lock');
+  const migration124 = fs.readFileSync(path.join(__dirname, '../database/migrations/124_luna_v3_fix2_evidence_and_cancel_guard.sql'), 'utf8');
+  const mixedScopeGuard = migration124.slice(migration124.indexOf('CREATE OR REPLACE FUNCTION reject_mixed_booking_checkout_scope'));
+  assert.match(mixedScopeGuard, /checkout_preparation/,
+    'migration-124 mixed-scope trigger must treat durable checkout preparation as provider evidence');
+  assert.match(mixedScopeGuard, /idempotency_key/,
+    'migration-124 mixed-scope trigger must treat durable idempotency metadata as provider evidence');
   assert.equal(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/book'], undefined, 'legacy public book route must be closed');
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', input));
   await testCompleteOffer();

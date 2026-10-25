@@ -68,10 +68,24 @@ function replyShowsAuthoritativeTerms(reply, quote) {
   if (!labelledPrice('total', 'deposit', quote.totalCents)
       || !labelledPrice('deposit', 'total', quote.depositCents)) return false;
   const q = quote.quoteInput || {};
+  const explicitlyExcludes = (value) => {
+    const escaped = String(value || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!escaped) return false;
+    const patterns = [
+      `\\bwithout\\b[^.!?]{0,32}\\b${escaped}\\b`,
+      `\\b(?:excluding|excluded)\\b[^.!?]{0,32}\\b${escaped}\\b`,
+      `\\bnot\\s+including\\b[^.!?]{0,32}\\b${escaped}\\b`,
+      `\\bno\\s+(?:the\\s+)?${escaped}\\b`,
+      `\\b${escaped}\\b[^.!?]{0,32}\\b(?:excluded|not included)\\b`,
+      `\\b(?:does not|doesn't)\\s+include\\b[^.!?]{0,32}\\b${escaped}\\b`,
+    ];
+    return patterns.some((pattern) => new RegExp(pattern, 'i').test(lower));
+  };
   for (const addOn of q.add_ons || []) {
     const code = String(addOn.code || '').trim();
     const quantity = Number.isSafeInteger(addOn.quantity) ? addOn.quantity : 1;
     if (!code) return false;
+    if (explicitlyExcludes(code)) return false;
     const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const clauses = [...text.matchAll(new RegExp(`\\b${escaped}\\b([^.;!?]{0,64})`, 'ig'))];
     const observedQuantities = clauses.flatMap((claim) => [...claim[1].matchAll(/\bquantity\s*(\d+)\b/ig)]
@@ -80,10 +94,12 @@ function replyShowsAuthoritativeTerms(reply, quote) {
   }
   const inclusions = quote.packageDetails && Array.isArray(quote.packageDetails.includes)
     ? quote.packageDetails.includes.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
+  const selectedPackages = [...(q.guest_packages || []).map((value) => value.package_code), q.package_id, quote.packageCode]
+    .map((value) => String(value || '').trim().toLowerCase()).filter((value) => value && value !== 'package_none');
+  if (selectedPackages.some(explicitlyExcludes)) return false;
   if (inclusions.length) {
     for (const value of inclusions) {
-      const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(`(?:\\b(?:not|excluding|excluded|without)\\b[^.!?]{0,40}\\b${escaped}\\b|\\b${escaped}\\b[^.!?]{0,40}\\b(?:excluded|not included)\\b)`, 'i').test(lower)) return false;
+      if (explicitlyExcludes(value)) return false;
     }
     const inclusionClaims = [...lower.matchAll(/\bincludes?\b([^.;!?]*)/ig)];
     for (const includesClaim of inclusionClaims) {
