@@ -403,8 +403,14 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
     if (quoteResult && quoteResult.pricing_failure) return quoteResult;
-    return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
-      eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
+    const code = quoteResult && quoteResult.reason_code || 'staff_quote_unavailable';
+    const minimum = quoteResult && quoteResult.package_night_violation && quoteResult.package_night_violation.package_min_nights;
+    return { ok: false, status: 422, code,
+      ...(code === 'package_min_nights_violation' ? {
+        message: `The selected package requires at least ${minimum} nights.`, path: 'package',
+        fieldMessage: `Choose accommodation only, another eligible package, or a stay of at least ${minimum} nights.`,
+        next_step: 'change_dates_or_package' } : {}),
+      eligibilityFacts: { packageEligible: false, packageMinimumNights: minimum || config.package_min_nights,
         packageMinimumSource: config.package_min_nights_source } };
   }
   const offer = buildCheckedWolfhousePreviewOffer({

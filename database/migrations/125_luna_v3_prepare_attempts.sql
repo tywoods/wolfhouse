@@ -1,6 +1,11 @@
 -- 125_luna_v3_prepare_attempts.sql
 -- Exactly one terminal prepare lifecycle per authenticated session + inbound event.
 BEGIN;
+ALTER TABLE luna_v3_runtime_events
+  ADD COLUMN capability_revision text,
+  ADD COLUMN capability_snapshot jsonb;
+ALTER TABLE luna_v3_runtime_events ADD CONSTRAINT luna_v3_runtime_event_capability_pair
+  CHECK ((capability_revision IS NULL) = (capability_snapshot IS NULL));
 CREATE TABLE luna_v3_prepare_attempts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,

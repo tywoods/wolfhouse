@@ -125,8 +125,8 @@ async function testReplayNeedsNoFreshCatalog() {
   assert.deepEqual(result.package_details, replayQuote.packageDetails);
 }
 
-async function testOfferReferenceIsTurnScopedButSameTurnReplayStable() {
-  const run = async (turnId, replay = null) => {
+async function testOfferReferenceIsEventAndPayloadScoped() {
+  const run = async (turnId, eventId, replay = null) => {
     const pg = withAttemptLifecycle({ async query(sql) {
       if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: replay ? [{ state: 'active', expires_at: '2099-03-01T12:15:00Z', quote: replay.quote,
@@ -136,13 +136,14 @@ async function testOfferReferenceIsTurnScopedButSameTurnReplayStable() {
       if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
       throw new Error(`unexpected lifecycle SQL: ${sql}`);
     } });
-    return createCheckQuoteBook(deps())(pg, input, { ...context, turnId });
+    return createCheckQuoteBook(deps())(pg, input, { ...context, turnId, authenticatedInboundEventId: eventId });
   };
-  const a1 = await run('turn:lifecycle-a-1');
-  const a1Replay = await run('turn:lifecycle-a-1', a1);
-  const b = await run('turn:lifecycle-b');
-  const a2 = await run('turn:lifecycle-a-2');
-  assert.equal(a1Replay.offer_reference, a1.offer_reference, 'same-turn same-input replay must be stable');
+  const eventA = '11111111-1111-4111-8111-111111111111';
+  const a1 = await run('turn:lifecycle-a-1', eventA);
+  const a1Replay = await run('turn:lifecycle-a-2', eventA, a1);
+  const b = await run('turn:lifecycle-b', '22222222-2222-4222-8222-222222222222');
+  const a2 = await run('turn:lifecycle-a-3', '33333333-3333-4333-8333-333333333333');
+  assert.equal(a1Replay.offer_reference, a1.offer_reference, 'same-event same-input replay must be stable');
   assert.notEqual(b.offer_reference, a1.offer_reference);
   assert.notEqual(a2.offer_reference, a1.offer_reference, 'A→B→A must start a new offer lifecycle');
   assert.notEqual(a2.offer_reference, b.offer_reference);
@@ -220,7 +221,7 @@ async function main() {
   await testCompleteOffer();
   await testQuoteOnlyPricesWithoutHolding();
   await testReplayNeedsNoFreshCatalog();
-  await testOfferReferenceIsTurnScopedButSameTurnReplayStable();
+  await testOfferReferenceIsEventAndPayloadScoped();
   await testFailedOfferWriteRollsBackHold();
   console.log('luna v3 Cap FIX1 focused regressions: PASS');
 }

@@ -55697,6 +55697,9 @@ async function router(req, res) {
               tenantId: admittedSlug, authenticated: true, sessionId, principalId: admittedPrincipal, writeAllowed: true,
             });
             if (!capabilitySnapshot || capabilitySnapshot.ok !== true) throw Object.assign(new Error('capability snapshot unavailable'), { code: 'luna_v3_capability_snapshot_unavailable' });
+            await pg.query(`UPDATE luna_v3_runtime_events SET capability_revision=$2,capability_snapshot=$3::jsonb
+              WHERE id=$1::uuid AND direction='inbound'`,
+            [inbound.id, capabilitySnapshot.revision, JSON.stringify(capabilitySnapshot)]);
             await pg.query('COMMIT');
             return { ok: true, admitted: true, inbound_event_id: inbound.id, capability_snapshot: capabilitySnapshot };
           } catch (error) {
@@ -55706,12 +55709,15 @@ async function router(req, res) {
         }),
         resolveSession: async ({ selector, principalId: requestedPrincipal, inboundEventId: requestedEvent }) => withPgClient(async (pg) => {
           if (!selector || !requestedPrincipal) return null;
-          const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone FROM luna_v3_sessions s
+          const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone,
+              e.capability_revision,e.capability_snapshot FROM luna_v3_sessions s
             JOIN clients c ON c.id=s.client_id JOIN luna_v3_runtime_events e ON e.client_id=s.client_id AND e.session_id=s.id
             WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3 AND e.id=$4::uuid
               AND e.principal_id=s.principal_id AND e.direction='inbound'`,
           [effectiveClientSlug, selector, requestedPrincipal, requestedEvent]);
-          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true, guestPhone: r.rows[0].guest_phone } : null;
+          return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true,
+            guestPhone: r.rows[0].guest_phone, capabilityRevision: r.rows[0].capability_revision,
+            capabilitySnapshot: r.rows[0].capability_snapshot } : null;
         }),
         recordAssistantEvent: async ({ sessionId, principalId: eventPrincipal, inboundEventId: preceding, reply }) => withPgClient(async (pg) => {
           const digest = require('node:crypto').createHash('sha256').update(reply).digest('hex');

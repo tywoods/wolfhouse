@@ -161,7 +161,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     )
     tokens = adapter._bind_api_server_session(session_key=session_key)
     from runtime.trusted_turn_context import bind_inbound_event, clear_inbound_event
-    inbound_token = bind_inbound_event(inbound_event_id)
+    inbound_token = bind_inbound_event(inbound_event_id, admission.get("capability_snapshot"))
     ctx = copy_context()
     clear_inbound_event(inbound_token)
 

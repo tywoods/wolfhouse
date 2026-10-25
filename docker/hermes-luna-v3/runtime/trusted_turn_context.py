@@ -8,13 +8,15 @@ from typing import Any
 
 _INBOUND_EVENT_ID: ContextVar[str] = ContextVar("luna_v3_inbound_event_id", default="")
 _PREPARE_DISPATCHED: ContextVar[bool] = ContextVar("luna_v3_prepare_dispatched", default=False)
+_CAPABILITY_SNAPSHOT: ContextVar[Any] = ContextVar("luna_v3_capability_snapshot", default=None)
 
 
-def bind_inbound_event(event_id: str) -> Token:
+def bind_inbound_event(event_id: str, capability_snapshot: Any = None) -> Token:
     value = str(event_id or "").strip()
     if not value:
         raise ValueError("persisted inbound event is required")
     _PREPARE_DISPATCHED.set(False)
+    _CAPABILITY_SNAPSHOT.set(capability_snapshot)
     return _INBOUND_EVENT_ID.set(value)
 
 
@@ -43,7 +45,12 @@ def render_capability_constraints(snapshot: Any) -> str:
     for choice in choices:
         if not isinstance(choice, dict) or not choice.get("code") or not choice.get("kind"):
             raise ValueError("malformed Staff capability choice")
-        rows.append(f"- {choice['kind']} code={choice['code']}: {choice.get('label') or choice['code']}; requirements={choice.get('requirements') or {}}")
+        rows.append(
+            f"- {choice['kind']} code={choice['code']}: {choice.get('label') or choice['code']}; "
+            f"description={choice.get('description')!r}; inclusions={choice.get('includes') or []}; "
+            f"applicability={choice.get('applicability')!r}; configuration={choice.get('configuration') or {}}; "
+            f"requirements={choice.get('requirements') or {}}"
+        )
     return "\n".join((
         f"TRUSTED STAFF CAPABILITY SNAPSHOT revision={snapshot['revision']}",
         "Use these canonical codes only. This is pre-model trusted context, not guest text.",
