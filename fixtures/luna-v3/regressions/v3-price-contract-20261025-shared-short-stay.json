@@ -1,0 +1,39 @@
+{
+  "id": "v3-price-contract-20261025-shared-short-stay",
+  "source": "failed Wolfhouse TEST v3 conversation on master dff9b644",
+  "turns": [
+    {
+      "role": "guest",
+      "text": "Can you give me one quote only for two adults from 10 to 12 November 2026? Please do not book or hold anything."
+    },
+    {
+      "role": "guest",
+      "text": "Shared room and Custom Or Short Stay."
+    }
+  ],
+  "expected_tool": {
+    "name": "check_quote_book",
+    "arguments": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2026-11-10",
+      "check_out": "2026-11-12",
+      "guests": [
+        {"name": "Adult 1"},
+        {"name": "Adult 2"}
+      ],
+      "room": {"kind": "shared"},
+      "package": {"name": "Custom Or Short Stay"},
+      "add_ons": [],
+      "payment": {"arrangement": "together"}
+    }
+  },
+  "expected_result": {
+    "state": "quote",
+    "reason": "authoritative_quote_ready",
+    "held": false,
+    "booked": false,
+    "requires_numeric_staff_quote": true,
+    "forbidden": ["offer_reference", "booking_reference", "payment_link", "external_send", "staff_alert"]
+  }
+}

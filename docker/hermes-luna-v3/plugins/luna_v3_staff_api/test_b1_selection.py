@@ -40,6 +40,10 @@ class PublicOneTrySelectionTests(unittest.TestCase):
             "presented in a prior assistant turn",
             "call `check_quote_book` once with `action=confirm`",
             "Do not retry, repair, recover",
+            "price, total or quote",
+            "purpose=quote",
+            "does not create a hold",
+            "purpose=catalog",
         ):
             self.assertIn(phrase, soul)
 

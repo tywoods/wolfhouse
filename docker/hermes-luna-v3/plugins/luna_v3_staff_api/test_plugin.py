@@ -152,6 +152,10 @@ class LunaV3PluginContractTests(unittest.TestCase):
         guest = schema["properties"]["guests"]["items"]
         add_on = schema["properties"]["add_ons"]["items"]
         self.assertEqual(["prepare", "confirm", "decline"], schema["properties"]["action"]["enum"])
+        self.assertEqual(["catalog", "quote", "offer"], schema["properties"]["purpose"]["enum"])
+        description = next(tool for tool in ctx.tools if tool["name"] == "check_quote_book")["description"]
+        self.assertIn("price, total, or quote", description)
+        self.assertIn("without creating a hold", description)
         self.assertNotIn("operation_key", schema["properties"])
         self.assertEqual({"name", "explicit_gender", "gender"}, set(guest["properties"]))
         self.assertFalse(guest["additionalProperties"])

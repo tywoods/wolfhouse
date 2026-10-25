@@ -7,7 +7,7 @@
   "required": ["action"],
   "properties": {
     "action": {"enum": ["prepare", "confirm", "decline"]},
-    "purpose": {"enum": ["offer", "information"]},
+    "purpose": {"enum": ["catalog", "quote", "offer"]},
     "check_in": {"type": "string", "format": "date"},
     "check_out": {"type": "string", "format": "date"},
     "guests": {
@@ -59,8 +59,8 @@
     "offer_reference": {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
   },
   "allOf": [
-    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
-    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "information"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out"]}},
+    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"enum": ["quote", "offer"]}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
+    {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "catalog"}}, "required": ["action", "purpose"]}, "then": {"required": ["check_in", "check_out"]}},
     {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]}, "then": {"required": ["offer_reference"], "not": {"anyOf": [
       {"required": ["purpose"]}, {"required": ["check_in"]}, {"required": ["check_out"]}, {"required": ["guests"]},
       {"required": ["room"]}, {"required": ["package"]}, {"required": ["add_ons"]}, {"required": ["payment"]}
