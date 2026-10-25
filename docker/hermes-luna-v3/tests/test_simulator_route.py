@@ -61,8 +61,9 @@ class FakeAdapter:
 
 
 class FakeRequest:
-    def __init__(self, body):
+    def __init__(self, body, headers=None):
         self.body = body
+        self.headers = headers or {}
 
     async def json(self):
         return self.body
@@ -173,6 +174,24 @@ class SimulatorRouteTests(unittest.TestCase):
             response = asyncio.run(self.module.handle_turn(FakeRequest(body), adapter))
             self.assertEqual(response["status"], 400)
             self.assertEqual(response["body"]["code"], code)
+
+    def test_full_trace_gate_is_dual_keyed(self):
+        request = FakeRequest({}, {"X-Luna-V3-Harness-Trace": "secret"})
+        old_mode = self.module.os.environ.get("LUNA_V3_AUTHENTIC_HARNESS")
+        old_token = self.module.os.environ.get("LUNA_V3_HARNESS_TRACE_TOKEN")
+        try:
+            self.module.os.environ["LUNA_V3_HARNESS_TRACE_TOKEN"] = "secret"
+            self.module.os.environ.pop("LUNA_V3_AUTHENTIC_HARNESS", None)
+            self.assertFalse(self.module._harness_trace_allowed(request))
+            self.module.os.environ["LUNA_V3_AUTHENTIC_HARNESS"] = "1"
+            self.assertTrue(self.module._harness_trace_allowed(request))
+            self.assertFalse(self.module._harness_trace_allowed(FakeRequest({}, {"X-Luna-V3-Harness-Trace": "wrong"})))
+        finally:
+            for key, value in (("LUNA_V3_AUTHENTIC_HARNESS", old_mode), ("LUNA_V3_HARNESS_TRACE_TOKEN", old_token)):
+                if value is None:
+                    self.module.os.environ.pop(key, None)
+                else:
+                    self.module.os.environ[key] = value
 
     def test_preflight_rejects_every_hermes_transport_activation_input(self):
         base = {

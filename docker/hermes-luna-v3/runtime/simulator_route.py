@@ -29,6 +29,23 @@ def _json_or_text(value: Any) -> Any:
         return value
 
 
+def _harness_trace_allowed(request: Any) -> bool:
+    """Dual-gated evidence seam; inert unless the isolated harness is enabled."""
+    if os.environ.get("LUNA_V3_AUTHENTIC_HARNESS", "") != "1":
+        return False
+    expected = os.environ.get("LUNA_V3_HARNESS_TRACE_TOKEN", "")
+    supplied = getattr(request, "headers", {}).get("X-Luna-V3-Harness-Trace", "")
+    return bool(expected) and supplied == expected
+
+
+def _trace_message(message: Any) -> dict[str, Any]:
+    return {
+        key: _json_or_text(_value(message, key))
+        for key in ("role", "content", "tool_call_id", "tool_calls")
+        if _value(message, key) is not None
+    }
+
+
 def _project_tool_calls(messages: Any) -> list[dict[str, Any]]:
     if not isinstance(messages, list):
         return []
@@ -201,9 +218,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             await asyncio.to_thread(_record_offer_presented_sync, session_key, offer_reference, reply.strip(), inbound_event_id)
     except Exception:
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
-    return {
-        "status": 200,
-        "body": {
+    response_body = {
             "ok": True,
             "reply_text": reply.strip(),
             "thread": phone,
@@ -220,8 +235,14 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             "whatsapp_suppressed": True,
             "external_send_allowed": False,
             "staff_alert_allowed": False,
-        },
-    }
+        }
+    if _harness_trace_allowed(request):
+        response_body["harness_trace"] = {
+            "messages": [_trace_message(message) for message in messages] if isinstance(messages, list) else [],
+            "inbound_event_id": inbound_event_id,
+            "admission": admission,
+        }
+    return {"status": 200, "body": response_body}
 
 
 def register_simulator_route(app: Any, adapter: Any) -> None:
