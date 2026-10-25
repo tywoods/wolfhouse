@@ -16,12 +16,14 @@ const { resolveSeasonForDate, resolvePackageMinimumNights } = require('../wolfho
 const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
 const { assertSafeToolRequest, validateCanonicalAddOns } = require('./contracts');
+const staffRequestContract = require('./staff-request-contract');
 const v3 = require('./v3-operations');
 const { createCheckQuoteBook } = require('./v3-booking-flow');
 
 const TENANT = 'wolfhouse-somo';
 const WIRES = Object.freeze({
   checkQuoteBook: 'check_quote_book',
+
   checkAvailability: 'check_availability',
   findRooms: 'find_rooms',
   getPricingCatalog: 'get_pricing_catalog',
@@ -273,7 +275,9 @@ async function getPricingCatalog(pg, input = {}, context) {
   try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
   const wantedPackages = input.package_ids && new Set(input.package_ids);
   const wantedServices = input.service_ids && new Set(input.service_ids);
-  const items = data.items.filter((item) => (!wantedPackages || item.item_type !== 'package' || wantedPackages.has(item.item_code))
+  const sourceItems = [staffRequestContract.ACCOMMODATION_ONLY,
+    ...data.items.filter((item) => !(item.item_type === 'package' && item.item_code === 'package_none'))];
+  const items = sourceItems.filter((item) => (!wantedPackages || item.item_type !== 'package' || wantedPackages.has(item.item_code))
     && (!wantedServices || item.item_type !== 'service' || wantedServices.has(item.item_code)));
   const codes = new Set(items.map((item) => `${item.item_type}:${item.item_code}`));
   const rules = data.rules.filter((rule) => codes.has(`${rule.item_type}:${rule.item_code}`)
@@ -303,6 +307,29 @@ async function getPricingCatalog(pg, input = {}, context) {
     seasons: data.seasons, items, rules, packageEligibility,
     transferCatalog, transferOptions: transferCatalog.options,
   };
+}
+
+async function getBookingCapabilitySnapshot(pg, context) {
+  trusted(context);
+  let data;
+  try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
+  const choices = [staffRequestContract.ACCOMMODATION_ONLY,
+    ...data.items.filter((item) => ['package', 'service', 'rental'].includes(item.item_type)
+      && !(item.item_type === 'package' && item.item_code === 'package_none'))].map((item) => {
+    const pricing = data.rules.filter((rule) => rule.item_type === item.item_type && rule.item_code.split('__')[0] === item.item_code);
+    const units = [...new Set(pricing.map((rule) => rule.unit))].sort();
+    return { kind: item.item_type === 'package' ? (item.item_code === 'package_none' ? 'accommodation' : 'package') : item.item_type,
+      code: item.item_code, label: item.label, description: item.description || null,
+      applicability: item.item_type === 'package' ? 'per_guest' : 'party_or_participants',
+      requirements: { dates: item.item_type === 'rental', quantity: item.item_type !== 'package',
+        participants: item.item_type !== 'package', units, date_dependent_eligibility: 'unknown_until_prepare' },
+      configuration: { active: item.active !== false, pricing_ready: item.item_code === 'package_none' || pricing.length > 0 },
+      includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] };
+  });
+  const snapshot = { contract: 'luna-v3-booking-capabilities', choices,
+    constraints: { wire_selection: 'code', one_prepare_per_inbound_event: true, prepare_purposes: ['quote', 'offer'],
+      date_dependent_eligibility: 'unknown_until_prepare', prices: 'unknown_until_prepare' } };
+  return { ok: true, revision: catalogRevision(snapshot), ...snapshot };
 }
 
 async function computeQuote(pg, input = {}, context) {
@@ -453,6 +480,7 @@ function createOperations(withPgClient, authorities = {}) {
 const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });
 const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkQuoteBook, checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
+Object.defineProperty(module.exports,'getBookingCapabilitySnapshot',{value:getBookingCapabilitySnapshot,enumerable:false});
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
 Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});
 Object.freeze(module.exports);

@@ -7,6 +7,7 @@ const refuse = (code, classification = 'validation', extra = {}, context = {}) =
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
+
   '/staff/bot/luna-v3/check-availability': 'check_availability',
   '/staff/bot/luna-v3/find-rooms': 'find_rooms',
   '/staff/bot/luna-v3/pricing-catalog': 'get_pricing_catalog',

@@ -55693,8 +55693,12 @@ async function router(req, res) {
               SELECT s.client_id,s.id,s.principal_id,'inbound',$2 FROM luna_v3_sessions s
               WHERE s.client_id=$1 AND s.session_key=$3 AND s.principal_id=$4 RETURNING id::text`,
             [client.id, messageDigest, sessionId, admittedPrincipal])).rows[0];
+            const capabilitySnapshot = await LUNA_V3_STAFF_OPERATIONS.getBookingCapabilitySnapshot(pg, {
+              tenantId: admittedSlug, authenticated: true, sessionId, principalId: admittedPrincipal, writeAllowed: true,
+            });
+            if (!capabilitySnapshot || capabilitySnapshot.ok !== true) throw Object.assign(new Error('capability snapshot unavailable'), { code: 'luna_v3_capability_snapshot_unavailable' });
             await pg.query('COMMIT');
-            return { ok: true, admitted: true, inbound_event_id: inbound.id };
+            return { ok: true, admitted: true, inbound_event_id: inbound.id, capability_snapshot: capabilitySnapshot };
           } catch (error) {
             await pg.query('ROLLBACK');
             throw error;

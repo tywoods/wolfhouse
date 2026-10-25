@@ -121,6 +121,11 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
 
+    if name == "check_quote_book" and arguments.get("action") == "prepare":
+        from runtime.trusted_turn_context import reserve_prepare_dispatch
+        if not reserve_prepare_dispatch():
+            return _refusal("prepare_attempt_already_consumed", "conflict", 409, None)
+
     if name in WRITE_TOOLS and name != "check_quote_book" and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
@@ -307,7 +312,7 @@ def _field_schema(field: str) -> dict[str, Any]:
     if field == "action":
         return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
     if field == "purpose":
-        return {"type": "string", "enum": ["catalog", "quote", "offer"]}
+        return {"type": "string", "enum": ["quote", "offer"]}
     if field == "offer_reference":
         return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
     if field == "room":
@@ -453,7 +458,7 @@ def register(ctx: Any) -> None:
         fields = _TOOL_FIELDS[name]
         required = list(_TOOL_REQUIRED[name])
         descriptions = {
-            "check_quote_book": "Use Staff authority for catalog discovery, stay pricing, or a held offer. A guest asking for a price, total, or quote needs purpose=quote, which returns authoritative money without creating a hold. Quote guests may be empty objects when names are unknown; never invent names, and do not send payment because Staff does not price it. Use purpose=catalog only to explain choices without a requested total; use purpose=offer only when the guest wants an option held. Never call quote or offer until dates, guest count, room requirement, package, and add_ons (an empty array is valid) are known; offer additionally requires real ordered guest names and payment arrangement. If required facts are missing, ask the guest instead and do not call this tool or hand off.",
+            "check_quote_book": "Use Staff authority for stay pricing or a held offer. Use only canonical codes in the trusted Staff capability snapshot supplied before this turn. A guest asking for a price, total, or quote needs purpose=quote, which prices without creating a hold. Quote guests may be empty objects when names are unknown; never invent names. Use purpose=offer only when the guest wants an option held. Never call quote or offer until all required guest facts are known; ask the guest instead. Staff permits exactly one prepare for this inbound event; success, refusal, or unknown is terminal and must never be repaired with another prepare.",
             "find_rooms": "Discover Staff candidates matching ordered guests and explicit constraints. Results are candidates, not holds; never infer gender.",
             "get_pricing_catalog": "Load authoritative stay/package eligibility and transfer facts. Proration does not override package minimums; transfer facts are not confirmation.",
             "quote": "Price one specified Staff candidate using nonempty exact beds in guest order. A quote is provisional and not a hold or booking.",
@@ -477,8 +482,7 @@ def register(ctx: Any) -> None:
                 {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]},
                  "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"],
                           "properties": {"guests": {"items": {"required": ["name"]}}}}},
-                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "catalog"}}, "required": ["action", "purpose"]},
-                 "then": {"required": ["check_in", "check_out"]}},
+
                 {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]},
                  "then": {"required": ["offer_reference"], "not": {"anyOf": [
                      {"required": [field]} for field in ("purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment")

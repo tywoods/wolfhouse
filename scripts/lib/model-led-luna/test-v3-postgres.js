@@ -8,6 +8,7 @@ const { Client } = require("pg");
 const defaultApi = require("./index");
 const v3ops = require("./v3-operations");
 const { dispatchLunaV3StaffRoute } = require('./staff-routes');
+const { assertSafeToolRequest } = require('./contracts');
 const perGuestCheckout = require('../per-guest-checkout');
 const { recordStaffManualPayment } = require("../staff-manual-payment");
 const url = process.env.V3_TEST_DATABASE_URL;
@@ -198,6 +199,10 @@ async function main(api = defaultApi) {
     );
     const migration124 = fs.readFileSync(
       path.join(__dirname, "../../../database/migrations/124_luna_v3_fix2_evidence_and_cancel_guard.sql"),
+      "utf8",
+    );
+    const migration125 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/125_luna_v3_prepare_attempts.sql"),
       "utf8",
     );
     await admin.query(base);
@@ -817,6 +822,7 @@ async function main(api = defaultApi) {
     await admin.query(migration120);
     await admin.query(migration123);
     await admin.query(migration124);
+    await admin.query(migration125);
     console.log(
       "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
@@ -3414,62 +3420,40 @@ async function main(api = defaultApi) {
     const oneTryContext = { ...ctx("luna-v3:a"), turnId: "turn:one-try-prepare" };
     const activeHoldCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_holds WHERE state='active' AND expires_at>now()`)).rows[0].n);
     const offerTurnCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns`)).rows[0].n);
-    const beforeInformationHolds = await activeHoldCount();
-    const beforeInformationOffers = await offerTurnCount();
-    const information = await api.checkQuoteBook(admin, {
-      action: "prepare", purpose: "information", check_in: "2035-07-01", check_out: "2035-07-08",
-    }, { ...oneTryContext, turnId: "turn:one-try-information" });
-    assert.equal(information.state, "information", JSON.stringify(information));
-    assert.equal(await activeHoldCount(), beforeInformationHolds);
-    assert.equal(await offerTurnCount(), beforeInformationOffers);
-    await admin.query(`CREATE FUNCTION reject_v3_offer_turn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced_offer_record_failure'; END $$`);
-    await admin.query(`CREATE TRIGGER reject_v3_offer_turn BEFORE INSERT ON luna_v3_offer_turns FOR EACH ROW EXECUTE FUNCTION reject_v3_offer_turn()`);
-    const beforeFailedPrepareHolds = await activeHoldCount();
-    await assert.rejects(() => api.checkQuoteBook(admin, {
-      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: "Atomic Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
-      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    }, { ...oneTryContext, turnId: "turn:one-try-atomic-failure" }), /forced_offer_record_failure/);
-    await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
-    await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
-    assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
-    let prepared = await api.checkQuoteBook(admin, {
-      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
-      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    }, oneTryContext);
-    assert.equal(prepared.state, "offer", JSON.stringify(prepared));
-    assert.match(prepared.offer_reference, /^offer_/);
-    assert.equal(Object.hasOwn(prepared, "holdId"), false);
-    assert.equal(prepared.quote.currency, "EUR");
-    assert.ok(Number.isSafeInteger(prepared.quote.totalCents) && prepared.quote.totalCents > 0);
-    assert.equal(prepared.guests[0].bed, "R10-B1");
-    assert.equal(prepared.guests[0].package, "malibu");
-    assert.equal(prepared.package_details.name, "Malibu");
-    assert.deepEqual(prepared.package_details.includes, ["stay"]);
-    const sameTurnPrepared = await api.checkQuoteBook(admin, {
-      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
-      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    }, oneTryContext);
-    assert.equal(sameTurnPrepared.offer_reference, prepared.offer_reference, "same-turn prepare did not replay");
-    const pluginPrepare = (guestName) => ({
-      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: guestName }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
-      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    });
     const persistedInbound = async (digest) => (await admin.query(
       `INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
        SELECT s.client_id,s.id,s.principal_id,'inbound',$3 FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
        WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
       [oneTryContext.sessionId, oneTryContext.principalId, digest],
     )).rows[0].id;
+    assert.throws(() => assertSafeToolRequest("check_quote_book", {
+      action: "prepare", purpose: "information", check_in: "2035-07-01", check_out: "2035-07-08",
+    }), /outside the allowed enum/);
+    await admin.query(`CREATE FUNCTION reject_v3_offer_turn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced_offer_record_failure'; END $$`);
+    await admin.query(`CREATE TRIGGER reject_v3_offer_turn BEFORE INSERT ON luna_v3_offer_turns FOR EACH ROW EXECUTE FUNCTION reject_v3_offer_turn()`);
+    const beforeFailedPrepareHolds = await activeHoldCount();
+    const failedPrepareInbound = await persistedInbound('0'.repeat(64));
+    const failedPrepare = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "Atomic Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, { ...oneTryContext, authenticatedInboundEventId: failedPrepareInbound, turnId: "turn:one-try-atomic-failure" });
+    assert.equal(failedPrepare.outcome, "unknown", JSON.stringify(failedPrepare));
+    assert.equal(failedPrepare.code, "prepare_outcome_unknown", JSON.stringify(failedPrepare));
+    await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
+    await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
+    assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
+    const pluginPrepare = (guestName) => ({
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: guestName }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    });
     const dispatchRegistered = async (request) => dispatchLunaV3StaffRoute({
       pathname: "/staff/bot/luna-v3/check-quote-book", method: "POST", clientSlug: "wolfhouse-somo",
       body: request.body,
       authenticatedPrincipal: { principalId: oneTryContext.principalId, writeAllowed: true,
         turnId: request.turn_id, inboundEventId: request.inbound_event_id },
-      resolveSession: async () => ({ sessionId: oneTryContext.sessionId, writeAllowed: true }),
+      resolveSession: async () => ({ sessionId: oneTryContext.sessionId, writeAllowed: true, guestPhone: oneTryContext.guestPhone }),
       operations: api.createOperations((fn) => fn(admin)),
     });
     const inboundA1 = await persistedInbound('1'.repeat(64));
@@ -3484,7 +3468,16 @@ async function main(api = defaultApi) {
     assert.notEqual(lifecycleB.offer_reference, lifecycleA1.offer_reference);
     assert.notEqual(lifecycleA2.offer_reference, lifecycleA1.offer_reference, "real plugin A→B→A reused a lifecycle reference");
     assert.notEqual(lifecycleA2.offer_reference, lifecycleB.offer_reference);
-    prepared = lifecycleA2;
+    const prepared = lifecycleA2;
+    assert.equal(prepared.state, "offer", JSON.stringify(prepared));
+    assert.match(prepared.offer_reference, /^offer_/);
+    assert.equal(Object.hasOwn(prepared, "holdId"), false);
+    assert.equal(prepared.quote.currency, "EUR");
+    assert.ok(Number.isSafeInteger(prepared.quote.totalCents) && prepared.quote.totalCents > 0);
+    assert.equal(prepared.guests[0].bed, "R10-B1");
+    assert.equal(prepared.guests[0].package, "malibu");
+    assert.equal(prepared.package_details.name, "Malibu");
+    assert.deepEqual(prepared.package_details.includes, ["stay"]);
     const nonPriceRecorded = await api.checkQuoteBook.recordPresented(admin, {
       offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.", assistant_event_id: "assistant:event:bad",
     }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-bad" });

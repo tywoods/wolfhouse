@@ -149,6 +149,11 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     inbound_event_id = str(admission.get("inbound_event_id") or "").strip()
     if not inbound_event_id:
         return {"status": 503, "body": {"ok": False, "code": "simulator_inbound_event_missing"}}
+    try:
+        from runtime.trusted_turn_context import render_capability_constraints
+        capability_constraints = render_capability_constraints(admission.get("capability_snapshot"))
+    except (ImportError, ValueError):
+        return {"status": 503, "body": {"ok": False, "code": "simulator_capability_snapshot_missing"}}
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,
@@ -163,7 +168,10 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         return ctx.run(
             agent.run_conversation,
             user_message=text,
-            conversation_history=_SESSION_HISTORY.get(session_id),
+            conversation_history=[{"role": "system", "content": capability_constraints}, *[
+                message for message in (_SESSION_HISTORY.get(session_id) or [])
+                if not (_value(message, "role") == "system" and str(_value(message, "content", "")).startswith("TRUSTED STAFF CAPABILITY SNAPSHOT"))
+            ]],
             task_id=session_id,
         )
 

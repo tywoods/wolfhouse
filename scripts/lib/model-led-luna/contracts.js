@@ -3,6 +3,7 @@ const staffRequestContract = require('./staff-request-contract');
 
 const TOOL_CONTRACTS = Object.freeze({
   check_quote_book: { method: 'POST', path: '/staff/bot/luna-v3/check-quote-book', write: true },
+
   check_availability: { method: 'POST', path: '/staff/bot/luna-v3/check-availability', write: false },
   find_rooms: { method: 'POST', path: '/staff/bot/luna-v3/find-rooms', write: false },
   get_pricing_catalog: { method: 'POST', path: '/staff/bot/luna-v3/pricing-catalog', write: false },
@@ -32,6 +33,7 @@ const FORBIDDEN_INPUTS = new Set([
 
 const READ_SCHEMAS = Object.freeze({
   check_quote_book: new Set(['action', 'purpose', 'check_in', 'check_out', 'guests', 'room', 'package', 'add_ons', 'payment', 'offer_reference']),
+
   check_availability: new Set(['check_in', 'check_out', 'party_size', 'room_type', 'room_preference', 'keep_together', 'group_gender', 'guests']),
   find_rooms: new Set(['check_in', 'check_out', 'party_size', 'preferences']),
   get_pricing_catalog: new Set(['check_in', 'check_out', 'package_ids', 'service_ids']),
@@ -80,7 +82,7 @@ function jsonSchemaFor(name) {
     handoff_to_human: ['reason', 'operation_key'],
   };
   if (name === 'check_quote_book') Object.assign(properties, {
-    action: { type: 'string', enum: ['prepare', 'confirm', 'decline'] }, purpose: { type: 'string', enum: ['catalog', 'quote', 'offer'] },
+    action: { type: 'string', enum: ['prepare', 'confirm', 'decline'] }, purpose: { type: 'string', enum: ['quote', 'offer'] },
     guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: {
       name: { type: 'string', minLength: 1 }, explicit_gender: { type: 'string', minLength: 1 }, gender: { type: 'string', minLength: 1 } } } },
     add_ons: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
@@ -147,7 +149,7 @@ function assertSafeToolRequest(name, input = {}) {
     staffRequestContract.validateSharedRequest(input);
     if (!['prepare', 'confirm', 'decline'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
-      if (!['catalog', 'quote', 'offer'].includes(input.purpose)) throw new Error('purpose must be catalog, quote, or offer');
+      if (!['quote', 'offer'].includes(input.purpose)) throw new Error('purpose must be quote or offer');
       if (!input.check_in || !input.check_out) throw new Error('check_in and check_out are required for prepare');
       if (input.purpose === 'quote' || input.purpose === 'offer') {
         if (!Array.isArray(input.guests) || input.guests.length === 0) throw new Error('guests are required for quote or offer prepare');

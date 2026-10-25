@@ -17,6 +17,7 @@ const dispatchLunaV3StaffRoute = (args) => rawDispatch({
 
 async function main() {
   assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 18);
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/booking-catalog'], undefined);
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/check-availability'], 'check_availability');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/handoff'], 'handoff_to_human');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/recover-operation'], 'recover_operation');

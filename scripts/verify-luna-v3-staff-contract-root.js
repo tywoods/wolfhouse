@@ -17,14 +17,14 @@ assert.equal(MODEL_TOOL_SCHEMAS.check_quote_book.additionalProperties, false);
 const dates = ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22'];
 const request = normalizeCheckQuoteBook({
   action: 'prepare', purpose: 'quote', check_in: '2026-11-18', check_out: '2026-11-23',
-  guests: [{ name: 'Tom' }], room: { kind: 'shared' }, package: { name: 'Custom Or Short Stay' },
+  guests: [{ name: 'Tom' }], room: { kind: 'shared' }, package: { code: 'package_none' },
   add_ons: [
     { name: 'Soft-top surfboard rental', quantity: 1, dates },
     { name: 'Wetsuit rental', people: ['Tom'], requested_dates: dates },
   ],
 });
 const catalog = { items: [
-  { item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' },
+  { item_type: 'package', item_code: 'package_none', label: 'Accommodation only', requirements: { package_minimum_nights: false } },
   { item_type: 'rental', item_code: 'soft_top', label: 'Soft-top surfboard rental', pricing_units: ['per_day'] },
   { item_type: 'rental', item_code: 'wetsuit', label: 'Wetsuit rental', pricing_units: ['per_day'] },
 ] };
@@ -40,7 +40,7 @@ for (const kind of SUPPORTED_CATALOG_KINDS) {
   const choiceCatalog = { items: [{ item_type: kind, item_code: `${kind}_1`, label: `${kind} one` }] };
   const choice = kind === 'package'
     ? { ...request, package: { name: `${kind} one` }, add_ons: [] }
-    : { ...request, package: { name: 'Custom Or Short Stay' }, add_ons: [{ name: `${kind} one`, quantity: 1, ...(kind === 'rental' ? { dates: [request.check_in] } : {}) }] };
+    : { ...request, package: { code: 'package_none' }, add_ons: [{ name: `${kind} one`, quantity: 1, ...(kind === 'rental' ? { dates: [request.check_in] } : {}) }] };
   const availableCatalog = kind === 'package' ? choiceCatalog : { items: [...catalog.items.slice(0, 1), ...choiceCatalog.items] };
   assert.equal(buildCanonicalQuoteInput(choice, availableCatalog, ['BED-1'], { sessionId: 's', turnId: `t-${kind}` }).ok, true, kind);
 }
@@ -61,6 +61,9 @@ assert.equal(transport.field_errors[0].code, 'staff_transport_non_json');
 
 // The compatibility export must delegate to the one Staff-owned executable.
 const owner = require('./lib/model-led-luna/staff-request-contract');
+assert.deepEqual(MODEL_TOOL_SCHEMAS.check_quote_book.properties.purpose.enum, ['quote', 'offer']);
+assert.equal(MODEL_TOOL_SCHEMAS.lookup_booking_catalog, undefined, 'catalog lookup must not be model-visible');
+assert.equal(owner.checkQuoteBookSchema['x-staff-public-catalog'].accommodation_only.item_code, 'package_none');
 assert.strictEqual(buildCanonicalQuoteInput, owner.normalizeQuoteRequest);
 for (const [mutation, code, path] of [
   [{ check_in: '2027-02-30' }, 'stay_dates_invalid', 'check_in'],

@@ -213,7 +213,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
         guest = schema["properties"]["guests"]["items"]
         add_on = schema["properties"]["add_ons"]["items"]
         self.assertEqual(["prepare", "confirm", "decline"], schema["properties"]["action"]["enum"])
-        self.assertEqual(["catalog", "quote", "offer"], schema["properties"]["purpose"]["enum"])
+        self.assertEqual(["quote", "offer"], schema["properties"]["purpose"]["enum"])
+        self.assertEqual("package_none", schema["x-staff-public-catalog"]["accommodation_only"]["item_code"])
         description = next(tool for tool in ctx.tools if tool["name"] == "check_quote_book")["description"]
         self.assertIn("price, total, or quote", description)
         self.assertIn("without creating a hold", description)
@@ -350,8 +351,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
             bind_inbound_event("22222222-2222-4222-8222-222222222222")
             plugin.call_tool("check_quote_book", arguments)
 
-        self.assertEqual(turn_ids[0], turn_ids[1], "same persisted event must replay the same lifecycle identity")
-        self.assertNotEqual(turn_ids[1], turn_ids[2], "a later persisted event must start a distinct lifecycle")
+        self.assertEqual(len(turn_ids), 2, "runtime must suppress a second prepare dispatch for the same event")
+        self.assertNotEqual(turn_ids[0], turn_ids[1], "a later persisted event must start a distinct lifecycle")
 
     def test_refuses_missing_token_and_send_flags(self):
         plugin = self.load_plugin()

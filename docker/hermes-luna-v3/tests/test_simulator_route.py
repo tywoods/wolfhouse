@@ -6,6 +6,9 @@ from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "runtime" / "simulator_route.py"
 BOOTSTRAP_MODULE = Path(__file__).resolve().parents[1] / "bootstrap.py"
+SNAPSHOT = {"ok": True, "revision": "staff-revision-1", "choices": [
+    {"kind": "accommodation", "code": "package_none", "label": "Accommodation only", "requirements": {}}
+]}
 
 
 class FakeAgent:
@@ -84,7 +87,7 @@ class SimulatorRouteTests(unittest.TestCase):
 
         async def admit(session_key, phone, message_digest):
             admitted.append((session_key, phone, message_digest))
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111111"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111111", "capability_snapshot": SNAPSHOT}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 008", "text": "hello", "allow_writes": False}),
@@ -104,7 +107,7 @@ class SimulatorRouteTests(unittest.TestCase):
         adapter = FakeAdapter()
 
         async def admit(_session_key, _phone, _message_digest):
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111112"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111112", "capability_snapshot": SNAPSHOT}
 
         first = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 009", "text": "price for one?"}),
@@ -119,17 +122,17 @@ class SimulatorRouteTests(unittest.TestCase):
 
         self.assertEqual(first["status"], 200)
         self.assertEqual(second["status"], 200)
-        self.assertIsNone(adapter.agent.calls[0]["conversation_history"])
+        self.assertEqual(adapter.agent.calls[0]["conversation_history"][0]["role"], "system")
         self.assertEqual(
             adapter.agent.calls[1]["conversation_history"],
-            adapter.agent.results[0]["messages"],
+            [{"role": "system", "content": adapter.agent.calls[1]["conversation_history"][0]["content"]}, *adapter.agent.results[0]["messages"][1:]],
         )
 
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
         adapter = FakeAdapter()
 
         async def admitted(_session_key, _phone, _message_digest):
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111113"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111113", "capability_snapshot": SNAPSHOT}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 010", "text": "price for two?"}),

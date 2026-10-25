@@ -121,7 +121,9 @@ function replyShowsAuthoritativeTerms(reply, quote) {
 function publicFailure(result) {
   const code = result && (result.code || result.reason) || 'unknown';
   return { ...refusalEnvelope({ code, classification: result && result.classification,
-    field_errors: result && result.field_errors, next_step: result && result.next_step },
+    message: result && result.message, path: result && result.path, fieldMessage: result && result.fieldMessage,
+    field_errors: result && result.field_errors, next_step: result && result.next_step,
+    retry_allowed: result && result.retry_allowed },
     { correlationId: result && result.correlation_id }),
   ...(result && result.pricing_failure ? { pricing_failure: result.pricing_failure } : {}), reason: code };
 }
@@ -236,14 +238,45 @@ function createCheckQuoteBook(deps) {
   async function checkQuoteBook(pg, input, context) {
     if (!context || !context.turnId) return publicFailure({ code: 'trusted_turn_required' });
     if (input.action === 'prepare') {
+      const inboundEvent = String(context.authenticatedInboundEventId || '').trim();
+      if (!inboundEvent) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
+      const requestFingerprint = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
+      // Reserve in autocommit before validation/business work.  This row therefore
+      // survives every later rollback and the unique event key serializes parallel calls.
+      const reserved = await pg.query(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint)
+        SELECT s.client_id,s.id,e.id,$4 FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+        JOIN luna_v3_runtime_events e ON e.client_id=c.id AND e.session_id=s.id
+        WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2
+          AND e.id=$3::uuid AND e.direction='inbound'
+        ON CONFLICT(client_id,session_id,inbound_event_id) DO NOTHING
+        RETURNING id,request_fingerprint,outcome,receipt`,
+      [context.sessionId, context.principalId, inboundEvent, requestFingerprint]);
+      let attempt = reserved.rows[0];
+      if (!attempt) {
+        attempt = (await pg.query(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt
+          FROM luna_v3_prepare_attempts a JOIN luna_v3_sessions s ON s.id=a.session_id JOIN clients c ON c.id=a.client_id
+          WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND a.inbound_event_id=$3::uuid`,
+        [context.sessionId, context.principalId, inboundEvent])).rows[0];
+        if (!attempt) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
+        if (attempt.request_fingerprint !== requestFingerprint)
+          return publicFailure({ code: 'prepare_event_payload_mismatch', classification: 'conflict', next_step: 'wait_for_new_guest_message' });
+        if (attempt.receipt) return attempt.receipt;
+        return publicFailure({ code: 'prepare_event_in_progress', classification: 'conflict', next_step: 'wait_for_verified_result' });
+      }
+      const finish = async (receipt, outcome) => {
+        const saved = { ...receipt, outcome };
+        await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now()
+          WHERE id=$1 AND outcome='started'`, [attempt.id, JSON.stringify(saved), outcome]);
+        return saved;
+      };
       await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
       try {
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
-        const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
+        const reject = async (failure) => { await pg.query('ROLLBACK'); return finish(publicFailure(failure), 'rejected'); };
         // A turn is the idempotency boundary for preparation. Replaying the
         // same input in that turn returns the same offer, while a later turn
         // starts a new lifecycle even when the guest returns A→B→A.
-        const replayReference = `offer_${digest({ session: context.sessionId, turn: context.turnId, input }, 36)}`;
+        const replayReference = `offer_${digest({ session: context.sessionId, turn: context.turnId }, 36)}`;
         if (input.purpose === 'offer') {
           const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
             COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
@@ -252,16 +285,12 @@ function createCheckQuoteBook(deps) {
           [context.sessionId, context.principalId, replayReference])).rows[0];
           if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
             await pg.query('COMMIT');
-            return publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference);
+            return finish(publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference), 'applied');
           }
         }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
         if (!catalog.ok) return reject(catalog);
-        if (input.purpose === 'catalog' || input.purpose === 'information') {
-          const result = { ok: true, state: input.purpose, reason: 'authoritative_catalog_ready', held: false, booked: false,
-            check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
-          await pg.query('COMMIT'); return result;
-        }
+
         const count = input.guests.length;
         const quoteOnly = input.purpose === 'quote';
         const preferences = buildAvailabilityInput(input, quoteOnly);
@@ -271,14 +300,14 @@ function createCheckQuoteBook(deps) {
         if (beds.length !== count) return reject({ code: 'requested_room_unavailable' });
         const built = buildCanonicalQuoteInput(input, catalog, beds, context);
         if (!built.ok) return reject(built);
-        const quoteInput = built.value;
+        const quoteInput = { ...built.value, operation_key: `one-try:prepare:${digest({ session: context.sessionId, inboundEvent }, 40)}` };
         const packages = { package_id: quoteInput.package_id, guest_packages: quoteInput.guest_packages };
         const quote = await deps.quote(pg, quoteInput, snapshotContext);
         if (!quote.ok) return reject(quote);
         if (input.purpose === 'quote') {
           const result = publicQuote(quote, input, beds, packages, catalog);
           await pg.query('COMMIT');
-          return result;
+          return finish(result, 'applied');
         }
         const session = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 FOR UPDATE`, [context.sessionId, context.principalId])).rows[0];
         await pg.query(`UPDATE luna_v3_holds SET state='released',updated_at=now() WHERE client_id=$1 AND session_id=$2 AND state='active'`, [session.client_id, session.id]);
@@ -294,10 +323,11 @@ function createCheckQuoteBook(deps) {
         [JSON.stringify(quoteWithPresentation.packageDetails), hold.holdId, session.client_id, session.id]);
         const result = publicOffer(hold, quoteWithPresentation, input, reference, catalog);
         await pg.query('COMMIT');
-        return result;
+        return finish(result, 'applied');
       } catch (error) {
         await pg.query('ROLLBACK');
-        throw error;
+        return finish(publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
+          message: 'Staff could not verify the outcome of this prepare attempt.', next_step: 'wait_for_verified_result' }), 'unknown');
       }
     }
     const row = (await pg.query(`SELECT h.id,h.state,h.expires_at,ot.presented_at,ot.assistant_event_id,ot.accepted_at,

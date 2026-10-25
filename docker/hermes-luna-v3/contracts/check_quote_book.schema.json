@@ -7,6 +7,22 @@
   "required": [
     "action"
   ],
+  "x-staff-public-catalog": {
+    "accommodation_only": {
+      "item_type": "package",
+      "item_code": "package_none",
+      "label": "Accommodation only",
+      "description": "Accommodation without a surf package.",
+      "requirements": {
+        "package_minimum_nights": false,
+        "exact_bed_required": true,
+        "guest_count_required": true
+      },
+      "metadata": {
+        "includes": []
+      }
+    }
+  },
   "properties": {
     "action": {
       "type": "string",
@@ -19,7 +35,6 @@
     "purpose": {
       "type": "string",
       "enum": [
-        "catalog",
         "quote",
         "offer"
       ]
@@ -322,28 +337,6 @@
             }
           }
         }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "action": {
-            "const": "prepare"
-          },
-          "purpose": {
-            "const": "catalog"
-          }
-        },
-        "required": [
-          "action",
-          "purpose"
-        ]
-      },
-      "then": {
-        "required": [
-          "check_in",
-          "check_out"
-        ]
       }
     },
     {
