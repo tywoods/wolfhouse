@@ -7,7 +7,8 @@ const { promisify } = require("node:util");
 const { Client } = require("pg");
 const defaultApi = require("./index");
 const v3ops = require("./v3-operations");
-const { dispatchLunaV3StaffRoute } = require("./staff-routes");
+const { dispatchLunaV3StaffRoute } = require('./staff-routes');
+const perGuestCheckout = require('../per-guest-checkout');
 const { recordStaffManualPayment } = require("../staff-manual-payment");
 const url = process.env.V3_TEST_DATABASE_URL;
 if (!url) throw new Error("V3_TEST_DATABASE_URL required");
@@ -2437,6 +2438,25 @@ async function main(api = defaultApi) {
     assert.equal(blockedByPendingGroup.status, 409);
     assert.equal(blockedByPendingGroup.body.code, "booking_payment_group_checkout_active");
     assert.equal(providerCreates, 0, "pending group scope must block before personal provider creation");
+    const personalGuest = (await admin.query(
+      `SELECT id::text FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`, [selectedBooking],
+    )).rows[0];
+    assert.ok(personalGuest, 'real booking guest required for shared-adapter proof');
+    let personalProviderCreates = 0;
+    await assert.rejects(
+      perGuestCheckout.run({
+        withPgClient: (fn) => fn(admin), guestId: personalGuest.id, clientSlug: 'wolfhouse-somo',
+        actorId: 'v3-postgres-probe', paymentTarget: 'deposit', successUrl: 'https://staff.example/success',
+        cancelUrl: 'https://staff.example/cancel',
+        stripe: { checkout: { sessions: {
+          create: async () => { personalProviderCreates += 1; throw new Error('must_not_create_personal_provider'); },
+          retrieve: async () => { throw new Error('must_not_retrieve_personal_provider'); },
+          expire: async () => { throw new Error('must_not_expire_personal_provider'); },
+        } } },
+      }),
+      (error) => error && error.message === 'guest_payment_booking_checkout_active' && error.httpStatus === 409,
+    );
+    assert.equal(personalProviderCreates, 0, 'shared personal adapter must reject pending group metadata before provider creation');
     await admin.query(`DELETE FROM payments WHERE id=$1`, [pendingGroupPayment.id]);
     const lost = await dispatchLunaV3StaffRoute({
       ...routeArgs,

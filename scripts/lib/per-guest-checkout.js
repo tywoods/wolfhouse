@@ -79,7 +79,8 @@ const LOCKED_GUEST_SQL = `SELECT bg.id::text AS booking_guest_id, bg.client_id::
  AND COALESCE(p.metadata->>'payment_scope','booking')='booking'
  AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
               NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
-              NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key','')) IS NOT NULL) AS has_active_booking_checkout
+              NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),
+              NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NOT NULL) AS has_active_booking_checkout
  FROM booking_guests bg JOIN bookings b ON b.id=bg.booking_id JOIN clients c ON c.id=bg.client_id
  WHERE bg.id=$1::uuid AND c.slug=$2`;
 

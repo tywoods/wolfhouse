@@ -73,18 +73,24 @@ function replyShowsAuthoritativeTerms(reply, quote) {
     const quantity = Number.isSafeInteger(addOn.quantity) ? addOn.quantity : 1;
     if (!code) return false;
     const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const quantityClaim = new RegExp(`\\b${escaped}\\b[^.;!?]{0,48}\\b(?:quantity\\s*)?${quantity}\\b`, 'i');
-    if (!quantityClaim.test(text)) return false;
+    const clauses = [...text.matchAll(new RegExp(`\\b${escaped}\\b([^.;!?]{0,64})`, 'ig'))];
+    const observedQuantities = clauses.flatMap((claim) => [...claim[1].matchAll(/\bquantity\s*(\d+)\b/ig)]
+      .map((match) => Number(match[1])));
+    if (!observedQuantities.length || observedQuantities.some((value) => value !== quantity)) return false;
   }
   const inclusions = quote.packageDetails && Array.isArray(quote.packageDetails.includes)
     ? quote.packageDetails.includes.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
   if (inclusions.length) {
-    const includesClaim = lower.match(/\bincludes?\b([^.;!?]*)/i);
-    if (includesClaim) {
+    for (const value of inclusions) {
+      const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(?:\\b(?:not|excluding|excluded|without)\\b[^.!?]{0,40}\\b${escaped}\\b|\\b${escaped}\\b[^.!?]{0,40}\\b(?:excluded|not included)\\b)`, 'i').test(lower)) return false;
+    }
+    const inclusionClaims = [...lower.matchAll(/\bincludes?\b([^.;!?]*)/ig)];
+    for (const includesClaim of inclusionClaims) {
       if (inclusions.some((value) => !includesClaim[1].includes(value))) return false;
       let residue = includesClaim[1];
-      for (const value of inclusions.sort((a, b) => b.length - a.length)) residue = residue.replaceAll(value, ' ');
-      residue = residue.replace(/\b(?:and|the|a|an)\b|[,/&+]/g, ' ').replace(/\s+/g, ' ').trim();
+      for (const value of [...inclusions].sort((a, b) => b.length - a.length)) residue = residue.replaceAll(value, ' ');
+      residue = residue.replace(/\b(?:and|the|a|an|also)\b|[,/&+]/g, ' ').replace(/\s+/g, ' ').trim();
       if (residue) return false;
     }
   }

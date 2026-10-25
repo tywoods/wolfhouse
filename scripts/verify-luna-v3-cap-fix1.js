@@ -121,8 +121,14 @@ async function main() {
     'later contradictory money must invalidate the presentation');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('board quantity 3', 'board quantity 2'), presentationQuote), false,
     'selected add-on quantity must be canonical');
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('board quantity 3', 'board quantity 3 and correction quantity 2'), presentationQuote), false,
+    'contradictory add-on quantity must invalidate the presentation');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('includes bed and lessons', 'includes bed, lessons, and wetsuit'), presentationQuote), false,
     'package presentation must not add excluded inclusions');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} It also includes wetsuit.`, presentationQuote), false,
+    'a later noncanonical inclusion claim must invalidate the presentation');
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} Correction: lessons are excluded.`, presentationQuote), false,
+    'a later exclusion of a canonical inclusion must invalidate the presentation');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €123.450; deposit €300.00'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00 and €123.45 deposit'), presentationQuote), false,
