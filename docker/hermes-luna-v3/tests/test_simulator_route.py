@@ -102,6 +102,9 @@ class SimulatorRouteTests(unittest.TestCase):
             adapter.bound_session_key,
             self.module._normalize_phone("+34 699 901 008"),
         ))
+        self.assertIn("TRUSTED STAFF CAPABILITY SNAPSHOT", adapter.agent_kwargs["ephemeral_system_prompt"])
+        self.assertIn("code=package_none", adapter.agent_kwargs["ephemeral_system_prompt"])
+        self.assertEqual(adapter.agent.calls[0]["conversation_history"], [])
 
     def test_follow_up_receives_the_same_sessions_previous_messages(self):
         adapter = FakeAdapter()
@@ -122,10 +125,9 @@ class SimulatorRouteTests(unittest.TestCase):
 
         self.assertEqual(first["status"], 200)
         self.assertEqual(second["status"], 200)
-        self.assertEqual(adapter.agent.calls[0]["conversation_history"][0]["role"], "system")
         self.assertEqual(
             adapter.agent.calls[1]["conversation_history"],
-            [{"role": "system", "content": adapter.agent.calls[1]["conversation_history"][0]["content"]}, *adapter.agent.results[0]["messages"][1:]],
+            adapter.agent.results[0]["messages"],
         )
 
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):

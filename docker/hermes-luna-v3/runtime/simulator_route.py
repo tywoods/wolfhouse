@@ -157,6 +157,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     agent = adapter._create_agent(
         session_id=session_id,
         gateway_session_key=session_key,
+        ephemeral_system_prompt=capability_constraints,
     )
     tokens = adapter._bind_api_server_session(session_key=session_key)
     from runtime.trusted_turn_context import bind_inbound_event, clear_inbound_event
@@ -168,10 +169,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         return ctx.run(
             agent.run_conversation,
             user_message=text,
-            conversation_history=[{"role": "system", "content": capability_constraints}, *[
-                message for message in (_SESSION_HISTORY.get(session_id) or [])
-                if not (_value(message, "role") == "system" and str(_value(message, "content", "")).startswith("TRUSTED STAFF CAPABILITY SNAPSHOT"))
-            ]],
+            conversation_history=list(_SESSION_HISTORY.get(session_id) or []),
             task_id=session_id,
         )
 
