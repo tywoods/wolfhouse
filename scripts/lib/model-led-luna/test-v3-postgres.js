@@ -3342,6 +3342,19 @@ async function main(api = defaultApi) {
       assistant_reply: `Total €${depositAmount}; deposit €${displayedAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
     }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-swapped" });
     assert.equal(swappedAmounts.reason, "complete_offer_presentation_required");
+    const compoundSwappedAmounts = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:compound-swapped",
+      assistant_reply: `Total €${depositAmount} and €${displayedAmount} deposit; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-compound-swapped" });
+    assert.equal(compoundSwappedAmounts.reason, "complete_offer_presentation_required");
+    const afterInvalidPresentationInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('d',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const confirmAfterInvalidPresentation = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: afterInvalidPresentationInbound, turnId: "turn:one-try-confirm-after-invalid-presentation" });
+    assert.equal(confirmAfterInvalidPresentation.reason, "acceptance_required", JSON.stringify(confirmAfterInvalidPresentation));
     const omittedPackage = await api.checkQuoteBook.recordPresented(admin, {
       offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:omitted-package",
       assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1.`,

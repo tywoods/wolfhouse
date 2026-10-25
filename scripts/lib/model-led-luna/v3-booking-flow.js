@@ -45,7 +45,22 @@ function replyShowsAuthoritativeTerms(reply, quote) {
       const nextOther = after.search(new RegExp(`\\b${otherLabel}\\b`, 'i'));
       if (priorOther) start += priorOther.index + priorOther[0].length;
       if (nextOther >= 0) end = match.index + match[0].length + nextOther;
-      if (replyShowsPrice(text.slice(start, end), cents, quote.currency)) return true;
+      const segment = text.slice(start, end);
+      const amounts = [];
+      for (const amount of segment.matchAll(/(?:€\s*\d+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?\s*(?:€|EUR\b)|EUR\s*\d+(?:[.,]\d{1,2})?)/ig)) {
+        const number = amount[0].match(/\d+(?:[.,]\d{1,2})?/);
+        if (!number) continue;
+        const amountStart = start + amount.index;
+        const amountEnd = amountStart + amount[0].length;
+        const labelStart = match.index;
+        const labelEnd = match.index + match[0].length;
+        amounts.push({
+          cents: Math.round(Number(number[0].replace(',', '.')) * 100),
+          distance: amountEnd <= labelStart ? labelStart - amountEnd : amountStart >= labelEnd ? amountStart - labelEnd : 0,
+        });
+      }
+      amounts.sort((a, b) => a.distance - b.distance);
+      if (amounts[0] && amounts[0].cents === cents) return true;
     }
     return false;
   };

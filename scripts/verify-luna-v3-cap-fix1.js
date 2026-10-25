@@ -96,6 +96,8 @@ async function main() {
   assert.equal(replyShowsAuthoritativeTerms(complete, presentationQuote), true);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €123.450; deposit €300.00'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00 and €123.45 deposit'), presentationQuote), false,
+    'a second amount before the deposit label must not let swapped money pass');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu; ', ''), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('board on 2027-03-02', ''), presentationQuote), false);
   assert.equal(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/book'], undefined, 'legacy public book route must be closed');
