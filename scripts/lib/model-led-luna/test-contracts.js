@@ -9,7 +9,7 @@ const {
 const { createScopedNotesStore } = require('./scoped-notes-store');
 
 const EXPECTED_TOOLS = [
-  'check_availability', 'find_rooms', 'get_pricing_catalog', 'quote',
+  'check_quote_book', 'check_availability', 'find_rooms', 'get_pricing_catalog', 'quote',
   'hold_beds', 'book', 'release_hold', 'get_booking',
   'get_payment_status', 'send_payment_link', 'cancel_unpaid', 'read_notes',
   'write_note', 'save_transfer_request', 'handoff_to_human',
@@ -36,6 +36,14 @@ async function main() {
     keep_together: true, group_gender: 'mixed', guests: [{ name: 'A', explicit_gender: 'woman' }],
   } }));
   assert.throws(() => assertSafeToolRequest('find_rooms', { preferences: { same_room: true } }), /unknown field/);
+  assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', { action: 'decline', offer_reference: 'offer_123456789012345678901234' }));
+  assert.throws(() => assertSafeToolRequest('check_quote_book', { action: '_record_presented', offer_reference: 'offer_123456789012345678901234' }), /action must be/);
+  assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'offer_123456789012345678901234', assistant_reply: 'forged' }), /unknown field/);
+  for (const changed of [
+    { check_in: '2027-04-01' }, { room: { kind: 'private' } }, { payment: { arrangement: 'together' } },
+  ]) assert.throws(() => assertSafeToolRequest('check_quote_book', {
+    action: 'confirm', offer_reference: 'offer_123456789012345678901234', ...changed,
+  }), /cannot change prepared offer terms/);
 
   const request = buildStaffToolRequest('book', {
     hold_id: 'hold-test-1',

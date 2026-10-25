@@ -110,12 +110,12 @@ async function verifyDatedRentalsInPostgres() {
       assert.equal(booked.ok, true, JSON.stringify(booked));
       assert.deepEqual(booked.addOns, [expectedRental], 'book service receipt lost dated rental fields');
 
-      const serviceReadback = await operations.get_booking({ booking_id: booked.bookingId }, operationContext);
+      const serviceReadback = await operations.get_booking({ booking_reference: booked.bookingCode }, operationContext);
       assert.equal(serviceReadback.ok, true, JSON.stringify(serviceReadback));
       assert.deepEqual(serviceReadback.addOns, [expectedRental], 'getBooking service readback lost dated rental fields');
       const isoDate = (value) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
-      assert.equal(isoDate(serviceReadback.check_in), rentalCase.checkIn);
-      assert.equal(isoDate(serviceReadback.check_out), rentalCase.checkOut);
+      assert.equal(isoDate(serviceReadback.checkIn), rentalCase.checkIn);
+      assert.equal(isoDate(serviceReadback.checkOut), rentalCase.checkOut);
 
       const sqlReadback = (await client.query(
         `SELECT check_in::text,check_out::text,metadata->'add_ons_at_create' add_ons FROM bookings WHERE id=$1 AND client_id=$2`,

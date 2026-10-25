@@ -406,7 +406,37 @@ async function main() {
     assert('no checkout URL disclosed on unknown provider outcome', !result.body.checkout_url && !result.body.payment_link_url);
   }
 
-  console.log('[8] Wolfhouse vs Sunset Stripe mode isolation');
+  console.log('[8] Booking lock recheck blocks completed personal checkout before group provider creation');
+  {
+    const booking = {
+      booking_id: BOOKING_ID, booking_code: BOOKING_CODE, client_slug: WOLFHOUSE_CLIENT_SLUG,
+      client_id: CLIENT_WH, status: 'confirmed', guest_name: 'Guest', total_amount_cents: 10000,
+      amount_paid_cents: 0, balance_due_cents: 10000,
+    };
+    const personal = {
+      payment_id: 'pay-personal-active', booking_id: BOOKING_ID, booking_code: BOOKING_CODE,
+      client_slug: WOLFHOUSE_CLIENT_SLUG, booking_guest_id: 'guest-active', payment_status: 'checkout_created',
+      payment_kind: 'deposit_only', currency: 'EUR', amount_due_cents: 3000, amount_paid_cents: 0,
+      checkout_url: 'https://checkout.stripe.com/c/pay/cs_test_personal_active',
+      stripe_checkout_session_id: 'cs_test_personal_active', metadata: { payment_scope: 'individual' },
+    };
+    const pg = makePg({ bookings: [booking], payments: [personal] });
+    const built = buildPaymentLinkCommand({
+      operation: PAYMENT_LINK_OPERATIONS.CREATE, channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
+      trustedClientSlug: WOLFHOUSE_CLIENT_SLUG, bookingId: BOOKING_ID,
+      idempotencyKey: 'group-after-personal-race', authoritativeBalanceDueCents: 10000,
+    });
+    let providerCalls = 0;
+    const result = await createPaymentLink(pg, built.command, baseExecOpts({
+      createStripeCheckoutSession: async () => { providerCalls += 1; throw new Error('must_not_create_group_provider'); },
+    }));
+    assert('locked recheck returns typed personal-checkout conflict', !result.ok && result.status === 409
+      && result.body.reason_code === 'booking_payment_guest_checkout_active');
+    assert('locked recheck makes zero second provider calls', providerCalls === 0);
+    assert('locked recheck rolls back booking coordination transaction', pg.transactionCommands().includes('ROLLBACK'));
+  }
+
+  console.log('[9] Wolfhouse vs Sunset Stripe mode isolation');
   {
     const whLive = assertStripeRuntime(WOLFHOUSE_CLIENT_SLUG, {
       staffActionsEnabled: true,

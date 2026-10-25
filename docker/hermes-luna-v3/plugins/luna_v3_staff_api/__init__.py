@@ -7,6 +7,7 @@ quote state, WhatsApp transport, or reply composer. Staff owns facts and writes.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import urllib.error
 import urllib.request
@@ -28,13 +29,7 @@ def _open_staff(request: Any, base_url: str) -> Any:
     return urllib.request.build_opener(_SameHostRedirectHandler(base_url)).open(request, timeout=20)
 
 TOOL_PATHS = {
-    "check_availability": "/staff/bot/luna-v3/check-availability",
-    "find_rooms": "/staff/bot/luna-v3/find-rooms",
-    "get_pricing_catalog": "/staff/bot/luna-v3/pricing-catalog",
-    "quote": "/staff/bot/luna-v3/quote",
-    "hold_beds": "/staff/bot/luna-v3/hold-beds",
-    "book": "/staff/bot/luna-v3/book",
-    "release_hold": "/staff/bot/luna-v3/release-hold",
+    "check_quote_book": "/staff/bot/luna-v3/check-quote-book",
     "get_booking": "/staff/bot/luna-v3/get-booking",
     "get_payment_status": "/staff/bot/luna-v3/payment-status",
     "send_payment_link": "/staff/bot/luna-v3/payment-link",
@@ -43,11 +38,13 @@ TOOL_PATHS = {
     "write_note": "/staff/bot/luna-v3/notes/write",
     "save_transfer_request": "/staff/bot/luna-v3/transfer-request",
     "handoff_to_human": "/staff/bot/luna-v3/handoff",
-    "recover_operation": "/staff/bot/luna-v3/recover-operation",
 }
-TOOL_NAMES = tuple(TOOL_PATHS)
+TOOL_NAMES = (
+    "check_quote_book", "get_booking", "get_payment_status", "send_payment_link",
+    "cancel_unpaid", "read_notes", "write_note", "save_transfer_request", "handoff_to_human",
+)
 WRITE_TOOLS = frozenset({
-    "quote", "hold_beds", "book", "release_hold", "send_payment_link", "cancel_unpaid",
+    "check_quote_book", "send_payment_link", "cancel_unpaid",
     "write_note", "save_transfer_request", "handoff_to_human",
 })
 FORBIDDEN_FIELDS = frozenset({
@@ -106,13 +103,12 @@ def _reject_authority_fields(value: Any, path: str = "arguments") -> None:
 
 
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-    if name not in TOOL_PATHS:
-        raise ValueError(f"unknown Luna v3 tool: {name}")
+    if name not in TOOL_NAMES:
+        raise ValueError(f"unknown Luna v3 public tool: {name}")
     arguments = dict(arguments or {})
     _reject_authority_fields(arguments)
-    if name == "recover_operation" and (not str(arguments.get("tool", "")).strip() or not str(arguments.get("operation_key", "")).strip()):
-        raise ValueError("tool and operation_key are required for recover_operation")
-    if name in WRITE_TOOLS and not str(arguments.get("operation_key", "")).strip():
+
+    if name in WRITE_TOOLS and name != "check_quote_book" and not str(arguments.get("operation_key", "")).strip():
         raise ValueError(f"operation_key is required for {name}")
 
     runtime = _runtime()
@@ -123,6 +119,14 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }
+    try:
+        from runtime.trusted_turn_context import get_inbound_event
+        inbound_event_id = get_inbound_event()
+    except ImportError:
+        inbound_event_id = ""
+    if not inbound_event_id:
+        raise RuntimeError("trusted persisted inbound event is required")
+    turn_id = "turn:" + hashlib.sha256((runtime["session_id"] + ":" + inbound_event_id).encode()).hexdigest()[:32]
     request = urllib.request.Request(
         runtime["base_url"] + TOOL_PATHS[name],
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
@@ -130,6 +134,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": "".join(("Be", "arer ", runtime["token"])),
+            "X-Luna-V3-Turn-Id": turn_id,
+            "X-Luna-V3-Inbound-Event": inbound_event_id,
         },
         method="POST",
     )
@@ -138,7 +144,22 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             body = json.loads(response.read().decode("utf-8"))
             if not isinstance(body, dict):
                 return {"ok": False, "code": "malformed_staff_response"}
-            return body
+            private = {"bookingId", "paymentId", "paymentIds", "checkoutId", "guestId",
+                       "transferId", "authoritativeTransferId", "holdId", "consumedHoldId",
+                       "authorityKey", "payments", "events", "booking_id", "payment_id",
+                       "checkout_id", "transfer_id", "authoritative_transfer_id", "hold_id"}
+            if name == "get_booking":
+                private |= {"id", "phone", "booking_code", "payment_status", "total_amount_cents",
+                            "deposit_required_cents", "paid_cents", "balance_due_cents", "updated_at"}
+            if name == "get_payment_status":
+                private |= {"guests", "associations", "provider", "provider_readback"}
+            def redact(value: Any) -> Any:
+                if isinstance(value, list):
+                    return [redact(item) for item in value]
+                if isinstance(value, dict):
+                    return {key: redact(item) for key, item in value.items() if key not in private}
+                return value
+            return redact(body)
     except urllib.error.HTTPError as exc:
         result: dict[str, Any] = {"ok": False, "status": exc.code}
         try: staff = json.loads(exc.read().decode("utf-8"))
@@ -174,6 +195,7 @@ TOOLS = tuple({"name": name, "description": f"Luna v3 Staff operation: {name}"} 
 TOOLSET = "luna_v3_staff_api"
 
 _TOOL_FIELDS = {
+    "check_quote_book": ("action", "purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment", "offer_reference"),
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size", "preferences"),
     "get_pricing_catalog": ("check_in", "check_out", "package_ids", "service_ids"),
@@ -181,19 +203,20 @@ _TOOL_FIELDS = {
     "hold_beds": ("assignments", "check_in", "check_out", "guests", "quoted_selection", "operation_key"),
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
-    "get_booking": ("booking_id",),
-    "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
-    "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
-    "read_notes": ("topic",),
+    "get_booking": ("booking_reference",),
+    "get_payment_status": ("booking_reference",),
+    "send_payment_link": ("booking_reference", "payment_scope", "guest_position", "payment_choice", "operation_key"),
+    "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
+    "read_notes": ("topic", "booking_reference"),
     "write_note": ("text", "context", "booking_reference", "operation_key"),
-    "save_transfer_request": ("booking_id", "decision", "travel_details", "operation_key"),
+    "save_transfer_request": ("booking_reference", "decision", "travel_details", "operation_key"),
     "handoff_to_human": ("reason", "booking_id", "conversation_id", "context", "operation_key"),
     "recover_operation": ("tool", "operation_key"),
 }
 
 
 _TOOL_REQUIRED = {
+    "check_quote_book": ("action",),
     "check_availability": ("check_in", "check_out", "party_size"),
     "find_rooms": ("check_in", "check_out", "party_size"),
     "get_pricing_catalog": ("check_in", "check_out"),
@@ -202,30 +225,56 @@ _TOOL_REQUIRED = {
     "book": ("hold_id", "operation_key"),
     "release_hold": ("hold_id", "operation_key"),
     "get_booking": (),
-    "get_payment_status": ("booking_id",),
-    "send_payment_link": ("booking_id", "guest_id", "payment_choice", "operation_key"),
-    "cancel_unpaid": ("booking_id", "guest_reason", "operation_key"),
+    "get_payment_status": ("booking_reference",),
+    "send_payment_link": ("booking_reference", "payment_scope", "payment_choice", "operation_key"),
+    "cancel_unpaid": ("booking_reference", "guest_reason", "operation_key"),
     "read_notes": (),
     "write_note": ("text", "operation_key"),
-    "save_transfer_request": ("booking_id", "decision", "operation_key"),
+    "save_transfer_request": ("booking_reference", "decision", "operation_key"),
     "handoff_to_human": ("reason", "operation_key"),
     "recover_operation": ("tool", "operation_key"),
 }
 
 
 def _field_schema(field: str) -> dict[str, Any]:
+    if field == "action":
+        return {"type": "string", "enum": ["prepare", "confirm", "decline"]}
+    if field == "purpose":
+        return {"type": "string", "enum": ["offer", "information"]}
+    if field == "offer_reference":
+        return {"type": "string", "pattern": "^offer_[A-Za-z0-9_-]{24,80}$"}
+    if field == "room":
+        return {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {
+            "kind": {"type": "string", "enum": ["exact", "private", "shared", "women_only", "auto"]},
+            "name": {"type": "string", "minLength": 1}, "beds": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
+            "together": {"type": "string", "enum": ["required", "preferred", "not_required"]}}}
+    if field == "package":
+        return {"type": "object", "additionalProperties": False, "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "per_guest": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                "required": ["guest", "name"], "properties": {"guest": {"type": "integer", "minimum": 1}, "name": {"type": "string", "minLength": 1}}}}},
+            "anyOf": [{"required": ["name"]}, {"required": ["per_guest"]}]}
+    if field == "payment":
+        return {"type": "object", "additionalProperties": False, "required": ["arrangement"], "properties": {
+            "arrangement": {"type": "string", "enum": ["together", "separately"]}, "choice": {"type": "string", "enum": ["deposit", "balance"]}}}
     if field in {"party_size"}:
         return {"type": "integer", "minimum": 1}
+    if field == "guest_position":
+        return {"type": "integer", "minimum": 1}
+    if field == "payment_scope":
+        return {"type": "string", "enum": ["individual", "booking"]}
     if field in {"package_ids", "service_ids"}:
         return {"type": "array", "items": {"type": "string", "minLength": 1}}
     if field == "guests":
         return {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "minLength": 1},
                     "explicit_gender": {"type": "string", "minLength": 1},
+                    "gender": {"type": "string", "minLength": 1},
                 },
                 "required": ["name"],
                 "additionalProperties": False,
@@ -266,8 +315,9 @@ def _field_schema(field: str) -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "minLength": 1},
+                    "name": {"type": "string", "minLength": 1},
                     "days": {"type": "integer", "minimum": 1, "description": "For a dated rental, the number of distinct requested service dates."},
-                    "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, quantity counts people or equipment units, never participant-days."},
+                    "quantity": {"type": "integer", "minimum": 1, "description": "For rentals, count is people or equipment units, never participant-days."},
                     "dates": {
                         "type": "array",
                         "items": {"type": "string", "format": "date"},
@@ -275,8 +325,10 @@ def _field_schema(field: str) -> dict[str, Any]:
                         "uniqueItems": True,
                         "description": "The exact service dates for a dated rental; these are retained unchanged.",
                     },
+                    "requested_dates": {"type": "array", "items": {"type": "string", "format": "date"}, "uniqueItems": True},
+                    "people": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": True},
                 },
-                "required": ["code"],
+                "anyOf": [{"required": ["code"]}, {"required": ["name"]}],
                 "additionalProperties": False,
             },
         }
@@ -350,6 +402,17 @@ def register(ctx: Any) -> None:
                 "additionalProperties": False,
             },
         }
+        if name == "check_quote_book":
+            schema["parameters"]["allOf"] = [
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "offer"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons", "payment"]}},
+                {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "information"}}, "required": ["action", "purpose"]},
+                 "then": {"required": ["check_in", "check_out"]}},
+                {"if": {"properties": {"action": {"enum": ["confirm", "decline"]}}, "required": ["action"]},
+                 "then": {"required": ["offer_reference"], "not": {"anyOf": [
+                     {"required": [field]} for field in ("purpose", "check_in", "check_out", "guests", "room", "package", "add_ons", "payment")
+                 ]}}},
+            ]
         ctx.register_tool(
             name=name,
             toolset=TOOLSET,

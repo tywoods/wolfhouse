@@ -3,12 +3,12 @@
 const { assertSafeToolRequest } = require('./contracts');
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
+  '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
   '/staff/bot/luna-v3/check-availability': 'check_availability',
   '/staff/bot/luna-v3/find-rooms': 'find_rooms',
   '/staff/bot/luna-v3/pricing-catalog': 'get_pricing_catalog',
   '/staff/bot/luna-v3/quote': 'quote',
   '/staff/bot/luna-v3/hold-beds': 'hold_beds',
-  '/staff/bot/luna-v3/book': 'book',
   '/staff/bot/luna-v3/release-hold': 'release_hold',
   '/staff/bot/luna-v3/get-booking': 'get_booking',
   '/staff/bot/luna-v3/payment-status': 'get_payment_status',
@@ -20,9 +20,10 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/handoff': 'handoff_to_human',
   '/staff/bot/luna-v3/recover-operation': 'recover_operation',
   '/staff/bot/luna-v3/admit-simulator-session': 'admit_simulator_session',
+  '/staff/bot/luna-v3/record-offer-presentation': '_record_offer_presentation',
 });
 
-async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession, admitSimulatorSession }) {
+async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession, admitSimulatorSession, recordAssistantEvent }) {
   const tool = LUNA_V3_ROUTE_TO_TOOL[pathname];
   if (!tool) return null;
   if (String(method || '').toUpperCase() !== 'POST') {
@@ -39,10 +40,12 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   if (tool === 'admit_simulator_session') {
     const sessionId = String(input.session_id || '').trim();
     const guestPhone = String(input.guest_phone || '').trim();
+    const messageDigest = String(input.message_digest || '').trim();
     const scoped = /^luna-v3:[0-9a-f]{24}$/.test(sessionId)
       && /^\+346999\d{5,6}$/.test(guestPhone)
       && input.external_send_allowed === false
       && input.staff_alert_allowed === false
+      && /^[a-f0-9]{64}$/.test(messageDigest)
       && authenticatedPrincipal.writeAllowed === true
       && typeof admitSimulatorSession === 'function';
     if (!scoped) return { status: 403, body: { ok: false, code: 'luna_v3_simulator_scope_forbidden' } };
@@ -51,11 +54,13 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       sessionId,
       guestPhone,
       principalId: authenticatedPrincipal.principalId,
+      messageDigest,
     });
     return { status: admitted && admitted.ok === false ? (admitted.status || 422) : 200, body: admitted };
   }
+  const inboundEventId = String(authenticatedPrincipal.inboundEventId || '').trim();
   const boundSession = await resolveSession({ selector: input.session_id,
-    principalId: authenticatedPrincipal.principalId, clientSlug });
+    principalId: authenticatedPrincipal.principalId, clientSlug, inboundEventId });
   if (!boundSession || !boundSession.sessionId) {
     return { status: 403, body: { ok: false, code: 'luna_v3_session_forbidden' } };
   }
@@ -74,7 +79,16 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   delete modelInput.session_id;
   delete modelInput.external_send_allowed;
   delete modelInput.staff_alert_allowed;
-  try { assertSafeToolRequest(tool, modelInput); }
+  delete modelInput.trusted_turn_id;
+  try {
+    if (tool === '_record_offer_presentation') {
+      if (!/^offer_[A-Za-z0-9_-]{24,80}$/.test(String(modelInput.offer_reference || ''))
+          || !String(modelInput.assistant_reply || '').trim()
+          || typeof recordAssistantEvent !== 'function') throw new Error('trusted presentation evidence is required');
+      modelInput.assistant_event_id = await recordAssistantEvent({ sessionId: boundSession.sessionId,
+        principalId: authenticatedPrincipal.principalId, inboundEventId, reply: modelInput.assistant_reply });
+    } else assertSafeToolRequest(tool, modelInput);
+  }
   catch (error) { return { status: 400, body: { ok: false, code: 'invalid_tool_request', message: error.message } }; }
   try {
     const result = await operation(modelInput, {
@@ -84,6 +98,9 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       principalId: authenticatedPrincipal.principalId,
       writeAllowed: authenticatedPrincipal.writeAllowed === true && boundSession.writeAllowed === true,
       guestPhone: boundSession.guestPhone || null,
+      turnId: String(authenticatedPrincipal.turnId || '').trim() || null,
+      authenticatedInboundEventId: inboundEventId || null,
+      trustedPresentationRecorder: tool === '_record_offer_presentation',
     });
     return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
   } catch (error) {

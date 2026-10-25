@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import unittest
+import sys
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "runtime" / "simulator_route.py"
@@ -67,6 +68,7 @@ class FakeRequest:
 class SimulatorRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        sys.path.insert(0, str(MODULE.parents[1]))
         spec = importlib.util.spec_from_file_location("luna_v3_simulator_route", MODULE)
         if spec is None or spec.loader is None:
             raise RuntimeError("unable to load simulator route")
@@ -80,9 +82,9 @@ class SimulatorRouteTests(unittest.TestCase):
         adapter = FakeAdapter()
         admitted = []
 
-        async def admit(session_key, phone):
-            admitted.append((session_key, phone))
-            return {"ok": True, "admitted": True}
+        async def admit(session_key, phone, message_digest):
+            admitted.append((session_key, phone, message_digest))
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111111"}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 008", "text": "hello", "allow_writes": False}),
@@ -93,16 +95,16 @@ class SimulatorRouteTests(unittest.TestCase):
         self.assertEqual(response["body"]["reply_text"], "reply:hello")
         self.assertTrue(adapter.bound_session_key.startswith("luna-v3:"))
         self.assertEqual(adapter.agent_kwargs["gateway_session_key"], adapter.bound_session_key)
-        self.assertEqual(admitted, [(
+        self.assertEqual(admitted[0][:2], (
             adapter.bound_session_key,
             self.module._normalize_phone("+34 699 901 008"),
-        )])
+        ))
 
     def test_follow_up_receives_the_same_sessions_previous_messages(self):
         adapter = FakeAdapter()
 
-        async def admit(_session_key, _phone):
-            return {"ok": True, "admitted": True}
+        async def admit(_session_key, _phone, _message_digest):
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111112"}
 
         first = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 009", "text": "price for one?"}),
@@ -126,8 +128,8 @@ class SimulatorRouteTests(unittest.TestCase):
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
         adapter = FakeAdapter()
 
-        async def admitted(_session_key, _phone):
-            return {"ok": True, "admitted": True}
+        async def admitted(_session_key, _phone, _message_digest):
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111113"}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 010", "text": "price for two?"}),

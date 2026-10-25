@@ -1322,6 +1322,21 @@ function stripeCheckoutRedirectUrlsDistinct() {
 // initialized. Payment checkout is test-mode only; every conventional
 // message/alert/outbox adapter is connected to an explicit fail-closed
 // boundary on this exact registry authority object.
+const lunaV3GroupStripe = STRIPE_SECRET_KEY ? require('stripe')(STRIPE_SECRET_KEY) : null;
+const lunaV3GroupCheckout = lunaV3GroupStripe ? require('./lib/model-led-luna/v3-group-checkout').createBookingCheckoutAuthority({
+  withPgClient,
+  readStripeCheckout: (id) => lunaV3GroupStripe.checkout.sessions.retrieve(id),
+  expireStripeCheckout: (id) => lunaV3GroupStripe.checkout.sessions.expire(id),
+  paymentExecOpts: {
+    ...paymentLinkServiceExecOpts(lunaV3GroupStripe),
+    loadBookingPaymentLedger: async (pg, booking) => {
+      const services = await loadBookingServiceRecords(pg, 'wolfhouse-somo', booking.booking_code);
+      const payments = await pg.query(BOOKING_PAYMENTS_LEDGER_SQL, ['wolfhouse-somo', booking.booking_code]);
+      const transfers = await listBookingTransfersForBooking(pg, { client_slug: 'wolfhouse-somo', booking_id: booking.booking_id });
+      return bookingLedgerBalanceFromRows(booking, services.rows, payments.rows, transfers);
+    },
+  },
+}) : null;
 LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
   resolveBookingAdmission: (pg, request) => resolveWolfhouseAutomaticBookingAdmission(pg, request),
   stripeLinksEnabled: STRIPE_LINKS_ENABLED,
@@ -1331,6 +1346,8 @@ LUNA_V3_STAFF_AUTHORITIES = createLunaV3StaffAuthorities({
   checkoutCancelUrl: stripeCheckoutSessionCancelUrl,
   withPgClient,
   perGuestCheckout: require('./lib/per-guest-checkout'),
+  groupCheckout: lunaV3GroupCheckout,
+  expireStripeCheckout: (id) => lunaV3GroupStripe.checkout.sessions.expire(id),
   createStripe: (secret) => require('stripe')(secret),
 });
 LUNA_V3_STAFF_OPERATIONS = createLunaV3StaffOperations(withPgClient, LUNA_V3_STAFF_AUTHORITIES);
@@ -8909,7 +8926,7 @@ function paymentLinkServiceExecOpts(stripe) {
       metadata: sessionOpts.metadata || {},
       success_url: stripeCheckoutSessionSuccessUrl(),
       cancel_url: stripeCheckoutSessionCancelUrl(),
-    }),
+    }, { idempotencyKey: sessionOpts.idempotencyKey }),
   };
 }
 
@@ -55643,14 +55660,16 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, async (user, _authMode, effectiveClientSlug, body) => {
       const principalId = String(user && user.staff_user_id || '').trim();
+      const trustedTurnId = String(req.headers['x-luna-v3-turn-id'] || '').trim();
+      const inboundEventId = String(req.headers['x-luna-v3-inbound-event'] || '').trim();
       const result = await dispatchLunaV3StaffRoute({
         pathname,
         method,
         clientSlug: effectiveClientSlug,
         body,
         operations: LUNA_V3_STAFF_OPERATIONS,
-        authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true' },
-        admitSimulatorSession: async ({ clientSlug: admittedSlug, sessionId, guestPhone, principalId: admittedPrincipal }) => withPgClient(async (pg) => {
+        authenticatedPrincipal: { principalId, writeAllowed: process.env.LUNA_V3_TEST_WRITES === 'true', turnId: /^[A-Za-z0-9:_-]{8,200}$/.test(trustedTurnId) ? trustedTurnId : null, inboundEventId: /^[0-9a-f-]{36}$/.test(inboundEventId) ? inboundEventId : null },
+        admitSimulatorSession: async ({ clientSlug: admittedSlug, sessionId, guestPhone, principalId: admittedPrincipal, messageDigest }) => withPgClient(async (pg) => {
           if (process.env.LUNA_V3_TEST_WRITES !== 'true' || admittedSlug !== 'wolfhouse-somo') {
             return { ok: false, status: 403, code: 'luna_v3_simulator_scope_forbidden' };
           }
@@ -55670,19 +55689,35 @@ async function router(req, res) {
               SELECT $1,'Luna v3 TEST simulator',$2,'en',false,'open','bot',$3::jsonb
               WHERE NOT EXISTS (SELECT 1 FROM conversations WHERE client_id=$1 AND phone=$2)`,
             [client.id, guestPhone, JSON.stringify({ test_only: true, source: 'crowsnest_luna_v3' })]);
+            const inbound = (await pg.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+              SELECT s.client_id,s.id,s.principal_id,'inbound',$2 FROM luna_v3_sessions s
+              WHERE s.client_id=$1 AND s.session_key=$3 AND s.principal_id=$4 RETURNING id::text`,
+            [client.id, messageDigest, sessionId, admittedPrincipal])).rows[0];
             await pg.query('COMMIT');
-            return { ok: true, admitted: true };
+            return { ok: true, admitted: true, inbound_event_id: inbound.id };
           } catch (error) {
             await pg.query('ROLLBACK');
             throw error;
           }
         }),
-        resolveSession: async ({ selector, principalId: requestedPrincipal }) => withPgClient(async (pg) => {
+        resolveSession: async ({ selector, principalId: requestedPrincipal, inboundEventId: requestedEvent }) => withPgClient(async (pg) => {
           if (!selector || !requestedPrincipal) return null;
           const r = await pg.query(`SELECT s.session_key, s.write_admitted, s.guest_phone FROM luna_v3_sessions s
-            JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`,
-          [effectiveClientSlug, selector, requestedPrincipal]);
+            JOIN clients c ON c.id=s.client_id JOIN luna_v3_runtime_events e ON e.client_id=s.client_id AND e.session_id=s.id
+            WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3 AND e.id=$4::uuid
+              AND e.principal_id=s.principal_id AND e.direction='inbound'`,
+          [effectiveClientSlug, selector, requestedPrincipal, requestedEvent]);
           return r.rows[0] ? { sessionId: r.rows[0].session_key, writeAllowed: r.rows[0].write_admitted === true, guestPhone: r.rows[0].guest_phone } : null;
+        }),
+        recordAssistantEvent: async ({ sessionId, principalId: eventPrincipal, inboundEventId: preceding, reply }) => withPgClient(async (pg) => {
+          const digest = require('node:crypto').createHash('sha256').update(reply).digest('hex');
+          const row = (await pg.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest,preceding_inbound_event_id)
+            SELECT s.client_id,s.id,s.principal_id,'assistant_outbound',$4,e.id FROM luna_v3_sessions s
+            JOIN luna_v3_runtime_events e ON e.client_id=s.client_id AND e.session_id=s.id
+            WHERE s.session_key=$1 AND s.principal_id=$2 AND e.id=$3::uuid AND e.direction='inbound'
+            RETURNING id::text`, [sessionId,eventPrincipal,preceding,digest])).rows[0];
+          if (!row) throw Object.assign(new Error('trusted inbound event missing'), { status: 403 });
+          return row.id;
         }),
       });
       return sendJSON(res, result.status, result.body);

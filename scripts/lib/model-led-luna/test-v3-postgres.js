@@ -7,7 +7,8 @@ const { promisify } = require("node:util");
 const { Client } = require("pg");
 const defaultApi = require("./index");
 const v3ops = require("./v3-operations");
-const { dispatchLunaV3StaffRoute } = require("./staff-routes");
+const { dispatchLunaV3StaffRoute } = require('./staff-routes');
+const perGuestCheckout = require('../per-guest-checkout');
 const { recordStaffManualPayment } = require("../staff-manual-payment");
 const url = process.env.V3_TEST_DATABASE_URL;
 if (!url) throw new Error("V3_TEST_DATABASE_URL required");
@@ -61,8 +62,24 @@ async function freshProcess(payload) {
     },
   );
 }
+async function registeredPluginRequest(inboundEventId, arguments_) {
+  const probe = path.resolve(__dirname, '../../../docker/hermes-luna-v3/plugins/luna_v3_staff_api/emit_test_request.py');
+  const { stdout } = await promisify(execFile)('python3', [probe], {
+    env: {
+      ...process.env,
+      LUNA_V3_STAFF_API_BASE_URL: 'https://staff.example',
+      LUNA_V3_STAFF_API_TOKEN: 'test-token',
+      LUNA_V3_TENANT_ID: 'wolfhouse-somo',
+      LUNA_V3_SESSION_ID: 'luna-v3:a',
+      LUNA_V3_TEST_INBOUND_EVENT: inboundEventId,
+      LUNA_V3_TEST_ARGUMENTS: JSON.stringify(arguments_),
+    },
+    timeout: 30000,
+  });
+  return JSON.parse(stdout.trim());
+}
 const base = `CREATE EXTENSION IF NOT EXISTS pgcrypto; DROP SCHEMA public CASCADE; CREATE SCHEMA public;
-CREATE TYPE booking_status AS ENUM('hold','confirmed','cancelled','expired'); CREATE TYPE payment_status AS ENUM('not_requested','waiting_payment','deposit_paid','paid'); CREATE TYPE payment_record_status AS ENUM('draft'); CREATE TYPE payment_kind AS ENUM('deposit_only','full_amount');
+CREATE TYPE booking_status AS ENUM('hold','confirmed','cancelled','expired'); CREATE TYPE payment_status AS ENUM('not_requested','waiting_payment','deposit_paid','paid'); CREATE TYPE payment_record_status AS ENUM('draft','checkout_created','pending','paid','expired','cancelled','failed'); CREATE TYPE payment_kind AS ENUM('deposit_only','full_amount');
 CREATE TABLE clients(id uuid primary key,slug text unique,settings jsonb default '{}');
 CREATE TABLE tenant_house_notes(id uuid primary key default gen_random_uuid(),client_slug text not null unique,notes text not null default '',updated_at timestamptz not null default now(),updated_by uuid);
 CREATE TABLE rooms(id uuid primary key,client_id uuid references clients,name text,room_code text unique,house text,room_type text default 'shared',capacity int default 2,fill_priority int default 1,sort_order int default 1,gender_strategy text default 'mixed',can_be_matrimonial boolean default false,often_used_by_operator boolean default true,active boolean default true,selling_mode text default 'shared');
@@ -173,6 +190,14 @@ async function main(api = defaultApi) {
         __dirname,
         "../../../database/migrations/120_luna_v3_constraint_ownership_and_transfer_decline.sql",
       ),
+      "utf8",
+    );
+    const migration123 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/123_luna_v3_one_try_offers.sql"),
+      "utf8",
+    );
+    const migration124 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/124_luna_v3_fix2_evidence_and_cancel_guard.sql"),
       "utf8",
     );
     await admin.query(base);
@@ -790,8 +815,10 @@ async function main(api = defaultApi) {
       `COMMENT ON TABLE luna_v3_transfer_requests IS '115_luna_v3_guest_operations v1'`,
     );
     await admin.query(migration120);
+    await admin.query(migration123);
+    await admin.query(migration124);
     console.log(
-      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
+      "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
     await admin.query(
       `INSERT INTO clients(id,slug) VALUES($1,'wolfhouse-somo')`,
@@ -1479,7 +1506,7 @@ async function main(api = defaultApi) {
       )
     ).rows[0];
     assert.equal(persisted.status, "confirmed");
-    assert.equal(persisted.payment_status, "not_requested");
+    assert.equal(persisted.payment_status, "waiting_payment");
     assert.equal(persisted.beds.length, 2);
     assert.equal(
       (await admin.query("SELECT count(*)::int n FROM bookings")).rows[0].n,
@@ -1605,8 +1632,14 @@ async function main(api = defaultApi) {
     );
     assert.equal(Number(persisted.balance_due_cents), q1.totalCents);
     observations.exactPackageBedsDatesMoney = true;
-    const read = await api.getBooking(await c(), {}, ctx(ws));
-    assert.equal(read.bookingId, booked.bookingId);
+    const read = await api.getBooking(await c(), { booking_reference: booked.bookingCode }, ctx(ws));
+    assert.equal(read.bookingReference, booked.bookingCode);
+    for (const internal of ["bookingId", "booking_id", "id", "booking_code", "phone", "client_id"])
+      assert.equal(Object.hasOwn(read, internal), false, `public get_booking leaked ${internal}`);
+    assert.equal(read.totalCents, q1.totalCents);
+    assert.equal(read.depositCents, q1.depositCents);
+    assert.equal(read.paidCents, 0);
+    assert.equal(read.balanceDueCents, q1.totalCents);
     assert.equal(read.status, "confirmed");
     assert.equal(read.paymentStatus, "unpaid");
     assert.deepEqual(
@@ -1620,7 +1653,7 @@ async function main(api = defaultApi) {
     );
     const forged = await api.getBooking(
       await c(),
-      { booking_id: "00000000-0000-0000-0000-000000000000" },
+      { booking_reference: "WH-FORGED" },
       ctx(ws),
     );
     assert.equal(forged.ok, false);
@@ -2023,6 +2056,37 @@ async function main(api = defaultApi) {
     assert.equal(truth.paymentStatus, "unpaid");
     assert.equal(truth.evidenceStatus, "consistent");
     assert.ok(truth.paymentIds.length > 0);
+    const groupPaymentRow = truth.paymentIds[0];
+    await admin.query(
+      `UPDATE payments SET status='paid',amount_due_cents=$2,amount_paid_cents=$2,
+         metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('payment_scope','booking') WHERE id=$1`,
+      [groupPaymentRow, truth.totalCents],
+    );
+    await admin.query(
+      `UPDATE bookings SET payment_status='paid',amount_paid_cents=total_amount_cents,balance_due_cents=0 WHERE id=$1`,
+      [booked.bookingId],
+    );
+    await admin.query(
+      `INSERT INTO payment_events(client_id,booking_id,payment_id,event_type)
+       SELECT client_id,id,$2,'checkout.session.completed' FROM bookings WHERE id=$1`,
+      [booked.bookingId, groupPaymentRow],
+    );
+    const groupPaidTruth = await api.getPaymentStatus(
+      admin,
+      { booking_reference: booked.bookingCode },
+      ctx(ws),
+    );
+    assert.equal(groupPaidTruth.evidenceStatus, "consistent", JSON.stringify(groupPaidTruth));
+    assert.equal(groupPaidTruth.paymentStatus, "paid", JSON.stringify(groupPaidTruth));
+    await admin.query(`DELETE FROM payment_events WHERE payment_id=$1`, [groupPaymentRow]);
+    await admin.query(
+      `UPDATE payments SET status='draft',amount_paid_cents=0,metadata=COALESCE(metadata,'{}'::jsonb)-'payment_scope' WHERE id=$1`,
+      [groupPaymentRow],
+    );
+    await admin.query(
+      `UPDATE bookings SET payment_status='waiting_payment',amount_paid_cents=0,balance_due_cents=total_amount_cents WHERE id=$1`,
+      [booked.bookingId],
+    );
     assert.equal(
       (
         await api.getPaymentStatus(
@@ -2111,7 +2175,7 @@ async function main(api = defaultApi) {
     );
     const paymentGuest = (
       await admin.query(
-        `SELECT id::text,payment_id::text FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`,
+        `SELECT id::text,payment_id::text,guest_number FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`,
         [selectedBooking],
       )
     ).rows[0];
@@ -2351,15 +2415,49 @@ async function main(api = defaultApi) {
           : null,
       operations: registry,
     };
+    const selectedBookingReference = (await admin.query('SELECT booking_code FROM bookings WHERE id=$1', [selectedBooking])).rows[0].booking_code;
     const linkBody = {
       session_id: ws,
-      booking_id: selectedBooking,
-      guest_id: paymentGuest.id,
+      booking_reference: selectedBookingReference,
+      payment_scope: "individual",
+      guest_position: Number(paymentGuest.guest_number),
       payment_choice: "deposit",
       operation_key: "card12-link",
       external_send_allowed: false,
       staff_alert_allowed: false,
     };
+    const pendingGroupPayment = (await admin.query(
+      `INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents,metadata)
+       VALUES($1,$2,'draft','deposit_only','EUR',20017,0,$3::jsonb) RETURNING id`,
+      [ids.client, selectedBooking, JSON.stringify({ payment_scope: 'booking', checkout_preparation: { state: 'pending', provider_idempotency_key: 'group-pending-real' } })],
+    )).rows[0];
+    const blockedByPendingGroup = await dispatchLunaV3StaffRoute({
+      ...routeArgs,
+      body: { ...linkBody, operation_key: "card12-personal-blocked-by-group" },
+    });
+    assert.equal(blockedByPendingGroup.status, 409);
+    assert.equal(blockedByPendingGroup.body.code, "booking_payment_group_checkout_active");
+    assert.equal(providerCreates, 0, "pending group scope must block before personal provider creation");
+    const personalGuest = (await admin.query(
+      `SELECT id::text FROM booking_guests WHERE booking_id=$1 ORDER BY guest_number LIMIT 1`, [selectedBooking],
+    )).rows[0];
+    assert.ok(personalGuest, 'real booking guest required for shared-adapter proof');
+    let personalProviderCreates = 0;
+    await assert.rejects(
+      perGuestCheckout.run({
+        withPgClient: (fn) => fn(admin), guestId: personalGuest.id, clientSlug: 'wolfhouse-somo',
+        actorId: 'v3-postgres-probe', paymentTarget: 'deposit', successUrl: 'https://staff.example/success',
+        cancelUrl: 'https://staff.example/cancel',
+        stripe: { checkout: { sessions: {
+          create: async () => { personalProviderCreates += 1; throw new Error('must_not_create_personal_provider'); },
+          retrieve: async () => { throw new Error('must_not_retrieve_personal_provider'); },
+          expire: async () => { throw new Error('must_not_expire_personal_provider'); },
+        } } },
+      }),
+      (error) => error && error.message === 'guest_payment_booking_checkout_active' && error.httpStatus === 409,
+    );
+    assert.equal(personalProviderCreates, 0, 'shared personal adapter must reject pending group metadata before provider creation');
+    await admin.query(`DELETE FROM payments WHERE id=$1`, [pendingGroupPayment.id]);
     const lost = await dispatchLunaV3StaffRoute({
       ...routeArgs,
       body: linkBody,
@@ -2473,7 +2571,7 @@ async function main(api = defaultApi) {
     assert.equal(
       (
         await routeNegative({
-          guest_id: "00000000-0000-0000-0000-000000000000",
+          guest_position: 999,
         })
       ).status,
       403,
@@ -2795,10 +2893,10 @@ async function main(api = defaultApi) {
     assert.equal(
       (
         await admin.query(
-          `SELECT count(*)::int n FROM luna_v3_operations WHERE operation_key IN ('cancel-handoff-fail') OR operation_key LIKE 'cancel-refusal:%' AND receipt->>'reason'='cancel_unpaid_refused' AND receipt->'context'->>'guest_reason'='fail'`,
+          `SELECT count(*)::int n FROM luna_v3_operations WHERE operation_key='cancel-handoff-fail' AND receipt IS NULL`,
         )
       ).rows[0].n,
-      0,
+      1,
     );
     assert.equal((await snapshot(rollbackId)).status, "confirmed");
     observations.cancelUnpaidHandoffAtomicity = true;
@@ -2839,6 +2937,32 @@ async function main(api = defaultApi) {
     observations.cancelUnpaidZeroPaymentRelease = true;
     console.log(
       "PASS V3-CANCEL-ZERO-PAYMENT confirmed genuine zero-payment cancellation preserves booking_beds and releases occupancy 1->0",
+    );
+    const retiredPaymentId = await makeCancelBooking("C13-RETIRED-PAYMENT");
+    await admin.query(
+      `UPDATE bookings SET metadata=COALESCE(metadata,'{}'::jsonb)||'{"luna_v3_provenance":"fresh_one_try"}'::jsonb WHERE id=$1`,
+      [retiredPaymentId],
+    );
+    await admin.query(
+      `INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents,metadata) VALUES($1,$2,'expired','deposit_only','EUR',3000,0,'{}')`,
+      [ids.client, retiredPaymentId],
+    );
+    await setSelected(ws, retiredPaymentId);
+    const retiredPaymentCancellation = await api.cancelUnpaid(
+      await c(),
+      {
+        booking_id: retiredPaymentId,
+        guest_reason: "provider checkout expired",
+        operation_key: "cancel-retired-payment",
+      },
+      ctx(ws),
+    );
+    assert.equal(retiredPaymentCancellation.cancelled, true);
+    assert.notEqual(retiredPaymentCancellation.reason, "payment_exists");
+    assert.equal((await snapshot(retiredPaymentId)).status, "cancelled");
+    observations.cancelUnpaidRetiredPayment = true;
+    console.log(
+      "PASS V3-CANCEL-RETIRED-PAYMENT trusted-v3 cancels after expired zero-money local/provider payment evidence has cleared identifiers",
     );
     const paymentWinsId = await makeCancelBooking("C13-RACE-PAYMENT-WINS");
     await setSelected(ws, paymentWinsId);
@@ -2922,7 +3046,7 @@ async function main(api = defaultApi) {
     const ninput = {
       text: "Guest says BIO at 14:00",
       context: { topic: "transfer" },
-      booking_reference: booked.bookingId,
+      booking_reference: booked.bookingCode,
       operation_key: "note-1",
     };
     const [n1, n2] = await Promise.all([
@@ -2969,7 +3093,7 @@ async function main(api = defaultApi) {
       )
     ).rows[0];
     const missingDeclineInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "declined",
       travel_details: { direction: "departure" },
       operation_key: "transfer-decline-missing",
@@ -3003,7 +3127,7 @@ async function main(api = defaultApi) {
       0,
     );
     const incompleteInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "requested",
       travel_details: { airport: "BIO" },
       operation_key: "transfer-incomplete",
@@ -3032,7 +3156,7 @@ async function main(api = defaultApi) {
       `DELETE FROM wh_pricing_rules WHERE item_type='transfer' AND item_code='BIO'`,
     );
     const unpricedInput = {
-      booking_id: booked.bookingId,
+      booking_reference: booked.bookingCode,
       decision: "requested",
       travel_details: {
         airport: "BIO",
@@ -3107,7 +3231,7 @@ async function main(api = defaultApi) {
       api.saveTransferRequest(
         await c(),
         {
-          booking_id: booked.bookingId,
+          booking_reference: booked.bookingCode,
           decision: "requested",
           travel_details: travel,
           operation_key: "transfer-1",
@@ -3117,7 +3241,7 @@ async function main(api = defaultApi) {
       api.saveTransferRequest(
         await c(),
         {
-          booking_id: booked.bookingId,
+          booking_reference: booked.bookingCode,
           decision: "requested",
           travel_details: travel,
           operation_key: "transfer-1",
@@ -3152,7 +3276,7 @@ async function main(api = defaultApi) {
     const tr2 = await api.saveTransferRequest(
       admin,
       {
-        booking_id: booked.bookingId,
+        booking_reference: booked.bookingCode,
         decision: "requested",
         travel_details: travel,
         operation_key: "transfer-1",
@@ -3178,7 +3302,7 @@ async function main(api = defaultApi) {
     const declined = await api.saveTransferRequest(
       admin,
       {
-        booking_id: booked.bookingId,
+        booking_reference: booked.bookingCode,
         decision: "declined",
         travel_details: {},
         operation_key: "transfer-declined",
@@ -3247,6 +3371,176 @@ async function main(api = defaultApi) {
     console.log(
       "PASS route->registry authenticated server-bound composition and cross-principal denial",
     );
+    const oneTryContext = { ...ctx("luna-v3:a"), turnId: "turn:one-try-prepare" };
+    const activeHoldCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_holds WHERE state='active' AND expires_at>now()`)).rows[0].n);
+    const offerTurnCount = async () => Number((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns`)).rows[0].n);
+    const beforeInformationHolds = await activeHoldCount();
+    const beforeInformationOffers = await offerTurnCount();
+    const information = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "information", check_in: "2035-07-01", check_out: "2035-07-08",
+    }, { ...oneTryContext, turnId: "turn:one-try-information" });
+    assert.equal(information.state, "information", JSON.stringify(information));
+    assert.equal(await activeHoldCount(), beforeInformationHolds);
+    assert.equal(await offerTurnCount(), beforeInformationOffers);
+    await admin.query(`CREATE FUNCTION reject_v3_offer_turn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced_offer_record_failure'; END $$`);
+    await admin.query(`CREATE TRIGGER reject_v3_offer_turn BEFORE INSERT ON luna_v3_offer_turns FOR EACH ROW EXECUTE FUNCTION reject_v3_offer_turn()`);
+    const beforeFailedPrepareHolds = await activeHoldCount();
+    await assert.rejects(() => api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "Atomic Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, { ...oneTryContext, turnId: "turn:one-try-atomic-failure" }), /forced_offer_record_failure/);
+    await admin.query(`DROP TRIGGER reject_v3_offer_turn ON luna_v3_offer_turns`);
+    await admin.query(`DROP FUNCTION reject_v3_offer_turn()`);
+    assert.equal(await activeHoldCount(), beforeFailedPrepareHolds, "failed offer record leaked an active hold");
+    let prepared = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, oneTryContext);
+    assert.equal(prepared.state, "offer", JSON.stringify(prepared));
+    assert.match(prepared.offer_reference, /^offer_/);
+    assert.equal(Object.hasOwn(prepared, "holdId"), false);
+    assert.equal(prepared.quote.currency, "EUR");
+    assert.ok(Number.isSafeInteger(prepared.quote.totalCents) && prepared.quote.totalCents > 0);
+    assert.equal(prepared.guests[0].bed, "R10-B1");
+    assert.equal(prepared.guests[0].package, "malibu");
+    assert.equal(prepared.package_details.name, "Malibu");
+    assert.deepEqual(prepared.package_details.includes, ["stay"]);
+    const sameTurnPrepared = await api.checkQuoteBook(admin, {
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    }, oneTryContext);
+    assert.equal(sameTurnPrepared.offer_reference, prepared.offer_reference, "same-turn prepare did not replay");
+    const pluginPrepare = (guestName) => ({
+      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
+      guests: [{ name: guestName }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
+    });
+    const persistedInbound = async (digest) => (await admin.query(
+      `INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+       SELECT s.client_id,s.id,s.principal_id,'inbound',$3 FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+       WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+      [oneTryContext.sessionId, oneTryContext.principalId, digest],
+    )).rows[0].id;
+    const dispatchRegistered = async (request) => dispatchLunaV3StaffRoute({
+      pathname: "/staff/bot/luna-v3/check-quote-book", method: "POST", clientSlug: "wolfhouse-somo",
+      body: request.body,
+      authenticatedPrincipal: { principalId: oneTryContext.principalId, writeAllowed: true,
+        turnId: request.turn_id, inboundEventId: request.inbound_event_id },
+      resolveSession: async () => ({ sessionId: oneTryContext.sessionId, writeAllowed: true }),
+      operations: api.createOperations((fn) => fn(admin)),
+    });
+    const inboundA1 = await persistedInbound('1'.repeat(64));
+    const inboundB = await persistedInbound('2'.repeat(64));
+    const inboundA2 = await persistedInbound('3'.repeat(64));
+    const requestA1 = await registeredPluginRequest(inboundA1, pluginPrepare("One Try"));
+    const lifecycleA1 = (await dispatchRegistered(requestA1)).body;
+    const sameEventReplay = (await dispatchRegistered(await registeredPluginRequest(inboundA1, pluginPrepare("One Try")))).body;
+    assert.equal(sameEventReplay.offer_reference, lifecycleA1.offer_reference, "same persisted event did not replay");
+    const lifecycleB = (await dispatchRegistered(await registeredPluginRequest(inboundB, pluginPrepare("Lifecycle B")))).body;
+    const lifecycleA2 = (await dispatchRegistered(await registeredPluginRequest(inboundA2, pluginPrepare("One Try")))).body;
+    assert.notEqual(lifecycleB.offer_reference, lifecycleA1.offer_reference);
+    assert.notEqual(lifecycleA2.offer_reference, lifecycleA1.offer_reference, "real plugin A→B→A reused a lifecycle reference");
+    assert.notEqual(lifecycleA2.offer_reference, lifecycleB.offer_reference);
+    prepared = lifecycleA2;
+    const nonPriceRecorded = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_reply: "I have NOT shown you a price.", assistant_event_id: "assistant:event:bad",
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-bad" });
+    assert.equal(nonPriceRecorded.reason, "complete_offer_presentation_required");
+    const displayedAmount = (Number(prepared.quote.totalCents) / 100).toFixed(2);
+    const misleadingAmount = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:misleading",
+      assistant_reply: `An unrelated larger amount is €1${displayedAmount}.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-misleading" });
+    assert.equal(misleadingAmount.reason, "complete_offer_presentation_required");
+    const depositAmount = (Number(prepared.quote.depositCents) / 100).toFixed(2);
+    const swappedAmounts = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:swapped",
+      assistant_reply: `Total €${depositAmount}; deposit €${displayedAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-swapped" });
+    assert.equal(swappedAmounts.reason, "complete_offer_presentation_required");
+    const compoundSwappedAmounts = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:compound-swapped",
+      assistant_reply: `Total €${depositAmount} and €${displayedAmount} deposit; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-compound-swapped" });
+    assert.equal(compoundSwappedAmounts.reason, "complete_offer_presentation_required");
+    const contradictoryCorrection = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:contradictory-correction",
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu. Correction: the total is €1.00 and the deposit is €1.00.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-contradictory-correction" });
+    assert.equal(contradictoryCorrection.reason, "complete_offer_presentation_required");
+    const afterInvalidPresentationInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('d',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const confirmAfterInvalidPresentation = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: afterInvalidPresentationInbound, turnId: "turn:one-try-confirm-after-invalid-presentation" });
+    assert.equal(confirmAfterInvalidPresentation.reason, "acceptance_required", JSON.stringify(confirmAfterInvalidPresentation));
+    const omittedPackage = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:omitted-package",
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-omitted-package" });
+    assert.equal(omittedPackage.reason, "complete_offer_presentation_required");
+    const excludedPackage = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:excluded-package",
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu includes stay. Accommodation only, no malibu package included.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-excluded-package" });
+    assert.equal(excludedPackage.reason, "complete_offer_presentation_required");
+    const afterExcludedPackageInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('e',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const confirmAfterExcludedPackage = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: afterExcludedPackageInbound, turnId: "turn:one-try-confirm-after-excluded-package" });
+    assert.equal(confirmAfterExcludedPackage.reason, "acceptance_required", JSON.stringify(confirmAfterExcludedPackage));
+    const presentedInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('a',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const assistantEvent = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest,preceding_inbound_event_id)
+      SELECT s.client_id,s.id,s.principal_id,'assistant_outbound',repeat('b',64),$3::uuid FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId,presentedInbound])).rows[0].id;
+    const recorded = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: assistantEvent,
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented" });
+    assert.equal(recorded.recorded, true, JSON.stringify(recorded));
+    const sameTurnConfirm = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: presentedInbound, turnId: "turn:one-try-same-inbound" });
+    assert.equal(sameTurnConfirm.reason, "acceptance_required", JSON.stringify(sameTurnConfirm));
+    const acceptedInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest,created_at)
+      SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('c',64),clock_timestamp()+interval '1 millisecond'
+      FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+    [oneTryContext.sessionId,oneTryContext.principalId])).rows[0].id;
+    const confirmed = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: acceptedInbound, turnId: "turn:one-try-confirm" });
+    assert.equal(confirmed.state, "booked", JSON.stringify(confirmed));
+    assert.equal(Object.hasOwn(confirmed, "bookingId"), false);
+    const replayedConfirm = await api.checkQuoteBook(admin, {
+      action: "confirm", offer_reference: prepared.offer_reference,
+    }, { ...oneTryContext, authenticatedInboundEventId: "inbound:guest:accept-replay", turnId: "turn:one-try-confirm-replay" });
+    assert.equal(replayedConfirm.state, "booked", JSON.stringify(replayedConfirm));
+    assert.equal(replayedConfirm.booking_reference, confirmed.booking_reference);
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM luna_v3_offer_turns WHERE offer_reference=$1 AND presented_at IS NOT NULL AND accepted_at IS NOT NULL`, [prepared.offer_reference])).rows[0].n, 1);
+    const freshCancel = await api.cancelUnpaid(admin, {
+      booking_reference: confirmed.booking_reference, guest_reason: "plans changed", operation_key: "one-try-fresh-cancel",
+    }, { ...oneTryContext, turnId: "turn:one-try-cancel" });
+    assert.equal(freshCancel.outcome, "applied", JSON.stringify(freshCancel));
+    assert.equal(freshCancel.cancelled, true, JSON.stringify(freshCancel));
+    assert.equal((await admin.query(`SELECT count(*)::int n FROM payments p JOIN bookings b ON b.id=p.booking_id WHERE b.booking_code=$1 AND p.status::text NOT IN ('cancelled','expired','failed')`, [confirmed.booking_reference])).rows[0].n, 0, "cancelled booking retained nonterminal payment rows");
+    const freshCancelAgain = await api.cancelUnpaid(admin, {
+      booking_reference: confirmed.booking_reference, guest_reason: "repeat", operation_key: "one-try-fresh-cancel-again",
+    }, { ...oneTryContext, turnId: "turn:one-try-cancel-again" });
+    assert.equal(freshCancelAgain.ok, false);
+    console.log("PASS V3-ONE-TRY-POSTGRES public prepare/presentation/confirm/replay and one fresh unpaid cancel");
     observations.holdAllOrNone = true;
     observations.noBedSubstitution = true;
     observations.toolBook = true;

@@ -90,7 +90,10 @@ test('transactional retry validates every intent and actionability field on a ju
     } };
     const result = await create({ payment_target: 'deposit' }, {}, pg);
     assert.equal(result.ok, false, mutation);
-    assert.equal(result.body.reason_code, 'idempotency_conflict', mutation);
+    assert.equal(result.body.reason_code,
+      mutation === `booking_guest_id='${BOOKING}'`
+        ? 'booking_payment_guest_checkout_active'
+        : 'idempotency_conflict', mutation);
     assert.equal(result.body.checkout_url, undefined);
     assert.equal(calls.length, 0);
   }
@@ -102,13 +105,20 @@ test('general active reuse applies the same complete booking intent predicate', 
     calls.length = 0;
     await seedCheckout(mutation);
     const result = await create({ payment_target: 'deposit', idempotency_key: 'new-key' });
-    assert.equal(result.ok, true, mutation + JSON.stringify(result));
-    assert.notEqual(result.body.checkout_url, 'https://checkout.invalid/existing', mutation);
-    assert.equal(calls.length, 1, mutation);
+    if (mutation === `booking_guest_id='${BOOKING}'`) {
+      assert.equal(result.ok, false, mutation + JSON.stringify(result));
+      assert.equal(result.body.reason_code, 'booking_payment_guest_checkout_active', mutation);
+      assert.equal(result.body.checkout_url, undefined, mutation);
+      assert.equal(calls.length, 0, mutation);
+    } else {
+      assert.equal(result.ok, true, mutation + JSON.stringify(result));
+      assert.notEqual(result.body.checkout_url, 'https://checkout.invalid/existing', mutation);
+      assert.equal(calls.length, 1, mutation);
+    }
   }
 });
 
-test('in-flight checkout blocks same and different keys before a second provider call', async () => {
+test('in-flight exact recovery serializes a different key onto the one finalized checkout', async () => {
   const provider = execOpts.createStripeCheckoutSession;
   let entered;
   const started = new Promise((resolve) => { entered = resolve; });
@@ -122,29 +132,31 @@ test('in-flight checkout blocks same and different keys before a second provider
   const first = create({ payment_target: 'deposit' });
   await started;
   try {
-    for (const key of ['totals-1', 'different-key']) {
-      const retry = await create({ payment_target: 'deposit', idempotency_key: key });
-      assert.equal(retry.ok, false, key);
-      assert.equal(retry.body.reason_code, 'checkout_pending', key);
-      assert.equal(retry.body.checkout_url, undefined);
-    }
-    assert.equal(calls.length, 1);
+    const recovered = await create({ payment_target: 'deposit', idempotency_key: 'totals-1' });
+    assert.equal(recovered.ok, true);
+    assert.equal(recovered.body.payment_id, (await db.query('SELECT id::text FROM payments')).rows[0].id);
+    const overlap = await create({ payment_target: 'deposit', idempotency_key: 'different-key' });
+    assert.equal(overlap.ok, true);
+    assert.equal(overlap.body.checkout_url, recovered.body.checkout_url,
+      'different operation may only reuse the checkout finalized by exact-intent recovery');
+    assert.equal(calls.length, 2, 'same Stripe idempotency key is reissued; different intent never reaches provider');
     assert.equal((await db.query('SELECT count(*)::int AS n FROM payments')).rows[0].n, 1);
   } finally { release(); await first; }
 });
 
-test('ambiguous provider failure preserves a blocking reservation across keys', async () => {
+test('ambiguous provider failure retries its exact reservation and blocks other keys', async () => {
   execOpts.createStripeCheckoutSession = async (opts) => { calls.push(opts); throw new Error('timeout after provider accepted'); };
   const first = await create({ payment_target: 'deposit' });
   assert.equal(first.ok, false);
   assert.notEqual(first.body.no_db_write, true);
   assert.equal((await db.query('SELECT count(*)::int AS n FROM payments')).rows[0].n, 1);
-  for (const key of ['totals-1', 'different-key']) {
-    const retry = await create({ payment_target: 'deposit', idempotency_key: key });
-    assert.equal(retry.body.reason_code, 'checkout_pending');
-    assert.equal(retry.body.checkout_url, undefined);
-  }
-  assert.equal(calls.length, 1);
+  const retry = await create({ payment_target: 'deposit', idempotency_key: 'totals-1' });
+  assert.equal(retry.body.reason_code, 'checkout_pending');
+  assert.equal(retry.body.checkout_url, undefined);
+  const overlap = await create({ payment_target: 'deposit', idempotency_key: 'different-key' });
+  assert.equal(overlap.body.reason_code, 'checkout_pending');
+  assert.equal(overlap.body.checkout_url, undefined);
+  assert.equal(calls.length, 2);
 });
 
 test('missing ledger adapter fails closed without a provider call or payment row', async () => {
@@ -358,7 +370,10 @@ test('same idempotency key cannot replay a mismatched or non-actionable checkout
     await db.exec('UPDATE payments SET ' + mutation);
     const retry = await create({ payment_target: 'deposit' });
     assert.equal(retry.ok, false, mutation);
-    assert.equal(retry.body.reason_code, 'idempotency_conflict', mutation);
+    assert.equal(retry.body.reason_code,
+      mutation === `booking_guest_id='${BOOKING}'`
+        ? 'booking_payment_guest_checkout_active'
+        : 'idempotency_conflict', mutation);
     assert.equal(calls.length, 1, mutation);
     assert.equal(retry.body.checkout_url, undefined);
   }

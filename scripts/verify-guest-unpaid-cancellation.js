@@ -8,6 +8,7 @@ const {
   classifyGuestCancellationPaymentEvidence,
   GUEST_CANCEL_PAYMENT_EVIDENCE_SQL,
   GUEST_CANCEL_BOOKING_UPDATE_SQL,
+  GUEST_CANCEL_V3_BOOKING_UPDATE_SQL,
   executeGuestUnpaidCancellationBoundary,
 } = require('./lib/guest-unpaid-cancellation');
 const {
@@ -26,6 +27,7 @@ function eligible(overrides = {}) {
     booking_deposit_paid_cents: 0,
     payment_row_count: 0,
     payment_positive_count: 0,
+    payment_unknown_amount_count: 0,
     payment_captured_count: 0,
     payment_unknown_status_count: 0,
     payment_event_paid_count: 0,
@@ -40,6 +42,22 @@ function eligible(overrides = {}) {
 }
 
 assert.deepEqual(classifyGuestCancellationPaymentEvidence(eligible()), { eligible: true, reason: 'authoritative_zero_payment' });
+const retiredV3Payment = eligible({
+  luna_v3_provenance: 'fresh_one_try',
+  payment_row_count: 1,
+  payment_inert_draft_count: 1,
+  payment_provider_active_count: 0,
+});
+assert.deepEqual(
+  classifyGuestCancellationPaymentEvidence(retiredV3Payment, { trustedV3: true }),
+  { eligible: true, reason: 'recognized_inert_v3_draft' },
+  'trusted-v3 accepts a verified expired/retired zero-money payment after provider identifiers are cleared',
+);
+assert.deepEqual(
+  classifyGuestCancellationPaymentEvidence(retiredV3Payment),
+  { eligible: false, reason: 'payment_exists' },
+  'Classic cancellation remains fail-closed for the same retired payment row',
+);
 for (const [name, patch, reason] of [
   ['booking aggregate', { booking_amount_paid_cents: 1 }, 'payment_exists'],
   ['deposit aggregate', { booking_deposit_paid_cents: 1 }, 'payment_exists'],
@@ -53,6 +71,7 @@ for (const [name, patch, reason] of [
   ['unknown booking amount', { booking_amount_paid_cents: null }, 'payment_evidence_unknown'],
   ['unknown booking deposit', { booking_deposit_paid_cents: null }, 'payment_evidence_unknown'],
   ['unknown payment row status', { payment_unknown_status_count: 1 }, 'payment_evidence_unknown'],
+  ['unknown payment row amount', { payment_unknown_amount_count: 1 }, 'payment_evidence_unknown'],
   ['unknown guest payment status', { guest_unknown_status_count: 1 }, 'payment_evidence_unknown'],
   ['unknown guest amount', { guest_unknown_amount_count: 1 }, 'payment_evidence_unknown'],
   ['inconsistent aggregate', { evidence_consistent: false }, 'payment_evidence_inconsistent'],
@@ -76,6 +95,10 @@ assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /pe\.booking_id=b\.id OR EXISTS[
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /checkout\.session\.async_payment_succeeded/i, 'write guard blocks async Stripe success');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /pe\.booking_id=b\.id OR EXISTS[\s\S]*ep\.id=pe\.payment_id/i, 'write guard includes indirect payment-event ownership');
 assert.match(GUEST_CANCEL_BOOKING_UPDATE_SQL, /amount_paid_cents/i, 'write itself must recheck booking aggregates');
+assert.match(GUEST_CANCEL_PAYMENT_EVIDENCE_SQL, /IN \([^)]*'expired'[^)]*\)[\s\S]{0,700}AS payment_inert_draft_count/i,
+  'expired zero-money payment rows with cleared provider identifiers classify as retired/inert');
+assert.match(GUEST_CANCEL_V3_BOOKING_UPDATE_SQL, /'expired'/i,
+  'trusted-v3 write accepts verified expired payment rows');
 
 // Discovery uses a separate tenant-scoped cancellation query; service callers
 // retain the existing paid-only active-booking semantics.

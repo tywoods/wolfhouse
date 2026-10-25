@@ -17,9 +17,11 @@ const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
 const { assertSafeToolRequest } = require('./contracts');
 const v3 = require('./v3-operations');
+const { createCheckQuoteBook } = require('./v3-booking-flow');
 
 const TENANT = 'wolfhouse-somo';
 const WIRES = Object.freeze({
+  checkQuoteBook: 'check_quote_book',
   checkAvailability: 'check_availability',
   findRooms: 'find_rooms',
   getPricingCatalog: 'get_pricing_catalog',
@@ -61,7 +63,7 @@ function availabilityBody(input, assignmentMode = false) {
   };
 }
 
-async function runAvailability(pg, input) {
+async function runAvailability(pg, input, context = {}) {
   const built = buildWolfhouseAvailabilityCommand({
     channel: AVAILABILITY_CHANNELS.VERTICAL_ADAPTER,
     trustedClientSlug: TENANT,
@@ -76,7 +78,9 @@ async function runAvailability(pg, input) {
     FROM luna_v3_hold_beds hb JOIN luna_v3_holds h ON h.id=hb.hold_id
     JOIN clients c ON c.id=h.client_id
     WHERE c.slug=$1 AND h.state='active' AND h.expires_at>clock_timestamp()
-      AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out]);
+      AND ($4::text IS NULL OR h.session_id<>(SELECT id FROM luna_v3_sessions WHERE client_id=h.client_id AND session_key=$4 LIMIT 1))
+      AND h.check_in<$3::date AND h.check_out>$2::date`, [TENANT, input.check_in, input.check_out,
+        context.ignoreOwnHolds === true || context.revalidationOnly === true ? context.sessionId || null : null]);
   const heldCodes = new Set(held.rows.map((row) => row.bed_code));
   const available = result.body.available_beds.filter((bed) => !heldCodes.has(bed.bed_code));
   const selected = Array.isArray(input.selected_bed_codes) ? input.selected_bed_codes : [];
@@ -105,7 +109,7 @@ function serviceFailure(result) {
 
 async function checkAvailability(pg, input = {}, context) {
   trusted(context); validate('checkAvailability', input);
-  const result = await runAvailability(pg, input);
+  const result = await runAvailability(pg, input, context);
   if (!result.ok) return serviceFailure(result);
   const body = result.body;
   return {
@@ -123,7 +127,7 @@ async function checkAvailability(pg, input = {}, context) {
 
 async function findRooms(pg, input = {}, context) {
   trusted(context); validate('findRooms', input);
-  const result = await runAvailability(pg, input);
+  const result = await runAvailability(pg, input, context);
   if (!result.ok) return serviceFailure(result);
   const body = result.body;
   const grouped = new Map();
@@ -142,7 +146,7 @@ async function findRooms(pg, input = {}, context) {
       guests: input.preferences.guests || [], selected_bed_codes: proposedBeds,
       room_type: input.preferences.room_type, room_preference: input.preferences.room_preference,
       keep_together: false,
-    });
+    }, context);
     const exact = checked.ok && checked.body && checked.body.exact_bed_eligibility;
     if (exact && exact.eligible === true) {
       splitSelection = {
@@ -351,7 +355,7 @@ async function computeQuote(pg, input = {}, context) {
     guests: input.guests, selected_bed_codes: selectedBeds,
     room_type: input.selection.room_type, room_preference: input.selection.room_preference,
     keep_together: input.selection.keep_together,
-  });
+  }, context);
   if (!availability.ok) return serviceFailure(availability);
   const current = availability.body;
   if (!current.exact_bed_eligibility || current.exact_bed_eligibility.eligible !== true) {
@@ -431,31 +435,36 @@ async function quote(pg, input = {}, context) {
   trusted(context); validate('quote', input);
   const stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
   const fp = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
-  await pg.query('BEGIN');
+  const ownsTransaction = !(context && context.callerManagedTransaction);
+  if (ownsTransaction) await pg.query('BEGIN');
   try {
     const s = (await pg.query(`SELECT s.id,s.client_id FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id WHERE c.slug=$1 AND s.session_key=$2 AND s.principal_id=$3`, [TENANT, context && context.sessionId, context && context.principalId])).rows[0];
     if (!s) throw Object.assign(new Error('write admission denied'), { status: 403 });
     const inserted = await pg.query(`INSERT INTO luna_v3_operations(client_id,session_id,tool,operation_key,request_fingerprint) VALUES($1,$2,'quote',$3,$4) ON CONFLICT(client_id,session_id,tool,operation_key) DO NOTHING RETURNING id,request_fingerprint,receipt`, [s.client_id,s.id,input.operation_key,fp]);
     const op = inserted.rows[0] || (await pg.query(`SELECT id,request_fingerprint,receipt FROM luna_v3_operations WHERE client_id=$1 AND session_id=$2 AND tool='quote' AND operation_key=$3 FOR UPDATE`, [s.client_id,s.id,input.operation_key])).rows[0];
-    if (op.request_fingerprint !== fp) { await pg.query('ROLLBACK'); return { ok:false,outcome:'rejected',status:409,code:'operation_key_payload_mismatch' }; }
-    if (op.receipt) { await pg.query('COMMIT'); return op.receipt; }
+    if (op.request_fingerprint !== fp) { if (ownsTransaction) await pg.query('ROLLBACK'); return { ok:false,outcome:'rejected',status:409,code:'operation_key_payload_mismatch' }; }
+    if (op.receipt) { if (ownsTransaction) await pg.query('COMMIT'); return op.receipt; }
     await pg.query('SAVEPOINT luna_v3_quote_business');
     const receipt = await computeQuote(pg,input,context);
     if (!receipt.ok) await pg.query('ROLLBACK TO SAVEPOINT luna_v3_quote_business');
     const saved = receipt.ok ? { ...receipt, outcome:'applied' } : { ...receipt, outcome:'rejected' };
     await pg.query(`UPDATE luna_v3_operations SET receipt=$2::jsonb,outcome=$3,completed_at=now() WHERE id=$1`, [op.id,JSON.stringify(saved),saved.outcome]);
-    await pg.query('COMMIT'); return saved;
-  } catch (error) { await pg.query('ROLLBACK'); throw error; }
+    if (ownsTransaction) await pg.query('COMMIT'); return saved;
+  } catch (error) { if (ownsTransaction) await pg.query('ROLLBACK'); throw error; }
 }
 
 function createOperations(withPgClient, authorities = {}) {
-  return Object.freeze(Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
+  const operations = Object.fromEntries(Object.entries(WIRES).map(([name, wire]) => [wire,
     (input, context) => withPgClient((client) => SELECTED_IMPLEMENTATIONS[name](client, input,
       { ...context, staffAuthorities: authorities })),
-  ])));
+  ]));
+  operations._record_offer_presentation = (input, context) => withPgClient((client) =>
+    checkQuoteBook.recordPresented(client, input, { ...context, staffAuthorities: authorities }));
+  return Object.freeze(operations);
 }
 
-const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
+const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });
+const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkQuoteBook, checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
 Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});
