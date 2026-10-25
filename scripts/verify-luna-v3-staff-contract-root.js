@@ -63,6 +63,17 @@ assert.equal(transport.field_errors[0].code, 'staff_transport_non_json');
 const owner = require('./lib/model-led-luna/staff-request-contract');
 assert.strictEqual(buildCanonicalQuoteInput, owner.normalizeQuoteRequest);
 for (const [mutation, code, path] of [
+  [{ check_in: '2027-02-30' }, 'stay_dates_invalid', 'check_in'],
+  [{ add_ons: [{ name: 'Wetsuit rental', people: ['Tom', 'Tom'], dates: ['2026-11-18'] }] }, 'invalid_tool_request', 'add_ons[0].people'],
+  [{ add_ons: [{ name: 'Wetsuit rental', quantity: 2, people: ['Tom'], dates: ['2026-11-18'] }] }, 'conflicting_quantity_people', 'add_ons[0].quantity'],
+]) {
+  assert.throws(
+    () => owner.validateSharedRequest({ ...request, ...mutation }),
+    (error) => error.code === code && error.path === path,
+    `shared receiver semantics: ${code}`,
+  );
+}
+for (const [mutation, code, path] of [
   [{ check_in: '2027-02-30', check_out: '2027-03-02' }, 'stay_dates_invalid', 'check_in'],
   [{ guests: [] }, 'guests_required', 'guests'],
   [{ add_ons: [{ name: 'Wetsuit rental', quantity: 0, dates: ['2026-11-18'] }] }, 'invalid_quantity', 'add_ons[0].quantity'],

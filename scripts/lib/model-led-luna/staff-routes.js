@@ -95,7 +95,12 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
         principalId: authenticatedPrincipal.principalId, inboundEventId, reply: modelInput.assistant_reply });
     } else assertSafeToolRequest(tool, modelInput);
   }
-  catch (error) { return { status: 400, body: reject('invalid_tool_request', 'validation', { fieldMessage: error.message }) }; }
+  catch (error) {
+    return { status: 400, body: reject(error.code || 'invalid_tool_request', 'validation', {
+      path: error.path || '$',
+      fieldMessage: error.message,
+    }) };
+  }
   try {
     const result = await operation(modelInput, {
       tenantId: clientSlug,

@@ -31,13 +31,34 @@ function refusalEnvelope(failure={}, context={}) {
 }
 const choice = (items, kind, wanted) => items.find((item) => item.item_type === kind
   && [item.item_code, item.label].some((value) => String(value || '').trim().toLowerCase() === String(wanted || '').trim().toLowerCase()));
+function semanticError(code, path, message) {
+  const error = new Error(message || code);
+  error.code = code;
+  error.path = path;
+  return error;
+}
 function validateSharedRequest(input) {
-  for (const [index, addOn] of (input && Array.isArray(input.add_ons) ? input.add_ons : []).entries()) {
-    if (Array.isArray(addOn && addOn.people) && new Set(addOn.people).size !== addOn.people.length) {
-      const error = new Error(`add_ons[${index}].people must contain unique people`);
-      error.path = `add_ons[${index}].people`;
-      throw error;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw semanticError('invalid_tool_request', '$', 'tool arguments must be an object');
+  if (input.action !== 'prepare') return;
+  if (!validDate(input.check_in) || !validDate(input.check_out) || input.check_out <= input.check_in) {
+    throw semanticError('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out', 'check_in and check_out must be real ascending dates');
+  }
+  if (!['quote', 'offer'].includes(input.purpose)) return;
+  if (!Array.isArray(input.guests) || input.guests.length === 0) throw semanticError('guests_required', 'guests');
+  if (!input.room || typeof input.room !== 'object' || Array.isArray(input.room)) throw semanticError('room_required', 'room');
+  if (!input.package || typeof input.package !== 'object' || Array.isArray(input.package)) throw semanticError('package_choice_required', 'package');
+  if (!Array.isArray(input.add_ons)) throw semanticError('add_ons_required', 'add_ons');
+  for (const [index, addOn] of input.add_ons.entries()) {
+    const path = `add_ons[${index}]`;
+    if (!addOn || typeof addOn !== 'object' || Array.isArray(addOn)) throw semanticError('invalid_tool_request', path);
+    if (addOn.people !== undefined) {
+      if (!Array.isArray(addOn.people) || addOn.people.length === 0) throw semanticError('add_on_people_required', `${path}.people`);
+      if (new Set(addOn.people).size !== addOn.people.length) throw semanticError('invalid_tool_request', `${path}.people`, `${path}.people must contain unique people`);
     }
+    if (addOn.quantity !== undefined && (!Number.isSafeInteger(addOn.quantity) || addOn.quantity < 1)) throw semanticError('invalid_quantity', `${path}.quantity`);
+    if (Array.isArray(addOn.people) && addOn.quantity !== undefined && addOn.quantity !== addOn.people.length) throw semanticError('conflicting_quantity_people', `${path}.quantity`);
+    if (addOn.dates !== undefined && addOn.requested_dates !== undefined
+        && JSON.stringify(addOn.dates) !== JSON.stringify(addOn.requested_dates)) throw semanticError('conflicting_date_aliases', `${path}.dates`);
   }
 }
 function resolveChoice(items, kind, reference) {
@@ -58,7 +79,7 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
   const fail = (code, path) => refusalEnvelope({ code, path, next_step: 'ask_guest' }, context);
   if (!input || typeof input !== 'object') return fail('invalid_quote_request', '$');
   try { validateSharedRequest(input); }
-  catch (error) { return fail('invalid_tool_request', error.path || '$'); }
+  catch (error) { return fail(error.code || 'invalid_tool_request', error.path || '$'); }
   if (!validDate(input.check_in) || !validDate(input.check_out) || input.check_out <= input.check_in) {
     return fail('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out');
   }

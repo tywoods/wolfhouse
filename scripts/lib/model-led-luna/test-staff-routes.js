@@ -111,6 +111,23 @@ async function main() {
   assert.strictEqual(missing.status, 503);
   assert.strictEqual(missing.body.code, 'luna_v3_tool_not_registered');
 
+  let invalidReachedOperation = false;
+  const invalidSemantic = await dispatchLunaV3StaffRoute({
+    pathname: '/staff/bot/luna-v3/check-quote-book', method: 'POST', clientSlug: 'wolfhouse-somo',
+    body: {
+      session_id: 'luna-v3:test-phone-hash', external_send_allowed: false, staff_alert_allowed: false,
+      action: 'prepare', purpose: 'quote', check_in: '2027-02-30', check_out: '2027-03-07',
+      guests: [{ name: 'Guest A' }], room: { kind: 'shared' }, package: { name: 'Custom Or Short Stay' }, add_ons: [],
+    },
+    authenticatedPrincipal: { principalId: 'test-principal', writeAllowed: true, turnId: 'semantic-correlation' },
+    operations: { check_quote_book: async () => { invalidReachedOperation = true; return { ok: true }; } },
+  });
+  assert.strictEqual(invalidSemantic.status, 400);
+  assert.strictEqual(invalidSemantic.body.code, 'stay_dates_invalid');
+  assert.strictEqual(invalidSemantic.body.field_errors[0].path, 'check_in');
+  assert.strictEqual(invalidSemantic.body.correlation_id, 'semantic-correlation');
+  assert.strictEqual(invalidReachedOperation, false);
+
   const preserved = await dispatchLunaV3StaffRoute({
     pathname: '/staff/bot/luna-v3/payment-status', method: 'POST', clientSlug: 'wolfhouse-somo',
     body: { session_id: 'luna-v3:test-phone-hash', booking_reference: 'WH-1', external_send_allowed: false, staff_alert_allowed: false },
