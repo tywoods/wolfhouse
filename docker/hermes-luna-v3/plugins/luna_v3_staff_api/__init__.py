@@ -12,7 +12,20 @@ import os
 import urllib.error
 import urllib.request
 import urllib.parse
+from pathlib import Path
 from typing import Any
+
+_CHECK_QUOTE_BOOK_SCHEMA = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "check_quote_book.schema.json").read_text())
+
+
+def _refusal(code: str, classification: str, status: int | None = None, correlation_id: str | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {"ok": False, "code": code, "classification": classification,
+        "message": "I could not safely complete that booking action.",
+        "field_errors": [{"path": "$", "code": code, "message": "Staff could not return a usable result."}],
+        "next_step": "wait_for_verified_result", "retry_allowed": False, "correlation_id": correlation_id}
+    if status is not None:
+        result["status"] = status
+    return result
 
 class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(self, admitted_url: str):
@@ -141,9 +154,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     )
     try:
         with _open_staff(request, runtime["base_url"]) as response:
-            body = json.loads(response.read().decode("utf-8"))
+            try:
+                body = json.loads(response.read().decode("utf-8"))
+            except (ValueError, UnicodeError):
+                return _refusal("staff_transport_non_json", "transport", getattr(response, "status", 200), turn_id)
             if not isinstance(body, dict):
-                return {"ok": False, "code": "malformed_staff_response"}
+                return _refusal("malformed_staff_response", "transport", getattr(response, "status", 200), turn_id)
             private = {"bookingId", "paymentId", "paymentIds", "checkoutId", "guestId",
                        "transferId", "authoritativeTransferId", "holdId", "consumedHoldId",
                        "authorityKey", "payments", "events", "booking_id", "payment_id",
@@ -161,14 +177,63 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 return value
             return redact(body)
     except urllib.error.HTTPError as exc:
-        result: dict[str, Any] = {"ok": False, "status": exc.code}
-        try: staff = json.loads(exc.read().decode("utf-8"))
-        except (ValueError, UnicodeError): staff = {}
+        try:
+            staff = json.loads(exc.read().decode("utf-8"))
+        except (ValueError, UnicodeError):
+            return {**_refusal("staff_transport_http_non_json", "transport", exc.code, turn_id),
+                    "recoveryStatus": "unknown", "outcome": "unknown"}
+        if not isinstance(staff, dict):
+            return {**_refusal("staff_transport_http_malformed", "transport", exc.code, turn_id),
+                    "recoveryStatus": "unknown", "outcome": "unknown"}
+        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code, turn_id)
         if isinstance(staff, dict):
-            for field in ("code", "reason_code", "error"):
+            bounded_fields = {"code", "reason_code", "reason", "error", "next_step", "correlation_id"}
+            for field in ("code", "reason_code", "reason", "error", "message", "next_step", "correlation_id"):
                 value = staff.get(field)
-                if isinstance(value, str) and value and len(value) <= 160:
+                limit = 160 if field in bounded_fields else 500
+                if isinstance(value, str) and value and len(value) <= limit:
                     result[field] = value
+            if staff.get("classification") in {"validation", "authorization", "configuration", "conflict", "internal", "transport", "http"}:
+                result["classification"] = staff["classification"]
+            pricing_failure = staff.get("pricing_failure")
+            if isinstance(pricing_failure, dict):
+                choice = pricing_failure.get("choice")
+                safe_choice = None
+                if isinstance(choice, dict) and set(choice).issubset({"item_type", "item_code", "season_code"}):
+                    candidate = {key: choice.get(key) for key in ("item_type", "item_code", "season_code")}
+                    if (
+                        isinstance(candidate["item_type"], str) and 0 < len(candidate["item_type"]) <= 80
+                        and isinstance(candidate["item_code"], str) and 0 < len(candidate["item_code"]) <= 160
+                        and (candidate["season_code"] is None or isinstance(candidate["season_code"], str) and 0 < len(candidate["season_code"]) <= 80)
+                    ):
+                        safe_choice = candidate
+                price_kind = pricing_failure.get("price_kind")
+                recovery_action = pricing_failure.get("recovery_action")
+                if (
+                    pricing_failure.get("type") == "pricing_failure"
+                    and price_kind in {"stay", "package", "service", "add_on", "rental", "lesson"}
+                    and isinstance(recovery_action, str) and recovery_action == result.get("next_step")
+                    and safe_choice is not None
+                ):
+                    result["pricing_failure"] = {
+                        "type": "pricing_failure",
+                        "price_kind": price_kind,
+                        "choice": safe_choice,
+                        "recovery_action": recovery_action,
+                    }
+            if isinstance(staff.get("retry_allowed"), bool):
+                result["retry_allowed"] = staff["retry_allowed"]
+            field_errors = staff.get("field_errors")
+            if isinstance(field_errors, list) and len(field_errors) <= 20:
+                admitted = []
+                for row in field_errors:
+                    if not isinstance(row, dict):
+                        continue
+                    safe = {key: row.get(key) for key in ("path", "code", "message")}
+                    if all(isinstance(value, str) and value and len(value) <= 500 for value in safe.values()):
+                        admitted.append(safe)
+                if admitted:
+                    result["field_errors"] = admitted
             if exc.code == 409:
                 for field in ("reason", "handoffId", "handoffOperationKey"):
                     value = staff.get(field)
@@ -187,7 +252,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
         return result
     except (urllib.error.URLError, TimeoutError):
-        return {"ok": False, "status": 503, "recoveryStatus": "unknown", "outcome": "unknown", "code": "staff_tool_unreachable"}
+        return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown"}
+    except Exception:
+        return _refusal("staff_plugin_internal_failure", "internal", 500, turn_id)
 
 
 # Hermes tool registration consumes this declarative surface in the v3 bootstrap.
@@ -403,6 +470,7 @@ def register(ctx: Any) -> None:
             },
         }
         if name == "check_quote_book":
+            schema["parameters"] = json.loads(json.dumps(_CHECK_QUOTE_BOOK_SCHEMA))
             schema["parameters"]["allOf"] = [
                 {"if": {"properties": {"action": {"const": "prepare"}, "purpose": {"const": "quote"}}, "required": ["action", "purpose"]},
                  "then": {"required": ["check_in", "check_out", "guests", "room", "package", "add_ons"], "not": {"required": ["payment"]}}},

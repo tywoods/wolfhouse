@@ -5,6 +5,8 @@ import sys
 import unittest
 import io
 import urllib.error
+import subprocess
+import tempfile
 from pathlib import Path
 from unittest import mock
 from unittest.mock import patch
@@ -14,6 +16,22 @@ PLUGIN_ROOT = PLUGIN_PATH.parent.parent
 
 
 class LunaV3PluginContractTests(unittest.TestCase):
+    def test_clean_home_installed_plugin_loads_generated_contract(self):
+        with tempfile.TemporaryDirectory() as clean:
+            home = Path(clean)
+            subprocess.run([
+                "sh", "-c",
+                'install -d -m 0700 "$1/plugins/luna_v3_staff_api" "$1/contracts" && '
+                'install -m 0600 "$2/plugins/luna_v3_staff_api/__init__.py" "$1/plugins/luna_v3_staff_api/__init__.py" && '
+                'install -m 0600 "$2/contracts/check_quote_book.schema.json" "$1/contracts/check_quote_book.schema.json"',
+                "install-contract", str(home), str(PLUGIN_ROOT.parent),
+            ], check=True)
+            installed = home / "plugins/luna_v3_staff_api/__init__.py"
+            spec = importlib.util.spec_from_file_location("installed_luna_v3", installed)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.assertEqual("https://lunafrontdesk.com/contracts/luna-v3/check-quote-book.json", module._CHECK_QUOTE_BOOK_SCHEMA["$id"])
+
     def test_corrected_schemas_and_dispatch_contract(self):
         plugin = self.load_plugin()
         class Registry:
@@ -40,7 +58,17 @@ class LunaV3PluginContractTests(unittest.TestCase):
         env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
             result = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
-        self.assertEqual({"ok":False,"status":409,"code":"booking_paid","reason_code":"money_uncertain","error":"refused","outcome_unknown":True,"recoveryStatus":"rejected","outcome":"rejected"}, result)
+        self.assertEqual("booking_paid", result["code"])
+        self.assertEqual("money_uncertain", result["reason_code"])
+        self.assertEqual("refused", result["error"])
+        self.assertEqual(409, result["status"])
+        self.assertEqual("http", result["classification"])
+        self.assertEqual("wait_for_verified_result", result["next_step"])
+        self.assertFalse(result["retry_allowed"])
+        self.assertEqual([{"path":"$","code":"staff_tool_rejected","message":"Staff could not return a usable result."}], result["field_errors"])
+        self.assertTrue(result["outcome_unknown"])
+        self.assertEqual("rejected", result["recoveryStatus"])
+        self.assertEqual("rejected", result["outcome"])
         handler = plugin._SameHostRedirectHandler("https://staff.example")
         for unsafe in ("https://evil.example/x", "https://staff.example:444/x", "http://staff.example/x", "https://user@staff.example/x"):
             with self.assertRaises(urllib.error.HTTPError):
@@ -50,6 +78,39 @@ class LunaV3PluginContractTests(unittest.TestCase):
             failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
         self.assertEqual("unknown", failed["outcome"])
         self.assertEqual("unknown", failed["recoveryStatus"])
+
+        pricing_body = {
+            "ok": False,
+            "code": "staff_lesson_price_missing",
+            "classification": "configuration",
+            "field_errors": [{"path": "add_ons", "code": "staff_lesson_price_missing", "message": "no price configured for service 'surf_lesson_single'"}],
+            "next_step": "ask_staff_to_configure_lesson_price",
+            "retry_allowed": False,
+            "pricing_failure": {
+                "type": "pricing_failure",
+                "price_kind": "lesson",
+                "choice": {"item_type": "service", "item_code": "surf_lesson_single", "season_code": None},
+                "recovery_action": "ask_staff_to_configure_lesson_price",
+            },
+        }
+        pricing_error = urllib.error.HTTPError("https://staff.example/x", 422, "Unprocessable", {}, io.BytesIO(json.dumps(pricing_body).encode()))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=pricing_error):
+            pricing = plugin.call_tool("check_quote_book", {"action": "prepare"})
+        self.assertEqual("configuration", pricing["classification"])
+        self.assertEqual(pricing_body["pricing_failure"], pricing["pricing_failure"])
+
+        malformed = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'<html>bad gateway</html>'))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=malformed):
+            failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
+        self.assertEqual("staff_transport_http_non_json", failed["code"])
+        self.assertEqual("transport", failed["classification"])
+
+        null_gateway = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'null'))
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=null_gateway):
+            failed = plugin.call_tool("get_payment_status", {"booking_reference":"WH-1"})
+        self.assertEqual("staff_transport_http_malformed", failed["code"])
+        self.assertEqual("transport", failed["classification"])
+        self.assertRegex(failed["correlation_id"], r"^turn:")
 
     def test_staff_409_preserves_bounded_handoff_receipt(self):
         plugin = self.load_plugin()

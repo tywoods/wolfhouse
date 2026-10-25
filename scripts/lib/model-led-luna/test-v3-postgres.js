@@ -839,7 +839,7 @@ async function main(api = defaultApi) {
         [ids.client, s],
       );
     await admin.query(
-      `INSERT INTO wh_pricing_seasons(client_slug,code,label,priority,bookable,active,sort_order) VALUES('wolfhouse-somo','summer','Summer',1,true,true,1);INSERT INTO wh_pricing_season_ranges(season_id,start_month,start_day,end_month,end_day,sort_order) SELECT id,1,1,12,31,1 FROM wh_pricing_seasons;INSERT INTO wh_pricing_items(client_slug,item_type,item_code,label,metadata,active,sort_order) VALUES('wolfhouse-somo','package','malibu','Malibu','{"includes":["stay"],"min_days":7}',true,1),('wolfhouse-somo','service','cap_class','Cap class','{}',true,2);INSERT INTO wh_pricing_rules(client_slug,item_type,item_code,season_code,unit,amount_cents,currency,active) VALUES('wolfhouse-somo','package','malibu','summer','per_person_per_week',50000,'EUR',true),('wolfhouse-somo','service','cap_class',NULL,'per_class',1560,'EUR',true),('wolfhouse-somo','deposit','standard_package',NULL,'per_person',20017,'EUR',true),('wolfhouse-somo','deposit','custom_or_short_stay',NULL,'per_person',60000,'EUR',true),('wolfhouse-somo','transfer','BIO',NULL,'flat',6000,'EUR',true);INSERT INTO wh_pricing_transfer_rules(client_slug,airport_code,label,aliases,requires_package,included_when_package,min_guest_count,active,sort_order) VALUES('wolfhouse-somo','BIO','Bilbao Airport','[]',true,false,4,true,1)`,
+      `INSERT INTO wh_pricing_seasons(client_slug,code,label,priority,bookable,active,sort_order) VALUES('wolfhouse-somo','summer','Summer',1,true,true,1);INSERT INTO wh_pricing_season_ranges(season_id,start_month,start_day,end_month,end_day,sort_order) SELECT id,1,1,12,31,1 FROM wh_pricing_seasons;INSERT INTO wh_pricing_items(client_slug,item_type,item_code,label,metadata,active,sort_order) VALUES('wolfhouse-somo','package','malibu','Malibu','{"includes":["stay"],"min_days":7}',true,1),('wolfhouse-somo','service','cap_class','Cap class','{}',true,2),('wolfhouse-somo','rental','wetsuit','Wetsuit','{}',true,3),('wolfhouse-somo','service','surf_lesson_single','Surf lesson','{}',true,4),('wolfhouse-somo','service','surf_lesson_multi','Surf lesson bundle','{}',true,5);INSERT INTO wh_pricing_rules(client_slug,item_type,item_code,season_code,unit,amount_cents,currency,active) VALUES('wolfhouse-somo','package','malibu','summer','per_person_per_week',50000,'EUR',true),('wolfhouse-somo','service','cap_class',NULL,'per_class',1560,'EUR',true),('wolfhouse-somo','rental','wetsuit',NULL,'per_day',1200,'EUR',true),('wolfhouse-somo','service','surf_lesson_single',NULL,'per_lesson',5000,'EUR',true),('wolfhouse-somo','service','surf_lesson_multi',NULL,'per_lesson',4000,'EUR',true),('wolfhouse-somo','deposit','standard_package',NULL,'per_person',20017,'EUR',true),('wolfhouse-somo','deposit','custom_or_short_stay',NULL,'per_person',60000,'EUR',true),('wolfhouse-somo','transfer','BIO',NULL,'flat',6000,'EUR',true);INSERT INTO wh_pricing_transfer_rules(client_slug,airport_code,label,aliases,requires_package,included_when_package,min_guest_count,active,sort_order) VALUES('wolfhouse-somo','BIO','Bilbao Airport','[]',true,false,4,true,1)`,
     );
     const guests = [{ name: "A" }, { name: "B" }],
       assignments = [
@@ -979,9 +979,49 @@ async function main(api = defaultApi) {
       ctx("luna-v3:foreign"),
     );
     assert.equal(partialPricing.ok, false);
+    assert.equal(partialPricing.code, "staff_package_price_missing");
+    assert.equal(partialPricing.classification, "configuration");
+    assert.equal(partialPricing.next_step, "ask_staff_to_configure_package_price");
+    assert.deepEqual(partialPricing.field_errors, [{
+      path: "package", code: "staff_package_price_missing",
+      message: "no price configured for package 'malibu' in season 'summer'",
+    }]);
+    assert.deepEqual(partialPricing.pricing_failure, {
+      type: "pricing_failure", price_kind: "package",
+      choice: { item_type: "package", item_code: "malibu", season_code: "summer" },
+      recovery_action: "ask_staff_to_configure_package_price",
+    });
+    const accommodationOnlyMissing = await api.quote(admin, {
+      ...exactMoneyInput, operation_key: "quote-missing-stay-reference",
+      package_id: undefined, guest_packages: [], add_ons: [],
+    }, ctx("luna-v3:foreign"));
+    assert.equal(accommodationOnlyMissing.code, "staff_stay_price_missing");
+    assert.deepEqual(accommodationOnlyMissing.pricing_failure, {
+      type: "pricing_failure", price_kind: "stay",
+      choice: { item_type: "package", item_code: "malibu", season_code: "summer" },
+      recovery_action: "ask_staff_to_configure_stay_price",
+    });
     await admin.query(
       `UPDATE wh_pricing_rules SET active=true WHERE item_type='package' AND item_code='malibu'`,
     );
+    for (const missing of [
+      { itemType: "service", itemCode: "cap_class", input: { code: "cap_class", quantity: 1 }, code: "staff_add_on_price_missing", kind: "add_on", action: "ask_staff_to_configure_add_on_price" },
+      { itemType: "rental", itemCode: "wetsuit", input: { code: "wetsuit", days: 1 }, code: "staff_add_on_price_missing", kind: "add_on", action: "ask_staff_to_configure_add_on_price" },
+      { itemType: "service", itemCode: "surf_lesson_single", input: { code: "surf_lesson_single", quantity: 1 }, code: "staff_lesson_price_missing", kind: "lesson", action: "ask_staff_to_configure_lesson_price" },
+    ]) {
+      await admin.query(`UPDATE wh_pricing_rules SET active=false WHERE item_type=$1 AND item_code=$2`, [missing.itemType, missing.itemCode]);
+      const refused = await api.quote(admin, {
+        ...exactMoneyInput, operation_key: `quote-missing-${missing.itemCode}`,
+        add_ons: [missing.input],
+      }, ctx("luna-v3:foreign"));
+      assert.equal(refused.code, missing.code, JSON.stringify(refused));
+      assert.deepEqual(refused.pricing_failure, {
+        type: "pricing_failure", price_kind: missing.kind,
+        choice: { item_type: missing.itemType, item_code: missing.itemCode, season_code: null },
+        recovery_action: missing.action,
+      });
+      await admin.query(`UPDATE wh_pricing_rules SET active=true WHERE item_type=$1 AND item_code=$2`, [missing.itemType, missing.itemCode]);
+    }
     observations.staffComputedMoney = true;
     console.log(
       "PASS V3-DB-ONLY-PRICING exact 51560/20017/31543; partial DB rows refused with bundled values present",

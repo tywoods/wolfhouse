@@ -1,6 +1,9 @@
 'use strict';
 
 const { assertSafeToolRequest } = require('./contracts');
+const { refusalEnvelope } = require('./staff-request-contract');
+
+const refuse = (code, classification = 'validation', extra = {}, context = {}) => refusalEnvelope({ code, classification, ...extra }, context);
 
 const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
   '/staff/bot/luna-v3/check-quote-book': 'check_quote_book',
@@ -26,16 +29,19 @@ const LUNA_V3_ROUTE_TO_TOOL = Object.freeze({
 async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, operations, authenticatedPrincipal, resolveSession, admitSimulatorSession, recordAssistantEvent }) {
   const tool = LUNA_V3_ROUTE_TO_TOOL[pathname];
   if (!tool) return null;
+  const correlation_id = authenticatedPrincipal && (authenticatedPrincipal.correlationId || authenticatedPrincipal.turnId) || null;
+  const reject = (code, classification = 'validation', extra = {}) => refuse(code, classification, extra,
+    { correlationId: extra.correlation_id || correlation_id });
   if (String(method || '').toUpperCase() !== 'POST') {
-    return { status: 405, body: { ok: false, code: 'method_not_allowed' } };
+    return { status: 405, body: reject('method_not_allowed') };
   }
   if (clientSlug !== 'wolfhouse-somo') {
-    return { status: 403, body: { ok: false, code: 'luna_v3_tenant_forbidden' } };
+    return { status: 403, body: reject('luna_v3_tenant_forbidden', 'authorization') };
   }
   const input = body && typeof body === 'object' && !Array.isArray(body) ? { ...body } : {};
   if (!authenticatedPrincipal || !String(authenticatedPrincipal.principalId || '').trim()
       || (tool !== 'admit_simulator_session' && typeof resolveSession !== 'function')) {
-    return { status: 403, body: { ok: false, code: 'luna_v3_authenticated_context_required' } };
+    return { status: 403, body: reject('luna_v3_authenticated_context_required', 'authorization') };
   }
   if (tool === 'admit_simulator_session') {
     const sessionId = String(input.session_id || '').trim();
@@ -48,7 +54,7 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       && /^[a-f0-9]{64}$/.test(messageDigest)
       && authenticatedPrincipal.writeAllowed === true
       && typeof admitSimulatorSession === 'function';
-    if (!scoped) return { status: 403, body: { ok: false, code: 'luna_v3_simulator_scope_forbidden' } };
+    if (!scoped) return { status: 403, body: reject('luna_v3_simulator_scope_forbidden', 'authorization') };
     const admitted = await admitSimulatorSession({
       clientSlug,
       sessionId,
@@ -62,14 +68,14 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
   const boundSession = await resolveSession({ selector: input.session_id,
     principalId: authenticatedPrincipal.principalId, clientSlug, inboundEventId });
   if (!boundSession || !boundSession.sessionId) {
-    return { status: 403, body: { ok: false, code: 'luna_v3_session_forbidden' } };
+    return { status: 403, body: reject('luna_v3_session_forbidden', 'authorization') };
   }
   if (input.external_send_allowed !== false || input.staff_alert_allowed !== false) {
-    return { status: 403, body: { ok: false, code: 'luna_v3_transport_forbidden' } };
+    return { status: 403, body: reject('luna_v3_transport_forbidden', 'authorization') };
   }
   const operation = operations && operations[tool];
   if (typeof operation !== 'function') {
-    return { status: 503, body: { ok: false, code: 'luna_v3_tool_not_registered', tool } };
+    return { status: 503, body: { ...reject('luna_v3_tool_not_registered', 'internal'), tool } };
   }
   const modelInput = { ...input };
   // The generic bot wrapper pins the tenant by adding client_slug. That is
@@ -89,7 +95,12 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
         principalId: authenticatedPrincipal.principalId, inboundEventId, reply: modelInput.assistant_reply });
     } else assertSafeToolRequest(tool, modelInput);
   }
-  catch (error) { return { status: 400, body: { ok: false, code: 'invalid_tool_request', message: error.message } }; }
+  catch (error) {
+    return { status: 400, body: reject(error.code || 'invalid_tool_request', 'validation', {
+      path: error.path || '$',
+      fieldMessage: error.message,
+    }) };
+  }
   try {
     const result = await operation(modelInput, {
       tenantId: clientSlug,
@@ -102,11 +113,15 @@ async function dispatchLunaV3StaffRoute({ pathname, method, clientSlug, body, op
       authenticatedInboundEventId: inboundEventId || null,
       trustedPresentationRecorder: tool === '_record_offer_presentation',
     });
-    return { status: result && result.ok === false ? (result.status || 422) : 200, body: result };
+    const status = result && result.ok === false ? (result.status || 422) : 200;
+    const body = result && result.ok === false
+      ? { ...result, ...reject(result.code || result.reason || 'staff_operation_refused', result.classification || 'validation', result) }
+      : result;
+    return { status, body };
   } catch (error) {
     const status = Number.isInteger(error && error.status) ? error.status
       : Number.isInteger(error && error.httpStatus) ? error.httpStatus : 500;
-    return { status, body: { ok: false, code: error.code || (status === 403 ? 'write_admission_denied' : 'luna_v3_operation_failed') } };
+    return { status, body: reject(error.code || (status === 403 ? 'write_admission_denied' : 'luna_v3_operation_failed'), status === 403 ? 'authorization' : 'internal') };
   }
 }
 

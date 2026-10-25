@@ -15,7 +15,7 @@ const pricingStore = require('../wolfhouse-pricing-store');
 const { resolveSeasonForDate, resolvePackageMinimumNights } = require('../wolfhouse-pricing-resolve');
 const { computeStayNights } = require('../wolfhouse-package-night-rules');
 const { loadStaffTransferConfig } = require('../staff-transfer-pricing');
-const { assertSafeToolRequest } = require('./contracts');
+const { assertSafeToolRequest, validateCanonicalAddOns } = require('./contracts');
 const v3 = require('./v3-operations');
 const { createCheckQuoteBook } = require('./v3-booking-flow');
 
@@ -209,6 +209,12 @@ async function loadV3DbOnlyQuoteConfig(pg) {
       allow_daily_proration: meta.allow_daily_proration !== false,
       seasonal_prices: {} });
   }
+  // Preserve every active choice even if its Staff Pricing rule is absent. The
+  // calculator, as pricing owner, converts the explicit hole to a typed failure.
+  for (const item of data.items.filter((row) => ['service', 'rental'].includes(row.item_type))) {
+    config.add_ons[item.item_code] = { code: item.item_code, name: item.label,
+      item_type: item.item_type, missing_price: true };
+  }
   for (const rule of data.rules) {
     const cents = Number(rule.amount_cents);
     if (!Number.isSafeInteger(cents) || cents < 0) throw Object.assign(new Error('invalid authoritative Pricing row'), { code: 'STAFF_PRICING_UNAVAILABLE' });
@@ -224,12 +230,12 @@ async function loadV3DbOnlyQuoteConfig(pg) {
     } else if (rule.item_type === 'service') {
       const item = byItem.get(`service:${rule.item_code}`);
       config.add_ons[rule.item_code] = { code: rule.item_code, name: item && item.label,
-        pricing_unit: rule.unit, price_cents: cents,
+        item_type: 'service', pricing_unit: rule.unit, price_cents: cents,
         ...(rule.unit === 'per_lesson' ? { price_cents_each: cents } : {}) };
     } else if (rule.item_type === 'rental') {
       const code = rule.item_code.split('__')[0];
       const item = byItem.get(`rental:${code}`);
-      config.add_ons[code] = { code, name: item && item.label, price_cents: cents, pricing_unit: rule.unit };
+      config.add_ons[code] = { code, name: item && item.label, item_type: 'rental', price_cents: cents, pricing_unit: rule.unit };
     }
   }
   for (const required of ['standard_package','custom_or_short_stay']) if (!config.deposits.tiers[required]) throw Object.assign(new Error(`missing Staff deposit tier ${required}`), { code:'staff_deposit_tier_unavailable' });
@@ -259,26 +265,6 @@ function resolveStaySeasonCoverage(seasons, checkIn, checkOut) {
     closedDates,
     nights,
   };
-}
-
-function isIsoCalendarDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function validateRentalDateSelections(addOns, pricingAddOns, checkIn, checkOut) {
-  for (const addOn of Array.isArray(addOns) ? addOns : []) {
-    const pricing = pricingAddOns && pricingAddOns[addOn.code];
-    if (!pricing || pricing.pricing_unit !== 'per_day') continue;
-    if (!Array.isArray(addOn.dates) || addOn.dates.length === 0) return { ok: false, code: 'rental_dates_required', addOnCode: addOn.code };
-    if (!Number.isSafeInteger(addOn.days) || addOn.days !== addOn.dates.length) return { ok: false, code: 'rental_dates_duration_mismatch', addOnCode: addOn.code };
-    const unique = new Set(addOn.dates);
-    if (unique.size !== addOn.dates.length || addOn.dates.some((date) => !isIsoCalendarDate(date) || date < checkIn || date >= checkOut)) {
-      return { ok: false, code: 'rental_dates_invalid', addOnCode: addOn.code };
-    }
-  }
-  return { ok: true };
 }
 
 async function getPricingCatalog(pg, input = {}, context) {
@@ -371,8 +357,8 @@ async function computeQuote(pg, input = {}, context) {
   if (seasonCoverage.status === 'closed') {
     return { ok: false, status: 422, code: 'staff_pricing_season_closed', seasonCoverage, handoffRequired: false };
   }
-  const rentalDates = validateRentalDateSelections(input.add_ons, config.add_ons, input.check_in, input.check_out);
-  if (!rentalDates.ok) return { ok: false, status: 422, ...rentalDates };
+  const rentalDates = validateCanonicalAddOns(input.add_ons, config.add_ons, input.check_in, input.check_out, context);
+  if (!rentalDates.ok) return { ...rentalDates, status: 422 };
   const quoteResult = calculateWolfhouseQuote({
     client_slug: TENANT, check_in: input.check_in, check_out: input.check_out,
     guest_count: input.guests.length, guests: input.guests,
@@ -389,6 +375,7 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.total_cents)
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
+    if (quoteResult && quoteResult.pricing_failure) return quoteResult;
     return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
       eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
         packageMinimumSource: config.package_min_nights_source } };

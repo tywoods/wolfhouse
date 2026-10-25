@@ -127,6 +127,29 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
   };
 }
 
+function buildPricingFailureResult(config, input, nights, guests, seasonCode, warnings, details) {
+  const definitions = {
+    stay: { code: 'staff_stay_price_missing', path: 'stay', action: 'ask_staff_to_configure_stay_price' },
+    package: { code: 'staff_package_price_missing', path: 'package', action: 'ask_staff_to_configure_package_price' },
+    add_on: { code: 'staff_add_on_price_missing', path: 'add_ons', action: 'ask_staff_to_configure_add_on_price' },
+    lesson: { code: 'staff_lesson_price_missing', path: 'add_ons', action: 'ask_staff_to_configure_lesson_price' },
+  };
+  const definition = definitions[details.price_kind];
+  const choice = { item_type: details.item_type, item_code: details.item_code,
+    season_code: details.season_code == null ? null : details.season_code };
+  const diagnostic = details.season_code
+    ? `no price configured for ${details.item_type} '${details.item_code}' in season '${details.season_code}'`
+    : `no price configured for ${details.item_type} '${details.item_code}'`;
+  return {
+    ...buildBlockedResult(config, input, nights, guests, seasonCode, [diagnostic], warnings, true, true),
+    ok: false, status: 422, code: definition.code, classification: 'configuration',
+    field_errors: [{ path: definition.path, code: definition.code, message: diagnostic }],
+    next_step: definition.action, retry_allowed: false,
+    pricing_failure: { type: 'pricing_failure', price_kind: details.price_kind, choice,
+      recovery_action: definition.action },
+  };
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 /**
@@ -328,8 +351,10 @@ function calculateWolfhouseQuote(input, config) {
       }
       const seasonPrices = pricePkg.seasonal_prices && pricePkg.seasonal_prices[season_code];
       if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
-        blockers.push(`no price configured for package "${pricePackageCode}" in season "${season_code}"`);
-        continue;
+        return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
+          price_kind: gpCode === 'package_none' ? 'stay' : 'package',
+          item_type: 'package', item_code: pricePackageCode, season_code,
+        });
       }
       const gpWeekly = seasonPrices.weekly_per_person_cents;
       const gpNightly = ceil5(gpWeekly / 7);
@@ -376,12 +401,10 @@ function calculateWolfhouseQuote(input, config) {
     pkg = pricePkg;
     const seasonPrices = pkg.seasonal_prices && pkg.seasonal_prices[season_code];
     if (!seasonPrices || !seasonPrices.weekly_per_person_cents) {
-      if (isNoPackage) {
-        blockers.push('Malibu reference price unavailable for no-package nightly calculation');
-      } else {
-        blockers.push(`no price configured for package "${pricePackageCode}" in season "${season_code}"`);
-      }
-      return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+      return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
+        price_kind: isNoPackage ? 'stay' : 'package',
+        item_type: 'package', item_code: pricePackageCode, season_code,
+      });
     }
     weekly_cents = seasonPrices.weekly_per_person_cents;
     per_night_ceil5 = ceil5(weekly_cents / 7);
@@ -495,6 +518,12 @@ function calculateWolfhouseQuote(input, config) {
       staff_review_required = true;
       continue;
     }
+    if (cfgA.missing_price || !Number.isSafeInteger(cfgA.price_cents)) {
+      return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
+        price_kind: 'add_on', item_type: cfgA.item_type || 'service',
+        item_code: addon.code, season_code: null,
+      });
+    }
 
     if (cfgA.pricing_unit === 'per_day') {
       const days = Math.max(1, parseInt(addon.days, 10) || 1);
@@ -558,6 +587,17 @@ function calculateWolfhouseQuote(input, config) {
 
   // Surf lessons: total quantity determines single vs. bundle pricing
   if (totalLessons > 0) {
+    const requiredLessonCode = totalLessons === 1 ? 'surf_lesson_single' : 'surf_lesson_multi';
+    const lessonConfig = config.add_ons[requiredLessonCode];
+    const lessonPrice = totalLessons === 1
+      ? lessonConfig && lessonConfig.price_cents
+      : lessonConfig && lessonConfig.price_cents_each;
+    if (!lessonConfig || lessonConfig.missing_price || !Number.isSafeInteger(lessonPrice)) {
+      return buildPricingFailureResult(config, input, nights, guests, season_code, warnings, {
+        price_kind: 'lesson', item_type: lessonConfig && lessonConfig.item_type || 'service',
+        item_code: requiredLessonCode, season_code: null,
+      });
+    }
     let lesson_unit, lesson_total, lesson_code, lesson_label;
     if (totalLessons === 1) {
       lesson_unit  = config.add_ons.surf_lesson_single.price_cents;

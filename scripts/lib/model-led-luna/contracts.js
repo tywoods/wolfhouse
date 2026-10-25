@@ -1,4 +1,5 @@
 'use strict';
+const staffRequestContract = require('./staff-request-contract');
 
 const TOOL_CONTRACTS = Object.freeze({
   check_quote_book: { method: 'POST', path: '/staff/bot/luna-v3/check-quote-book', write: true },
@@ -58,10 +59,58 @@ const NESTED_SCHEMAS = Object.freeze({
   context: new Set(['topic', 'kind', 'detail']),
   travel_details: new Set(['airport', 'direction', 'date', 'time', 'flight', 'passengers', 'boards']),
   room: new Set(['kind', 'name', 'beds', 'together']),
-  package: new Set(['name', 'per_guest']),
-  per_guest: new Set(['guest', 'name']),
+  package: new Set(['code', 'name', 'per_guest']),
+  per_guest: new Set(['guest', 'code', 'name']),
   payment: new Set(['arrangement', 'choice']),
 });
+
+const PUBLIC_TOOL_NAMES = Object.freeze([
+  'check_quote_book', 'get_booking', 'get_payment_status', 'send_payment_link',
+  'cancel_unpaid', 'read_notes', 'write_note', 'save_transfer_request', 'handoff_to_human',
+]);
+const SUPPORTED_CATALOG_KINDS = Object.freeze(['package', 'service', 'rental']);
+
+function jsonSchemaFor(name) {
+  const properties = Object.fromEntries([...READ_SCHEMAS[name]].map((field) => [field, { type: 'string' }]));
+  const requiredByTool = {
+    check_quote_book: ['action'], get_booking: [], get_payment_status: ['booking_reference'],
+    send_payment_link: ['booking_reference', 'payment_scope', 'payment_choice', 'operation_key'],
+    cancel_unpaid: ['booking_reference', 'guest_reason', 'operation_key'], read_notes: [],
+    write_note: ['text', 'operation_key'], save_transfer_request: ['booking_reference', 'decision', 'operation_key'],
+    handoff_to_human: ['reason', 'operation_key'],
+  };
+  if (name === 'check_quote_book') Object.assign(properties, {
+    action: { type: 'string', enum: ['prepare', 'confirm', 'decline'] }, purpose: { type: 'string', enum: ['catalog', 'quote', 'offer'] },
+    guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: {
+      name: { type: 'string', minLength: 1 }, explicit_gender: { type: 'string', minLength: 1 }, gender: { type: 'string', minLength: 1 } } } },
+    add_ons: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+      code: { type: 'string' }, name: { type: 'string' }, days: { type: 'integer', minimum: 1 }, quantity: { type: 'integer', minimum: 1 },
+      dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, requested_dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, people: { type: 'array', items: { type: 'string' }, uniqueItems: true } } } },
+    room: { type: 'object' }, package: { type: 'object' }, payment: { type: 'object' },
+  });
+  return Object.freeze({ type: 'object', properties, required: requiredByTool[name], additionalProperties: false });
+}
+const MODEL_TOOL_SCHEMAS = Object.freeze(Object.fromEntries(PUBLIC_TOOL_NAMES.map((name) => [name, jsonSchemaFor(name)])));
+
+const refusalEnvelope = staffRequestContract.refusalEnvelope;
+
+function normalizeCheckQuoteBook(input) {
+  assertSafeToolRequest('check_quote_book', input);
+  return JSON.parse(JSON.stringify(input));
+}
+const buildCanonicalQuoteInput = staffRequestContract.normalizeQuoteRequest;
+
+function validateCanonicalAddOns(addOns, pricingAddOns, checkIn, checkOut, context = {}) {
+  for (const [index, addOn] of (Array.isArray(addOns) ? addOns : []).entries()) {
+    const pricing = pricingAddOns && pricingAddOns[addOn.code];
+    if (!pricing || pricing.pricing_unit !== 'per_day') continue;
+    const path = `add_ons[${index}]`;
+    if (!Array.isArray(addOn.dates) || !addOn.dates.length) return refusalEnvelope({ code: 'rental_dates_required', path: `${path}.dates` }, context);
+    if (!Number.isSafeInteger(addOn.days) || addOn.days !== addOn.dates.length) return refusalEnvelope({ code: 'rental_dates_duration_mismatch', path: `${path}.days` }, context);
+    if (new Set(addOn.dates).size !== addOn.dates.length || addOn.dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < checkIn || date >= checkOut)) return refusalEnvelope({ code: 'rental_dates_invalid', path: `${path}.dates` }, context);
+  }
+  return { ok: true };
+}
 
 function assertKnownObject(value, allowed, path) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} must be an object`);
@@ -95,6 +144,7 @@ function assertSafeToolRequest(name, input = {}) {
   }
   if (contract.write && name !== 'check_quote_book' && !String(input.operation_key || '').trim()) throw new Error(`operation_key is required for ${name}`);
   if (name === 'check_quote_book') {
+    staffRequestContract.validateSharedRequest(input);
     if (!['prepare', 'confirm', 'decline'].includes(input.action)) throw new Error('action must be prepare, confirm, or decline');
     if (input.action === 'prepare') {
       if (!['catalog', 'quote', 'offer'].includes(input.purpose)) throw new Error('purpose must be catalog, quote, or offer');
@@ -170,4 +220,5 @@ function buildStaffToolRequest(name, input, runtime) {
   };
 }
 
-module.exports = { TOOL_CONTRACTS, assertSafeToolRequest, buildStaffToolRequest };
+module.exports = { TOOL_CONTRACTS, PUBLIC_TOOL_NAMES, MODEL_TOOL_SCHEMAS, SUPPORTED_CATALOG_KINDS,
+  assertSafeToolRequest, buildStaffToolRequest, normalizeCheckQuoteBook, buildCanonicalQuoteInput, validateCanonicalAddOns, refusalEnvelope };
