@@ -81,6 +81,19 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertNotIn("handoffOperationKey", bounded)
         self.assertTrue(bounded["requiredHumanHandoff"])
 
+    def test_prepare_rejection_preserves_staff_reason_for_one_try_recovery(self):
+        plugin = self.load_plugin()
+        error = urllib.error.HTTPError(
+            "https://staff.example/x", 422, "Unprocessable Entity", None,
+            io.BytesIO(b'{"ok":false,"state":"needs_choice","reason":"package_choice_required","next_step":"ask_guest"}'),
+        )
+        env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=error):
+            result = plugin.call_tool("check_quote_book", {"action":"prepare"})
+        self.assertEqual("package_choice_required", result["reason"])
+        self.assertEqual("needs_choice", result["state"])
+        self.assertEqual("ask_guest", result["next_step"])
+
     def test_retired_recovery_is_not_callable(self):
         plugin = self.load_plugin()
         with patch.object(plugin, "_open_staff") as transport:

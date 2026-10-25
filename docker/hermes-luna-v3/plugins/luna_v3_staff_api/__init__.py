@@ -165,12 +165,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         try: staff = json.loads(exc.read().decode("utf-8"))
         except (ValueError, UnicodeError): staff = {}
         if isinstance(staff, dict):
-            for field in ("code", "reason_code", "error"):
+            for field in ("code", "reason_code", "reason", "error", "state", "next_step"):
                 value = staff.get(field)
                 if isinstance(value, str) and value and len(value) <= 160:
                     result[field] = value
             if exc.code == 409:
-                for field in ("reason", "handoffId", "handoffOperationKey"):
+                for field in ("handoffId", "handoffOperationKey"):
                     value = staff.get(field)
                     if isinstance(value, str) and value and len(value) <= 160:
                         result[field] = value

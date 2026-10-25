@@ -175,7 +175,11 @@ function packageSelection(input, catalog) {
     byName.set(String(shortStay.label || '').toLowerCase(), 'package_none');
     byName.set('custom_or_short_stay', 'package_none');
   }
-  const resolve = (name) => String(name || '').toLowerCase() === 'none' ? 'package_none' : byName.get(String(name || '').toLowerCase());
+  const resolve = (name) => {
+    const normalized = String(name || '').trim().toLowerCase();
+    if (['none', 'stay only', 'accommodation only', 'no package'].includes(normalized)) return 'package_none';
+    return byName.get(normalized);
+  };
   if (input.package && Array.isArray(input.package.per_guest)) {
     const rows = input.package.per_guest.map((row) => ({ guest_number: row.guest, package_code: resolve(row.name) }));
     return rows.every((row) => row.package_code) ? { guest_packages: rows } : null;

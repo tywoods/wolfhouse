@@ -42,5 +42,40 @@ const run = createCheckQuoteBook(deps);
   assert.equal(calls.filter(([name]) => name === 'quote').length, 1);
   assert.equal(calls.filter(([name]) => name === 'hold').length, 1);
   assert.equal(calls[0][1].operation_key.startsWith('one-try:'), true);
+
+  // Behaviour: a stay-only guest can add dated board and wetsuit rentals and
+  // receive the complete Staff quote on the first prepare attempt.
+  const rentalCalls = [];
+  const rentalRun = createCheckQuoteBook({
+    ...deps,
+    getPricingCatalog: async () => ({
+      ok: true,
+      items: [
+        { item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' },
+        { item_type: 'rental', item_code: 'soft_top', label: 'Soft-top surfboard rental' },
+        { item_type: 'rental', item_code: 'wetsuit', label: 'Wetsuit rental' },
+      ],
+    }),
+    quote: async (_pg, input) => {
+      rentalCalls.push(input);
+      return { ok: true, totalCents: 25000, depositCents: 10000, remainingCents: 15000, currency: 'EUR', lineItems: [], perPerson: [] };
+    },
+  });
+  const rentalDates = ['2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22'];
+  const rentalResult = await rentalRun(pg, {
+    action: 'prepare', purpose: 'quote', check_in: '2026-11-18', check_out: '2026-11-23',
+    guests: [{ name: 'Tom' }], room: { kind: 'shared' }, package: { name: 'stay only' },
+    add_ons: [
+      { name: 'Soft-top surfboard rental', quantity: 1, days: 5, dates: rentalDates },
+      { name: 'Wetsuit rental', quantity: 1, days: 5, dates: rentalDates },
+    ],
+  }, { sessionId: 'luna-v3:stay-rental-first-try', principalId: 'p', turnId: 'turn:stay-rental-first-try' });
+  assert.equal(rentalResult.state, 'quote', JSON.stringify(rentalResult));
+  assert.equal(rentalCalls.length, 1, 'stay+rental must quote in one Staff attempt');
+  assert.equal(rentalCalls[0].package_id, 'package_none');
+  assert.deepEqual(rentalCalls[0].add_ons, [
+    { code: 'soft_top', dates: rentalDates, days: 5, quantity: 1 },
+    { code: 'wetsuit', dates: rentalDates, days: 5, quantity: 1 },
+  ]);
   console.log('luna v3 one-try public flow: PASS');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
