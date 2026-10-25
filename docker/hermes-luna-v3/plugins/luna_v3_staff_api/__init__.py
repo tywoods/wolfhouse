@@ -226,6 +226,22 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                         "choice": safe_choice,
                         "recovery_action": recovery_action,
                     }
+            def bounded_facts(field: str, allowed: set[str]) -> None:
+                value = staff.get(field)
+                if not isinstance(value, dict) or len(value) > 16 or not set(value).issubset(allowed):
+                    return
+                safe: dict[str, Any] = {}
+                for key, item in value.items():
+                    if isinstance(item, bool) or isinstance(item, int) and not isinstance(item, bool) and abs(item) <= 100000:
+                        safe[key] = item
+                    elif isinstance(item, str) and 0 < len(item) <= 240:
+                        safe[key] = item
+                    elif isinstance(item, list) and len(item) <= 16 and all(isinstance(v, str) and 0 < len(v) <= 120 for v in item):
+                        safe[key] = item
+                if len(safe) == len(value):
+                    result[field] = safe
+            bounded_facts("eligibility_facts", {"package_code", "package_name", "minimum_nights", "requested_nights", "eligible", "reason", "check_in", "check_out"})
+            bounded_facts("season_coverage", {"season_code", "season_name", "check_in", "check_out", "covered", "uncovered_dates", "reason"})
             if isinstance(staff.get("retry_allowed"), bool):
                 result["retry_allowed"] = staff["retry_allowed"]
             field_errors = staff.get("field_errors")

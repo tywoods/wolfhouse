@@ -86,6 +86,9 @@ class LunaV3PluginContractTests(unittest.TestCase):
             "field_errors": [{"path": "add_ons", "code": "staff_lesson_price_missing", "message": "no price configured for service 'surf_lesson_single'"}],
             "next_step": "ask_staff_to_configure_lesson_price",
             "retry_allowed": False,
+            "eligibility_facts": {"package_code": "package_malibu", "minimum_nights": 7, "requested_nights": 5, "eligible": False},
+            "season_coverage": {"season_code": "summer", "covered": False, "uncovered_dates": ["2027-05-01"]},
+            "unapproved_nested": {"secret": {"token": "drop"}},
             "pricing_failure": {
                 "type": "pricing_failure",
                 "price_kind": "lesson",
@@ -98,6 +101,9 @@ class LunaV3PluginContractTests(unittest.TestCase):
             pricing = plugin.call_tool("check_quote_book", {"action": "prepare"})
         self.assertEqual("configuration", pricing["classification"])
         self.assertEqual(pricing_body["pricing_failure"], pricing["pricing_failure"])
+        self.assertEqual(pricing_body["eligibility_facts"], pricing["eligibility_facts"])
+        self.assertEqual(pricing_body["season_coverage"], pricing["season_coverage"])
+        self.assertNotIn("unapproved_nested", pricing)
 
         malformed = urllib.error.HTTPError("https://staff.example/x", 502, "Bad Gateway", {}, io.BytesIO(b'<html>bad gateway</html>'))
         with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=malformed):

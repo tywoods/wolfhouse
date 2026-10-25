@@ -1,10 +1,10 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createCheckQuoteBook, publicFailure } = require('./v3-booking-flow');
-const { normalizeQuoteRequest } = require('./staff-request-contract');
+const { normalizeQuoteRequest, normalizeCapabilityChoice, ACCOMMODATION_ONLY } = require('./staff-request-contract');
 
 function harness({ rooms = true, quoteFailure = null, throwCatalog = false, failBegin = false,
-  failCommit = false, failTerminalUpdates = 0 } = {}) {
+  failCommit = false, failTerminalUpdates = 0, catalogItems = null } = {}) {
   const attempts = new Map(); let executions = 0; let inTx = false; let staged = null;
   let beginFailures = failBegin ? 1 : 0; let commitFailures = failCommit ? 1 : 0;
   const pg = { async query(sql, params = []) {
@@ -42,9 +42,9 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false, fail
     throw new Error(`unexpected SQL: ${sql.slice(0, 60)}`);
   } };
   const deps = {
-    async getPricingCatalog() { if (throwCatalog) throw new Error('transport'); return { ok: true, items: [
+    async getPricingCatalog() { if (throwCatalog) throw new Error('transport'); return { ok: true, items: catalogItems || [
       { item_type: 'package', item_code: 'package_none', label: 'Accommodation only' },
-    ] }; },
+    ], rules: [] }; },
     async findRooms() { executions += 1; return rooms ? { ok: true, rooms: [{ roomCode: 'R1', bedOptions: [{ code: 'B1' }] }] } : { ok: true, rooms: [] }; },
     async quote() { return quoteFailure || { ok: true, totalCents: 10000, depositCents: 5000, remainingCents: 5000, currency: 'EUR', lineItems: [], perPerson: [] }; },
   };
@@ -52,7 +52,7 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false, fail
 }
 const input = { action: 'prepare', purpose: 'quote', check_in: '2027-01-01', check_out: '2027-01-03',
   guests: [{}], room: { kind: 'shared' }, package: { code: 'package_none' }, add_ons: [] };
-const context = (event) => ({ turnId: `turn:${event}`, sessionId: 'session', principalId: 'principal', authenticatedInboundEventId: event });
+const context = (event, extra = {}) => ({ turnId: `turn:${event}`, sessionId: 'session', principalId: 'principal', authenticatedInboundEventId: event, ...extra });
 
 async function run() {
   const catalog = { items: [{ item_type: 'package', item_code: 'package_none', label: 'Accommodation only' }] };
@@ -86,11 +86,27 @@ async function run() {
   assert.equal(u1.outcome, 'unknown');
   assert.deepEqual(await execute(unknown, input, event1), u1, 'unknown is terminal and replays');
 
+  const issuedPackage = { item_type: 'package', item_code: 'package_wave', label: 'Wave Week', description: 'Seven-night package' };
+  const issued = { revision: 'rev-1', choices: [normalizeCapabilityChoice(ACCOMMODATION_ONLY), normalizeCapabilityChoice(issuedPackage)] };
+  const namedInput = { ...input, package: { name: 'Wave Week' } };
+  const binding = { issuedCapabilityRevision: 'rev-1', issuedCapabilitySnapshot: issued };
+  const named = harness({ catalogItems: [issuedPackage] });
+  assert.equal((await named.flow(named.pg, namedInput, context('33333333-3333-4333-8333-333333333333', binding))).ok,
+    true, 'unchanged name-only choice is accepted');
+  const changedSemantics = harness({ catalogItems: [{ ...issuedPackage, description: 'Changed package' }] });
+  assert.equal((await changedSemantics.flow(changedSemantics.pg, namedInput,
+    context('44444444-4444-4444-8444-444444444444', binding))).code,
+  'stale_capability_choice', 'name-only changed semantics are refused');
+  assert.equal((await named.flow(named.pg, { ...namedInput, package: { code: 'package_none', name: 'Wave Week' } },
+    context('55555555-5555-4555-8555-555555555555', binding))).code,
+  'catalog_choice_conflict', 'code and name mismatch is refused');
+
   for (const [name, options, value] of [
     ['BEGIN', { failBegin: true }, input],
     ['validation receipt UPDATE', { failTerminalUpdates: 1 }, { ...input, guests: [] }],
     ['business rejection receipt UPDATE', { rooms: false, failTerminalUpdates: 1 }, input],
     ['success receipt UPDATE', { failTerminalUpdates: 1 }, input],
+    ['double terminal UPDATE with pooled backend alive', { failTerminalUpdates: 2 }, input],
     ['success COMMIT', { failCommit: true }, input],
   ]) {
     const fault = harness(options);

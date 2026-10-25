@@ -213,6 +213,10 @@ async function main(api = defaultApi) {
       path.join(__dirname, "../../../database/migrations/127_luna_v3_prepare_execution_leases.sql"),
       "utf8",
     );
+    const migration128 = fs.readFileSync(
+      path.join(__dirname, "../../../database/migrations/128_luna_v3_prepare_owner_release.sql"),
+      "utf8",
+    );
     await admin.query(base);
     await admin.query(migration091);
     await admin.query(
@@ -835,6 +839,8 @@ async function main(api = defaultApi) {
     await admin.query(migration126); // forward migration is safe for partially/upgraded clones
     await admin.query(migration127);
     await admin.query(migration127); // lease migration is rerunnable
+    await admin.query(migration128);
+    await admin.query(migration128); // owner-release migration is rerunnable
     console.log(
       "PASS V3-MIGRATION-FALLBACK consolidated 114 plus retained 115/117/119/120/123 preserves foreign phone constraints, refuses altered FKs, and leaves late-preflight catalogs unchanged",
     );
