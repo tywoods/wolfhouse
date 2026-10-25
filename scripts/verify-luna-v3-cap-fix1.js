@@ -39,7 +39,7 @@ async function testCompleteOffer() {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
-    if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
+    if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
     throw new Error(`unexpected SQL: ${sql}`);
   } };
@@ -54,13 +54,29 @@ async function testCompleteOffer() {
   assert.deepEqual(observedAddOns, [{ code: 'board', dates: ['2027-03-02'], days: 1, quantity: 3 }]);
 }
 
+async function testReplayNeedsNoFreshCatalog() {
+  let catalogCalls = 0;
+  const replayQuote = { totalCents: 12345, depositCents: 3000, remainingCents: 9345, currency: 'EUR',
+    lineItems: [], perPerson: [], packageDetails: { code: 'malibu', name: 'Original Malibu', description: 'Stored', includes: ['bed'] } };
+  const pg = { async query(sql) {
+    if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+    if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [{ state: 'active', expires_at: '2099-03-01T12:15:00Z', quote: replayQuote,
+      assignments: [{ bed_code: 'BED-1', package_code: 'malibu' }] }] };
+    throw new Error(`unexpected replay SQL: ${sql}`);
+  } };
+  const result = await createCheckQuoteBook(deps({ getPricingCatalog: async () => { catalogCalls += 1; throw new Error('catalog unavailable'); } }))(pg, input, context);
+  assert.equal(catalogCalls, 0);
+  assert.equal(result.offer_reference.startsWith('offer_'), true);
+  assert.deepEqual(result.package_details, replayQuote.packageDetails);
+}
+
 async function testFailedOfferWriteRollsBackHold() {
   let released = 0;
   const pg = { async query(sql) {
     if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
     if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
     if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
-    if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
+    if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
     if (/INSERT INTO luna_v3_offer_turns/.test(sql)) throw new Error('offer write failed');
     throw new Error(`unexpected SQL: ${sql}`);
   } };
@@ -78,12 +94,14 @@ async function main() {
   } };
   const complete = 'Total €123.45; deposit €30.00; 2027-03-01 to 2027-03-08; A; BED-1; malibu; board on 2027-03-02.';
   assert.equal(replyShowsAuthoritativeTerms(complete, presentationQuote), true);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €123.450; deposit €300.00'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu; ', ''), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('board on 2027-03-02', ''), presentationQuote), false);
   assert.equal(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/book'], undefined, 'legacy public book route must be closed');
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', input));
   await testCompleteOffer();
+  await testReplayNeedsNoFreshCatalog();
   await testFailedOfferWriteRollsBackHold();
   console.log('luna v3 Cap FIX1 focused regressions: PASS');
 }

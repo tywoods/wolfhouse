@@ -25,7 +25,7 @@ const pg = { async query(sql) {
   if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
   if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };
   if (/SELECT s.id,s.client_id/.test(sql)) return { rows: [{ id: 'session-db', client_id: 'client-db' }] };
-  if (/UPDATE luna_v3_holds/.test(sql)) return { rows: [{ id: 'hold-db' }] };
+  if (/UPDATE luna_v3_holds/.test(sql) || /UPDATE luna_v3_selections/.test(sql)) return { rows: [{ id: 'hold-db' }] };
   if (/INSERT INTO luna_v3_offer_turns/.test(sql)) return { rows: [] };
   throw new Error(`unexpected SQL: ${sql}`);
 } };

@@ -34,12 +34,23 @@ function replyShowsAuthoritativeTerms(reply, quote) {
   const text = String(reply || '');
   const lower = text.toLowerCase();
   if (/\b(?:not|is not|isn't|excluding)\b[^.!?]{0,40}(?:€|eur|total|deposit)/i.test(text)) return false;
-  const labelledPrice = (label, cents) => {
-    const amount = String(cents / 100).replace('.', '[.,]');
-    const money = `(?:€\\s*${amount}|${amount}\\s*(?:€|EUR))`;
-    return new RegExp(`(?:\\b${label}\\b[^.!?]{0,32}${money}|${money}[^.!?]{0,32}\\b${label}\\b)`, 'i').test(text);
+  const labelledPrice = (label, otherLabel, cents) => {
+    const labels = new RegExp(`\\b${label}\\b`, 'ig');
+    for (const match of text.matchAll(labels)) {
+      let start = Math.max(0, match.index - 32);
+      let end = Math.min(text.length, match.index + match[0].length + 32);
+      const before = text.slice(start, match.index);
+      const after = text.slice(match.index + match[0].length, end);
+      const priorOther = [...before.matchAll(new RegExp(`\\b${otherLabel}\\b`, 'ig'))].at(-1);
+      const nextOther = after.search(new RegExp(`\\b${otherLabel}\\b`, 'i'));
+      if (priorOther) start += priorOther.index + priorOther[0].length;
+      if (nextOther >= 0) end = match.index + match[0].length + nextOther;
+      if (replyShowsPrice(text.slice(start, end), cents, quote.currency)) return true;
+    }
+    return false;
   };
-  if (!labelledPrice('total', quote.totalCents) || !labelledPrice('deposit', quote.depositCents)) return false;
+  if (!labelledPrice('total', 'deposit', quote.totalCents)
+      || !labelledPrice('deposit', 'total', quote.depositCents)) return false;
   const q = quote.quoteInput || {};
   const terms = [q.check_in, q.check_out,
     ...(q.guests || []).map((g) => g.name),
@@ -136,7 +147,8 @@ function publicOffer(held, quote, input, reference, catalog) {
       package: assignments[index] && (assignments[index].package_code || assignments[index].packageCode) })),
     quote: { totalCents: quote.totalCents, depositCents: quote.depositCents, remainingCents: quote.remainingCents,
       currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
-    package_details: selectedPackageDetails(input, catalog, assignments),
+    package_details: quote.packageDetails !== undefined
+      ? quote.packageDetails : selectedPackageDetails(input, catalog || {}, assignments),
     payment_arrangement: input.payment && input.payment.arrangement,
   };
 }
@@ -176,22 +188,24 @@ function createCheckQuoteBook(deps) {
       try {
         const snapshotContext = { ...context, callerManagedTransaction: true, ignoreOwnHolds: true };
         const reject = async (failure) => { await pg.query('ROLLBACK'); return publicFailure(failure); };
+        const replayReference = `offer_${digest({ session: context.sessionId, input }, 36)}`;
+        if (input.purpose !== 'information') {
+          const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
+            FROM luna_v3_holds h JOIN luna_v3_sessions s ON s.id=h.session_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
+            WHERE s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
+          [context.sessionId, context.principalId, replayReference])).rows[0];
+          if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
+            await pg.query('COMMIT');
+            return publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference);
+          }
+        }
         const catalog = await deps.getPricingCatalog(pg, { check_in: input.check_in, check_out: input.check_out }, snapshotContext);
         if (!catalog.ok) return reject(catalog);
         if (input.purpose === 'information') {
           const result = { ok: true, state: 'information', reason: 'authoritative_catalog_ready', held: false, booked: false,
             check_in: input.check_in, check_out: input.check_out, items: catalog.items || [], next_step: 'answer_information_request' };
           await pg.query('COMMIT'); return result;
-        }
-        const replayReference = `offer_${digest({ session: context.sessionId, input }, 36)}`;
-        const replay = (await pg.query(`SELECT h.expires_at,h.state,sel.quote,
-          COALESCE((SELECT jsonb_agg(jsonb_build_object('bed_code',hb.bed_code,'package_code',hb.package_code) ORDER BY hb.guest_ordinal) FROM luna_v3_hold_beds hb WHERE hb.hold_id=h.id),'[]') assignments
-          FROM luna_v3_holds h JOIN luna_v3_sessions s ON s.id=h.session_id JOIN luna_v3_selections sel ON sel.id=h.selection_id
-          WHERE s.session_key=$1 AND s.principal_id=$2 AND h.offer_reference=$3`,
-        [context.sessionId, context.principalId, replayReference])).rows[0];
-        if (replay && replay.state === 'active' && new Date(replay.expires_at).getTime() > Date.now()) {
-          await pg.query('COMMIT');
-          return publicOffer({ assignments: replay.assignments, expiresAt: replay.expires_at }, replay.quote, input, replayReference, catalog);
         }
         const count = input.guests.length;
         const rooms = await deps.findRooms(pg, { check_in: input.check_in, check_out: input.check_out, party_size: count, preferences: availabilityPreferences(input) }, snapshotContext);
@@ -217,7 +231,11 @@ function createCheckQuoteBook(deps) {
         const updated = await pg.query(`UPDATE luna_v3_holds SET offer_reference=$1 WHERE id=$2 AND client_id=$3 AND session_id=$4 AND state='active' RETURNING id`, [reference, hold.holdId, session.client_id, session.id]);
         if (!updated.rows[0]) throw new Error('offer_scope_changed');
         await pg.query(`INSERT INTO luna_v3_offer_turns(client_id,session_id,hold_id,offer_reference,prepared_turn_id) VALUES($1,$2,$3,$4,$5)`, [session.client_id, session.id, hold.holdId, reference, context.turnId]);
-        const result = publicOffer(hold, quote, input, reference, catalog);
+        const quoteWithPresentation = { ...quote, packageDetails: selectedPackageDetails(input, catalog, hold.assignments || []) };
+        await pg.query(`UPDATE luna_v3_selections sel SET quote=jsonb_set(sel.quote,'{packageDetails}',$1::jsonb,true)
+          FROM luna_v3_holds h WHERE h.selection_id=sel.id AND h.id=$2 AND h.client_id=$3 AND h.session_id=$4`,
+        [JSON.stringify(quoteWithPresentation.packageDetails), hold.holdId, session.client_id, session.id]);
+        const result = publicOffer(hold, quoteWithPresentation, input, reference, catalog);
         await pg.query('COMMIT');
         return result;
       } catch (error) {
