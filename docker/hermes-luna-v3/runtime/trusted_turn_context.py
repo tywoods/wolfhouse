@@ -9,6 +9,8 @@ from typing import Any
 _INBOUND_EVENT_ID: ContextVar[str] = ContextVar("luna_v3_inbound_event_id", default="")
 _PREPARE_DISPATCHED: ContextVar[bool] = ContextVar("luna_v3_prepare_dispatched", default=False)
 _CAPABILITY_SNAPSHOT: ContextVar[Any] = ContextVar("luna_v3_capability_snapshot", default=None)
+_HARNESS_EVIDENCE: ContextVar[Any] = ContextVar("luna_v3_harness_evidence", default=None)
+_HARNESS_FAULT: ContextVar[str] = ContextVar("luna_v3_harness_fault", default="")
 
 
 def bind_inbound_event(event_id: str, capability_snapshot: Any = None) -> Token:
@@ -33,6 +35,26 @@ def reserve_prepare_dispatch() -> bool:
         return False
     _PREPARE_DISPATCHED.set(True)
     return True
+
+
+def bind_harness_evidence(recorder: list[dict[str, Any]] | None, fault: str = "") -> tuple[Token, Token]:
+    """Bind server-authenticated controls outside guest/model data."""
+    return _HARNESS_EVIDENCE.set(recorder), _HARNESS_FAULT.set(fault)
+
+
+def clear_harness_evidence(tokens: tuple[Token, Token]) -> None:
+    _HARNESS_EVIDENCE.reset(tokens[0])
+    _HARNESS_FAULT.reset(tokens[1])
+
+
+def harness_evidence() -> list[dict[str, Any]] | None:
+    return _HARNESS_EVIDENCE.get()
+
+
+def consume_harness_fault() -> str:
+    value = _HARNESS_FAULT.get()
+    _HARNESS_FAULT.set("")
+    return value
 
 
 def render_capability_constraints(snapshot: Any) -> str:

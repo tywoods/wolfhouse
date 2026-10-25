@@ -12,6 +12,7 @@ import os
 import urllib.error
 import urllib.request
 import urllib.parse
+import time
 from pathlib import Path
 from typing import Any
 
@@ -157,10 +158,32 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         },
         method="POST",
     )
+    recorder = None
+    fault = ""
+    try:
+        from runtime.trusted_turn_context import harness_evidence, consume_harness_fault
+        recorder = harness_evidence()
+        fault = consume_harness_fault()
+    except ImportError:
+        pass
     try:
         with _open_staff(request, runtime["base_url"]) as response:
+            raw = response.read()
+            # A genuine authenticated Staff response has crossed the boundary before
+            # this narrow TEST-only mutation. ContextVars cannot be guest/model supplied.
+            if fault == "timeout":
+                time.sleep(float(os.environ.get("LUNA_V3_HARNESS_TIMEOUT_SECONDS", "0.01")))
+                raw = b""
+            elif fault == "non-json":
+                raw = b"CAP-HARNESS-NON-JSON"
+            elif fault == "malformed":
+                raw = b"[]"
+            if recorder is not None:
+                recorder.append({"tool": name, "path": TOOL_PATHS[name],
+                    "status": getattr(response, "status", 200), "request": payload,
+                    "raw_response_hex": raw.hex(), "fault": fault or None})
             try:
-                body = json.loads(response.read().decode("utf-8"))
+                body = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeError):
                 return _refusal("staff_transport_non_json", "transport", getattr(response, "status", 200), turn_id)
             if not isinstance(body, dict):

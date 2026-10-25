@@ -1,0 +1,52 @@
+name: Luna v3 Cap authentic rendered replies
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact reviewed commit SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  authentic-matrix:
+    environment: luna-v3-cap-protected
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16.4@sha256:95b4e5f3b3ddc54f8b513045d9c45ca91dc6b17202318e19d9a20b8fb9009629
+        env:
+          POSTGRES_PASSWORD: cap-test-only
+          POSTGRES_USER: cap
+          POSTGRES_DB: luna_v3_cap
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cap -d luna_v3_cap"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ inputs.candidate_sha }}'}
+      - name: Exact-head and offline gates
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ inputs.candidate_sha }}"
+          python3 -m unittest docker/hermes-luna-v3/tests/test_simulator_route.py -v
+          python3 -m unittest docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v
+          python3 scripts/test-luna-v3-rendered-reply-harness.py
+      - name: Run real model matrix (no retries)
+        env:
+          LUNA_MATRIX_CANDIDATE_SHA: '${{ inputs.candidate_sha }}'
+          LUNA_MATRIX_SIMULATOR_URL: '${{ secrets.LUNA_V3_CAP_SIMULATOR_URL }}'
+          LUNA_MATRIX_SIMULATOR_TOKEN: '${{ secrets.LUNA_V3_CAP_SIMULATOR_TOKEN }}'
+          LUNA_V3_HARNESS_TRACE_TOKEN: '${{ secrets.LUNA_V3_CAP_TRACE_TOKEN }}'
+          HERMES_MODEL_PROVIDER: openai-codex
+          HERMES_MODEL: gpt-6.1-sol
+          HERMES_REASONING_EFFORT: low
+          HERMES_FALLBACK_MODEL: ''
+        run: python3 scripts/run-luna-v3-rendered-reply-matrix.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: luna-v3-cap-authentic-${{ inputs.candidate_sha }}
+          path: artifacts/rendered-reply-matrix/
+          retention-days: 30
