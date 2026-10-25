@@ -1,84 +1,88 @@
 name: Luna v3 Cap authentic rendered replies
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/luna-v3-cap-authentic-matrix.yml'
+      - 'Dockerfile'
+      - 'package*.json'
+      - 'database/**'
+      - 'docker/hermes-luna-v3/**'
+      - 'scripts/lib/model-led-luna/**'
+      - 'scripts/run-luna-v3-cap-isolated-ci.sh'
+      - 'scripts/run-luna-v3-rendered-reply-matrix.py'
+      - 'scripts/seed-luna-v3-cap-isolated-fixture.js'
+      - 'scripts/test-luna-v3-rendered-reply-harness.py'
+  push:
+    branches: [fix/v3-stayonly-contract-20261025]
+    paths:
+      - '.github/workflows/luna-v3-cap-authentic-matrix.yml'
+      - 'Dockerfile'
+      - 'package*.json'
+      - 'database/**'
+      - 'docker/hermes-luna-v3/**'
+      - 'scripts/lib/model-led-luna/**'
+      - 'scripts/run-luna-v3-cap-isolated-ci.sh'
+      - 'scripts/run-luna-v3-rendered-reply-matrix.py'
+      - 'scripts/seed-luna-v3-cap-isolated-fixture.js'
+      - 'scripts/test-luna-v3-rendered-reply-harness.py'
   workflow_dispatch:
-    inputs:
-      candidate_sha:
-        description: Exact reviewed commit SHA
-        required: true
-        type: string
 permissions:
   contents: read
 jobs:
   authentic-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
       ARTIFACT_DIR: artifacts/rendered-reply-matrix
+      CANDIDATE_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: '${{ inputs.candidate_sha }}'
+          ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Prove exact head and record secret preflight
+      - name: Prove exact head and record model-secret preflight
         id: preflight
         env:
-          MODEL_API_KEY: '${{ secrets.OPENAI_API_KEY }}'
-          CANDIDATE_SHA: '${{ inputs.candidate_sha }}'
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           mkdir -p "$ARTIFACT_DIR/preflight"
-          actual=$(git rev-parse HEAD)
-          test "$actual" = "$CANDIDATE_SHA"
           python3 - <<'PY'
-          import hashlib,json,os,pathlib
-          out=pathlib.Path(os.environ['ARTIFACT_DIR'])/'preflight'/'model-provider.json'
-          key=os.environ.get('MODEL_API_KEY','')
-          doc={'schema':'luna-v3-cap-model-preflight/v1','candidate_sha':os.environ['CANDIDATE_SHA'],
-               'checkout_sha':os.popen('git rev-parse HEAD').read().strip(),'provider':'openai-codex',
-               'model':'gpt-6.1-sol','reasoning':'low','temperature':'provider-default','fallback':'',
-               'secret_name':'OPENAI_API_KEY','secret_present':bool(key),
-               'secret_fingerprint_sha256':hashlib.sha256(key.encode()).hexdigest() if key else None,
+          import hashlib,json,os,pathlib,subprocess
+          key=os.environ.get('OPENAI_API_KEY','')
+          sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          doc={'schema':'luna-v3-cap-model-preflight/v1','candidate_sha':os.environ['CANDIDATE_SHA'],'checkout_sha':sha,
+               'provider':'openai-codex','model':'gpt-6.1-sol','reasoning':'low','temperature':'provider-default','fallback':'',
+               'secret_name':'OPENAI_API_KEY','secret_present':bool(key),'secret_fingerprint_sha256':hashlib.sha256(key.encode()).hexdigest() if key else None,
                'verdict':'READY' if key else 'BLOCKED','reason':None if key else 'OPENAI_API_KEY repository secret is absent'}
-          out.write_text(json.dumps(doc,sort_keys=True,indent=2)+'\n')
+          pathlib.Path(os.environ['ARTIFACT_DIR'],'preflight','model-provider.json').write_text(json.dumps(doc,sort_keys=True,indent=2)+'\n')
           PY
-          if test -n "$MODEL_API_KEY"; then echo 'ready=true' >> "$GITHUB_OUTPUT"; else echo 'ready=false' >> "$GITHUB_OUTPUT"; fi
-      - name: Upload blocker preflight
-        if: steps.preflight.outputs.ready != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: luna-v3-cap-authentic-${{ inputs.candidate_sha }}
-          path: artifacts/rendered-reply-matrix/
-          retention-days: 30
-      - name: Stop with precise model-secret blocker
-        if: steps.preflight.outputs.ready != 'true'
-        run: |
-          echo 'BLOCKED: OPENAI_API_KEY repository secret is absent; no model call or matrix result was fabricated.'
-          exit 1
-      - name: Reject non-local runtime origins and run offline gates
-        if: steps.preflight.outputs.ready == 'true'
+          test -n "$OPENAI_API_KEY" && echo 'ready=true' >> "$GITHUB_OUTPUT" || echo 'ready=false' >> "$GITHUB_OUTPUT"
+      - name: Run offline gates first
         run: |
           set -euo pipefail
+          bash -n scripts/run-luna-v3-cap-isolated-ci.sh
+          shellcheck scripts/run-luna-v3-cap-isolated-ci.sh
           python3 -m unittest docker/hermes-luna-v3/tests/test_simulator_route.py -v
           python3 -m unittest docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v
           python3 scripts/test-luna-v3-rendered-reply-harness.py
           ! grep -E 'LUNA_V3_CAP_(SIMULATOR_URL|SIMULATOR_TOKEN|TRACE_TOKEN)' .github/workflows/luna-v3-cap-authentic-matrix.yml
-      - name: Build exact-head Staff and Hermes candidates
-        if: steps.preflight.outputs.ready == 'true'
+      - name: Stop rather than fabricate without the sole permitted secret
+        if: steps.preflight.outputs.ready != 'true'
         run: |
-          set -euo pipefail
-          docker build --pull=false -t cap-staff:${{ inputs.candidate_sha }} -f Dockerfile .
-          docker build --pull=false -t cap-hermes:${{ inputs.candidate_sha }} docker/hermes-luna-v3
-          docker image inspect cap-staff:${{ inputs.candidate_sha }} cap-hermes:${{ inputs.candidate_sha }} > "$ARTIFACT_DIR/image-inspect.json"
-      - name: Run isolated PostgreSQL, migrations, fixture, candidates, and matrix
+          echo 'BLOCKED: OPENAI_API_KEY repository secret is absent; offline gates passed; no model evidence was fabricated.'
+          exit 1
+      - name: Run exact-head isolated authentic matrix
         if: steps.preflight.outputs.ready == 'true'
         env:
-          MODEL_API_KEY: '${{ secrets.OPENAI_API_KEY }}'
-          CANDIDATE_SHA: '${{ inputs.candidate_sha }}'
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: scripts/run-luna-v3-cap-isolated-ci.sh
       - name: Upload evidence always
-        if: always() && steps.preflight.outputs.ready == 'true'
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: luna-v3-cap-authentic-${{ inputs.candidate_sha }}
+          name: luna-v3-cap-authentic-${{ github.sha }}
           path: artifacts/rendered-reply-matrix/
+          if-no-files-found: error
           retention-days: 30

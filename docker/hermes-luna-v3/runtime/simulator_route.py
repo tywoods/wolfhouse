@@ -102,7 +102,8 @@ def _normalize_phone(value: Any) -> str:
 def _admit_test_session_sync(session_key: str, phone: str, message_digest: str) -> dict[str, Any]:
     base_url = os.environ.get("LUNA_V3_STAFF_API_BASE_URL", "").strip().rstrip("/")
     token = os.environ.get("LUNA_V3_STAFF_API_TOKEN", "").strip()
-    if not base_url.startswith("https://") or not token:
+    local_harness = os.environ.get("LUNA_V3_AUTHENTIC_HARNESS") == "1" and base_url == "http://staff:3036"
+    if (not base_url.startswith("https://") and not local_harness) or not token:
         raise RuntimeError("simulator_session_admission_not_configured")
     payload = json.dumps({
         "tenant_id": "wolfhouse-somo",

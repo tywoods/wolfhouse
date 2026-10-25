@@ -38,7 +38,7 @@ def request(url,token,trace,payload,*,fault=None,timeout=240):
  except Exception: parsed=None
  return {"status":status,"raw":raw,"headers":response_headers,"elapsed_ms":round((time.time()-started)*1000),"parsed":parsed}
 
-def make_cases(snapshot):
+def make_cases(snapshot,fixture):
  choices=snapshot.get("choices")
  if snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
  by_kind={}
@@ -48,18 +48,21 @@ def make_cases(snapshot):
  out=[]
  def add(cid,prompt,expect,choice=None,prepare=True,continuation=False,fault=None):
   out.append({"id":cid,"prompt":prompt,"expect":expect,"choice":choice,"prepare_required":prepare,"continuation":continuation,"fault":fault})
- add("stay-only-refusal","Quote accommodation only for Alex, one guest, shared room, 1-2 July 2027. Repeat Staff's exact reason, facts, path and next step if refused.","refusal")
- add("stay-only-success-control","Quote accommodation only for Alex, one guest, shared room, 1-8 July 2027. Do not hold or book.","quote")
+ good=fixture["valid_dates"]; bad=fixture["invalid_dates"]
+ gd=f'{good["check_in"]} to {good["check_out"]}'; bd=f'{bad["check_in"]} to {bad["check_out"]}'
+ add("stay-only-refusal",f"Quote accommodation only for Alex, one guest, shared room, {bd}. Repeat Staff's exact reason, facts, path and next step if refused.","refusal")
+ add("stay-only-success-control",f"Quote accommodation only for Alex, one guest, shared room, {gd}. Do not hold or book.","quote")
  for kind in ("package","rental","service","lesson"):
   rows=by_kind.get(kind,[])
   if not rows: add(f"{kind}-n-a",f"No active {kind} exists in Staff snapshot.","n/a",prepare=False)
   for c in rows:
    label=c.get("label") or c["code"]
-   add(f"{kind}-{c['code']}",f"Quote active {kind} {label} ({c['code']}) for Alex, 1-8 July 2027. Use exact Staff amount and terms; do not hold or book.","quote",c)
- add("mixed","Quote accommodation and every compatible active package, rental, service and lesson for Alex, 1-8 July 2027. Preserve exact Staff facts and terms; do not hold or book.","mixed")
- add("multi-guest","Quote shared accommodation for Alex, Sam and Jo, 1-8 July 2027. Preserve exact Staff amounts and terms; do not hold or book.","quote")
- add("genuine-continuation","Quote shared accommodation for Alex, 1-8 July 2027, then answer a follow-up from the captured exchange only.","quote",continuation=True)
- for fault in ("non-json","malformed","timeout"): add(f"staff-boundary-{fault}","Quote shared accommodation for Alex, 1-8 July 2027. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
+   add(f"{kind}-{c['code']}-success",f"Quote active {kind} {label} ({c['code']}) for Alex, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c)
+   add(f"{kind}-{c['code']}-refusal",f"Quote active {kind} {label} ({c['code']}) for Alex, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c)
+ add("mixed",f"Quote accommodation and every compatible active package, rental, service and lesson for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed")
+ add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Preserve exact Staff amounts and terms; do not hold or book.","quote")
+ add("genuine-continuation",f"Quote Cap Week for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",continuation=True)
+ for fault in ("non-json","malformed","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
  return out
 
 def scalars(v,prefix="$"):
@@ -100,13 +103,15 @@ def judge(case,body,pre,post):
   "installed_plugin_result_present":isinstance(trace,dict) and isinstance(trace.get("installed_plugin"),dict) and bool(trace["installed_plugin"].get("sha256")),
   "runtime_readback_present":isinstance(trace,dict) and isinstance(trace.get("runtime_readback"),dict),
   "pre_post_state_present":isinstance(pre,dict) and isinstance(post,dict),
-  "one_prepare_exactly":len(prepare)==1 if case["prepare_required"] else len(prepare)==0,
+  "one_prepare_per_turn":len(prepare)==(2 if case["continuation"] else 1) if case["prepare_required"] else len(prepare)==0,
   "staff_fields_rendered_exactly":all(ok for _,_,ok in exact_fields) and (bool(exact_fields) or case["expect"] in ("uncertain","n/a")),
   "no_hold_or_booking_for_quote":not quote_only or pre.get("booking_count")==post.get("booking_count") and pre.get("hold_count")==post.get("hold_count"),
   "send_suppressed":body.get("external_send_allowed") is False and body.get("staff_alert_allowed") is False,
  }
  if case["expect"]=="uncertain": checks["fault_uncertainty"]=("uncertain" in reply_s.lower() or "cannot verify" in reply_s.lower() or "couldn't verify" in reply_s.lower()) and not any(x.lower() in reply_s.lower() for x in evidence.split() if len(x)>20)
- if case["continuation"]: checks["genuine_one_use_continuation"]=trace.get("continuation_consumed") is True
+ if case["continuation"]:
+  checks["genuine_one_use_continuation"]=isinstance(trace,dict) and trace.get("continuation_consumed") is True
+  checks["first_refusal_then_success"]=any(isinstance(x,dict) and x.get("ok") is False for x in tool_results) and any(isinstance(x,dict) and x.get("ok") is True for x in tool_results)
  return checks,exact_fields
 
 def main():
@@ -124,7 +129,11 @@ def main():
  required_pins=("candidate_sha","image_digest","base_image_digest","instruction_sha256","plugin_sha256","contract_sha256")
  if not isinstance(pins,dict) or pins.get("candidate_sha")!=head or any(not str(pins.get(k) or "").strip() for k in required_pins): raise SystemExit("BLOCKED: immutable runtime pins missing/mismatched")
  snapshot=pf.get("staff_admission",{}).get("capability_snapshot")
- cases=make_cases(snapshot); records=[]; seq=0
+ fixture_path=pathlib.Path(need("LUNA_MATRIX_FIXTURE_METADATA"))
+ try: fixture=json.loads(fixture_path.read_text())
+ except Exception as exc: raise SystemExit(f"BLOCKED: fixture metadata unreadable: {exc}")
+ if fixture.get("tenant")!="wolfhouse-somo" or not all(isinstance(fixture.get(k),dict) for k in ("valid_dates","invalid_dates")): raise SystemExit("BLOCKED: malformed fixture metadata")
+ cases=make_cases(snapshot,fixture); records=[]; seq=0
  for case in cases:
   if case["expect"]=="n/a": records.append({"case":case,"repetition":None,"verdict":"N/A","reason":"live Staff admission snapshot has no active cell for this kind"}); continue
   for rep in range(1,REPS+1):
@@ -134,7 +143,7 @@ def main():
    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case["fault"])
    body=wire["parsed"] or {}
    if case["continuation"] and body.get("continuation_ref"):
-    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,{"thread":phone,"text":"What exact total and terms did Staff return?","continuation_ref":body["continuation_ref"],"external_send_allowed":False})
+    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,{"thread":phone,"text":f"Correct the dates to {fixture['valid_dates']['check_in']} through {fixture['valid_dates']['check_out']} and quote the same selection.","continuation_ref":body["continuation_ref"],"external_send_allowed":False})
     body=wire["parsed"] or {}
    post=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})["parsed"] or {}
    checks,fields=judge(case,body,state,post); passed=all(checks.values())

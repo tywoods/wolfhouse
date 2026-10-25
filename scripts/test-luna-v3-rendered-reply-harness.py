@@ -12,7 +12,7 @@ class Gates(unittest.TestCase):
   s=RUNNER.read_text(); self.assertNotIn('LUNA_MATRIX_INVENTORY',s); self.assertIn('"no_retries":True',s); self.assertIn('REPS=3',s)
  def test_artifact_and_verdict_contract(self):
   s=RUNNER.read_text()
-  for x in ('manifest.json','results.json','SHA256SUMS','reply_equals_final_response','staff_fields_rendered_exactly','no_hold_or_booking_for_quote'): self.assertIn(x,s)
+  for x in ('manifest.json','results.json','SHA256SUMS','reply_equals_final_response','staff_fields_rendered_exactly','no_hold_or_booking_for_quote','one_prepare_per_turn','first_refusal_then_success'): self.assertIn(x,s)
  def test_harness_gates_and_fault_isolation(self):
   route=ROUTE.read_text(); plugin=PLUGIN.read_text()
   self.assertIn('_harness_trace_allowed(request)',route); self.assertIn('trace_allowed else ""',route)

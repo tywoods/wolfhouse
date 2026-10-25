@@ -314,7 +314,7 @@ async function getBookingCapabilitySnapshot(pg, context) {
   let data;
   try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
   const choices = [staffRequestContract.ACCOMMODATION_ONLY,
-    ...data.items.filter((item) => ['package', 'service', 'rental'].includes(item.item_type)
+    ...data.items.filter((item) => ['package', 'service', 'rental', 'lesson'].includes(item.item_type)
       && !(item.item_type === 'package' && item.item_code === 'package_none'))]
     .map((item) => staffRequestContract.normalizeCapabilityChoice(item, data.rules));
   const snapshot = { contract: 'luna-v3-booking-capabilities', choices,

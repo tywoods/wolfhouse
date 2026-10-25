@@ -89,7 +89,8 @@ def _session_id() -> str:
 
 def _runtime() -> dict[str, str]:
     base_url = _required_env("LUNA_V3_STAFF_API_BASE_URL").rstrip("/")
-    if not base_url.startswith("https://"):
+    local_harness = os.environ.get("LUNA_V3_AUTHENTIC_HARNESS") == "1" and base_url == "http://staff:3036"
+    if not base_url.startswith("https://") and not local_harness:
         raise RuntimeError("Luna v3 Staff API must use HTTPS")
     token = _required_env("LUNA_V3_STAFF_API_TOKEN")
     tenant = _required_env("LUNA_V3_TENANT_ID")
