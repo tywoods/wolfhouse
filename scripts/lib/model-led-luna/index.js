@@ -369,6 +369,17 @@ async function computeQuote(pg, input = {}, context) {
       || !Number.isSafeInteger(quoteResult.total_cents)
       || !Number.isSafeInteger(quoteResult.deposit_required_cents)
       || !Number.isSafeInteger(quoteResult.balance_due_cents)) {
+    const missingPackagePrice = quoteResult && Array.isArray(quoteResult.blockers)
+      ? quoteResult.blockers.map((message) => String(message).match(/^no price configured for package "([^"]+)" in season "([^"]+)"$/)).find(Boolean)
+      : null;
+    if (missingPackagePrice) {
+      const diagnostic = `no price configured for package '${missingPackagePrice[1]}' in season '${missingPackagePrice[2]}'`;
+      return { ok: false, status: 422, code: 'staff_package_price_missing', classification: 'configuration',
+        field_errors: [{ path: 'package', code: 'staff_package_price_missing', message: diagnostic }],
+        next_step: 'ask_staff_to_configure_package_price', retry_allowed: false,
+        eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
+          packageMinimumSource: config.package_min_nights_source } };
+    }
     return { ok: false, status: 422, code: quoteResult && quoteResult.reason_code || 'staff_quote_unavailable',
       eligibilityFacts: { packageEligible: false, packageMinimumNights: config.package_min_nights,
         packageMinimumSource: config.package_min_nights_source } };

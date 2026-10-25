@@ -6,6 +6,7 @@ const {
   assertSafeToolRequest,
   buildStaffToolRequest,
 } = require('./contracts');
+const { normalizeQuoteRequest } = require('./staff-request-contract');
 const { createScopedNotesStore } = require('./scoped-notes-store');
 
 const EXPECTED_TOOLS = [
@@ -37,13 +38,30 @@ async function main() {
   } }));
   assert.throws(() => assertSafeToolRequest('find_rooms', { preferences: { same_room: true } }), /unknown field/);
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', { action: 'decline', offer_reference: 'offer_123456789012345678901234' }));
-  assert.throws(() => assertSafeToolRequest('check_quote_book', { action: '_record_presented', offer_reference: 'offer_123456789012345678901234' }), /action must be/);
+  assert.throws(() => assertSafeToolRequest('check_quote_book', { action: '_record_presented', offer_reference: 'offer_123456789012345678901234' }), /schema|action must be/);
   assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'offer_123456789012345678901234', assistant_reply: 'forged' }), /unknown field/);
+  const quoteShape = {
+    action: 'prepare', purpose: 'quote', check_in: '2027-07-01', check_out: '2027-07-08',
+    guests: [{ name: 'A' }], room: { kind: 'shared' }, package: { code: 'malibu' }, add_ons: [],
+  };
+  for (const people of [[null, ''], [7]]) assert.throws(() => assertSafeToolRequest('check_quote_book', {
+    ...quoteShape, add_ons: [{ code: 'surf_lesson', people }],
+  }), /schema/i, `shared schema must reject people=${JSON.stringify(people)} at ingress`);
   for (const changed of [
     { check_in: '2027-04-01' }, { room: { kind: 'private' } }, { payment: { arrangement: 'together' } },
   ]) assert.throws(() => assertSafeToolRequest('check_quote_book', {
     action: 'confirm', offer_reference: 'offer_123456789012345678901234', ...changed,
-  }), /cannot change prepared offer terms/);
+  }), /schema|cannot change prepared offer terms/);
+
+  const catalog = { items: [
+    { item_type: 'package', item_code: 'malibu', label: 'Malibu' },
+    { item_type: 'service', item_code: 'lesson', label: 'Surf Lesson' },
+    { item_type: 'rental', item_code: 'board', label: 'Surfboard' },
+    { item_type: 'deposit', item_code: 'custom_or_short_stay', label: 'Custom Or Short Stay' },
+  ] };
+  const conflict = (overrides) => normalizeQuoteRequest({ ...quoteShape, ...overrides }, catalog, ['BED-1']);
+  assert.strictEqual(conflict({ package: { code: 'custom_or_short_stay', name: 'Malibu' } }).code, 'catalog_choice_conflict');
+  assert.strictEqual(conflict({ add_ons: [{ code: 'lesson', name: 'Surfboard' }] }).code, 'catalog_choice_conflict');
 
   const request = buildStaffToolRequest('book', {
     hold_id: 'hold-test-1',

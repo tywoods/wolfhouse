@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const SHARED_CHECK_QUOTE_BOOK_SCHEMA = require('../../../docker/hermes-luna-v3/contracts/check_quote_book.schema.json');
 const CHECK_QUOTE_BOOK_FIELDS = Object.freeze(['action','purpose','check_in','check_out','guests','room','package','add_ons','payment','offer_reference']);
 const date = { type: 'string', format: 'date' };
 const nonempty = { type: 'string', minLength: 1 };
@@ -37,13 +38,70 @@ function semanticError(code, path, message) {
   error.path = path;
   return error;
 }
+function schemaError(schema, value, path = '$') {
+  const fail = (message) => ({ path, message });
+  if (!schema || typeof schema !== 'object') return null;
+  if (schema.type === 'object' && (!value || typeof value !== 'object' || Array.isArray(value))) return fail('must be an object');
+  if (schema.type === 'array' && !Array.isArray(value)) return fail('must be an array');
+  if (schema.type === 'string' && typeof value !== 'string') return fail('must be a string');
+  if (schema.type === 'integer' && !Number.isSafeInteger(value)) return fail('must be an integer');
+  if (schema.enum && !schema.enum.includes(value)) return fail('has a value outside the allowed enum');
+  if (schema.const !== undefined && value !== schema.const) return fail('does not equal the required value');
+  if (typeof value === 'string') {
+    if (schema.minLength !== undefined && value.length < schema.minLength) return fail('is too short');
+    if (schema.pattern && !(new RegExp(schema.pattern)).test(value)) return fail('does not match the required pattern');
+    if (schema.format === 'date' && !validDate(value)) return fail('must be a real date');
+  }
+  if (typeof value === 'number' && schema.minimum !== undefined && value < schema.minimum) return fail('is below the minimum');
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) return fail('has too few items');
+    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail('must have unique items');
+    for (let index = 0; index < value.length; index += 1) {
+      const error = schemaError(schema.items, value[index], `${path}[${index}]`);
+      if (error) return error;
+    }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of schema.required || []) if (!(key in value)) return { path: `${path}.${key}`, message: 'is required' };
+    if (schema.additionalProperties === false) for (const key of Object.keys(value)) {
+      if (!schema.properties || !(key in schema.properties)) return { path: `${path}.${key}`, message: 'is not allowed' };
+    }
+    for (const [key, child] of Object.entries(schema.properties || {})) if (key in value) {
+      const error = schemaError(child, value[key], `${path}.${key}`);
+      if (error) return error;
+    }
+  }
+  if (schema.anyOf && !schema.anyOf.some((candidate) => !schemaError(candidate, value, path))) return fail('does not match an allowed shape');
+  if (schema.not && !schemaError(schema.not, value, path)) return fail('matches a forbidden shape');
+  for (const clause of schema.allOf || []) {
+    if ((!clause.if || !schemaError(clause.if, value, path)) && clause.then) {
+      const error = schemaError(clause.then, value, path);
+      if (error) return error;
+    }
+  }
+  return null;
+}
 function validateSharedRequest(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw semanticError('invalid_tool_request', '$', 'tool arguments must be an object');
-  if (input.action !== 'prepare') return;
+  if (input && typeof input === 'object' && !Array.isArray(input) && input.action === 'prepare'
+      && (!validDate(input.check_in) || !validDate(input.check_out) || input.check_out <= input.check_in)) {
+    throw semanticError('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out', 'check_in and check_out must be real ascending dates');
+  }
+  const invalid = schemaError(SHARED_CHECK_QUOTE_BOOK_SCHEMA, input);
+  const throwSchemaError = () => {
+    if (!invalid) return;
+    const detail = invalid.path === '$.payment' ? 'payment arrangement is required by the check_quote_book schema'
+      : invalid.path === '$.offer_reference' ? 'valid public offer_reference is required by the check_quote_book schema'
+        : `check_quote_book schema ${invalid.message}`;
+    throw semanticError('invalid_tool_request', invalid.path.replace(/^\$\.?/, ''), detail);
+  };
+  // Preserve the more actionable existing semantic diagnostics, while still
+  // executing and enforcing the complete shared schema for every request.
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throwSchemaError();
+  if (input.action !== 'prepare') { throwSchemaError(); return; }
   if (!validDate(input.check_in) || !validDate(input.check_out) || input.check_out <= input.check_in) {
     throw semanticError('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out', 'check_in and check_out must be real ascending dates');
   }
-  if (!['quote', 'offer'].includes(input.purpose)) return;
+  if (!['quote', 'offer'].includes(input.purpose)) { throwSchemaError(); return; }
   if (!Array.isArray(input.guests) || input.guests.length === 0) throw semanticError('guests_required', 'guests');
   if (!input.room || typeof input.room !== 'object' || Array.isArray(input.room)) throw semanticError('room_required', 'room');
   if (!input.package || typeof input.package !== 'object' || Array.isArray(input.package)) throw semanticError('package_choice_required', 'package');
@@ -60,12 +118,16 @@ function validateSharedRequest(input) {
     if (addOn.dates !== undefined && addOn.requested_dates !== undefined
         && JSON.stringify(addOn.dates) !== JSON.stringify(addOn.requested_dates)) throw semanticError('conflicting_date_aliases', `${path}.dates`);
   }
+  throwSchemaError();
 }
-function resolveChoice(items, kind, reference) {
-  const byCode = reference && reference.code !== undefined ? choice(items, kind, reference.code) : null;
-  const byName = reference && reference.name !== undefined ? choice(items, kind, reference.name) : null;
+function resolveCatalogChoice(items, kinds, reference) {
+  const candidates = items.filter((item) => kinds.includes(item.item_type));
+  const find = (wanted) => candidates.find((item) => [item.item_code, item.label]
+    .some((value) => String(value || '').trim().toLowerCase() === String(wanted || '').trim().toLowerCase()));
+  const byCode = reference && reference.code !== undefined ? find(reference.code) : null;
+  const byName = reference && reference.name !== undefined ? find(reference.name) : null;
   if (reference && reference.code !== undefined && reference.name !== undefined && (byCode || byName)
-      && (!byCode || !byName || byCode.item_code !== byName.item_code)) return { conflict: true };
+      && (!byCode || !byName || byCode.item_type !== byName.item_type || byCode.item_code !== byName.item_code)) return { conflict: true };
   return { item: byCode || byName };
 }
 
@@ -90,12 +152,12 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
   }
   const items = Array.isArray(catalog && catalog.items) ? catalog.items : [];
   const resolvePackage = (reference) => {
-    const resolved = resolveChoice(items, 'package', reference);
+    const resolved = resolveCatalogChoice(items, ['package', 'deposit'], reference);
     if (resolved.conflict) return { conflict: true };
     const selected = resolved.item;
-    if (selected) return { code: selected.item_code };
-    const stayOnly = choice(items, 'deposit', reference && (reference.code || reference.name));
-    return { code: stayOnly && stayOnly.item_code === 'custom_or_short_stay' ? 'package_none' : null };
+    if (!selected) return { code: null };
+    return { code: selected.item_type === 'deposit' && selected.item_code === 'custom_or_short_stay'
+      ? 'package_none' : selected.item_type === 'package' ? selected.item_code : null };
   };
   const packages = {};
   if (input.package && Array.isArray(input.package.per_guest)) {
@@ -120,9 +182,9 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
   const extras = [];
   for (const [index, addOn] of input.add_ons.entries()) {
     const path = `add_ons[${index}]`;
-    const service = resolveChoice(items, 'service', addOn); const rental = resolveChoice(items, 'rental', addOn);
-    if (service.conflict || rental.conflict) return fail('catalog_choice_conflict', path);
-    const item = service.item || rental.item;
+    const resolved = resolveCatalogChoice(items, ['service', 'rental'], addOn);
+    if (resolved.conflict) return fail('catalog_choice_conflict', path);
+    const item = resolved.item;
     if (!item) return fail('staff_service_unavailable', path);
     if (addOn.dates !== undefined && addOn.requested_dates !== undefined
         && JSON.stringify(addOn.dates) !== JSON.stringify(addOn.requested_dates)) return fail('conflicting_date_aliases', `${path}.dates`);

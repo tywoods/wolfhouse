@@ -979,6 +979,13 @@ async function main(api = defaultApi) {
       ctx("luna-v3:foreign"),
     );
     assert.equal(partialPricing.ok, false);
+    assert.equal(partialPricing.code, "staff_package_price_missing");
+    assert.equal(partialPricing.classification, "configuration");
+    assert.equal(partialPricing.next_step, "ask_staff_to_configure_package_price");
+    assert.deepEqual(partialPricing.field_errors, [{
+      path: "package", code: "staff_package_price_missing",
+      message: "no price configured for package 'malibu' in season 'summer'",
+    }]);
     await admin.query(
       `UPDATE wh_pricing_rules SET active=true WHERE item_type='package' AND item_code='malibu'`,
     );
