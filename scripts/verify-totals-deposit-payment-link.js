@@ -90,7 +90,10 @@ test('transactional retry validates every intent and actionability field on a ju
     } };
     const result = await create({ payment_target: 'deposit' }, {}, pg);
     assert.equal(result.ok, false, mutation);
-    assert.equal(result.body.reason_code, 'idempotency_conflict', mutation);
+    assert.equal(result.body.reason_code,
+      mutation === `booking_guest_id='${BOOKING}'`
+        ? 'booking_payment_guest_checkout_active'
+        : 'idempotency_conflict', mutation);
     assert.equal(result.body.checkout_url, undefined);
     assert.equal(calls.length, 0);
   }
@@ -102,9 +105,16 @@ test('general active reuse applies the same complete booking intent predicate', 
     calls.length = 0;
     await seedCheckout(mutation);
     const result = await create({ payment_target: 'deposit', idempotency_key: 'new-key' });
-    assert.equal(result.ok, true, mutation + JSON.stringify(result));
-    assert.notEqual(result.body.checkout_url, 'https://checkout.invalid/existing', mutation);
-    assert.equal(calls.length, 1, mutation);
+    if (mutation === `booking_guest_id='${BOOKING}'`) {
+      assert.equal(result.ok, false, mutation + JSON.stringify(result));
+      assert.equal(result.body.reason_code, 'booking_payment_guest_checkout_active', mutation);
+      assert.equal(result.body.checkout_url, undefined, mutation);
+      assert.equal(calls.length, 0, mutation);
+    } else {
+      assert.equal(result.ok, true, mutation + JSON.stringify(result));
+      assert.notEqual(result.body.checkout_url, 'https://checkout.invalid/existing', mutation);
+      assert.equal(calls.length, 1, mutation);
+    }
   }
 });
 
@@ -360,7 +370,10 @@ test('same idempotency key cannot replay a mismatched or non-actionable checkout
     await db.exec('UPDATE payments SET ' + mutation);
     const retry = await create({ payment_target: 'deposit' });
     assert.equal(retry.ok, false, mutation);
-    assert.equal(retry.body.reason_code, 'idempotency_conflict', mutation);
+    assert.equal(retry.body.reason_code,
+      mutation === `booking_guest_id='${BOOKING}'`
+        ? 'booking_payment_guest_checkout_active'
+        : 'idempotency_conflict', mutation);
     assert.equal(calls.length, 1, mutation);
     assert.equal(retry.body.checkout_url, undefined);
   }
