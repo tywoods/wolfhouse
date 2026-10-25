@@ -9,6 +9,11 @@ on:
         required: true
         default: '[]'
         type: string
+      cap_candidate_sha:
+        description: 'Exact PR head for the isolated Luna v3 Cap evidence preflight (empty for normal publish)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +23,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  luna-v3-cap-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.cap_candidate_sha != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.cap_candidate_sha }}
+          persist-credentials: false
+      - name: Record exact-head model-secret preflight
+        id: cap
+        env:
+          MODEL_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CANDIDATE_SHA: ${{ inputs.cap_candidate_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          mkdir -p artifacts/rendered-reply-matrix/preflight
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          key=os.environ.get('MODEL_API_KEY','')
+          doc={'schema':'luna-v3-cap-model-preflight/v1','candidate_sha':os.environ['CANDIDATE_SHA'],
+               'checkout_sha':os.popen('git rev-parse HEAD').read().strip(),'provider':'openai-codex',
+               'model':'gpt-6.1-sol','reasoning':'low','temperature':'provider-default','fallback':'',
+               'secret_name':'OPENAI_API_KEY','secret_present':bool(key),
+               'secret_fingerprint_sha256':hashlib.sha256(key.encode()).hexdigest() if key else None,
+               'verdict':'READY' if key else 'BLOCKED',
+               'reason':None if key else 'OPENAI_API_KEY repository secret is absent'}
+          pathlib.Path('artifacts/rendered-reply-matrix/preflight/model-provider.json').write_text(json.dumps(doc,sort_keys=True,indent=2)+'\n')
+          PY
+          test -n "$MODEL_API_KEY" && echo ready=true >> "$GITHUB_OUTPUT" || echo ready=false >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: luna-v3-cap-authentic-${{ inputs.cap_candidate_sha }}
+          path: artifacts/rendered-reply-matrix/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Stop rather than fabricate without the sole permitted secret
+        if: steps.cap.outputs.ready != 'true'
+        run: exit 1
+
   validate:
     name: Validate container build contract
     runs-on: ubuntu-24.04
