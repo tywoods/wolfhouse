@@ -10,6 +10,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY scripts ./scripts
+COPY docker/hermes-luna-v3/contracts ./docker/hermes-luna-v3/contracts
 COPY database ./database
 COPY config ./config
 COPY public ./public

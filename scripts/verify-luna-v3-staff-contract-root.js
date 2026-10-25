@@ -121,6 +121,9 @@ assert.equal(composedFailure.correlation_id, 'pg-correlation');
 
 const bookingFlow = fs.readFileSync(require.resolve('./lib/model-led-luna/v3-booking-flow'), 'utf8');
 const index = fs.readFileSync(require.resolve('./lib/model-led-luna'), 'utf8');
+const staffDockerfile = fs.readFileSync(require.resolve('../Dockerfile'), 'utf8');
+assert.match(staffDockerfile, /COPY docker\/hermes-luna-v3\/contracts \.\/docker\/hermes-luna-v3\/contracts/,
+  'Staff image must contain the shared check_quote_book schema required at runtime');
 for (const retired of ['function availabilityPreferences', 'function chooseBeds', 'function packageSelection', 'function addOns']) assert.equal(bookingFlow.includes(retired), false, retired);
 assert.equal(index.includes('function validateRentalDateSelections'), false);
 console.log('luna v3 Staff contract root: PASS');
