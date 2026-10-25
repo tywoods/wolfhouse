@@ -1,7 +1,17 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { assertSafeToolRequest, TOOL_CONTRACTS } = require('./lib/model-led-luna/contracts');
-const { createCheckQuoteBook } = require('./lib/model-led-luna/v3-booking-flow');
+const { createCheckQuoteBook, publicFailure } = require('./lib/model-led-luna/v3-booking-flow');
+
+const typedPricingFailure = {
+  type: 'pricing_failure', price_kind: 'rental',
+  choice: { item_type: 'rental', item_code: 'wetsuit_rental', season_code: null },
+  recovery_action: 'ask_staff_to_configure_add_on_price',
+};
+assert.deepEqual(publicFailure({
+  code: 'staff_add_on_price_missing', classification: 'configuration',
+  next_step: 'ask_staff_to_configure_add_on_price', pricing_failure: typedPricingFailure,
+}).pricing_failure, typedPricingFailure);
 
 assert.equal(TOOL_CONTRACTS.check_quote_book.path, '/staff/bot/luna-v3/check-quote-book');
 assert.throws(() => assertSafeToolRequest('check_quote_book', { action: 'confirm', offer_reference: 'not-an-id' }), /valid public/);
