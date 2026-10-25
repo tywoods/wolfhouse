@@ -21,6 +21,23 @@ function providerIntentKey(args) {
   })).digest('hex')}`;
 }
 
+function validProviderReadback(provider, expected) {
+  const md = provider && provider.metadata || {};
+  const localMd = expected.localMetadata && typeof expected.localMetadata === 'object'
+    ? expected.localMetadata : {};
+  const localMetadataMatches = (!localMd.payment_scope || md.payment_scope === localMd.payment_scope)
+    && (!localMd.payment_target || md.payment_target === localMd.payment_target)
+    && (!localMd.idempotency_key || md.idempotency_key === localMd.idempotency_key);
+  return !!(provider && provider.id === expected.checkoutId && provider.livemode === false
+    && provider.status === 'open' && String(provider.payment_status).toLowerCase() === 'unpaid'
+    && Number(provider.expires_at) > Math.floor(Date.now() / 1000) && validUrl(provider.url)
+    && provider.url === expected.url && Number(provider.amount_total) === Number(expected.amountCents)
+    && String(provider.currency).toUpperCase() === String(expected.currency || 'EUR').toUpperCase()
+    && md.client_slug === 'wolfhouse-somo' && md.booking_id === expected.bookingId
+    && md.payment_id === expected.paymentId && md.payment_scope === 'booking'
+    && localMetadataMatches);
+}
+
 function createBookingCheckoutAuthority(deps = {}) {
   const build = deps.buildPaymentLinkCommand || defaultBuild;
   const create = deps.createPaymentLink || defaultCreate;
@@ -37,6 +54,13 @@ function createBookingCheckoutAuthority(deps = {}) {
         EXISTS(SELECT 1 FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
           AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
           AND COALESCE(p.metadata->>'provider_idempotency_key',p.metadata->>'idempotency_key','')<>$2
+          AND NOT (LOWER(COALESCE(p.status::text,''))='draft' AND COALESCE(p.amount_paid_cents,0)=0
+            AND COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(to_jsonb(p)->>'checkout_url',''),
+              NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id',''),
+              NULLIF(p.metadata->>'checkout_url',''),NULLIF(p.metadata->>'provider_idempotency_key',''),
+              NULLIF(p.metadata->>'idempotency_key',''),NULLIF(p.metadata->>'checkout_preparation','')) IS NULL
+            AND EXISTS(SELECT 1 FROM bookings b WHERE b.id=p.booking_id
+              AND b.metadata->>'luna_v3_provenance'='fresh_one_try'))
           AND ($3<>'balance' OR COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),
             NULLIF(p.metadata->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_session_id','')) IS NULL)) AS other_group_active`,
       [args.bookingId,intentKey,args.paymentChoice])).rows[0]);
@@ -99,14 +123,9 @@ function createBookingCheckoutAuthority(deps = {}) {
     const checkoutId = body.stripe_checkout_session_id;
     if (!checkoutId || typeof deps.readStripeCheckout !== 'function') throw error('provider_readback_unavailable');
     const provider = await deps.readStripeCheckout(checkoutId);
-    const md = provider && provider.metadata || {};
-    const valid = provider && provider.id === checkoutId && provider.livemode === false
-      && provider.status === 'open' && String(provider.payment_status).toLowerCase() === 'unpaid'
-      && Number(provider.expires_at) > Math.floor(Date.now() / 1000) && validUrl(provider.url)
-      && provider.url === body.checkout_url && Number(provider.amount_total) === Number(body.amount_due_cents)
-      && String(provider.currency).toUpperCase() === String(body.currency || 'EUR').toUpperCase()
-      && md.client_slug === 'wolfhouse-somo' && md.booking_id === args.bookingId
-      && md.payment_id === body.payment_id && md.payment_scope === 'booking';
+    const valid = validProviderReadback(provider, { checkoutId, url: body.checkout_url,
+      amountCents: body.amount_due_cents, currency: body.currency || 'EUR', bookingId: args.bookingId,
+      paymentId: body.payment_id });
     if (!valid) throw error('provider_readback_mismatch', 409);
     return { scope: 'booking', bookingId: args.bookingId, paymentId: body.payment_id,
       amountCents: Number(body.amount_due_cents), currency: String(body.currency || 'EUR').toUpperCase(),
@@ -118,7 +137,10 @@ function createBookingCheckoutAuthority(deps = {}) {
     const key = providerIntentKey(args);
     const row = await deps.withPgClient(async (pg) => (await pg.query(`SELECT p.id::text payment_id,
       COALESCE(NULLIF(to_jsonb(p)->>'stripe_checkout_session_id',''),NULLIF(p.metadata->>'stripe_checkout_session_id',''),
-        NULLIF(p.metadata->>'stripe_session_id','')) checkout_id
+        NULLIF(p.metadata->>'stripe_session_id','')) checkout_id,
+      COALESCE(NULLIF(to_jsonb(p)->>'checkout_url',''),NULLIF(p.metadata->>'checkout_url',''),
+        NULLIF(p.metadata->>'payment_link_url','')) checkout_url,
+      p.amount_due_cents,p.currency,p.metadata
       FROM payments p WHERE p.booking_id=$1 AND p.booking_guest_id IS NULL
         AND (p.metadata->>'provider_idempotency_key'=$2 OR p.metadata->>'idempotency_key'=$2)
       ORDER BY p.created_at DESC NULLS LAST,p.id DESC LIMIT 1`, [args.bookingId, key])).rows[0]);
@@ -128,10 +150,13 @@ function createBookingCheckoutAuthority(deps = {}) {
       // the same session and the service can complete local persistence.
       return createBookingCheckout(args);
     }
+    if (typeof deps.readStripeCheckout !== 'function') throw error('provider_readback_unavailable');
     const provider = await deps.readStripeCheckout(row.checkout_id);
-    if (!provider || provider.id !== row.checkout_id) return null;
+    if (!validProviderReadback(provider, { checkoutId: row.checkout_id, url: row.checkout_url,
+      amountCents: row.amount_due_cents, currency: row.currency, bookingId: args.bookingId,
+      paymentId: row.payment_id, localMetadata: row.metadata })) throw error('provider_readback_mismatch', 409);
     return { scope: 'booking', bookingId: args.bookingId, paymentId: row.payment_id,
-      amountCents: Number(provider.amount_total), currency: String(provider.currency || '').toUpperCase(),
+      amountCents: Number(row.amount_due_cents), currency: String(row.currency || '').toUpperCase(),
       checkoutId: provider.id, url: provider.url, provider };
   }
   return { create: createBookingCheckout, read: readBookingCheckout };

@@ -881,6 +881,16 @@ function reusedBookingCheckout(booking, row, paymentTarget) {
   } };
 }
 
+function isTrustedFreshV3InertDraft(booking, row) {
+  const bookingMetadata = parsePaymentMetadata(booking && booking.metadata);
+  const md = parsePaymentMetadata(row && row.metadata);
+  return bookingMetadata.luna_v3_provenance === 'fresh_one_try'
+    && row && row.payment_status === 'draft' && !row.booking_guest_id
+    && Number(row.amount_paid_cents || 0) === 0 && !row.checkout_url && !row.stripe_checkout_session_id
+    && !md.stripe_checkout_session_id && !md.stripe_session_id && !md.checkout_url
+    && !md.provider_idempotency_key && !md.idempotency_key && !md.checkout_preparation;
+}
+
 async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
   const stripeCheck = assertStripeRuntime(command.clientSlug, execOpts);
   if (!stripeCheck.ok) return stripeCheck;
@@ -1005,6 +1015,10 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       const latestRows = await loadPaymentRowsForBooking(pg, command.clientSlug, booking.booking_code);
       const pending = latestRows.some((row) => {
         const md = parsePaymentMetadata(row.metadata);
+        if (isTrustedFreshV3InertDraft(booking, row)) return false;
+        // Recovery of the exact durable reservation must be allowed to make the
+        // same idempotent provider call; all other pending scopes/keys block.
+        if (md.idempotency_key === command.idempotencyKey && md.checkout_preparation === 'pending') return false;
         return md.checkout_preparation === 'pending'
           || (!row.checkout_url && ['draft', 'pending'].includes(row.payment_status)
             && (md.source === 'staff_payment_link' || md.idempotency_key));
@@ -1021,11 +1035,11 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
         return fresh.ok ? fail(409, 'checkout_state_changed', 'Amount changed. Refresh before creating a checkout.') : fresh;
       }
       const keyed = fresh.rows.find((row) => parsePaymentMetadata(row.metadata).idempotency_key === command.idempotencyKey);
-      if (keyed && (!keyed.checkout_url || !bookingLinkMatchesIntent(keyed, paymentTarget, paymentKind, amountDueCents))) {
+      if (keyed && !bookingLinkMatchesIntent(keyed, paymentTarget, paymentKind, amountDueCents)) {
         await pg.query('ROLLBACK');
         return fail(409, 'idempotency_conflict', 'Payment link intent changed or is no longer actionable.');
       }
-      const reusable = keyed || fresh.rows.find((row) => row.checkout_url
+      const reusable = (keyed && keyed.checkout_url ? keyed : null) || fresh.rows.find((row) => row.checkout_url
         && bookingLinkMatchesIntent(row, paymentTarget, paymentKind, amountDueCents));
       if (reusable) {
         await pg.query('COMMIT');
@@ -1065,16 +1079,22 @@ async function createBookingBalancePaymentLink(pg, command, execOpts = {}) {
       };
     }
 
-    const ins = await pg.query(
+    if (idem.rows[0] && parsePaymentMetadata(idem.rows[0].metadata).checkout_preparation === 'pending'
+        && bookingLinkMatchesIntent(idem.rows[0], paymentTarget, paymentKind, amountDueCents)) {
+      draftPaymentId = idem.rows[0].payment_id;
+      await pg.query('COMMIT');
+    } else {
+      const ins = await pg.query(
       `INSERT INTO payments (
          client_id, booking_id, status, payment_kind, currency, amount_due_cents, amount_paid_cents, metadata
        ) VALUES (
          $1, $2::uuid, 'draft'::payment_record_status, $5::payment_kind, 'EUR', $3, 0, $4::jsonb
        ) RETURNING id::text AS payment_id`,
       [booking.client_id, booking.booking_id, amountDueCents, JSON.stringify(pmMeta), paymentKind],
-    );
-    draftPaymentId = ins.rows[0].payment_id;
-    await pg.query('COMMIT');
+      );
+      draftPaymentId = ins.rows[0].payment_id;
+      await pg.query('COMMIT');
+    }
   } catch (err) {
     await pg.query('ROLLBACK');
     return fail(500, 'payment_draft_insert_failed', err.message);

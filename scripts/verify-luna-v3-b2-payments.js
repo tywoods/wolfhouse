@@ -73,6 +73,8 @@ async function main() {
   const recoveryAuthority = group.createBookingCheckoutAuthority({
     withPgClient: async fn => fn({ query: async (sql) => {
       if (/SELECT p.id::text payment_id/.test(sql) && recoveryRead) { recoveryRead = false; return { rows: [{ payment_id: 'pay-2', checkout_id: null }] }; }
+      if (/SELECT p.id::text payment_id/.test(sql)) return { rows: [{ payment_id: 'pay-2', checkout_id: 'cs_test_recovered',
+        checkout_url: 'https://checkout.stripe.com/c/recovered', amount_due_cents: 20000, currency: 'EUR', metadata: { payment_scope: 'booking' } }] };
       if (/AS guest_active/.test(sql)) return { rows: [{ guest_active: false, other_group_active: false }] };
       return { rows: [] };
     } }),
@@ -85,6 +87,37 @@ async function main() {
   });
   const recovered = await recoveryAuthority.read({ bookingId: uuid, paymentChoice: 'deposit', operationKey: 'lost-response', principalId: 'staff' });
   assert.equal(recovered.checkoutId, 'cs_test_recovered');
+
+  const recoveryMismatch = group.createBookingCheckoutAuthority({
+    withPgClient: async fn => fn({ query: async () => ({ rows: [{ payment_id: 'pay-local', checkout_id: 'cs_test_bad',
+      amount_due_cents: 20000, currency: 'EUR', metadata: { payment_scope: 'booking' }, checkout_url: 'https://checkout.stripe.com/c/bad' }] }) }),
+    readStripeCheckout: async () => ({ id: 'cs_test_bad', url: 'https://checkout.stripe.com/c/bad', livemode: false,
+      status: 'open', payment_status: 'unpaid', amount_total: 1, currency: 'eur', expires_at: Math.floor(Date.now()/1000)+3600,
+      metadata: { client_slug: 'wolfhouse-somo', booking_id: uuid, payment_id: 'pay-local', payment_scope: 'booking' } }),
+  });
+  await assert.rejects(() => recoveryMismatch.read({ bookingId: uuid, paymentChoice: 'deposit', operationKey: 'bad-readback', principalId: 'staff' }),
+    error => error.code === 'provider_readback_mismatch');
+
+  // A creation-time payment shell is inert only when the booking carries the
+  // fresh trusted-v3 provenance. Classic/unknown drafts remain fail closed.
+  const overlapSql = [];
+  const inertAuthority = group.createBookingCheckoutAuthority({
+    withPgClient: async fn => fn({ query: async (sql) => {
+      overlapSql.push(sql);
+      if (/AS guest_active/.test(sql)) return { rows: [{ guest_active: false, other_group_active: false }] };
+      return { rows: [] };
+    } }),
+    buildPaymentLinkCommand: opts => ({ ok: true, command: opts }),
+    createPaymentLink: async () => ({ ok: true, body: { payment_id: 'pay-v3', amount_due_cents: 20000,
+      currency: 'EUR', checkout_url: 'https://checkout.stripe.com/c/v3', stripe_checkout_session_id: 'cs_test_v3' } }),
+    readStripeCheckout: async () => ({ id: 'cs_test_v3', url: 'https://checkout.stripe.com/c/v3', livemode: false,
+      status: 'open', payment_status: 'unpaid', amount_total: 20000, currency: 'eur', expires_at: Math.floor(Date.now()/1000)+3600,
+      metadata: { client_slug: 'wolfhouse-somo', booking_id: uuid, payment_id: 'pay-v3', payment_scope: 'booking' } }),
+  });
+  await inertAuthority.create({ bookingId: uuid, paymentChoice: 'deposit', operationKey: 'fresh-v3', principalId: 'staff' });
+  assert.match(overlapSql[0], /luna_v3_provenance/);
+  assert.match(overlapSql[0], /fresh_one_try/);
+  assert.match(overlapSql[0], /amount_paid_cents/);
   console.log('PASS b2 contracts, exclusion, idempotent retry, and lost-response recovery');
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });
