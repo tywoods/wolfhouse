@@ -6,6 +6,9 @@ RUNNER=ROOT/'scripts/run-luna-v3-rendered-reply-matrix.py'
 ROUTE=ROOT/'docker/hermes-luna-v3/runtime/simulator_route.py'
 PLUGIN=ROOT/'docker/hermes-luna-v3/plugins/luna_v3_staff_api/__init__.py'
 class Gates(unittest.TestCase):
+ @classmethod
+ def setUpClass(cls):
+  spec=importlib.util.spec_from_file_location('matrix_runner',RUNNER); cls.runner=importlib.util.module_from_spec(spec); spec.loader.exec_module(cls.runner)
  def test_sources_parse(self):
   for p in (RUNNER,ROUTE,PLUGIN): ast.parse(p.read_text())
  def test_no_caller_inventory_or_retry(self):
@@ -23,4 +26,17 @@ class Gates(unittest.TestCase):
  def test_pins_and_preflight(self):
   s=ROUTE.read_text()
   for x in ('image_digest','base_image_digest','instruction_sha256','plugin_sha256','contract_sha256','fallback_possible'): self.assertIn(x,s)
+ def test_state_receipts_and_semantic_scoring_fail_closed(self):
+  good={'ok':True,'schema':'luna-v3-test-state/v1','authenticated':True,'tenant':'wolfhouse-somo','thread':'+34699900001','booking_count':0,'hold_count':0,'payment_count':0,'external_send_count':0,'staff_alert_count':0}
+  self.assertTrue(self.runner.valid_state_receipt(good,'+34699900001'))
+  for key in tuple(good):
+   bad=dict(good); bad.pop(key); self.assertFalse(self.runner.valid_state_receipt(bad,'+34699900001'),key)
+  score=self.runner.semantic_score({'prepare_required':False,'expect':'clarification'},'Which dates?',[],[],None)
+  self.assertEqual({'clarification':True,'progress':True,'fidelity':None},score)
+ def test_complete_kind_controls_and_continuation_source(self):
+  fixture={'valid_dates':{'check_in':'2027-06-01','check_out':'2027-06-08'},'invalid_dates':{'check_in':'2027-06-01','check_out':'2027-06-02'}}
+  choices=[{'kind':k,'code':k+'-1','label':k.title(),'active':True} for k in ('package','rental','service')]
+  cases=self.runner.make_cases({'ok':True,'revision':'r','choices':choices},fixture)
+  self.assertFalse(any(c['expect']=='n/a' for c in cases)); self.assertTrue(all(c.get('control') for c in cases if c['prepare_required']))
+  s=RUNNER.read_text(); self.assertNotIn('Quote Cap Week',s); self.assertIn('event_receipts',s); self.assertIn('refusal_correction',s)
 if __name__=='__main__': unittest.main(verbosity=2)

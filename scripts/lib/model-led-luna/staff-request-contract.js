@@ -6,7 +6,7 @@ const CHECK_QUOTE_BOOK_FIELDS = Object.freeze(['action','purpose','check_in','ch
 const ACCOMMODATION_ONLY = Object.freeze({
   item_type: 'package', item_code: 'package_none', label: 'Accommodation only',
   description: 'Accommodation without a surf package.',
-  requirements: Object.freeze({ package_minimum_nights: false, exact_bed_required: true, guest_count_required: true }),
+  requirements: Object.freeze({ package_minimum_nights: false, exact_bed_required: false, bed_allocation: 'staff_allocates_unless_explicit', guest_count_required: true }),
   metadata: Object.freeze({ includes: [] }),
 });
 function normalizeCapabilityChoice(item, rules = []) {
@@ -19,7 +19,7 @@ function normalizeCapabilityChoice(item, rules = []) {
     applicability: item.item_type === 'package' ? 'per_guest' : 'party_or_participants',
     requirements: { dates: item.item_type === 'rental', quantity: item.item_type !== 'package',
       participants: item.item_type !== 'package', units,
-      exact_bed_required: item.item_type === 'package', guest_count_required: item.item_type === 'package',
+      exact_bed_required: false, bed_allocation: 'staff_allocates_unless_explicit', guest_count_required: item.item_type === 'package',
       package_minimum_nights: item.item_type === 'package' && item.item_code !== 'package_none',
       date_dependent_eligibility: 'unknown_until_prepare' },
     configuration: { active: item.active !== false,
@@ -52,7 +52,7 @@ const checkQuoteBookSchema = {
   ],
 };
 function refusalEnvelope(failure={}, context={}) {
-  const code=String(failure.code||'internal_failure'); const classification=failure.classification||'validation';
+  const code=String(failure.code||'internal_failure'); const classification=failure.classification||(/(?:db|database|internal|timeout|transport|unreachable|unknown|failure)/i.test(code)?'internal':'validation');
   const details={guests_required:['Guest details are required before Staff can prepare this quote.','ask_guest'],room_required:['The guest must choose a room requirement before Staff can prepare this quote.','ask_guest'],package_choice_required:['Staff did not recognize that accommodation or package selection.','choose_catalog_option'],unknown_catalog_choice:['Staff did not recognize the selected option.','choose_catalog_option'],catalog_choice_conflict:['The supplied code and name identify different Staff catalog choices.','use_current_staff_catalog'],stale_capability_choice:['The selected Staff catalog choice changed after it was shown.','wait_for_new_guest_message'],exact_bed_selection_required:['No eligible beds are available for the requested stay.','choose_available_beds'],requested_room_unavailable:['No eligible beds are available for the requested room choice.','choose_available_beds'],selected_beds_unavailable:['The requested beds are no longer available.','choose_available_beds'],staff_service_unavailable:['Staff does not currently offer the selected service or rental.','choose_catalog_option'],staff_package_ineligible:['That package is not eligible for the requested stay.','choose_eligible_catalog_option'],package_min_nights_violation:['The selected package does not meet Staff’s minimum-stay requirement.','change_dates_or_package'],staff_pricing_unavailable:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],STAFF_PRICING_UNAVAILABLE:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],staff_stay_price_missing:['Staff has no verified accommodation price for the requested stay.','ask_staff_to_configure_stay_price'],staff_package_price_missing:['Staff has no verified price for the selected package.','ask_staff_to_configure_package_price'],staff_add_on_price_missing:['Staff has no verified price for the selected rental or add-on.','ask_staff_to_configure_add_on_price'],staff_lesson_price_missing:['Staff has no verified price for the selected lesson.','ask_staff_to_configure_lesson_price'],staff_deposit_price_missing:['Staff has no verified deposit configuration for this stay.','ask_staff_to_configure_deposit'],staff_pricing_season_missing:["Staff has no verified accommodation price for one or more requested nights.",'wait_for_staff_price_configuration'],staff_pricing_season_closed:['Accommodation is unavailable for one or more requested nights.','change_dates'],transport_unavailable:['Staff has no verified transport option for this request.','ask_staff_about_transport'],prepare_outcome_unknown:['Staff could not verify the outcome of this prepare attempt.','wait_for_verified_result']};
   const detail=details[code];
   return {ok:false,code,classification,message:failure.message||(detail&&detail[0])||'I could not safely complete that booking action.',field_errors:Array.isArray(failure.field_errors)?failure.field_errors:[{path:failure.path||'$',code,message:failure.fieldMessage||(detail&&detail[0])||(classification==='validation'?'The request was not accepted.':'Staff could not return a usable result.')}],next_step:failure.next_step||(detail&&detail[1])||(classification==='validation'?'correct_request':'wait_for_verified_result'),retry_allowed:false,correlation_id:failure.correlation_id||context.correlationId||context.turnId||null};

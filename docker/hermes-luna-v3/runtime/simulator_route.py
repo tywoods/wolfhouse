@@ -335,9 +335,12 @@ def register_simulator_route(app: Any, adapter: Any) -> None:
         key = "luna-v3:" + hashlib.sha256(phone.encode()).hexdigest()[:24]
         admission = await _admit_test_session(key, phone, hashlib.sha256(b"harness-state").hexdigest())
         staff_state = admission.get("staff_state") if isinstance(admission, dict) else None
-        if not isinstance(staff_state, dict):
+        required = ("booking_count", "hold_count", "payment_count", "external_send_count", "staff_alert_count")
+        if (not isinstance(staff_state, dict) or staff_state.get("ok") is False
+                or any(type(staff_state.get(field)) is not int or staff_state[field] < 0 for field in required)):
             return web.json_response({"ok": False, "code": "staff_state_readback_missing"}, status=503)
-        return web.json_response(staff_state)
+        return web.json_response({**staff_state, "ok": True, "schema": "luna-v3-test-state/v1",
+            "authenticated": True, "tenant": "wolfhouse-somo", "thread": phone})
 
     app.router.add_post("/wolfhouse/simulate-guest-turn", route)
     app.router.add_post("/wolfhouse/luna-v3-harness/preflight", preflight)

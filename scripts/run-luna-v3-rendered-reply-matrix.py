@@ -46,24 +46,42 @@ def make_cases(snapshot,fixture):
   if not isinstance(c,dict) or not c.get("kind") or not c.get("code"): raise SystemExit("BLOCKED: malformed live Staff choice")
   if c.get("active",True): by_kind.setdefault(c["kind"],[]).append(c)
  out=[]
- def add(cid,prompt,expect,choice=None,prepare=True,continuation=False,fault=None):
-  out.append({"id":cid,"prompt":prompt,"expect":expect,"choice":choice,"prepare_required":prepare,"continuation":continuation,"fault":fault})
+ def add(cid,prompt,expect,choice=None,prepare=True,continuation=False,fault=None,control=None):
+  default={"guests":["Alex"],"room":{"kind":"shared"},"package":"package_none","add_ons":[]} if prepare else None
+  out.append({"id":cid,"prompt":prompt,"expect":expect,"choice":choice,"prepare_required":prepare,"continuation":continuation,"fault":fault,"control":control or default})
  good=fixture["valid_dates"]; bad=fixture["invalid_dates"]
  gd=f'{good["check_in"]} to {good["check_out"]}'; bd=f'{bad["check_in"]} to {bad["check_out"]}'
  add("stay-only-refusal",f"Quote accommodation only for Alex, one guest, shared room, {bd}. Repeat Staff's exact reason, facts, path and next step if refused.","refusal")
  add("stay-only-success-control",f"Quote accommodation only for Alex, one guest, shared room, {gd}. Do not hold or book.","quote")
- for kind in ("package","rental","service","lesson"):
+ for kind in ("package","rental","service"):
   rows=by_kind.get(kind,[])
-  if not rows: add(f"{kind}-n-a",f"No active {kind} exists in Staff snapshot.","n/a",prepare=False)
   for c in rows:
    label=c.get("label") or c["code"]
-   add(f"{kind}-{c['code']}-success",f"Quote active {kind} {label} ({c['code']}) for Alex, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c)
-   add(f"{kind}-{c['code']}-refusal",f"Quote active {kind} {label} ({c['code']}) for Alex, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c)
+   dates=f" on {good['check_in']}" if kind in ('rental','service') else ''
+   control={"guests":["Alex"],"room":{"kind":"shared"},"package":c['code'] if kind=='package' else 'package_none',"add_ons":[] if kind=='package' else [{"code":c['code'],"quantity":1,"people":["Alex"],"dates":[good['check_in']]}]}
+   add(f"{kind}-{c['code']}-success",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c,control=control)
+   add(f"{kind}-{c['code']}-refusal",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c,control=control)
  add("mixed",f"Quote accommodation and every compatible active package, rental, service and lesson for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed")
  add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Preserve exact Staff amounts and terms; do not hold or book.","quote")
- add("genuine-continuation",f"Quote Cap Week for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",continuation=True)
+ advertised=(by_kind.get('package') or [{'code':'package_none','label':'Accommodation only'}])[0]
+ add("genuine-continuation",f"Quote {advertised.get('label')} ({advertised['code']}) for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",advertised,continuation=True)
+ add("missing-dates-clarification","I would like a quote for accommodation only for Alex in a shared room.","clarification",prepare=False)
  for fault in ("non-json","malformed","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
  return out
+
+STATE_FIELDS={"booking_count","hold_count","payment_count","external_send_count","staff_alert_count"}
+def valid_state_receipt(value,thread):
+ return isinstance(value,dict) and value.get("ok") is True and value.get("schema")=="luna-v3-test-state/v1" and value.get("authenticated") is True and value.get("tenant")=="wolfhouse-somo" and value.get("thread")==thread and all(type(value.get(k)) is int and value[k]>=0 for k in STATE_FIELDS)
+
+def semantic_score(case,reply,calls,results,fault_exchange):
+ prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
+ if clarification: fidelity=None
+ elif not results: fidelity=False
+ else:
+  result=results[-1] if isinstance(results[-1],dict) else {}; text=str(reply or '').lower()
+  fidelity=(result.get('ok') is True and any(str(v).lower() in text for k,v in result.items() if k in ('message','reason','next_step'))) or (result.get('ok') is False and any(str(result.get(k,'')).lower() in text for k in ('message','reason','next_step') if result.get(k)))
+ if case.get('fault'): fidelity=bool(fault_exchange and fault_exchange.get('fault')==case['fault'] and any(x in str(reply).lower() for x in ('cannot verify','could not verify','uncertain')))
+ return {"clarification":bool(clarification and '?' in str(reply) and prepared==0),"progress":progress,"fidelity":fidelity}
 
 def scalars(v,prefix="$"):
  out=[]
@@ -138,17 +156,24 @@ def main():
   if case["expect"]=="n/a": records.append({"case":case,"repetition":None,"verdict":"N/A","reason":"live Staff admission snapshot has no active cell for this kind"}); continue
   for rep in range(1,REPS+1):
    seq+=1; phone=f"+346999{seq:05d}"
-   state=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})["parsed"] or {}
+   pre_wire=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})
+   state=pre_wire.get("parsed")
    payload={"thread":phone,"text":case["prompt"],"external_send_allowed":False,"capture_continuation":case["continuation"]}
    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case["fault"])
-   body=wire["parsed"] or {}
+   body=wire["parsed"] or {}; event_receipts=[{"request":payload,"http":redact({k:v for k,v in wire.items() if k!='raw'}),"response":redact(body),"raw_sha256":digest_bytes(wire["raw"])}]
    if case["continuation"] and body.get("continuation_ref"):
-    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,{"thread":phone,"text":f"Correct the dates to {fixture['valid_dates']['check_in']} through {fixture['valid_dates']['check_out']} and quote the same selection.","continuation_ref":body["continuation_ref"],"external_send_allowed":False})
-    body=wire["parsed"] or {}
-   post=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})["parsed"] or {}
-   checks,fields=judge(case,body,state,post); passed=all(checks.values())
+    correction=f"Correct the specific refusal by changing dates to {fixture['valid_dates']['check_in']} through {fixture['valid_dates']['check_out']}; keep the advertised selection {case['choice']['code']}."
+    next_payload={"thread":phone,"text":correction,"continuation_ref":body["continuation_ref"],"external_send_allowed":False,"refusal_correction":True}
+    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,next_payload)
+    body=wire["parsed"] or {}; event_receipts.append({"request":next_payload,"http":redact({k:v for k,v in wire.items() if k!='raw'}),"response":redact(body),"raw_sha256":digest_bytes(wire["raw"])})
+   post_wire=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})
+   post=post_wire.get("parsed")
+   checks,fields=judge(case,body,state if isinstance(state,dict) else {},post if isinstance(post,dict) else {})
+   checks["typed_authenticated_state_receipts"]=pre_wire.get("status")==200 and post_wire.get("status")==200 and valid_state_receipt(state,phone) and valid_state_receipt(post,phone)
+   checks["durable_no_side_effects"]=checks["typed_authenticated_state_receipts"] and all(state[k]==post[k] for k in STATE_FIELDS)
+   passed=all(checks.values())
    raw_name=f"raw/{seq:04d}.bin"; (out/raw_name).parent.mkdir(exist_ok=True); (out/raw_name).write_bytes(wire["raw"])
-   rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error"),"raw_file":raw_name,"raw_sha256":digest_bytes(wire["raw"])},"response":redact(body),"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
+   rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error"),"raw_file":raw_name,"raw_sha256":digest_bytes(wire["raw"])},"response":redact(body),"event_receipts":event_receipts,"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
  manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
  result={"schema":"luna-v3-cap-authentic-results/v2","manifest_sha256":digest(manifest),"records":records,"pass":all(r.get("verdict") in ("PASS","N/A") for r in records)}
  (out/"manifest.json").write_bytes(canon(manifest)+b"\n"); (out/"results.json").write_bytes(canon(result)+b"\n")

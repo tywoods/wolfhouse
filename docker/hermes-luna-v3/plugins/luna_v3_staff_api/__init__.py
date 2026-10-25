@@ -167,22 +167,26 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         fault = consume_harness_fault()
     except ImportError:
         pass
+    def record_exchange(*, status: int | None = None, raw: bytes = b"", exception: BaseException | None = None) -> None:
+        if recorder is not None:
+            recorder.append({"tool": name, "path": TOOL_PATHS[name], "status": status,
+                "request": payload, "raw_response_hex": raw.hex(), "fault": fault or None,
+                **({"exception_type": type(exception).__name__} if exception is not None else {})})
+
     try:
         with _open_staff(request, runtime["base_url"]) as response:
             raw = response.read()
             # A genuine authenticated Staff response has crossed the boundary before
             # this narrow TEST-only mutation. ContextVars cannot be guest/model supplied.
             if fault == "timeout":
-                time.sleep(float(os.environ.get("LUNA_V3_HARNESS_TIMEOUT_SECONDS", "0.01")))
-                raw = b""
+                error = TimeoutError("injected Staff response timeout")
+                record_exchange(status=getattr(response, "status", 200), raw=raw, exception=error)
+                raise error
             elif fault == "non-json":
                 raw = b"CAP-HARNESS-NON-JSON"
             elif fault == "malformed":
                 raw = b"[]"
-            if recorder is not None:
-                recorder.append({"tool": name, "path": TOOL_PATHS[name],
-                    "status": getattr(response, "status", 200), "request": payload,
-                    "raw_response_hex": raw.hex(), "fault": fault or None})
+            record_exchange(status=getattr(response, "status", 200), raw=raw)
             try:
                 body = json.loads(raw.decode("utf-8"))
             except (ValueError, UnicodeError):
@@ -206,8 +210,16 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 return value
             return redact(body)
     except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        if fault == "timeout":
+            error = TimeoutError("injected Staff HTTP-error timeout")
+            record_exchange(status=exc.code, raw=raw, exception=error)
+            return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown"}
+        if fault == "non-json": raw = b"CAP-HARNESS-NON-JSON"
+        elif fault == "malformed": raw = b"[]"
+        record_exchange(status=exc.code, raw=raw)
         try:
-            staff = json.loads(exc.read().decode("utf-8"))
+            staff = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeError):
             return {**_refusal("staff_transport_http_non_json", "transport", exc.code, turn_id),
                     "recoveryStatus": "unknown", "outcome": "unknown"}
@@ -296,9 +308,11 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result.setdefault("recoveryStatus", "unknown" if exc.code >= 500 else "rejected")
         result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
         return result
-    except (urllib.error.URLError, TimeoutError):
+    except (urllib.error.URLError, TimeoutError) as exc:
+        if not (recorder and recorder[-1].get("exception_type") if recorder else False): record_exchange(exception=exc)
         return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown"}
-    except Exception:
+    except Exception as exc:
+        record_exchange(exception=exc)
         return _refusal("staff_plugin_internal_failure", "internal", 500, turn_id)
 
 

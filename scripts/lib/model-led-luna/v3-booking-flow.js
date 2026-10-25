@@ -126,8 +126,9 @@ function publicFailure(result) {
     retry_allowed: result && result.retry_allowed },
     { correlationId: result && result.correlation_id }),
   ...(result && result.pricing_failure ? { pricing_failure: result.pricing_failure } : {}),
-  ...(result && result.eligibilityFacts ? { eligibility_facts: result.eligibilityFacts } : {}),
-  ...(result && result.seasonCoverage ? { season_coverage: result.seasonCoverage } : {}), reason: code };
+  ...(result && (result.eligibility_facts || result.eligibilityFacts) ? { eligibility_facts: result.eligibility_facts || result.eligibilityFacts } : {}),
+  ...(result && (result.season_coverage || result.seasonCoverage) ? { season_coverage: result.season_coverage || result.seasonCoverage } : {}),
+  ...(result && Number.isInteger(result.status) ? { status: result.status } : {}), reason: code };
 }
 function guestRows(input, privateQuoteLabels = false) {
   return input.guests.map((guest, index) => ({

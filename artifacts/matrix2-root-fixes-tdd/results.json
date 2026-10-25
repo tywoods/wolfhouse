@@ -1,0 +1,19 @@
+{
+  "starting_head": "f84cf6e0d6aebf6e0600240f5a2e035585ad7044",
+  "branch": "fix/v3-stayonly-contract-20261025",
+  "tdd_red": {
+    "command": "python3 scripts/test-luna-v3-rendered-reply-harness.py",
+    "result": "FAILED (failures=1, errors=1): valid_state_receipt absent; N/A/incomplete controls present"
+  },
+  "green": [
+    {"command":"python3 scripts/test-luna-v3-rendered-reply-harness.py","result":"8 tests OK"},
+    {"command":"python3 -m unittest docker/hermes-luna-v3/plugins/luna_v3_staff_api/test_plugin.py -v","result":"14 tests OK"},
+    {"command":"python3 -m unittest docker/hermes-luna-v3/tests/test_simulator_route.py -v","result":"7 tests OK"},
+    {"command":"node scripts/lib/model-led-luna/test-prepare-lifecycle.js","result":"passed"},
+    {"command":"node scripts/lib/model-led-luna/test-staff-routes.js","result":"passed"},
+    {"command":"node scripts/verify-luna-v3-cap-fix1.js","result":"PASS"}
+  ],
+  "live_model_proof": false,
+  "blocker": "OPENAI_API_KEY, LUNA_MATRIX_SIMULATOR_URL, LUNA_MATRIX_SIMULATOR_TOKEN, and LUNA_V3_HARNESS_TRACE_TOKEN are all absent. No keys were refreshed, copied, or searched for.",
+  "db_error_diagnosis": "Blocked: archived packet contains no failed Staff HTTP bytes or Staff/PG exception receipt. No database cause was guessed. Failure classification/status preservation was fixed at boundaries."
+}
