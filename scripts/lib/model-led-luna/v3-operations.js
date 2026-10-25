@@ -1414,6 +1414,24 @@ async function sendPaymentLinkAuthoritative(pg, input, context) {
       return receipt;
     } catch (e) { await pg.query('ROLLBACK'); throw e; }
   }
+  const competingGroup = (await pg.query(
+    `SELECT EXISTS(
+       SELECT 1 FROM payments p
+       WHERE p.client_id=$1 AND p.booking_id=$2 AND p.booking_guest_id IS NULL
+         AND LOWER(COALESCE(p.status::text,'')) IN ('draft','checkout_created','open','pending')
+         AND (
+           COALESCE(p.metadata->>'payment_scope','')='booking'
+           OR NULLIF(p.metadata->>'checkout_preparation','') IS NOT NULL
+           OR NULLIF(p.metadata->>'provider_idempotency_key','') IS NOT NULL
+           OR NULLIF(p.metadata->>'idempotency_key','') IS NOT NULL
+           OR NULLIF(p.metadata->>'stripe_checkout_session_id','') IS NOT NULL
+           OR NULLIF(p.metadata->>'stripe_session_id','') IS NOT NULL
+           OR NULLIF(p.metadata->>'checkout_url','') IS NOT NULL
+         )
+     ) active`,
+    [s.client_id, s.selected_booking_id],
+  )).rows[0];
+  if (competingGroup && competingGroup.active) return reject(fail('booking_payment_group_checkout_active', 409));
   const guest = (
     await pg.query(
       `SELECT bg.id::text,bg.booking_id::text,bg.payment_id::text,bg.guest_number FROM booking_guests bg

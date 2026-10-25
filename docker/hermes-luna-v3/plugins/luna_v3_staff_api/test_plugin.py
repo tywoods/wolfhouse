@@ -251,6 +251,39 @@ class LunaV3PluginContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "authority field"):
             plugin.call_tool("check_quote_book", {"action": "prepare", "selection": {"amount_cents": 1234}})
 
+    def test_turn_identity_is_bound_to_persisted_inbound_event_and_replays_same_event(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_inbound_event
+        turn_ids = []
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return b'{"ok":true}'
+
+        def capture(request, _base):
+            turn_ids.append(dict(request.header_items())["X-luna-v3-turn-id"])
+            return Response()
+
+        env = {
+            "LUNA_V3_STAFF_API_BASE_URL": "https://staff-staging.lunafrontdesk.com",
+            "LUNA_V3_STAFF_API_TOKEN": "clone-token",
+            "LUNA_V3_TENANT_ID": "wolfhouse-somo",
+            "LUNA_V3_SESSION_ID": "v3-test-session",
+            "LUNA_V3_EXTERNAL_SEND_ENABLED": "false",
+            "LUNA_V3_STAFF_ALERTS_ENABLED": "false",
+        }
+        arguments = {"action": "prepare", "purpose": "information", "check_in": "2027-03-01", "check_out": "2027-03-08"}
+        with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=capture):
+            bind_inbound_event("11111111-1111-4111-8111-111111111111")
+            plugin.call_tool("check_quote_book", arguments)
+            plugin.call_tool("check_quote_book", arguments)
+            bind_inbound_event("22222222-2222-4222-8222-222222222222")
+            plugin.call_tool("check_quote_book", arguments)
+
+        self.assertEqual(turn_ids[0], turn_ids[1], "same persisted event must replay the same lifecycle identity")
+        self.assertNotEqual(turn_ids[1], turn_ids[2], "a later persisted event must start a distinct lifecycle")
+
     def test_refuses_missing_token_and_send_flags(self):
         plugin = self.load_plugin()
         base = {

@@ -119,7 +119,6 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }
-    turn_id = "turn:" + hashlib.sha256((runtime["session_id"] + ":" + json.dumps(arguments, sort_keys=True, separators=(",", ":"))).encode()).hexdigest()[:32]
     try:
         from runtime.trusted_turn_context import get_inbound_event
         inbound_event_id = get_inbound_event()
@@ -127,6 +126,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         inbound_event_id = ""
     if not inbound_event_id:
         raise RuntimeError("trusted persisted inbound event is required")
+    turn_id = "turn:" + hashlib.sha256((runtime["session_id"] + ":" + inbound_event_id).encode()).hexdigest()[:32]
     request = urllib.request.Request(
         runtime["base_url"] + TOOL_PATHS[name],
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),

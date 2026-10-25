@@ -36,6 +36,7 @@ function replyShowsAuthoritativeTerms(reply, quote) {
   if (/\b(?:not|is not|isn't|excluding)\b[^.!?]{0,40}(?:€|eur|total|deposit)/i.test(text)) return false;
   const labelledPrice = (label, otherLabel, cents) => {
     const labels = new RegExp(`\\b${label}\\b`, 'ig');
+    const observed = [];
     for (const match of text.matchAll(labels)) {
       let start = Math.max(0, match.index - 32);
       let end = Math.min(text.length, match.index + match[0].length + 32);
@@ -60,13 +61,33 @@ function replyShowsAuthoritativeTerms(reply, quote) {
         });
       }
       amounts.sort((a, b) => a.distance - b.distance);
-      if (amounts[0] && amounts[0].cents === cents) return true;
+      if (amounts[0]) observed.push(amounts[0].cents);
     }
-    return false;
+    return observed.length > 0 && observed.every((value) => value === cents);
   };
   if (!labelledPrice('total', 'deposit', quote.totalCents)
       || !labelledPrice('deposit', 'total', quote.depositCents)) return false;
   const q = quote.quoteInput || {};
+  for (const addOn of q.add_ons || []) {
+    const code = String(addOn.code || '').trim();
+    const quantity = Number.isSafeInteger(addOn.quantity) ? addOn.quantity : 1;
+    if (!code) return false;
+    const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const quantityClaim = new RegExp(`\\b${escaped}\\b[^.;!?]{0,48}\\b(?:quantity\\s*)?${quantity}\\b`, 'i');
+    if (!quantityClaim.test(text)) return false;
+  }
+  const inclusions = quote.packageDetails && Array.isArray(quote.packageDetails.includes)
+    ? quote.packageDetails.includes.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
+  if (inclusions.length) {
+    const includesClaim = lower.match(/\bincludes?\b([^.;!?]*)/i);
+    if (includesClaim) {
+      if (inclusions.some((value) => !includesClaim[1].includes(value))) return false;
+      let residue = includesClaim[1];
+      for (const value of inclusions.sort((a, b) => b.length - a.length)) residue = residue.replaceAll(value, ' ');
+      residue = residue.replace(/\b(?:and|the|a|an)\b|[,/&+]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (residue) return false;
+    }
+  }
   const terms = [q.check_in, q.check_out,
     ...(q.guests || []).map((g) => g.name),
     ...((q.selection && q.selection.selected_bed_codes) || []),

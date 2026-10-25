@@ -61,6 +61,22 @@ async function freshProcess(payload) {
     },
   );
 }
+async function registeredPluginRequest(inboundEventId, arguments_) {
+  const probe = path.resolve(__dirname, '../../../docker/hermes-luna-v3/plugins/luna_v3_staff_api/emit_test_request.py');
+  const { stdout } = await promisify(execFile)('python3', [probe], {
+    env: {
+      ...process.env,
+      LUNA_V3_STAFF_API_BASE_URL: 'https://staff.example',
+      LUNA_V3_STAFF_API_TOKEN: 'test-token',
+      LUNA_V3_TENANT_ID: 'wolfhouse-somo',
+      LUNA_V3_SESSION_ID: 'luna-v3:a',
+      LUNA_V3_TEST_INBOUND_EVENT: inboundEventId,
+      LUNA_V3_TEST_ARGUMENTS: JSON.stringify(arguments_),
+    },
+    timeout: 30000,
+  });
+  return JSON.parse(stdout.trim());
+}
 const base = `CREATE EXTENSION IF NOT EXISTS pgcrypto; DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 CREATE TYPE booking_status AS ENUM('hold','confirmed','cancelled','expired'); CREATE TYPE payment_status AS ENUM('not_requested','waiting_payment','deposit_paid','paid'); CREATE TYPE payment_record_status AS ENUM('draft','checkout_created','pending','paid','expired','cancelled','failed'); CREATE TYPE payment_kind AS ENUM('deposit_only','full_amount');
 CREATE TABLE clients(id uuid primary key,slug text unique,settings jsonb default '{}');
@@ -2409,6 +2425,19 @@ async function main(api = defaultApi) {
       external_send_allowed: false,
       staff_alert_allowed: false,
     };
+    const pendingGroupPayment = (await admin.query(
+      `INSERT INTO payments(client_id,booking_id,status,payment_kind,currency,amount_due_cents,amount_paid_cents,metadata)
+       VALUES($1,$2,'draft','deposit_only','EUR',20017,0,$3::jsonb) RETURNING id`,
+      [ids.client, selectedBooking, JSON.stringify({ payment_scope: 'booking', checkout_preparation: { state: 'pending', provider_idempotency_key: 'group-pending-real' } })],
+    )).rows[0];
+    const blockedByPendingGroup = await dispatchLunaV3StaffRoute({
+      ...routeArgs,
+      body: { ...linkBody, operation_key: "card12-personal-blocked-by-group" },
+    });
+    assert.equal(blockedByPendingGroup.status, 409);
+    assert.equal(blockedByPendingGroup.body.code, "booking_payment_group_checkout_active");
+    assert.equal(providerCreates, 0, "pending group scope must block before personal provider creation");
+    await admin.query(`DELETE FROM payments WHERE id=$1`, [pendingGroupPayment.id]);
     const lost = await dispatchLunaV3StaffRoute({
       ...routeArgs,
       body: linkBody,
@@ -3364,18 +3393,36 @@ async function main(api = defaultApi) {
       package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
     }, oneTryContext);
     assert.equal(sameTurnPrepared.offer_reference, prepared.offer_reference, "same-turn prepare did not replay");
-    const lifecycleB = await api.checkQuoteBook(admin, {
+    const pluginPrepare = (guestName) => ({
       action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: "Lifecycle B" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
+      guests: [{ name: guestName }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
       package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    }, { ...oneTryContext, turnId: "turn:one-try-lifecycle-b" });
-    const lifecycleA2 = await api.checkQuoteBook(admin, {
-      action: "prepare", purpose: "offer", check_in: "2035-07-01", check_out: "2035-07-08",
-      guests: [{ name: "One Try" }], room: { kind: "exact", beds: ["R10-B1"], together: "required" },
-      package: { name: "Malibu" }, add_ons: [], payment: { arrangement: "together" },
-    }, { ...oneTryContext, turnId: "turn:one-try-lifecycle-a2" });
-    assert.notEqual(lifecycleB.offer_reference, prepared.offer_reference);
-    assert.notEqual(lifecycleA2.offer_reference, prepared.offer_reference, "A→B→A reused a lifecycle reference");
+    });
+    const persistedInbound = async (digest) => (await admin.query(
+      `INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
+       SELECT s.client_id,s.id,s.principal_id,'inbound',$3 FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+       WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,
+      [oneTryContext.sessionId, oneTryContext.principalId, digest],
+    )).rows[0].id;
+    const dispatchRegistered = async (request) => dispatchLunaV3StaffRoute({
+      pathname: "/staff/bot/luna-v3/check-quote-book", method: "POST", clientSlug: "wolfhouse-somo",
+      body: request.body,
+      authenticatedPrincipal: { principalId: oneTryContext.principalId, writeAllowed: true,
+        turnId: request.turn_id, inboundEventId: request.inbound_event_id },
+      resolveSession: async () => ({ sessionId: oneTryContext.sessionId, writeAllowed: true }),
+      operations: api.createOperations((fn) => fn(admin)),
+    });
+    const inboundA1 = await persistedInbound('1'.repeat(64));
+    const inboundB = await persistedInbound('2'.repeat(64));
+    const inboundA2 = await persistedInbound('3'.repeat(64));
+    const requestA1 = await registeredPluginRequest(inboundA1, pluginPrepare("One Try"));
+    const lifecycleA1 = (await dispatchRegistered(requestA1)).body;
+    const sameEventReplay = (await dispatchRegistered(await registeredPluginRequest(inboundA1, pluginPrepare("One Try")))).body;
+    assert.equal(sameEventReplay.offer_reference, lifecycleA1.offer_reference, "same persisted event did not replay");
+    const lifecycleB = (await dispatchRegistered(await registeredPluginRequest(inboundB, pluginPrepare("Lifecycle B")))).body;
+    const lifecycleA2 = (await dispatchRegistered(await registeredPluginRequest(inboundA2, pluginPrepare("One Try")))).body;
+    assert.notEqual(lifecycleB.offer_reference, lifecycleA1.offer_reference);
+    assert.notEqual(lifecycleA2.offer_reference, lifecycleA1.offer_reference, "real plugin A→B→A reused a lifecycle reference");
     assert.notEqual(lifecycleA2.offer_reference, lifecycleB.offer_reference);
     prepared = lifecycleA2;
     const nonPriceRecorded = await api.checkQuoteBook.recordPresented(admin, {
@@ -3399,6 +3446,11 @@ async function main(api = defaultApi) {
       assistant_reply: `Total €${depositAmount} and €${displayedAmount} deposit; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu.`,
     }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-compound-swapped" });
     assert.equal(compoundSwappedAmounts.reason, "complete_offer_presentation_required");
+    const contradictoryCorrection = await api.checkQuoteBook.recordPresented(admin, {
+      offer_reference: prepared.offer_reference, assistant_event_id: "assistant:event:contradictory-correction",
+      assistant_reply: `Total €${displayedAmount}; deposit €${depositAmount}; stay 2035-07-01 to 2035-07-08; guest One Try; bed R10-B1; package malibu. Correction: the total is €1.00 and the deposit is €1.00.`,
+    }, { ...oneTryContext, trustedPresentationRecorder: true, turnId: "turn:one-try-presented-contradictory-correction" });
+    assert.equal(contradictoryCorrection.reason, "complete_offer_presentation_required");
     const afterInvalidPresentationInbound = (await admin.query(`INSERT INTO luna_v3_runtime_events(client_id,session_id,principal_id,direction,content_digest)
       SELECT s.client_id,s.id,s.principal_id,'inbound',repeat('d',64) FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
       WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 RETURNING id::text`,

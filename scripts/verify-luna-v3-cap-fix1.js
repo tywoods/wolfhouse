@@ -113,16 +113,22 @@ async function main() {
   const presentationQuote = { totalCents: 12345, depositCents: 3000, currency: 'EUR', quoteInput: {
     check_in: '2027-03-01', check_out: '2027-03-08', guests: [{ name: 'A' }],
     selection: { selected_bed_codes: ['BED-1'] }, guest_packages: [{ package_code: 'malibu' }],
-    add_ons: [{ code: 'board', dates: ['2027-03-02'] }],
-  } };
-  const complete = 'Total €123.45; deposit €30.00; 2027-03-01 to 2027-03-08; A; BED-1; malibu; board on 2027-03-02.';
+    add_ons: [{ code: 'board', dates: ['2027-03-02'], quantity: 3 }],
+  }, packageDetails: { code: 'malibu', includes: ['bed', 'lessons'] } };
+  const complete = 'Total €123.45; deposit €30.00; 2027-03-01 to 2027-03-08; A; BED-1; malibu includes bed and lessons; board quantity 3 on 2027-03-02.';
   assert.equal(replyShowsAuthoritativeTerms(complete, presentationQuote), true);
+  assert.equal(replyShowsAuthoritativeTerms(`${complete} Correction: the total is €1.00 and the deposit is €1.00.`, presentationQuote), false,
+    'later contradictory money must invalidate the presentation');
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('board quantity 3', 'board quantity 2'), presentationQuote), false,
+    'selected add-on quantity must be canonical');
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('includes bed and lessons', 'includes bed, lessons, and wetsuit'), presentationQuote), false,
+    'package presentation must not add excluded inclusions');
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €123.450; deposit €300.00'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00; deposit €123.45'), presentationQuote), false);
   assert.equal(replyShowsAuthoritativeTerms(complete.replace('Total €123.45; deposit €30.00', 'Total €30.00 and €123.45 deposit'), presentationQuote), false,
     'a second amount before the deposit label must not let swapped money pass');
-  assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu; ', ''), presentationQuote), false);
-  assert.equal(replyShowsAuthoritativeTerms(complete.replace('board on 2027-03-02', ''), presentationQuote), false);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('malibu includes bed and lessons; ', ''), presentationQuote), false);
+  assert.equal(replyShowsAuthoritativeTerms(complete.replace('board quantity 3 on 2027-03-02', ''), presentationQuote), false);
   assert.equal(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/book'], undefined, 'legacy public book route must be closed');
   assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', input));
   await testCompleteOffer();
