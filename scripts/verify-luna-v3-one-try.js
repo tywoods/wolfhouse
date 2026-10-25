@@ -38,7 +38,8 @@ const pg = { async query(sql, params = []) {
     return { rows: [attempt] };
   }
   if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
-    attempt.receipt = JSON.parse(params[1]); attempt.outcome = params[2]; return { rows: [] };
+    attempt.receipt = JSON.parse(params[1]); attempt.outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
+    return { rows: [{ id: attempt.id, receipt: attempt.receipt }] };
   }
   if (sql.startsWith('BEGIN') || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
   if (/SELECT h.expires_at,h.state,sel.quote/.test(sql)) return { rows: [] };

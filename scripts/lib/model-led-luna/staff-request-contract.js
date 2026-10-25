@@ -9,6 +9,24 @@ const ACCOMMODATION_ONLY = Object.freeze({
   requirements: Object.freeze({ package_minimum_nights: false, exact_bed_required: true, guest_count_required: true }),
   metadata: Object.freeze({ includes: [] }),
 });
+function normalizeCapabilityChoice(item, rules = []) {
+  const pricing = rules.filter((rule) => rule.item_type === item.item_type
+    && String(rule.item_code || '').split('__')[0] === item.item_code);
+  const units = [...new Set(pricing.map((rule) => rule.unit).filter(Boolean))].sort();
+  return {
+    kind: item.item_type === 'package' ? (item.item_code === 'package_none' ? 'accommodation' : 'package') : item.item_type,
+    item_type: item.item_type, code: item.item_code, label: item.label, description: item.description || null,
+    applicability: item.item_type === 'package' ? 'per_guest' : 'party_or_participants',
+    requirements: { dates: item.item_type === 'rental', quantity: item.item_type !== 'package',
+      participants: item.item_type !== 'package', units,
+      exact_bed_required: item.item_type === 'package', guest_count_required: item.item_type === 'package',
+      package_minimum_nights: item.item_type === 'package' && item.item_code !== 'package_none',
+      date_dependent_eligibility: 'unknown_until_prepare' },
+    configuration: { active: item.active !== false,
+      pricing_ready: item.item_code === 'package_none' || pricing.length > 0 },
+    includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [],
+  };
+}
 const date = { type: 'string', format: 'date' };
 const nonempty = { type: 'string', minLength: 1 };
 const checkQuoteBookSchema = {
@@ -35,7 +53,7 @@ const checkQuoteBookSchema = {
 };
 function refusalEnvelope(failure={}, context={}) {
   const code=String(failure.code||'internal_failure'); const classification=failure.classification||'validation';
-  const details={guests_required:['Guest details are required before Staff can prepare this quote.','ask_guest'],room_required:['The guest must choose a room requirement before Staff can prepare this quote.','ask_guest'],package_choice_required:['Staff did not recognize that accommodation or package selection.','choose_catalog_option'],unknown_catalog_choice:['Staff did not recognize the selected option.','choose_catalog_option'],exact_bed_selection_required:['No eligible beds are available for the requested stay.','choose_available_beds'],requested_room_unavailable:['No eligible beds are available for the requested room choice.','choose_available_beds'],selected_beds_unavailable:['The requested beds are no longer available.','choose_available_beds'],staff_package_ineligible:['That package is not eligible for the requested stay.','choose_eligible_catalog_option'],staff_pricing_unavailable:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],STAFF_PRICING_UNAVAILABLE:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],staff_pricing_season_missing:["Staff has no verified accommodation price for one or more requested nights.",'wait_for_staff_price_configuration'],staff_pricing_season_closed:['Accommodation is unavailable for one or more requested nights.','change_dates'],prepare_outcome_unknown:['Staff could not verify the outcome of this prepare attempt.','wait_for_verified_result']};
+  const details={guests_required:['Guest details are required before Staff can prepare this quote.','ask_guest'],room_required:['The guest must choose a room requirement before Staff can prepare this quote.','ask_guest'],package_choice_required:['Staff did not recognize that accommodation or package selection.','choose_catalog_option'],unknown_catalog_choice:['Staff did not recognize the selected option.','choose_catalog_option'],catalog_choice_conflict:['The supplied code and name identify different Staff catalog choices.','use_current_staff_catalog'],stale_capability_choice:['The selected Staff catalog choice changed after it was shown.','wait_for_new_guest_message'],exact_bed_selection_required:['No eligible beds are available for the requested stay.','choose_available_beds'],requested_room_unavailable:['No eligible beds are available for the requested room choice.','choose_available_beds'],selected_beds_unavailable:['The requested beds are no longer available.','choose_available_beds'],staff_service_unavailable:['Staff does not currently offer the selected service or rental.','choose_catalog_option'],staff_package_ineligible:['That package is not eligible for the requested stay.','choose_eligible_catalog_option'],package_min_nights_violation:['The selected package does not meet Staff’s minimum-stay requirement.','change_dates_or_package'],staff_pricing_unavailable:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],STAFF_PRICING_UNAVAILABLE:['Staff has no verified price for the requested choice.','wait_for_staff_price_configuration'],staff_stay_price_missing:['Staff has no verified accommodation price for the requested stay.','ask_staff_to_configure_stay_price'],staff_package_price_missing:['Staff has no verified price for the selected package.','ask_staff_to_configure_package_price'],staff_add_on_price_missing:['Staff has no verified price for the selected rental or add-on.','ask_staff_to_configure_add_on_price'],staff_lesson_price_missing:['Staff has no verified price for the selected lesson.','ask_staff_to_configure_lesson_price'],staff_deposit_price_missing:['Staff has no verified deposit configuration for this stay.','ask_staff_to_configure_deposit'],staff_pricing_season_missing:["Staff has no verified accommodation price for one or more requested nights.",'wait_for_staff_price_configuration'],staff_pricing_season_closed:['Accommodation is unavailable for one or more requested nights.','change_dates'],transport_unavailable:['Staff has no verified transport option for this request.','ask_staff_about_transport'],prepare_outcome_unknown:['Staff could not verify the outcome of this prepare attempt.','wait_for_verified_result']};
   const detail=details[code];
   return {ok:false,code,classification,message:failure.message||(detail&&detail[0])||'I could not safely complete that booking action.',field_errors:Array.isArray(failure.field_errors)?failure.field_errors:[{path:failure.path||'$',code,message:failure.fieldMessage||(detail&&detail[0])||(classification==='validation'?'The request was not accepted.':'Staff could not return a usable result.')}],next_step:failure.next_step||(detail&&detail[1])||(classification==='validation'?'correct_request':'wait_for_verified_result'),retry_allowed:false,correlation_id:failure.correlation_id||context.correlationId||context.turnId||null};
 }
@@ -147,7 +165,12 @@ function validDate(value) {
 }
 
 function normalizeQuoteRequest(input, catalog, beds, context = {}) {
-  const fail = (code, path) => refusalEnvelope({ code, path, next_step: 'ask_guest' }, context);
+  const fail = (code, path) => {
+    const classification = ['catalog_choice_conflict','package_choice_required','staff_service_unavailable'].includes(code)
+      ? 'configuration' : ['exact_bed_selection_required','requested_room_unavailable','selected_beds_unavailable'].includes(code)
+        ? 'availability' : 'validation';
+    return refusalEnvelope({ code, path, classification }, context);
+  };
   if (!input || typeof input !== 'object') return fail('invalid_quote_request', '$');
   try { validateSharedRequest(input); }
   catch (error) { return fail(error.code || 'invalid_tool_request', error.path || '$'); }
@@ -222,4 +245,4 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
       room_preference: input.room.name, keep_together: input.room.together === 'required' ? true : input.room.together === 'not_required' ? false : undefined },
     ...packages, add_ons: extras } };
 }
-module.exports={CHECK_QUOTE_BOOK_FIELDS,ACCOMMODATION_ONLY,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope,validateSharedRequest,resolveCatalogChoice};
+module.exports={CHECK_QUOTE_BOOK_FIELDS,ACCOMMODATION_ONLY,normalizeCapabilityChoice,checkQuoteBookSchema,normalizeQuoteRequest,refusalEnvelope,validateSharedRequest,resolveCatalogChoice};

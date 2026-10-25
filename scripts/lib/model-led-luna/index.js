@@ -315,17 +315,8 @@ async function getBookingCapabilitySnapshot(pg, context) {
   try { data = await loadStrictPricing(pg); } catch (error) { return { ok: false, status: 503, code: error.code }; }
   const choices = [staffRequestContract.ACCOMMODATION_ONLY,
     ...data.items.filter((item) => ['package', 'service', 'rental'].includes(item.item_type)
-      && !(item.item_type === 'package' && item.item_code === 'package_none'))].map((item) => {
-    const pricing = data.rules.filter((rule) => rule.item_type === item.item_type && rule.item_code.split('__')[0] === item.item_code);
-    const units = [...new Set(pricing.map((rule) => rule.unit))].sort();
-    return { kind: item.item_type === 'package' ? (item.item_code === 'package_none' ? 'accommodation' : 'package') : item.item_type,
-      code: item.item_code, label: item.label, description: item.description || null,
-      applicability: item.item_type === 'package' ? 'per_guest' : 'party_or_participants',
-      requirements: { dates: item.item_type === 'rental', quantity: item.item_type !== 'package',
-        participants: item.item_type !== 'package', units, date_dependent_eligibility: 'unknown_until_prepare' },
-      configuration: { active: item.active !== false, pricing_ready: item.item_code === 'package_none' || pricing.length > 0 },
-      includes: Array.isArray(item.metadata && item.metadata.includes) ? item.metadata.includes : [] };
-  });
+      && !(item.item_type === 'package' && item.item_code === 'package_none'))]
+    .map((item) => staffRequestContract.normalizeCapabilityChoice(item, data.rules));
   const snapshot = { contract: 'luna-v3-booking-capabilities', choices,
     constraints: { wire_selection: 'code', one_prepare_per_inbound_event: true, prepare_purposes: ['quote', 'offer'],
       date_dependent_eligibility: 'unknown_until_prepare', prices: 'unknown_until_prepare' } };

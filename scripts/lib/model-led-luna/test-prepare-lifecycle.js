@@ -11,19 +11,26 @@ function harness({ rooms = true, quoteFailure = null, throwCatalog = false, fail
     if (/INSERT INTO luna_v3_prepare_attempts/.test(sql)) {
       const key = params[2];
       if (attempts.has(key)) return { rows: [] };
-      const row = { id: `attempt-${attempts.size + 1}`, request_fingerprint: params[3], outcome: 'started', receipt: null };
+      const row = { id: `attempt-${attempts.size + 1}`, request_fingerprint: params[3], outcome: 'started', receipt: null,
+        created_at: '2000-01-01T00:00:00Z', execution_owner: params[4], execution_backend_pid: 42,
+        execution_backend_start: '2026-01-01T00:00:00Z' };
       attempts.set(key, row); return { rows: [row] };
     }
-    if (/FROM luna_v3_prepare_attempts/.test(sql)) return { rows: [attempts.get(params[2])].filter(Boolean) };
+    if (/FROM pg_stat_activity/.test(sql) || /SELECT 1 FROM pg_stat_activity/.test(sql)) return { rows: [{ '?column?': 1 }] };
+    if (/FROM luna_v3_prepare_attempts/.test(sql)) {
+      if (/WHERE id=\$1/.test(sql)) return { rows: [[...attempts.values()].find((value) => value.id === params[0])].filter(Boolean) };
+      return { rows: [attempts.get(params[2])].filter(Boolean) };
+    }
     if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
       const row = [...attempts.values()].find((value) => value.id === params[0]);
       if (failTerminalUpdates > 0) { failTerminalUpdates -= 1; throw new Error('injected receipt update failure'); }
       if (row && row.outcome === 'started') {
-        const mutation = { row, receipt: JSON.parse(params[1]), outcome: params[2] };
+        const outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
+        const mutation = { row, receipt: JSON.parse(params[1]), outcome };
         if (inTx) staged = mutation;
         else { row.receipt = mutation.receipt; row.outcome = mutation.outcome; }
       }
-      return { rows: [] };
+      return { rows: row ? [{ id: row.id, receipt: JSON.parse(params[1]) }] : [] };
     }
     if (/^BEGIN/.test(sql)) { if (beginFailures-- > 0) throw new Error('injected BEGIN failure'); inTx = true; return { rows: [] }; }
     if (sql === 'COMMIT') {

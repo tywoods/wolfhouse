@@ -26,7 +26,8 @@ function withAttemptLifecycle(inner) {
       return { rows: [attempt] };
     }
     if (/UPDATE luna_v3_prepare_attempts/.test(sql)) {
-      attempt.receipt = JSON.parse(params[1]); attempt.outcome = params[2]; return { rows: [] };
+      attempt.receipt = JSON.parse(params[1]); attempt.outcome = /outcome='applied'/.test(sql) ? 'applied' : params[2];
+      return { rows: [{ id: attempt.id, receipt: attempt.receipt }] };
     }
     return inner.query(sql, params);
   } };

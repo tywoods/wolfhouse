@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const { normalizeQuoteRequest: buildCanonicalQuoteInput, refusalEnvelope, validateSharedRequest } = require('./staff-request-contract');
+const { ACCOMMODATION_ONLY, normalizeQuoteRequest: buildCanonicalQuoteInput, normalizeCapabilityChoice, refusalEnvelope, validateSharedRequest } = require('./staff-request-contract');
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -243,19 +243,24 @@ function createCheckQuoteBook(deps) {
       const inboundEvent = String(context.authenticatedInboundEventId || '').trim();
       if (!inboundEvent) return publicFailure({ code: 'trusted_inbound_event_required', classification: 'authorization' });
       const requestFingerprint = crypto.createHash('sha256').update(JSON.stringify(stable(input))).digest('hex');
+      const executionOwner = crypto.randomUUID();
       // Reserve in autocommit before validation/business work.  This row therefore
       // survives every later rollback and the unique event key serializes parallel calls.
-      const reserved = await pg.query(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint)
-        SELECT s.client_id,s.id,e.id,$4 FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
+      const reserved = await pg.query(`INSERT INTO luna_v3_prepare_attempts(client_id,session_id,inbound_event_id,request_fingerprint,
+          execution_owner,execution_backend_pid,execution_backend_start,heartbeat_at,lease_expires_at)
+        SELECT s.client_id,s.id,e.id,$4,$5,pg_backend_pid(),a.backend_start,now(),now()+interval '24 hours'
+        FROM luna_v3_sessions s JOIN clients c ON c.id=s.client_id
         JOIN luna_v3_runtime_events e ON e.client_id=c.id AND e.session_id=s.id
+        JOIN pg_stat_activity a ON a.pid=pg_backend_pid()
         WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2
           AND e.id=$3::uuid AND e.direction='inbound'
         ON CONFLICT(client_id,session_id,inbound_event_id) DO NOTHING
         RETURNING id,request_fingerprint,outcome,receipt`,
-      [context.sessionId, context.principalId, inboundEvent, requestFingerprint]);
+      [context.sessionId, context.principalId, inboundEvent, requestFingerprint, executionOwner]);
       let attempt = reserved.rows[0];
       if (!attempt) {
-        attempt = (await pg.query(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt,a.created_at
+        attempt = (await pg.query(`SELECT a.id,a.request_fingerprint,a.outcome,a.receipt,a.created_at,
+            a.execution_owner,a.execution_backend_pid,a.execution_backend_start,a.lease_expires_at
           FROM luna_v3_prepare_attempts a JOIN luna_v3_sessions s ON s.id=a.session_id JOIN clients c ON c.id=a.client_id
           WHERE c.slug='wolfhouse-somo' AND s.session_key=$1 AND s.principal_id=$2 AND a.inbound_event_id=$3::uuid`,
         [context.sessionId, context.principalId, inboundEvent])).rows[0];
@@ -263,26 +268,36 @@ function createCheckQuoteBook(deps) {
         if (attempt.request_fingerprint !== requestFingerprint)
           return publicFailure({ code: 'prepare_event_payload_mismatch', classification: 'conflict', next_step: 'wait_for_new_guest_message' });
         if (attempt.receipt) return attempt.receipt;
-        // A started row older than the execution lease is an orphan from a
-        // disconnected worker. Successful business work stores its receipt in
-        // the same transaction, so a receipt-less orphan is safe to terminalize
-        // as unknown and must never rerun that work.
-        if (attempt.created_at && Date.now() - new Date(attempt.created_at).getTime() >= 300000) {
+        // Reconcile only with durable death proof.  Age alone is never proof:
+        // a legitimate catalog/availability call may run for an arbitrary time.
+        // pg_stat_activity's (pid,backend_start) pair survives app disconnects,
+        // distinguishes PID reuse, and disappears when the owning DB session dies.
+        const ownerAlive = (await pg.query(`SELECT 1 FROM pg_stat_activity
+          WHERE pid=$1 AND backend_start=$2::timestamptz`,
+        [attempt.execution_backend_pid, attempt.execution_backend_start])).rows[0];
+        if (!ownerAlive) {
           const unknown = publicFailure({ code: 'prepare_outcome_unknown', classification: 'internal',
             message: 'Staff could not verify the outcome of this prepare attempt.', next_step: 'wait_for_verified_result' });
-          await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='unknown',completed_at=now()
-            WHERE id=$1 AND outcome='started' AND created_at <= now() - interval '5 minutes'`,
-          [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' })]);
-          const reconciled = (await pg.query('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+          const reconciled = (await pg.query(`UPDATE luna_v3_prepare_attempts
+            SET receipt=$2::jsonb,outcome='unknown',completed_at=now()
+            WHERE id=$1 AND outcome='started' AND receipt IS NULL
+              AND NOT EXISTS (SELECT 1 FROM pg_stat_activity
+                WHERE pid=execution_backend_pid AND backend_start=execution_backend_start)
+            RETURNING receipt`, [attempt.id, JSON.stringify({ ...unknown, outcome: 'unknown' })])).rows[0]
+            || (await pg.query('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
           if (reconciled && reconciled.receipt) return reconciled.receipt;
         }
         return publicFailure({ code: 'prepare_event_in_progress', classification: 'conflict', next_step: 'wait_for_verified_result' });
       }
       const finish = async (receipt, outcome) => {
         const saved = { ...receipt, outcome };
-        await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now()
-          WHERE id=$1 AND outcome='started'`, [attempt.id, JSON.stringify(saved), outcome]);
-        return saved;
+        const won = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome=$3,completed_at=now(),heartbeat_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$4::uuid RETURNING receipt`,
+        [attempt.id, JSON.stringify(saved), outcome, executionOwner]);
+        if (won.rows[0] && won.rows[0].receipt) return won.rows[0].receipt;
+        const durable = (await pg.query('SELECT receipt FROM luna_v3_prepare_attempts WHERE id=$1', [attempt.id])).rows[0];
+        if (durable && durable.receipt) return durable.receipt;
+        throw new Error('prepare_terminal_write_lost');
       };
       try {
         try { validateSharedRequest(input); }
@@ -317,15 +332,15 @@ function createCheckQuoteBook(deps) {
             return await reject({ code: 'capability_snapshot_binding_missing', classification: 'authorization',
               next_step: 'wait_for_new_guest_message' });
           }
-          const current = new Map((catalog.items || []).map((item) => [item.item_code, item]));
+          const current = new Map([ACCOMMODATION_ONLY, ...(catalog.items || [])].map((item) => [item.item_code,
+            normalizeCapabilityChoice(item, catalog.rules || [])]));
           const selected = [input.package && input.package.code,
             ...((input.package && input.package.per_guest) || []).map((row) => row.code),
             ...(input.add_ons || []).map((row) => row.code)].filter(Boolean);
           for (const code of selected) {
             const shown = issued.choices.find((choice) => choice.code === code);
             const item = current.get(code);
-            if (!shown || !item || shown.label !== item.label || shown.description !== (item.description || null)
-                || JSON.stringify(shown.includes || []) !== JSON.stringify((item.metadata && item.metadata.includes) || [])) {
+            if (!shown || !item || JSON.stringify(stable(shown)) !== JSON.stringify(stable(item))) {
               return await reject({ code: 'stale_capability_choice', classification: 'conflict', path: 'package',
                 message: `Staff's meaning for choice '${code}' changed after it was shown.`,
                 fieldMessage: `Choice '${code}' must be selected again from the current Staff options.`,
@@ -350,8 +365,10 @@ function createCheckQuoteBook(deps) {
         if (input.purpose === 'quote') {
           const result = publicQuote(quote, input, beds, packages, catalog);
           const saved = { ...result, outcome: 'applied' };
-          await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now()
-            WHERE id=$1 AND outcome='started'`, [attempt.id, JSON.stringify(saved)]);
+          const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),heartbeat_at=now()
+            WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING id`,
+          [attempt.id, JSON.stringify(saved), executionOwner]);
+          if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
           await pg.query('COMMIT');
           return saved;
         }
@@ -369,8 +386,10 @@ function createCheckQuoteBook(deps) {
         [JSON.stringify(quoteWithPresentation.packageDetails), hold.holdId, session.client_id, session.id]);
         const result = publicOffer(hold, quoteWithPresentation, input, reference, catalog);
         const saved = { ...result, outcome: 'applied' };
-        await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now()
-          WHERE id=$1 AND outcome='started'`, [attempt.id, JSON.stringify(saved)]);
+        const terminal = await pg.query(`UPDATE luna_v3_prepare_attempts SET receipt=$2::jsonb,outcome='applied',completed_at=now(),heartbeat_at=now()
+          WHERE id=$1 AND outcome='started' AND receipt IS NULL AND execution_owner=$3::uuid RETURNING id`,
+        [attempt.id, JSON.stringify(saved), executionOwner]);
+        if (!terminal.rows[0]) throw new Error('prepare_terminal_write_lost');
         await pg.query('COMMIT');
         return saved;
       } catch (error) {
