@@ -42522,6 +42522,9 @@ function bcFieldEditBuildGuestsWritePayload(){
 }
 
 function bcFieldEditRenderGuestsSaveResult(data, isError){
+  if (isError || !data || data.success === false || (data && data.can_apply === false && !data.updated)) {
+    bcFieldEditResetPrivateRoomSwitchToSaved();
+  }
   var box = el('bc-field-guests-preview-result');
   if (!box) return;
   box.style.display = '';
