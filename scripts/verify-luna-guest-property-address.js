@@ -31,6 +31,21 @@ assert.equal(
   '12345 Main Street, San Francisco, CA',
   '5-digit house number is not a postcode',
 );
+assert.equal(
+  formatGuestPropertyAddress('12345 Broadway, New York, NY'),
+  '12345 Broadway, New York, NY',
+  'house number next to a street name stays',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor, 12345, 28013 Madrid'),
+  'Calle Mayor, 12345, Madrid',
+  'standalone house number before postcode-city stays',
+);
+assert.equal(
+  formatGuestPropertyAddress('C.P.: 39140 Somo'),
+  'Somo',
+  'labelled C.P.: postcode drops',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -53,6 +68,35 @@ for (const language of ['en', 'es', 'it']) {
   assert.match(message, /C\. Mies de La Ran, 41, Somo, Cantabria/, language + ' guest address');
   assert.doesNotMatch(message, /39140/, language + ' must not print the postcode');
   assert.match(message, /🗺️ https:\/\/maps\.example\/wolfhouse/, language + ' maps link stays');
+}
+
+const confirmationCases = [
+  {
+    address: '12345 Broadway, New York, NY',
+    expect: /12345 Broadway, New York, NY/,
+    forbid: null,
+    name: 'Broadway house number',
+  },
+  {
+    address: 'Calle Mayor, 12345, 28013 Madrid',
+    expect: /Calle Mayor, 12345, Madrid/,
+    forbid: /28013/,
+    name: 'Calle Mayor house number',
+  },
+  {
+    address: 'C.P.: 39140 Somo',
+    expect: /\bSomo\b/,
+    forbid: /39140/,
+    name: 'C.P.: labelled postcode',
+  },
+];
+for (const language of ['en', 'es', 'it']) {
+  for (const row of confirmationCases) {
+    const message = buildWolfhousePaidConfirmationCopy({ ...facts, language, address: row.address });
+    assert.match(message, row.expect, language + ' ' + row.name);
+    if (row.forbid) assert.doesNotMatch(message, row.forbid, language + ' ' + row.name + ' drops postcode');
+    assert.match(message, /🗺️ https:\/\/maps\.example\/wolfhouse/, language + ' ' + row.name + ' maps');
+  }
 }
 
 const { buildCheckinDayMessageBody } = require('./lib/luna-guest-checkin-day-message');

@@ -4,53 +4,71 @@
  * Guest-facing property address. WhatsApp treats bare 5-digit postcodes as
  * phone numbers, so Luna never prints the postcode. Maps link stays exact.
  *
- * Drops postal *components* (labelled, standalone, or leading a locality).
- * Does not scrub every 5-digit token — house numbers stay.
+ * Classification is by label and position, not a street-word list:
+ * labelled C.P./CP/CAP/ZIP, postcode-before-city on a later component,
+ * house number next to a street name (first component) or standing alone
+ * before the postcode-city.
  */
 
 const POSTCODE_TOKEN = '(?:\\d{5}(?:-\\d{4})?|[A-Z]{1,2}\\d[A-Z\\d]?\\s*\\d[A-Z]{2}|[A-Z]\\d[A-Z]\\s*\\d[A-Z]\\d)';
 const POSTCODE_ONLY = new RegExp('^' + POSTCODE_TOKEN + '$', 'i');
 const LEADING_POSTCODE = new RegExp('^(' + POSTCODE_TOKEN + ')\\s+(.+)$', 'i');
 const TRAILING_POSTCODE = new RegExp('^(.+?)\\s+(' + POSTCODE_TOKEN + ')$', 'i');
-const POSTAL_LABEL = /^(?:c\.?\s*p\.?|cp|zip(?:\s*code)?|c[oó]digo\s*postal)\s+/i;
-const STREET_HINT = /\b(?:street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|rue|via|calle|camino|plaza|paseo|platz|strasse|straße|main)\b/i;
+const POSTAL_LABEL = /^(?:c\.?\s*p\.?|cp|cap|zip(?:\s*code)?|c[oó]digo\s*postal)\s*[:.\-]?\s*/i;
 
-function isStreetComponent(text) {
-  const t = String(text || '').trim();
-  if (!t) return false;
-  if (STREET_HINT.test(t)) return true;
-  if (/^c\.\s+\S/i.test(t)) return true;
-  return false;
+function splitPostalLabel(part) {
+  const text = String(part || '').trim();
+  const match = text.match(POSTAL_LABEL);
+  if (!match || match.index !== 0) return { labelled: false, text };
+  return { labelled: true, text: text.slice(match[0].length).trim() };
 }
 
-function stripPostalFromComponent(part) {
-  let text = String(part || '').trim();
-  if (!text) return '';
-  const unlabeled = text.replace(POSTAL_LABEL, '').trim();
-  const hadLabel = unlabeled !== text;
-  text = unlabeled;
-  if (!text) return '';
-  if (POSTCODE_ONLY.test(text)) return '';
-  const leading = text.match(LEADING_POSTCODE);
-  if (leading && (hadLabel || !isStreetComponent(leading[2]))) {
-    text = String(leading[2] || '').trim();
-  }
-  if (!text || POSTCODE_ONLY.test(text)) return '';
-  const trailing = text.match(TRAILING_POSTCODE);
-  if (trailing && !isStreetComponent(text)) {
-    text = String(trailing[1] || '').trim();
-  }
-  return text;
+function isPostcodeBeforeCity(text) {
+  return Boolean(String(text || '').trim().match(LEADING_POSTCODE));
 }
 
 function formatGuestPropertyAddress(address) {
   const raw = address == null ? '' : String(address).trim();
   if (!raw) return '';
-  const parts = raw.split(/[,\n]/).map((part) => String(part || '').trim()).filter(Boolean);
+  const comps = raw.split(/[,\n]/).map((part) => splitPostalLabel(part)).filter((row) => row.text || row.labelled);
+  const last = comps.length - 1;
   const kept = [];
-  for (const part of parts) {
-    const cleaned = stripPostalFromComponent(part);
-    if (cleaned) kept.push(cleaned);
+  for (let i = 0; i < comps.length; i += 1) {
+    let text = comps[i].text;
+    if (!text) continue;
+    if (comps[i].labelled) {
+      if (POSTCODE_ONLY.test(text)) continue;
+      const leading = text.match(LEADING_POSTCODE);
+      if (leading) text = String(leading[2] || '').trim();
+      if (text) kept.push(text);
+      continue;
+    }
+    if (POSTCODE_ONLY.test(text)) {
+      const next = comps[i + 1];
+      const houseBeforeStreet = i === 0 && last > 0;
+      const houseBeforePostcodeCity = next && isPostcodeBeforeCity(next.text);
+      const houseBeforeLaterLocality = i > 0 && i < last;
+      if (houseBeforeStreet || houseBeforePostcodeCity || houseBeforeLaterLocality) {
+        kept.push(text);
+      }
+      continue;
+    }
+    const leading = text.match(LEADING_POSTCODE);
+    if (leading) {
+      if (i === 0) kept.push(text);
+      else {
+        const city = String(leading[2] || '').trim();
+        if (city) kept.push(city);
+      }
+      continue;
+    }
+    const trailing = text.match(TRAILING_POSTCODE);
+    if (trailing && i !== 0) {
+      const locality = String(trailing[1] || '').trim();
+      if (locality) kept.push(locality);
+      continue;
+    }
+    kept.push(text);
   }
   return kept.join(', ');
 }
