@@ -86,7 +86,7 @@ printf '{"candidate_sha":"%s","staff_image_id":"%s","hermes_image_id":"%s","post
 docker run -d --name "$STAFF" --network "$NETWORK" --network-alias staff -p 127.0.0.1::3036 \
   -e NODE_ENV=test -e STAFF_QUERY_API_HOST=0.0.0.0 -e STAFF_QUERY_API_PORT=3036 \
   -e STAFF_AUTH_REQUIRED=true -e STAFF_AUTH_HTTPS=false -e LUNA_BOT_INTERNAL_TOKEN="$staff_token" \
-  -e LUNA_BOT_CLIENT_SLUG=wolfhouse-somo -e DEFAULT_CLIENT_SLUG=wolfhouse-somo \
+  -e LUNA_BOT_CLIENT_SLUG=wolfhouse-somo -e DEFAULT_CLIENT_SLUG=wolfhouse-somo -e LUNA_V3_TEST_WRITES=true \
   -e WOLFHOUSE_DATABASE_URL="postgres://cap:${pg_password}@postgres:5432/$DB_NAME" \
   -e WHATSAPP_ENABLED=false -e LUNA_V3_EXTERNAL_SEND_ENABLED=false -e LUNA_V3_STAFF_ALERTS_ENABLED=false \
   "cap-staff:$SHA" >"$OUT/runtime/staff-container-id.txt"
