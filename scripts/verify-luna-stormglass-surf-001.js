@@ -248,6 +248,97 @@ async function main() {
   check('SGS7j tonight then explicit 0-24 over 8 periods stays at or under 10 provider calls', () => {
     assert.ok(periodCalls.length <= 10, `tonight+day periods used ${periodCalls.length} calls`);
   });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const beforeMidnight = Date.parse('2026-10-24T21:59:00Z');
+  const afterMidnight = Date.parse('2026-10-24T22:01:00Z');
+  let midnightGate;
+  const midnightHold = new Promise((resolve) => { midnightGate = resolve; });
+  const midnightCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    midnightCalls.push(String(url));
+    if (!String(url).includes('43.463')) await midnightHold;
+    return okWeatherTide(url, []);
+  });
+  const inflight = Promise.allSettled(Array.from({ length: 5 }, () => fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 7, nowMs: beforeMidnight,
+  })));
+  const waitStart = Date.now();
+  while (midnightCalls.length < 10 && Date.now() - waitStart < 2000) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  const newDay = Promise.allSettled(Array.from({ length: 11 }, () => fetchStormglassForecast({
+    locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1, nowMs: afterMidnight,
+  })));
+  midnightGate();
+  await inflight;
+  await newDay;
+  check('SGS7k in-flight reservations stay on the reserved Madrid day across midnight', () => {
+    const newDayCalls = midnightCalls.filter((url) => url.includes('43.463')).length;
+    assert.ok(newDayCalls <= 10, `new day used ${newDayCalls} calls`);
+    assert.ok(midnightCalls.length <= 20, `cross-midnight used ${midnightCalls.length} calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const sharedCallsPath = path.join(os.tmpdir(), `stormglass-calls-${process.pid}.log`);
+  try { fs.unlinkSync(sharedCallsPath); } catch (_) { /* absent */ }
+  fs.writeFileSync(sharedCallsPath, '');
+  const workerSrc = [
+    'const fs = require("fs");',
+    `const { fetchStormglassForecast, setStormglassFetchForTests } = require(${JSON.stringify(path.join(__dirname, 'lib/staff-stormglass-forecast'))});`,
+    `process.env.STORMGLASS_API_KEY = "offline-test-key";`,
+    `process.env.STORMGLASS_FORECAST_CACHE_PATH = ${JSON.stringify(cachePath)};`,
+    `const log = ${JSON.stringify(sharedCallsPath)};`,
+    'setStormglassFetchForTests(async (url) => {',
+    '  fs.appendFileSync(log, "x\\n");',
+    '  if (String(url).includes("tide")) return { status: 503, body: "{}" };',
+    '  return { status: 200, body: JSON.stringify({ hours: [{ time: "2026-10-25T00:00:00+00:00", waveHeight: { sg: 1.1 } }] }) };',
+    '});',
+    '(async () => {',
+    '  for (let i = 0; i < 10; i += 1) {',
+    '    await fetchStormglassForecast({ locationId: "sunset-sardinero", date: "2026-10-25", days: 1, nowMs: Date.parse("2026-10-24T08:00:00Z") }).catch(() => {});',
+    '  }',
+    '})();',
+  ].join('\n');
+  const workerPath = path.join(os.tmpdir(), `stormglass-worker-${process.pid}.js`);
+  fs.writeFileSync(workerPath, workerSrc);
+  const { spawn } = require('child_process');
+  const spawnWorker = () => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [workerPath], { stdio: 'ignore' });
+    child.on('error', reject);
+    child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`worker exit ${code}`))));
+  });
+  await Promise.all([spawnWorker(), spawnWorker()]);
+  try { fs.unlinkSync(workerPath); } catch (_) { /* cleanup */ }
+  const sharedCount = fs.readFileSync(sharedCallsPath, 'utf8').split('\n').filter(Boolean).length;
+  try { fs.unlinkSync(sharedCallsPath); } catch (_) { /* cleanup */ }
+  check('SGS7l two processes sharing the cache stay at or under 10 provider calls', () => {
+    assert.ok(sharedCount <= 10, `two processes used ${sharedCount} calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  setStormglassFetchForTests(async (url) => {
+    if (String(url).includes('tide')) return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  for (let i = 0; i < 10; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    }).catch(() => {});
+  }
+  let limitCode = null;
+  try {
+    await fetchStormglassForecast({
+      locationId: 'wolfhouse-somo', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    });
+  } catch (err) {
+    limitCode = err && err.code;
+  }
+  check('SGS7m exhausted allowance returns RATE_LIMITED to the forecast caller', () => {
+    assert.equal(limitCode, 'RATE_LIMITED');
+  });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
 

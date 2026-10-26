@@ -286,7 +286,66 @@ function stormglassHttpsGet(url, apiKey, timeoutMs) {
   });
 }
 
-let providerBudget = { dayKey: '', used: 0, reserved: 0 };
+function waitBudgetLockMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function budgetPath() {
+  return `${forecastCachePath()}.budget.json`;
+}
+
+function budgetLockPath() {
+  return `${forecastCachePath()}.budget.lock`;
+}
+
+function withBudgetLock(fn) {
+  const lockPath = budgetLockPath();
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      try { return fn(); }
+      finally {
+        try { fs.closeSync(fd); } catch (_) { /* already closed */ }
+        try { fs.unlinkSync(lockPath); } catch (_) { /* lost lock file */ }
+      }
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err;
+      try {
+        const st = fs.statSync(lockPath);
+        if (Date.now() - st.mtimeMs > 5000) fs.unlinkSync(lockPath);
+      } catch (_) { /* lock raced */ }
+      if (Date.now() > deadline) {
+        throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+      }
+      waitBudgetLockMs(10);
+    }
+  }
+}
+
+function readBudgetState() {
+  try {
+    const data = JSON.parse(fs.readFileSync(budgetPath(), 'utf8'));
+    return { days: data && typeof data.days === 'object' && data.days ? data.days : {} };
+  } catch (_) { return { days: {} }; }
+}
+
+function writeBudgetState(state) {
+  const file = budgetPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify({ version: 1, days: (state && state.days) || {} }), { mode: 0o600 });
+  fs.renameSync(temp, file);
+}
+
+function budgetDaySlot(state, dayKey) {
+  if (!state.days[dayKey]) state.days[dayKey] = { used: 0, reserved: 0 };
+  const slot = state.days[dayKey];
+  slot.used = Math.max(0, Number(slot.used) || 0);
+  slot.reserved = Math.max(0, Number(slot.reserved) || 0);
+  return slot;
+}
 
 function providerBudgetDayKey(nowMs) {
   return getMadridCalendarYmd('today', Number.isFinite(nowMs) ? nowMs : Date.now());
@@ -294,17 +353,26 @@ function providerBudgetDayKey(nowMs) {
 
 function reserveStormglassCall(nowMs) {
   const dayKey = providerBudgetDayKey(nowMs);
-  if (providerBudget.dayKey !== dayKey) providerBudget = { dayKey, used: 0, reserved: 0 };
-  if (providerBudget.used + providerBudget.reserved >= STORMGLASS_DAILY_LIMIT) {
-    throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
-  }
-  providerBudget.reserved += 1;
+  withBudgetLock(() => {
+    const state = readBudgetState();
+    const slot = budgetDaySlot(state, dayKey);
+    if (slot.used + slot.reserved >= STORMGLASS_DAILY_LIMIT) {
+      throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+    }
+    slot.reserved += 1;
+    writeBudgetState(state);
+  });
   let settled = false;
   const settle = (count) => {
     if (settled) return;
     settled = true;
-    providerBudget.reserved -= 1;
-    if (count) providerBudget.used += 1;
+    withBudgetLock(() => {
+      const state = readBudgetState();
+      const slot = budgetDaySlot(state, dayKey);
+      slot.reserved = Math.max(0, slot.reserved - 1);
+      if (count) slot.used += 1;
+      writeBudgetState(state);
+    });
   };
   return {
     commit() { settle(true); },
@@ -639,7 +707,8 @@ function writePersistentForecastCache(cache) {
 
 function clearStormglassForecastCacheForTests() {
   forecastCache.clear();
-  providerBudget = { dayKey: '', used: 0, reserved: 0 };
+  try { fs.unlinkSync(budgetPath()); } catch (_) { /* absent */ }
+  try { fs.unlinkSync(budgetLockPath()); } catch (_) { /* absent */ }
 }
 
 function toYmd(value) {
@@ -769,7 +838,10 @@ async function fetchStormglassForecast(opts) {
     const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: fetchWindow.start, end: fetchWindow.end });
     let response;
     try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS, nowMs); }
-    catch (err) { throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed'); }
+    catch (err) {
+      if (err && err.code === 'RATE_LIMITED') throw err;
+      throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed');
+    }
     if (!response || response.status < 200 || response.status >= 300) {
       const status = response && response.status;
       const code = status === 401 || status === 402 || status === 403 ? 'ENTITLEMENT_DENIED' : status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR';
