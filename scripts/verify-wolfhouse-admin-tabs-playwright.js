@@ -313,8 +313,8 @@ async function runWolfhouse(playwright, browser) {
       .map((btn) => ({ key: btn.getAttribute('data-wh-admin-tab'), label: btn.textContent.trim(), selected: btn.getAttribute('aria-selected') })));
     equal('Wolfhouse Admin sub-tab order', subTabs.map((s) => s.key), EXPECTED_WH_SUBTABS);
     equal('Wolfhouse Admin sub-tab labels (EN)', subTabs.map((s) => s.label), EXPECTED_WH_LABELS);
-    equal('Finance is the default selected sub-tab',
-      subTabs.filter((s) => s.selected === 'true').map((s) => s.key), ['finance']);
+    equal('Pricing is the default selected sub-tab',
+      subTabs.filter((s) => s.selected === 'true').map((s) => s.key), ['pricing']);
 
     if (FONT_SCREENSHOT_DIR) fs.mkdirSync(FONT_SCREENSHOT_DIR, { recursive: true });
     const headerSelectorByTab = {

@@ -13,9 +13,9 @@ assert.match(api, /id="bc-month-nav" hidden/);
 assert.match(api, /id="bc-year-open"/);
 assert.match(api, /window\.t\('calendar\.yearPopup\.empty'\)/);
 assert.match(api, /order:99/);
-const rangeAt = api.indexOf('id="bc-range-btn"');
-const refreshAt = api.indexOf('id="bc-load"', rangeAt);
-assert.ok(rangeAt > 0 && refreshAt > rangeAt, 'Refresh follows the range control');
+assert.match(api, /#tab-bed-calendar #bc-range-wrap\{display:none!important\}/);
+const refreshAt = api.indexOf('id="bc-load"');
+assert.ok(refreshAt > 0, 'Refresh stays');
 
 function extractFunction(name) {
   const start = api.indexOf('function ' + name + '(');
@@ -135,9 +135,9 @@ async function main() {
   }
   for (const width of [769, 1440]) {
     const boxes = await measure(page, width);
-    assert.ok(boxes.refresh.x >= boxes.range.right - 1, width + ' Refresh is not right of the range ' + JSON.stringify(boxes));
+    assert.ok(!boxes.range || boxes.range.width === 0, width + ' range pill takes no layout ' + JSON.stringify(boxes.range));
+    assert.ok(boxes.refresh.x >= boxes.chip.right - 1, width + ' Refresh is not right of the chips ' + JSON.stringify(boxes));
     assert.ok(boxes.refresh.right <= width + 1, width + ' Refresh offscreen');
-    assert.ok(boxes.range.x - boxes.chip.right < boxes.refresh.x - boxes.range.right, width + ' the gap is before the range, not before Refresh ' + JSON.stringify(boxes));
     assert.equal(boxes.chipHit, true, width + ' Oct-Nov is not clickable');
   }
   const built = spawnSync(process.execPath, ['-e', "process.env.NODE_ENV='test';process.env.STAFF_UI_BUILDER_TEST_SEAM='1';process.env.STAFF_AUTH_REQUIRED='false';process.env.STAFF_AUTH_ALLOW_OPEN='true';process.stdout.write(require('./scripts/staff-query-api.js').buildUiHtmlForOfflineTest(0, 'wolfhouse-somo'));"], {
@@ -155,7 +155,7 @@ async function main() {
       assert.ok(boxes.title.bottom <= boxes.chips.y + 2, 'full page ' + width + ' title is not above the chips');
       assert.ok(boxes.refresh.bottom <= boxes.chips.y + 4, 'full page ' + width + ' Refresh covers the chip row');
     } else {
-      assert.ok(boxes.refresh.x - boxes.range.right > boxes.range.x - boxes.chip.right, 'full page ' + width + ' gap is not before Refresh');
+      assert.ok(boxes.refresh.x >= boxes.chip.right - 1, 'full page ' + width + ' Refresh is not right of the chips');
     }
     assert.equal(boxes.chipHit, true, 'full page ' + width + ' Oct-Nov is covered');
     await live.locator('[data-chip="oct-nov"]').click({ timeout: 3000 });
