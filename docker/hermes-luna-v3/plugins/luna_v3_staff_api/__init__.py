@@ -397,7 +397,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         if result.get("code") in uncertain_codes and not result.get("outcome"):
             result = {**result, "recoveryStatus": "unknown", "outcome": "unknown"}
         try:
-            from runtime.trusted_turn_context import record_operation_evidence, get_inbound_event, get_booking_scope
+            from runtime.trusted_turn_context import (record_operation_evidence, get_inbound_event,
+                                                       get_booking_scope, is_booking_state_mutation)
             operation_shape = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
             basis = ":".join((get_inbound_event(), name, operation_shape))
             identity = "operation:" + hashlib.sha256(basis.encode()).hexdigest()[:32]
@@ -408,8 +409,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 target = f"booking:{args['booking_reference']}"
             else:
                 target = f"booking-scope:{get_booking_scope()}" if get_booking_scope() else None
-            mutation = (name == "check_quote_book" and
-                        (action == "confirm" or (action == "prepare" and args.get("purpose") == "offer")))
+            mutation = is_booking_state_mutation(name, action, str(args.get("purpose") or ""))
             record_operation_evidence(name, result, identity=identity, action=action,
                                       target=target, mutation=mutation)
         except ImportError:

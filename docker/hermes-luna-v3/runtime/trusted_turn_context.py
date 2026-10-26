@@ -34,6 +34,13 @@ def get_booking_scope() -> str:
     return _BOOKING_SCOPE.get()
 
 
+def is_booking_state_mutation(tool: str, action: str = "", purpose: str = "") -> bool:
+    """Single classification for commands that can change Staff booking state."""
+    if tool == "check_quote_book":
+        return action in {"confirm", "decline", "release"} or (action == "prepare" and purpose == "offer")
+    return tool in {"hold_beds", "book", "release_hold", "cancel_unpaid"}
+
+
 def clear_inbound_event(token: Token) -> None:
     _INBOUND_EVENT_ID.reset(token)
 
@@ -136,10 +143,12 @@ def render_booking_state_constraints(history: Any, operation_outcome: Any = None
         booked = state == "booked"
         held = state == "held"
 
+    state_targets = set(state_evidence.get("targets") or [state_evidence.get("target")]) if state_evidence else set()
+    state_targets.discard(None)
     affecting_mutation = next((value for value in unresolved
                                if value.get("mutation", True) and
                                (not value.get("target") or not state_evidence or
-                                value.get("target") == state_evidence.get("target"))), None)
+                                bool(set(value.get("targets") or [value.get("target")]) & state_targets))), None)
     last_verified_state = state
     if affecting_mutation:
         state = "unknown"

@@ -116,12 +116,17 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
         unknown = (result.get("outcome") == "unknown" or result.get("recoveryStatus") == "unknown"
                    or result.get("outcome_unknown") is True)
         answered = result.get("ok") is True or result.get("outcome") == "rejected" or result.get("recoveryStatus") == "rejected"
+        targets = {str(item["target"])} if item.get("target") else set()
+        if result.get("offer_reference"):
+            targets.add(f"offer:{result['offer_reference']}")
+        if result.get("booking_reference"):
+            targets.add(f"booking:{result['booking_reference']}")
         if unknown or answered:
             ledger[identity] = {
                 "kind": "command", "identity": identity,
                 "status": "unresolved" if force_unresolved or unknown else "resolved",
                 "operation": str(item.get("tool") or "staff"),
-                "action": item.get("action"), "target": item.get("target"),
+                "action": item.get("action"), "target": item.get("target"), "targets": sorted(targets),
                 "mutation": item.get("mutation") is True,
                 "command_outcome": "unknown" if unknown else ("succeeded" if result.get("ok") is True else "rejected"),
                 "offer_reference": result.get("offer_reference"), "sequence": time.monotonic_ns(),
@@ -133,7 +138,7 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
             ledger[state_identity] = {
                 "kind": "state", "identity": state_identity, "status": "resolved",
                 "operation": str(item.get("tool") or "staff"), "staff_state": state,
-                "target": item.get("target"),
+                "target": item.get("target"), "targets": sorted(targets),
                 "offer_reference": reference, "sequence": time.monotonic_ns(),
             }
     if not ledger:
@@ -141,9 +146,11 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
 
 
 def _record_cleanup_truth(session_id: str, offer_reference: str) -> None:
+    from runtime.trusted_turn_context import is_booking_state_mutation
     _apply_operation_evidence(session_id, [{
         "tool": "check_quote_book", "identity": f"operation:cleanup:{offer_reference}",
-        "action": "decline", "target": f"offer:{offer_reference}", "mutation": True,
+        "action": "decline", "target": f"offer:{offer_reference}",
+        "mutation": is_booking_state_mutation("check_quote_book", "decline"),
         "result": {"ok": True, "state": "released", "offer_reference": offer_reference},
     }])
 
@@ -349,9 +356,11 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         except Exception:
             reference = next(iter(dict.fromkeys(offers)), None)
             if reference:
+                from runtime.trusted_turn_context import is_booking_state_mutation
                 _apply_operation_evidence(session_id, [{
                     "tool": "check_quote_book", "identity": f"operation:cleanup:{reference}",
-                    "action": "decline", "target": f"offer:{reference}", "mutation": True,
+                    "action": "decline", "target": f"offer:{reference}",
+                    "mutation": is_booking_state_mutation("check_quote_book", "decline"),
                     "result": {"outcome": "unknown", "offer_reference": reference},
                 }])
             return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}

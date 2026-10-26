@@ -149,6 +149,52 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertNotIn("handoffOperationKey", bounded)
         self.assertTrue(bounded["requiredHumanHandoff"])
 
+    def test_prepare_links_created_offer_to_unreadable_confirm_and_decline(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import (bind_inbound_event, clear_inbound_event,
+            bind_operation_evidence, clear_operation_evidence, render_booking_state_constraints)
+        from runtime.simulator_route import _apply_operation_evidence, _SESSION_OPERATION_OUTCOMES
+        env = {"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token",
+               "LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        reference = "offer_123456789012345678901234"
+
+        class Response:
+            status = 200
+            def __init__(self, raw): self.raw = raw
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return self.raw
+
+        for index, action in enumerate(("confirm", "decline"), 1):
+            with self.subTest(action=action):
+                session_id = f"round6-{action}"
+                evidence = []
+                inbound_token = bind_inbound_event(
+                    f"60000000-0000-4000-8000-00000000000{index}", booking_scope=session_id)
+                operation_token = bind_operation_evidence(evidence)
+                responses = [
+                    Response(json.dumps({"ok": True, "state": "offer", "held": True,
+                                         "booked": False, "offer_reference": reference}).encode()),
+                    Response(b"<html>lost reply</html>"),
+                ]
+                try:
+                    with patch.dict(os.environ, env, clear=True), patch.object(plugin, "_open_staff", side_effect=responses):
+                        prepared = plugin.call_tool("check_quote_book", {"action": "prepare", "purpose": "offer"})
+                        unreadable = plugin.call_tool("check_quote_book", {"action": action, "offer_reference": reference})
+                finally:
+                    clear_operation_evidence(operation_token)
+                    clear_inbound_event(inbound_token)
+                self.assertEqual(prepared["state"], "offer")
+                self.assertEqual(unreadable["outcome"], "unknown")
+                self.assertTrue(evidence[1]["mutation"], f"{action} must use shared mutation classification")
+                _SESSION_OPERATION_OUTCOMES.pop(session_id, None)
+                _apply_operation_evidence(session_id, evidence)
+                rendered = render_booking_state_constraints([], _SESSION_OPERATION_OUTCOMES[session_id])
+                self.assertIn("last_verified_state=held", rendered)
+                self.assertIn("current_state=unknown", rendered)
+                self.assertIn("booked=unknown", rendered)
+                self.assertNotIn("booked=false", rendered)
+
     def test_harness_captures_http_422_generic_exception_and_timeout_exception(self):
         plugin = self.load_plugin()
         from runtime.trusted_turn_context import (bind_harness_evidence, clear_harness_evidence, bind_inbound_event,
