@@ -66,13 +66,17 @@ class ClosedSeasonContractTests(TestCase):
         self.assertEqual(text, "Estamos cerrados en esas fechas. La apertura más cercana es del 1 al 4 de marzo de 2027.")
         self.assertIn("closed_season_staff_copy", [f["kind"] for f in findings])
 
-    def test_guard_blocks_availability_claim_without_successful_staff_receipt(self):
-        text, findings = output_guard.guard_reply(
-            "Sí, tenemos una cama disponible del 12 al 15 de diciembre.",
-            tool_calls=[], guest_lang="es",
-        )
-        self.assertNotIn("tenemos una cama disponible", text.lower())
-        self.assertIn("unsupported_availability_claim", [f["kind"] for f in findings])
+    def test_guard_preserves_negative_availability_reply(self):
+        reply = "We have no rooms available"
+        text, findings = output_guard.guard_reply(reply, tool_calls=[], guest_lang="en")
+        self.assertEqual(text, reply)
+        self.assertNotIn("unsupported_availability_claim", [f["kind"] for f in findings])
+
+    def test_guard_preserves_non_availability_room_reply(self):
+        reply = "We have a kitchen and a room for storing surfboards"
+        text, findings = output_guard.guard_reply(reply, tool_calls=[], guest_lang="en")
+        self.assertEqual(text, reply)
+        self.assertNotIn("unsupported_availability_claim", [f["kind"] for f in findings])
 
     def test_soul_forbids_date_changes_and_requires_availability_before_claim(self):
         soul = SOUL_PATH.read_text(encoding="utf-8")

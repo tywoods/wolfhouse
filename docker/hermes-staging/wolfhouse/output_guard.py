@@ -216,22 +216,12 @@ def _tool_result_dict(tc: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
-_POSITIVE_AVAILABILITY_RE = re.compile(
-    r"\b(?:we\s+(?:have|do have|have got)|there\s+(?:is|are))\b[^.?!]{0,90}\b(?:available|availability|space|bed|room)\b|"
-    r"\b(?:tenemos|hay)\b[^.?!]{0,90}\b(?:disponib(?:le|les)|cama|camas|habitaci[oó]n|espacio)\b|"
-    r"\b(?:abbiamo|c['’]è|ci sono)\b[^.?!]{0,90}\b(?:disponibil|posto|letto|camera)|"
-    r"\b(?:wir haben|es gibt)\b[^.?!]{0,90}\b(?:frei|verfügbar|bett|zimmer)",
-    re.IGNORECASE,
-)
-
-
 def apply_availability_truth(
     text: str,
     tool_calls: Optional[List[Dict[str, Any]]] = None,
     guest_lang: Optional[str] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Prefer Staff's closed-season copy and reject unsupported positive stock."""
-    successful_availability = False
+    """Prefer Staff's authoritative closed-season copy without parsing model prose."""
     for tc in tool_calls or []:
         name = str((tc or {}).get("name") or (tc or {}).get("tool") or "")
         if name not in {"check_availability", "quote_booking"}:
@@ -241,15 +231,6 @@ def apply_availability_truth(
             staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
             if staff_copy:
                 return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
-        if result.get("success") is True and (
-                result.get("available") is True
-                or result.get("availability_status") == "available"
-                or result.get("quote_status") == "ready"):
-            successful_availability = True
-    if _POSITIVE_AVAILABILITY_RE.search(str(text or "")) and not successful_availability:
-        return safe_fallback_for(text, guest_lang), {
-            "kind": "unsupported_availability_claim", "severity": "block"
-        }
     return text, None
 
 
