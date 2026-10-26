@@ -17,6 +17,7 @@ const dispatchLunaV3StaffRoute = (args) => rawDispatch({
 
 async function main() {
   assert.strictEqual(Object.keys(LUNA_V3_ROUTE_TO_TOOL).length, 18);
+  assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/booking-catalog'], undefined);
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/check-availability'], 'check_availability');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/handoff'], 'handoff_to_human');
   assert.strictEqual(LUNA_V3_ROUTE_TO_TOOL['/staff/bot/luna-v3/recover-operation'], 'recover_operation');
@@ -120,13 +121,17 @@ async function main() {
       guests: [{ name: 'Guest A' }], room: { kind: 'shared' }, package: { name: 'Custom Or Short Stay' }, add_ons: [],
     },
     authenticatedPrincipal: { principalId: 'test-principal', writeAllowed: true, turnId: 'semantic-correlation' },
-    operations: { check_quote_book: async () => { invalidReachedOperation = true; return { ok: true }; } },
+    operations: { check_quote_book: async () => { invalidReachedOperation = true; return {
+      ok: false, status: 400, code: 'stay_dates_invalid', classification: 'validation',
+      field_errors: [{ path: 'check_in', code: 'stay_dates_invalid', message: 'check_in must be a real date' }],
+      next_step: 'correct_request', retry_allowed: false,
+    }; } },
   });
   assert.strictEqual(invalidSemantic.status, 400);
   assert.strictEqual(invalidSemantic.body.code, 'stay_dates_invalid');
   assert.strictEqual(invalidSemantic.body.field_errors[0].path, 'check_in');
   assert.strictEqual(invalidSemantic.body.correlation_id, 'semantic-correlation');
-  assert.strictEqual(invalidReachedOperation, false);
+  assert.strictEqual(invalidReachedOperation, true, 'prepare validation must run after the durable operation boundary');
 
   const preserved = await dispatchLunaV3StaffRoute({
     pathname: '/staff/bot/luna-v3/payment-status', method: 'POST', clientSlug: 'wolfhouse-somo',

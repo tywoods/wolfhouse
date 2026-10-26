@@ -6,6 +6,9 @@ from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "runtime" / "simulator_route.py"
 BOOTSTRAP_MODULE = Path(__file__).resolve().parents[1] / "bootstrap.py"
+SNAPSHOT = {"ok": True, "revision": "staff-revision-1", "choices": [
+    {"kind": "accommodation", "code": "package_none", "label": "Accommodation only", "requirements": {}}
+]}
 
 
 class FakeAgent:
@@ -58,8 +61,9 @@ class FakeAdapter:
 
 
 class FakeRequest:
-    def __init__(self, body):
+    def __init__(self, body, headers=None):
         self.body = body
+        self.headers = headers or {}
 
     async def json(self):
         return self.body
@@ -84,7 +88,7 @@ class SimulatorRouteTests(unittest.TestCase):
 
         async def admit(session_key, phone, message_digest):
             admitted.append((session_key, phone, message_digest))
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111111"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111111", "capability_snapshot": SNAPSHOT}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 008", "text": "hello", "allow_writes": False}),
@@ -99,12 +103,15 @@ class SimulatorRouteTests(unittest.TestCase):
             adapter.bound_session_key,
             self.module._normalize_phone("+34 699 901 008"),
         ))
+        self.assertIn("TRUSTED STAFF CAPABILITY SNAPSHOT", adapter.agent_kwargs["ephemeral_system_prompt"])
+        self.assertIn("code=package_none", adapter.agent_kwargs["ephemeral_system_prompt"])
+        self.assertEqual(adapter.agent.calls[0]["conversation_history"], [])
 
     def test_follow_up_receives_the_same_sessions_previous_messages(self):
         adapter = FakeAdapter()
 
         async def admit(_session_key, _phone, _message_digest):
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111112"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111112", "capability_snapshot": SNAPSHOT}
 
         first = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 009", "text": "price for one?"}),
@@ -119,7 +126,6 @@ class SimulatorRouteTests(unittest.TestCase):
 
         self.assertEqual(first["status"], 200)
         self.assertEqual(second["status"], 200)
-        self.assertIsNone(adapter.agent.calls[0]["conversation_history"])
         self.assertEqual(
             adapter.agent.calls[1]["conversation_history"],
             adapter.agent.results[0]["messages"],
@@ -129,7 +135,7 @@ class SimulatorRouteTests(unittest.TestCase):
         adapter = FakeAdapter()
 
         async def admitted(_session_key, _phone, _message_digest):
-            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111113"}
+            return {"ok": True, "admitted": True, "inbound_event_id": "11111111-1111-4111-8111-111111111113", "capability_snapshot": SNAPSHOT}
 
         response = asyncio.run(self.module.handle_turn(
             FakeRequest({"thread": "+34 699 901 010", "text": "price for two?"}),
@@ -168,6 +174,24 @@ class SimulatorRouteTests(unittest.TestCase):
             response = asyncio.run(self.module.handle_turn(FakeRequest(body), adapter))
             self.assertEqual(response["status"], 400)
             self.assertEqual(response["body"]["code"], code)
+
+    def test_full_trace_gate_is_dual_keyed(self):
+        request = FakeRequest({}, {"X-Luna-V3-Harness-Trace": "secret"})
+        old_mode = self.module.os.environ.get("LUNA_V3_AUTHENTIC_HARNESS")
+        old_token = self.module.os.environ.get("LUNA_V3_HARNESS_TRACE_TOKEN")
+        try:
+            self.module.os.environ["LUNA_V3_HARNESS_TRACE_TOKEN"] = "secret"
+            self.module.os.environ.pop("LUNA_V3_AUTHENTIC_HARNESS", None)
+            self.assertFalse(self.module._harness_trace_allowed(request))
+            self.module.os.environ["LUNA_V3_AUTHENTIC_HARNESS"] = "1"
+            self.assertTrue(self.module._harness_trace_allowed(request))
+            self.assertFalse(self.module._harness_trace_allowed(FakeRequest({}, {"X-Luna-V3-Harness-Trace": "wrong"})))
+        finally:
+            for key, value in (("LUNA_V3_AUTHENTIC_HARNESS", old_mode), ("LUNA_V3_HARNESS_TRACE_TOKEN", old_token)):
+                if value is None:
+                    self.module.os.environ.pop(key, None)
+                else:
+                    self.module.os.environ[key] = value
 
     def test_preflight_rejects_every_hermes_transport_activation_input(self):
         base = {

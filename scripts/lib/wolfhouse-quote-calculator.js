@@ -549,14 +549,21 @@ function calculateWolfhouseQuote(input, config) {
       continue;
     }
 
-    if (cfgA.pricing_unit === 'per_class') {
-      const qty   = Math.max(1, parseInt(addon.quantity, 10) || 1);
-      const unit  = cfgA.price_cents;
+    const quantityUnits = {
+      per_lesson: ['lesson', 'lessons'],
+      per_class: ['class', 'classes'],
+      per_meal: ['meal', 'meals'],
+      per_person: ['person', 'people'],
+    };
+    if (quantityUnits[cfgA.pricing_unit]) {
+      const qty = Math.max(1, parseInt(addon.quantity, 10) || parseInt(addon.people, 10) || 1);
+      const unit = cfgA.price_cents;
       const total = unit * qty;
+      const [singular, plural] = quantityUnits[cfgA.pricing_unit];
       addons_cents += total;
       line_items.push({
         code: addon.code,
-        label: `${cfgA.name} (${qty} class${qty !== 1 ? 'es' : ''} × ${unit / 100}€)`,
+        label: `${cfgA.name} (${qty} ${qty === 1 ? singular : plural} × ${unit / 100}€)`,
         quantity: qty,
         unit_cents: unit,
         total_cents: total,
@@ -567,22 +574,38 @@ function calculateWolfhouseQuote(input, config) {
       continue;
     }
 
-    if (cfgA.pricing_unit === 'per_meal') {
-      const qty   = Math.max(1, parseInt(addon.quantity, 10) || 1);
-      const unit  = cfgA.price_cents;
-      const total = unit * qty;
-      addons_cents += total;
+    if (cfgA.pricing_unit === 'per_stay' || cfgA.pricing_unit === 'flat') {
+      const unit = cfgA.price_cents;
+      addons_cents += unit;
       line_items.push({
         code: addon.code,
-        label: `${cfgA.name} (${qty} meal${qty !== 1 ? 's' : ''} × ${unit / 100}€)`,
-        quantity: qty,
+        label: `${cfgA.name} (${cfgA.pricing_unit === 'flat' ? 'flat' : 'per stay'} × ${unit / 100}€)`,
+        quantity: 1,
         unit_cents: unit,
-        total_cents: total,
+        total_cents: unit,
       });
       continue;
     }
 
-    warnings.push(`add-on "${addon.code}" has unhandled pricing_unit "${cfgA.pricing_unit}" — skipped`);
+    const diagnostic = `add-on "${addon.code}" has unsupported pricing_unit "${cfgA.pricing_unit}"`;
+    return {
+      ...buildBlockedResult(config, input, nights, guests, season_code, [diagnostic], warnings, true, true),
+      ok: false,
+      status: 422,
+      code: 'staff_add_on_pricing_unit_unsupported',
+      reason_code: 'staff_add_on_pricing_unit_unsupported',
+      classification: 'configuration',
+      field_errors: [{ path: 'add_ons', code: 'staff_add_on_pricing_unit_unsupported', message: diagnostic }],
+      next_step: 'ask_staff_to_configure_add_on_price',
+      retry_allowed: false,
+      pricing_failure: {
+        type: 'pricing_failure',
+        price_kind: 'add_on',
+        choice: { item_type: cfgA.item_type || 'service', item_code: addon.code, season_code: null },
+        pricing_unit: cfgA.pricing_unit,
+        recovery_action: 'ask_staff_to_configure_add_on_price',
+      },
+    };
   }
 
   // Surf lessons: total quantity determines single vs. bundle pricing

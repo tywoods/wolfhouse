@@ -79,6 +79,10 @@ async function main(api = defaultApi) {
     'getPaymentStatus', 'sendPaymentLink', 'cancelUnpaid', 'readNotes', 'writeNote', 'saveTransferRequest'].sort());
 
   const pg = staffPg({ blocks: [{ bed_code: 'R7-B1' }] });
+  const publicCatalog = await api.getBookingCapabilitySnapshot(pg, context);
+  assert.equal(publicCatalog.ok, true);
+  assert.equal(publicCatalog.choices[0].code, 'package_none');
+  assert.equal(publicCatalog.choices[0].kind, 'accommodation');
   const available = await api.checkAvailability(pg, { check_in: '2027-07-01', check_out: '2027-07-08', party_size: 2 }, context);
   assert.equal(available.availableCount, 2);
   assert.deepEqual(available.bedIds, ['R10-B1', 'R10-B2']);
