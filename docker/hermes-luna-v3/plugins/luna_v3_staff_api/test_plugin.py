@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import socket
 import sys
 import unittest
 import io
@@ -207,6 +208,32 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual('injected_validation',injected_result['code']); self.assertEqual('http_error_read',injected_ev['fault_observed'])
         self.assertEqual(b'{"ok":true}'.hex(),injected_ev['original_response_hex']); self.assertNotEqual(injected_ev['original_response_hex'],injected_ev['raw_response_hex'])
         self.assertNotEqual(real_ev['call_id'],injected_ev['call_id'])
+
+    def test_same_event_calls_are_isolated_and_connect_timeout_is_typed(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        env={"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        event='20000000-0000-4000-8000-000000000001'; bind_inbound_event(event)
+        evidence=[]; tokens=bind_harness_evidence(evidence,'non-json')
+        class Response:
+            status=200
+            def __enter__(self): return self
+            def __exit__(self,*_): return False
+            def read(self): return b'{"ok":true}'
+        try:
+            with patch.dict(os.environ,env,clear=True),patch.object(plugin,'_open_staff',side_effect=[Response(),Response()]):
+                first=plugin.call_tool('get_booking',{}); second=plugin.call_tool('get_booking',{})
+        finally: clear_harness_evidence(tokens)
+        self.assertEqual('staff_transport_non_json',first['code']); self.assertTrue(second['ok'])
+        self.assertEqual([event,event],[row['event_id'] for row in evidence]); self.assertEqual(2,len({row['call_id'] for row in evidence}))
+        self.assertEqual('non-json',evidence[0]['fault_applied']); self.assertIsNone(evidence[1]['fault_applied'])
+        evidence=[]; tokens=bind_harness_evidence(evidence,'http-422')
+        try:
+            with patch.dict(os.environ,env,clear=True),patch.object(plugin,'_open_staff',side_effect=socket.timeout('connect')):
+                result=plugin.call_tool('get_booking',{})
+        finally: clear_harness_evidence(tokens)
+        self.assertEqual('staff_tool_unreachable',result['code']); self.assertEqual(result['call_id'],evidence[0]['call_id'])
+        self.assertIsNone(evidence[0]['fault_applied']); self.assertEqual('http-422',evidence[0]['fault_requested'])
 
     def test_retired_recovery_is_not_callable(self):
         plugin = self.load_plugin()

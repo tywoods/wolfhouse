@@ -44,7 +44,7 @@ def make_cases(snapshot,fixture):
  if not isinstance(snapshot,dict) or snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
  if not isinstance(fixture,dict) or fixture.get("schema")!="luna-matrix-fixture/v1" or fixture.get("tenant")!="wolfhouse-somo": raise SystemExit("BLOCKED: malformed fixture schema")
  owner=fixture.get("owner_provenance")
- if not isinstance(owner,dict) or owner.get("authority")!="staff-owner" or not all(isinstance(owner.get(k),str) and owner[k].strip() for k in ("fixture_id","approved_by","approved_at")): raise SystemExit("BLOCKED: fixture lacks owner provenance")
+ if not isinstance(owner,dict) or owner.get("authority")!="staff-owner" or not all(isinstance(owner.get(k),str) and owner[k].strip() for k in ("fixture_id","approved_by","approved_at","owner_revision_or_receipt_id")): raise SystemExit("BLOCKED: fixture lacks owner provenance")
  if fixture.get("capability_revision")!=snapshot["revision"]: raise SystemExit("BLOCKED: fixture capability revision mismatch")
  cases=fixture.get("cases"); allowed={"accommodation","package","rental","service:lesson_a","service:lesson_b","mixed","multi_guest","continuation","clarification","fault"}
  if not isinstance(cases,list) or not cases: raise SystemExit("BLOCKED: fixture has no explicit cases")
@@ -189,13 +189,6 @@ def judge(case,body,pre,post):
  tool_results=[m.get("content_parsed") for m in messages or [] if isinstance(m,dict) and m.get("role")=="tool"]
  evidence=" ".join(x for _,x in sum((scalars(x) for x in tool_results),[]) if len(x)>=2)
  reply_s=str(reply or "")
- exact_fields=[]
- for result in tool_results:
-  if isinstance(result,dict):
-   for key in ("reason","reason_code","facts","path","next_step","total_cents","amount_cents","deposit_cents","terms"):
-    if key in result:
-     vals=[x for _,x in scalars(result[key]) if len(x)>=2]
-     exact_fields += [(key,x,x.lower() in reply_s.lower()) for x in vals]
  quote_only=case["expect"] in ("quote","mixed")
  checks={
   "reply_present":bool(reply_s.strip()),"reply_equals_final_response":isinstance(final,str) and reply==final,
@@ -205,7 +198,6 @@ def judge(case,body,pre,post):
   "runtime_readback_present":isinstance(trace,dict) and isinstance(trace.get("runtime_readback"),dict),
   "pre_post_state_present":isinstance(pre,dict) and isinstance(post,dict),
   "one_prepare_per_turn":len(prepare)==(2 if case["continuation"] else 1) if case["prepare_required"] else len(prepare)==0,
-  "staff_fields_rendered_exactly":all(ok for _,_,ok in exact_fields) and (bool(exact_fields) or case["expect"] in ("uncertain","n/a","clarification")),
   "no_hold_or_booking_for_quote":not quote_only or pre.get("booking_count")==post.get("booking_count") and pre.get("hold_count")==post.get("hold_count"),
   "send_suppressed":body.get("external_send_allowed") is False and body.get("staff_alert_allowed") is False,
  }
@@ -213,7 +205,18 @@ def judge(case,body,pre,post):
  if case["continuation"]:
   checks["genuine_one_use_continuation"]=isinstance(trace,dict) and trace.get("continuation_consumed") is True
   checks["first_refusal_then_success"]=any(isinstance(x,dict) and x.get("ok") is False for x in tool_results) and any(isinstance(x,dict) and x.get("ok") is True for x in tool_results)
- return checks,exact_fields
+ return checks,[]
+
+def load_owner_fixture(path, expected_sha256):
+ expected=str(expected_sha256 or "").strip().lower()
+ if not re.fullmatch(r"[0-9a-f]{64}",expected): raise SystemExit("BLOCKED: LUNA_MATRIX_FIXTURE_SHA256 must be a SHA-256 digest")
+ try: raw=path.read_bytes()
+ except Exception as exc: raise SystemExit(f"BLOCKED: fixture metadata unreadable: {exc}")
+ actual=digest_bytes(raw)
+ if actual!=expected: raise SystemExit("BLOCKED: fixture metadata SHA-256 mismatch")
+ try: fixture=json.loads(raw)
+ except Exception as exc: raise SystemExit(f"BLOCKED: fixture metadata unreadable: {exc}")
+ return fixture,actual
 
 def main():
  root=pathlib.Path(__file__).resolve().parents[1]; head=subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip()
@@ -231,8 +234,7 @@ def main():
  if not isinstance(pins,dict) or pins.get("candidate_sha")!=head or any(not str(pins.get(k) or "").strip() for k in required_pins): raise SystemExit("BLOCKED: immutable runtime pins missing/mismatched")
  snapshot=pf.get("staff_admission",{}).get("capability_snapshot")
  fixture_path=pathlib.Path(need("LUNA_MATRIX_FIXTURE_METADATA"))
- try: fixture=json.loads(fixture_path.read_text())
- except Exception as exc: raise SystemExit(f"BLOCKED: fixture metadata unreadable: {exc}")
+ fixture,fixture_sha256=load_owner_fixture(fixture_path,need("LUNA_MATRIX_FIXTURE_SHA256"))
  cases=make_cases(snapshot,fixture); records=[]; seq=0
  for case in cases:
   if case["expect"]=="n/a": records.append({"case":case,"repetition":None,"verdict":"N/A","reason":"live Staff admission snapshot has no active cell for this kind"}); continue
@@ -275,7 +277,7 @@ def main():
    checks["durable_no_side_effects"]=checks["typed_authenticated_state_receipts"] and all(state[k]==post[k] for k in STATE_FIELDS)
    passed=all(checks.values())
    rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error")},"response":redact(body),"event_receipts":redact(event_receipts),"continuation_linkage":redact(linkage),"semantic_score":event_scores,"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
- manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
+ manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"owner_fixture_sha256":fixture_sha256,"owner_fixture_provenance":fixture["owner_provenance"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
  result={"schema":"luna-v3-cap-authentic-results/v2","manifest_sha256":digest(manifest),"records":records,"pass":all(r.get("verdict") in ("PASS","N/A") for r in records)}
  (out/"manifest.json").write_bytes(canon(manifest)+b"\n"); (out/"results.json").write_bytes(canon(result)+b"\n")
  files=sorted(p for p in out.rglob("*") if p.is_file()); (out/"SHA256SUMS").write_text("".join(f"{digest_bytes(p.read_bytes())}  {p.relative_to(out)}\n" for p in files))

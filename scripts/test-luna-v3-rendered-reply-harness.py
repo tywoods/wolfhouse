@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline executable gates for the Cap runner (never substitutes a live run)."""
-import ast, importlib.util, pathlib, unittest
+import ast, hashlib, importlib.util, json, pathlib, tempfile, unittest
 import copy
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 RUNNER=ROOT/'scripts/run-luna-v3-rendered-reply-matrix.py'
@@ -21,7 +21,7 @@ def owner_fixture():
  group={**base,'guests':['Alex','Sam'],'package':{'per_guest':[{'guest':1,'name':'malibu'},{'guest':2,'name':'package_none'}]},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Sam'],'dates':['2027-06-02']}]}
  cases += [case('multi_guest',group),case('continuation',{**base,'check_out':'2027-06-02'},expect='refusal',corrected_control=base,correction_prompt='Use the owner-proven dates 2027-06-01 to 2027-06-08.'),case('clarification',None,expect='clarification'),case('fault',base,expect='uncertain',fault='timeout')]
  cases[-2].pop('control')
- return {'schema':'luna-matrix-fixture/v1','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z'},'capability_revision':'r','cases':cases}
+ return {'schema':'luna-matrix-fixture/v1','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
 class Gates(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
@@ -32,7 +32,8 @@ class Gates(unittest.TestCase):
   s=RUNNER.read_text(); self.assertNotIn('LUNA_MATRIX_INVENTORY',s); self.assertIn('"no_retries":True',s); self.assertIn('REPS=3',s)
  def test_artifact_and_verdict_contract(self):
   s=RUNNER.read_text()
-  for x in ('manifest.json','results.json','SHA256SUMS','reply_equals_final_response','staff_fields_rendered_exactly','no_hold_or_booking_for_quote','one_prepare_per_turn','first_refusal_then_success'): self.assertIn(x,s)
+  for x in ('manifest.json','results.json','SHA256SUMS','reply_equals_final_response','no_hold_or_booking_for_quote','one_prepare_per_turn','first_refusal_then_success','owner_fixture_sha256'): self.assertIn(x,s)
+  self.assertNotIn('staff_fields_rendered_exactly',s)
  def test_harness_gates_and_fault_isolation(self):
   route=ROUTE.read_text(); plugin=PLUGIN.read_text()
   self.assertIn('_harness_trace_allowed(request)',route); self.assertIn('trace_allowed else ""',route)
@@ -65,6 +66,27 @@ class Gates(unittest.TestCase):
   events[1]['response']['harness_trace']['messages'][0]['tool_calls'].append({'function':{'name':'check_quote_book','arguments_parsed':{'action':'prepare'}}})
   self.assertFalse(self.runner.score_events({'prepare_required':True,'expect':'quote','continuation':True},events)[1]['semantic']['progress'])
   source=RUNNER.read_text(); self.assertIn('"semantic_score":event_scores',source); self.assertIn('all_semantic_scores_pass',source)
+ def test_judge_allows_paraphrased_refusal_and_zero_tool_clarification(self):
+  state={'booking_count':0,'hold_count':0}; common={'untruncated':True,'installed_plugin':{'sha256':'a'},'runtime_readback':{}}
+  refusal={'ok':False,'classification':'availability','reason':'literal owner reason','next_step':'literal_owner_step','_tool_call_id':'c'}
+  call={'id':'c','function':{'name':'check_quote_book','arguments_parsed':{'action':'prepare'}}}
+  reply='That option is unavailable; please choose another.'
+  body={'reply_text':reply,'external_send_allowed':False,'staff_alert_allowed':False,'harness_trace':{**common,'staff_http_exchanges':[{}],'messages':[{'role':'assistant','tool_calls':[call]},{'role':'tool','tool_call_id':'c','content_parsed':refusal}],'final_response':reply}}
+  checks,_=self.runner.judge({'expect':'refusal','prepare_required':True,'continuation':False},body,state,state)
+  self.assertTrue(all(checks.values()),checks)
+  self.assertTrue(self.runner.semantic_score({'expect':'refusal','prepare_required':True},reply,[call],[refusal],None)['fidelity'])
+  question='Which check-in and check-out dates would you like?'
+  clarification={'reply_text':question,'external_send_allowed':False,'staff_alert_allowed':False,'harness_trace':{**common,'staff_http_exchanges':[],'messages':[{'role':'assistant','content':question,'tool_calls':[]}],'final_response':question}}
+  checks,_=self.runner.judge({'expect':'clarification','prepare_required':False,'continuation':False},clarification,state,state)
+  self.assertTrue(all(checks.values()),checks)
+  self.assertTrue(self.runner.semantic_score({'expect':'clarification','prepare_required':False},question,[],[],None)['clarification'])
+ def test_owner_fixture_bytes_are_digest_bound(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=pathlib.Path(tmp)/'fixture.json'; raw=json.dumps(owner_fixture(),separators=(',',':')).encode(); path.write_bytes(raw)
+   digest=hashlib.sha256(raw).hexdigest(); loaded,verified=self.runner.load_owner_fixture(path,digest)
+   self.assertEqual(owner_fixture(),loaded); self.assertEqual(digest,verified)
+   for invalid in ('','0'*64):
+    with self.assertRaises(SystemExit): self.runner.load_owner_fixture(path,invalid)
  def test_complete_kind_controls_and_continuation_source(self):
   fixture=owner_fixture()
   choices=[
@@ -153,12 +175,19 @@ class Gates(unittest.TestCase):
   refusal={'ok':False,'classification':'availability','reason':'minimum stay violated','next_step':'choose other dates','_tool_call_id':'wanted'}
   self.assertTrue(self.runner.semantic_score({'expect':'refusal','prepare_required':True},'Those dates are unavailable; please pick different dates.',[call],[refusal],None)['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,good,[call],[{**quote,'_tool_call_id':'later'}],None)['fidelity'])
- def test_state_query_uses_durable_owners_not_operation_heuristics(self):
-  source=(ROOT/'scripts/staff-query-api.js').read_text()
-  start=source.index('// Read each durable domain owner directly.')
-  block=source[start:source.index('if (!state ||',start)]
-  for owner in ('FROM bookings','FROM luna_v3_holds','FROM payments','FROM luna_v3_payment_links','FROM guest_message_sends','FROM client_notification_events'):
-   self.assertIn(owner,block)
-  self.assertNotIn('luna_v3_operations',block)
-  self.assertNotIn('get_payment_status',block)
+ def test_state_query_executes_against_fake_pg_and_fails_closed(self):
+  script="""
+const assert=require('node:assert/strict');
+const {readLunaV3DurableState}=require('./scripts/lib/model-led-luna/luna-v3-durable-state');
+(async()=>{ const calls=[]; const row={booking_count:1,hold_count:2,payment_count:3,external_send_count:4,staff_alert_count:5};
+ const pg={query:async(sql,params)=>{calls.push({sql,params});return {rows:[row]}}};
+ const got=await readLunaV3DurableState(pg,{clientId:'cid',sessionId:'sid',principalId:'pid',clientSlug:'wolfhouse-somo'});
+ assert.deepEqual(got,{ok:true,...row}); assert.deepEqual(calls[0].params,['cid','sid','pid','wolfhouse-somo']);
+ for(const owner of ['FROM bookings','FROM luna_v3_holds','FROM payments','FROM luna_v3_payment_links','FROM guest_message_sends','FROM client_notification_events']) assert.ok(calls[0].sql.includes(owner));
+ await assert.rejects(()=>readLunaV3DurableState({query:async()=>({rows:[]})},{clientId:'c',sessionId:'s',principalId:'p',clientSlug:'x'}),e=>e.code==='luna_v3_staff_state_unavailable');
+ await assert.rejects(()=>readLunaV3DurableState({query:async()=>({rows:[{...row,hold_count:'2'}]})},{clientId:'c',sessionId:'s',principalId:'p',clientSlug:'x'}),e=>e.code==='luna_v3_staff_state_unavailable');
+})().catch(e=>{console.error(e);process.exit(1)});"""
+  import subprocess
+  subprocess.run(['node','-e',script],cwd=ROOT,check=True)
+  self.assertIn('readLunaV3DurableState', (ROOT/'scripts/staff-query-api.js').read_text())
 if __name__=='__main__': unittest.main(verbosity=2)

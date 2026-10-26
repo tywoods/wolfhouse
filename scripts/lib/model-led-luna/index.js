@@ -493,6 +493,7 @@ function createOperations(withPgClient, authorities = {}) {
 const checkQuoteBook = createCheckQuoteBook({ findRooms, getPricingCatalog, quote, holdBeds: v3.holdBeds, book: v3.book, releaseHold: v3.releaseHold });
 const SELECTED_IMPLEMENTATIONS = Object.freeze({ checkQuoteBook, checkAvailability, findRooms, getPricingCatalog, quote, ...v3 });
 module.exports = { ...SELECTED_IMPLEMENTATIONS, createOperations };
+Object.defineProperty(module.exports,'serviceFailure',{value:serviceFailure,enumerable:false});
 Object.defineProperty(module.exports,'getBookingCapabilitySnapshot',{value:getBookingCapabilitySnapshot,enumerable:false});
 Object.defineProperty(module.exports,'loadV3DbOnlyQuoteConfig',{value:loadV3DbOnlyQuoteConfig,enumerable:false});
 Object.defineProperty(module.exports,'resolveStaySeasonCoverage',{value:resolveStaySeasonCoverage,enumerable:false});

@@ -103,7 +103,9 @@ for _ in $(seq 1 180); do curl -fsS -H "$auth_header" "http://127.0.0.1:$simulat
 curl -fsS -H "$auth_header" "http://127.0.0.1:$simulator_port/health" >/dev/null
 
 export LUNA_MATRIX_CANDIDATE_SHA="$SHA" LUNA_MATRIX_SIMULATOR_URL="http://127.0.0.1:$simulator_port" LUNA_MATRIX_SIMULATOR_TOKEN="$simulator_token"
-export LUNA_V3_HARNESS_TRACE_TOKEN="$trace_token" LUNA_MATRIX_OUTPUT="$OUT/matrix" LUNA_MATRIX_FIXTURE_METADATA="$OUT/fixture-metadata.json"
+: "${LUNA_MATRIX_FIXTURE_METADATA:?BLOCKED: owner-custodied LUNA_MATRIX_FIXTURE_METADATA is required}"
+export LUNA_V3_HARNESS_TRACE_TOKEN="$trace_token" LUNA_MATRIX_OUTPUT="$OUT/matrix"
+: "${LUNA_MATRIX_FIXTURE_SHA256:?BLOCKED: owner-supplied LUNA_MATRIX_FIXTURE_SHA256 is required}"
 export HERMES_MODEL_PROVIDER=openai-codex HERMES_MODEL=gpt-6.1-sol HERMES_REASONING_EFFORT=low HERMES_FALLBACK_MODEL=
 python3 scripts/run-luna-v3-rendered-reply-matrix.py
 find "$OUT" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >"$OUT/SHA256SUMS"

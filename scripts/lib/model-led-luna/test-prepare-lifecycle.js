@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createCheckQuoteBook, publicFailure } = require('./v3-booking-flow');
+const { serviceFailure } = require('./index');
 const { normalizeQuoteRequest, normalizeCapabilityChoice, ACCOMMODATION_ONLY, checkQuoteBookSchema } = require('./staff-request-contract');
 const emittedSchema = require('../../../docker/hermes-luna-v3/contracts/check_quote_book.schema.json');
 
@@ -140,6 +141,21 @@ async function run() {
   assert.equal(typed.classification, 'transport');
   assert.equal(typed.reason, 'Availability storage is temporarily unavailable.');
   assert.equal(typed.correlation_id, 'safe-correlation');
+  for (const owner of [
+    { status: 422, code: 'beds_unavailable', classification: 'availability' },
+    { status: 422, code: 'price_missing', classification: 'configuration' },
+    { status: 503, code: 'staff_transport_503', classification: 'transport' },
+    { status: 599, code: 'unknown_upstream_failure' },
+  ]) {
+    const body = { ...owner, ok: false, reason: `safe ${owner.code}`, message: `message ${owner.code}`,
+      next_step: 'wait_for_verified_result', retry_allowed: true, correlation_id: `corr-${owner.code}`,
+      field_errors: [{ path: '$.room', code: owner.code, message: 'safe field error' }] };
+    const service = serviceFailure({ ok: false, status: owner.status, body });
+    const rendered = publicFailure(service);
+    for (const key of ['status','code','reason','message','next_step','retry_allowed','correlation_id','field_errors'])
+      assert.deepEqual(rendered[key], body[key], `${owner.code} lost ${key}`);
+    assert.equal(rendered.classification, owner.classification || 'internal');
+  }
   console.log('persisted inbound-event prepare lifecycle tests passed');
 }
 run().catch((error) => { console.error(error.stack || error); process.exit(1); });
