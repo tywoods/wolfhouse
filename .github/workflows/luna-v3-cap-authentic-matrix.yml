@@ -79,6 +79,45 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: scripts/run-luna-v3-cap-isolated-ci.sh
+      - name: Record per-round and per-kind verdicts
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import collections, json, os, pathlib
+          root = pathlib.Path(os.environ['ARTIFACT_DIR'])
+          result_path = root / 'matrix' / 'results.json'
+          summary = {
+              'schema': 'luna-v3-cap-live3-summary/v1',
+              'candidate_sha': os.environ['CANDIDATE_SHA'],
+              'result_present': result_path.is_file(),
+              'rounds': {},
+              'kinds': {},
+          }
+          if result_path.is_file():
+              result = json.loads(result_path.read_text())
+              records = [r for r in result.get('records', []) if r.get('repetition') is not None]
+              for record in records:
+                  round_key = str(record['repetition'])
+                  kind = record.get('case', {}).get('category', 'unknown')
+                  verdict = record.get('verdict', 'UNKNOWN')
+                  round_counts = summary['rounds'].setdefault(round_key, {}).setdefault(kind, collections.Counter())
+                  round_counts[verdict] += 1
+                  kind_counts = summary['kinds'].setdefault(kind, collections.Counter())
+                  kind_counts[verdict] += 1
+              summary['rounds'] = {
+                  round_key: {kind: dict(counts) for kind, counts in kinds.items()}
+                  for round_key, kinds in summary['rounds'].items()
+              }
+              summary['kinds'] = {kind: dict(counts) for kind, counts in summary['kinds'].items()}
+              summary['pass'] = result.get('pass') is True
+          root.mkdir(parents=True, exist_ok=True)
+          summary_path = root / 'live3-summary.json'
+          summary_path.write_text(json.dumps(summary, sort_keys=True, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('## Luna v3 live three-round matrix\n\n```json\n')
+              stream.write(json.dumps(summary, sort_keys=True, indent=2))
+              stream.write('\n```\n')
+          PY
       - name: Upload evidence always
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
