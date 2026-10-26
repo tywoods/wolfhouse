@@ -120,6 +120,11 @@ def _reject_authority_fields(value: Any, path: str = "arguments") -> None:
         _reject_authority_fields(item, f"{path}.{key}")
 
 
+def public_request_projection(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    """The sole model-visible request projection recorded at the trust boundary."""
+    return dict(arguments or {})
+
+
 def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     if name not in TOOL_NAMES:
         raise ValueError(f"unknown Luna v3 public tool: {name}")
@@ -142,6 +147,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         "external_send_allowed": False,
         "staff_alert_allowed": False,
     }
+    # Canonical model-visible projection, recorded beside the trusted wire
+    # request. Consumers must bind to this rather than reimplement stripping.
+    public_request = public_request_projection(arguments)
     try:
         from runtime.trusted_turn_context import get_inbound_event
         inbound_event_id = get_inbound_event()
@@ -179,7 +187,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         nonlocal recorded, recorded_exchange
         if recorder is not None:
             recorded_exchange={"tool": name, "path": TOOL_PATHS[name], "status": status, "original_status": status if original_status is None else original_status, "call_id": call_id,
-                "event_id": inbound_event_id, "request": payload,
+                "event_id": inbound_event_id, "request": payload, "public_request": public_request,
+                "trusted_authority": {"tenant_id": runtime["tenant"], "session_id": runtime["session_id"],
+                    "external_send_allowed": False, "staff_alert_allowed": False},
                 "original_response_hex": original_raw.hex(),
                 "raw_response_hex": (original_raw if observed_raw is None else observed_raw).hex(),
                 "fault_requested": fault or None, "fault_applied": fault if applied else None,
@@ -188,6 +198,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             recorder.append(recorded_exchange)
             recorded = True
 
+    boundary_status: int | None = None
     try:
         with _open_staff(request, runtime["base_url"]) as response:
             boundary_status = getattr(response, "status", 200)
@@ -365,10 +376,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result["call_id"] = call_id
         return result
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
-        if not recorded: record_exchange(exception=exc, observed="timeout_caught" if isinstance(exc,(TimeoutError,socket.timeout)) else "connect_error_caught")
+        if not recorded: record_exchange(status=boundary_status, exception=exc, observed="timeout_caught" if isinstance(exc,(TimeoutError,socket.timeout)) else "connect_error_caught")
         return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
     except Exception as exc:
-        if not recorded: record_exchange(exception=exc, observed="response_read_error")
+        if not recorded: record_exchange(status=boundary_status, exception=exc, observed="response_read_error")
         return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
 
 

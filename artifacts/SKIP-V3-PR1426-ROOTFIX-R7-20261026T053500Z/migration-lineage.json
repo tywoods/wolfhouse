@@ -1,0 +1,24 @@
+{
+  "lineage": [
+    "091_booking_occupancy_serialization.sql",
+    "114_luna_v3_staff_operations.sql",
+    "115_luna_v3_guest_operations.sql",
+    "117_cancel_unpaid_payment_race_guard.sql",
+    "119_luna_v3_guest_payment_history.sql",
+    "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
+    "121_wolfhouse_confirmed_rental_prices.sql",
+    "122_luna_v3_group_payment_targets.sql",
+    "123_luna_v3_one_try_offers.sql",
+    "124_luna_v3_fix2_evidence_and_cancel_guard.sql",
+    "125_luna_v3_prepare_attempts.sql",
+    "126_luna_v3_runtime_event_capabilities.sql",
+    "127_luna_v3_prepare_execution_leases.sql",
+    "128_luna_v3_prepare_owner_release.sql",
+    "129_luna_v3_prepare_control_plane.sql"
+  ],
+  "skipped": [
+    "116_luna_v3_session_phone_and_hold_invariant.sql",
+    "118_luna_v3_private_optional_hold_eligibility.sql"
+  ],
+  "consolidated_114_marker": "114_luna_v3_staff_operations v2; consolidated 116 and 118"
+}

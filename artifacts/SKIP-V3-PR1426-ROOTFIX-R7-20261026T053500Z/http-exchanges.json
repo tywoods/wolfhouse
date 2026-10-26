@@ -1,0 +1,2501 @@
+[
+  {
+    "kind": "accommodation",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000001",
+      "guest_phone": "+34699910001",
+      "message_digest": "aae02fccbb20a732a8ac30554f624cd72f071a10dc1d56bb3b9391f6139ad5c7",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "c2d9e4fdde6b422c16977df547aed71f2ca9a066a229b98dae978bc8f087fad2",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"fcb6936d-2681-424d-aad9-3b9748db97a7\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "b48dc29cdc356c515baf4311bea8b846757a9235482eaf5667d60a1f8249292a",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "fcb6936d-2681-424d-aad9-3b9748db97a7",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "accommodation",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "package_none"
+      },
+      "add_ons": [],
+      "session_id": "luna-v3:000000000000000000000001",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "7eba9337a10ff3edb6b58e24b65c665dcae7a8e9faa4353568e9e7345056e7c9",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"accommodation_only\",\n        \"note\": \"No package (Malibu 7-night ref): 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Accommodation only (all, 7 nights, 1 guest, Malibu ref nightly)\",\n        \"nights\": 7,\n        \"unit_cents\": 7500,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"package_none\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 50000,\n    \"depositCents\": 20000,\n    \"remainingCents\": 30000\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"package_none\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": []\n}",
+    "body_sha256": "2e563859b2b81b44b09d067cf9d2d925b1607f4f79ba25b2af71707fe476bf63",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "accommodation_only",
+            "note": "No package (Malibu 7-night ref): 50000¢/person/week × 1g = 50000¢",
+            "label": "Accommodation only (all, 7 nights, 1 guest, Malibu ref nightly)",
+            "nights": 7,
+            "unit_cents": 7500,
+            "guest_count": 1,
+            "total_cents": 50000
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "package_none",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 50000,
+        "depositCents": 20000,
+        "remainingCents": 30000
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "package_none",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": []
+    }
+  },
+  {
+    "kind": "package",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000002",
+      "guest_phone": "+34699910002",
+      "message_digest": "1e439cedd82e480d2ada9508dbc774ae905bb7d278c1b5f01eea03fb9b66d7f8",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "c16555ccab141865f42b710f07a05f74b0792b353cf02cd4251c83c80216952f",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"801e8451-3255-41a8-9536-f02aa66fe319\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "d73862df3698e22071b071f4229cd5f80dcdb45efca529cc92eb47ad6e94b677",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "801e8451-3255-41a8-9536-f02aa66fe319",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "package",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [],
+      "session_id": "luna-v3:000000000000000000000002",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "52e7883cd24348ee1971e2a7fe00cd9c335bc20d3437c28ca1300e4c49a8a4e4",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 50000,\n    \"depositCents\": 20000,\n    \"remainingCents\": 30000\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "2fa69d32e3aa6675e5da58eec43e10c6376034928c07a5aafcc7638c6ad87783",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 50000,
+        "depositCents": 20000,
+        "remainingCents": 30000
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "rental",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000003",
+      "guest_phone": "+34699910003",
+      "message_digest": "89d579d4df71dc68a7b2e5436cc07a06c2a82f3f58a23ec4f2550bba152196e2",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "5b065b573ff48ca20ae1e9cb76b22246bf172caa218a2621144c2a4eb8c63af3",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"621cc049-ae1a-4a5a-bd0c-5ceee8ee73a6\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "7cd7cee5890b171d678b7a8cecb0244d8f65b9d7e271766780b363a4087c165b",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "621cc049-ae1a-4a5a-bd0c-5ceee8ee73a6",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "rental",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [
+        {
+          "code": "board",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-02"
+          ]
+        }
+      ],
+      "session_id": "luna-v3:000000000000000000000003",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "cf00c73c3fcbf4d5ddb375788c5c5c4f8685b4a89430bf1e73e6ec0934cc468d",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      },\n      {\n        \"code\": \"board\",\n        \"days\": 1,\n        \"label\": \"Board (1 day × 1 person × 12€)\",\n        \"quantity\": 1,\n        \"unit_cents\": 1200,\n        \"total_cents\": 1200,\n        \"people_count\": 1\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 51200,\n    \"depositCents\": 20000,\n    \"remainingCents\": 31200\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [\n    {\n      \"code\": \"board\",\n      \"dates\": [\n        \"2027-06-02\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    }\n  ],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "bc3ca7a65a59f50302b6a295e3b84f79eb7b643196120d55fc83e51f48fd019b",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          },
+          {
+            "code": "board",
+            "days": 1,
+            "label": "Board (1 day × 1 person × 12€)",
+            "quantity": 1,
+            "unit_cents": 1200,
+            "total_cents": 1200,
+            "people_count": 1
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 51200,
+        "depositCents": 20000,
+        "remainingCents": 31200
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [
+        {
+          "code": "board",
+          "dates": [
+            "2027-06-02"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        }
+      ],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "lesson_a",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000004",
+      "guest_phone": "+34699910004",
+      "message_digest": "1dc7559e4c050ec58baf5cd1f3c6d93e2a6d576bc8e50b8f6a5c0bff7d77b4b6",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "f6955843f4974eeec9cfe8b847d051d5826d78ea90f07dd45bcd464c8ec6c9f8",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"96d3f25c-a537-4c02-8648-ef300d598b87\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "a9e781a56c97460fcf46a43a862ca28f41e16f6bd87ea79983e3e1b4f7bee14b",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "96d3f25c-a537-4c02-8648-ef300d598b87",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "lesson_a",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [
+        {
+          "code": "group_lesson",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-03"
+          ]
+        }
+      ],
+      "session_id": "luna-v3:000000000000000000000004",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "353dd131addf93512080fb89f4404e01fb0ed3d75615af577160b96ce519445e",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 50000,\n    \"depositCents\": 20000,\n    \"remainingCents\": 30000\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [\n    {\n      \"code\": \"group_lesson\",\n      \"dates\": [\n        \"2027-06-03\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    }\n  ],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "00341edf5f3ef86ce527c49bd3949e8ca4660860ad5fbbe34fce8774c682f540",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 50000,
+        "depositCents": 20000,
+        "remainingCents": 30000
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [
+        {
+          "code": "group_lesson",
+          "dates": [
+            "2027-06-03"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        }
+      ],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "lesson_b",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000005",
+      "guest_phone": "+34699910005",
+      "message_digest": "c75f121ac0a801c674c30bc18cd6f9531005efd00cd91131b64b4cd21754495b",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "522a2702403bb1a7cb2d8a0b08e55218d048f65e901af5ac1d5d1d4bfef3ebcb",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"473d02ce-5d8b-4480-a468-f7c5a9b471d9\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "29f938d0402ebaa116fe4c4ae4c9c58a0cbd45009f9fb5abbf13fc895ea0ade0",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "473d02ce-5d8b-4480-a468-f7c5a9b471d9",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "lesson_b",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [
+        {
+          "code": "private_lesson",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-04"
+          ]
+        }
+      ],
+      "session_id": "luna-v3:000000000000000000000005",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "e2ce3ac12f74b7bf7b85bf0ebf60c90d372b79489e7327f8cbe28ff1f154fc30",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 50000,\n    \"depositCents\": 20000,\n    \"remainingCents\": 30000\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [\n    {\n      \"code\": \"private_lesson\",\n      \"dates\": [\n        \"2027-06-04\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    }\n  ],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "04795711d4639caf66543ea36dc53dc6bfe326098935cd9a83e0926bd7897f14",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 50000,
+        "depositCents": 20000,
+        "remainingCents": 30000
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [
+        {
+          "code": "private_lesson",
+          "dates": [
+            "2027-06-04"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        }
+      ],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "mixed",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000006",
+      "guest_phone": "+34699910006",
+      "message_digest": "d0b5b8e8d54680e41d3ae507d259534ee7c50913891b53c0008edba3ce22b8d8",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "3cd2ed313fe75167d25d7ee308a7e6c4b4160b13340c3a7c28d018df409a225d",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"037c018a-56d8-491d-a540-0a48be8f7582\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "ee83ea51542ac9d54af5c79729d8e3ab8a3e51a78ec1a4d11048165e66b17fc9",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "037c018a-56d8-491d-a540-0a48be8f7582",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "mixed",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [
+        {
+          "code": "board",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-02"
+          ]
+        },
+        {
+          "code": "group_lesson",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-03"
+          ]
+        }
+      ],
+      "session_id": "luna-v3:000000000000000000000006",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "2f9d07f265f9f59c5adaf6f632fc790e97d28d2729a8da8e4de854e017954e20",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      },\n      {\n        \"code\": \"board\",\n        \"days\": 1,\n        \"label\": \"Board (1 day × 1 person × 12€)\",\n        \"quantity\": 1,\n        \"unit_cents\": 1200,\n        \"total_cents\": 1200,\n        \"people_count\": 1\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 51200,\n    \"depositCents\": 20000,\n    \"remainingCents\": 31200\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [\n    {\n      \"code\": \"board\",\n      \"dates\": [\n        \"2027-06-02\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    },\n    {\n      \"code\": \"group_lesson\",\n      \"dates\": [\n        \"2027-06-03\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    }\n  ],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "02a67d4b7431f8c3d166d752111e359443b456b2d2b79362ad4693faddfd22d6",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          },
+          {
+            "code": "board",
+            "days": 1,
+            "label": "Board (1 day × 1 person × 12€)",
+            "quantity": 1,
+            "unit_cents": 1200,
+            "total_cents": 1200,
+            "people_count": 1
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 51200,
+        "depositCents": 20000,
+        "remainingCents": 31200
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [
+        {
+          "code": "board",
+          "dates": [
+            "2027-06-02"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        },
+        {
+          "code": "group_lesson",
+          "dates": [
+            "2027-06-03"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        }
+      ],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "multi_guest",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000007",
+      "guest_phone": "+34699910007",
+      "message_digest": "9770fa092858baf2e94021d06a7e7371d6a54015e014d85108a1814443705489",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "5e8df5b464ef9444f6840fe7fefa8316b4557298e8a6d006f8b914d14afd5887",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"6a1642d1-2bc4-4b34-b472-0f90760417ea\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "9606f6e20ff5f8b36406f2378a99386b15849c34106dbe69d78360cdfef9ab1e",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "6a1642d1-2bc4-4b34-b472-0f90760417ea",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "multi_guest",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        },
+        {
+          "name": "Sam"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "per_guest": [
+          {
+            "guest": 1,
+            "code": "malibu"
+          },
+          {
+            "guest": 2,
+            "code": "package_none"
+          }
+        ]
+      },
+      "add_ons": [
+        {
+          "code": "board",
+          "quantity": 1,
+          "people": [
+            "Alex"
+          ],
+          "dates": [
+            "2027-06-02"
+          ]
+        },
+        {
+          "code": "private_lesson",
+          "quantity": 1,
+          "people": [
+            "Sam"
+          ],
+          "dates": [
+            "2027-06-04"
+          ]
+        }
+      ],
+      "session_id": "luna-v3:000000000000000000000007",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "7caad258bb1fdecaa8ccc59644a47b696f64b2421e2cae427b61e4b1fd2bef1f",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"guest_package\",\n        \"note\": \"Malibu guest 1: 50000¢/week = 50000¢\",\n        \"label\": \"Guest 1: Malibu (all, 7 nights)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000,\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\"\n      },\n      {\n        \"code\": \"guest_accommodation_only\",\n        \"note\": \"No package guest 2: Malibu ref 50000¢/week = 50000¢\",\n        \"label\": \"Guest 2: Accommodation only (all, 7 nights)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000,\n        \"guest_number\": 2,\n        \"package_code\": \"package_none\"\n      },\n      {\n        \"code\": \"board\",\n        \"days\": 1,\n        \"label\": \"Board (1 day × 1 person × 12€)\",\n        \"quantity\": 1,\n        \"unit_cents\": 1200,\n        \"total_cents\": 1200,\n        \"people_count\": 1\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      },\n      {\n        \"guest_number\": 2,\n        \"package_code\": \"package_none\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 101200,\n    \"depositCents\": 40000,\n    \"remainingCents\": 61200\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    },\n    {\n      \"bed\": \"R7-B2\",\n      \"name\": \"Sam\",\n      \"package\": \"package_none\",\n      \"position\": 2\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [\n    {\n      \"code\": \"board\",\n      \"dates\": [\n        \"2027-06-02\"\n      ],\n      \"people\": [\n        \"Alex\"\n      ],\n      \"quantity\": 1\n    },\n    {\n      \"code\": \"private_lesson\",\n      \"dates\": [\n        \"2027-06-04\"\n      ],\n      \"people\": [\n        \"Sam\"\n      ],\n      \"quantity\": 1\n    }\n  ],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "e92a048b69ed4473df8fb0ab2b8145d3c49df04edf228a456af26dbd008a9365",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "guest_package",
+            "note": "Malibu guest 1: 50000¢/week = 50000¢",
+            "label": "Guest 1: Malibu (all, 7 nights)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000,
+            "guest_number": 1,
+            "package_code": "malibu"
+          },
+          {
+            "code": "guest_accommodation_only",
+            "note": "No package guest 2: Malibu ref 50000¢/week = 50000¢",
+            "label": "Guest 2: Accommodation only (all, 7 nights)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000,
+            "guest_number": 2,
+            "package_code": "package_none"
+          },
+          {
+            "code": "board",
+            "days": 1,
+            "label": "Board (1 day × 1 person × 12€)",
+            "quantity": 1,
+            "unit_cents": 1200,
+            "total_cents": 1200,
+            "people_count": 1
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          },
+          {
+            "guest_number": 2,
+            "package_code": "package_none",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 101200,
+        "depositCents": 40000,
+        "remainingCents": 61200
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        },
+        {
+          "bed": "R7-B2",
+          "name": "Sam",
+          "package": "package_none",
+          "position": 2
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [
+        {
+          "code": "board",
+          "dates": [
+            "2027-06-02"
+          ],
+          "people": [
+            "Alex"
+          ],
+          "quantity": 1
+        },
+        {
+          "code": "private_lesson",
+          "dates": [
+            "2027-06-04"
+          ],
+          "people": [
+            "Sam"
+          ],
+          "quantity": 1
+        }
+      ],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  },
+  {
+    "kind": "refusal",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000008",
+      "guest_phone": "+34699910008",
+      "message_digest": "e17b0d9e567a2e9dd5c7e55379f95d05ff2d2a9a8d2a76c099a71e186edc3fc7",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "932247a3ebb1d3fc843a9de754eeb092c33370651e9542a880ae3477163436a2",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"3d394eda-22c0-4d9e-8b13-c539acefe8a0\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "2aaca1771688c0b49a8524b859f7c22d654e4238e6d343623c0e631873baf21b",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "3d394eda-22c0-4d9e-8b13-c539acefe8a0",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "refusal",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "not-in-staff-catalog"
+      },
+      "add_ons": [],
+      "session_id": "luna-v3:000000000000000000000008",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "5a3bc3f42b1d15d7fbe916da05f1fc1c0aed5660f65212a8e179ee2e069d645e",
+    "status": 422,
+    "body": "{\n  \"ok\": false,\n  \"code\": \"stale_capability_choice\",\n  \"reason\": \"stale_capability_choice\",\n  \"message\": \"The requested choice does not identify one unambiguous option from the Staff snapshot.\",\n  \"outcome\": \"rejected\",\n  \"next_step\": \"wait_for_new_guest_message\",\n  \"field_errors\": [\n    {\n      \"code\": \"stale_capability_choice\",\n      \"path\": \"package\",\n      \"message\": \"Select one choice again from the current Staff options.\"\n    }\n  ],\n  \"retry_allowed\": false,\n  \"classification\": \"conflict\",\n  \"correlation_id\": \"r7-turn-refusal\"\n}",
+    "body_sha256": "ee0e9cd5aba9c05a584ba5596f706d19b758d046b20404ab96d2299d7605c6d3",
+    "json": {
+      "ok": false,
+      "code": "stale_capability_choice",
+      "reason": "stale_capability_choice",
+      "message": "The requested choice does not identify one unambiguous option from the Staff snapshot.",
+      "outcome": "rejected",
+      "next_step": "wait_for_new_guest_message",
+      "field_errors": [
+        {
+          "code": "stale_capability_choice",
+          "path": "package",
+          "message": "Select one choice again from the current Staff options."
+        }
+      ],
+      "retry_allowed": false,
+      "classification": "conflict",
+      "correlation_id": "r7-turn-refusal"
+    }
+  },
+  {
+    "kind": "correction",
+    "phase": "admit",
+    "request": {
+      "session_id": "luna-v3:000000000000000000000009",
+      "guest_phone": "+34699910009",
+      "message_digest": "6351350e77c43b6186a282b0ee665751d7ce8e97068348daed0a078434dcfa41",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "0f6e3a67bdbac4d43d5649faea32a073098261b1ef8fd65b21d8aa9110e0e238",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"admitted\": true,\n  \"inbound_event_id\": \"44473cd4-8199-4c38-a080-bab5adda38b6\",\n  \"capability_snapshot\": {\n    \"ok\": true,\n    \"revision\": \"7b4d53fd62c6a55fa52b8976\",\n    \"contract\": \"luna-v3-booking-capabilities\",\n    \"choices\": [\n      {\n        \"kind\": \"accommodation\",\n        \"item_type\": \"package\",\n        \"code\": \"package_none\",\n        \"label\": \"Accommodation only\",\n        \"description\": \"Accommodation without a surf package.\",\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"package\",\n        \"item_type\": \"package\",\n        \"code\": \"malibu\",\n        \"label\": \"Malibu\",\n        \"description\": null,\n        \"applicability\": \"per_guest\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": false,\n          \"participants\": false,\n          \"units\": [\n            \"per_person_per_week\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": true,\n          \"package_minimum_nights\": true,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": [\n          \"stay\"\n        ]\n      },\n      {\n        \"kind\": \"rental\",\n        \"item_type\": \"rental\",\n        \"code\": \"board\",\n        \"label\": \"Board\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": true,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_day\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"group_lesson\",\n        \"label\": \"Group lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      },\n      {\n        \"kind\": \"service\",\n        \"item_type\": \"service\",\n        \"code\": \"private_lesson\",\n        \"label\": \"Private lesson\",\n        \"description\": null,\n        \"applicability\": \"party_or_participants\",\n        \"requirements\": {\n          \"dates\": false,\n          \"quantity\": true,\n          \"participants\": true,\n          \"units\": [\n            \"per_lesson\"\n          ],\n          \"exact_bed_required\": false,\n          \"bed_allocation\": \"staff_allocates_unless_explicit\",\n          \"guest_count_required\": false,\n          \"package_minimum_nights\": false,\n          \"date_dependent_eligibility\": \"unknown_until_prepare\"\n        },\n        \"configuration\": {\n          \"active\": true,\n          \"pricing_ready\": true\n        },\n        \"includes\": []\n      }\n    ],\n    \"constraints\": {\n      \"wire_selection\": \"code\",\n      \"one_prepare_per_inbound_event\": true,\n      \"prepare_purposes\": [\n        \"quote\",\n        \"offer\"\n      ],\n      \"date_dependent_eligibility\": \"unknown_until_prepare\",\n      \"prices\": \"unknown_until_prepare\"\n    }\n  },\n  \"staff_state\": {\n    \"ok\": true,\n    \"booking_count\": 0,\n    \"hold_count\": 0,\n    \"payment_count\": 0,\n    \"external_send_count\": 0,\n    \"staff_alert_count\": 0\n  }\n}",
+    "body_sha256": "c62fd96122b90c9286f30e49b937d95dc76ed25208a926efdcd8de6740b58229",
+    "json": {
+      "ok": true,
+      "admitted": true,
+      "inbound_event_id": "44473cd4-8199-4c38-a080-bab5adda38b6",
+      "capability_snapshot": {
+        "ok": true,
+        "revision": "7b4d53fd62c6a55fa52b8976",
+        "contract": "luna-v3-booking-capabilities",
+        "choices": [
+          {
+            "kind": "accommodation",
+            "item_type": "package",
+            "code": "package_none",
+            "label": "Accommodation only",
+            "description": "Accommodation without a surf package.",
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "package",
+            "item_type": "package",
+            "code": "malibu",
+            "label": "Malibu",
+            "description": null,
+            "applicability": "per_guest",
+            "requirements": {
+              "dates": false,
+              "quantity": false,
+              "participants": false,
+              "units": [
+                "per_person_per_week"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": true,
+              "package_minimum_nights": true,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": [
+              "stay"
+            ]
+          },
+          {
+            "kind": "rental",
+            "item_type": "rental",
+            "code": "board",
+            "label": "Board",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": true,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_day"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "group_lesson",
+            "label": "Group lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          },
+          {
+            "kind": "service",
+            "item_type": "service",
+            "code": "private_lesson",
+            "label": "Private lesson",
+            "description": null,
+            "applicability": "party_or_participants",
+            "requirements": {
+              "dates": false,
+              "quantity": true,
+              "participants": true,
+              "units": [
+                "per_lesson"
+              ],
+              "exact_bed_required": false,
+              "bed_allocation": "staff_allocates_unless_explicit",
+              "guest_count_required": false,
+              "package_minimum_nights": false,
+              "date_dependent_eligibility": "unknown_until_prepare"
+            },
+            "configuration": {
+              "active": true,
+              "pricing_ready": true
+            },
+            "includes": []
+          }
+        ],
+        "constraints": {
+          "wire_selection": "code",
+          "one_prepare_per_inbound_event": true,
+          "prepare_purposes": [
+            "quote",
+            "offer"
+          ],
+          "date_dependent_eligibility": "unknown_until_prepare",
+          "prices": "unknown_until_prepare"
+        }
+      },
+      "staff_state": {
+        "ok": true,
+        "booking_count": 0,
+        "hold_count": 0,
+        "payment_count": 0,
+        "external_send_count": 0,
+        "staff_alert_count": 0
+      }
+    }
+  },
+  {
+    "kind": "correction",
+    "phase": "prepare",
+    "request": {
+      "action": "prepare",
+      "purpose": "quote",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "guests": [
+        {
+          "name": "Alex"
+        }
+      ],
+      "room": {
+        "kind": "shared"
+      },
+      "package": {
+        "code": "malibu"
+      },
+      "add_ons": [],
+      "session_id": "luna-v3:000000000000000000000009",
+      "external_send_allowed": false,
+      "staff_alert_allowed": false
+    },
+    "request_sha256": "0b25536db75af7bb71677d9b0c8ed0bbdfdd3f873efb04d84927783654fcdbc3",
+    "status": 200,
+    "body": "{\n  \"ok\": true,\n  \"held\": false,\n  \"quote\": {\n    \"currency\": \"EUR\",\n    \"lineItems\": [\n      {\n        \"code\": \"package\",\n        \"note\": \"7-night flat: 50000¢/person/week × 1g = 50000¢\",\n        \"label\": \"Malibu (all, 7 nights, 1 guest)\",\n        \"nights\": 7,\n        \"unit_cents\": 50000,\n        \"guest_count\": 1,\n        \"total_cents\": 50000\n      }\n    ],\n    \"perPerson\": [\n      {\n        \"guest_number\": 1,\n        \"package_code\": \"malibu\",\n        \"deposit_cents\": 20000\n      }\n    ],\n    \"totalCents\": 50000,\n    \"depositCents\": 20000,\n    \"remainingCents\": 30000\n  },\n  \"state\": \"quote\",\n  \"booked\": false,\n  \"guests\": [\n    {\n      \"bed\": \"R7-B1\",\n      \"name\": \"Alex\",\n      \"package\": \"malibu\",\n      \"position\": 1\n    }\n  ],\n  \"reason\": \"authoritative_quote_ready\",\n  \"add_ons\": [],\n  \"message\": \"Staff priced this stay without holding it.\",\n  \"outcome\": \"applied\",\n  \"check_in\": \"2027-06-01\",\n  \"check_out\": \"2027-06-08\",\n  \"next_step\": \"present_quote\",\n  \"retry_allowed\": false,\n  \"package_details\": {\n    \"code\": \"malibu\",\n    \"name\": \"Malibu\",\n    \"terms\": [],\n    \"includes\": [\n      \"stay\"\n    ],\n    \"description\": null\n  }\n}",
+    "body_sha256": "2fa69d32e3aa6675e5da58eec43e10c6376034928c07a5aafcc7638c6ad87783",
+    "json": {
+      "ok": true,
+      "held": false,
+      "quote": {
+        "currency": "EUR",
+        "lineItems": [
+          {
+            "code": "package",
+            "note": "7-night flat: 50000¢/person/week × 1g = 50000¢",
+            "label": "Malibu (all, 7 nights, 1 guest)",
+            "nights": 7,
+            "unit_cents": 50000,
+            "guest_count": 1,
+            "total_cents": 50000
+          }
+        ],
+        "perPerson": [
+          {
+            "guest_number": 1,
+            "package_code": "malibu",
+            "deposit_cents": 20000
+          }
+        ],
+        "totalCents": 50000,
+        "depositCents": 20000,
+        "remainingCents": 30000
+      },
+      "state": "quote",
+      "booked": false,
+      "guests": [
+        {
+          "bed": "R7-B1",
+          "name": "Alex",
+          "package": "malibu",
+          "position": 1
+        }
+      ],
+      "reason": "authoritative_quote_ready",
+      "add_ons": [],
+      "message": "Staff priced this stay without holding it.",
+      "outcome": "applied",
+      "check_in": "2027-06-01",
+      "check_out": "2027-06-08",
+      "next_step": "present_quote",
+      "retry_allowed": false,
+      "package_details": {
+        "code": "malibu",
+        "name": "Malibu",
+        "terms": [],
+        "includes": [
+          "stay"
+        ],
+        "description": null
+      }
+    }
+  }
+]

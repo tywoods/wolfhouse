@@ -215,6 +215,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
             self.assertTrue(result.get('call_id')); self.assertEqual(result['call_id'],evidence[0]['call_id']); return result,evidence[0]
         _,normal_read=run('10000000-0000-4000-8000-000000000001',Response(error=OSError('read')))
         self.assertEqual('response_read_error',normal_read['fault_observed'])
+        self.assertEqual((200, 200), (normal_read['status'], normal_read['original_status']))
+        self.assertEqual({}, normal_read['public_request'])
         class BadHTTP(urllib.error.HTTPError):
             def read(self): raise OSError('http read')
         _,http_read=run('10000000-0000-4000-8000-000000000002',BadHTTP('https://staff.example/x',502,'bad',{},None))
@@ -451,6 +453,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual(captured["body"]["session_id"], "v3-test-session")
         self.assertFalse(captured["body"]["external_send_allowed"])
         self.assertFalse(captured["body"]["staff_alert_allowed"])
+        self.assertEqual({"x": 1}, plugin.public_request_projection({"x": 1}))
 
         with self.assertRaisesRegex(ValueError, "authority field"):
             plugin.call_tool("check_quote_book", {"action": "prepare", "selection": {"amount_cents": 1234}})

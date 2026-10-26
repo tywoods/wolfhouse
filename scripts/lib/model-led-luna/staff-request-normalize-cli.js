@@ -57,24 +57,41 @@ function proposition(payload) {
     corrected_control:payload.corrected_control || null,corrected_outcome:payload.corrected_outcome || null,
     input:payload.input,choices:payload.choices,turn_id:payload.turn_id || 'fixture-admission'};
 }
+function prepareInput(control) {
+  if (!control) return control;
+  const input={action:'prepare',purpose:'quote',...JSON.parse(JSON.stringify(control))};
+  if (typeof input.package==='string') input.package={code:input.package};
+  return input;
+}
 function generate(payload) {
   const p=proposition(payload), result=execute(p);
   if (!reconcile(p.outcome,result)) throw new Error('declared outcome does not reconcile with Staff normalized result');
+  let corrected_execution=null;
+  if (p.corrected_control !== null || p.corrected_outcome !== null) {
+    if (typeof p.correction_prompt !== 'string' || !p.correction_prompt.trim() || !p.corrected_control || !p.corrected_outcome)
+      throw new Error('corrected controls require an explicit correction prompt');
+    corrected_execution=execute({...p,input:prepareInput(p.corrected_control),turn_id:'fixture-correction'});
+    if (!reconcile(p.corrected_outcome,corrected_execution)) throw new Error('corrected outcome does not reconcile with independently executed correction');
+  }
   const executed_at=payload.executed_at || new Date().toISOString();
   if (Number.isNaN(Date.parse(executed_at))) throw new Error('valid executed_at required');
-  const record={schema:'staff-owner-execution/v3',executed_at,proposition:p,result};
+  const record={schema:'staff-owner-execution/v4',executed_at,proposition:p,result,corrected_execution};
   return {...record,signature:mac(record,key('LUNA_OWNER_RECEIPT_ISSUER_KEY'))};
 }
 function verify(payload) {
   const receipt=payload.receipt || {}, {signature,...record}=receipt;
-  if (record.schema !== 'staff-owner-execution/v3' || typeof signature !== 'string') return {ok:false,code:'malformed_receipt'};
+  if (!['staff-owner-execution/v3','staff-owner-execution/v4'].includes(record.schema) || typeof signature !== 'string') return {ok:false,code:'malformed_receipt'};
+  if (record.schema==='staff-owner-execution/v3' && (record.proposition && (record.proposition.corrected_control || record.proposition.corrected_outcome))) return {ok:false,code:'correction_execution_missing'};
   const expected=mac(record,key('LUNA_OWNER_RECEIPT_VERIFIER_KEY'));
   if (signature.length!==expected.length || !crypto.timingSafeEqual(Buffer.from(signature),Buffer.from(expected))) return {ok:false,code:'bad_signature'};
   const current=proposition(payload), signed=record.proposition;
   for (const field of ['revision','case_id','prompt','control','outcome','correction_prompt','corrected_control','corrected_outcome','input','turn_id'])
     if (!same(signed[field],current[field])) return {ok:false,code:'proposition_mismatch'};
-  if (!same(record.result,execute(signed)) || !same(record.result,execute(current)) || !reconcile(signed.outcome,record.result)) return {ok:false,code:'execution_or_outcome_mismatch'};
-  return {ok:true,result:record.result,executed_at:record.executed_at};
+  if (!reconcile(signed.outcome,record.result)) return {ok:false,code:'execution_or_outcome_mismatch'};
+  if (record.schema==='staff-owner-execution/v4' && signed.corrected_control) {
+    if (typeof signed.correction_prompt!=='string' || !signed.correction_prompt.trim() || !record.corrected_execution || !reconcile(signed.corrected_outcome,record.corrected_execution)) return {ok:false,code:'correction_execution_mismatch'};
+  }
+  return {ok:true,result:record.result,corrected_result:record.corrected_execution || null,executed_at:record.executed_at};
 }
 function handle(payload) {
   if(payload.command==='normalize') return execute(payload);

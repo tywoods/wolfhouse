@@ -57,6 +57,20 @@ def semantic_case(expect='quote'):
  facts={'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':'2027-06-01','check_out':'2027-06-08','package':'malibu','add_ons':[],'inclusions':[],'terms':[]}
  return {'expect':expect,'prepare_required':True,'intended_owner_outcome':{'expect':expect,'facts':facts}}
 
+def boundary_evidence(call,result,event_id='evt',status=None):
+ """Construct mandatory trust-boundary evidence for positive scorer controls."""
+ if not isinstance(call.get('function'),dict): call['function']={'name':'check_quote_book','arguments_parsed':{'action':'prepare'}}
+ elif not call['function'].get('arguments_parsed'): call['function']['arguments_parsed']={'action':'prepare'}
+ args=copy.deepcopy((call.get('function') or {}).get('arguments_parsed') or call.get('arguments_parsed') or {})
+ result.setdefault('call_id','owner-call')
+ clean={k:v for k,v in result.items() if not k.startswith('_')}
+ raw=json.dumps(clean,separators=(',',':')).encode().hex()
+ authority={'tenant_id':'wolfhouse-somo','session_id':'test-session','external_send_allowed':False,'staff_alert_allowed':False}
+ actual_status=status if status is not None else (200 if clean.get('ok') is True else 422)
+ return {'tool':'check_quote_book','call_id':clean.get('call_id','owner-call'),'event_id':event_id,
+  'status':actual_status,'original_status':actual_status,'request':{**args,**authority},'public_request':args,
+  'trusted_authority':authority,'original_response_hex':raw,'raw_response_hex':raw}
+
 class Gates(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
@@ -113,7 +127,7 @@ class Gates(unittest.TestCase):
   empty=copy.deepcopy(body); empty['harness_trace']['staff_http_exchanges']=[{}]
   self.assertFalse(self.runner.judge({'expect':'refusal','prepare_required':True,'continuation':False},empty,state,state)[0]['raw_staff_responses_present'])
   refusal_case={'expect':'refusal','prepare_required':True,'intended_owner_outcome':{'expect':'refusal','classification':'availability','allowed_reasons':['literal owner reason'],'next_step':'literal_owner_step'}}
-  self.assertTrue(self.runner.semantic_score(refusal_case,reply,[call],[refusal],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(refusal_case,reply,[call],[refusal],boundary_evidence(call,refusal),current_event_id='evt')['fidelity'])
   question='Which check-in and check-out dates would you like?'
   clarification={'reply_text':question,'external_send_allowed':False,'staff_alert_allowed':False,'harness_trace':{**common,'staff_http_exchanges':[],'messages':[{'role':'assistant','content':question,'tool_calls':[]}],'final_response':question}}
   checks,_=self.runner.judge({'expect':'clarification','prepare_required':False,'continuation':False},clarification,state,state)
@@ -237,15 +251,16 @@ class Gates(unittest.TestCase):
   case=semantic_case(); call={'id':'wanted'}
   quote={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**case['intended_owner_outcome']['facts'],'_tool_call_id':'wanted'}
   good='For 2027-06-01 to 2027-06-08, the Malibu package has a total of EUR 123.45, a deposit of EUR 30.00, and a remaining balance of EUR 93.45.'
-  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote],boundary_evidence(call,quote),current_event_id='evt')['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,'EUR 999.99, fully paid and confirmed',[call],[quote],None)['fidelity'])
   refusal_case={'expect':'refusal','prepare_required':True,'intended_owner_outcome':{'expect':'refusal','classification':'availability','allowed_reasons':['minimum_stay'],'next_step':'choose_other_dates'}}
   self.assertFalse(self.runner.semantic_score(refusal_case,'Please choose other dates',[call],[{'ok':False,'reason':'db_error','classification':'availability','next_step':'choose_other_dates','_tool_call_id':'wanted'}],None)['fidelity'])
   fault_case={'expect':'uncertain','prepare_required':True,'fault':'timeout'}
   self.assertFalse(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],{'fault':'timeout'})['fidelity'])
-  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_exception_raised','call_id':'c','event_id':'e','original_status':503,'status':503,'original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
   typed_fault={'ok':False,'classification':'transport','call_id':'c','_tool_call_id':'tc'}
-  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{'id':'tc'}],[typed_fault],exchange,current_event_id='e')['fidelity'])
+  fault_call={'id':'tc'}
+  exchange={**boundary_evidence(fault_call,typed_fault,event_id='e',status=503),'fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_exception_raised','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
+  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[fault_call],[typed_fault],exchange,current_event_id='e')['fidelity'])
   for bad_result,bad_exchange,bad_reply in (
    (typed_fault,{**exchange,'event_id':'wrong'},'I cannot verify'),
    ({**typed_fault,'ok':True},exchange,'I cannot verify'),
@@ -271,7 +286,7 @@ class Gates(unittest.TestCase):
   quote={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**facts,'_tool_call_id':'wanted'}
   unrelated={**quote,'_tool_call_id':'later'}
   good='Malibu package, 2027-06-01 to 2027-06-08: total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.'
-  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote,unrelated],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote,unrelated],boundary_evidence(call,quote),current_event_id='evt')['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,good,[call],[unrelated],None)['fidelity'])
   self.assertFalse(self.runner.semantic_score(case,good+' Booking confirmed.',[call],[quote],None)['fidelity'])
  def test_semantic_oracle_adversarial_and_positive_controls(self):
@@ -279,8 +294,8 @@ class Gates(unittest.TestCase):
   quote={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**facts,'_tool_call_id':'wanted'}
   good='For the Malibu package from 2027-06-01 to 2027-06-08, total EUR 123.45; the deposit is EUR 30.00; the remaining balance is EUR 93.45.'
   paraphrase='Malibu package (2027-06-01 through 2027-06-08): EUR 123.45 total, EUR 30.00 deposit, and balance EUR 93.45.'
-  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote],None)['fidelity'])
-  self.assertTrue(self.runner.semantic_score(case,paraphrase,[call],[quote],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,good,[call],[quote],boundary_evidence(call,quote),current_event_id='evt')['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,paraphrase,[call],[quote],boundary_evidence(call,quote),current_event_id='evt')['fidelity'])
   bad_replies=(
    good.replace('Malibu package','Malibu package plus Waimea package'),
    good.replace('total EUR 123.45; the deposit is EUR 30.00','total EUR 30.00; the deposit is EUR 123.45'),
@@ -293,14 +308,14 @@ class Gates(unittest.TestCase):
    self.assertFalse(self.runner.semantic_score(case,bad,[call],[quote],None)['fidelity'],bad)
   refusal_case={'expect':'refusal','prepare_required':True,'intended_owner_outcome':{'expect':'refusal','classification':'availability','allowed_reasons':['minimum_stay'],'next_step':'choose_other_dates'}}
   refusal={'ok':False,'classification':'availability','reason':'minimum_stay','next_step':'choose_other_dates','_tool_call_id':'wanted'}
-  self.assertTrue(self.runner.semantic_score(refusal_case,'That stay is too short; please select different dates.',[call],[refusal],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(refusal_case,'That stay is too short; please select different dates.',[call],[refusal],boundary_evidence(call,refusal),current_event_id='evt')['fidelity'])
   for bad in ('Hello!','Your reservation is confirmed. Total EUR 9999.'):
    self.assertFalse(self.runner.semantic_score(refusal_case,bad,[call],[refusal],None)['fidelity'],bad)
   for infra in ({**refusal,'reason':'db_error'},{**refusal,'classification':'internal'},{**refusal,'code':'transport_error'}):
    self.assertFalse(self.runner.semantic_score(refusal_case,'Please select different dates.',[call],[infra],None)['fidelity'])
   for fault,classification,observed,status,etype in [('http-422','validation','http_error_read',422,None),('exception','internal','runtime_exception_raised',500,'RuntimeError'),('timeout','transport','timeout_exception_raised',503,'TimeoutError'),('non-json','transport','http_error_json_parse_error',500,None),('malformed','transport','http_error_malformed_shape',500,None)]:
    fault_result={'ok':False,'classification':classification,'call_id':'owner-call','_tool_call_id':'wanted'}
-   exchange={'tool':'check_quote_book','call_id':'owner-call','event_id':'evt','status':status,'original_status':500,'original_response_hex':'7b7d','raw_response_hex':'7b7d','fault_requested':fault,'fault_applied':fault,'fault_observed':observed}
+   exchange={**boundary_evidence(call,fault_result,status=status),'original_status':500,'original_response_hex':'7b7d','raw_response_hex':('4341502d4841524e4553532d4e4f4e2d4a534f4e' if fault=='non-json' else '5b5d' if fault=='malformed' else '7b7d'),'fault_requested':fault,'fault_applied':fault,'fault_observed':observed}
    if etype: exchange['exception_type']=etype
    self.assertTrue(self.runner.semantic_score({'prepare_required':True,'fault':fault},'I cannot verify this quote.',[call],[fault_result],exchange,current_event_id='evt')['fidelity'],fault)
    exchange['event_id']='wrong-event'
@@ -324,8 +339,8 @@ class Gates(unittest.TestCase):
   reply='2027-06-01 to 2027-06-08: Alex has the malibu package and 1 board rental on 2027-06-02; Sam has the package_none package. Alex and Sam have 2 group_lesson lessons on 2027-06-03. Total EUR 300.00, deposit EUR 100.00, remaining EUR 200.00.'
   snake={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,'quote':{'facts':copy.deepcopy(facts)},'_tool_call_id':'wanted'}
   camel={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,'data':{'quoteFacts':{'currency':'EUR','totalCents':30000,'depositCents':10000,'remainingCents':20000,'checkIn':'2027-06-01','checkOut':'2027-06-08','packageSelection':{'per_guest':[{'guestIndex':1,'guestName':'Alex','code':'malibu'},{'guestIndex':2,'guestName':'Sam','code':'package_none'}]},'addOns':[{'code':'group_lesson','quantity':2,'days':1,'dates':['2027-06-03'],'participants':['Sam','Alex']},{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']}],'inclusions':[],'terms':[]}},'_tool_call_id':'wanted'}
-  self.assertTrue(self.runner.semantic_score(case,reply,[call],[snake],None)['fidelity'])
-  self.assertTrue(self.runner.semantic_score(case,reply,[call],[camel],None)['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,reply,[call],[snake],boundary_evidence(call,snake),current_event_id='evt')['fidelity'])
+  self.assertTrue(self.runner.semantic_score(case,reply,[call],[camel],boundary_evidence(call,camel),current_event_id='evt')['fidelity'])
   for bad in (reply.replace(' and 1 board rental on 2027-06-02',''),reply.replace('Alex has the malibu package and 1 board rental on 2027-06-02; Sam has the package_none package','Alex has the package_none package and 1 board rental on 2027-06-02; Sam has the malibu package'),reply+' Waimea package.',reply+' Yoga add-on.',reply+' Yoga is part of this quote.',reply+' This also comes with the Waimea surf bundle.',reply+' Lessons are guaranteed.'):
    self.assertFalse(self.runner.semantic_score(case,bad,[call],[snake],None)['fidelity'],bad)
   swapped=copy.deepcopy(snake); swapped['quote']['facts']['package']['per_guest'][0]['code']='package_none'; swapped['quote']['facts']['package']['per_guest'][1]['code']='malibu'
@@ -348,7 +363,7 @@ class Gates(unittest.TestCase):
    result=payload[name]['result']; result['_tool_call_id']='wanted'
    case={'expect':'mixed' if name=='multi' else 'quote','prepare_required':True,'intended_owner_outcome':{'expect':'mixed' if name=='multi' else 'quote','facts':facts}}
    self.assertEqual(self.runner.canonical_facts(facts),self.runner.canonical_facts(result),name)
-   self.assertTrue(self.runner.semantic_score(case,reply,[call],[result],None)['fidelity'],name)
+   self.assertTrue(self.runner.semantic_score(case,reply,[call],[result],boundary_evidence(call,result),current_event_id='evt')['fidelity'],name)
   self.assertEqual('package_none',payload['single']['result']['guests'][0]['package'])
   self.assertEqual(payload['multi']['input']['add_ons'],[
    {'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-02']},

@@ -1,0 +1,106 @@
+{
+  "schema": "luna-v3-r7-real-owner/v1",
+  "localhost": "127.0.0.1:43077",
+  "plain_process": true,
+  "real_staff_http": true,
+  "external_hosts": false,
+  "model_keys": false,
+  "lineage": {
+    "lineage": [
+      "091_booking_occupancy_serialization.sql",
+      "114_luna_v3_staff_operations.sql",
+      "115_luna_v3_guest_operations.sql",
+      "117_cancel_unpaid_payment_race_guard.sql",
+      "119_luna_v3_guest_payment_history.sql",
+      "120_luna_v3_constraint_ownership_and_transfer_decline.sql",
+      "121_wolfhouse_confirmed_rental_prices.sql",
+      "122_luna_v3_group_payment_targets.sql",
+      "123_luna_v3_one_try_offers.sql",
+      "124_luna_v3_fix2_evidence_and_cancel_guard.sql",
+      "125_luna_v3_prepare_attempts.sql",
+      "126_luna_v3_runtime_event_capabilities.sql",
+      "127_luna_v3_prepare_execution_leases.sql",
+      "128_luna_v3_prepare_owner_release.sql",
+      "129_luna_v3_prepare_control_plane.sql"
+    ],
+    "skipped": [
+      "116_luna_v3_session_phone_and_hold_invariant.sql",
+      "118_luna_v3_private_optional_hold_eligibility.sql"
+    ],
+    "consolidated_114_marker": "114_luna_v3_staff_operations v2; consolidated 116 and 118"
+  },
+  "results": [
+    {
+      "kind": "accommodation",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "7eba9337a10ff3edb6b58e24b65c665dcae7a8e9faa4353568e9e7345056e7c9",
+      "body_sha256": "2e563859b2b81b44b09d067cf9d2d925b1607f4f79ba25b2af71707fe476bf63"
+    },
+    {
+      "kind": "package",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "52e7883cd24348ee1971e2a7fe00cd9c335bc20d3437c28ca1300e4c49a8a4e4",
+      "body_sha256": "2fa69d32e3aa6675e5da58eec43e10c6376034928c07a5aafcc7638c6ad87783"
+    },
+    {
+      "kind": "rental",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "cf00c73c3fcbf4d5ddb375788c5c5c4f8685b4a89430bf1e73e6ec0934cc468d",
+      "body_sha256": "bc3ca7a65a59f50302b6a295e3b84f79eb7b643196120d55fc83e51f48fd019b"
+    },
+    {
+      "kind": "lesson_a",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "353dd131addf93512080fb89f4404e01fb0ed3d75615af577160b96ce519445e",
+      "body_sha256": "00341edf5f3ef86ce527c49bd3949e8ca4660860ad5fbbe34fce8774c682f540"
+    },
+    {
+      "kind": "lesson_b",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "e2ce3ac12f74b7bf7b85bf0ebf60c90d372b79489e7327f8cbe28ff1f154fc30",
+      "body_sha256": "04795711d4639caf66543ea36dc53dc6bfe326098935cd9a83e0926bd7897f14"
+    },
+    {
+      "kind": "mixed",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "2f9d07f265f9f59c5adaf6f632fc790e97d28d2729a8da8e4de854e017954e20",
+      "body_sha256": "02a67d4b7431f8c3d166d752111e359443b456b2d2b79362ad4693faddfd22d6"
+    },
+    {
+      "kind": "multi_guest",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "7caad258bb1fdecaa8ccc59644a47b696f64b2421e2cae427b61e4b1fd2bef1f",
+      "body_sha256": "e92a048b69ed4473df8fb0ab2b8145d3c49df04edf228a456af26dbd008a9365"
+    },
+    {
+      "kind": "refusal",
+      "status": 422,
+      "ok": false,
+      "code": "stale_capability_choice",
+      "request_sha256": "5a3bc3f42b1d15d7fbe916da05f1fc1c0aed5660f65212a8e179ee2e069d645e",
+      "body_sha256": "ee0e9cd5aba9c05a584ba5596f706d19b758d046b20404ab96d2299d7605c6d3"
+    },
+    {
+      "kind": "correction",
+      "status": 200,
+      "ok": true,
+      "code": null,
+      "request_sha256": "0b25536db75af7bb71677d9b0c8ed0bbdfdd3f873efb04d84927783654fcdbc3",
+      "body_sha256": "2fa69d32e3aa6675e5da58eec43e10c6376034928c07a5aafcc7638c6ad87783"
+    }
+  ]
+}

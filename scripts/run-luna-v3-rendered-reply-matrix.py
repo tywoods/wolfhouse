@@ -51,7 +51,10 @@ class OwnerExecutionAdapter:
   if not isinstance(receipt,dict): raise SystemExit(f"BLOCKED: owner execution receipt missing: {case.get('id')}")
   verified=self.call({"command":"verify","receipt":receipt,**proposition})
   if verified.get("ok") is not True: raise SystemExit(f"BLOCKED: owner execution receipt rejected: {case.get('id')} ({verified.get('code')})")
-  return verified.get("result")
+  admitted=verified.get("result")
+  if isinstance(admitted,dict) and verified.get("corrected_result") is not None:
+   admitted=json.loads(json.dumps(admitted)); admitted["_corrected_owner_result"]=verified["corrected_result"]
+  return admitted
  def close(self):
   if self.proc.poll() is None: self.proc.terminate(); self.proc.wait(timeout=5)
   if self.proc.stdin: self.proc.stdin.close()
@@ -115,6 +118,12 @@ def _category_matches_selection(category,control,choices):
  if category=="mixed": return "package" in package_kinds and "rental" in addon_kinds and "service" in addon_kinds
  return True
 
+def _is_lesson_code(code,choices):
+ row=next((x for x in choices if isinstance(x,dict) and x.get('code')==code and x.get('active') is True),{})
+ metadata=row.get('metadata') if isinstance(row.get('metadata'),dict) else {}
+ subtype=str(metadata.get('service_type') or metadata.get('subtype') or '').lower()
+ return row.get('kind')=='lesson' or subtype in {'lesson','surf_lesson'} or 'lesson' in str(row.get('code','')).lower()
+
 def make_cases(snapshot,fixture,owner_adapter=None):
  """Fail closed unless cases are explicitly authored and proven by the Staff owner."""
  choices=snapshot.get("choices") if isinstance(snapshot,dict) else None
@@ -138,6 +147,7 @@ def make_cases(snapshot,fixture,owner_adapter=None):
   if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome,control=case.get("control")): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
+  owner_result=None
   if case["prepare_required"]:
    control_request=_public_prepare(case.get("control",{}))
    owner_result=adapter.admit(case,snapshot["revision"],choices,control_request)
@@ -145,11 +155,16 @@ def make_cases(snapshot,fixture,owner_adapter=None):
    if normalized is not None: normalized.pop("operation_key",None)
    if not validate_control(case,choices) or normalized is None or not _category_matches_selection(category,case.get("control"),choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
    case["_owner_normalized_control"]=normalized; case["_owner_choices"]=choices
-  if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control"))): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
+  if case["continuation"]:
+   corrected_result=owner_result.get("_corrected_owner_result") if isinstance(owner_result,dict) else None
+   if (not isinstance(case.get("correction_prompt"),str) or not case["correction_prompt"].strip() or not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control")) or not isinstance(corrected_result,dict) or corrected_result.get("ok") is not True): raise SystemExit(f"BLOCKED: continuation lacks independently executed corrected control/outcome: {cid}")
 
   out.append(case)
  required=set(allowed)
  if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
+ for category in ("accommodation","package","rental","service:lesson_a","service:lesson_b","mixed","multi_guest"):
+  if not any(c["category"]==category and c["expect"] in {"quote","mixed"} for c in out): raise SystemExit(f"BLOCKED: successful coverage missing: {category}")
+ if not any(c["expect"]=="refusal" for c in out): raise SystemExit("BLOCKED: genuine refusal coverage missing")
  faults=[c.get("fault") for c in out if c["category"]=="fault"]
  required_faults={"non-json","malformed","http-422","exception","timeout"}
  if set(faults)!=required_faults or len(faults)!=len(required_faults): raise SystemExit("BLOCKED: fixture must cover each distinct fault mode exactly once")
@@ -157,14 +172,14 @@ def make_cases(snapshot,fixture,owner_adapter=None):
  for category in ("service:lesson_a","service:lesson_b"):
   lesson=next(c for c in out if c["category"]==category)
   active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active") is True}
-  _pk,_ak,codes=_selection_kinds(lesson["control"],active); lesson_codes.append(tuple(sorted(code for code in codes if active.get(code,{}).get("kind")=="service")))
+  _pk,_ak,codes=_selection_kinds(lesson["control"],active); lesson_codes.append(tuple(sorted(code for code in codes if _is_lesson_code(code,choices))))
  if not all(lesson_codes) or lesson_codes[0]==lesson_codes[1]: raise SystemExit("BLOCKED: lesson categories do not prove distinct owner products")
  group=next(c for c in out if c["category"]=="multi_guest")["control"]; package=group.get("package")
  packages=package.get("per_guest") if isinstance(package,dict) else None
- add_people={person for a in group.get("add_ons",[]) if isinstance(a,dict) for person in a.get("people",[])}
+ addon_assignments={(a.get("code") or a.get("name"),tuple(sorted(a.get("people",[])))) for a in group.get("add_ons",[]) if isinstance(a,dict)}
  normalized_group=next(c for c in out if c["category"]=="multi_guest").get("_owner_normalized_control",{})
  normalized_codes={p.get("package_code") for p in normalized_group.get("guest_packages",[]) if isinstance(p,dict)}
- if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len(normalized_codes)<2 or len(add_people)<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated normalized per-guest package/add-on codes")
+ if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len(normalized_codes)<2 or len(addon_assignments)<2 or len({people for _,people in addon_assignments})<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated normalized per-guest package/add-on codes")
  if owner_adapter is None: adapter.close()
  return out
 
@@ -258,6 +273,9 @@ def validate_control(case,choices):
 
 def control_matches_prepare(control,args,choices=None):
  if not isinstance(control,dict) or not isinstance(args,dict): return False
+ # Transaction intent is part of equivalence and must not be erased by the
+ # downstream owner normalization projection.
+ if args.get('action')!='prepare' or args.get('purpose')!='quote' or 'payment' in args or args.get('room')!=control.get('room'): return False
  if choices is not None:
   expected=_normalized_prepare(_public_prepare(control),choices)
   actual=_normalized_prepare(args,choices)
@@ -358,7 +376,7 @@ def _reply_claims(text):
  """Extract typed, polarity-aware public claims instead of matching a deny-list."""
  lower=str(text or "").lower(); clauses=[c.strip() for c in re.split(r';|[!?]|(?<!\d)\.(?!\d)|\bbut\b|\bhowever\b',lower) if c.strip()]
  money=[]; positive_transactions=[]; refusal_signal=False
- currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|cad|aud|chf|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp|cad|aud|chf))'
+ currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|cad|aud|chf|jpy|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp|cad|aud|chf|jpy))'
  for clause in clauses:
   negation=r"\b(?:not|never|no|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|doesn['’]?t|don['’]?t|didn['’]?t|cannot|can['’]?t|couldn['’]?t|won['’]?t|wouldn['’]?t)\b"
   refusal_signal = refusal_signal or bool(re.search(r'\b(?:unavailable|cannot|can not|could not|unable|refus\w*|too short|below (?:the )?minimum|minimum (?:stay|length)|choose|select|change|different|other|uncertain|verify|confirm)\b',clause))
@@ -382,33 +400,80 @@ def _reply_claims(text):
   if positive and not re.search(negation+r'[^,;.!?]{0,28}'+re.escape(positive.group(0)),clause): positive_transactions.append(clause)
  return {'money':money,'positive_transactions':positive_transactions,'refusal_signal':refusal_signal}
 
+def _typed_product_claims_valid(text,facts):
+ """Closed-world affirmative product propositions with complete role binding."""
+ clauses=[c.strip() for c in re.split(r'[.;!?]',str(text or '').lower()) if c.strip()]
+ neg=r"\b(?:not|never|no|isn['’]?t|doesn['’]?t|don['’]?t|cannot|can['’]?t)\b"
+ package=canonical_package(facts.get('package'))
+ if not package: return False
+ expected_packages={(p['name'].lower(),p['code'].lower()) for p in package.get('per_guest',[])} if 'per_guest' in package else {(None,package['code'].lower())}
+ for person,code in expected_packages:
+  matches=[c for c in clauses if re.search(r'(?<!\w)'+re.escape(code)+r'(?!\w)',c) and (person is None or re.search(r'(?<!\w)'+re.escape(person)+r'(?!\w)',c))]
+  if not matches or any(re.search(neg,c) for c in matches): return False
+ # Every explicit "person has package" proposition must be expected.
+ for c in clauses:
+  for hit in re.finditer(r'\b([a-z][\w-]*)\s+(?:has|gets|selected)\s+(?:the\s+)?([a-z][\w-]*)\s+package\b',c):
+   if (hit.group(1),hit.group(2)) not in expected_packages or re.search(neg,c): return False
+ expected_addons={(a['code'].lower(),a['quantity'],tuple(x.lower() for x in a['people']),tuple(a['dates'])) for a in canonical_add_ons(facts.get('add_ons',[])) or []}
+ seen=set()
+ for c in clauses:
+  for code,qty,people,dates in expected_addons:
+   if re.search(r'(?<!\w)'+re.escape(code)+r'(?!\w)',c):
+    if re.search(neg,c) or not re.search(r'(?<!\d)'+str(qty)+r'(?!\d)',c) or any(not re.search(r'(?<!\w)'+re.escape(p)+r'(?!\w)',c) for p in people) or any(d not in c for d in dates): return False
+    seen.add((code,qty,people,dates))
+ # Reject additional typed product propositions, people, or quantities.
+ for hit in re.finditer(r'\b([a-z][\w-]*)\s+(?:has|gets|also gets)\s+(\d+)\s+([a-z][\w-]*)\s+(?:rentals?|lessons?|add-ons?)',str(text or '').lower()):
+  proposition=(hit.group(3),int(hit.group(2)),(hit.group(1),))
+  if not any(proposition==(c,q,p) for c,q,p,_ in expected_addons): return False
+ return seen==expected_addons
+
 def _boundary_consistent(call,result,exchange,current_event_id):
  if not isinstance(current_event_id,str) or not current_event_id or not _valid_staff_exchange(exchange): return False
  if exchange.get('event_id')!=current_event_id or exchange.get('tool')!='check_quote_book' or result.get('call_id')!=exchange.get('call_id'): return False
  args=((call.get('function') or {}).get('arguments_parsed') or call.get('arguments_parsed')) if isinstance(call,dict) else None
- if isinstance(args,dict) and exchange.get('request')!=args: return False
+ wire=exchange.get('request'); public=exchange.get('public_request')
+ if not isinstance(wire,dict) or not isinstance(public,dict) or public!=args: return False
+ authority=exchange.get('trusted_authority')
+ if not isinstance(authority,dict) or set(authority)!={'tenant_id','session_id','external_send_allowed','staff_alert_allowed'} or not all(isinstance(authority.get(k),str) and authority[k] for k in ('tenant_id','session_id')) or authority.get('external_send_allowed') is not False or authority.get('staff_alert_allowed') is not False: return False
+ if any(wire.get(k)!=v for k,v in authority.items()): return False
+ if {k:v for k,v in wire.items() if k not in authority}!=public: return False
  if args is not None and not isinstance(args,dict): return False
  try:
-  original=json.loads(bytes.fromhex(exchange['original_response_hex'])); observed=json.loads(bytes.fromhex(exchange['raw_response_hex']))
+  original_bytes=bytes.fromhex(exchange['original_response_hex']); observed_bytes=bytes.fromhex(exchange['raw_response_hex'])
+  original=json.loads(original_bytes)
+ except (ValueError,TypeError,json.JSONDecodeError): return False
+ fault=exchange.get('fault_applied')
+ if fault=='non-json':
+  return observed_bytes==b'CAP-HARNESS-NON-JSON' and exchange.get('fault_observed') in {'json_parse_error','http_error_json_parse_error'}
+ try: observed=json.loads(observed_bytes)
  except (ValueError,TypeError,json.JSONDecodeError): return False
  status=exchange.get('status')
  if result.get('ok') is True:
   if status not in (200,201) or not isinstance(observed,dict) or observed.get('ok') is not True: return False
-  for key,value in result.items():
-   if not key.startswith('_') and key!='call_id' and key in observed and observed[key]!=value: return False
- elif status is not None and status < 400 and not exchange.get('fault_applied'): return False
+  clean_result={key:value for key,value in result.items() if not key.startswith('_')}
+  if original!=observed or observed!=clean_result: return False
+ else:
+  clean_result={key:value for key,value in result.items() if not key.startswith('_')}
+  if fault=='malformed':
+   if observed!=[] or result.get('classification')!='transport': return False
+  elif fault=='http-422':
+   if status!=422 or not isinstance(observed,dict) or any(k in observed and clean_result.get(k)!=v for k,v in observed.items()): return False
+  elif fault in {'timeout','exception'}:
+   expected=('TimeoutError','timeout_exception_raised') if fault=='timeout' else ('RuntimeError','runtime_exception_raised')
+   if (exchange.get('exception_type'),exchange.get('fault_observed'))!=expected or observed!=original: return False
+  elif status is None or status < 400 or observed!=original: return False
+  if result.get('call_id')!=exchange.get('call_id'): return False
  return isinstance(original,(dict,list)) and isinstance(observed,(dict,list))
 
 def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None):
  result={}; proof_bound=False; infrastructure=False; claims=_reply_claims(reply); prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
- if clarification: fidelity=None
+ if clarification: fidelity=False if claims['positive_transactions'] or claims['money'] else None
  elif not results: fidelity=False
  else:
   call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
   paired=[r for r in results if isinstance(r,dict) and isinstance(tool_call_id,str) and bool(tool_call_id) and r.get('_tool_call_id')==tool_call_id]
   result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); claims=_reply_claims(text); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
-  # Direct unit seams may omit evidence; assembled score_events never does.
-  proof_bound=(current_event_id is None and fault_exchange is None) or _boundary_consistent(call,result,fault_exchange,current_event_id)
+  proof_bound=_boundary_consistent(call,result,fault_exchange,current_event_id)
   infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
   if expected in ("quote","mixed"):
    facts=outcome.get("facts",{}) if isinstance(outcome,dict) else {}
@@ -417,7 +482,7 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
    expected_terms={str(v).lower() for k in ("inclusions","terms") for v in facts.get(k,[])} if facts else set()
    def labelled(label,cents):
     amount=f"{cents/100:.2f}"; return bool(re.search(rf'(?:eur|€)\s*{re.escape(amount)}\s*(?:[^.;,]{{0,20}}\s)?\b{label}\b|\b{label}\b\s*(?:[^.;,]{{0,20}}\s)?(?:eur|€)\s*{re.escape(amount)}',lower))
-   labels=bool(facts) and all(labelled(label,facts[key]) for label,key in (("total","total_cents"),("deposit","deposit_cents"),("remaining|remainder|balance","remaining_cents")))
+   labels=bool(facts) and {c['role'] for c in claims['money'] if c['affirmed']}=={'total','deposit','remaining'}
    money={int(a)*100+(int((b or '').ljust(2,'0')) if b else 0) for a,b in re.findall(r'(?:€|eur\s*)(\d+)(?:[.,](\d{1,2}))?',lower)}
    dates=set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',lower)); allowed_dates=({facts.get("check_in"),facts.get("check_out")} | {d for a in facts.get("add_ons",[]) for d in a.get("dates",a.get("requested_dates",[]))}) if facts else set()
    expected_package=canonical_package(facts.get("package")) if facts else None
@@ -438,12 +503,12 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
    unsupported_catalog_claim=any(row.get("code","").lower() not in expected_product_codes and any(re.search(r'(?<!\w)'+re.escape(term)+r'(?!\w)',lower) for term in row.get("terms",[]) if term) for row in case.get("_catalog_claim_terms",[]))
    # Absolute promises contradict conditional/availability terms unless the
    # owner facts themselves explicitly authorize that promise.
-   unsupported_guarantee=bool(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
+   unsupported_guarantee=bool(re.search(r'(?<!not )(?:\bguaranteed?\b|\bunconditional(?:ly)?\b|\balways available\b|\bcertain(?:ly)?\b)',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
    forbidden=bool(claims['positive_transactions'])
    allowed_amounts={facts.get("total_cents"),facts.get("deposit_cents"),facts.get("remaining_cents")}-{None}; expected_currency=str(facts.get("currency") or "").upper()
    role_amounts={'total':facts.get('total_cents'),'deposit':facts.get('deposit_cents'),'remaining':facts.get('remaining_cents')}
    claims_bound=bool(claims["money"]) and all(c["affirmed"] and c["role"] in role_amounts and c["currency"]==expected_currency and c["cents"]==role_amounts[c["role"]] for c in claims["money"]) and {c['role'] for c in claims['money']}==set(role_amounts) and not claims["positive_transactions"]
-   fidelity=bool(proof_bound and exact and labels and package_ok and addons_ok and not infrastructure and claims_bound and money.issubset(allowed_amounts) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
+   fidelity=bool(proof_bound and exact and labels and package_ok and addons_ok and _typed_product_claims_valid(text,facts) and not infrastructure and claims_bound and money.issubset(allowed_amounts) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
   elif expected=="refusal":
    allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
    fidelity=bool(proof_bound and validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and claims["refusal_signal"] and not claims["money"] and not claims["positive_transactions"] and not infrastructure)
