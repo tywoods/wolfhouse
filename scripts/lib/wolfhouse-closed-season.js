@@ -11,6 +11,17 @@ const { buildBotClosedSeasonReply } = require('./bot-guest-safe-copy');
 
 const MS_DAY = 86400000;
 
+function madridTodayIso(now) {
+  const d = now instanceof Date ? now : (now ? new Date(now) : new Date());
+  if (Number.isNaN(d.getTime())) return madridTodayIso(new Date());
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
 function parseIso(iso) {
   const text = String(iso || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
@@ -76,14 +87,15 @@ function stayFullyBookable(seasons, checkIn, checkOut) {
   return ok;
 }
 
-function findNearestOpenStay(seasons, checkIn, checkOut) {
+function findNearestOpenStay(seasons, checkIn, checkOut, todayIso) {
   const nights = nightsBetween(checkIn, checkOut);
   if (nights < 1 || !Array.isArray(seasons) || !seasons.length) return null;
+  const today = String(todayIso || madridTodayIso());
   let best = null;
   for (let delta = -400; delta <= 400; delta += 1) {
-    if (delta === 0) continue;
     const nci = addDaysIso(checkIn, delta);
     const nco = addDaysIso(nci, nights);
+    if (!nci || nci < today) continue;
     if (!stayFullyBookable(seasons, nci, nco)) continue;
     const score = Math.abs(delta);
     if (
@@ -101,7 +113,7 @@ function closedSeasonGuestCopy(language) {
   return buildBotClosedSeasonReply({ language }).guest_safe_next_action;
 }
 
-function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language) {
+function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language, todayIso) {
   const closed = stayHitsClosedSeason(seasons, checkIn, checkOut);
   if (!closed) {
     return {
@@ -118,7 +130,7 @@ function evaluateClosedSeasonStay(seasons, checkIn, checkOut, language) {
     date_rule_ok: false,
     next_action: 'closed_season',
     guest_safe_next_action: closedSeasonGuestCopy(language),
-    nearest_open_dates: findNearestOpenStay(seasons, checkIn, checkOut),
+    nearest_open_dates: findNearestOpenStay(seasons, checkIn, checkOut, todayIso),
     selected_bed_codes: [],
   };
 }
@@ -141,10 +153,11 @@ async function loadClosedSeasonCatalog(pg, clientSlug) {
 async function evaluateClosedSeason(pg, opts) {
   opts = opts || {};
   const seasons = await loadClosedSeasonCatalog(pg, opts.clientSlug);
-  return evaluateClosedSeasonStay(seasons, opts.checkIn, opts.checkOut, opts.language);
+  return evaluateClosedSeasonStay(seasons, opts.checkIn, opts.checkOut, opts.language, opts.todayIso || madridTodayIso());
 }
 
 module.exports = {
+  madridTodayIso,
   stayHitsClosedSeason,
   stayFullyBookable,
   findNearestOpenStay,
