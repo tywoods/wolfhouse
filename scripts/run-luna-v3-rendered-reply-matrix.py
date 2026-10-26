@@ -292,30 +292,48 @@ def _reply_claims(text):
  """Extract typed, polarity-aware public claims instead of matching a deny-list."""
  lower=str(text or "").lower(); clauses=[c.strip() for c in re.split(r';|[!?]|(?<!\d)\.(?!\d)',lower) if c.strip()]
  money=[]; positive_transactions=[]; refusal_signal=False
- currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp))'
+ currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|cad|aud|chf|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp|cad|aud|chf))'
  for clause in clauses:
   negation=r"\b(?:not|never|no|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|doesn['’]?t|don['’]?t|didn['’]?t|cannot|can['’]?t|couldn['’]?t|won['’]?t|wouldn['’]?t)\b"
-  negated=bool(re.search(negation,clause))
-  refusal_signal = refusal_signal or bool(re.search(r'\b(?:unavailable|cannot|can not|could not|unable|refus\w*|too short|choose|select|change|different|other|uncertain|verify)\b',clause))
+  refusal_signal = refusal_signal or bool(re.search(r'\b(?:unavailable|cannot|can not|could not|unable|refus\w*|too short|below (?:the )?minimum|minimum (?:stay|length)|choose|select|change|different|other|uncertain|verify|confirm)\b',clause))
   for match in re.finditer(currency_pattern,clause):
    currency=(match.group('prefix') or match.group('suffix') or '').replace('$','usd').replace('£','gbp').replace('€','eur')
    whole=match.group('a') or match.group('c'); fraction=match.group('b') or match.group('d') or ''
    before=clause[max(0,match.start()-32):match.start()]
-   money.append({'currency':currency.upper(),'cents':int(whole)*100+(int(fraction.ljust(2,'0')) if fraction else 0),'affirmed':not bool(re.search(negation+r'[^.;]{0,24}$',before))})
+   after=clause[match.end():match.end()+24]
+   money.append({'currency':currency.upper(),'cents':int(whole)*100+(int(fraction.ljust(2,'0')) if fraction else 0),'affirmed':not bool(re.search(negation+r'[^.;]{0,24}$',before) or re.search(r'\b(?:incorrect|false|wrong)\b',after))})
   transaction=bool(re.search(r'\b(?:reservation|booking)\b.{0,24}\b(?:confirmed?|completed?|booked)\b|\b(?:confirmed?|completed?|booked)\b.{0,24}\b(?:reservation|booking)\b',clause))
   payment=bool(re.search(r'\b(?:payment|deposit|balance)\b.{0,24}\b(?:received|paid|settled)\b|\b(?:received|paid|settled)\b.{0,24}\b(?:payment|deposit|balance)\b',clause))
-  if (transaction or payment) and not negated: positive_transactions.append(clause)
+  positive=re.search(r'\b(?:reservation|booking|stay|payment|deposit|balance|charge)\b.{0,40}\b(?:confirmed?|completed?|booked|secured|received|paid|settled|went through)\b',clause)
+  if positive and not re.search(negation+r'[^,;.!?]{0,28}'+re.escape(positive.group(0)),clause): positive_transactions.append(clause)
  return {'money':money,'positive_transactions':positive_transactions,'refusal_signal':refusal_signal}
 
+def _boundary_consistent(call,result,exchange,current_event_id):
+ if not isinstance(current_event_id,str) or not current_event_id or not _valid_staff_exchange(exchange): return False
+ if exchange.get('event_id')!=current_event_id or exchange.get('tool')!='check_quote_book' or result.get('call_id')!=exchange.get('call_id'): return False
+ args=((call.get('function') or {}).get('arguments_parsed') or call.get('arguments_parsed')) if isinstance(call,dict) else None
+ if isinstance(args,dict) and exchange.get('request')!=args: return False
+ if args is not None and not isinstance(args,dict): return False
+ try:
+  original=json.loads(bytes.fromhex(exchange['original_response_hex'])); observed=json.loads(bytes.fromhex(exchange['raw_response_hex']))
+ except (ValueError,TypeError,json.JSONDecodeError): return False
+ status=exchange.get('status')
+ if result.get('ok') is True:
+  if status not in (200,201) or not isinstance(observed,dict) or observed.get('ok') is not True: return False
+  for key,value in result.items():
+   if not key.startswith('_') and key!='call_id' and key in observed and observed[key]!=value: return False
+ elif status is not None and status < 400 and not exchange.get('fault_applied'): return False
+ return isinstance(original,(dict,list)) and isinstance(observed,(dict,list))
+
 def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None):
- result={}; claims=_reply_claims(reply); prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
+ result={}; proof_bound=False; infrastructure=False; claims=_reply_claims(reply); prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
  if clarification: fidelity=None
  elif not results: fidelity=False
  else:
   call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
   paired=[r for r in results if isinstance(r,dict) and isinstance(tool_call_id,str) and bool(tool_call_id) and r.get('_tool_call_id')==tool_call_id]
   result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); claims=_reply_claims(text); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
-  proof_bound=current_event_id is None or bool(fault_exchange and _valid_staff_exchange(fault_exchange) and fault_exchange.get("event_id")==current_event_id and result.get("call_id")==fault_exchange.get("call_id"))
+  proof_bound=(current_event_id is None and fault_exchange is None) or _boundary_consistent(call,result,fault_exchange,current_event_id)
   infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
   if expected in ("quote","mixed"):
    facts=outcome.get("facts",{}) if isinstance(outcome,dict) else {}
@@ -346,7 +364,7 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
    # Absolute promises contradict conditional/availability terms unless the
    # owner facts themselves explicitly authorize that promise.
    unsupported_guarantee=bool(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
-   forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',lower)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',lower)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',lower))
+   forbidden=bool(claims['positive_transactions'])
    allowed_amounts={facts.get("total_cents"),facts.get("deposit_cents"),facts.get("remaining_cents")}-{None}; expected_currency=str(facts.get("currency") or "").upper()
    claims_bound=bool(claims["money"]) and all(c["affirmed"] and c["currency"]==expected_currency and c["cents"] in allowed_amounts for c in claims["money"]) and not claims["positive_transactions"]
    fidelity=bool(proof_bound and exact and labels and package_ok and addons_ok and not infrastructure and claims_bound and money.issubset(allowed_amounts) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
@@ -362,7 +380,8 @@ def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None
   if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
   if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
   if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
-  fidelity=fault_ok
+  reply_infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(reply or ''),re.I))
+  fidelity=bool(fault_ok and proof_bound and not reply_infrastructure)
  return {"clarification":bool(clarification and '?' in str(reply) and prepared==0),"progress":progress,"fidelity":fidelity}
 
 def _event_parts(body):
@@ -384,7 +403,8 @@ def score_events(case,events):
    event_case["expect"]="refusal" if not rows else "quote"
    event_case["intended_owner_outcome"]=case.get("intended_owner_outcome") if not rows else case.get("corrected_owner_outcome")
   intended=next((r for r in results if r.get('_tool_call_id')==(calls[0].get('id') if len(calls)==1 else None)),{})
-  target=next((x for x in exchanges if isinstance(x,dict) and x.get('call_id')==intended.get('call_id')),None)
+  matching=[x for x in exchanges if isinstance(x,dict) and x.get('call_id')==intended.get('call_id')]
+  target=matching[0] if len(matching)==1 else None
   score=semantic_score(event_case,body.get("reply_text"),calls,results,target,current_event_id=event.get("event_id"))
   expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
   function=(calls[0].get("function") or {}) if len(calls)==1 else {}

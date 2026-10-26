@@ -1,0 +1,18 @@
+test_installs_route_once_and_fails_if_anchor_moves (test_install_simulator_route.InstallerTests.test_installs_route_once_and_fails_if_anchor_moves) ... ok
+test_follow_up_receives_the_same_sessions_previous_messages (test_simulator_route.SimulatorRouteTests.test_follow_up_receives_the_same_sessions_previous_messages) ... ok
+test_full_trace_gate_is_dual_keyed (test_simulator_route.SimulatorRouteTests.test_full_trace_gate_is_dual_keyed) ... ok
+test_preflight_rejects_every_hermes_transport_activation_input (test_simulator_route.SimulatorRouteTests.test_preflight_rejects_every_hermes_transport_activation_input) ... ok
+test_preflight_requires_api_server_as_the_only_effective_platform (test_simulator_route.SimulatorRouteTests.test_preflight_requires_api_server_as_the_only_effective_platform) ... ok
+test_rejects_non_reserved_phone_and_caller_write_authority (test_simulator_route.SimulatorRouteTests.test_rejects_non_reserved_phone_and_caller_write_authority) ... ok
+test_reserved_phone_gets_request_bound_session_and_reply (test_simulator_route.SimulatorRouteTests.test_reserved_phone_gets_request_bound_session_and_reply) ... ok
+test_response_projects_real_tool_calls_and_only_admitted_capability (test_simulator_route.SimulatorRouteTests.test_response_projects_real_tool_calls_and_only_admitted_capability) ... ok
+test_benign_auth_and_disabled_controls_remain_accepted (test_startup.StartupAdmissionTests.test_benign_auth_and_disabled_controls_remain_accepted) ... ok
+test_compose_uses_image_startup_command (test_startup.StartupAdmissionTests.test_compose_uses_image_startup_command) ... ok
+test_gateway_handoff_uses_hermes_cli_without_starting_gateway (test_startup.StartupAdmissionTests.test_gateway_handoff_uses_hermes_cli_without_starting_gateway) ... ok
+test_project_dotenv_transport_is_rejected_after_real_loader (test_startup.StartupAdmissionTests.test_project_dotenv_transport_is_rejected_after_real_loader) ... ok
+test_retained_dotenv_transport_is_rejected_after_real_loader (test_startup.StartupAdmissionTests.test_retained_dotenv_transport_is_rejected_after_real_loader) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 18.598s
+
+OK

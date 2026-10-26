@@ -1,0 +1,10 @@
+Strict TDD RED execution (before implementation)
+Command: PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/test-luna-v3-rootfix-r4.py
+Exit: 1
+Observed: Ran 4 tests; FAILED (failures=3).
+Failures:
+- truthful no-booking positive control was rejected
+- boundary coherence positive/control mutations were not correctly distinguished
+- timeout uncertainty admitted a contradictory reservation confirmation
+The person-allocation regression was already green from R3 and remained as a non-regression.
+This record summarizes the actual initial execution shown in the agent command receipt; green.log is the retained post-fix executable output.

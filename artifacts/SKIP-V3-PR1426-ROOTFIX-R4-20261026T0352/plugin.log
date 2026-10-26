@@ -1,0 +1,26 @@
+test_one_try_schema_keeps_internal_identifiers_out (test_b1_selection.PublicOneTrySelectionTests.test_one_try_schema_keeps_internal_identifiers_out) ... ok
+test_retired_booking_and_recovery_tools_are_not_registered (test_b1_selection.PublicOneTrySelectionTests.test_retired_booking_and_recovery_tools_are_not_registered) ... ok
+test_soul_requires_one_prepare_and_one_distinct_confirm (test_b1_selection.PublicOneTrySelectionTests.test_soul_requires_one_prepare_and_one_distinct_confirm) ... ok
+test_authentic_hermes_scanner_discovers_native_manifest (test_plugin.LunaV3PluginContractTests.test_authentic_hermes_scanner_discovers_native_manifest) ... ok
+test_check_quote_book_schema_teaches_public_one_try_shape (test_plugin.LunaV3PluginContractTests.test_check_quote_book_schema_teaches_public_one_try_shape) ... ok
+test_clean_home_installed_plugin_loads_generated_contract (test_plugin.LunaV3PluginContractTests.test_clean_home_installed_plugin_loads_generated_contract) ... ok
+test_corrected_schemas_and_dispatch_contract (test_plugin.LunaV3PluginContractTests.test_corrected_schemas_and_dispatch_contract) ... ok
+test_every_handler_uses_authentic_registry_dispatch_contract (test_plugin.LunaV3PluginContractTests.test_every_handler_uses_authentic_registry_dispatch_contract) ... ok
+test_exports_only_model_led_staff_tools (test_plugin.LunaV3PluginContractTests.test_exports_only_model_led_staff_tools) ... ok
+test_fault_capture_read_parse_isolation_and_negative_control (test_plugin.LunaV3PluginContractTests.test_fault_capture_read_parse_isolation_and_negative_control) ... ok
+test_harness_captures_http_422_generic_exception_and_timeout_exception (test_plugin.LunaV3PluginContractTests.test_harness_captures_http_422_generic_exception_and_timeout_exception) ... ok
+test_http_error_faults_execute_truthfully_and_retain_original_boundary (test_plugin.LunaV3PluginContractTests.test_http_error_faults_execute_truthfully_and_retain_original_boundary) ... ok
+test_http_error_fields_and_cross_host_redirect (test_plugin.LunaV3PluginContractTests.test_http_error_fields_and_cross_host_redirect) ... ok
+test_refuses_missing_token_and_send_flags (test_plugin.LunaV3PluginContractTests.test_refuses_missing_token_and_send_flags) ... ok
+test_registers_every_contract_tool_with_hermes (test_plugin.LunaV3PluginContractTests.test_registers_every_contract_tool_with_hermes) ... ok
+test_request_is_clone_scoped_and_transport_disabled (test_plugin.LunaV3PluginContractTests.test_request_is_clone_scoped_and_transport_disabled) ... ok
+test_retired_recovery_is_not_callable (test_plugin.LunaV3PluginContractTests.test_retired_recovery_is_not_callable) ... ok
+test_same_event_calls_are_isolated_and_connect_timeout_is_typed (test_plugin.LunaV3PluginContractTests.test_same_event_calls_are_isolated_and_connect_timeout_is_typed) ... ok
+test_soul_enforces_staff_truth_and_guest_safe_wording (test_plugin.LunaV3PluginContractTests.test_soul_enforces_staff_truth_and_guest_safe_wording) ... ok
+test_staff_409_preserves_bounded_handoff_receipt (test_plugin.LunaV3PluginContractTests.test_staff_409_preserves_bounded_handoff_receipt) ... ok
+test_turn_identity_is_bound_to_persisted_inbound_event_and_replays_same_event (test_plugin.LunaV3PluginContractTests.test_turn_identity_is_bound_to_persisted_inbound_event_and_replays_same_event) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 0.419s
+
+OK

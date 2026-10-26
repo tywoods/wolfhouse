@@ -190,6 +190,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
 
     try:
         with _open_staff(request, runtime["base_url"]) as response:
+            boundary_status = getattr(response, "status", 200)
             raw = response.read()
             response_raw = raw
             # A genuine authenticated Staff response has crossed the boundary before
@@ -203,6 +204,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 # Preserve genuine bytes separately; observe only after reading the raised error.
                 injected = urllib.error.HTTPError(request.full_url, 422, "injected Staff rejection", {}, io.BytesIO(mutated))
                 injected._luna_original_raw = raw
+                injected._luna_original_status = boundary_status
                 raise injected
             elif fault == "exception":
                 error=RuntimeError("injected Staff boundary exception")
@@ -247,6 +249,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
             return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
         raw = original_raw
         boundary_original_raw = getattr(exc, "_luna_original_raw", original_raw)
+        boundary_original_status = getattr(exc, "_luna_original_status", exc.code)
         if fault == "timeout":
             try:
                 raise TimeoutError("injected Staff HTTP-error timeout")
@@ -265,7 +268,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         elif fault == "malformed": raw = b"[]"
         effective_status=422 if fault=="http-422" else exc.code
         if not recorded:
-            record_exchange(status=effective_status, original_status=exc.code, original_raw=boundary_original_raw, observed_raw=raw,
+            record_exchange(status=effective_status, original_status=boundary_original_status, original_raw=boundary_original_raw, observed_raw=raw,
                             applied=fault in {"http-422","non-json","malformed"},
                             observed={"http-422":"http_error_read","non-json":"http_error_json_parse_error","malformed":"http_error_malformed_shape"}.get(fault,"http_error_read"))
         try:
