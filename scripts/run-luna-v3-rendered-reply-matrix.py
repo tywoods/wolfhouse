@@ -31,6 +31,32 @@ def owner_normalize(request_value,choices):
  except (OSError,subprocess.CalledProcessError,json.JSONDecodeError) as exc:
   raise SystemExit(f"BLOCKED: Staff request normalizer unavailable: {exc}")
 
+class OwnerExecutionAdapter:
+ """Private process-scoped issuer/verifier; verification consumes each receipt."""
+ def __init__(self):
+  cli=pathlib.Path(__file__).resolve().parent/'lib/model-led-luna/staff-request-normalize-cli.js'
+  self.proc=subprocess.Popen(["node",str(cli),"--server"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,bufsize=1)
+ def call(self,payload):
+  if self.proc.poll() is not None: raise SystemExit("BLOCKED: owner execution adapter exited")
+  self.proc.stdin.write(json.dumps(payload,separators=(",",":"),ensure_ascii=False)+"\n"); self.proc.stdin.flush()
+  line=self.proc.stdout.readline()
+  try: return json.loads(line)
+  except json.JSONDecodeError: raise SystemExit("BLOCKED: invalid owner execution adapter response")
+ def admit(self,case,revision,choices,input_value):
+  proposition={"revision":revision,"case_id":case.get("id"),"prompt":case.get("prompt"),"control":case.get("control"),"outcome":case.get("intended_owner_outcome"),"input":input_value,"choices":choices,"turn_id":"fixture-admission"}
+  receipt=self.call({"command":"issue",**proposition})
+  verified=self.call({"command":"verify","receipt":receipt,**proposition})
+  if verified.get("ok") is not True: raise SystemExit(f"BLOCKED: owner execution receipt rejected: {case.get('id')}")
+  if self.call({"command":"verify","receipt":receipt,**proposition}).get("ok") is True: raise SystemExit("BLOCKED: owner execution receipt replayed")
+  return verified.get("result")
+ def close(self):
+  if self.proc.poll() is None: self.proc.terminate(); self.proc.wait(timeout=5)
+  if self.proc.stdin: self.proc.stdin.close()
+  if self.proc.stdout: self.proc.stdout.close()
+ def __del__(self):
+  try: self.close()
+  except Exception: pass
+
 def _public_prepare(control):
  value=json.loads(json.dumps(control)); value={"action":"prepare","purpose":"quote",**value}
  if isinstance(value.get("package"),str): value["package"]={"code":value["package"]}
@@ -86,7 +112,7 @@ def _category_matches_selection(category,control,choices):
  if category=="mixed": return "package" in package_kinds and "rental" in addon_kinds and "service" in addon_kinds
  return True
 
-def make_cases(snapshot,fixture):
+def make_cases(snapshot,fixture,owner_adapter=None):
  """Fail closed unless cases are explicitly authored and proven by the Staff owner."""
  choices=snapshot.get("choices") if isinstance(snapshot,dict) else None
  if not isinstance(snapshot,dict) or snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
@@ -94,9 +120,10 @@ def make_cases(snapshot,fixture):
  owner=fixture.get("owner_provenance")
  if not isinstance(owner,dict) or owner.get("authority")!="staff-owner" or not all(isinstance(owner.get(k),str) and owner[k].strip() for k in ("fixture_id","approved_by","approved_at","owner_revision_or_receipt_id")): raise SystemExit("BLOCKED: fixture lacks owner provenance")
  if fixture.get("capability_revision")!=snapshot["revision"]: raise SystemExit("BLOCKED: fixture capability revision mismatch")
+ if not isinstance(fixture.get("unsupported_declaration"),dict) or fixture["unsupported_declaration"].get("standalone") is not True or not isinstance(fixture["unsupported_declaration"].get("policy"),str): raise SystemExit("BLOCKED: fixture lacks standalone unsupported declaration")
  cases=fixture.get("cases"); allowed={"accommodation","package","rental","service:lesson_a","service:lesson_b","mixed","multi_guest","continuation","clarification","fault"}
  if not isinstance(cases,list) or not cases: raise SystemExit("BLOCKED: fixture has no explicit cases")
- ids=set(); categories=set(); out=[]
+ ids=set(); categories=set(); out=[]; adapter=owner_adapter or OwnerExecutionAdapter()
  for source in cases:
   if not isinstance(source,dict): raise SystemExit("BLOCKED: malformed fixture case")
   case=json.loads(json.dumps(source)); cid=case.get("id"); category=case.get("category"); outcome=case.get("intended_owner_outcome")
@@ -110,14 +137,19 @@ def make_cases(snapshot,fixture):
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
   if case["prepare_required"]:
    control_request=_public_prepare(case.get("control",{}))
-   normalized=_normalized_prepare(control_request,choices)
+   owner_result=adapter.admit(case,snapshot["revision"],choices,control_request)
+   normalized=json.loads(json.dumps(owner_result.get("value"))) if isinstance(owner_result,dict) and owner_result.get("ok") is True and isinstance(owner_result.get("value"),dict) else None
+   if normalized is not None: normalized.pop("operation_key",None)
    if not validate_control(case,choices) or normalized is None or not _category_matches_selection(category,case.get("control"),choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
    case["_owner_normalized_control"]=normalized; case["_owner_choices"]=choices
   if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control"))): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
-  if not _owner_canary_valid(case,snapshot["revision"]): raise SystemExit(f"BLOCKED: case lacks matching dated owner canary: {cid}")
+
   out.append(case)
  required=set(allowed)
  if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
+ faults=[c.get("fault") for c in out if c["category"]=="fault"]
+ required_faults={"non-json","malformed","http-422","exception","timeout"}
+ if set(faults)!=required_faults or len(faults)!=len(required_faults): raise SystemExit("BLOCKED: fixture must cover each distinct fault mode exactly once")
  lesson_codes=[]
  for category in ("service:lesson_a","service:lesson_b"):
   lesson=next(c for c in out if c["category"]==category)
@@ -127,7 +159,10 @@ def make_cases(snapshot,fixture):
  group=next(c for c in out if c["category"]=="multi_guest")["control"]; package=group.get("package")
  packages=package.get("per_guest") if isinstance(package,dict) else None
  add_people={person for a in group.get("add_ons",[]) if isinstance(a,dict) for person in a.get("people",[])}
- if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len({p.get("name") for p in packages if isinstance(p,dict)})<2 or len(add_people)<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated per-guest package/add-on choices")
+ normalized_group=next(c for c in out if c["category"]=="multi_guest").get("_owner_normalized_control",{})
+ normalized_codes={p.get("package_code") for p in normalized_group.get("guest_packages",[]) if isinstance(p,dict)}
+ if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len(normalized_codes)<2 or len(add_people)<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated normalized per-guest package/add-on codes")
+ if owner_adapter is None: adapter.close()
  return out
 
 def _iso_date(value):

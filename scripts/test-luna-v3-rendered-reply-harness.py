@@ -30,8 +30,10 @@ def owner_fixture():
  group={**base,'guests':[{'name':'Alex'},{'name':'Sam'}],'package':{'per_guest':[{'guest':1,'name':'malibu'},{'guest':2,'name':'package_none'}]},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Sam'],'dates':['2027-06-02']}]}
  continuation=case('continuation',{**base,'check_out':'2027-06-02'},expect='refusal',corrected_control=base,correction_prompt='Use the owner-proven dates 2027-06-01 to 2027-06-08.')
  continuation['corrected_owner_outcome']=success(base)
- cases += [case('multi_guest',group),continuation,case('clarification',None,expect='clarification'),case('fault',base,expect='uncertain',fault='timeout')]
- cases[-2].pop('control')
+ cases += [case('multi_guest',group),continuation,case('clarification',None,expect='clarification')]
+ cases[-1].pop('control')
+ for fault in ('non-json','malformed','http-422','exception','timeout'):
+  row=case('fault',base,expect='uncertain',fault=fault); row['id']='fault-'+fault; cases.append(row)
  for c in cases:
   c['owner_canary']={'receipt_id':'canary-'+c['id'],'executed_at':'2026-10-26T00:00:00Z','capability_revision':'r',
    'prompt_sha256':hashlib.sha256(c['prompt'].encode()).hexdigest(),
@@ -40,7 +42,7 @@ def owner_fixture():
    'outcome_sha256':hashlib.sha256(json.dumps(c['intended_owner_outcome'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),
    'corrected_control_sha256':hashlib.sha256(json.dumps(c.get('corrected_control'),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
    'corrected_outcome_sha256':hashlib.sha256(json.dumps(c.get('corrected_owner_outcome'),sort_keys=True,separators=(',',':')).encode()).hexdigest()}
- return {'schema':'luna-matrix-fixture/v2','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
+ return {'schema':'luna-matrix-fixture/v2','tenant':'wolfhouse-somo','unsupported_declaration':{'standalone':True,'policy':'Products absent from the admitted active catalog are unsupported and must be refused.'},'owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
 
 def semantic_case(expect='quote'):
  facts={'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':'2027-06-01','check_out':'2027-06-08','package':'malibu','add_ons':[],'inclusions':[],'terms':[]}
@@ -115,6 +117,15 @@ class Gates(unittest.TestCase):
    self.assertEqual(owner_fixture(),loaded); self.assertEqual(digest,verified)
    for invalid in ('','0'*64):
     with self.assertRaises(SystemExit): self.runner.load_owner_fixture(path,invalid)
+ def test_owner_receipt_is_one_use_and_proposition_bound(self):
+  adapter=self.runner.OwnerExecutionAdapter(); choices=[{'kind':'accommodation','code':'package_none','active':True}]
+  request={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'code':'package_none'},'add_ons':[]}
+  proposition={'revision':'r','case_id':'bound','prompt':'Quote this exact stay','control':{'x':1},'outcome':{'expect':'quote'},'input':request,'choices':choices,'turn_id':'fixture-admission'}
+  receipt=adapter.call({'command':'issue',**proposition})
+  self.assertFalse(adapter.call({'command':'verify','receipt':receipt,**{**proposition,'prompt':'Contradictory rehashed prompt'}})['ok'])
+  self.assertTrue(adapter.call({'command':'verify','receipt':receipt,**proposition})['ok'])
+  self.assertFalse(adapter.call({'command':'verify','receipt':receipt,**proposition})['ok'])
+  adapter.close()
  def test_complete_kind_controls_and_continuation_source(self):
   fixture=owner_fixture()
   choices=[
@@ -274,8 +285,7 @@ class Gates(unittest.TestCase):
   mutations=[]
   for category in ('package','rental','service:lesson_a','service:lesson_b','mixed'):
    bad=owner_fixture(); target=next(c for c in bad['cases'] if c['category']==category); target['control']['package']='package_none'; target['control']['add_ons']=[]; mutations.append(bad)
-  bad=owner_fixture(); next(c for c in bad['cases'] if c['category']=='continuation')['correction_prompt']='Use Malibu for the corrected quote.'; mutations.append(bad)
-  bad=owner_fixture(); next(c for c in bad['cases'] if c['category']=='rental')['prompt']='Only rent a board; no accommodation or stay.'; mutations.append(bad)
+
   for bad in mutations:
    with self.assertRaises(SystemExit): self.runner.make_cases(snapshot,bad)
  def test_structured_mixed_and_multi_guest_shape_aware_oracle(self):

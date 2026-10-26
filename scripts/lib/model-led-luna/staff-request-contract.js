@@ -182,6 +182,11 @@ function normalizeQuoteRequest(input, catalog, beds, context = {}) {
     return fail('stay_dates_invalid', !validDate(input.check_in) ? 'check_in' : 'check_out');
   }
   if (!Array.isArray(input.guests) || input.guests.length === 0) return fail('guests_required', 'guests');
+  for (const [index, guest] of input.guests.entries()) {
+    if (guest.explicit_gender !== undefined && guest.gender !== undefined && guest.explicit_gender !== guest.gender) {
+      return fail('conflicting_gender_aliases', `guests[${index}].explicit_gender`);
+    }
+  }
   if (!input.room || typeof input.room !== 'object') return fail('room_required', 'room');
   if (!Array.isArray(beds) || beds.length !== input.guests.length || beds.some((bed) => !String(bed || '').trim())) {
     return fail('exact_bed_selection_required', 'room.beds');

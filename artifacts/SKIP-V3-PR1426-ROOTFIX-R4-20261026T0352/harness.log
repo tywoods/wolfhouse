@@ -1,5 +1,5 @@
-{"output": "/tmp/tmp43d_0woo/result", "cases": 1, "executed": 1, "pass": true}
-test_actual_main_loop_accepts_non_fault_case_without_keyerror (__main__.Gates.test_actual_main_loop_accepts_non_fault_case_without_keyerror) ... ok
+test_actual_main_loop_accepts_non_fault_case_without_keyerror (__main__.Gates.test_actual_main_loop_accepts_non_fault_case_without_keyerror) ... {"output": "/tmp/tmp8bc72hgl/result", "cases": 1, "executed": 1, "pass": true}
+ok
 test_artifact_and_verdict_contract (__main__.Gates.test_artifact_and_verdict_contract) ... ok
 test_complete_kind_controls_and_continuation_source (__main__.Gates.test_complete_kind_controls_and_continuation_source) ... ok
 test_complete_request_matching_rejects_material_mutations (__main__.Gates.test_complete_request_matching_rejects_material_mutations) ... ok
@@ -16,6 +16,7 @@ test_no_caller_inventory_or_retry (__main__.Gates.test_no_caller_inventory_or_re
 test_owner_fixture_bytes_are_digest_bound (__main__.Gates.test_owner_fixture_bytes_are_digest_bound) ... ok
 test_owner_fixture_schema_fails_closed_and_is_deterministic (__main__.Gates.test_owner_fixture_schema_fails_closed_and_is_deterministic) ... ok
 test_owner_outcome_must_match_control_and_cover_every_guest (__main__.Gates.test_owner_outcome_must_match_control_and_cover_every_guest) ... ok
+test_owner_receipt_is_one_use_and_proposition_bound (__main__.Gates.test_owner_receipt_is_one_use_and_proposition_bound) ... ok
 test_pins_and_preflight (__main__.Gates.test_pins_and_preflight) ... ok
 test_real_prepare_public_quote_feeds_semantic_score (__main__.Gates.test_real_prepare_public_quote_feeds_semantic_score) ... ok
 test_rootfix_counterexamples_fail_closed (__main__.Gates.test_rootfix_counterexamples_fail_closed) ... ok
@@ -27,6 +28,6 @@ test_structured_mixed_and_multi_guest_shape_aware_oracle (__main__.Gates.test_st
 test_verdict_is_bound_to_intended_tool_call_and_exact_tokens (__main__.Gates.test_verdict_is_bound_to_intended_tool_call_and_exact_tokens) ... ok
 
 ----------------------------------------------------------------------
-Ran 26 tests in 0.277s
+Ran 27 tests in 2.062s
 
 OK

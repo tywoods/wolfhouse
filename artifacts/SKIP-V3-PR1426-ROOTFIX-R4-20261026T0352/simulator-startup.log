@@ -13,6 +13,6 @@ test_project_dotenv_transport_is_rejected_after_real_loader (test_startup.Startu
 test_retained_dotenv_transport_is_rejected_after_real_loader (test_startup.StartupAdmissionTests.test_retained_dotenv_transport_is_rejected_after_real_loader) ... ok
 
 ----------------------------------------------------------------------
-Ran 13 tests in 18.598s
+Ran 13 tests in 18.254s
 
 OK

@@ -4,6 +4,6 @@ test_person_allocations_are_exact_and_polarity_aware (__main__.RootFixR4.test_pe
 test_truthful_no_booking_passes_and_claim_contradictions_fail (__main__.RootFixR4.test_truthful_no_booking_passes_and_claim_contradictions_fail) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.011s
+Ran 4 tests in 0.014s
 
 OK

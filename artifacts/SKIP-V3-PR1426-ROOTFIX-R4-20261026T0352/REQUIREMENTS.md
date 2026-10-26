@@ -1,20 +1,19 @@
 # SKIP-V3-PR1426-ROOTFIX-R4-20261026T0352 proof map
 
-Offline only; no model, live Staff, sends, deployment, gateway restart, or credentials.
+Offline only; no model, live Staff, sends, deployment, gateway operation, or credentials.
 
-| Requirement | Proof |
+| Requirement | Executable proof |
 |---|---|
-| Strict scorer regressions: polarity, amount roles/currency, truthful no-booking, person allocation, contradictory transaction claims | `scripts/test-luna-v3-rootfix-r4.py`; `red.log`; `green.log` |
-| Current event and coherent Staff tool/request/result/byte boundary; unique exchange selection | R4 regression plus `scripts/run-luna-v3-rendered-reply-matrix.py::_boundary_consistent`; `green.log`; `harness.log` |
-| Fault uncertainty rejects confirmation/payment/secured/infrastructure prose | R4 regression and `green.log` |
-| True original/effective status custody for success 200/201 -> injected 422 | plugin boundary patch; `plugin.log` |
-| Existing rendered suite | `harness.log` (26 tests) |
-| Plugin suite | `plugin.log` (18 tests at the prior R4 head; 19 tests after the explicit 200/201 status regression was added—see exact command in the final commit message/review receipt) |
-| ONE Staff request contract | `scripts/lib/model-led-luna/staff-request-normalize-cli.js` executes the exported `normalizeQuoteRequest`; `make_cases` and assembled control matching compare its canonical projection. |
-| Owner-produced fixture receipts | CLI implements deterministic HMAC issue/verify operations, but fixture admission does not yet require/verify that receipt. **OPEN BLOCKER; legacy caller-hash canaries remain accepted.** |
-| Semantic kind/outcome/all-five-fault/unsupported-standalone coverage | **OPEN BLOCKER; not yet enforced by this patch.** |
-| Simulator/startup/routes | `simulator-startup.log`; `offline-gate-exits.json` |
-| Staff contract/FIX1/public quote owner | `staff-contract.log`, `fix1.log`, `public-quote-owner.log` |
-| Live three-repetition matrix | BLOCKED intentionally: sanctioned model access and live TEST runtime/token/fixture receipt are not available; no live/model call attempted. |
+| #3 owner execution boundary | `Gates.test_owner_receipt_is_one_use_and_proposition_bound`; `OwnerExecutionAdapter`; subprocess registry issues only while executing `normalizeQuoteRequest`, binds revision/case/prompt/control/outcome/input/result/time/nonce, and consumes on verification. No static key is shipped. |
+| #3 exact Staff normalization | `Gates.test_complete_request_matching_rejects_material_mutations`, `test_complete_kind_controls_and_continuation_source`, and `test_fixture_calendar_schema_and_complete_bindings_fail_closed`. |
+| #3 semantic inventory before sampling | `make_cases` requires accommodation, package, rental, two distinct normalized lesson codes, mixed, differentiated normalized multi-guest package codes, continuation, clarification, all five fault modes exactly once, and a standalone unsupported policy declaration. |
+| #3 owner normalizer edge controls | Staff contract rejects conflicting gender aliases, conflicting catalog aliases, one-person quantity mismatches, and multi-date lesson ambiguity; canonical aliases and omitted optional days normalize in the owner contract. |
+| #4 scorer proposition reconciliation | `RootFixR4.test_truthful_no_booking_passes_and_claim_contradictions_fail`, `test_person_allocations_are_exact_and_polarity_aware`, plus harness mixed/multi-guest structured oracle tests cover role, polarity, person, date, quantity, package, rental, lesson, mixed, and multi-guest facts. |
+| #4 exact current boundary | `RootFixR4.test_boundary_is_unique_current_coherent_and_bytes_agree`; `_boundary_consistent` requires current event, unique intended tool result/exchange, request equality, status, and raw/original bytes. |
+| #4 all fault modes | `Gates.test_semantic_oracle_adversarial_and_positive_controls` and plugin fault tests cover non-JSON, malformed, HTTP 422, runtime exception, and timeout with exact fault receipts. |
+| #6 no false booking/payment/infra claims | R4 regressions and harness adversarial semantic tests. |
+| #6 durable no-side-effects and exact trace | `Gates.test_actual_main_loop_accepts_non_fault_case_without_keyerror`, state receipt tests, event linkage tests, and simulator/plugin suites. |
+| Ancillary offline suites | `scripts/test-luna-v3-rendered-reply-harness.py` (27 tests), `scripts/test-luna-v3-rootfix-r4.py` (4), plugin suite (19), Staff root contract, FIX1, and public quote owner checks. |
+| Live three-repetition matrix | **BLOCKED only item:** sanctioned model access plus approved live TEST runtime/tokens and immutable deployed candidate are unavailable. No live/model/key call attempted. |
 
-The generic legacy `verify-luna-v3-contracts.js` was also inspected/run but exits nonzero on its documented TODO/skipped trusted-context integration cells; it is not represented as an acceptance pass.
+The legacy generic `verify-luna-v3-contracts.js` retains documented TODO/skipped trusted-context integration cells and is not relabeled as an acceptance pass.
