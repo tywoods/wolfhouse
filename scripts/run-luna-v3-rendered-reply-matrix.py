@@ -54,6 +54,9 @@ def make_cases(snapshot,fixture):
   case=json.loads(json.dumps(source)); cid=case.get("id"); category=case.get("category"); outcome=case.get("intended_owner_outcome")
   if not isinstance(cid,str) or not cid.strip() or cid in ids or category not in allowed or not isinstance(case.get("prompt"),str) or not case["prompt"].strip() or not isinstance(outcome,dict): raise SystemExit("BLOCKED: malformed explicit fixture case")
   ids.add(cid); categories.add(category); case["prepare_required"]=category!="clarification"; case["continuation"]=category=="continuation"; case["expect"]=outcome.get("expect")
+  # Bind closed-world product-claim checks to the same owner admission snapshot.
+  # Labels are presentation aliases for codes, never independent model facts.
+  case["_catalog_claim_terms"]=[{"code":c.get("code"),"terms":sorted({str(c.get("code") or "").lower(),str(c.get("label") or "").lower(),str(c.get("name") or "").lower()}-{""})} for c in choices if isinstance(c,dict) and isinstance(c.get("code"),str)]
   if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome,control=case.get("control")): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
@@ -258,8 +261,13 @@ def semantic_score(case,reply,calls,results,fault_exchange):
    term_claims={x.strip().lower() for x in re.findall(r'\b(?:includes?|inclusions?|terms?)\s*[:]?\s*([^.;]+)',lower)} | {x.strip().lower() for x in re.findall(r'\b([a-z][a-z -]*?)\s+included\b',lower)}
    allowed_phrase=' '.join(sorted(expected_terms))
    unsupported_terms=any(not all(token in allowed_phrase for token in claim.split()) for claim in term_claims)
+   expected_product_codes=package_codes | {a["code"].lower() for a in expected_addons}
+   unsupported_catalog_claim=any(row.get("code","").lower() not in expected_product_codes and any(re.search(r'(?<!\w)'+re.escape(term)+r'(?!\w)',lower) for term in row.get("terms",[]) if term) for row in case.get("_catalog_claim_terms",[]))
+   # Absolute promises contradict conditional/availability terms unless the
+   # owner facts themselves explicitly authorize that promise.
+   unsupported_guarantee=bool(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
    forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',lower)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',lower)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',lower))
-   fidelity=bool(exact and labels and package_ok and addons_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not forbidden)
+   fidelity=bool(exact and labels and package_ok and addons_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
   elif expected=="refusal":
    allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
    fidelity=bool(validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and not infrastructure)
