@@ -8,6 +8,9 @@
 'use strict';
 
 const https = require('https');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   hasStormglassConfig,
@@ -16,6 +19,7 @@ const {
 } = require('./staff-stormglass-config');
 
 const STORMGLASS_POINT_URL = 'https://api.stormglass.io/v2/weather/point';
+const STORMGLASS_TIDE_EXTREMES_URL = 'https://api.stormglass.io/v2/tide/extremes/point';
 const STORMGLASS_PARAMS = [
   'waveHeight',
   'swellHeight',
@@ -548,8 +552,9 @@ async function fetchSurfForecastForAskLuna(opts) {
 
 // Generic guest weather/marine forecast.  It is deliberately separate from the
 // legacy surf-day aggregate so callers retain hour-level facts and provenance.
-const FORECAST_CACHE_TTL_MS = 60 * 1000;
-const FORECAST_HORIZON_DAYS = 10;
+const FORECAST_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const TIDE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FORECAST_HORIZON_DAYS = 7;
 const FORECAST_PARAMS = [
   'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
   'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
@@ -568,6 +573,35 @@ const FORECAST_FIELDS = Object.freeze([
   ['tideHeight', 'tide_height_m'],
 ]);
 const forecastCache = new Map();
+
+function forecastCachePath() {
+  const configured = String(process.env.STORMGLASS_FORECAST_CACHE_PATH || '').trim();
+  return configured && path.isAbsolute(configured)
+    ? configured
+    : path.join(os.tmpdir(), 'stormglass-forecast-cache.json');
+}
+
+function readPersistentForecastCache() {
+  try {
+    const file = forecastCachePath();
+    const stat = fs.lstatSync(file);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 5 * 1024 * 1024) return { entries: {}, tides: {} };
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { entries: data && typeof data.entries === 'object' ? data.entries : {}, tides: data && typeof data.tides === 'object' ? data.tides : {} };
+  } catch (_) { return { entries: {}, tides: {} }; }
+}
+
+function writePersistentForecastCache(cache) {
+  try {
+    const file = forecastCachePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify({ version: 1, entries: cache.entries, tides: cache.tides }), { mode: 0o600 });
+    fs.renameSync(temp, file);
+  } catch (_) { /* cache persistence must not make forecasts unavailable */ }
+}
+
+function clearStormglassForecastCacheForTests() { forecastCache.clear(); }
 
 function toYmd(value) {
   const text = String(value || '');
@@ -607,15 +641,26 @@ async function fetchStormglassForecast(opts) {
   if (!location) throw typedStormglassError('UNSUPPORTED_LOCATION', 'forecast location is not bound');
   const date = toYmd(input.date);
   if (!date) throw typedStormglassError('INVALID_DATE', 'date must be YYYY-MM-DD');
+  const days = input.days == null ? 1 : Number(input.days);
+  if (!Number.isInteger(days) || days < 1 || days > 7) throw typedStormglassError('INVALID_DAYS', 'days must be an integer from 1 to 7');
   const nowMs = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
   const daysAway = Math.floor((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${getMadridCalendarYmd('today', nowMs)}T00:00:00Z`)) / DAY_MS);
-  if (daysAway < -1 || daysAway > FORECAST_HORIZON_DAYS) throw typedStormglassError('OUT_OF_HORIZON', 'requested date is outside forecast horizon');
+  if (daysAway < -1 || daysAway + days - 1 > FORECAST_HORIZON_DAYS) throw typedStormglassError('OUT_OF_HORIZON', 'requested date range is outside forecast horizon');
   if (!hasStormglassConfig()) throw typedStormglassError('NOT_CONFIGURED', 'Stormglass forecast is not configured');
-  const window = getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour);
+  const addDays = (ymd, count) => new Date(Date.parse(`${ymd}T12:00:00Z`) + count * DAY_MS).toISOString().slice(0, 10);
+  const labels = Array.from({ length: days }, (_, i) => addDays(date, i));
+  const window = days === 1
+    ? getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour)
+    : { start: madridLocalToUtcZ(date, 0), end: madridLocalToUtcZ(addDays(labels[labels.length - 1], 1), 0) };
   const cacheKey = JSON.stringify([locationId, window.start, window.end]);
+  const now = Date.now();
   const cached = forecastCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < FORECAST_CACHE_TTL_MS) {
-    return { ...cached.value, cache_hit: true };
+  if (cached && now - cached.cachedAt < FORECAST_CACHE_TTL_MS) return { ...cached.value, cache_hit: true };
+  const diskCache = readPersistentForecastCache();
+  const diskEntry = diskCache.entries[cacheKey];
+  if (diskEntry && now - diskEntry.cachedAt < FORECAST_CACHE_TTL_MS && diskEntry.value) {
+    forecastCache.set(cacheKey, diskEntry);
+    return { ...diskEntry.value, cache_hit: true };
   }
   const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: window.start, end: window.end });
   let response;
@@ -632,14 +677,33 @@ async function fetchStormglassForecast(opts) {
   const hourly = normalizeHourlyFacts(payload.hours);
   const missing = FORECAST_FIELDS.filter(([, key]) => hourly.every((row) => row[key] == null)).map(([, key]) => key);
   const coverage = missing.length === 0 ? 'complete' : (missing.length === FORECAST_FIELDS.length ? 'unavailable' : 'partial');
+  const localYmd = (iso) => typeof iso === 'string' ? new Date(iso).toLocaleDateString('en-CA', { timeZone: MADRID_TZ }) : null;
+  const tideKeys = labels.map((ymd) => JSON.stringify([location.location_id, ymd]));
+  const tideEntries = tideKeys.map((key) => diskCache.tides[key]).filter((entry) => entry && now - entry.cachedAt < TIDE_CACHE_TTL_MS);
+  let extremes = [];
+  if (tideEntries.length === tideKeys.length) extremes = tideEntries.flatMap((entry) => entry.extremes || []);
+  else {
+    try {
+      const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: window.start, end: window.end });
+      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS);
+      const tidePayload = tideResponse && tideResponse.status >= 200 && tideResponse.status < 300 ? JSON.parse(tideResponse.body || '{}') : {};
+      extremes = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));
+      tideKeys.forEach((key, i) => { diskCache.tides[key] = { cachedAt: now, extremes: extremes.filter((item) => localYmd(item.time) === labels[i]) }; });
+    } catch (_) { /* optional tide data never masks weather/marine facts */ }
+  }
   const value = {
     success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
     retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
+    days: labels.map((ymd) => ({ date: ymd, hourly: hourly.filter((row) => localYmd(row.time) === ymd) })),
+    tides: { source: 'stormglass_tide_extremes', extremes },
     missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
     units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
     cache_hit: false,
   };
-  forecastCache.set(cacheKey, { cachedAt: Date.now(), value });
+  const entry = { cachedAt: now, value };
+  forecastCache.set(cacheKey, entry);
+  diskCache.entries[cacheKey] = entry;
+  writePersistentForecastCache(diskCache);
   return value;
 }
 
@@ -647,7 +711,9 @@ module.exports = {
   FORECAST_PARAMS,
   FORECAST_HORIZON_DAYS,
   fetchStormglassForecast,
+  clearStormglassForecastCacheForTests,
   STORMGLASS_POINT_URL,
+  STORMGLASS_TIDE_EXTREMES_URL,
   STORMGLASS_PARAMS,
   DEFAULT_TIMEOUT_MS,
   MADRID_TZ,

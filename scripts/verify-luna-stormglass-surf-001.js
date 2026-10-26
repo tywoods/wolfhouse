@@ -6,12 +6,16 @@
  * provenance, typed non-secret outcomes, and the guest tool surface.
  */
 const assert = require('assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   getStormglassForecastLocation,
 } = require('./lib/staff-stormglass-config');
 const {
   fetchStormglassForecast,
   setStormglassFetchForTests,
+  clearStormglassForecastCacheForTests,
 } = require('./lib/staff-stormglass-forecast');
 
 let passed = 0;
@@ -41,6 +45,10 @@ async function main() {
 
   const oldKey = process.env.STORMGLASS_API_KEY;
   process.env.STORMGLASS_API_KEY = 'offline-test-key';
+  const cachePath = path.join(os.tmpdir(), `stormglass-forecast-${process.pid}.json`);
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  process.env.STORMGLASS_FORECAST_CACHE_PATH = cachePath;
+  clearStormglassForecastCacheForTests();
   const calls = [];
   setStormglassFetchForTests(async (url) => {
     calls.push(new URL(url));
@@ -78,6 +86,52 @@ async function main() {
     (err) => err && err.code === 'OUT_OF_HORIZON',
   );
   check('SGS7 out-of-horizon is typed', () => {});
+
+  // Regression: the generic forecast is a seven-day, file-backed weather and
+  // marine payload. Tide facts come from Stormglass's dedicated tide endpoint,
+  // never from weather/point's unsupported tideHeight parameter.
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  process.env.STORMGLASS_FORECAST_CACHE_PATH = cachePath;
+  clearStormglassForecastCacheForTests();
+  const multiCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    const parsed = new URL(url);
+    multiCalls.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') {
+      return { status: 200, body: JSON.stringify({ data: [{ time: '2026-10-25T05:00:00+00:00', height: 2.4, type: 'high' }] }) };
+    }
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 }, airTemperature: { sg: 14 } }] }) };
+  });
+  const multi = await fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 3,
+    nowMs: Date.parse('2026-10-24T08:00:00Z'),
+  });
+  check('SGS7a requests up to seven days as one weather/marine range', () => {
+    assert.equal(multi.days.length, 3);
+    assert.match(multi.validity.end, /2026-10-27T23:00:00Z/);
+    assert.equal(multiCalls.filter((call) => call.pathname === '/v2/weather/point').length, 1);
+  });
+  check('SGS7b uses the dedicated Stormglass tide endpoint', () => {
+    const tideCall = multiCalls.find((call) => call.pathname === '/v2/tide/extremes/point');
+    assert.ok(tideCall);
+    assert.equal(tideCall.searchParams.get('start'), multi.validity.start);
+    assert.equal(multi.tides.extremes[0].height_m, 2.4);
+  });
+  check('SGS7c persists non-secret forecast data and reuses it after memory reset', () => {
+    assert.ok(fs.existsSync(cachePath));
+    assert.equal(fs.readFileSync(cachePath, 'utf8').includes('offline-test-key'), false);
+    clearStormglassForecastCacheForTests();
+  });
+  const cachedMulti = await fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 3,
+    nowMs: Date.parse('2026-10-24T08:00:00Z'),
+  });
+  check('SGS7d file cache survives a process-memory reset and avoids repeat tide fetches', () => {
+    assert.equal(cachedMulti.cache_hit, true);
+    assert.equal(multiCalls.length, 2);
+  });
+  delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
+  try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
 
   setStormglassFetchForTests(null);
   if (oldKey) process.env.STORMGLASS_API_KEY = oldKey; else delete process.env.STORMGLASS_API_KEY;
@@ -164,6 +218,6 @@ async function main() {
     assert.equal(quota.needs_human, false);
     assert.equal(quota.invented_forecast, false);
   });
-  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/11)`);
+  console.log(`verify:luna-stormglass-surf-001 ${process.exitCode ? 'FAILED' : 'PASSED'} (${passed}/15)`);
 }
 main().catch((err) => { console.error(err); process.exitCode = 1; });
