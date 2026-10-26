@@ -162,7 +162,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
         expected = {"http-422": (422, None, "injected_validation"), "exception": (200, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable"), "non-json": (200, None, "staff_transport_non_json"), "malformed": (200, None, "malformed_staff_response")}
         for index, (fault, (status, exception_type, code)) in enumerate(expected.items(), 1):
             with self.subTest(fault=fault):
-                bind_inbound_event(f"11111111-1111-4111-8111-1111111111{index:02d}")
+                bind_inbound_event(f"11111111-1111-4111-8111-1111111111{index:02d}", booking_scope="scope-test")
                 evidence = []; tokens = bind_harness_evidence(evidence, fault)
                 operation_evidence = []; operation_token = bind_operation_evidence(operation_evidence)
                 try:
@@ -175,6 +175,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 self.assertEqual(1, len(operation_evidence), "every sent Staff call has one outcome record")
                 self.assertEqual(result, operation_evidence[0]["result"])
                 self.assertTrue(operation_evidence[0]["identity"])
+                self.assertEqual(operation_evidence[0]["action"], "prepare")
+                self.assertEqual(operation_evidence[0]["target"], "booking-scope:scope-test")
                 if fault in {"exception", "timeout", "non-json", "malformed"}:
                     self.assertEqual(result.get("outcome"), "unknown", "lost or unreadable Staff replies are unknown")
                 self.assertEqual(1, len(evidence))

@@ -53,6 +53,32 @@ class BookingStateConstraintTests(unittest.TestCase):
         self.assertIn("cannot verify", rendered)
         self.assertNotIn("authoritative_state=held", rendered)
 
+    def test_quote_then_unreadable_offer_prepare_makes_current_state_uncertain(self):
+        ledger = {
+            "state:quote": {"kind": "state", "status": "resolved", "staff_state": "quote",
+                            "target": "booking-scope:session-a", "sequence": 1},
+            "operation:prepare": {"kind": "command", "status": "unresolved", "mutation": True,
+                                  "action": "prepare", "target": "booking-scope:session-a", "sequence": 2},
+        }
+        rendered = self.module.render_booking_state_constraints([], ledger)
+        self.assertIn("last_verified_state=quoted", rendered)
+        self.assertIn("current_state=unknown", rendered)
+        self.assertIn("held=unknown", rendered)
+        self.assertNotIn("held=false", rendered)
+
+    def test_held_then_unreadable_confirm_makes_booking_state_uncertain(self):
+        target = "offer:offer_123456789012345678901234"
+        ledger = {
+            "state:offer": {"kind": "state", "status": "resolved", "staff_state": "offer",
+                            "target": target, "sequence": 1},
+            "operation:confirm": {"kind": "command", "status": "unresolved", "mutation": True,
+                                  "action": "confirm", "target": target, "sequence": 2},
+        }
+        rendered = self.module.render_booking_state_constraints([], ledger)
+        self.assertIn("last_verified_state=held", rendered)
+        self.assertIn("booked=unknown", rendered)
+        self.assertNotIn("booked=false", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

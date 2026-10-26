@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 _INBOUND_EVENT_ID: ContextVar[str] = ContextVar("luna_v3_inbound_event_id", default="")
+_BOOKING_SCOPE: ContextVar[str] = ContextVar("luna_v3_booking_scope", default="")
 _PREPARE_DISPATCHED: ContextVar[bool] = ContextVar("luna_v3_prepare_dispatched", default=False)
 _CAPABILITY_SNAPSHOT: ContextVar[Any] = ContextVar("luna_v3_capability_snapshot", default=None)
 _HARNESS_EVIDENCE: ContextVar[Any] = ContextVar("luna_v3_harness_evidence", default=None)
@@ -15,17 +16,22 @@ _HARNESS_FAULT: ContextVar[str] = ContextVar("luna_v3_harness_fault", default=""
 _OPERATION_EVIDENCE: ContextVar[list[dict[str, Any]] | None] = ContextVar("luna_v3_operation_evidence", default=None)
 
 
-def bind_inbound_event(event_id: str, capability_snapshot: Any = None) -> Token:
+def bind_inbound_event(event_id: str, capability_snapshot: Any = None, booking_scope: str = "") -> Token:
     value = str(event_id or "").strip()
     if not value:
         raise ValueError("persisted inbound event is required")
     _PREPARE_DISPATCHED.set(False)
     _CAPABILITY_SNAPSHOT.set(capability_snapshot)
+    _BOOKING_SCOPE.set(str(booking_scope or "").strip())
     return _INBOUND_EVENT_ID.set(value)
 
 
 def get_inbound_event() -> str:
     return _INBOUND_EVENT_ID.get()
+
+
+def get_booking_scope() -> str:
+    return _BOOKING_SCOPE.get()
 
 
 def clear_inbound_event(token: Token) -> None:
@@ -61,10 +67,13 @@ def clear_operation_evidence(token: Token) -> None:
     _OPERATION_EVIDENCE.reset(token)
 
 
-def record_operation_evidence(tool: str, result: dict[str, Any], *, identity: str | None = None) -> None:
+def record_operation_evidence(tool: str, result: dict[str, Any], *, identity: str | None = None,
+                              action: str | None = None, target: str | None = None,
+                              mutation: bool = False) -> None:
     recorder = _OPERATION_EVIDENCE.get()
     if recorder is not None:
-        recorder.append({"tool": str(tool), "identity": identity, "result": dict(result)})
+        recorder.append({"tool": str(tool), "identity": identity, "action": action,
+                         "target": target, "mutation": mutation, "result": dict(result)})
 
 
 def consume_harness_fault() -> str:
@@ -127,14 +136,26 @@ def render_booking_state_constraints(history: Any, operation_outcome: Any = None
         booked = state == "booked"
         held = state == "held"
 
-    held_text = "unknown" if state == "unknown" and unresolved else ("true" if held else "false")
-    booked_text = "unknown" if state == "unknown" and unresolved else ("true" if booked else "false")
+    affecting_mutation = next((value for value in unresolved
+                               if value.get("mutation", True) and
+                               (not value.get("target") or not state_evidence or
+                                value.get("target") == state_evidence.get("target"))), None)
+    last_verified_state = state
+    if affecting_mutation:
+        state = "unknown"
+        held = False
+        booked = False
+
+    held_text = "unknown" if state == "unknown" and affecting_mutation else ("true" if held else "false")
+    booked_text = "unknown" if state == "unknown" and affecting_mutation else ("true" if booked else "false")
     lines = [
         "TRUSTED STAFF BOOKING STATE",
         f"authoritative_state={state}; held={held_text}; booked={booked_text}.",
     ]
+    if affecting_mutation:
+        lines.append(f"last_verified_state={last_verified_state}; current_state=unknown for target={affecting_mutation.get('target') or 'current booking scope'}.")
     if unresolved:
-        lines.append("An unresolved Staff operation command outcome exists. Keep the established booking state above; do not infer or erase state from that command, shown chat, or an unrelated rejection. Only reconciliation evidence for the same operation resolves it.")
+        lines.append("An unresolved Staff operation command outcome exists. Keep last verified evidence separate from current state; do not infer or erase state from shown chat or an unrelated rejection. Only reconciliation evidence for the same operation resolves it.")
     if state == "quoted":
         lines.append("This is only a quote; you must not describe it as held or booked.")
     elif state == "held":

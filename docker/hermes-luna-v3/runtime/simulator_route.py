@@ -121,6 +121,8 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
                 "kind": "command", "identity": identity,
                 "status": "unresolved" if force_unresolved or unknown else "resolved",
                 "operation": str(item.get("tool") or "staff"),
+                "action": item.get("action"), "target": item.get("target"),
+                "mutation": item.get("mutation") is True,
                 "command_outcome": "unknown" if unknown else ("succeeded" if result.get("ok") is True else "rejected"),
                 "offer_reference": result.get("offer_reference"), "sequence": time.monotonic_ns(),
             }
@@ -131,6 +133,7 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
             ledger[state_identity] = {
                 "kind": "state", "identity": state_identity, "status": "resolved",
                 "operation": str(item.get("tool") or "staff"), "staff_state": state,
+                "target": item.get("target"),
                 "offer_reference": reference, "sequence": time.monotonic_ns(),
             }
     if not ledger:
@@ -140,6 +143,7 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
 def _record_cleanup_truth(session_id: str, offer_reference: str) -> None:
     _apply_operation_evidence(session_id, [{
         "tool": "check_quote_book", "identity": f"operation:cleanup:{offer_reference}",
+        "action": "decline", "target": f"offer:{offer_reference}", "mutation": True,
         "result": {"ok": True, "state": "released", "offer_reference": offer_reference},
     }])
 
@@ -279,7 +283,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     tokens = adapter._bind_api_server_session(session_key=session_key)
     from runtime.trusted_turn_context import (bind_inbound_event, clear_inbound_event,
         bind_harness_evidence, clear_harness_evidence, bind_operation_evidence, clear_operation_evidence)
-    inbound_token = bind_inbound_event(inbound_event_id, admission.get("capability_snapshot"))
+    inbound_token = bind_inbound_event(inbound_event_id, admission.get("capability_snapshot"), session_id)
     staff_exchanges: list[dict[str, Any]] = []
     operation_evidence: list[dict[str, Any]] = []
     harness_tokens = bind_harness_evidence(staff_exchanges if trace_allowed else None, fault)
@@ -347,6 +351,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             if reference:
                 _apply_operation_evidence(session_id, [{
                     "tool": "check_quote_book", "identity": f"operation:cleanup:{reference}",
+                    "action": "decline", "target": f"offer:{reference}", "mutation": True,
                     "result": {"outcome": "unknown", "offer_reference": reference},
                 }])
             return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}

@@ -135,13 +135,22 @@ class SimulatorRouteTests(unittest.TestCase):
 
     def test_unreadable_staff_reply_then_agent_exception_carries_unknown_outcome(self):
         adapter = FakeAdapter()
+        phone = self.module._normalize_phone("+34 699 901 019")
+        session_id = "luna-v3-" + self.module.hashlib.sha256(phone.encode()).hexdigest()[:24]
+        target = f"booking-scope:{session_id}"
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "check_quote_book", "identity": "operation:prior-quote",
+            "action": "prepare", "target": target,
+            "result": {"ok": True, "state": "quote"},
+        }])
         def fail_after_write(**kwargs):
             adapter.agent.calls.append(kwargs)
             from runtime import trusted_turn_context
             trusted_turn_context.record_operation_evidence("check_quote_book", {
                 "ok": False, "code": "staff_transport_non_json", "outcome": "unknown",
                 "offer_reference": "offer_123456789012345678901234",
-            }, identity="operation:confirm-unreadable")
+            }, identity="operation:confirm-unreadable", action="prepare",
+               target=target, mutation=True)
             raise RuntimeError("formatter failed")
         adapter.agent.run_conversation = fail_after_write
 
@@ -157,7 +166,11 @@ class SimulatorRouteTests(unittest.TestCase):
         ))
         self.assertEqual(failed["body"]["code"], "agent_failed_after_staff_write")
         self.assertEqual(recovered["status"], 200)
-        self.assertIn("unresolved Staff operation", adapter.agent_kwargs["ephemeral_system_prompt"])
+        prompt = adapter.agent_kwargs["ephemeral_system_prompt"]
+        self.assertIn("unresolved Staff operation", prompt)
+        self.assertIn("last_verified_state=quoted", prompt)
+        self.assertIn("held=unknown", prompt)
+        self.assertNotIn("held=false", prompt)
 
     def test_agent_exception_returns_bounded_502_and_does_not_advance_history(self):
         adapter = FakeAdapter()
