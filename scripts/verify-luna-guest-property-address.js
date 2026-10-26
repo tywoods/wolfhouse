@@ -46,6 +46,36 @@ assert.equal(
   'Somo',
   'labelled C.P.: postcode drops',
 );
+assert.equal(
+  formatGuestPropertyAddress('C. Puerto 41, Somo'),
+  'C. Puerto 41, Somo',
+  'C. Puerto is a street, not a C.P. label',
+);
+assert.equal(
+  formatGuestPropertyAddress('Calle Mayor 12, Capdepera'),
+  'Calle Mayor 12, Capdepera',
+  'Capdepera is a town, not a CAP label',
+);
+assert.equal(
+  formatGuestPropertyAddress('C. Mies de La Ran, 41, 39140, Somo, Cantabria'),
+  'C. Mies de La Ran, 41, Somo, Cantabria',
+  'standalone middle 5-digit before a city is a postcode',
+);
+assert.equal(
+  formatGuestPropertyAddress('C. Mies de La Ran, 41 39140 Somo, Cantabria'),
+  'C. Mies de La Ran, 41, Somo, Cantabria',
+  'single-line Spanish postcode drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('C. Mies de La Ran, 41, E-39140 Somo, Cantabria'),
+  'C. Mies de La Ran, 41, Somo, Cantabria',
+  'E-39140 country-prefixed postcode drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('12345 Highway 1, Malibu, CA'),
+  '12345 Highway 1, Malibu, CA',
+  'Highway house number stays',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -88,6 +118,36 @@ const confirmationCases = [
     expect: /\bSomo\b/,
     forbid: /39140/,
     name: 'C.P.: labelled postcode',
+  },
+  {
+    address: 'C. Puerto 41, Somo',
+    expect: /C\. Puerto 41, Somo/,
+    forbid: null,
+    name: 'C. Puerto street kept',
+  },
+  {
+    address: 'Calle Mayor 12, Capdepera',
+    expect: /Calle Mayor 12, Capdepera/,
+    forbid: /\bdepera\b/,
+    name: 'Capdepera town kept',
+  },
+  {
+    address: 'C. Mies de La Ran, 41, 39140, Somo, Cantabria',
+    expect: /C\. Mies de La Ran, 41, Somo, Cantabria/,
+    forbid: /39140/,
+    name: 'middle standalone postcode',
+  },
+  {
+    address: 'C. Mies de La Ran, 41 39140 Somo, Cantabria',
+    expect: /C\. Mies de La Ran, 41, Somo, Cantabria/,
+    forbid: /39140/,
+    name: 'single-line Spanish postcode',
+  },
+  {
+    address: 'C. Mies de La Ran, 41, E-39140 Somo, Cantabria',
+    expect: /C\. Mies de La Ran, 41, Somo, Cantabria/,
+    forbid: /39140/,
+    name: 'E-39140 postcode',
   },
 ];
 for (const language of ['en', 'es', 'it']) {
