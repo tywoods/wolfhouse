@@ -286,9 +286,44 @@ function stormglassHttpsGet(url, apiKey, timeoutMs) {
   });
 }
 
-async function stormglassGet(url, apiKey, timeoutMs) {
-  if (_requestImpl) return _requestImpl(url, apiKey, timeoutMs);
-  return stormglassHttpsGet(url, apiKey, timeoutMs);
+let providerBudget = { dayKey: '', used: 0, reserved: 0 };
+
+function providerBudgetDayKey(nowMs) {
+  return getMadridCalendarYmd('today', Number.isFinite(nowMs) ? nowMs : Date.now());
+}
+
+function reserveStormglassCall(nowMs) {
+  const dayKey = providerBudgetDayKey(nowMs);
+  if (providerBudget.dayKey !== dayKey) providerBudget = { dayKey, used: 0, reserved: 0 };
+  if (providerBudget.used + providerBudget.reserved >= STORMGLASS_DAILY_LIMIT) {
+    throw typedStormglassError('RATE_LIMITED', 'Stormglass daily allowance exhausted', 429);
+  }
+  providerBudget.reserved += 1;
+  let settled = false;
+  const settle = (count) => {
+    if (settled) return;
+    settled = true;
+    providerBudget.reserved -= 1;
+    if (count) providerBudget.used += 1;
+  };
+  return {
+    commit() { settle(true); },
+    release() { settle(false); },
+  };
+}
+
+async function stormglassGet(url, apiKey, timeoutMs, nowMs) {
+  const reservation = reserveStormglassCall(nowMs);
+  try {
+    const result = _requestImpl
+      ? await _requestImpl(url, apiKey, timeoutMs)
+      : await stormglassHttpsGet(url, apiKey, timeoutMs);
+    reservation.commit();
+    return result;
+  } catch (err) {
+    reservation.commit();
+    throw err;
+  }
 }
 
 /**
@@ -555,6 +590,7 @@ async function fetchSurfForecastForAskLuna(opts) {
 const FORECAST_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 const TIDE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FORECAST_HORIZON_DAYS = 7;
+const STORMGLASS_DAILY_LIMIT = 10;
 const FORECAST_PARAMS = [
   'waveHeight', 'swellHeight', 'swellPeriod', 'swellDirection',
   'windSpeed', 'windDirection', 'airTemperature', 'precipitation', 'cloudCover',
@@ -601,7 +637,10 @@ function writePersistentForecastCache(cache) {
   } catch (_) { /* cache persistence must not make forecasts unavailable */ }
 }
 
-function clearStormglassForecastCacheForTests() { forecastCache.clear(); }
+function clearStormglassForecastCacheForTests() {
+  forecastCache.clear();
+  providerBudget = { dayKey: '', used: 0, reserved: 0 };
+}
 
 function toYmd(value) {
   const text = String(value || '');
@@ -703,9 +742,11 @@ async function fetchStormglassForecast(opts) {
   if (!hasStormglassConfig()) throw typedStormglassError('NOT_CONFIGURED', 'Stormglass forecast is not configured');
   const addDays = (ymd, count) => new Date(Date.parse(`${ymd}T12:00:00Z`) + count * DAY_MS).toISOString().slice(0, 10);
   const labels = Array.from({ length: days }, (_, i) => addDays(date, i));
-  const customWindow = days === 1 && (input.startHour != null || input.endHour != null);
+  const startHour = input.startHour == null ? 0 : Number(input.startHour);
+  const endHour = input.endHour == null ? 24 : Number(input.endHour);
+  const customWindow = days === 1 && (startHour !== 0 || endHour !== 24);
   const window = days === 1
-    ? getForecastWindow(date, input.startHour == null ? 0 : input.startHour, input.endHour == null ? 24 : input.endHour)
+    ? getForecastWindow(date, startHour, endHour)
     : { start: madridLocalToUtcZ(date, 0), end: madridLocalToUtcZ(addDays(labels[labels.length - 1], 1), 0) };
   let fetchLabels = labels;
   let fetchWindow = window;
@@ -727,7 +768,7 @@ async function fetchStormglassForecast(opts) {
   } else {
     const qs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), params: FORECAST_PARAMS, start: fetchWindow.start, end: fetchWindow.end });
     let response;
-    try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS); }
+    try { response = await stormglassGet(`${STORMGLASS_POINT_URL}?${qs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS, nowMs); }
     catch (err) { throw typedStormglassError(err && err.name === 'AbortError' ? 'TIMEOUT' : 'UPSTREAM_ERROR', 'Stormglass forecast request failed'); }
     if (!response || response.status < 200 || response.status >= 300) {
       const status = response && response.status;
@@ -766,7 +807,7 @@ async function fetchStormglassForecast(opts) {
     const tideWindow = { start: getForecastWindow(firstMissingDay, 0, 24).start, end: getForecastWindow(lastMissingDay, 0, 24).end };
     try {
       const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: tideWindow.start, end: tideWindow.end });
-      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS);
+      const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS, nowMs);
       if (!tideResponse || tideResponse.status < 200 || tideResponse.status >= 300) throw new Error('tide upstream unavailable');
       const tidePayload = JSON.parse(tideResponse.body || '{}');
       const fetched = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));

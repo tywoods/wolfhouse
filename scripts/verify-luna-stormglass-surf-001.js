@@ -193,6 +193,61 @@ async function main() {
     assert.equal(outageCalls.filter((call) => call.pathname === '/v2/weather/point').length, 1);
     assert.equal(outageCalls.filter((call) => call.pathname === '/v2/tide/extremes/point').length, 6);
   });
+  const okWeatherTide = async (url, bucket) => {
+    const parsed = new URL(url); bucket.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') {
+      return { status: 200, body: JSON.stringify({ data: [{ time: '2026-10-25T05:00:00+00:00', height: 2.0, type: 'high' }] }) };
+    }
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.2 }, airTemperature: { sg: 14 } }] }) };
+  };
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const coldWeekCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return okWeatherTide(url, coldWeekCalls);
+  });
+  await Promise.allSettled(Array.from({ length: 6 }, () => fetchStormglassForecast({
+    locationId: 'sunset-sardinero', date: '2026-10-25', days: 7,
+    nowMs: Date.parse('2026-10-24T08:00:00Z'),
+  })));
+  check('SGS7h six simultaneous cold week requests stay at or under 10 provider calls', () => {
+    assert.ok(coldWeekCalls.length <= 10, `cold weeks used ${coldWeekCalls.length} calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const twelveOutageCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    const parsed = new URL(url); twelveOutageCalls.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-25T00:00:00+00:00', waveHeight: { sg: 1.1 } }] }) };
+  });
+  for (let i = 0; i < 12; i += 1) {
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date: '2026-10-25', days: 1,
+      nowMs: Date.parse('2026-10-24T08:00:00Z'),
+    }).catch(() => {});
+  }
+  check('SGS7i twelve tide-outage requests stay at or under 10 provider calls', () => {
+    assert.ok(twelveOutageCalls.length <= 10, `tide outage used ${twelveOutageCalls.length} calls`);
+  });
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* absent */ }
+  const periodCalls = [];
+  setStormglassFetchForTests(async (url) => okWeatherTide(url, periodCalls));
+  const periodNow = Date.parse('2026-10-24T08:00:00Z');
+  for (let i = 0; i < 8; i += 1) {
+    const date = new Date(Date.parse('2026-10-24T12:00:00Z') + i * 86400000).toISOString().slice(0, 10);
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date, startHour: 18, endHour: 24, nowMs: periodNow,
+    }).catch(() => {});
+    await fetchStormglassForecast({
+      locationId: 'sunset-sardinero', date, startHour: 0, endHour: 24, nowMs: periodNow,
+    }).catch(() => {});
+  }
+  check('SGS7j tonight then explicit 0-24 over 8 periods stays at or under 10 provider calls', () => {
+    assert.ok(periodCalls.length <= 10, `tonight+day periods used ${periodCalls.length} calls`);
+  });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
 
