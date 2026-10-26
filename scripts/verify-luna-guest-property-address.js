@@ -20,6 +20,17 @@ assert.equal(formatGuestPropertyAddress('10 Downing Street, SW1A 2AA London'), '
 assert.equal(formatGuestPropertyAddress('123 Main St, 94103-1234 San Francisco, CA'), '123 Main St, San Francisco, CA');
 assert.equal(formatGuestPropertyAddress(''), '');
 assert.equal(formatGuestPropertyAddress(null), '');
+assert.equal(formatGuestPropertyAddress('C.P. 39140 Somo'), 'Somo', 'C.P. labelled postcode drops');
+assert.equal(
+  formatGuestPropertyAddress('41\n39140 Somo\nCantabria'),
+  '41, Somo, Cantabria',
+  'multiline postal line drops',
+);
+assert.equal(
+  formatGuestPropertyAddress('12345 Main Street, 94103 San Francisco, CA'),
+  '12345 Main Street, San Francisco, CA',
+  '5-digit house number is not a postcode',
+);
 
 const facts = {
   guest_name: 'Ada',
@@ -43,5 +54,15 @@ for (const language of ['en', 'es', 'it']) {
   assert.doesNotMatch(message, /39140/, language + ' must not print the postcode');
   assert.match(message, /🗺️ https:\/\/maps\.example\/wolfhouse/, language + ' maps link stays');
 }
+
+const { buildCheckinDayMessageBody } = require('./lib/luna-guest-checkin-day-message');
+const checkin = buildCheckinDayMessageBody(
+  { client_slug: 'wolfhouse-somo', language: 'en', address: '   ' },
+  { loadClientCheckinConfig: () => ({ address: FULL, gate_code: '9999' }) },
+);
+assert.match(checkin.message_text, /C\. Mies de La Ran, 41, Somo, Cantabria/, 'whitespace address falls back to config then formats');
+assert.doesNotMatch(checkin.message_text, /39140/);
+assert.doesNotMatch(checkin.message_text, /\(address on file\)/);
+assert.equal(checkin.address, GUEST);
 
 console.log('PASS luna guest property address');
