@@ -6,7 +6,7 @@ from authenticated Staff admission, every case gets three fresh TEST sessions, a
 missing evidence fails closed. HTTP bytes are retained before parsing.
 """
 from __future__ import annotations
-import hashlib, json, os, pathlib, subprocess, sys, time, urllib.error, urllib.request
+import hashlib, json, os, pathlib, re, subprocess, sys, time, urllib.error, urllib.request
 
 REPS=3
 EXPECTED={"provider":"openai-codex","model":"gpt-6.1-sol","reasoning":"low","temperature":"provider-default","fallback":""}
@@ -121,18 +121,21 @@ def semantic_score(case,reply,calls,results,fault_exchange):
  if clarification: fidelity=None
  elif not results: fidelity=False
  else:
-  result=results[-1] if isinstance(results[-1],dict) else {}; text=str(reply or '').lower(); expected=case.get("expect")
+  call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
+  paired=[r for r in results if isinstance(r,dict) and r.get('_tool_call_id')==tool_call_id]
+  result=paired[0] if len(paired)==1 else {}; text=str(reply or '').lower(); expected=case.get("expect")
   success=expected in ("quote","mixed")
   intended=(result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True) if success else (result.get("ok") is False and result.get("classification") not in ("internal","transport") if expected=="refusal" else result.get("ok") is False)
-  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out","next_step","reason"))]
+  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out"))]
   def rendered(path,value):
    if "cents" in path.lower() and str(value).lstrip('-').isdigit():
-    cents=int(value); return str(cents) in text or f"{cents/100:.2f}" in text
-   return str(value).lower() in text
-  contradictions=(result.get("booked") is False and any(x in text for x in (" booked","confirmed booking","fully paid and confirmed"))) or (result.get("held") is False and " held" in text)
-  fidelity=bool(intended and authoritative and all(rendered(p,v) for p,v in authoritative) and not contradictions)
+    cents=int(value); tokens=re.findall(r'(?<![\w.])-?\d+(?:[.,]\d{1,2})?(?![\w.])',text)
+    return str(cents) in tokens or f"{cents/100:.2f}" in [x.replace(',','.') for x in tokens]
+   return bool(re.search(r'(?<!\w)'+re.escape(str(value).lower())+r'(?!\w)',text))
+  forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',text)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',text)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',text))
+  fidelity=bool(intended and (authoritative or not success) and all(rendered(p,v) for p,v in authoritative) and not forbidden)
  if case.get('fault'):
-  fault_ok=bool(fault_exchange and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed') is True and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
+  fault_ok=bool(fault_exchange and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and isinstance(fault_exchange.get('fault_observed'),str) and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
   if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
   if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
   if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
@@ -146,7 +149,7 @@ def _event_parts(body):
  for m in current:
   if isinstance(m,dict) and m.get("role")=="assistant": calls.extend(m.get("tool_calls") or [])
  prepare=[c for c in calls if ((c.get("function") or {}).get("name") or c.get("name"))=="check_quote_book" and (((c.get("function") or {}).get("arguments_parsed") or c.get("arguments_parsed") or {}).get("action")=="prepare")]
- results=[m.get("content_parsed") for m in current if isinstance(m,dict) and m.get("role")=="tool"]
+ results=[{**m.get("content_parsed"),"_tool_call_id":m.get("tool_call_id")} for m in current if isinstance(m,dict) and m.get("role")=="tool" and isinstance(m.get("content_parsed"),dict)]
  exchanges=trace.get("staff_http_exchanges") if isinstance(trace,dict) else []
  return prepare,results,exchanges or []
 
@@ -155,7 +158,8 @@ def score_events(case,events):
  for event in events:
   body=event.get("response") or {}; calls,results,exchanges=_event_parts(body); event_case=dict(case)
   if case.get("continuation"): event_case["expect"]="refusal" if not rows else "quote"
-  target=next((x for x in exchanges if isinstance(x,dict) and x.get('tool')=='check_quote_book' and x.get('fault_requested')==case.get('fault')),None)
+  intended=next((r for r in results if r.get('_tool_call_id')==(calls[0].get('id') if len(calls)==1 else None)),{})
+  target=next((x for x in exchanges if isinstance(x,dict) and x.get('call_id')==intended.get('call_id')),None)
   score=semantic_score(event_case,body.get("reply_text"),calls,results,target)
   expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
   function=(calls[0].get("function") or {}) if len(calls)==1 else {}

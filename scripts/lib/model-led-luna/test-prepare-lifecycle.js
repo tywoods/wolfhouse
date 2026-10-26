@@ -1,7 +1,8 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createCheckQuoteBook, publicFailure } = require('./v3-booking-flow');
-const { normalizeQuoteRequest, normalizeCapabilityChoice, ACCOMMODATION_ONLY } = require('./staff-request-contract');
+const { normalizeQuoteRequest, normalizeCapabilityChoice, ACCOMMODATION_ONLY, checkQuoteBookSchema } = require('./staff-request-contract');
+const emittedSchema = require('../../../docker/hermes-luna-v3/contracts/check_quote_book.schema.json');
 
 function harness({ rooms = true, quoteFailure = null, throwCatalog = false, failBegin = false,
   failCommit = false, failTerminalUpdates = 0, catalogItems = null } = {}) {
@@ -60,6 +61,9 @@ const input = { action: 'prepare', purpose: 'quote', check_in: '2027-01-01', che
 const context = (event, extra = {}) => ({ turnId: `turn:${event}`, sessionId: 'session', principalId: 'principal', authenticatedInboundEventId: event, ...extra });
 
 async function run() {
+  assert.deepEqual(checkQuoteBookSchema, emittedSchema, 'real adapter schema must equal the emitted plugin schema');
+  assert.deepEqual(checkQuoteBookSchema['x-staff-public-catalog'].accommodation_only, ACCOMMODATION_ONLY,
+    'admission and emitted accommodation semantics must have exact allocation parity');
   const catalog = { items: [{ item_type: 'package', item_code: 'package_none', label: 'Accommodation only' }] };
   assert.equal(normalizeQuoteRequest({ ...input, guests: [] }, catalog, [], {}).code, 'guests_required', 'missing guest facts refuse specifically');
   assert.equal(publicFailure({ code: 'staff_package_ineligible' }).message,

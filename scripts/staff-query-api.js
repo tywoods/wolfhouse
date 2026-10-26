@@ -55700,17 +55700,19 @@ async function router(req, res) {
             await pg.query(`UPDATE luna_v3_runtime_events SET capability_revision=$2,capability_snapshot=$3::jsonb
               WHERE id=$1::uuid AND direction='inbound'`,
             [inbound.id, capabilitySnapshot.revision, JSON.stringify(capabilitySnapshot)]);
+            // Read each durable domain owner directly. Operations are idempotency
+            // receipts, not evidence that a booking/payment/send exists.
             const state = (await pg.query(`SELECT
-                count(DISTINCT o.booking_id)::int AS booking_count,
-                count(DISTINCT h.id)::int AS hold_count,
-                count(DISTINCT CASE WHEN o.tool IN ('send_payment_link','get_payment_status') AND o.outcome='applied' THEN o.id END)::int AS payment_count,
-                count(DISTINCT CASE WHEN o.tool='external_send' AND o.outcome='applied' THEN o.id END)::int AS external_send_count,
-                count(DISTINCT CASE WHEN o.tool='staff_alert' AND o.outcome='applied' THEN o.id END)::int AS staff_alert_count
+                (SELECT count(*)::int FROM bookings b WHERE b.client_id=s.client_id AND b.id=s.selected_booking_id) AS booking_count,
+                (SELECT count(*)::int FROM luna_v3_holds h WHERE h.client_id=s.client_id AND h.session_id=s.id) AS hold_count,
+                ((SELECT count(*) FROM payments p WHERE p.client_id=s.client_id AND p.booking_id=s.selected_booking_id)
+                 +(SELECT count(*) FROM luna_v3_payment_links pl WHERE pl.client_id=s.client_id AND pl.session_id=s.id))::int AS payment_count,
+                (SELECT count(*)::int FROM guest_message_sends g WHERE g.client_slug=$4 AND g.to_phone=s.guest_phone AND g.status='sent') AS external_send_count,
+                (SELECT count(*)::int FROM client_notification_events n JOIN conversations cv ON cv.id=n.conversation_id
+                  WHERE n.client_slug=$4 AND cv.client_id=s.client_id AND cv.phone=s.guest_phone AND n.status IN ('accepted','sent')) AS staff_alert_count
               FROM luna_v3_sessions s
-              LEFT JOIN luna_v3_operations o ON o.client_id=s.client_id AND o.session_id=s.id
-              LEFT JOIN luna_v3_holds h ON h.client_id=s.client_id AND h.session_id=s.id
-              WHERE s.client_id=$1 AND s.session_key=$2 AND s.principal_id=$3 GROUP BY s.id`,
-            [client.id, sessionId, admittedPrincipal])).rows[0];
+              WHERE s.client_id=$1 AND s.session_key=$2 AND s.principal_id=$3`,
+            [client.id, sessionId, admittedPrincipal, admittedSlug])).rows[0];
             if (!state || Object.values(state).some((value) => !Number.isInteger(value) || value < 0)) {
               throw Object.assign(new Error('typed Staff state unavailable'), { code: 'luna_v3_staff_state_unavailable' });
             }

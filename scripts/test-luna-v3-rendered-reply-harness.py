@@ -95,12 +95,28 @@ class Gates(unittest.TestCase):
   self.assertTrue(self.runner.semantic_score(case,good,[{}],[quote],None)['fidelity'])
   fault_case={'expect':'uncertain','prepare_required':True,'fault':'timeout'}
   self.assertFalse(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],{'fault':'timeout'})['fidelity'])
-  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':True,'call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
-  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],exchange)['fidelity'])
+  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_observed','call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
+  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{'id':'tc'}],[{'ok':False,'call_id':'c','_tool_call_id':'tc'}],exchange)['fidelity'])
  def test_complete_request_matching_rejects_material_mutations(self):
   control={'check_in':'2027-06-01','check_out':'2027-06-08','guests':['Alex'],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
   base={'action':'prepare','purpose':'quote','check_in':control['check_in'],'check_out':control['check_out'],'guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'code':'package_none'},'add_ons':[]}
   self.assertTrue(self.runner.control_matches_prepare(control,base))
   for mutation in ({'purpose':'offer'},{'payment':{'arrangement':'together'}},{'room':{'kind':'shared','beds':['invented']}}):
    self.assertFalse(self.runner.control_matches_prepare(control,{**base,**mutation}))
+ def test_verdict_is_bound_to_intended_tool_call_and_exact_tokens(self):
+  case={'expect':'quote','prepare_required':True}; call={'id':'wanted'}
+  quote={'ok':True,'total_cents':12345,'currency':'EUR','_tool_call_id':'wanted'}
+  unrelated={'ok':True,'total_cents':12345,'currency':'EUR','_tool_call_id':'later'}
+  self.assertTrue(self.runner.semantic_score(case,'EUR 123.45',[call],[quote,unrelated],None)['fidelity'])
+  self.assertFalse(self.runner.semantic_score(case,'EUR 123.456',[call],[quote],None)['fidelity'])
+  self.assertFalse(self.runner.semantic_score(case,'EUR 123.45, booking confirmed',[call],[quote],None)['fidelity'])
+  self.assertFalse(self.runner.semantic_score(case,'EUR 123.45',[call],[unrelated],None)['fidelity'])
+ def test_state_query_uses_durable_owners_not_operation_heuristics(self):
+  source=(ROOT/'scripts/staff-query-api.js').read_text()
+  start=source.index('// Read each durable domain owner directly.')
+  block=source[start:source.index('if (!state ||',start)]
+  for owner in ('FROM bookings','FROM luna_v3_holds','FROM payments','FROM luna_v3_payment_links','FROM guest_message_sends','FROM client_notification_events'):
+   self.assertIn(owner,block)
+  self.assertNotIn('luna_v3_operations',block)
+  self.assertNotIn('get_payment_status',block)
 if __name__=='__main__': unittest.main(verbosity=2)
