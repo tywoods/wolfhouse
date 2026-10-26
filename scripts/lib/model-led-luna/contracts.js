@@ -86,7 +86,7 @@ function jsonSchemaFor(name) {
     guests: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, properties: {
       name: { type: 'string', minLength: 1 }, explicit_gender: { type: 'string', minLength: 1 }, gender: { type: 'string', minLength: 1 } } } },
     add_ons: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
-      code: { type: 'string' }, name: { type: 'string' }, days: { type: 'integer', minimum: 1 }, quantity: { type: 'integer', minimum: 1 },
+      code: { type: 'string' }, name: { type: 'string' }, days: { type: 'integer', minimum: 1 }, quantity: { type: 'integer' },
       dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, requested_dates: { type: 'array', items: { type: 'string', format: 'date' }, uniqueItems: true }, people: { type: 'array', items: { type: 'string' }, uniqueItems: true } } } },
     room: { type: 'object' }, package: { type: 'object' }, payment: { type: 'object' },
   });

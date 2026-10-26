@@ -193,8 +193,7 @@
           },
           "quantity": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Number of people or equipment units; never participant-days."
+            "description": "Number of people or equipment units; never participant-days. Invalid guest-supplied values are forwarded so Staff can return the authoritative refusal."
           },
           "days": {
             "type": "integer",
