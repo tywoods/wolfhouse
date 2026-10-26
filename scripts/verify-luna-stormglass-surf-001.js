@@ -130,6 +130,24 @@ async function main() {
     assert.equal(cachedMulti.cache_hit, true);
     assert.equal(multiCalls.length, 2);
   });
+  // A narrow tonight call must still populate its day-keyed tide cache from 00:00–24:00.
+  clearStormglassForecastCacheForTests();
+  try { fs.unlinkSync(cachePath); } catch (_) { /* force a tide-cache miss */ }
+  const narrowCalls = [];
+  setStormglassFetchForTests(async (url) => {
+    const parsed = new URL(url); narrowCalls.push(parsed);
+    if (parsed.pathname === '/v2/tide/extremes/point') return { status: 503, body: '{}' };
+    return { status: 200, body: JSON.stringify({ hours: [{ time: '2026-10-26T18:00:00Z', waveHeight: { sg: 1.1 } }] }) };
+  });
+  const narrow = await fetchStormglassForecast({ locationId: 'sunset-sardinero', date: '2026-10-26', startHour: 18, endHour: 24, nowMs: Date.parse('2026-10-24T08:00:00Z') });
+  const narrowRetry = await fetchStormglassForecast({ locationId: 'sunset-sardinero', date: '2026-10-26', startHour: 18, endHour: 24, nowMs: Date.parse('2026-10-24T08:00:00Z') });
+  check('SGS7e day-keyed tides fetch the full day and failures are not cached', () => {
+    const tideCalls = narrowCalls.filter((call) => call.pathname === '/v2/tide/extremes/point');
+    assert.equal(tideCalls.length, 2);
+    assert.match(tideCalls[0].searchParams.get('start'), /2026-10-25T23:00:00Z/);
+    assert.equal(narrow.tides.availability, 'unavailable');
+    assert.equal(narrowRetry.tides.availability, 'unavailable');
+  });
   delete process.env.STORMGLASS_FORECAST_CACHE_PATH;
   try { fs.unlinkSync(cachePath); } catch (_) { /* cleanup */ }
 

@@ -679,27 +679,39 @@ async function fetchStormglassForecast(opts) {
   const coverage = missing.length === 0 ? 'complete' : (missing.length === FORECAST_FIELDS.length ? 'unavailable' : 'partial');
   const localYmd = (iso) => typeof iso === 'string' ? new Date(iso).toLocaleDateString('en-CA', { timeZone: MADRID_TZ }) : null;
   const tideKeys = labels.map((ymd) => JSON.stringify([location.location_id, ymd]));
-  const tideEntries = tideKeys.map((key) => diskCache.tides[key]).filter((entry) => entry && now - entry.cachedAt < TIDE_CACHE_TTL_MS);
+  const tideEntries = tideKeys.map((key) => diskCache.tides[key]);
+  const missingTideIndexes = tideEntries.map((entry, i) => entry && now - entry.cachedAt < TIDE_CACHE_TTL_MS ? -1 : i).filter((i) => i >= 0);
   let extremes = [];
-  if (tideEntries.length === tideKeys.length) extremes = tideEntries.flatMap((entry) => entry.extremes || []);
+  let tideAvailability = 'available';
+  if (!missingTideIndexes.length) extremes = tideEntries.flatMap((entry) => entry.extremes || []);
   else {
+    // A day-keyed cache must be populated with the entire Madrid calendar day,
+    // never the caller's narrower "tonight" weather window.
+    const firstMissingDay = labels[missingTideIndexes[0]];
+    const lastMissingDay = labels[missingTideIndexes[missingTideIndexes.length - 1]];
+    const tideWindow = { start: getForecastWindow(firstMissingDay, 0, 24).start, end: getForecastWindow(lastMissingDay, 0, 24).end };
     try {
-      const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: window.start, end: window.end });
+      const tideQs = new URLSearchParams({ lat: String(location.lat), lng: String(location.lng), start: tideWindow.start, end: tideWindow.end });
       const tideResponse = await stormglassGet(`${STORMGLASS_TIDE_EXTREMES_URL}?${tideQs}`, process.env.STORMGLASS_API_KEY.trim(), input.timeoutMs || DEFAULT_TIMEOUT_MS);
-      const tidePayload = tideResponse && tideResponse.status >= 200 && tideResponse.status < 300 ? JSON.parse(tideResponse.body || '{}') : {};
-      extremes = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));
-      tideKeys.forEach((key, i) => { diskCache.tides[key] = { cachedAt: now, extremes: extremes.filter((item) => localYmd(item.time) === labels[i]) }; });
-    } catch (_) { /* optional tide data never masks weather/marine facts */ }
+      if (!tideResponse || tideResponse.status < 200 || tideResponse.status >= 300) throw new Error('tide upstream unavailable');
+      const tidePayload = JSON.parse(tideResponse.body || '{}');
+      const fetched = (Array.isArray(tidePayload.data) ? tidePayload.data : []).map((item) => ({ time: typeof item.time === 'string' ? item.time : null, height_m: Number.isFinite(item.height) ? item.height : null, type: typeof item.type === 'string' ? item.type : null }));
+      missingTideIndexes.forEach((i) => { diskCache.tides[tideKeys[i]] = { cachedAt: now, extremes: fetched.filter((item) => localYmd(item.time) === labels[i]) }; });
+      extremes = tideKeys.flatMap((key) => (diskCache.tides[key] && diskCache.tides[key].extremes) || []);
+    } catch (_) { tideAvailability = 'unavailable'; }
   }
   const value = {
     success: coverage !== 'unavailable', source: 'stormglass', location, timezone: location.timezone,
     retrieved_at: new Date().toISOString(), validity: window, hourly, coverage,
     days: labels.map((ymd) => ({ date: ymd, hourly: hourly.filter((row) => localYmd(row.time) === ymd) })),
-    tides: { source: 'stormglass_tide_extremes', extremes },
+    tides: { source: 'stormglass_tide_extremes', availability: tideAvailability, extremes },
     missing_fields: missing, fallback_reason: coverage === 'partial' ? 'missing_fields' : (coverage === 'unavailable' ? 'no_supported_fields' : null),
     units: { wave_height_m: 'm', swell_height_m: 'm', swell_period_s: 's', wind_speed_mps: 'm/s', air_temperature_c: '°C', precipitation_mm_per_h: 'mm/h', cloud_cover_pct: '%', current_speed_mps: 'm/s', tide_height_m: 'm' },
     cache_hit: false,
   };
+  // A tide HTTP failure is not forecast data: keep weather usable, but do not
+  // cache this combined payload or turn an upstream outage into a 24-hour gap.
+  if (tideAvailability === 'unavailable') return value;
   const entry = { cachedAt: now, value };
   forecastCache.set(cacheKey, entry);
   diskCache.entries[cacheKey] = entry;
