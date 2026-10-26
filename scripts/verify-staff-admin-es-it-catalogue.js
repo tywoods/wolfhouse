@@ -30,7 +30,9 @@ const KEYS = [
   'lunaStaff.pause.actionFailed',
   'lunaStaff.location.loadFailed',
   'lunaStaff.location.saveFailed',
+  'lunaStaff.location.invalidMap',
   'lunaStaff.bookingSettings.saveFailed',
+  'lunaStaff.bookingSettings.holdTimeMin',
   'lunaStaff.fields.loadFailed',
   'lunaStaff.fields.saveFailed',
   'lunaStaff.fields.saving',
@@ -46,6 +48,8 @@ const KEYS = [
   'admin.wh.services.genericError',
   'admin.wh.pricing.loadFailed',
   'admin.wh.pricing.saveFailed',
+  'admin.wh.pricing.genericError',
+  'admin.wh.pricing.writesDisabled',
   'common.loading',
   'common.saving',
   'common.saved',
@@ -83,6 +87,8 @@ const RAW = [
   'Global pause action failed',
   'Pausing Luna globally',
   'Resuming Luna globally',
+  'Enter a valid https map link',
+  'Enter a hold time of at least 1 minute',
 ];
 
 let failed = 0;
@@ -103,7 +109,7 @@ for (const key of KEYS) {
   check(key + ' IT present and not EN', !!it && it !== en, it);
 }
 
-const helper = /(?:\bt\(|whT\(|whStaffT\(|whStaffFieldsT\(|svcT\(|portalT\(|emailUiT\(|staffWhatsappNumbersI18n\()/;
+const helper = /(?:\bt\(|whT\(|whStaffT\(|whStaffFieldsT\(|svcT\(|svcMsg\(|portalT\(|emailUiT\(|staffWhatsappNumbersI18n\(|fallback:)/;
 for (const rel of FILES) {
   const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   for (const needle of RAW) {
@@ -120,6 +126,27 @@ for (const rel of FILES) {
     }
   }
 }
+
+const locSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-location-booking-settings-ui.js'), 'utf8');
+check('location status paints from key', locSrc.includes("node.setAttribute('data-i18n', key)"));
+check('location has no raw map validation English', !locSrc.includes('Enter a valid https map link, or clear the field.'));
+check('location has no raw hold-time English', !locSrc.includes('Enter a hold time of at least 1 minute.'));
+
+const svcSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-services-admin.js'), 'utf8');
+check('services load catches network failure', /loadServicesTab[\s\S]{0,1200}\.catch\(/.test(svcSrc));
+check('services loadFailed uses data-i18n', svcSrc.includes('data-i18n="admin.wh.services.loadFailed"'));
+
+const priceSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-admin-pricing-ui.js'), 'utf8');
+check('pricing maps error codes', priceSrc.includes('function pricingErrorKey'));
+check('pricing does not paint raw backend text', !priceSrc.includes('r.data.message || r.data.error'));
+
+const itLoad = STAFF_PORTAL_STRINGS.it['admin.wh.services.loadFailed'] || '';
+const itEmpty = STAFF_PORTAL_STRINGS.it['admin.wh.services.empty'] || '';
+check('IT loadFailed says surf camp e servizi', /surf camp e servizi/.test(itLoad), itLoad);
+check('IT empty says Crea surf camp', /Crea surf camp \/ lezione \/ servizio/.test(itEmpty), itEmpty);
+
+const i18nSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
+check('applyStaffPortalI18n honors data-i18n-vars', i18nSrc.includes('data-i18n-vars'));
 
 const { chromium } = require('playwright');
 const Module = require('module');
@@ -169,6 +196,42 @@ const html = api.buildUiHtmlForOfflineTest({ clientSlug: 'wolfhouse-somo' });
       check(lang + ' intelligence error is not English', text !== en && !/Could not load Luna Intelligence/.test(text), text);
       await context.close();
     }
+
+    const switchCtx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await switchCtx.addInitScript(() => {
+      localStorage.setItem('staff_portal_client', 'wolfhouse-somo');
+      localStorage.setItem('wh_staff_portal_locale', 'es');
+    });
+    await switchCtx.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/staff/ui') {
+        return route.fulfill({ contentType: 'text/html', body: html });
+      }
+      if (url.pathname.indexOf('/staff/admin/services') === 0) return route.abort();
+      if (url.pathname.startsWith('/staff/')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, rows: [], notes: '', paused: false }) });
+      }
+      return route.abort();
+    });
+    const switchPage = await switchCtx.newPage();
+    await switchPage.goto('http://staff.test/staff/ui', { waitUntil: 'domcontentloaded' });
+    await switchPage.locator('button.tab-btn[data-tab="admin"]').click();
+    await switchPage.locator('#wh-admin-tab-services').click();
+    await switchPage.waitForFunction(() => {
+      const el = document.getElementById('svc-list-body');
+      return !!(el && /campamentos y servicios|surf camp e servizi|Could not load/.test(el.textContent || ''));
+    }, null, { timeout: 8000 });
+    const esFail = (await switchPage.locator('#svc-list-body').textContent() || '').trim();
+    check('services network fail shows ES catalogue', esFail === STAFF_PORTAL_STRINGS.es['admin.wh.services.loadFailed'], esFail);
+    await switchPage.locator('.staff-lang-btn[data-lang="it"]').click();
+    await switchPage.waitForFunction((expected) => {
+      const el = document.getElementById('svc-list-body');
+      return !!(el && el.textContent && el.textContent.trim() === expected);
+    }, STAFF_PORTAL_STRINGS.it['admin.wh.services.loadFailed'], { timeout: 8000 });
+    const itFail = (await switchPage.locator('#svc-list-body').textContent() || '').trim();
+    check('language switch re-translates services error', itFail === STAFF_PORTAL_STRINGS.it['admin.wh.services.loadFailed'], itFail);
+    check('IT services error says surf camp', /surf camp e servizi/.test(itFail), itFail);
+    await switchCtx.close();
   } finally {
     await browser.close();
   }

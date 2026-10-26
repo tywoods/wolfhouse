@@ -967,7 +967,9 @@ const STAFF_PORTAL_STRINGS = {
     'lunaStaff.pause.actionFailed': 'Global pause action failed.',
     'lunaStaff.location.loadFailed': 'Could not load settings. Editing remains disabled.',
     'lunaStaff.location.saveFailed': 'Could not save location. The latest server state was reloaded.',
+    'lunaStaff.location.invalidMap': 'Enter a valid https map link, or clear the field.',
     'lunaStaff.bookingSettings.saveFailed': 'Could not save booking settings. The latest server state was reloaded.',
+    'lunaStaff.bookingSettings.holdTimeMin': 'Enter a hold time of at least 1 minute.',
     'lunaStaff.fields.loadFailed': 'Could not load.',
     'lunaStaff.fields.saveFailed': 'Could not save.',
     'lunaStaff.fields.saving': 'Saving…',
@@ -986,6 +988,15 @@ const STAFF_PORTAL_STRINGS = {
     'admin.wh.services.removed': 'Removed.',
     'admin.wh.services.genericError': 'Could not save. Try again.',
     'admin.wh.pricing.saveFailed': 'Could not save.',
+    'admin.wh.pricing.genericError': 'Could not save. Try again.',
+    'admin.wh.pricing.writesDisabled': 'Price editing is turned off for this environment.',
+    'admin.wh.pricing.notFound': 'That price item was not found.',
+    'admin.wh.pricing.forbidden': 'You cannot change prices for this client.',
+    'admin.wh.pricing.invalidItemType': 'That item type is not valid.',
+    'admin.wh.pricing.itemCodeRequired': 'An item code is required.',
+    'admin.wh.pricing.invalidBody': 'That pricing change was not valid.',
+    'admin.wh.pricing.itemSavedNoPrice': 'Item created, but the price was rejected. Set it with Edit.',
+    'admin.wh.pricing.transferSavedNoPrice': 'Airport saved, but the fare was rejected. Set it with Edit.',
     'common.saving': 'Saving…',
     'common.saved': 'Saved.',
     'lunaStaff.location.title': 'Location',
@@ -3507,7 +3518,12 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     scope.querySelectorAll('[data-i18n]').forEach(function(el){
       var k = el.getAttribute('data-i18n');
       if (!k) return;
-      el.textContent = window.t(k);
+      var vars = null;
+      var rawVars = el.getAttribute('data-i18n-vars');
+      if (rawVars) {
+        try { vars = JSON.parse(rawVars); } catch(_){}
+      }
+      el.textContent = window.t(k, vars);
     });
     scope.querySelectorAll('[data-i18n-placeholder]').forEach(function(el){
       var k = el.getAttribute('data-i18n-placeholder');

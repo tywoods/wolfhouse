@@ -100,9 +100,15 @@ function applyWolfhouseBookingSettingsLock(refs, settings) {
   refs.note.textContent = locked ? 'Locked because a deposit has already been received.' : '';
 }
 
-function wolfhouseLocationBookingStatus(node, message, isError) {
+function wolfhouseLocationBookingStatus(node, key, isError) {
   if (!node) return;
-  node.textContent = message || '';
+  if (!key) {
+    node.textContent = '';
+    node.removeAttribute('data-i18n');
+  } else {
+    node.setAttribute('data-i18n', key);
+    node.textContent = whStaffT(key, key);
+  }
   node.classList.toggle('is-error', !!isError);
   if (isError && window.staffCollapseReveal) window.staffCollapseReveal(node);
 }
@@ -301,11 +307,11 @@ function loadWolfhouseLocationBookingSettings() {
       enableFromKnown(result.settings);
       if (!ownsPresentation()) return result;
       if (succeeded) {
-        wolfhouseLocationBookingStatus(guard.card === 'location' ? refs.locationStatus : refs.bookingStatus, whStaffT('lunaStaff.fields.saved', 'Saved.'), false);
+        wolfhouseLocationBookingStatus(guard.card === 'location' ? refs.locationStatus : refs.bookingStatus, 'lunaStaff.fields.saved', false);
       } else {
         wolfhouseLocationBookingStatus(
           guard.card === 'location' ? refs.locationStatus : refs.bookingStatus,
-          guard.card === 'location' ? whStaffT('lunaStaff.location.saveFailed', 'Could not save location. The latest server state was reloaded.') : whStaffT('lunaStaff.bookingSettings.saveFailed', 'Could not save booking settings. The latest server state was reloaded.'),
+          guard.card === 'location' ? 'lunaStaff.location.saveFailed' : 'lunaStaff.bookingSettings.saveFailed',
           true
         );
       }
@@ -331,7 +337,7 @@ function loadWolfhouseLocationBookingSettings() {
       if (ownsPresentation()) {
         wolfhouseLocationBookingStatus(
           guard.card === 'location' ? refs.locationStatus : refs.bookingStatus,
-          whStaffT('lunaStaff.reconcileFailed', 'Could not reconcile the save. Reload to retry.'),
+          'lunaStaff.reconcileFailed',
           true
         );
       }
@@ -362,7 +368,7 @@ function loadWolfhouseLocationBookingSettings() {
     refs.locationSave.addEventListener('click', function () {
       if (refs.locationSave.disabled || wrap._wolfhouseWriteInFlight || !wrap._wolfhouseSettings) return;
       if (!isSafeWolfhouseMapUrl(refs.map.value)) {
-        wolfhouseLocationBookingStatus(refs.locationStatus, 'Enter a valid https map link, or clear the field.', true);
+        wolfhouseLocationBookingStatus(refs.locationStatus, 'lunaStaff.location.invalidMap', true);
         return;
       }
       var payload = wolfhouseLocationPayload(wrap._wolfhouseSettings.location.address_text, refs.map.value);
@@ -376,7 +382,7 @@ function loadWolfhouseLocationBookingSettings() {
       };
       wrap._wolfhouseWriteInFlight = guard;
       disableForRead();
-      wolfhouseLocationBookingStatus(refs.locationStatus, 'Saving…', false);
+      wolfhouseLocationBookingStatus(refs.locationStatus, 'common.saving', false);
       wolfhouseLocationBookingPut('/staff/admin/location', payload).then(
         function () { return settleWrite(guard, true); },
         function () { return settleWrite(guard, false); }
@@ -387,7 +393,7 @@ function loadWolfhouseLocationBookingSettings() {
       var payload;
       try { payload = wolfhouseBookingSettingsPayload(refs.hold.value, refs.each.checked); }
       catch (_error) {
-        wolfhouseLocationBookingStatus(refs.bookingStatus, 'Enter a hold time of at least 1 minute.', true);
+        wolfhouseLocationBookingStatus(refs.bookingStatus, 'lunaStaff.bookingSettings.holdTimeMin', true);
         return;
       }
       var saveToken = (wrap._wolfhouseOperationToken || 0) + 1;
@@ -400,7 +406,7 @@ function loadWolfhouseLocationBookingSettings() {
       };
       wrap._wolfhouseWriteInFlight = guard;
       disableForRead();
-      wolfhouseLocationBookingStatus(refs.bookingStatus, 'Saving…', false);
+      wolfhouseLocationBookingStatus(refs.bookingStatus, 'common.saving', false);
       wolfhouseLocationBookingPut('/staff/admin/booking-settings', payload).then(
         function () { return settleWrite(guard, true); },
         function () { return settleWrite(guard, false); }
@@ -409,8 +415,8 @@ function loadWolfhouseLocationBookingSettings() {
   }
 
   disableForRead();
-  wolfhouseLocationBookingStatus(refs.locationStatus, 'Loading…', false);
-  wolfhouseLocationBookingStatus(refs.bookingStatus, 'Loading…', false);
+  wolfhouseLocationBookingStatus(refs.locationStatus, 'common.loading', false);
+  wolfhouseLocationBookingStatus(refs.bookingStatus, 'common.loading', false);
   return readAndPaint(operationToken, null).then(function (settings) {
     if (!settings.applied) return null;
     wolfhouseLocationBookingStatus(refs.locationStatus, '', false);
@@ -418,8 +424,8 @@ function loadWolfhouseLocationBookingSettings() {
     return settings.settings;
   }).catch(function () {
     disableForRead();
-    wolfhouseLocationBookingStatus(refs.locationStatus, whStaffT('lunaStaff.location.loadFailed', 'Could not load settings. Editing remains disabled.'), true);
-    wolfhouseLocationBookingStatus(refs.bookingStatus, whStaffT('lunaStaff.location.loadFailed', 'Could not load settings. Editing remains disabled.'), true);
+    wolfhouseLocationBookingStatus(refs.locationStatus, 'lunaStaff.location.loadFailed', true);
+    wolfhouseLocationBookingStatus(refs.bookingStatus, 'lunaStaff.location.loadFailed', true);
     return null;
   });
 }
