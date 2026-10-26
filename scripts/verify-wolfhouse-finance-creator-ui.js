@@ -128,7 +128,7 @@ for (const [kind, example] of Object.entries(successFixture.detail_examples)) {
     check('arrival rows use named fields', detail.includes('data-wh-fin-field="check_in"') && detail.includes('data-wh-fin-field="check_out"') && detail.includes('10 Oct 2026'));
   }
   if (kind === 'warnings') {
-    check('warning rows use named fields', detail.includes('data-wh-fin-field="reason_code"') && detail.includes('malformed_money') && detail.includes('data-wh-fin-field="component"'));
+    check('warning rows use named fields and human-readable reasons', detail.includes('data-wh-fin-field="reason_code"') && detail.includes('A money amount could not be read.') && !detail.includes('>malformed_money<') && detail.includes('data-wh-fin-field="component"'));
   }
   if (kind === 'products') {
     check('product total is the server field', detail.includes('data-wh-fin-full-total="product_amount_cents"') && detail.includes('€300.00') && detail.includes('data-wh-fin-count="2"'));

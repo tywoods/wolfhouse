@@ -659,27 +659,39 @@ function whFinCreatorRow(creators, key) {
   return null;
 }
 
-function whFinReasons(metric) {
-  var codes = metric && Array.isArray(metric.reason_codes) ? metric.reason_codes : [];
-  if (!codes.length) return '';
+function whFinReasonDisplay(code) {
   var labels = {
-    malformed_money: ['admin.finance.wh.reason.malformed_money', 'A payment amount could not be read.'],
+    malformed_money: ['admin.finance.wh.reason.malformed_money', 'A money amount could not be read.'],
     unsafe_integer: ['admin.finance.wh.reason.unsafe_integer', 'A number was too large to report safely.'],
-    unknown_currency: ['admin.finance.wh.reason.unknown_currency', 'An unknown currency was excluded.'],
+    non_integer_or_unsafe: ['admin.finance.wh.reason.non_integer_or_unsafe', 'A money amount was not safe to report.'],
+    unknown_currency: ['admin.finance.wh.reason.unknown_currency', 'An authoritative currency was not available.'],
     mixed_currency: ['admin.finance.wh.reason.mixed_currency', 'Another currency was excluded.'],
     creator_unresolved: ['admin.finance.wh.reason.creator_unresolved', 'The booking creator could not be resolved.'],
-    refund_ledger_unavailable: ['admin.finance.wh.reason.refund_ledger_unavailable', 'Refund records could not be read.'],
-    refund_row_unreadable: ['admin.finance.wh.reason.refund_row_unreadable', 'A refund row could not be read.'],
+    refund_ledger_unavailable: ['admin.finance.wh.reason.refund_ledger_unavailable', 'Recorded refunds could not be read.'],
+    refund_row_unreadable: ['admin.finance.wh.reason.refund_row_unreadable', 'A recorded refund could not be read.'],
+    refund_source_unreadable: ['admin.finance.wh.reason.refund_source_unreadable', 'A recorded refund source could not be read.'],
+    conflicting_refund_identity: ['admin.finance.wh.reason.conflicting_refund_identity', 'A recorded refund had conflicting identity details.'],
     payment_identity_missing: ['admin.finance.wh.reason.payment_identity_missing', 'A payment had no stable identity.'],
+    conflicting_payment_identity: ['admin.finance.wh.reason.conflicting_payment_identity', 'A payment had conflicting identity details.'],
+    receipt_date_missing: ['admin.finance.wh.reason.receipt_date_missing', 'A payment had no receipt date.'],
     creation_date_missing: ['admin.finance.wh.reason.creation_date_missing', 'A booking had no creation date.'],
     saved_total_unreadable: ['admin.finance.wh.reason.saved_total_unreadable', 'A saved total could not be read.'],
     balance_reconciliation_unavailable: ['admin.finance.wh.reason.balance_reconciliation_unavailable', 'The balance could not be reconciled.'],
+    incomplete_inputs_malformed_bsr: ['admin.finance.wh.reason.incomplete_inputs_malformed_bsr', 'A required balance input could not be read.'],
+    balance_drift: ['admin.finance.wh.reason.balance_drift', 'A saved balance differs from its component amounts.'],
+    material_balance_drift: ['admin.finance.wh.reason.material_balance_drift', 'A saved balance has a reconciliation exception.'],
     stale_generation: ['admin.finance.wh.reason.stale_generation', 'These figures are from an older refresh.'],
   };
+  var spec = labels[code] || ['admin.finance.wh.reason.other', 'Unclassified data-quality issue'];
+  return financeRedesignT(spec[0], spec[1]);
+}
+
+function whFinReasons(metric) {
+  var codes = metric && Array.isArray(metric.reason_codes) ? metric.reason_codes : [];
+  if (!codes.length) return '';
   return '<ul class="wh-fin-reasons">' + codes.map(function (code) {
-    var spec = labels[code] || ['admin.finance.wh.reason.other', code];
     return '<li data-wh-fin-reason="' + financeRedesignEsc(code) + '">' +
-      financeRedesignEsc(financeRedesignT(spec[0], spec[1])) + '</li>';
+      financeRedesignEsc(whFinReasonDisplay(code)) + '</li>';
   }).join('') + '</ul>';
 }
 
@@ -1204,7 +1216,8 @@ function renderWolfhouseCreatorFinanceDetailHtml(detailEnvelope, opts) {
       else if (isDateTime || isDate) {
         cell = '<time datetime="' + financeRedesignEsc(value == null ? '' : String(value)) + '">' +
           financeRedesignEsc(isDateTime ? financeRedesignFormatDateTime(value) : financeRedesignFormatIsoDate(value)) + '</time>';
-      } else cell = financeRedesignEsc(value == null ? '' : String(value));
+      } else if (field === 'reason_code') cell = financeRedesignEsc(whFinReasonDisplay(value));
+      else cell = financeRedesignEsc(value == null ? '' : String(value));
       html += '<td data-wh-fin-field="' + field + '">' + cell + '</td>';
     });
     html += '</tr>';
