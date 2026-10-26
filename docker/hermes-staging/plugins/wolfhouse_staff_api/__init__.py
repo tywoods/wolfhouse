@@ -1130,10 +1130,10 @@ def quote_booking(params, **kwargs):
     offer_revision = deepcopy(data.get("offer_revision"))
     if isinstance(offer_revision, dict):
         # These are opaque Staff pricing/policy facts. Preserve the complete
-        # rates object (including future uncapped tiers) and the explicit
-        # pay-on-arrival review decision; never derive either in Hermes.
+        # rates object (including future uncapped tiers), Staff's review
+        # decision, and the exact payment-link amount; never derive them here.
         for key in ("per_person", "included_items", "stay_deposit_rates",
-                    "pay_on_arrival_review_required"):
+                    "staff_review_required", "payment_link_amount_cents"):
             if key in data:
                 offer_revision[key] = deepcopy(data[key])
             elif key in quote:
@@ -1188,10 +1188,14 @@ def quote_booking(params, **kwargs):
         "stay_deposit_rates": deepcopy(
             data["stay_deposit_rates"] if "stay_deposit_rates" in data
             else quote.get("stay_deposit_rates")),
-        "pay_on_arrival_review_required": (
-            data["pay_on_arrival_review_required"]
-            if "pay_on_arrival_review_required" in data
-            else quote.get("pay_on_arrival_review_required")),
+        "staff_review_required": (
+            data["staff_review_required"]
+            if "staff_review_required" in data
+            else quote.get("staff_review_required")),
+        "payment_link_amount_cents": (
+            data["payment_link_amount_cents"]
+            if "payment_link_amount_cents" in data
+            else quote.get("payment_link_amount_cents")),
         "missing_fields": data.get("missing_fields") or [],
         "unknown_add_on_codes": unknown_codes,
         "add_on_errors": data.get("add_on_errors") or [],

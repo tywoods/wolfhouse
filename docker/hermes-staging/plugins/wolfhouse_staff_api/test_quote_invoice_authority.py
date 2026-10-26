@@ -83,7 +83,7 @@ class QuoteInvoiceAuthorityTests(unittest.TestCase):
         self.assertEqual(result["offer_revision"]["per_person"], revision["per_person"])
         self.assertEqual(result["offer_revision"]["included_items"], revision["included_items"])
 
-    def test_quote_preserves_staff_deposit_rates_and_pay_on_arrival_review_flag(self):
+    def test_quote_preserves_staff_deposit_rates_review_flag_and_zero_link_amount(self):
         rates = {"short_stay_cents": 10000, "long_stay_cents": 20000,
                  "source": "admin_pricing", "future_tier": {"uncapped": True}}
         revision = {
@@ -105,7 +105,8 @@ class QuoteInvoiceAuthorityTests(unittest.TestCase):
                         "deposit_required_cents": 10000, "balance_due_cents": 12000,
                         "offer_revision": copy.deepcopy(revision),
                         "stay_deposit_rates": copy.deepcopy(rates),
-                        "pay_on_arrival_review_required": True}
+                        "staff_review_required": True,
+                        "payment_link_amount_cents": 0}
             raise AssertionError(path)
 
         params = {key: value for key, value in revision.items()
@@ -116,8 +117,11 @@ class QuoteInvoiceAuthorityTests(unittest.TestCase):
             result = json.loads(plugin.quote_booking(params))
         self.assertEqual(result["stay_deposit_rates"], rates)
         self.assertEqual(result["offer_revision"]["stay_deposit_rates"], rates)
-        self.assertIs(result["pay_on_arrival_review_required"], True)
-        self.assertIs(result["offer_revision"]["pay_on_arrival_review_required"], True)
+        self.assertIs(result["staff_review_required"], True)
+        self.assertIs(result["offer_revision"]["staff_review_required"], True)
+        self.assertNotIn("pay_on_arrival_review_required", result)
+        self.assertNotIn("pay_on_arrival_review_required", result["offer_revision"])
+        self.assertEqual(result["payment_link_amount_cents"], 0)
         self.assertEqual(result["offer_revision"]["payment_link_amount_cents"], 0)
 
 
