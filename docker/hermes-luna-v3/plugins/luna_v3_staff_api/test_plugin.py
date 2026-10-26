@@ -209,6 +209,27 @@ class LunaV3PluginContractTests(unittest.TestCase):
         self.assertEqual(b'{"ok":true}'.hex(),injected_ev['original_response_hex']); self.assertNotEqual(injected_ev['original_response_hex'],injected_ev['raw_response_hex'])
         self.assertNotEqual(real_ev['call_id'],injected_ev['call_id'])
 
+    def test_http_error_faults_execute_truthfully_and_retain_original_boundary(self):
+        plugin = self.load_plugin()
+        from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event
+        env={"LUNA_V3_STAFF_API_BASE_URL":"https://staff.example","LUNA_V3_STAFF_API_TOKEN":"token","LUNA_V3_TENANT_ID":"wolfhouse-somo","LUNA_V3_SESSION_ID":"luna-v3:test"}
+        for index,fault in enumerate(('exception','timeout','http-422','non-json','malformed'),1):
+            bind_inbound_event(f'30000000-0000-4000-8000-00000000000{index}')
+            evidence=[]; tokens=bind_harness_evidence(evidence,fault)
+            error=urllib.error.HTTPError('https://staff.example/x',503,'down',{},io.BytesIO(b'{"code":"owner_down"}'))
+            try:
+                with patch.dict(os.environ,env,clear=True),patch.object(plugin,'_open_staff',side_effect=error):
+                    result=plugin.call_tool('get_booking',{})
+            finally: clear_harness_evidence(tokens)
+            self.assertFalse(result['ok']); self.assertEqual(1,len(evidence)); row=evidence[0]
+            self.assertEqual(503,row['original_status']); self.assertEqual(422 if fault=='http-422' else 503,row['status'])
+            self.assertEqual(fault,row['fault_applied'])
+            self.assertTrue(row['original_response_hex']); self.assertTrue(row['raw_response_hex'])
+            if fault=='exception': self.assertEqual(('RuntimeError','runtime_exception_raised'),(row['exception_type'],row['fault_observed']))
+            if fault=='timeout': self.assertEqual(('TimeoutError','timeout_exception_raised'),(row['exception_type'],row['fault_observed']))
+            if fault=='non-json': self.assertEqual('http_error_json_parse_error',row['fault_observed'])
+            if fault=='malformed': self.assertEqual('http_error_malformed_shape',row['fault_observed'])
+
     def test_same_event_calls_are_isolated_and_connect_timeout_is_typed(self):
         plugin = self.load_plugin()
         from runtime.trusted_turn_context import bind_harness_evidence, clear_harness_evidence, bind_inbound_event

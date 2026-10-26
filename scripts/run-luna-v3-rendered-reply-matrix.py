@@ -38,11 +38,39 @@ def request(url,token,trace,payload,*,fault=None,timeout=240):
  except Exception: parsed=None
  return {"status":status,"raw":raw,"headers":response_headers,"elapsed_ms":round((time.time()-started)*1000),"parsed":parsed}
 
+def _sha256_json(value): return digest(value)
+def _valid_sha256(value): return isinstance(value,str) and re.fullmatch(r"[0-9a-f]{64}",value) is not None
+
+def _owner_canary_valid(case,revision):
+ canary=case.get("owner_canary")
+ if not isinstance(canary,dict) or set(canary)!={"receipt_id","executed_at","capability_revision","prompt_sha256","correction_prompt_sha256","control_sha256","outcome_sha256","corrected_control_sha256","corrected_outcome_sha256"}: return False
+ if not isinstance(canary.get("receipt_id"),str) or not canary["receipt_id"].strip() or canary.get("capability_revision")!=revision: return False
+ try: datetime.datetime.fromisoformat(canary.get("executed_at","").replace("Z","+00:00"))
+ except (TypeError,ValueError): return False
+ expected={"prompt_sha256":digest_bytes(case.get("prompt","").encode()),"correction_prompt_sha256":digest_bytes(str(case.get("correction_prompt") or "").encode()),"control_sha256":_sha256_json(case.get("control")),"outcome_sha256":_sha256_json(case.get("intended_owner_outcome")),"corrected_control_sha256":_sha256_json(case.get("corrected_control")),"corrected_outcome_sha256":_sha256_json(case.get("corrected_owner_outcome"))}
+ return all(_valid_sha256(canary.get(k)) and canary[k]==v for k,v in expected.items())
+
+def _selection_kinds(control,active):
+ package=control.get("package") if isinstance(control,dict) else None
+ package_codes=[package] if isinstance(package,str) else [p.get("code") or p.get("name") for p in package.get("per_guest",[]) if isinstance(p,dict)] if isinstance(package,dict) else []
+ addon_codes=[a.get("code") or a.get("name") for a in control.get("add_ons",[]) if isinstance(a,dict)] if isinstance(control,dict) else []
+ return [active.get(code,{}).get("kind") for code in package_codes],[active.get(code,{}).get("kind") for code in addon_codes],addon_codes
+
+def _category_matches_selection(category,control,choices):
+ active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active") is True}
+ package_kinds,addon_kinds,_=_selection_kinds(control,active)
+ if category=="accommodation": return package_kinds and set(package_kinds)=={"accommodation"} and not addon_kinds
+ if category=="package": return "package" in package_kinds and not addon_kinds
+ if category=="rental": return package_kinds and set(package_kinds)=={"accommodation"} and bool(addon_kinds) and set(addon_kinds)=={"rental"}
+ if category.startswith("service:"): return package_kinds and set(package_kinds)=={"accommodation"} and bool(addon_kinds) and set(addon_kinds)=={"service"}
+ if category=="mixed": return "package" in package_kinds and "rental" in addon_kinds and "service" in addon_kinds
+ return True
+
 def make_cases(snapshot,fixture):
  """Fail closed unless cases are explicitly authored and proven by the Staff owner."""
  choices=snapshot.get("choices") if isinstance(snapshot,dict) else None
  if not isinstance(snapshot,dict) or snapshot.get("ok") is not True or not snapshot.get("revision") or not isinstance(choices,list): raise SystemExit("BLOCKED: malformed live Staff capability snapshot")
- if not isinstance(fixture,dict) or fixture.get("schema")!="luna-matrix-fixture/v1" or fixture.get("tenant")!="wolfhouse-somo": raise SystemExit("BLOCKED: malformed fixture schema")
+ if not isinstance(fixture,dict) or fixture.get("schema")!="luna-matrix-fixture/v2" or fixture.get("tenant")!="wolfhouse-somo": raise SystemExit("BLOCKED: malformed fixture schema")
  owner=fixture.get("owner_provenance")
  if not isinstance(owner,dict) or owner.get("authority")!="staff-owner" or not all(isinstance(owner.get(k),str) and owner[k].strip() for k in ("fixture_id","approved_by","approved_at","owner_revision_or_receipt_id")): raise SystemExit("BLOCKED: fixture lacks owner provenance")
  if fixture.get("capability_revision")!=snapshot["revision"]: raise SystemExit("BLOCKED: fixture capability revision mismatch")
@@ -60,11 +88,18 @@ def make_cases(snapshot,fixture):
   if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome,control=case.get("control")): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
-  if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
+  if case["prepare_required"] and (not validate_control(case,choices) or not _category_matches_selection(category,case.get("control"),choices)): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
   if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True,control=case.get("corrected_control"))): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
+  if not _owner_canary_valid(case,snapshot["revision"]): raise SystemExit(f"BLOCKED: case lacks matching dated owner canary: {cid}")
   out.append(case)
  required=set(allowed)
  if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
+ lesson_codes=[]
+ for category in ("service:lesson_a","service:lesson_b"):
+  lesson=next(c for c in out if c["category"]==category)
+  active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active") is True}
+  _pk,_ak,codes=_selection_kinds(lesson["control"],active); lesson_codes.append(tuple(sorted(code for code in codes if active.get(code,{}).get("kind")=="service")))
+ if not all(lesson_codes) or lesson_codes[0]==lesson_codes[1]: raise SystemExit("BLOCKED: lesson categories do not prove distinct owner products")
  group=next(c for c in out if c["category"]=="multi_guest")["control"]; package=group.get("package")
  packages=package.get("per_guest") if isinstance(package,dict) else None
  add_people={person for a in group.get("add_ons",[]) if isinstance(a,dict) for person in a.get("people",[])}
@@ -163,19 +198,44 @@ def control_matches_prepare(control,args):
  if not isinstance(control,dict) or not isinstance(args,dict): return False
  if args.get("action")!="prepare" or args.get("purpose")!="quote" or "payment" in args: return False
  if any(args.get(k)!=control.get(k) for k in ("check_in","check_out")): return False
- guest_names=[g.get("name") if isinstance(g,dict) else g for g in args.get("guests") or []]
- expected_names=[g.get("name") if isinstance(g,dict) else g for g in control.get("guests") or []]
- if guest_names!=expected_names: return False
+ guest_rows=args.get("guests") or []; expected_guests=control.get("guests") or []
+ def canonical_guest(row):
+  if isinstance(row,str): return {"name":row}
+  if not isinstance(row,dict) or not isinstance(row.get("name"),str): return None
+  normalized=json.loads(json.dumps(row))
+  if "explicit_gender" not in normalized and "gender" in normalized: normalized["explicit_gender"]=normalized["gender"]
+  normalized.pop("gender",None)
+  return normalized
+ if [canonical_guest(g) for g in guest_rows]!=[canonical_guest(g) for g in expected_guests]: return False
  if args.get("room")!=control.get("room"): return False
- package=args.get("package")
- if isinstance(control.get("package"),dict):
-  if package!=control["package"]: return False
- else:
-  package_code=package.get("code") or package.get("name") if isinstance(package,dict) else package
-  if package_code!=control.get("package"): return False
- def addon_key(row):
-  return (row.get("code") or row.get("name"),row.get("quantity"),tuple(row.get("dates") or row.get("requested_dates") or []),tuple(row.get("people") or []))
- return sorted(addon_key(x) for x in args.get("add_ons") or [])==sorted(addon_key(x) for x in control.get("add_ons") or [])
+ def canonical_package(value):
+  if isinstance(value,str): return {"code":value}
+  if not isinstance(value,dict): return None
+  normalized=json.loads(json.dumps(value))
+  if "per_guest" in normalized:
+   bindings=[]
+   for binding in normalized["per_guest"]:
+    if not isinstance(binding,dict): return None
+    row=dict(binding); code=row.pop("code",None) or row.pop("name",None); row.pop("name",None); row["code"]=code; bindings.append(row)
+   normalized["per_guest"]=sorted(bindings,key=lambda row:row.get("guest",0))
+  else:
+   code=normalized.pop("code",None) or normalized.pop("name",None); normalized.pop("name",None); normalized["code"]=code
+  return normalized
+ if canonical_package(args.get("package"))!=canonical_package(control.get("package")): return False
+ def canonical_addon(row):
+  if not isinstance(row,dict): return None
+  normalized=json.loads(json.dumps(row)); code=normalized.pop("code",None) or normalized.pop("name",None)
+  normalized.pop("name",None); normalized["code"]=code
+  dates=normalized.pop("dates",None)
+  requested=normalized.pop("requested_dates",None)
+  if dates is not None and requested is not None and sorted(dates)!=sorted(requested): return None
+  if dates is not None or requested is not None:
+   selected_dates=dates if dates is not None else requested
+   normalized["dates"]=sorted(selected_dates or [])
+  if "people" in normalized: normalized["people"]=sorted(normalized["people"])
+  return normalized
+ actual_addons=[canonical_addon(x) for x in args.get("add_ons") or []]; expected_addons=[canonical_addon(x) for x in control.get("add_ons") or []]
+ return None not in actual_addons and None not in expected_addons and sorted(json.dumps(x,sort_keys=True,separators=(',',':')) for x in actual_addons)==sorted(json.dumps(x,sort_keys=True,separators=(',',':')) for x in expected_addons)
 
 STATE_FIELDS={"booking_count","hold_count","payment_count","external_send_count","staff_alert_count"}
 def valid_state_receipt(value,thread):
@@ -228,14 +288,34 @@ def canonical_facts(value):
    return {"currency":currency,"total_cents":total,"deposit_cents":deposit,"remaining_cents":remaining,"check_in":check_in,"check_out":check_out,"package":cp,"add_ons":ca,"inclusions":inclusions,"terms":terms}
  return None
 
-def semantic_score(case,reply,calls,results,fault_exchange):
- result={}; prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
+def _reply_claims(text):
+ """Extract typed, polarity-aware public claims instead of matching a deny-list."""
+ lower=str(text or "").lower(); clauses=[c.strip() for c in re.split(r';|[!?]|(?<!\d)\.(?!\d)',lower) if c.strip()]
+ money=[]; positive_transactions=[]; refusal_signal=False
+ currency_pattern=r'(?:(?P<prefix>eur|usd|gbp|\$|£|€)\s*(?P<a>\d+)(?:[.,](?P<b>\d{1,2}))?|(?P<c>\d+)(?:[.,](?P<d>\d{1,2}))?\s*(?P<suffix>eur|usd|gbp))'
+ for clause in clauses:
+  negation=r"\b(?:not|never|no|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|doesn['’]?t|don['’]?t|didn['’]?t|cannot|can['’]?t|couldn['’]?t|won['’]?t|wouldn['’]?t)\b"
+  negated=bool(re.search(negation,clause))
+  refusal_signal = refusal_signal or bool(re.search(r'\b(?:unavailable|cannot|can not|could not|unable|refus\w*|too short|choose|select|change|different|other|uncertain|verify)\b',clause))
+  for match in re.finditer(currency_pattern,clause):
+   currency=(match.group('prefix') or match.group('suffix') or '').replace('$','usd').replace('£','gbp').replace('€','eur')
+   whole=match.group('a') or match.group('c'); fraction=match.group('b') or match.group('d') or ''
+   before=clause[max(0,match.start()-32):match.start()]
+   money.append({'currency':currency.upper(),'cents':int(whole)*100+(int(fraction.ljust(2,'0')) if fraction else 0),'affirmed':not bool(re.search(negation+r'[^.;]{0,24}$',before))})
+  transaction=bool(re.search(r'\b(?:reservation|booking)\b.{0,24}\b(?:confirmed?|completed?|booked)\b|\b(?:confirmed?|completed?|booked)\b.{0,24}\b(?:reservation|booking)\b',clause))
+  payment=bool(re.search(r'\b(?:payment|deposit|balance)\b.{0,24}\b(?:received|paid|settled)\b|\b(?:received|paid|settled)\b.{0,24}\b(?:payment|deposit|balance)\b',clause))
+  if (transaction or payment) and not negated: positive_transactions.append(clause)
+ return {'money':money,'positive_transactions':positive_transactions,'refusal_signal':refusal_signal}
+
+def semantic_score(case,reply,calls,results,fault_exchange,current_event_id=None):
+ result={}; claims=_reply_claims(reply); prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
  if clarification: fidelity=None
  elif not results: fidelity=False
  else:
   call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
-  paired=[r for r in results if isinstance(r,dict) and r.get('_tool_call_id')==tool_call_id]
-  result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
+  paired=[r for r in results if isinstance(r,dict) and isinstance(tool_call_id,str) and bool(tool_call_id) and r.get('_tool_call_id')==tool_call_id]
+  result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); claims=_reply_claims(text); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
+  proof_bound=current_event_id is None or bool(fault_exchange and _valid_staff_exchange(fault_exchange) and fault_exchange.get("event_id")==current_event_id and result.get("call_id")==fault_exchange.get("call_id"))
   infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
   if expected in ("quote","mixed"):
    facts=outcome.get("facts",{}) if isinstance(outcome,dict) else {}
@@ -267,18 +347,22 @@ def semantic_score(case,reply,calls,results,fault_exchange):
    # owner facts themselves explicitly authorize that promise.
    unsupported_guarantee=bool(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',lower)) and not any(re.search(r'\b(?:guaranteed?|unconditional(?:ly)?|always available|certain(?:ly)?)\b',term) for term in expected_terms)
    forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',lower)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',lower)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',lower))
-   fidelity=bool(exact and labels and package_ok and addons_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
+   allowed_amounts={facts.get("total_cents"),facts.get("deposit_cents"),facts.get("remaining_cents")}-{None}; expected_currency=str(facts.get("currency") or "").upper()
+   claims_bound=bool(claims["money"]) and all(c["affirmed"] and c["currency"]==expected_currency and c["cents"] in allowed_amounts for c in claims["money"]) and not claims["positive_transactions"]
+   fidelity=bool(proof_bound and exact and labels and package_ok and addons_ok and not infrastructure and claims_bound and money.issubset(allowed_amounts) and dates==allowed_dates and package_claims.issubset(package_codes) and addon_claims.issubset({a["code"].lower() for a in expected_addons}) and not unsupported_terms and not unsupported_catalog_claim and not unsupported_guarantee and not forbidden)
   elif expected=="refusal":
    allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
-   fidelity=bool(validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and not infrastructure)
-  else: fidelity=bool(result.get("ok") is False and text.strip() and not infrastructure)
+   fidelity=bool(proof_bound and validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and claims["refusal_signal"] and not claims["money"] and not claims["positive_transactions"] and not infrastructure)
+  else: fidelity=bool(proof_bound and result.get("ok") is False and text.strip() and claims["refusal_signal"] and not claims["money"] and not claims["positive_transactions"] and not infrastructure)
  if case.get('fault'):
-  observed={"http-422":"http_error_read","exception":"runtime_exception_raised","timeout":"timeout_exception_raised","non-json":"json_parse_error","malformed":"malformed_shape"}[case['fault']]
-  fault_ok=bool(fault_exchange and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed')==observed and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
+  observed={"http-422":{"http_error_read"},"exception":{"runtime_exception_raised"},"timeout":{"timeout_exception_raised"},"non-json":{"json_parse_error","http_error_json_parse_error"},"malformed":{"malformed_shape","http_error_malformed_shape"}}[case['fault']]
+  valid_hex=lambda value:isinstance(value,str) and bool(value) and len(value)%2==0 and re.fullmatch(r'[0-9a-f]+',value) is not None
+  expected_class={"http-422":"validation","exception":"internal","timeout":"transport","non-json":"transport","malformed":"transport"}[case['fault']]
+  fault_ok=bool(fault_exchange and result.get('ok') is False and result.get('classification')==expected_class and claims['refusal_signal'] and not claims['money'] and not claims['positive_transactions'] and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed') in observed and fault_exchange.get('call_id') and isinstance(current_event_id,str) and bool(current_event_id) and fault_exchange.get('event_id')==current_event_id and valid_hex(fault_exchange.get('original_response_hex')) and valid_hex(fault_exchange.get('raw_response_hex')) and type(fault_exchange.get('original_status')) is int and type(fault_exchange.get('status')) is int)
   if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
   if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
   if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
-  fidelity=bool(fault_ok and any(x in str(reply).lower() for x in ('cannot verify','could not verify','uncertain')))
+  fidelity=fault_ok
  return {"clarification":bool(clarification and '?' in str(reply) and prepared==0),"progress":progress,"fidelity":fidelity}
 
 def _event_parts(body):
@@ -301,7 +385,7 @@ def score_events(case,events):
    event_case["intended_owner_outcome"]=case.get("intended_owner_outcome") if not rows else case.get("corrected_owner_outcome")
   intended=next((r for r in results if r.get('_tool_call_id')==(calls[0].get('id') if len(calls)==1 else None)),{})
   target=next((x for x in exchanges if isinstance(x,dict) and x.get('call_id')==intended.get('call_id')),None)
-  score=semantic_score(event_case,body.get("reply_text"),calls,results,target)
+  score=semantic_score(event_case,body.get("reply_text"),calls,results,target,current_event_id=event.get("event_id"))
   expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
   function=(calls[0].get("function") or {}) if len(calls)==1 else {}
   arguments=function.get("arguments_parsed") or calls[0].get("arguments_parsed") if len(calls)==1 else None
@@ -316,6 +400,9 @@ def scalars(v,prefix="$"):
   for i,x in enumerate(v): out += scalars(x,f"{prefix}[{i}]")
  elif isinstance(v,(str,int,float)) and not isinstance(v,bool): out.append((prefix,str(v)))
  return out
+
+def _valid_staff_exchange(value):
+ return isinstance(value,dict) and isinstance(value.get("tool"),str) and bool(value["tool"]) and isinstance(value.get("call_id"),str) and bool(value["call_id"]) and isinstance(value.get("event_id"),str) and bool(value["event_id"]) and type(value.get("status")) is int and ("original_status" not in value or type(value.get("original_status")) is int) and all(isinstance(value.get(k),str) and bool(value[k]) and len(value[k])%2==0 and re.fullmatch(r'[0-9a-f]+',value[k]) for k in ("original_response_hex","raw_response_hex"))
 
 def judge(case,body,pre,post):
  trace=body.get("harness_trace") if isinstance(body,dict) else None
@@ -335,7 +422,7 @@ def judge(case,body,pre,post):
  checks={
   "reply_present":bool(reply_s.strip()),"reply_equals_final_response":isinstance(final,str) and reply==final,
   "complete_exact_trace":isinstance(messages,list) and bool(messages) and trace.get("untruncated") is True,
-  "raw_staff_responses_present":isinstance(trace,dict) and isinstance(trace.get("staff_http_exchanges"),list) and (not case["prepare_required"] or bool(trace.get("staff_http_exchanges"))),
+  "raw_staff_responses_present":isinstance(trace,dict) and isinstance(trace.get("staff_http_exchanges"),list) and (not case["prepare_required"] or bool(trace.get("staff_http_exchanges")) and all(_valid_staff_exchange(x) for x in trace["staff_http_exchanges"])),
   "installed_plugin_result_present":isinstance(trace,dict) and isinstance(trace.get("installed_plugin"),dict) and bool(trace["installed_plugin"].get("sha256")),
   "runtime_readback_present":isinstance(trace,dict) and isinstance(trace.get("runtime_readback"),dict),
   "pre_post_state_present":isinstance(pre,dict) and isinstance(post,dict),
@@ -408,6 +495,7 @@ def main():
    event_scores=score_events(case,event_receipts)
    semantic_ok=all(row["semantic"]["progress"] and (row["semantic"]["clarification"] if case["expect"]=="clarification" else row["semantic"]["fidelity"]) for row in event_scores)
    checks["one_prepare_per_turn"]=all(row["prepare_count"]==(0 if case["expect"]=="clarification" else 1) for row in event_scores)
+   checks["simulate_http_success"]=all(event.get("http",{}).get("status")==200 for event in event_receipts)
    checks["owner_complete_control_used"]=all(row["owner_control_matches"] is not False for row in event_scores)
    checks["all_semantic_scores_pass"]=semantic_ok
    linkage={}

@@ -32,7 +32,15 @@ def owner_fixture():
  continuation['corrected_owner_outcome']=success(base)
  cases += [case('multi_guest',group),continuation,case('clarification',None,expect='clarification'),case('fault',base,expect='uncertain',fault='timeout')]
  cases[-2].pop('control')
- return {'schema':'luna-matrix-fixture/v1','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
+ for c in cases:
+  c['owner_canary']={'receipt_id':'canary-'+c['id'],'executed_at':'2026-10-26T00:00:00Z','capability_revision':'r',
+   'prompt_sha256':hashlib.sha256(c['prompt'].encode()).hexdigest(),
+   'correction_prompt_sha256':hashlib.sha256(str(c.get('correction_prompt') or '').encode()).hexdigest(),
+   'control_sha256':hashlib.sha256(json.dumps(c.get('control'),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+   'outcome_sha256':hashlib.sha256(json.dumps(c['intended_owner_outcome'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+   'corrected_control_sha256':hashlib.sha256(json.dumps(c.get('corrected_control'),sort_keys=True,separators=(',',':')).encode()).hexdigest(),
+   'corrected_outcome_sha256':hashlib.sha256(json.dumps(c.get('corrected_owner_outcome'),sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+ return {'schema':'luna-matrix-fixture/v2','tenant':'wolfhouse-somo','owner_provenance':{'authority':'staff-owner','fixture_id':'fixture-1','approved_by':'owner@example.test','approved_at':'2026-10-26T00:00:00Z','owner_revision_or_receipt_id':'receipt-42'},'capability_revision':'r','cases':cases}
 
 def semantic_case(expect='quote'):
  facts={'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':'2027-06-01','check_out':'2027-06-08','package':'malibu','add_ons':[],'inclusions':[],'terms':[]}
@@ -87,9 +95,12 @@ class Gates(unittest.TestCase):
   refusal={'ok':False,'classification':'availability','reason':'literal owner reason','next_step':'literal_owner_step','_tool_call_id':'c'}
   call={'id':'c','function':{'name':'check_quote_book','arguments_parsed':{'action':'prepare'}}}
   reply='That option is unavailable; please choose another.'
-  body={'reply_text':reply,'external_send_allowed':False,'staff_alert_allowed':False,'harness_trace':{**common,'staff_http_exchanges':[{}],'messages':[{'role':'assistant','tool_calls':[call]},{'role':'tool','tool_call_id':'c','content_parsed':refusal}],'final_response':reply}}
+  exchange={'tool':'check_quote_book','call_id':'owner-call','event_id':'evt','status':422,'original_status':422,'original_response_hex':'7b7d','raw_response_hex':'7b7d'}
+  body={'reply_text':reply,'external_send_allowed':False,'staff_alert_allowed':False,'harness_trace':{**common,'staff_http_exchanges':[exchange],'messages':[{'role':'assistant','tool_calls':[call]},{'role':'tool','tool_call_id':'c','content_parsed':refusal}],'final_response':reply}}
   checks,_=self.runner.judge({'expect':'refusal','prepare_required':True,'continuation':False},body,state,state)
   self.assertTrue(all(checks.values()),checks)
+  empty=copy.deepcopy(body); empty['harness_trace']['staff_http_exchanges']=[{}]
+  self.assertFalse(self.runner.judge({'expect':'refusal','prepare_required':True,'continuation':False},empty,state,state)[0]['raw_staff_responses_present'])
   refusal_case={'expect':'refusal','prepare_required':True,'intended_owner_outcome':{'expect':'refusal','classification':'availability','allowed_reasons':['literal owner reason'],'next_step':'literal_owner_step'}}
   self.assertTrue(self.runner.semantic_score(refusal_case,reply,[call],[refusal],None)['fidelity'])
   question='Which check-in and check-out dates would you like?'
@@ -194,14 +205,29 @@ class Gates(unittest.TestCase):
   self.assertFalse(self.runner.semantic_score(refusal_case,'Please choose other dates',[call],[{'ok':False,'reason':'db_error','classification':'availability','next_step':'choose_other_dates','_tool_call_id':'wanted'}],None)['fidelity'])
   fault_case={'expect':'uncertain','prepare_required':True,'fault':'timeout'}
   self.assertFalse(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],{'fault':'timeout'})['fidelity'])
-  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_exception_raised','call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
-  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{'id':'tc'}],[{'ok':False,'call_id':'c','_tool_call_id':'tc'}],exchange)['fidelity'])
+  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':'timeout_exception_raised','call_id':'c','event_id':'e','original_status':503,'status':503,'original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
+  typed_fault={'ok':False,'classification':'transport','call_id':'c','_tool_call_id':'tc'}
+  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{'id':'tc'}],[typed_fault],exchange,current_event_id='e')['fidelity'])
+  for bad_result,bad_exchange,bad_reply in (
+   (typed_fault,{**exchange,'event_id':'wrong'},'I cannot verify'),
+   ({**typed_fault,'ok':True},exchange,'I cannot verify'),
+   (typed_fault,{**exchange,'original_response_hex':'','raw_response_hex':''},'I cannot verify'),
+   (typed_fault,exchange,'I cannot verify. Your confirmed total is EUR 9999 and I booked it.'),
+  ):
+   self.assertFalse(self.runner.semantic_score(fault_case,bad_reply,[{'id':'tc'}],[bad_result],bad_exchange,current_event_id='e')['fidelity'])
  def test_complete_request_matching_rejects_material_mutations(self):
   control={'check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
   base={'action':'prepare','purpose':'quote','check_in':control['check_in'],'check_out':control['check_out'],'guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'code':'package_none'},'add_ons':[]}
   self.assertTrue(self.runner.control_matches_prepare(control,base))
-  for mutation in ({'purpose':'offer'},{'payment':{'arrangement':'together'}},{'room':{'kind':'shared','beds':['invented']}}):
+  for mutation in ({'purpose':'offer'},{'payment':{'arrangement':'together'}},{'room':{'kind':'shared','beds':['invented']}},{'package':{'code':'package_none','unproven':'invented'}}):
    self.assertFalse(self.runner.control_matches_prepare(control,{**base,**mutation}))
+  gendered={**control,'guests':[{'name':'Alex','explicit_gender':'female'}]}
+  self.assertFalse(self.runner.control_matches_prepare(gendered,{**base,'guests':[{'name':'Alex','explicit_gender':'male'}]}))
+  detailed={**control,'guests':[{'name':'Alex','age':27,'nationality':'ES'}]}
+  self.assertFalse(self.runner.control_matches_prepare(detailed,{**base,'guests':[{'name':'Alex','age':28,'nationality':'ES'}]}))
+  rental={**control,'add_ons':[{'code':'board','quantity':1,'days':1,'dates':['2027-06-01'],'people':['Alex']}]}
+  self.assertFalse(self.runner.control_matches_prepare(rental,{**base,'add_ons':[{'code':'board','quantity':1,'days':99,'dates':['2027-06-01'],'people':['Alex']}]}))
+  self.assertFalse(self.runner.control_matches_prepare(rental,{**base,'add_ons':[{'code':'board','quantity':1,'days':1,'dates':['2027-06-01'],'people':['Alex'],'duration_hours':99}]}))
  def test_verdict_is_bound_to_intended_tool_call_and_exact_tokens(self):
   case=semantic_case(); call={'id':'wanted'}; facts=case['intended_owner_outcome']['facts']
   quote={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**facts,'_tool_call_id':'wanted'}
@@ -225,11 +251,33 @@ class Gates(unittest.TestCase):
    good.replace('2027-06-08','2027-06-09'),
   )
   for bad in bad_replies: self.assertFalse(self.runner.semantic_score(case,bad,[call],[quote],None)['fidelity'],bad)
+  for bad in (good.replace('total EUR 123.45','total is NOT EUR 123.45'),good.replace('total EUR 123.45',"total isn't EUR 123.45"),good+' Your total is USD 9999.',good+' Your reservation is confirmed.'):
+   self.assertFalse(self.runner.semantic_score(case,bad,[call],[quote],None)['fidelity'],bad)
   refusal_case={'expect':'refusal','prepare_required':True,'intended_owner_outcome':{'expect':'refusal','classification':'availability','allowed_reasons':['minimum_stay'],'next_step':'choose_other_dates'}}
   refusal={'ok':False,'classification':'availability','reason':'minimum_stay','next_step':'choose_other_dates','_tool_call_id':'wanted'}
   self.assertTrue(self.runner.semantic_score(refusal_case,'That stay is too short; please select different dates.',[call],[refusal],None)['fidelity'])
+  for bad in ('Hello!','Your reservation is confirmed. Total EUR 9999.'):
+   self.assertFalse(self.runner.semantic_score(refusal_case,bad,[call],[refusal],None)['fidelity'],bad)
   for infra in ({**refusal,'reason':'db_error'},{**refusal,'classification':'internal'},{**refusal,'code':'transport_error'}):
    self.assertFalse(self.runner.semantic_score(refusal_case,'Please select different dates.',[call],[infra],None)['fidelity'])
+  for fault,classification,observed,status,etype in [('http-422','validation','http_error_read',422,None),('exception','internal','runtime_exception_raised',500,'RuntimeError'),('timeout','transport','timeout_exception_raised',503,'TimeoutError'),('non-json','transport','http_error_json_parse_error',500,None),('malformed','transport','http_error_malformed_shape',500,None)]:
+   fault_result={'ok':False,'classification':classification,'call_id':'owner-call','_tool_call_id':'wanted'}
+   exchange={'tool':'check_quote_book','call_id':'owner-call','event_id':'evt','status':status,'original_status':500,'original_response_hex':'7b7d','raw_response_hex':'7b7d','fault_requested':fault,'fault_applied':fault,'fault_observed':observed}
+   if etype: exchange['exception_type']=etype
+   self.assertTrue(self.runner.semantic_score({'prepare_required':True,'fault':fault},'I cannot verify this quote.',[call],[fault_result],exchange,current_event_id='evt')['fidelity'],fault)
+   exchange['event_id']='wrong-event'
+   self.assertFalse(self.runner.semantic_score({'prepare_required':True,'fault':fault},'I cannot verify this quote.',[call],[fault_result],exchange,current_event_id='evt')['fidelity'],fault)
+ def test_fixture_categories_are_bound_to_owner_products_and_canaries(self):
+  choices=[{'kind':'accommodation','code':'package_none','active':True,'requirements':{}},{'kind':'package','code':'malibu','active':True,'requirements':{}},{'kind':'rental','code':'board','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'group_lesson','product':'group_lesson','active':True,'requirements':{'dates':True,'participants':True}},{'kind':'service','code':'private_lesson','product':'private_lesson','active':True,'requirements':{'dates':True,'participants':True}}]
+  snapshot={'ok':True,'revision':'r','choices':choices}
+  self.runner.make_cases(snapshot,owner_fixture())
+  mutations=[]
+  for category in ('package','rental','service:lesson_a','service:lesson_b','mixed'):
+   bad=owner_fixture(); target=next(c for c in bad['cases'] if c['category']==category); target['control']['package']='package_none'; target['control']['add_ons']=[]; mutations.append(bad)
+  bad=owner_fixture(); next(c for c in bad['cases'] if c['category']=='continuation')['correction_prompt']='Use Malibu for the corrected quote.'; mutations.append(bad)
+  bad=owner_fixture(); next(c for c in bad['cases'] if c['category']=='rental')['prompt']='Only rent a board; no accommodation or stay.'; mutations.append(bad)
+  for bad in mutations:
+   with self.assertRaises(SystemExit): self.runner.make_cases(snapshot,bad)
  def test_structured_mixed_and_multi_guest_shape_aware_oracle(self):
   call={'id':'wanted'}
   package={'per_guest':[{'guest':1,'guest_name':'Alex','code':'malibu'},{'guest':2,'guest_name':'Sam','code':'package_none'}]}

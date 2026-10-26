@@ -173,12 +173,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     call_id = hashlib.sha256(f"{inbound_event_id}:{name}:{time.monotonic_ns()}".encode()).hexdigest()[:24]
     recorded = False
     recorded_exchange = None
-    def record_exchange(*, status: int | None = None, original_raw: bytes = b"", observed_raw: bytes | None = None,
+    def record_exchange(*, status: int | None = None, original_status: int | None = None, original_raw: bytes = b"", observed_raw: bytes | None = None,
                         exception: BaseException | None = None, applied: bool = False,
                         observed: str | None = None) -> None:
         nonlocal recorded, recorded_exchange
         if recorder is not None:
-            recorded_exchange={"tool": name, "path": TOOL_PATHS[name], "status": status, "call_id": call_id,
+            recorded_exchange={"tool": name, "path": TOOL_PATHS[name], "status": status, "original_status": status if original_status is None else original_status, "call_id": call_id,
                 "event_id": inbound_event_id, "request": payload,
                 "original_response_hex": original_raw.hex(),
                 "raw_response_hex": (original_raw if observed_raw is None else observed_raw).hex(),
@@ -248,32 +248,37 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         raw = original_raw
         boundary_original_raw = getattr(exc, "_luna_original_raw", original_raw)
         if fault == "timeout":
-            error = TimeoutError("injected Staff HTTP-error timeout")
-            record_exchange(status=exc.code, original_raw=original_raw, exception=error, applied=True, observed="timeout_exception_raised")
-            return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
+            try:
+                raise TimeoutError("injected Staff HTTP-error timeout")
+            except TimeoutError as error:
+                record_exchange(status=exc.code, original_status=exc.code, original_raw=original_raw, observed_raw=original_raw, exception=error, applied=True, observed="timeout_exception_raised")
+                return {**_refusal("staff_tool_unreachable", "transport", 503, turn_id), "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
         if fault == "http-422":
             raw=b'{"code":"injected_validation","classification":"validation","reason":"injected owner validation refusal","next_step":"correct_request","retry_allowed":false}'
         elif fault == "exception":
-            error=RuntimeError("injected Staff boundary exception")
-            record_exchange(status=exc.code, original_raw=original_raw, exception=error, applied=True, observed="runtime_exception_raised")
-            return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
+            try:
+                raise RuntimeError("injected Staff boundary exception")
+            except RuntimeError as error:
+                record_exchange(status=exc.code, original_status=exc.code, original_raw=original_raw, observed_raw=original_raw, exception=error, applied=True, observed="runtime_exception_raised")
+                return {**_refusal("staff_plugin_internal_failure", "internal", 500, turn_id), "call_id": call_id}
         elif fault == "non-json": raw = b"CAP-HARNESS-NON-JSON"
         elif fault == "malformed": raw = b"[]"
+        effective_status=422 if fault=="http-422" else exc.code
         if not recorded:
-            record_exchange(status=exc.code, original_raw=boundary_original_raw, observed_raw=raw,
+            record_exchange(status=effective_status, original_status=exc.code, original_raw=boundary_original_raw, observed_raw=raw,
                             applied=fault in {"http-422","non-json","malformed"},
                             observed={"http-422":"http_error_read","non-json":"http_error_json_parse_error","malformed":"http_error_malformed_shape"}.get(fault,"http_error_read"))
         try:
             staff = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeError):
             if recorded_exchange is not None: recorded_exchange["fault_observed"]="http_error_json_parse_error"
-            return {**_refusal("staff_transport_http_non_json", "transport", exc.code, turn_id),
+            return {**_refusal("staff_transport_http_non_json", "transport", effective_status, turn_id),
                     "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
         if not isinstance(staff, dict):
             if recorded_exchange is not None: recorded_exchange["fault_observed"]="http_error_malformed_shape"
-            return {**_refusal("staff_transport_http_malformed", "transport", exc.code, turn_id),
+            return {**_refusal("staff_transport_http_malformed", "transport", effective_status, turn_id),
                     "recoveryStatus": "unknown", "outcome": "unknown", "call_id": call_id}
-        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", exc.code, turn_id)
+        result: dict[str, Any] = _refusal("staff_tool_rejected", "http", effective_status, turn_id)
         if isinstance(staff, dict):
             bounded_fields = {"code", "reason_code", "reason", "error", "next_step", "correlation_id"}
             for field in ("code", "reason_code", "reason", "error", "message", "next_step", "correlation_id"):
@@ -338,7 +343,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                         admitted.append(safe)
                 if admitted:
                     result["field_errors"] = admitted
-            if exc.code == 409:
+            if effective_status == 409:
                 for field in ("reason", "handoffId", "handoffOperationKey"):
                     value = staff.get(field)
                     if isinstance(value, str) and value and len(value) <= 160:
@@ -347,13 +352,13 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                     result["requiredHumanHandoff"] = staff["requiredHumanHandoff"]
             if isinstance(staff.get("outcome_unknown"), bool):
                 result["outcome_unknown"] = staff["outcome_unknown"]
-            if exc.code < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
+            if effective_status < 500 and staff.get("recoveryStatus") in {"rejected", "unknown"}:
                 result["recoveryStatus"] = staff["recoveryStatus"]
-            if exc.code < 500 and staff.get("outcome") in {"rejected", "unknown"}:
+            if effective_status < 500 and staff.get("outcome") in {"rejected", "unknown"}:
                 result["outcome"] = staff["outcome"]
         result.setdefault("code", "staff_tool_rejected")
-        result.setdefault("recoveryStatus", "unknown" if exc.code >= 500 else "rejected")
-        result.setdefault("outcome", "unknown" if exc.code >= 500 else "rejected")
+        result.setdefault("recoveryStatus", "unknown" if effective_status >= 500 else "rejected")
+        result.setdefault("outcome", "unknown" if effective_status >= 500 else "rejected")
         result["call_id"] = call_id
         return result
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
