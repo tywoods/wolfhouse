@@ -4,10 +4,12 @@ const FIELDS = Object.freeze(['booking_count','hold_count','payment_count','exte
 
 async function readLunaV3DurableState(pg, { clientId, sessionId, principalId, clientSlug }) {
   const result = await pg.query(`SELECT
-      (SELECT count(*)::int FROM bookings b WHERE b.client_id=s.client_id AND b.id=s.selected_booking_id) AS booking_count,
+      (SELECT count(*)::int FROM bookings b WHERE b.client_id=s.client_id
+        AND (b.id=s.selected_booking_id OR (b.phone=s.guest_phone AND b.created_at>=s.created_at))) AS booking_count,
       (SELECT count(*)::int FROM luna_v3_holds h WHERE h.client_id=s.client_id AND h.session_id=s.id) AS hold_count,
       (SELECT count(DISTINCT durable_payment_id)::int FROM (
-         SELECT p.id AS durable_payment_id FROM payments p WHERE p.client_id=s.client_id AND p.booking_id=s.selected_booking_id
+         SELECT p.id AS durable_payment_id FROM payments p JOIN bookings pb ON pb.id=p.booking_id AND pb.client_id=p.client_id
+          WHERE p.client_id=s.client_id AND (p.booking_id=s.selected_booking_id OR (pb.phone=s.guest_phone AND pb.created_at>=s.created_at))
          UNION
          SELECT pl.payment_id AS durable_payment_id FROM luna_v3_payment_links pl WHERE pl.client_id=s.client_id AND pl.session_id=s.id
        ) durable_payments) AS payment_count,

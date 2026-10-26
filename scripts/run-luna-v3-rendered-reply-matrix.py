@@ -6,7 +6,7 @@ from authenticated Staff admission, every case gets three fresh TEST sessions, a
 missing evidence fails closed. HTTP bytes are retained before parsing.
 """
 from __future__ import annotations
-import hashlib, json, os, pathlib, re, subprocess, sys, time, urllib.error, urllib.request
+import datetime, hashlib, json, os, pathlib, re, subprocess, sys, time, urllib.error, urllib.request
 
 REPS=3
 EXPECTED={"provider":"openai-codex","model":"gpt-6.1-sol","reasoning":"low","temperature":"provider-default","fallback":""}
@@ -54,11 +54,11 @@ def make_cases(snapshot,fixture):
   case=json.loads(json.dumps(source)); cid=case.get("id"); category=case.get("category"); outcome=case.get("intended_owner_outcome")
   if not isinstance(cid,str) or not cid.strip() or cid in ids or category not in allowed or not isinstance(case.get("prompt"),str) or not case["prompt"].strip() or not isinstance(outcome,dict): raise SystemExit("BLOCKED: malformed explicit fixture case")
   ids.add(cid); categories.add(category); case["prepare_required"]=category!="clarification"; case["continuation"]=category=="continuation"; case["expect"]=outcome.get("expect")
-  if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"}: raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
+  if case["expect"] not in {"quote","mixed","refusal","clarification","uncertain"} or not validate_outcome(outcome): raise SystemExit(f"BLOCKED: invalid intended owner outcome: {cid}")
   if category=="fault" and case.get("fault") not in {"non-json","malformed","http-422","exception","timeout"}: raise SystemExit(f"BLOCKED: invalid fault case: {cid}")
   if category=="mixed" and outcome.get("compatibility_proven") is not True: raise SystemExit("BLOCKED: mixed case lacks owner compatibility proof")
   if case["prepare_required"] and not validate_control(case,choices): raise SystemExit(f"BLOCKED: owner-invalid complete control: {cid}")
-  if case["continuation"] and not validate_control({"control":case.get("corrected_control")},choices): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control: {cid}")
+  if case["continuation"] and (not validate_control({"control":case.get("corrected_control")},choices) or not validate_outcome(case.get("corrected_owner_outcome"),success_only=True)): raise SystemExit(f"BLOCKED: continuation lacks owner-proven corrected control/outcome: {cid}")
   out.append(case)
  required=set(allowed)
  if not required.issubset(categories): raise SystemExit(f"BLOCKED: fixture coverage missing: {sorted(required-categories)}")
@@ -68,21 +68,49 @@ def make_cases(snapshot,fixture):
  if not isinstance(packages,list) or len(packages)!=len(group["guests"]) or len({p.get("name") for p in packages if isinstance(p,dict)})<2 or len(add_people)<2: raise SystemExit("BLOCKED: multi-guest case lacks differentiated per-guest package/add-on choices")
  return out
 
+def _iso_date(value):
+ try: return datetime.date.fromisoformat(value) if isinstance(value,str) else None
+ except ValueError: return None
+
+def validate_outcome(outcome,success_only=False):
+ if not isinstance(outcome,dict): return False
+ expect=outcome.get("expect")
+ if success_only and expect not in ("quote","mixed"): return False
+ if expect in ("quote","mixed"):
+  facts=outcome.get("facts"); required={"currency","total_cents","deposit_cents","remaining_cents","check_in","check_out","package","add_ons","inclusions","terms"}
+  return isinstance(facts,dict) and set(facts)==required and isinstance(facts["currency"],str) and bool(facts["currency"]) and all(type(facts[k]) is int and facts[k]>=0 for k in ("total_cents","deposit_cents","remaining_cents")) and facts["total_cents"]==facts["deposit_cents"]+facts["remaining_cents"] and _iso_date(facts["check_in"]) is not None and _iso_date(facts["check_out"]) is not None and facts["check_out"]>facts["check_in"] and isinstance(facts["package"],str) and bool(facts["package"]) and all(isinstance(facts[k],list) and all(isinstance(x,str) and x for x in facts[k]) for k in ("add_ons","inclusions","terms"))
+ if expect=="refusal":
+  return isinstance(outcome.get("classification"),str) and bool(outcome["classification"]) and isinstance(outcome.get("allowed_reasons"),list) and bool(outcome["allowed_reasons"]) and all(isinstance(x,str) and x for x in outcome["allowed_reasons"]) and ("next_step" not in outcome or isinstance(outcome["next_step"],str))
+ return expect in ("clarification","uncertain") and set(outcome).issubset({"expect"})
+
 def validate_control(case,choices):
  control=case.get("control")
- if not isinstance(control,dict) or not all(control.get(k) for k in ("check_in","check_out","guests","room","package")) or not isinstance(control.get("add_ons"),list): return False
- if control["check_out"]<=control["check_in"] or len(control["guests"])!=len(set(control["guests"])): return False
+ if not isinstance(control,dict) or set(control)!={"check_in","check_out","guests","room","package","add_ons"} or not isinstance(control.get("add_ons"),list): return False
+ check_in=_iso_date(control.get("check_in")); check_out=_iso_date(control.get("check_out")); guests=control.get("guests"); room=control.get("room")
+ if not check_in or not check_out or check_out<=check_in or not isinstance(guests,list) or not guests or any(not isinstance(g,dict) or not set(g).issubset({"name","explicit_gender","gender"}) or not isinstance(g.get("name"),str) or not g["name"].strip() or any(not isinstance(v,str) or not v for v in g.values()) for g in guests): return False
+ names=[g["name"] for g in guests]
+ if len(names)!=len(set(names)) or not isinstance(room,dict) or set(room)-{"kind","name","beds","together"} or room.get("kind") not in {"exact","private","shared","women_only","auto"}: return False
+ if "name" in room and (not isinstance(room["name"],str) or not room["name"]): return False
+ if "beds" in room and (not isinstance(room["beds"],list) or len(room["beds"])!=len(set(room["beds"])) or any(not isinstance(x,str) or not x for x in room["beds"])): return False
+ if "together" in room and room["together"] not in {"required","preferred","not_required"}: return False
  active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active") is True}
  package=control["package"]
- package_codes=[package] if isinstance(package,str) else [p.get("name") for p in package.get("per_guest",[]) if isinstance(p,dict)] if isinstance(package,dict) else []
+ package_codes=[package] if isinstance(package,str) else [p.get("code") or p.get("name") for p in package.get("per_guest",[]) if isinstance(p,dict)] if isinstance(package,dict) else []
+ if isinstance(package,dict):
+  bindings=package.get("per_guest")
+  if not isinstance(bindings,list) or len(bindings)!=len(guests) or {p.get("guest") for p in bindings if isinstance(p,dict)}!=set(range(1,len(guests)+1)) or any(not isinstance(p,dict) or set(p)-{"guest","code","name"} or bool(p.get("code"))==bool(p.get("name")) for p in bindings): return False
  if not package_codes or any(code not in active or active[code].get("kind") not in ("package","accommodation") for code in package_codes): return False
  for addon in control["add_ons"]:
-  if not isinstance(addon,dict) or addon.get("code") not in active or type(addon.get("quantity")) is not int or addon["quantity"]<1: return False
-  requirements=active[addon["code"]].get("requirements") or {}
-  if requirements.get("dates") and not addon.get("dates"): return False
-  if requirements.get("participants") and not addon.get("people"): return False
-  if any(person not in control["guests"] for person in addon.get("people") or []): return False
-  if any(date<control["check_in"] or date>=control["check_out"] for date in addon.get("dates") or []): return False
+  if not isinstance(addon,dict) or set(addon)-{"code","name","quantity","days","people","dates","requested_dates"} or bool(addon.get("code"))==bool(addon.get("name")) or (addon.get("code") or addon.get("name")) not in active or type(addon.get("quantity")) is not int or addon["quantity"]<1: return False
+  addon_code=addon.get("code") or addon.get("name"); people=addon.get("people",[]); dates=addon.get("dates",addon.get("requested_dates",[]))
+  if people and (not isinstance(people,list) or len(people)!=len(set(people)) or any(not isinstance(x,str) or not x for x in people)): return False
+  if dates and (not isinstance(dates,list) or len(dates)!=len(set(dates)) or any(_iso_date(x) is None for x in dates)): return False
+  if "days" in addon and (type(addon["days"]) is not int or addon["days"]<1 or addon["days"]!=len(dates)): return False
+  requirements=active[addon_code].get("requirements") or {}
+  if requirements.get("dates") and not dates: return False
+  if requirements.get("participants") and not people: return False
+  if any(person not in names for person in people): return False
+  if any(date<control["check_in"] or date>=control["check_out"] for date in dates): return False
  return True
 
 def control_matches_prepare(control,args):
@@ -90,7 +118,8 @@ def control_matches_prepare(control,args):
  if args.get("action")!="prepare" or args.get("purpose")!="quote" or "payment" in args: return False
  if any(args.get(k)!=control.get(k) for k in ("check_in","check_out")): return False
  guest_names=[g.get("name") if isinstance(g,dict) else g for g in args.get("guests") or []]
- if guest_names!=control.get("guests"): return False
+ expected_names=[g.get("name") if isinstance(g,dict) else g for g in control.get("guests") or []]
+ if guest_names!=expected_names: return False
  if args.get("room")!=control.get("room"): return False
  package=args.get("package")
  if isinstance(control.get("package"),dict):
@@ -107,31 +136,41 @@ def valid_state_receipt(value,thread):
  return isinstance(value,dict) and value.get("ok") is True and value.get("schema")=="luna-v3-test-state/v1" and value.get("authenticated") is True and value.get("tenant")=="wolfhouse-somo" and value.get("thread")==thread and all(type(value.get(k)) is int and value[k]>=0 for k in STATE_FIELDS)
 
 def semantic_score(case,reply,calls,results,fault_exchange):
- result={}
- prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
+ result={}; prepared=len(calls); clarification=case.get("expect")=="clarification"; progress=prepared==(1 if case.get("prepare_required") else 0)
  if clarification: fidelity=None
  elif not results: fidelity=False
  else:
   call=calls[0] if len(calls)==1 else {}; tool_call_id=call.get('id')
   paired=[r for r in results if isinstance(r,dict) and r.get('_tool_call_id')==tool_call_id]
-  result=paired[0] if len(paired)==1 else {}; text=str(reply or '').lower(); expected=case.get("expect")
-  success=expected in ("quote","mixed")
-  intended=(result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True) if success else (result.get("ok") is False and result.get("classification") not in ("internal","transport") if expected=="refusal" else result.get("ok") is False)
-  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out","package","add_ons"))]
-  def rendered(path,value):
-   if "cents" in path.lower() and str(value).lstrip('-').isdigit():
-    cents=int(value); tokens=re.findall(r'(?<![\w.])-?\d+(?:[.,]\d{1,2})?(?![\w.])',text)
-    return str(cents) in tokens or f"{cents/100:.2f}" in [x.replace(',','.') for x in tokens]
-   return bool(re.search(r'(?<!\w)'+re.escape(str(value).lower())+r'(?!\w)',text))
-  authoritative_cents={int(v) for p,v in authoritative if "cents" in p.lower() and str(v).lstrip('-').isdigit()}
-  money_claims=set()
-  for whole,decimal in re.findall(r'(?:€|eur\s*|\$)\s*(-?\d+)(?:[.,](\d{1,2}))?',text,re.I): money_claims.add(int(whole)*100+(int(decimal.ljust(2,'0')) if decimal else 0))
-  unsupported_money=bool(money_claims-authoritative_cents)
-  authoritative_dates={v for p,v in authoritative if any(k in p.lower() for k in ("check_in","check_out"))}
-  unsupported_dates=bool(set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',text))-authoritative_dates)
-  forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',text)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',text)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',text))
-  rendered_truth=all(rendered(p,v) for p,v in authoritative) if success else bool(text.strip())
-  fidelity=bool(intended and (authoritative or not success) and rendered_truth and not unsupported_money and not unsupported_dates and not forbidden)
+  result=paired[0] if len(paired)==1 else {}; text=str(reply or ''); lower=text.lower(); expected=case.get("expect"); outcome=case.get("intended_owner_outcome") or {}
+  infrastructure=bool(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',lower)) or any(re.search(r'\b(db[_ -]?error|database|internal(?:[_ -]?error)?|transport(?:[_ -]?error)?)\b',str(v),re.I) for p,v in scalars(result) if any(k in p.lower() for k in ('reason','code','classification')))
+  if expected in ("quote","mixed"):
+   facts=outcome.get("facts",{}) if isinstance(outcome,dict) else {}
+   def result_value(key):
+    aliases={"total_cents":{"total_cents","totalcents"},"deposit_cents":{"deposit_cents","depositcents"},"remaining_cents":{"remaining_cents","remainingcents","remainder_cents","remaindercents"}}
+    wanted=aliases.get(key,{key})
+    values=[v for p,v in scalars(result) if p.rsplit('.',1)[-1].lower() in wanted]
+    return values[0] if len(values)==1 else None
+   exact=validate_outcome(outcome) and result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True and all(str(result_value(k))==str(v) for k,v in facts.items() if k not in ("add_ons","inclusions","terms"))
+   result_terms={str(v).lower() for p,v in scalars(result) if any(k in p.lower() for k in ("add_ons","inclusions","terms"))}
+   expected_terms={str(v).lower() for k in ("add_ons","inclusions","terms") for v in facts.get(k,[])} if facts else set()
+   exact=bool(exact and expected_terms==result_terms)
+   def labelled(label,cents):
+    amount=f"{cents/100:.2f}"; return bool(re.search(rf'(?:eur|€)\s*{re.escape(amount)}\s*(?:[^.;,]{{0,20}}\s)?\b{label}\b|\b{label}\b\s*(?:[^.;,]{{0,20}}\s)?(?:eur|€)\s*{re.escape(amount)}',lower))
+   labels=bool(facts) and all(labelled(label,facts[key]) for label,key in (("total","total_cents"),("deposit","deposit_cents"),("remaining|remainder|balance","remaining_cents")))
+   money={int(a)*100+(int((b or '').ljust(2,'0')) if b else 0) for a,b in re.findall(r'(?:€|eur\s*)(\d+)(?:[.,](\d{1,2}))?',lower)}
+   dates=set(re.findall(r'\b\d{4}-\d{2}-\d{2}\b',lower)); allowed_dates={facts.get("check_in"),facts.get("check_out")} if facts else set()
+   package_ok=bool(facts and re.search(r'(?<!\w)'+re.escape(facts["package"].lower())+r'(?!\w)',lower))
+   package_claims={x.lower() for x in re.findall(r'\b([a-z][\w-]*)\s+packages?\b',lower)}
+   term_claims={x.strip().lower() for x in re.findall(r'\b(?:includes?|inclusions?|terms?)\s*[:]?\s*([^.;]+)',lower)} | {x.strip().lower() for x in re.findall(r'\b([a-z][a-z -]*?)\s+included\b',lower)}
+   allowed_phrase=' '.join(sorted(expected_terms))
+   unsupported_terms=any(not all(token in allowed_phrase for token in claim.split()) for claim in term_claims)
+   forbidden=(result.get("booked") is not True and re.search(r'\b(booked|booking confirmed)\b',lower)) or (result.get("held") is not True and re.search(r'\b(held|on hold)\b',lower)) or (result.get("paid") is not True and re.search(r'\b(paid|payment received)\b',lower))
+   fidelity=bool(exact and labels and package_ok and not infrastructure and money.issubset({facts["total_cents"],facts["deposit_cents"],facts["remaining_cents"]}) and dates==allowed_dates and package_claims.issubset({facts["package"].lower()}) and not unsupported_terms and not forbidden)
+  elif expected=="refusal":
+   allowed=outcome.get("allowed_reasons",[]) if isinstance(outcome,dict) else []
+   fidelity=bool(validate_outcome(outcome) and result.get("ok") is False and result.get("classification")==outcome.get("classification") and (result.get("reason") in allowed or result.get("code") in allowed) and ("next_step" not in outcome or result.get("next_step")==outcome["next_step"]) and text.strip() and not infrastructure)
+  else: fidelity=bool(result.get("ok") is False and text.strip() and not infrastructure)
  if case.get('fault'):
   observed={"http-422":"http_error_read","exception":"runtime_exception_raised","timeout":"timeout_exception_raised","non-json":"json_parse_error","malformed":"malformed_shape"}[case['fault']]
   fault_ok=bool(fault_exchange and result.get('call_id')==fault_exchange.get('call_id') and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed')==observed and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
@@ -156,7 +195,9 @@ def score_events(case,events):
  rows=[]
  for event in events:
   body=event.get("response") or {}; calls,results,exchanges=_event_parts(body); event_case=dict(case)
-  if case.get("continuation"): event_case["expect"]="refusal" if not rows else "quote"
+  if case.get("continuation"):
+   event_case["expect"]="refusal" if not rows else "quote"
+   event_case["intended_owner_outcome"]=case.get("intended_owner_outcome") if not rows else case.get("corrected_owner_outcome")
   intended=next((r for r in results if r.get('_tool_call_id')==(calls[0].get('id') if len(calls)==1 else None)),{})
   target=next((x for x in exchanges if isinstance(x,dict) and x.get('call_id')==intended.get('call_id')),None)
   score=semantic_score(event_case,body.get("reply_text"),calls,results,target)
@@ -208,6 +249,7 @@ def judge(case,body,pre,post):
  return checks,[]
 
 def load_owner_fixture(path, expected_sha256):
+ """Verify byte custody/integrity only; provenance is not cryptographic authentication."""
  expected=str(expected_sha256 or "").strip().lower()
  if not re.fullmatch(r"[0-9a-f]{64}",expected): raise SystemExit("BLOCKED: LUNA_MATRIX_FIXTURE_SHA256 must be a SHA-256 digest")
  try: raw=path.read_bytes()
@@ -245,7 +287,7 @@ def main():
    if pre_wire.get("status")!=200 or not valid_state_receipt(state,phone):
     raise SystemExit(f"BLOCKED: valid authenticated pre-state unavailable for {case['id']} repetition {rep}")
    payload={"thread":phone,"text":case["prompt"],"external_send_allowed":False,"capture_continuation":case["continuation"]}
-   wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case["fault"])
+   wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case.get("fault"))
    body=wire["parsed"] or {}; event_receipts=[]
    def retain_event(event_wire,event_body,event_payload,event_number):
     trace=event_body.get("harness_trace") if isinstance(event_body,dict) else None
@@ -277,7 +319,7 @@ def main():
    checks["durable_no_side_effects"]=checks["typed_authenticated_state_receipts"] and all(state[k]==post[k] for k in STATE_FIELDS)
    passed=all(checks.values())
    rec={"case":case,"repetition":rep,"thread":phone,"http":{"status":wire["status"],"elapsed_ms":wire["elapsed_ms"],"transport_error":wire.get("transport_error")},"response":redact(body),"event_receipts":redact(event_receipts),"continuation_linkage":redact(linkage),"semantic_score":event_scores,"pre_staff_state":redact(state),"post_staff_state":redact(post),"compared_staff_fields":fields,"checks":checks,"verdict":"PASS" if passed else "FAIL"}; rec["sha256"]=digest(rec); records.append(rec)
- manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"owner_fixture_sha256":fixture_sha256,"owner_fixture_provenance":fixture["owner_provenance"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
+ manifest={"schema":"luna-v3-cap-authentic-matrix/v2","candidate_sha":head,"repetitions":REPS,"no_retries":True,"generated_from_staff_admission_revision":snapshot["revision"],"owner_fixture_custody_sha256":fixture_sha256,"owner_fixture_provenance_unverified":fixture["owner_provenance"],"cases":cases,"pins":pf.get("pins"),"redacted_settings":redact(settings)}
  result={"schema":"luna-v3-cap-authentic-results/v2","manifest_sha256":digest(manifest),"records":records,"pass":all(r.get("verdict") in ("PASS","N/A") for r in records)}
  (out/"manifest.json").write_bytes(canon(manifest)+b"\n"); (out/"results.json").write_bytes(canon(result)+b"\n")
  files=sorted(p for p in out.rglob("*") if p.is_file()); (out/"SHA256SUMS").write_text("".join(f"{digest_bytes(p.read_bytes())}  {p.relative_to(out)}\n" for p in files))
