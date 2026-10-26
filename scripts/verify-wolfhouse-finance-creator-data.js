@@ -50,6 +50,13 @@ const unavailable = summaryLib.computeWolfhouseCreatorFinance({ ...input, refund
 assert.equal(unavailable.metrics.gross_receipts.amount_cents,15000);
 assert.equal(unavailable.metrics.net_receipts.state,'unavailable');
 assert.equal(unavailable.metrics.net_receipts.amount_cents,null);
+const unavailableRefundDetail = summaryLib.pageWolfhouseCreatorFinance(unavailable, {kind:'refunds',currency:'EUR',cohort_id:unavailable.cohort_id,limit:100}).detail;
+assert.equal(unavailableRefundDetail.financial.state, 'unavailable', 'refund detail carries financial unavailability independently of page completeness');
+assert(unavailableRefundDetail.financial.reason_codes.includes('refund_ledger_unavailable'), 'refund detail carries its financial reason');
+assert.equal(unavailableRefundDetail.full_cohort_totals.recorded_refunds_cents, null, 'unavailable refund ledger never invents a zero total');
+const partialReceiptDetail = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:100}).detail;
+assert.equal(partialReceiptDetail.financial.state, 'partial', 'receipt detail carries financial partiality independently of a complete page');
+assert(partialReceiptDetail.financial.reason_codes.includes('mixed_currency'), 'receipt detail carries the currency exclusion reason');
 const page1 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2});
 assert.equal(page1.detail.rows.length,2); assert.equal(page1.detail.page.complete,false); assert(page1.detail.page.next_cursor);
 const page2 = summaryLib.pageWolfhouseCreatorFinance(projection, {kind:'payments',currency:'EUR',cohort_id:projection.cohort_id,limit:2,cursor:page1.detail.page.next_cursor});
@@ -119,6 +126,8 @@ const initMigration=fs.readFileSync(path.join(ROOT,'database/migrations/001_init
 const refundMigration=fs.readFileSync(path.join(ROOT,'database/migrations/056_booking_refund_records.sql'),'utf8');
 assert(/booking_source\s+booking_source/.test(initMigration) && /currency\s+CHAR\(3\)/.test(refundMigration), 'queried booking/refund columns exist in migrations');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_BOOKINGS_SQL), 'booking SQL does not invent EUR');
+assert(/NULLIF\(upper\(c\.currency/.test(dataLib.LODGING_BOOKINGS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_BOOKINGS_SQL),
+  'booking currency comes from the tenant currency column, not optional booking metadata');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment SQL does not invent EUR');
 assert(!/COALESCE[\s\S]*'EUR'/.test(dataLib.LODGING_REFUNDS_SQL), 'refund SQL does not invent EUR');
 assert(/NULLIF\(upper\(p\.currency/.test(dataLib.LODGING_PAYMENTS_SQL) && !/metadata->>'currency'/.test(dataLib.LODGING_PAYMENTS_SQL), 'payment currency comes only from payments.currency');

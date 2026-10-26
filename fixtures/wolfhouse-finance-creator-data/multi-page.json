@@ -776,6 +776,10 @@
               "kind": "payments",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "payment_id": "p1",
@@ -829,6 +833,10 @@
               "kind": "payments",
               "creator": null,
               "currency": "EUR",
+              "financial": {
+                "state": "complete",
+                "reason_codes": []
+              },
               "rows": [
                 {
                   "payment_id": "p3",

@@ -133,7 +133,7 @@ async function proveComposedFinanceReview(fixtures) {
       wolfhouse_creator_finance: {
         schema_version: schema || 'wolfhouse.creator-finance.v1',
         cohort_id: cohortId || success.cohort_id,
-        detail,
+        detail: { ...detail, financial: { state: 'complete', reason_codes: [] } },
       },
     };
   }
@@ -278,6 +278,9 @@ async function proveComposedFinanceReview(fixtures) {
   await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction(() => document.getElementById('c-client') && document.getElementById('c-client').value === 'wolfhouse-somo', null, { timeout: 30000 });
   await page.locator('button.tab-btn[data-tab="admin"]').click();
+  // Wolfhouse Admin intentionally opens Pricing first. Exercise the Finance tab
+  // exactly as staff do; do not weaken the rendered-finance assertion.
+  await page.locator('#wh-admin-tab-finance').click();
   await page.waitForSelector('#wh-admin-finance-body [data-wh-finance]', { timeout: 30000 });
 
   async function barProof(width, theme) {
@@ -323,9 +326,9 @@ async function proveComposedFinanceReview(fixtures) {
   await page.evaluate((markup) => {
     document.getElementById('wh-admin-finance-body').insertAdjacentHTML('beforeend', `<div id="wh-fin-partial-proof">${markup}</div>`);
   }, partialMarkup);
-  const partialNote = await page.evaluate(() => {
-    const note = document.querySelector('#wh-fin-partial-proof [data-wh-fin-trend-partial="1"]');
-    const rowNote = document.querySelector('#wh-fin-partial-proof [data-wh-fin-trend-note="partial"]');
+  const partialNotice = await page.evaluate(() => {
+    const note = document.querySelector('#wh-fin-partial-proof [data-wh-fin-period-notices="1"]');
+    const repeated = document.querySelectorAll('#wh-fin-partial-proof [data-wh-fin-reason="mixed_currency"]');
     const style = note ? getComputedStyle(note) : null;
     return {
       text: note ? note.innerText : '',
@@ -333,14 +336,14 @@ async function proveComposedFinanceReview(fixtures) {
       hidden: note ? note.getAttribute('aria-hidden') : 'missing',
       display: style ? style.display : '',
       height: note ? note.getBoundingClientRect().height : 0,
-      rowText: rowNote ? rowNote.innerText : '',
+      reasonCount: repeated.length,
     };
   });
-  assert.equal(partialNote.role, 'note', 'R4 note is not accessible');
-  assert.equal(partialNote.hidden, null, 'R4 note is hidden from assistive tech');
-  assert.equal(partialNote.display === 'none' || partialNote.height < 1, false, `R4 note is not visible ${JSON.stringify(partialNote)}`);
-  assert.equal(partialNote.text.includes('Some periods are partial.'), true, partialNote.text);
-  assert.equal(partialNote.rowText.includes('This period is partial.'), true, partialNote.rowText);
+  assert.equal(partialNotice.role, 'note', 'R4 period notice is not accessible');
+  assert.equal(partialNotice.hidden, null, 'R4 period notice is hidden from assistive tech');
+  assert.equal(partialNotice.display === 'none' || partialNotice.height < 1, false, `R4 period notice is not visible ${JSON.stringify(partialNotice)}`);
+  assert.equal(partialNotice.text.includes('Rows in another currency are excluded from EUR totals.'), true, partialNotice.text);
+  assert.equal(partialNotice.reasonCount, 1, `R4 repeated mixed-currency reason ${partialNotice.reasonCount} times`);
   await page.evaluate(() => document.getElementById('wh-fin-partial-proof').remove());
   console.log('PASS R4 composed partial note');
 
@@ -535,7 +538,8 @@ async function proveComposedFinanceReview(fixtures) {
   assert.equal(clockUrl.includes(`cohort_id=${encodeURIComponent(success.cohort_id)}`), true, `clock detail dropped the cohort: ${clockUrl}`);
   assert.equal(summaryCount(), beforeClock, 'a later clock started a summary refresh');
   const clockText = await page.locator('#wh-admin-finance-body').innerText();
-  assert.equal(clockText.includes('2026-10-17T12:05:00.000Z'), true, 'later outstanding clock was not shown as data');
+  assert.equal(/17\s+Oct\s+2026/i.test(clockText), true, 'later outstanding clock was not shown in the selected locale');
+  assert.equal(clockText.includes('2026-10-17T12:05:00.000Z'), false, 'later outstanding clock was exposed as a raw ISO timestamp');
   assert.equal(clockText.includes('older refresh'), false, `clock change painted stale: ${clockText.slice(0, 240)}`);
   assert.equal(await page.locator('#wh-admin-finance-body [data-wh-fin-detail-state="error"]').count(), 0, 'clock change painted a detail error');
   console.log('PASS clock change keeps the cohort and does not paint stale');

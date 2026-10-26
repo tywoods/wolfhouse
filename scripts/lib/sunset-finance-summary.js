@@ -2154,14 +2154,20 @@ function pageWolfhouseCreatorFinance(projection, query) {
   let offset=0; if(query.cursor){ if(!/^[A-Za-z0-9_-]+$/.test(String(query.cursor))) err('invalid'); try{const decoded=Buffer.from(String(query.cursor),'base64url').toString('utf8');if(!/^(?:0|[1-9][0-9]*)$/.test(decoded))err('invalid');offset=Number(decoded);}catch(_e){err('invalid');} }
   if(!Number.isInteger(offset)||offset<0||offset>all.length) err('invalid');
   const rows=all.slice(offset,offset+limit); const next=offset+rows.length;
+  const financialMetricByKind={payments:'gross_receipts',bookings:'new_booking_value',outstanding:'outstanding_today',refunds:'recorded_refunds'};
+  const sourceMetric=financialMetricByKind[kind] && projection.metrics[financialMetricByKind[kind]];
+  const financial=sourceMetric ? {
+    state:String(sourceMetric.state||'missing'),
+    reason_codes:[...new Set(Array.isArray(sourceMetric.reason_codes)?sourceMetric.reason_codes:[])],
+  } : {state:'complete',reason_codes:[]};
   let fullCohortTotals;
   if (kind==='payments') fullCohortTotals={gross_receipts_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0),deposits_received_cents:all.filter(r=>r.purpose==='deposit').reduce((n,r)=>checkedAdd(n,r.amount_cents),0)};
   else if (kind==='bookings') fullCohortTotals={new_booking_count:all.length,new_booking_value_cents:all.reduce((n,r)=>checkedAdd(n,r.current_saved_total_cents),0)};
   else if (kind==='outstanding') fullCohortTotals={outstanding_cents:all.reduce((n,r)=>checkedAdd(n,r.current_balance_cents),0)};
-  else if (kind==='refunds') fullCohortTotals={recorded_refunds_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0)};
+  else if (kind==='refunds') fullCohortTotals={recorded_refunds_cents:financial.state==='unavailable'?null:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0)};
   else if (kind==='products') fullCohortTotals={product_amount_cents:all.reduce((n,r)=>checkedAdd(n,r.amount_cents),0),row_count:all.length};
   else fullCohortTotals={row_count:all.length};
-  return {schema_version:WOLFHOUSE_CREATOR_SCHEMA,cohort_id:projection.cohort_id,detail:{kind,creator:query.creator||null,currency:projection.scope.currency,rows,page:{limit,next_cursor:next<all.length?Buffer.from(String(next)).toString('base64url'):null,complete:next>=all.length,matched_count:all.length,returned_count:rows.length},full_cohort_totals:fullCohortTotals}};
+  return {schema_version:WOLFHOUSE_CREATOR_SCHEMA,cohort_id:projection.cohort_id,detail:{kind,creator:query.creator||null,currency:projection.scope.currency,financial,rows,page:{limit,next_cursor:next<all.length?Buffer.from(String(next)).toString('base64url'):null,complete:next>=all.length,matched_count:all.length,returned_count:rows.length},full_cohort_totals:fullCohortTotals}};
 }
 
 module.exports = {

@@ -227,12 +227,52 @@ function adminBookingsFormatMadridCreated(iso) {
   }
 }
 
+/** Stay dates from booking fields only — never from the booking code. */
+function adminBookingsStayIso(row, key) {
+  if (!row) return '';
+  var raw = row[key];
+  var s = String(raw == null ? '' : raw).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  return s;
+}
+function adminBookingsFormatStayDay(iso) {
+  if (!iso) return '';
+  var d = new Date(iso + 'T12:00:00Z');
+  if (isNaN(d.getTime())) return '';
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = portalLang;
+  } catch (_e) {}
+  loc = String(loc || 'en').toLowerCase();
+  var tag = loc.indexOf('es') === 0 ? 'es-ES' : (loc.indexOf('it') === 0 ? 'it-IT' : 'en-GB');
+  return d.toLocaleDateString(tag, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+function adminBookingsStayHtml(row) {
+  var cin = adminBookingsStayIso(row, 'check_in');
+  var cout = adminBookingsStayIso(row, 'check_out');
+  if (!cin && !cout) return '';
+  var stayLabel = '';
+  try {
+    if (typeof t === 'function') stayLabel = String(t('admin.bookings.col.stay') || '');
+    else if (typeof portalT === 'function') stayLabel = String(portalT('admin.bookings.col.stay') || '');
+  } catch (_e) { stayLabel = ''; }
+  if (!stayLabel || stayLabel.indexOf('admin.bookings.') === 0) stayLabel = 'Stay';
+  var range = (cin ? adminBookingsFormatStayDay(cin) : '—') + ' → ' + (cout ? adminBookingsFormatStayDay(cout) : '—');
+  return '<div class="portal-admin-bookings-sub portal-admin-bookings-stay" data-bookings-stay="1">' +
+    escHtml(stayLabel) + ' ' + escHtml(range) + '</div>';
+}
+
 function adminBookingsStatusLabel(status) {
   var s = String(status || '').toLowerCase();
   // Deleted is not a booking status — leave unknown labels to fallback.
   if (s === 'canceled') s = 'cancelled';
   var key = 'admin.bookings.status.' + s;
-  var translated = portalT(key);
+  var translated = '';
+  try {
+    if (typeof t === 'function') translated = String(t(key) || '');
+    else if (typeof portalT === 'function') translated = String(portalT(key) || '');
+  } catch (_e) { translated = ''; }
   if (translated && translated !== key) return translated;
   var fallback = {
     paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', refunded: 'Refunded',
@@ -1147,7 +1187,8 @@ function renderAdminBookingsTable() {
       escHtml(String(row.customer_id || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
       '<div class="portal-admin-bookings-sub">' + escHtml(row.phone || '') + '</div></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-created" role="cell">' +
-      escHtml(createdText) + '</div>';
+      '<div class="portal-admin-bookings-created-main">' + escHtml(createdText) + '</div>' +
+      adminBookingsStayHtml(row) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-type" role="cell">' +
       adminBookingsTypeChipsHtml(row) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-num portal-admin-bookings-td-total" role="cell">' +
