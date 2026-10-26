@@ -102,10 +102,18 @@ async function runAvailability(pg, input, context = {}) {
 }
 
 function serviceFailure(result) {
+  const body = result && result.body && typeof result.body === 'object' ? result.body : {};
   return {
     ok: false,
     status: result.status || 422,
-    code: result.body && (result.body.reason_code || result.body.error) || result.reason || 'staff_service_unavailable',
+    code: body.code || body.reason_code || body.error || result.reason || 'staff_service_unavailable',
+    ...(body.classification ? { classification: body.classification } : {}),
+    ...(body.reason ? { reason: body.reason } : {}),
+    ...(body.message ? { message: body.message } : {}),
+    ...(body.next_step ? { next_step: body.next_step } : {}),
+    ...(body.correlation_id ? { correlation_id: body.correlation_id } : {}),
+    ...(typeof body.retry_allowed === 'boolean' ? { retry_allowed: body.retry_allowed } : {}),
+    ...(Array.isArray(body.field_errors) ? { field_errors: body.field_errors } : {}),
   };
 }
 

@@ -15,7 +15,8 @@
       "description": "Accommodation without a surf package.",
       "requirements": {
         "package_minimum_nights": false,
-        "exact_bed_required": true,
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
         "guest_count_required": true
       },
       "metadata": {

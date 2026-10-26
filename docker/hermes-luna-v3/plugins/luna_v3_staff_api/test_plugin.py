@@ -157,7 +157,7 @@ class LunaV3PluginContractTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *_args): return False
             def read(self): return b'{"ok":true}'
-        expected = {"http-422": (422, None, "injected_validation"), "exception": (None, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable")}
+        expected = {"http-422": (422, None, "injected_validation"), "exception": (200, "RuntimeError", "staff_plugin_internal_failure"), "timeout": (200, "TimeoutError", "staff_tool_unreachable")}
         for index, (fault, (status, exception_type, code)) in enumerate(expected.items(), 1):
             with self.subTest(fault=fault):
                 bind_inbound_event(f"11111111-1111-4111-8111-1111111111{index:02d}")

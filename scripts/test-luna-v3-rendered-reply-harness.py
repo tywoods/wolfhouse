@@ -67,7 +67,7 @@ class Gates(unittest.TestCase):
   self.assertEqual(4,len(mixed['add_ons'])); self.assertEqual(['Alex','Sam','Jo'],group['guests'])
   for case in cases:
    if case['prepare_required']: self.assertTrue(self.runner.validate_control(case,choices),case['id'])
-  prepare={'action':'prepare','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'name':'malibu'},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'yoga','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'private_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}
+  prepare={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'name':'malibu'},'add_ons':[{'code':'board','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'yoga','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'group_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']},{'code':'private_lesson','quantity':1,'people':['Alex'],'dates':['2027-06-01']}]}
   self.assertTrue(self.runner.control_matches_prepare(mixed,prepare))
   prepare['check_out']='2027-06-09'; self.assertFalse(self.runner.control_matches_prepare(mixed,prepare))
   self.assertIn('control_matches_prepare',RUNNER.read_text())
@@ -86,4 +86,21 @@ class Gates(unittest.TestCase):
   source=RUNNER.read_text()
   for marker in ('raw_file','inbound_event_id','refusal_event_id','corrected_event_id','new_prepare_event_id'):
    self.assertIn(marker,source)
+ def test_rootfix_counterexamples_fail_closed(self):
+  quote={'ok':True,'state':'quote','held':False,'booked':False,'quote':{'totalCents':12345,'currency':'EUR'},'reason':'authoritative_quote_ready'}
+  case={'expect':'quote','prepare_required':True}
+  self.assertFalse(self.runner.semantic_score(case,'EUR 999.99, fully paid and confirmed',[{}],[quote],None)['fidelity'])
+  self.assertFalse(self.runner.semantic_score(case,'db_error; wait_for_verified_result',[{}],[{'ok':False,'reason':'db_error','classification':'internal'}],None)['fidelity'])
+  good='authoritative_quote_ready EUR 123.45 EUR'
+  self.assertTrue(self.runner.semantic_score(case,good,[{}],[quote],None)['fidelity'])
+  fault_case={'expect':'uncertain','prepare_required':True,'fault':'timeout'}
+  self.assertFalse(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],{'fault':'timeout'})['fidelity'])
+  exchange={'tool':'check_quote_book','fault_requested':'timeout','fault_applied':'timeout','fault_observed':True,'call_id':'c','event_id':'e','original_response_hex':'7b7d','raw_response_hex':'7b7d','exception_type':'TimeoutError'}
+  self.assertTrue(self.runner.semantic_score(fault_case,'I cannot verify',[{}],[{'ok':False}],exchange)['fidelity'])
+ def test_complete_request_matching_rejects_material_mutations(self):
+  control={'check_in':'2027-06-01','check_out':'2027-06-08','guests':['Alex'],'room':{'kind':'shared'},'package':'package_none','add_ons':[]}
+  base={'action':'prepare','purpose':'quote','check_in':control['check_in'],'check_out':control['check_out'],'guests':[{'name':'Alex'}],'room':{'kind':'shared'},'package':{'code':'package_none'},'add_ons':[]}
+  self.assertTrue(self.runner.control_matches_prepare(control,base))
+  for mutation in ({'purpose':'offer'},{'payment':{'arrangement':'together'}},{'room':{'kind':'shared','beds':['invented']}}):
+   self.assertFalse(self.runner.control_matches_prepare(control,{**base,**mutation}))
 if __name__=='__main__': unittest.main(verbosity=2)

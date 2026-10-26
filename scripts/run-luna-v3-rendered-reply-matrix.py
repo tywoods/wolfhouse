@@ -63,15 +63,17 @@ def make_cases(snapshot,fixture):
    label=c.get("label") or c["code"]
    dates=f" on {good['check_in']}" if kind in ('rental','service') else ''
    control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":c['code'] if kind=='package' else 'package_none',"add_ons":[] if kind=='package' else [{"code":c['code'],"quantity":1,"people":["Alex"],"dates":[good['check_in']]}]}
-   add(f"{kind}-{c['code']}-success",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c,control=control)
-   add(f"{kind}-{c['code']}-refusal",f"Quote active {kind} {label} ({c['code']}) for Alex, quantity 1{dates}, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c,control=control)
+   selection=f"shared accommodation with {label} ({c['code']})" if kind=='package' else f"shared accommodation only plus {kind} {label} ({c['code']})"
+   add(f"{kind}-{c['code']}-success",f"Quote {selection} for Alex, quantity 1{dates}, {gd}. Use exact Staff amount and terms; do not hold or book.","quote",c,control=control)
+   add(f"{kind}-{c['code']}-refusal",f"Quote {selection} for Alex, quantity 1{dates}, {bd}. Repeat Staff's exact refusal and correction path.","refusal",c,control=control)
  mixed_addons=[{"code":c["code"],"quantity":1,"people":["Alex"],"dates":[good["check_in"]]} for kind in ("rental","service") for c in by_kind[kind]]
  mixed_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":by_kind["package"][0]["code"],"add_ons":mixed_addons}
  add("mixed",f"Quote accommodation plus {by_kind['package'][0]['code']} and these active extras: {', '.join(x['code'] for x in mixed_addons)}, for Alex, {gd}. Preserve exact Staff facts and terms; do not hold or book.","mixed",control=mixed_control)
  group_control={"check_in":good["check_in"],"check_out":good["check_out"],"guests":["Alex","Sam","Jo"],"room":{"kind":"shared","together":"preferred"},"package":"package_none","add_ons":[]}
  add("multi-guest",f"Quote shared accommodation for Alex, Sam and Jo, {gd}. Keep them together if available; preserve exact Staff amounts and terms; do not hold or book.","quote",control=group_control)
- advertised=(by_kind.get('package') or [{'code':'package_none','label':'Accommodation only'}])[0]
- add("genuine-continuation",f"Quote {advertised.get('label')} ({advertised['code']}) for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",advertised,continuation=True)
+ advertised=by_kind['package'][0]
+ continuation_control={"check_in":bad["check_in"],"check_out":bad["check_out"],"guests":["Alex"],"room":{"kind":"shared"},"package":advertised['code'],"add_ons":[]}
+ add("genuine-continuation",f"Quote shared accommodation with {advertised.get('label')} ({advertised['code']}) for Alex for {bd}. If Staff refuses, explain its exact correction path.","quote",advertised,continuation=True,control=continuation_control)
  add("missing-dates-clarification","I would like a quote for accommodation only for Alex in a shared room.","clarification",prepare=False)
  for fault in ("non-json","malformed","http-422","exception","timeout"): add(f"staff-boundary-{fault}",f"Quote shared accommodation for Alex, {gd}. If Staff cannot verify, clearly state uncertainty and do not invent facts.","uncertain",fault=fault)
  for case in out:
@@ -85,6 +87,7 @@ def make_cases(snapshot,fixture):
 def validate_control(case,choices):
  control=case.get("control")
  if not isinstance(control,dict) or not all(control.get(k) for k in ("check_in","check_out","guests","room","package")) or not isinstance(control.get("add_ons"),list): return False
+ if control["check_out"]<=control["check_in"] or len(control["guests"])!=len(set(control["guests"])): return False
  active={c.get("code"):c for c in choices if isinstance(c,dict) and c.get("active",True)}
  if control["package"] not in active: return False
  for addon in control["add_ons"]:
@@ -92,15 +95,17 @@ def validate_control(case,choices):
   requirements=active[addon["code"]].get("requirements") or {}
   if requirements.get("dates") and not addon.get("dates"): return False
   if requirements.get("participants") and not addon.get("people"): return False
+  if any(person not in control["guests"] for person in addon.get("people") or []): return False
+  if any(date<control["check_in"] or date>=control["check_out"] for date in addon.get("dates") or []): return False
  return True
 
 def control_matches_prepare(control,args):
  if not isinstance(control,dict) or not isinstance(args,dict): return False
+ if args.get("action")!="prepare" or args.get("purpose")!="quote" or "payment" in args: return False
  if any(args.get(k)!=control.get(k) for k in ("check_in","check_out")): return False
  guest_names=[g.get("name") if isinstance(g,dict) else g for g in args.get("guests") or []]
  if guest_names!=control.get("guests"): return False
- room=args.get("room") or {}
- if not isinstance(room,dict) or room.get("kind")!=control.get("room",{}).get("kind") or control.get("room",{}).get("together") and room.get("together")!=control["room"]["together"]: return False
+ if args.get("room")!=control.get("room"): return False
  package=args.get("package"); package_code=package.get("code") or package.get("name") if isinstance(package,dict) else package
  if package_code!=control.get("package"): return False
  def addon_key(row):
@@ -116,10 +121,18 @@ def semantic_score(case,reply,calls,results,fault_exchange):
  if clarification: fidelity=None
  elif not results: fidelity=False
  else:
-  result=results[-1] if isinstance(results[-1],dict) else {}; text=str(reply or '').lower()
-  fidelity=any(str(v).lower() in text for k,v in result.items() if k in ('message','reason','next_step','total_cents','amount_cents','deposit_cents') and v is not None)
+  result=results[-1] if isinstance(results[-1],dict) else {}; text=str(reply or '').lower(); expected=case.get("expect")
+  success=expected in ("quote","mixed")
+  intended=(result.get("ok") is True and result.get("state","quote")=="quote" and result.get("held") is not True and result.get("booked") is not True) if success else (result.get("ok") is False and result.get("classification") not in ("internal","transport") if expected=="refusal" else result.get("ok") is False)
+  authoritative=[(p,v) for p,v in scalars(result) if any(k in p.lower() for k in ("totalcents","total_cents","depositcents","deposit_cents","remainingcents","remaining_cents","currency","check_in","check_out","next_step","reason"))]
+  def rendered(path,value):
+   if "cents" in path.lower() and str(value).lstrip('-').isdigit():
+    cents=int(value); return str(cents) in text or f"{cents/100:.2f}" in text
+   return str(value).lower() in text
+  contradictions=(result.get("booked") is False and any(x in text for x in (" booked","confirmed booking","fully paid and confirmed"))) or (result.get("held") is False and " held" in text)
+  fidelity=bool(intended and authoritative and all(rendered(p,v) for p,v in authoritative) and not contradictions)
  if case.get('fault'):
-  fault_ok=bool(fault_exchange and fault_exchange.get('fault')==case['fault'])
+  fault_ok=bool(fault_exchange and fault_exchange.get('tool')=='check_quote_book' and fault_exchange.get('fault_requested')==case['fault'] and fault_exchange.get('fault_applied')==case['fault'] and fault_exchange.get('fault_observed') is True and fault_exchange.get('call_id') and fault_exchange.get('event_id') and 'original_response_hex' in fault_exchange and 'raw_response_hex' in fault_exchange)
   if case['fault']=='http-422': fault_ok=fault_ok and fault_exchange.get('status')==422
   if case['fault']=='exception': fault_ok=fault_ok and fault_exchange.get('exception_type')=='RuntimeError'
   if case['fault']=='timeout': fault_ok=fault_ok and fault_exchange.get('exception_type')=='TimeoutError'
@@ -142,7 +155,8 @@ def score_events(case,events):
  for event in events:
   body=event.get("response") or {}; calls,results,exchanges=_event_parts(body); event_case=dict(case)
   if case.get("continuation"): event_case["expect"]="refusal" if not rows else "quote"
-  score=semantic_score(event_case,body.get("reply_text"),calls,results,exchanges[-1] if exchanges else None)
+  target=next((x for x in exchanges if isinstance(x,dict) and x.get('tool')=='check_quote_book' and x.get('fault_requested')==case.get('fault')),None)
+  score=semantic_score(event_case,body.get("reply_text"),calls,results,target)
   expected_control=case.get("corrected_control") if rows and case.get("continuation") else case.get("control")
   function=(calls[0].get("function") or {}) if len(calls)==1 else {}
   arguments=function.get("arguments_parsed") or calls[0].get("arguments_parsed") if len(calls)==1 else None
@@ -183,12 +197,12 @@ def judge(case,body,pre,post):
  checks={
   "reply_present":bool(reply_s.strip()),"reply_equals_final_response":isinstance(final,str) and reply==final,
   "complete_exact_trace":isinstance(messages,list) and bool(messages) and trace.get("untruncated") is True,
-  "raw_staff_responses_present":isinstance(trace,dict) and isinstance(trace.get("staff_http_exchanges"),list),
+  "raw_staff_responses_present":isinstance(trace,dict) and isinstance(trace.get("staff_http_exchanges"),list) and (not case["prepare_required"] or bool(trace.get("staff_http_exchanges"))),
   "installed_plugin_result_present":isinstance(trace,dict) and isinstance(trace.get("installed_plugin"),dict) and bool(trace["installed_plugin"].get("sha256")),
   "runtime_readback_present":isinstance(trace,dict) and isinstance(trace.get("runtime_readback"),dict),
   "pre_post_state_present":isinstance(pre,dict) and isinstance(post,dict),
   "one_prepare_per_turn":len(prepare)==(2 if case["continuation"] else 1) if case["prepare_required"] else len(prepare)==0,
-  "staff_fields_rendered_exactly":all(ok for _,_,ok in exact_fields) and (bool(exact_fields) or case["expect"] in ("uncertain","n/a")),
+  "staff_fields_rendered_exactly":all(ok for _,_,ok in exact_fields) and (bool(exact_fields) or case["expect"] in ("uncertain","n/a","clarification")),
   "no_hold_or_booking_for_quote":not quote_only or pre.get("booking_count")==post.get("booking_count") and pre.get("hold_count")==post.get("hold_count"),
   "send_suppressed":body.get("external_send_allowed") is False and body.get("staff_alert_allowed") is False,
  }
@@ -224,6 +238,8 @@ def main():
    seq+=1; phone=f"+346999{seq:05d}"
    pre_wire=request(base+"/wolfhouse/luna-v3-harness/state",token,trace_token,{"thread":phone})
    state=pre_wire.get("parsed")
+   if pre_wire.get("status")!=200 or not valid_state_receipt(state,phone):
+    raise SystemExit(f"BLOCKED: valid authenticated pre-state unavailable for {case['id']} repetition {rep}")
    payload={"thread":phone,"text":case["prompt"],"external_send_allowed":False,"capture_continuation":case["continuation"]}
    wire=request(base+"/wolfhouse/simulate-guest-turn",token,trace_token,payload,fault=case["fault"])
    body=wire["parsed"] or {}; event_receipts=[]

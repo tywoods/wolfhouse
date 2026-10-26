@@ -55700,8 +55700,23 @@ async function router(req, res) {
             await pg.query(`UPDATE luna_v3_runtime_events SET capability_revision=$2,capability_snapshot=$3::jsonb
               WHERE id=$1::uuid AND direction='inbound'`,
             [inbound.id, capabilitySnapshot.revision, JSON.stringify(capabilitySnapshot)]);
+            const state = (await pg.query(`SELECT
+                count(DISTINCT o.booking_id)::int AS booking_count,
+                count(DISTINCT h.id)::int AS hold_count,
+                count(DISTINCT CASE WHEN o.tool IN ('send_payment_link','get_payment_status') AND o.outcome='applied' THEN o.id END)::int AS payment_count,
+                count(DISTINCT CASE WHEN o.tool='external_send' AND o.outcome='applied' THEN o.id END)::int AS external_send_count,
+                count(DISTINCT CASE WHEN o.tool='staff_alert' AND o.outcome='applied' THEN o.id END)::int AS staff_alert_count
+              FROM luna_v3_sessions s
+              LEFT JOIN luna_v3_operations o ON o.client_id=s.client_id AND o.session_id=s.id
+              LEFT JOIN luna_v3_holds h ON h.client_id=s.client_id AND h.session_id=s.id
+              WHERE s.client_id=$1 AND s.session_key=$2 AND s.principal_id=$3 GROUP BY s.id`,
+            [client.id, sessionId, admittedPrincipal])).rows[0];
+            if (!state || Object.values(state).some((value) => !Number.isInteger(value) || value < 0)) {
+              throw Object.assign(new Error('typed Staff state unavailable'), { code: 'luna_v3_staff_state_unavailable' });
+            }
             await pg.query('COMMIT');
-            return { ok: true, admitted: true, inbound_event_id: inbound.id, capability_snapshot: capabilitySnapshot };
+            return { ok: true, admitted: true, inbound_event_id: inbound.id, capability_snapshot: capabilitySnapshot,
+              staff_state: { ok: true, ...state } };
           } catch (error) {
             await pg.query('ROLLBACK');
             throw error;

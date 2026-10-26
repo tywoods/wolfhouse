@@ -125,6 +125,17 @@ async function run() {
   assert.equal(publicFailure({ code: 'staff_pricing_unavailable', message: 'Rental wetsuit has no configured price.',
     field_errors: [{ path: 'add_ons[0]', code: 'staff_pricing_unavailable', message: 'Rental wetsuit has no configured price.' }] }).field_errors[0].message,
   'Rental wetsuit has no configured price.', 'specific missing-price reason is preserved');
+  assert.equal(publicFailure({ code: 'unknown_catalog_choice' }).classification, 'validation');
+  for (const code of ['ECONNRESET', 'EPIPE']) {
+    const failure = publicFailure({ code, status: 503 });
+    assert.equal(failure.classification, 'internal');
+    assert.equal(failure.next_step, 'wait_for_verified_result');
+  }
+  const typed = publicFailure({ code: 'availability_unavailable', status: 503, classification: 'transport',
+    reason: 'Availability storage is temporarily unavailable.', next_step: 'wait_for_verified_result', correlation_id: 'safe-correlation' });
+  assert.equal(typed.classification, 'transport');
+  assert.equal(typed.reason, 'Availability storage is temporarily unavailable.');
+  assert.equal(typed.correlation_id, 'safe-correlation');
   console.log('persisted inbound-event prepare lifecycle tests passed');
 }
 run().catch((error) => { console.error(error.stack || error); process.exit(1); });

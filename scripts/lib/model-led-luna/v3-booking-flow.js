@@ -120,7 +120,7 @@ function replyShowsAuthoritativeTerms(reply, quote) {
 }
 function publicFailure(result) {
   const code = result && (result.code || result.reason) || 'unknown';
-  return { ...refusalEnvelope({ code, classification: result && result.classification,
+  return { ...refusalEnvelope({ code, classification: result && result.classification, status: result && result.status,
     message: result && result.message, path: result && result.path, fieldMessage: result && result.fieldMessage,
     field_errors: result && result.field_errors, next_step: result && result.next_step,
     retry_allowed: result && result.retry_allowed },
@@ -128,7 +128,7 @@ function publicFailure(result) {
   ...(result && result.pricing_failure ? { pricing_failure: result.pricing_failure } : {}),
   ...(result && (result.eligibility_facts || result.eligibilityFacts) ? { eligibility_facts: result.eligibility_facts || result.eligibilityFacts } : {}),
   ...(result && (result.season_coverage || result.seasonCoverage) ? { season_coverage: result.season_coverage || result.seasonCoverage } : {}),
-  ...(result && Number.isInteger(result.status) ? { status: result.status } : {}), reason: code };
+  ...(result && Number.isInteger(result.status) ? { status: result.status } : {}), reason: result && result.reason || code };
 }
 function guestRows(input, privateQuoteLabels = false) {
   return input.guests.map((guest, index) => ({
