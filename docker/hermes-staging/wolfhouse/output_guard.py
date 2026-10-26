@@ -199,6 +199,60 @@ def _tool_result_blob(tc: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _tool_result_dict(tc: Dict[str, Any]) -> Dict[str, Any]:
+    import json
+
+    for key in ("result", "output", "result_summary"):
+        value = (tc or {}).get(key)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return {}
+
+
+_POSITIVE_AVAILABILITY_RE = re.compile(
+    r"\b(?:we\s+(?:have|do have|have got)|there\s+(?:is|are))\b[^.?!]{0,90}\b(?:available|availability|space|bed|room)\b|"
+    r"\b(?:tenemos|hay)\b[^.?!]{0,90}\b(?:disponib(?:le|les)|cama|camas|habitaci[oó]n|espacio)\b|"
+    r"\b(?:abbiamo|c['’]è|ci sono)\b[^.?!]{0,90}\b(?:disponibil|posto|letto|camera)|"
+    r"\b(?:wir haben|es gibt)\b[^.?!]{0,90}\b(?:frei|verfügbar|bett|zimmer)",
+    re.IGNORECASE,
+)
+
+
+def apply_availability_truth(
+    text: str,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+    guest_lang: Optional[str] = None,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Prefer Staff's closed-season copy and reject unsupported positive stock."""
+    successful_availability = False
+    for tc in tool_calls or []:
+        name = str((tc or {}).get("name") or (tc or {}).get("tool") or "")
+        if name not in {"check_availability", "quote_booking"}:
+            continue
+        result = _tool_result_dict(tc if isinstance(tc, dict) else {})
+        if result.get("closed_season") is True or result.get("availability_status") == "closed_season":
+            staff_copy = str(result.get("guest_safe_next_action") or result.get("reply_draft") or "").strip()
+            if staff_copy:
+                return staff_copy, {"kind": "closed_season_staff_copy", "severity": "block"}
+        if result.get("success") is True and (
+                result.get("available") is True
+                or result.get("availability_status") == "available"
+                or result.get("quote_status") == "ready"):
+            successful_availability = True
+    if _POSITIVE_AVAILABILITY_RE.search(str(text or "")) and not successful_availability:
+        return safe_fallback_for(text, guest_lang), {
+            "kind": "unsupported_availability_claim", "severity": "block"
+        }
+    return text, None
+
+
 def _parse_tool_success(blob: str) -> bool:
     low = blob.lower()
     if '"success": false' in low or "'success': false" in low or "success=false" in low:
@@ -567,6 +621,10 @@ def guard_reply(
     """
     findings: List[Dict[str, Any]] = []
     text = str(reply_text or "")
+
+    text, availability_finding = apply_availability_truth(text, tool_calls, guest_lang)
+    if availability_finding:
+        findings.append(availability_finding)
 
     text, cancellation_finding = apply_cancellation_truth(text, tool_calls, guest_lang)
     if cancellation_finding:

@@ -790,6 +790,38 @@ def check_availability(params, **kwargs):
                                  "error": str(exc), "tool": "check_availability",
                                  "requires_guest_confirmation": True})
     data = _post_bot("/availability-check", payload)
+    blockers = data.get("blockers") if isinstance(data, dict) else []
+    closed_season = bool(
+        isinstance(data, dict)
+        and data.get("date_rule_ok") is False
+        and (data.get("next_action") == "closed_season"
+             or data.get("closed_season") is True
+             or "closed_season" in (blockers or []))
+    )
+    if closed_season:
+        # Staff Pricing owns both the closure and any suggested open range. A
+        # capacity pick from the bed calendar cannot override date policy.
+        return _json_result({
+            "success": False,
+            "tool": "check_availability",
+            "availability_status": "closed_season",
+            "available": False,
+            "unavailable": True,
+            "unclear": False,
+            "closed_season": True,
+            "date_rule_ok": False,
+            "blockers": list(blockers or []),
+            "next_action": "closed_season",
+            "nearest_open_dates": data.get("nearest_open_dates"),
+            "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("reply_draft"),
+            "selected_bed_codes": [],
+            "selected_room_code": None,
+            "available_beds": [],
+            "staff_review_needed": False,
+            "needs_human": False,
+            "do_not_escalate": True,
+            "write_performed": False,
+        })
     together_refusal = _same_room_refusal(data, "check_availability")
     if together_refusal is not None:
         return _json_result(together_refusal)
