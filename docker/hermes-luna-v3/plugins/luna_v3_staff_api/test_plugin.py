@@ -175,6 +175,8 @@ class LunaV3PluginContractTests(unittest.TestCase):
                 self.assertEqual(1, len(operation_evidence), "every sent Staff call has one outcome record")
                 self.assertEqual(result, operation_evidence[0]["result"])
                 self.assertTrue(operation_evidence[0]["identity"])
+                if fault in {"exception", "timeout", "non-json", "malformed"}:
+                    self.assertEqual(result.get("outcome"), "unknown", "lost or unreadable Staff replies are unknown")
                 self.assertEqual(1, len(evidence))
                 self.assertEqual(fault, evidence[0]["fault"])
                 self.assertEqual(status, evidence[0].get("status"))

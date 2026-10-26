@@ -133,14 +133,15 @@ class SimulatorRouteTests(unittest.TestCase):
             adapter.agent.results[0]["messages"],
         )
 
-    def test_agent_exception_after_staff_write_carries_unresolved_outcome(self):
+    def test_unreadable_staff_reply_then_agent_exception_carries_unknown_outcome(self):
         adapter = FakeAdapter()
         def fail_after_write(**kwargs):
             adapter.agent.calls.append(kwargs)
             from runtime import trusted_turn_context
             trusted_turn_context.record_operation_evidence("check_quote_book", {
-                "ok": True, "state": "offer", "offer_reference": "offer_123456789012345678901234",
-            })
+                "ok": False, "code": "staff_transport_non_json", "outcome": "unknown",
+                "offer_reference": "offer_123456789012345678901234",
+            }, identity="operation:confirm-unreadable")
             raise RuntimeError("formatter failed")
         adapter.agent.run_conversation = fail_after_write
 
@@ -221,7 +222,7 @@ class SimulatorRouteTests(unittest.TestCase):
         phone = self.module._normalize_phone("+34 699 901 015")
         session_id = "luna-v3-" + self.module.hashlib.sha256(phone.encode()).hexdigest()[:24]
         self.assertNotIn(session_id, self.module._SESSION_HISTORY)
-        cleanup = self.module._SESSION_OPERATION_OUTCOMES[session_id]["offer:offer_123456789012345678901234"]
+        cleanup = self.module._SESSION_OPERATION_OUTCOMES[session_id]["state:offer_123456789012345678901234"]
         self.assertEqual((cleanup["status"], cleanup["staff_state"]), ("resolved", "released"))
 
     def test_failed_cleanup_carries_unknown_operation_into_later_turn(self):
@@ -253,24 +254,41 @@ class SimulatorRouteTests(unittest.TestCase):
         self.assertEqual(recovered["status"], 200)
         self.assertIn("unresolved Staff operation", adapter.agent_kwargs["ephemeral_system_prompt"])
 
-    def test_only_matching_operation_evidence_resolves_unknown(self):
+    def test_rejected_command_on_same_offer_does_not_resolve_unknown_operation(self):
         session_id = "luna-v3-operation-ledger"
-        offer_identity = "offer:offer_123456789012345678901234"
+        unknown_identity = "operation:confirm-unknown"
+        reference = "offer_123456789012345678901234"
         self.module._apply_operation_evidence(session_id, [{
-            "tool": "check_quote_book", "identity": offer_identity,
-            "result": {"outcome": "unknown", "offer_reference": "offer_123456789012345678901234"},
+            "tool": "check_quote_book", "identity": unknown_identity,
+            "result": {"outcome": "unknown", "offer_reference": reference},
         }])
         self.module._apply_operation_evidence(session_id, [{
-            "tool": "check_quote_book", "identity": "call:unrelated-quote",
-            "result": {"ok": True, "state": "quote", "call_id": "unrelated-quote"},
+            "tool": "check_quote_book", "identity": "operation:different-rejected-command",
+            "result": {"outcome": "rejected", "offer_reference": reference},
         }])
-        self.assertEqual(self.module._SESSION_OPERATION_OUTCOMES[session_id][offer_identity]["status"], "unresolved")
+        self.assertEqual(self.module._SESSION_OPERATION_OUTCOMES[session_id][unknown_identity]["status"], "unresolved")
         self.module._apply_operation_evidence(session_id, [{
-            "tool": "check_quote_book", "identity": offer_identity,
-            "result": {"ok": True, "state": "released", "offer_reference": "offer_123456789012345678901234"},
+            "tool": "check_quote_book", "identity": unknown_identity,
+            "result": {"ok": True, "state": "booked", "offer_reference": reference},
         }])
-        resolved = self.module._SESSION_OPERATION_OUTCOMES[session_id][offer_identity]
-        self.assertEqual((resolved["status"], resolved["staff_state"]), ("resolved", "released"))
+        resolved = self.module._SESSION_OPERATION_OUTCOMES[session_id][unknown_identity]
+        self.assertEqual((resolved["status"], resolved["command_outcome"]), ("resolved", "succeeded"))
+        self.assertEqual(self.module._SESSION_OPERATION_OUTCOMES[session_id][f"state:{reference}"]["staff_state"], "booked")
+
+    def test_booked_state_survives_unrelated_rejected_command(self):
+        session_id = "luna-v3-booked-ledger"
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "check_quote_book", "identity": "operation:booking",
+            "result": {"ok": True, "state": "booked", "offer_reference": "offer_booked"},
+        }])
+        self.module._apply_operation_evidence(session_id, [{
+            "tool": "get_payment_status", "identity": "operation:rejected-payment-check",
+            "result": {"outcome": "rejected", "offer_reference": "offer_other"},
+        }])
+        from runtime.trusted_turn_context import render_booking_state_constraints
+        rendered = render_booking_state_constraints([], self.module._SESSION_OPERATION_OUTCOMES[session_id])
+        self.assertIn("authoritative_state=booked", rendered)
+        self.assertIn("booked=true", rendered)
 
     def test_response_projects_real_tool_calls_and_only_admitted_capability(self):
         adapter = FakeAdapter()

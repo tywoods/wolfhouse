@@ -389,14 +389,18 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     args = dict(arguments or {})
     result = _call_tool_raw(name, args)
     if isinstance(result, dict) and result.get("call_id"):
+        uncertain_codes = {
+            "staff_transport_non_json", "malformed_staff_response",
+            "staff_transport_http_non_json", "staff_transport_http_malformed",
+            "staff_plugin_internal_failure", "staff_tool_unreachable",
+        }
+        if result.get("code") in uncertain_codes and not result.get("outcome"):
+            result = {**result, "recoveryStatus": "unknown", "outcome": "unknown"}
         try:
             from runtime.trusted_turn_context import record_operation_evidence, get_inbound_event
-            reference = result.get("offer_reference") or args.get("offer_reference")
-            if reference:
-                identity = f"offer:{reference}"
-            else:
-                basis = ":".join((get_inbound_event(), name, str(args.get("action") or ""), str(args.get("purpose") or "")))
-                identity = "operation:" + hashlib.sha256(basis.encode()).hexdigest()[:32]
+            operation_shape = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+            basis = ":".join((get_inbound_event(), name, operation_shape))
+            identity = "operation:" + hashlib.sha256(basis.encode()).hexdigest()[:32]
             record_operation_evidence(name, result, identity=identity)
         except ImportError:
             pass

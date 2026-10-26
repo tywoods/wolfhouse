@@ -110,19 +110,28 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
         result = item.get("result")
         identity = item.get("identity")
         if not identity and isinstance(result, dict):
-            reference = result.get("offer_reference")
-            identity = f"offer:{reference}" if reference else (f"call:{result.get('call_id')}" if result.get("call_id") else None)
+            identity = f"operation:{result.get('call_id')}" if result.get("call_id") else None
         if not isinstance(result, dict) or not isinstance(identity, str) or not identity:
             continue
         unknown = (result.get("outcome") == "unknown" or result.get("recoveryStatus") == "unknown"
                    or result.get("outcome_unknown") is True)
-        known = result.get("ok") is True or result.get("outcome") == "rejected" or result.get("recoveryStatus") == "rejected"
-        if unknown or known:
+        answered = result.get("ok") is True or result.get("outcome") == "rejected" or result.get("recoveryStatus") == "rejected"
+        if unknown or answered:
             ledger[identity] = {
-                "identity": identity, "status": "unresolved" if force_unresolved or unknown else "resolved",
+                "kind": "command", "identity": identity,
+                "status": "unresolved" if force_unresolved or unknown else "resolved",
                 "operation": str(item.get("tool") or "staff"),
-                "staff_state": result.get("state") or result.get("outcome") or result.get("recoveryStatus"),
+                "command_outcome": "unknown" if unknown else ("succeeded" if result.get("ok") is True else "rejected"),
                 "offer_reference": result.get("offer_reference"), "sequence": time.monotonic_ns(),
+            }
+        state = str(result.get("state") or "").lower()
+        if result.get("ok") is True and state in {"quote", "offer", "booked", "released"}:
+            reference = result.get("offer_reference")
+            state_identity = f"state:{reference}" if reference else f"state:{identity}"
+            ledger[state_identity] = {
+                "kind": "state", "identity": state_identity, "status": "resolved",
+                "operation": str(item.get("tool") or "staff"), "staff_state": state,
+                "offer_reference": reference, "sequence": time.monotonic_ns(),
             }
     if not ledger:
         _SESSION_OPERATION_OUTCOMES.pop(session_id, None)
@@ -130,7 +139,7 @@ def _apply_operation_evidence(session_id: str, evidence: list[dict[str, Any]], *
 
 def _record_cleanup_truth(session_id: str, offer_reference: str) -> None:
     _apply_operation_evidence(session_id, [{
-        "tool": "check_quote_book", "identity": f"offer:{offer_reference}",
+        "tool": "check_quote_book", "identity": f"operation:cleanup:{offer_reference}",
         "result": {"ok": True, "state": "released", "offer_reference": offer_reference},
     }])
 
@@ -337,7 +346,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             reference = next(iter(dict.fromkeys(offers)), None)
             if reference:
                 _apply_operation_evidence(session_id, [{
-                    "tool": "check_quote_book", "identity": f"offer:{reference}",
+                    "tool": "check_quote_book", "identity": f"operation:cleanup:{reference}",
                     "result": {"outcome": "unknown", "offer_reference": reference},
                 }])
             return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}

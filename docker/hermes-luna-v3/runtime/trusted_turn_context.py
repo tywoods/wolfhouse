@@ -81,20 +81,12 @@ def render_booking_state_constraints(history: Any, operation_outcome: Any = None
             outcomes = [operation_outcome]
         else:
             outcomes = [value for value in operation_outcome.values() if isinstance(value, dict)]
-    unresolved = [value for value in outcomes if value.get("status") == "unresolved"]
-    if unresolved:
-        return "\n".join((
-            "TRUSTED STAFF BOOKING STATE",
-            "authoritative_state=unknown; held=false; booked=false.",
-            "An unresolved Staff operation exists from an earlier failed turn. Do not infer its outcome from shown chat or retry it as new work. Say Staff state cannot yet be verified; only Staff evidence for that same operation/reference may resolve it.",
-        ))
-    resolved = max(outcomes, key=lambda value: int(value.get("sequence") or 0), default=None)
-    if resolved and resolved.get("staff_state") in {"released", "rejected"}:
-        return "\n".join((
-            "TRUSTED STAFF BOOKING STATE",
-            f"authoritative_state={resolved['staff_state']}; held=false; booked=false.",
-            "This Staff operation outcome is newer than shown chat. Do not revive an older hold or booking claim from conversation history.",
-        ))
+    unresolved = [value for value in outcomes
+                  if value.get("kind", "command") == "command" and value.get("status") == "unresolved"]
+    state_evidence = max(
+        (value for value in outcomes if value.get("kind") == "state"),
+        key=lambda value: (value.get("staff_state") == "booked", int(value.get("sequence") or 0)), default=None,
+    )
     pending: dict[str, str] = {}
     latest: dict[str, Any] | None = None
     for message in history if isinstance(history, list) else []:
@@ -129,10 +121,20 @@ def render_booking_state_constraints(history: Any, operation_outcome: Any = None
         elif raw_state == "quote":
             state = "quoted"
 
+    if state_evidence:
+        raw_state = str(state_evidence.get("staff_state") or "").lower()
+        state = {"quote": "quoted", "offer": "held"}.get(raw_state, raw_state)
+        booked = state == "booked"
+        held = state == "held"
+
+    held_text = "unknown" if state == "unknown" and unresolved else ("true" if held else "false")
+    booked_text = "unknown" if state == "unknown" and unresolved else ("true" if booked else "false")
     lines = [
         "TRUSTED STAFF BOOKING STATE",
-        f"authoritative_state={state}; held={'true' if held else 'false'}; booked={'true' if booked else 'false'}.",
+        f"authoritative_state={state}; held={held_text}; booked={booked_text}.",
     ]
+    if unresolved:
+        lines.append("An unresolved Staff operation command outcome exists. Keep the established booking state above; do not infer or erase state from that command, shown chat, or an unrelated rejection. Only reconciliation evidence for the same operation resolves it.")
     if state == "quoted":
         lines.append("This is only a quote; you must not describe it as held or booked.")
     elif state == "held":
