@@ -12,6 +12,7 @@ _PREPARE_DISPATCHED: ContextVar[bool] = ContextVar("luna_v3_prepare_dispatched",
 _CAPABILITY_SNAPSHOT: ContextVar[Any] = ContextVar("luna_v3_capability_snapshot", default=None)
 _HARNESS_EVIDENCE: ContextVar[Any] = ContextVar("luna_v3_harness_evidence", default=None)
 _HARNESS_FAULT: ContextVar[str] = ContextVar("luna_v3_harness_fault", default="")
+_OPERATION_EVIDENCE: ContextVar[list[dict[str, Any]] | None] = ContextVar("luna_v3_operation_evidence", default=None)
 
 
 def bind_inbound_event(event_id: str, capability_snapshot: Any = None) -> Token:
@@ -52,14 +53,34 @@ def harness_evidence() -> list[dict[str, Any]] | None:
     return _HARNESS_EVIDENCE.get()
 
 
+def bind_operation_evidence(recorder: list[dict[str, Any]]) -> Token:
+    return _OPERATION_EVIDENCE.set(recorder)
+
+
+def clear_operation_evidence(token: Token) -> None:
+    _OPERATION_EVIDENCE.reset(token)
+
+
+def record_operation_evidence(tool: str, result: dict[str, Any]) -> None:
+    recorder = _OPERATION_EVIDENCE.get()
+    if recorder is not None:
+        recorder.append({"tool": str(tool), "result": dict(result)})
+
+
 def consume_harness_fault() -> str:
     value = _HARNESS_FAULT.get()
     _HARNESS_FAULT.set("")
     return value
 
 
-def render_booking_state_constraints(history: Any) -> str:
-    """Project the latest Staff booking result into a server-owned state fence."""
+def render_booking_state_constraints(history: Any, operation_outcome: Any = None) -> str:
+    """Project Staff evidence into a server-owned state fence."""
+    if isinstance(operation_outcome, dict) and operation_outcome.get("status") == "unresolved":
+        return "\n".join((
+            "TRUSTED STAFF BOOKING STATE",
+            "authoritative_state=unknown; held=false; booked=false.",
+            "An unresolved Staff operation exists from an earlier failed turn. Do not infer its outcome from shown chat or retry it as new work. Say Staff state cannot yet be verified; only a later authoritative Staff result may resolve it.",
+        ))
     pending: dict[str, str] = {}
     latest: dict[str, Any] | None = None
     for message in history if isinstance(history, list) else []:

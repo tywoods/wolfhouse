@@ -251,7 +251,14 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
                 if isinstance(value, dict):
                     return {key: redact(item) for key, item in value.items() if key not in private}
                 return value
-            return {**redact(body), "call_id": call_id}
+            public_result = {**redact(body), "call_id": call_id}
+            if name == "check_quote_book":
+                try:
+                    from runtime.trusted_turn_context import record_operation_evidence
+                    record_operation_evidence(name, public_result)
+                except ImportError:
+                    pass
+            return public_result
     except urllib.error.HTTPError as exc:
         try:
             original_raw = exc.read()
@@ -374,6 +381,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         result.setdefault("recoveryStatus", "unknown" if effective_status >= 500 else "rejected")
         result.setdefault("outcome", "unknown" if effective_status >= 500 else "rejected")
         result["call_id"] = call_id
+        if name == "check_quote_book":
+            try:
+                from runtime.trusted_turn_context import record_operation_evidence
+                record_operation_evidence(name, result)
+            except ImportError:
+                pass
         return result
     except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as exc:
         if not recorded: record_exchange(status=boundary_status, exception=exc, observed="timeout_caught" if isinstance(exc,(TimeoutError,socket.timeout)) else "connect_error_caught")

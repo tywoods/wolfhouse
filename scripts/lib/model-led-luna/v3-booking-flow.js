@@ -196,6 +196,7 @@ function publicOffer(held, quote, input, reference, catalog) {
       currency: quote.currency, lineItems: quote.lineItems, perPerson: quote.perPerson },
     package_details: quote.packageDetails !== undefined
       ? quote.packageDetails : selectedPackageDetails(input, catalog || {}, assignments),
+    add_ons: publicAddOns(input),
     payment_arrangement: input.payment && input.payment.arrangement,
   };
 }

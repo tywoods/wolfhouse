@@ -35,6 +35,15 @@ class BookingStateConstraintTests(unittest.TestCase):
         self.assertIn("authoritative_state=held", self.module.render_booking_state_constraints(offer))
         self.assertIn("authoritative_state=booked", self.module.render_booking_state_constraints(booked))
 
+    def test_unresolved_staff_write_overrides_shown_chat_until_confirmed(self):
+        history = [{"role": "assistant", "content": "Nothing happened."}]
+        text = self.module.render_booking_state_constraints(history, {
+            "status": "unresolved", "operation": "offer_prepare", "staff_state": "offer",
+        })
+        self.assertIn("authoritative_state=unknown", text)
+        self.assertIn("unresolved Staff operation", text)
+        self.assertNotIn("authoritative_state=held", text)
+
     def test_missing_or_failed_staff_readback_is_unknown(self):
         rendered = self.module.render_booking_state_constraints([
             {"role": "assistant", "content": "It is held."},

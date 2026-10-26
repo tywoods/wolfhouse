@@ -25,7 +25,10 @@ assert.doesNotThrow(() => assertSafeToolRequest('check_quote_book', {
 const calls = [];
 const deps = {
   findRooms: async () => ({ ok: true, rooms: [{ roomId: 'R1', bedOptions: [{ code: 'BED-1' }] }] }),
-  getPricingCatalog: async () => ({ ok: true, items: [{ item_type: 'package', item_code: 'package_none', label: 'Accommodation only' }] }),
+  getPricingCatalog: async () => ({ ok: true, items: [
+    { item_type: 'package', item_code: 'package_none', label: 'Accommodation only' },
+    { item_type: 'rental', item_code: 'wetsuit_soft_top_combo', label: 'Wetsuit + soft top', pricing_units: ['per_day'] },
+  ] }),
   quote: async (_pg, input) => { calls.push(['quote', input]); return { ok: true, quote: { totalCents: 10000 }, holdInput: { check_in: input.check_in, check_out: input.check_out, guests: input.guests, assignments: [{ bed_code: 'BED-1', guest_name: 'A', package_code: 'package_none' }], quoted_selection: 'quote-rev' } }; },
   holdBeds: async (_pg, input) => { calls.push(['hold', input]); return { ok: true, holdId: '11111111-1111-4111-8111-111111111111', expiresAt: '2027-03-01T12:15:00Z', assignments: [{ bedCode: 'BED-1', packageCode: 'package_none' }] }; },
   releaseHold: async () => ({ ok: true }),
@@ -56,11 +59,12 @@ const run = createCheckQuoteBook(deps);
   const result = await run(pg, {
     action: 'prepare', purpose: 'offer', check_in: '2027-03-01', check_out: '2027-03-08',
     guests: [{ name: 'A', gender: 'female' }], room: { kind: 'exact', beds: ['BED-1'], together: 'required' },
-    package: { code: 'package_none' }, add_ons: [], payment: { arrangement: 'separately' },
+    package: { code: 'package_none' }, add_ons: [{ code: 'wetsuit_soft_top_combo', quantity: 1, people: ['A'], dates: ['2027-03-02', '2027-03-03'], days: 2 }], payment: { arrangement: 'separately' },
   }, { sessionId: 'luna-v3:aaaaaaaaaaaaaaaaaaaaaaaa', principalId: 'p', turnId: 'turn:00000001', authenticatedInboundEventId: '11111111-1111-4111-8111-111111111111' });
   assert.equal(result.state, 'offer');
   assert.match(result.offer_reference, /^offer_/);
   assert.equal('holdId' in result, false, 'internal hold UUID must not cross public result');
+  assert.deepEqual(result.add_ons, [{ code: 'wetsuit_soft_top_combo', quantity: 1, people: ['A'], dates: ['2027-03-02', '2027-03-03'], days: 2 }]);
   assert.equal(calls.filter(([name]) => name === 'quote').length, 1);
   assert.equal(calls.filter(([name]) => name === 'hold').length, 1);
   assert.equal(calls[0][1].operation_key.startsWith('one-try:'), true);

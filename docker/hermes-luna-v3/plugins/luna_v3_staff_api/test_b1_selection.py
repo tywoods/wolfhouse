@@ -40,12 +40,12 @@ class PublicOneTrySelectionTests(unittest.TestCase):
             "presented in a prior assistant turn",
             "call `check_quote_book` once with `action=confirm`",
             "Do not retry, repair, recover",
-            "price, total or quote",
-            "purpose=quote",
-            "does not create a hold",
-            "asks to book and all offer facts are complete",
-            "create the held offer",
-            "ask once for explicit confirmation",
+            "explicit quote-only / no-hold intent stays `purpose=quote`",
+            "full booking intent—including “quote then book both”",
+            "one real `purpose=offer` prepare",
+            "asks one OK question",
+            "one unchanged confirm",
+            "Never run a quote prepare first for full booking intent",
             "Staff capability snapshot",
         ):
             self.assertIn(phrase, soul)

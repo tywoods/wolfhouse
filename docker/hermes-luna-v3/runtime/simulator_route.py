@@ -17,6 +17,7 @@ from typing import Any
 
 _RESERVED_PHONE = re.compile(r"^\+346999\d{5,6}$")
 _SESSION_HISTORY: dict[str, list[dict[str, Any]]] = {}
+_SESSION_OPERATION_OUTCOMES: dict[str, dict[str, Any]] = {}
 _CONTINUATIONS: dict[str, dict[str, Any]] = {}
 
 
@@ -94,57 +95,13 @@ def _project_tool_calls(messages: Any) -> list[dict[str, Any]]:
     return projected
 
 
-def _format_money(cents: Any, currency: str) -> str:
-    if not isinstance(cents, int) or isinstance(cents, bool):
-        raise ValueError("invalid_offer_money")
-    amount = f"{cents / 100:.2f}".rstrip("0").rstrip(".")
-    return f"€{amount}" if currency == "EUR" else f"{amount} {currency}"
-
-
-def _authoritative_offer_reply(summary: Any) -> str | None:
-    """Compose the complete offer from Staff output, never model prose."""
-    if not isinstance(summary, dict) or summary.get("ok") is not True or summary.get("state") != "offer":
-        return None
-    quote = summary.get("quote")
-    guests = summary.get("guests")
-    if not isinstance(quote, dict) or not isinstance(guests, list) or not guests:
-        raise ValueError("incomplete_offer_result")
-    currency = str(quote.get("currency") or "")
-    lines = [
-        "Staff has temporarily held this option:",
-        f"Dates: {summary.get('check_in')} to {summary.get('check_out')}.",
-    ]
-    for guest in guests:
-        if not isinstance(guest, dict):
-            raise ValueError("incomplete_offer_result")
-        lines.append(f"Guest: {guest.get('name')}; bed: {guest.get('bed')}; package: {guest.get('package')}.")
-    for add_on in summary.get("add_ons") or []:
-        if not isinstance(add_on, dict):
-            raise ValueError("incomplete_offer_result")
-        dates = ", ".join(str(value) for value in add_on.get("dates") or [])
-        lines.append(f"Add-on: {add_on.get('code')}; quantity {add_on.get('quantity')}; dates: {dates}.")
-    lines.extend((
-        f"Total: {_format_money(quote.get('totalCents'), currency)}.",
-        f"Deposit: {_format_money(quote.get('depositCents'), currency)}.",
-        f"Remaining balance: {_format_money(quote.get('remainingCents'), currency)}.",
-        "Is this OK?",
-    ))
-    if any("None" in line for line in lines):
-        raise ValueError("incomplete_offer_result")
-    return "\n".join(lines)
-
-
-def _replace_final_assistant_reply(messages: Any, reply: str) -> None:
-    if not isinstance(messages, list):
-        raise ValueError("missing_offer_history")
-    for message in reversed(messages):
-        if _value(message, "role") == "assistant" and not (_value(message, "tool_calls", []) or []):
-            if isinstance(message, dict):
-                message["content"] = reply
-            else:
-                setattr(message, "content", reply)
-            return
-    raise ValueError("missing_offer_history")
+def _is_write_or_unknown(result: Any) -> bool:
+    return isinstance(result, dict) and (
+        result.get("ok") is True and result.get("state") in {"offer", "booked", "released"}
+        or result.get("outcome") == "unknown"
+        or result.get("recoveryStatus") == "unknown"
+        or result.get("outcome_unknown") is True
+    )
 
 
 def _normalize_phone(value: Any) -> str:
@@ -270,7 +227,7 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         history = list(_SESSION_HISTORY.get(session_id) or [])
         capability_constraints = "\n\n".join((
             render_capability_constraints(admission.get("capability_snapshot")),
-            render_booking_state_constraints(history),
+            render_booking_state_constraints(history, _SESSION_OPERATION_OUTCOMES.get(session_id)),
         ))
     except (ImportError, ValueError):
         return {"status": 503, "body": {"ok": False, "code": "simulator_capability_snapshot_missing"}}
@@ -281,13 +238,16 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
     )
     tokens = adapter._bind_api_server_session(session_key=session_key)
     from runtime.trusted_turn_context import (bind_inbound_event, clear_inbound_event,
-        bind_harness_evidence, clear_harness_evidence)
+        bind_harness_evidence, clear_harness_evidence, bind_operation_evidence, clear_operation_evidence)
     inbound_token = bind_inbound_event(inbound_event_id, admission.get("capability_snapshot"))
     staff_exchanges: list[dict[str, Any]] = []
+    operation_evidence: list[dict[str, Any]] = []
     harness_tokens = bind_harness_evidence(staff_exchanges if trace_allowed else None, fault)
+    operation_token = bind_operation_evidence(operation_evidence)
     ctx = copy_context()
     clear_inbound_event(inbound_token)
     clear_harness_evidence(harness_tokens)
+    clear_operation_evidence(operation_token)
 
     def run_agent() -> Any:
         return ctx.run(
@@ -301,6 +261,16 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
         try:
             result = await asyncio.get_running_loop().run_in_executor(None, run_agent)
         except Exception:
+            writes = [item for item in operation_evidence
+                      if item.get("tool") == "check_quote_book"
+                      and _is_write_or_unknown(item.get("result"))]
+            if writes:
+                latest = writes[-1]["result"]
+                _SESSION_OPERATION_OUTCOMES[session_id] = {
+                    "status": "unresolved", "operation": "check_quote_book",
+                    "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
+                }
+                return {"status": 502, "body": {"ok": False, "code": "agent_failed_after_staff_write"}}
             return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
     finally:
         try:
@@ -311,21 +281,27 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             pass
     failed = result.get("failed") if isinstance(result, dict) else getattr(result, "failed", False)
     if failed:
+        writes = [item for item in operation_evidence if _is_write_or_unknown(item.get("result"))]
+        if writes:
+            latest = writes[-1]["result"]
+            _SESSION_OPERATION_OUTCOMES[session_id] = {
+                "status": "unresolved", "operation": "agent_result",
+                "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
+            }
+            return {"status": 502, "body": {"ok": False, "code": "agent_failed_after_staff_write"}}
         return {"status": 502, "body": {"ok": False, "code": "agent_failed"}}
     reply = str(_value(result, "final_response", "") or "")
     messages = _value(result, "messages", [])
     tool_calls = _project_tool_calls(messages)
-    offer_results = [call.get("result_summary") for call in tool_calls
-                     if call.get("name") == "check_quote_book"
-                     and isinstance(call.get("result_summary"), dict)
-                     and call["result_summary"].get("state") == "offer"]
-    if offer_results:
-        try:
-            reply = _authoritative_offer_reply(offer_results[-1]) or reply
-            _replace_final_assistant_reply(messages, reply)
-        except ValueError:
-            return {"status": 502, "body": {"ok": False, "code": "incomplete_offer_result"}}
     if not reply.strip():
+        writes = [item for item in operation_evidence if _is_write_or_unknown(item.get("result"))]
+        if writes:
+            latest = writes[-1]["result"]
+            _SESSION_OPERATION_OUTCOMES[session_id] = {
+                "status": "unresolved", "operation": "formatter",
+                "staff_state": latest.get("state"), "offer_reference": latest.get("offer_reference"),
+            }
+            return {"status": 502, "body": {"ok": False, "code": "formatter_failed_after_staff_write"}}
         return {"status": 502, "body": {"ok": False, "code": "missing_reply"}}
     offers = [call.get("result_summary", {}).get("offer_reference") for call in tool_calls
               if call.get("name") == "check_quote_book" and isinstance(call.get("result_summary"), dict)
@@ -338,10 +314,18 @@ async def handle_turn(request: Any, adapter: Any, admit_session: Any = None) -> 
             for offer_reference in dict.fromkeys(offers):
                 await asyncio.to_thread(_decline_offer_sync, session_key, offer_reference, inbound_event_id)
         except Exception:
+            _SESSION_OPERATION_OUTCOMES[session_id] = {
+                "status": "unresolved", "operation": "offer_cleanup",
+                "staff_state": "unknown", "offer_reference": next(iter(dict.fromkeys(offers)), None),
+            }
             return {"status": 502, "body": {"ok": False, "code": "offer_state_unknown"}}
         return {"status": 502, "body": {"ok": False, "code": "offer_presentation_record_failed"}}
     if isinstance(messages, list):
         _SESSION_HISTORY[session_id] = messages
+    if operation_evidence:
+        known = operation_evidence[-1].get("result", {})
+        if isinstance(known, dict) and known.get("ok") is True and known.get("state") in {"quote", "offer", "booked", "released"}:
+            _SESSION_OPERATION_OUTCOMES.pop(session_id, None)
     response_body = {
             "ok": True,
             "reply_text": reply.strip(),
