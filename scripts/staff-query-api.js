@@ -889,6 +889,10 @@ const {
   calculateWolfhouseQuote,
   loadConfig,
 } = require('./lib/wolfhouse-quote-calculator');
+const {
+  createWolfhouseDateChangeService,
+  routeWolfhouseDateChangeRequest,
+} = require('./lib/wolfhouse-date-change');
 const { loadWolfhouseDepositRates } = require('./lib/wolfhouse-stay-deposit');
 const {
   executeWolfhouseAccommodationQuote,
@@ -52599,6 +52603,45 @@ async function handleBotListBookingsByPhone(req, res, user, authMode) {
   }
 }
 
+async function handleBotDateChange(req, res, user, authMode) {
+  const trustedClientSlug = resolveBotHandlerTrustedClientSlug(req, {}, null, DEFAULT_CLIENT);
+  const trustedGuestPhone = String((req.headers && req.headers['x-luna-guest-phone']) || '').trim();
+  let service;
+  try {
+    service = createWolfhouseDateChangeService({
+      withPgClient,
+      quoteNewDates: async (input) => {
+        const quote = calculateWolfhouseQuote({
+          client_slug: input.client_slug,
+          check_in: input.check_in,
+          check_out: input.check_out,
+          guest_count: input.guest_count,
+        });
+        if (!quote || quote.success !== true) {
+          return { success: false, blockers: (quote && quote.blockers) || [], staff_review_needed: true };
+        }
+        return {
+          success: true,
+          total_cents: quote.total_cents,
+          currency: quote.currency || 'EUR',
+          quote_id: quote.quote_id || null,
+          deposit_cents: quote.deposit_required_cents,
+        };
+      },
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'date_change_unavailable', detail: err.message });
+  }
+  const handled = await routeWolfhouseDateChangeRequest(req, res, {
+    service,
+    readBody,
+    sendJSON,
+    trustedClientSlug,
+    trustedGuestPhone,
+  });
+  if (!handled) return sendJSON(res, 404, { success: false, error: 'not_found' });
+}
+
 // POST /staff/bot/bookings/cancel-unpaid
 // Guest-owned cancellation. Payment eligibility is decided again under the booking
 // row lock in the same transaction as the cancellation write.
@@ -57111,6 +57154,17 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
       handleBotListBookingsByPhone(req, res, user, authMode));
+  }
+
+  if (pathname === '/staff/bot/bookings/date-change-quote' || pathname === '/staff/bot/bookings/date-change') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/date-change' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteBoundToPrincipalTenant(auth, req, res, parsed.query, (user, authMode) =>
+      handleBotDateChange(req, res, user, authMode));
   }
 
   if (pathname === '/staff/bot/bookings/update-contact') {
