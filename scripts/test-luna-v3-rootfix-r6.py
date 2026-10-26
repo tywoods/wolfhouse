@@ -10,6 +10,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 SOURCE=pathlib.Path(os.environ.get('MATRIX_SOURCE',ROOT/'scripts/run-luna-v3-rendered-reply-matrix.py'))
 spec=importlib.util.spec_from_file_location('matrix_r6_subject',SOURCE)
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+from luna_v3_grader_test_support import TEST_AUTHORITY, boundary_evidence, produce
 KINDS=('accommodation','package','rental','lesson_a','lesson_b','mixed','multi_guest')
 
 def specimen(kind):
@@ -24,7 +25,7 @@ def specimen(kind):
  if kind=='multi_guest': addons=[{'code':'board','quantity':1,'dates':['2027-06-02'],'people':['Alex']},{'code':'private_lesson','quantity':1,'dates':['2027-06-04'],'people':['Sam']}]
  args={'action':'prepare','purpose':'quote','check_in':'2027-06-01','check_out':'2027-06-08','guests':guests,'room':{'kind':'shared'},'package':package,'add_ons':addons}
  facts={'currency':'EUR','total_cents':12345,'deposit_cents':3000,'remaining_cents':9345,'check_in':args['check_in'],'check_out':args['check_out'],'package':fact_package,'add_ons':copy.deepcopy(addons),'inclusions':[],'terms':[]}
- case={'expect':'mixed' if kind in ('mixed','multi_guest') else 'quote','prepare_required':True,'intended_owner_outcome':{'expect':'mixed' if kind in ('mixed','multi_guest') else 'quote','facts':facts}}
+ case={'expect':'mixed' if kind in ('mixed','multi_guest') else 'quote','prepare_required':True,'_expected_authority':dict(TEST_AUTHORITY),'intended_owner_outcome':{'expect':'mixed' if kind in ('mixed','multi_guest') else 'quote','facts':facts}}
  call={'id':'tc-'+kind,'function':{'name':'check_quote_book','arguments_parsed':copy.deepcopy(args)}}
  result={'ok':True,'state':'quote','held':False,'booked':False,'paid':False,**copy.deepcopy(facts),'call_id':'owner-'+kind,'_tool_call_id':call['id']}
  product=[]
@@ -33,9 +34,7 @@ def specimen(kind):
  else: product=[f"the {package['code']} package"]
  for a in addons: product.append(f"{', '.join(a['people'])} has {a['quantity']} {a['code']} {'lesson' if 'lesson' in a['code'] else 'rental'} on {', '.join(a['dates'])}")
  reply='; '.join([f"2027-06-01 to 2027-06-08: {product[0]}",*product[1:],"Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45","Availability is not guaranteed; I have not booked or held anything."])
- authority={'tenant_id':'test-tenant','session_id':'offline-'+kind,'external_send_allowed':False,'staff_alert_allowed':False}
- clean={k:v for k,v in result.items() if not k.startswith('_')}; raw=json.dumps(clean,separators=(',',':')).encode().hex()
- exchange={'tool':'check_quote_book','call_id':result['call_id'],'event_id':'evt-'+kind,'status':200,'original_status':200,'request':{**copy.deepcopy(args),**authority},'public_request':copy.deepcopy(args),'trusted_authority':authority,'original_response_hex':raw,'raw_response_hex':raw}
+ exchange=boundary_evidence(call,result,event_id='evt-'+kind)
  return args,facts,case,call,result,reply,exchange
 
 class RootFixR6(unittest.TestCase):
@@ -43,13 +42,13 @@ class RootFixR6(unittest.TestCase):
   for kind in KINDS:
    with self.subTest(kind=kind,control='producer-positive'):
     args,facts,case,call,result,good,ex=specimen(kind)
-    self.assertTrue(m.semantic_score(case,good,[call],[result],ex,current_event_id=ex['event_id'])['fidelity'])
-    self.assertFalse(m.semantic_score(case,good,[call],[result],None,current_event_id=ex['event_id'])['fidelity'])
+    self.assertTrue(m.semantic_score(case,good,[call],[result],ex,current_event_id=ex['event_id'],expected_authority=dict(TEST_AUTHORITY))['fidelity'])
+    self.assertFalse(m.semantic_score(case,good,[call],[result],None,current_event_id=ex['event_id'],expected_authority=dict(TEST_AUTHORITY))['fidelity'])
    negated=good.replace(' has the ',' does not have the ',1) if kind=='multi_guest' else good.replace('the '+('malibu' if kind in ('package','mixed') else 'package_none')+' package','the '+('malibu' if kind in ('package','mixed') else 'package_none')+' package is not selected',1)
    bad=(good+' Your reservation is confirmed.',good+' Total JPY 9999.00.',negated,good+' Jamie has 9 board rentals.')
    for n,text in enumerate(bad):
     with self.subTest(kind=kind,counterexample=n):
-     self.assertFalse(m.semantic_score(case,text,[call],[result],ex,current_event_id=ex['event_id'])['fidelity'])
+     self.assertFalse(m.semantic_score(case,text,[call],[result],ex,current_event_id=ex['event_id'],expected_authority=dict(TEST_AUTHORITY))['fidelity'])
  def test_cap4_all_kinds_complete_operation_equivalence(self):
   choices=[{'code':'package_none','kind':'accommodation','active':True},{'code':'malibu','kind':'package','active':True},{'code':'board','kind':'rental','active':True},{'code':'group_lesson','kind':'service','active':True},{'code':'private_lesson','kind':'service','active':True}]
   for kind in KINDS:
@@ -62,13 +61,11 @@ class RootFixR6(unittest.TestCase):
  def test_cap6_all_kinds_non_json_fault_preserves_transport_semantics(self):
   for kind in KINDS:
    args,_,_,call,_,_,ex=specimen(kind)
-   result={'ok':False,'classification':'transport','call_id':ex['call_id'],'_tool_call_id':call['id']}
-   original=json.dumps({'ok':False,'classification':'transport','call_id':ex['call_id']},separators=(',',':')).encode().hex()
-   fault={**ex,'status':500,'original_status':500,'original_response_hex':original,'raw_response_hex':b'CAP-HARNESS-NON-JSON'.hex(),'fault_requested':'non-json','fault_applied':'non-json','fault_observed':'http_error_json_parse_error'}
+   call,result,fault=produce(args,{'ok':False,'classification':'transport'},status=500,event_id=ex['event_id'],fault='non-json',call_id=call['id'])
    with self.subTest(kind=kind,control='producer-shaped-non-json'):
-    self.assertTrue(m.semantic_score({'expect':'uncertain','prepare_required':True,'fault':'non-json'},'I cannot verify this quote.',[call],[result],fault,current_event_id=ex['event_id'])['fidelity'])
+    self.assertTrue(m.semantic_score({'expect':'uncertain','prepare_required':True,'_expected_authority':dict(TEST_AUTHORITY),'fault':'non-json'},'I cannot verify this quote.',[call],[result],fault,current_event_id=ex['event_id'],expected_authority=dict(TEST_AUTHORITY))['fidelity'])
    corrupted={**fault,'raw_response_hex':json.dumps({'ok':True}).encode().hex()}
    with self.subTest(kind=kind,counterexample='unrelated-json-substitution'):
-    self.assertFalse(m.semantic_score({'expect':'uncertain','prepare_required':True,'fault':'non-json'},'I cannot verify this quote.',[call],[result],corrupted,current_event_id=ex['event_id'])['fidelity'])
+    self.assertFalse(m.semantic_score({'expect':'uncertain','prepare_required':True,'_expected_authority':dict(TEST_AUTHORITY),'fault':'non-json'},'I cannot verify this quote.',[call],[result],corrupted,current_event_id=ex['event_id'],expected_authority=dict(TEST_AUTHORITY))['fidelity'])
 
 if __name__=='__main__': unittest.main(verbosity=2)

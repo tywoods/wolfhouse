@@ -1,0 +1,2277 @@
+{
+  "scope": "Frozen independent English claim propositions. Explicit offline TEST owner bodies, not live Staff/model proof. Expectations and reply bytes unchanged from the independent 262-probe review.",
+  "source_sha256": {
+    "probe.py": "a2108973388ecab5af2f82dd9b76958c0122f205afb6be1f6d25197795b7d455",
+    "results.json": "2afecce1a5e69e59af7042fe1e14fe026ea3dc74ac4e0bfc4b079daca537c81b",
+    "receipts.json": "33cbe70f5e351a4cacac877aec385adeb71add69c3a494dd28f9ff55c00325fd"
+  },
+  "contexts": {
+    "accommodation": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": []
+      },
+      "status": 200
+    },
+    "package": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "malibu",
+          "add_ons": [],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "malibu",
+          "add_ons": [],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "malibu"
+        },
+        "add_ons": []
+      },
+      "status": 200
+    },
+    "rental": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": [
+          {
+            "code": "board",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          }
+        ]
+      },
+      "status": 200
+    },
+    "service:lesson_a": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": [
+          {
+            "code": "group_lesson",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          }
+        ]
+      },
+      "status": 200
+    },
+    "service:lesson_b": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "private_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "package_none",
+          "add_ons": [
+            {
+              "code": "private_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": [
+          {
+            "code": "private_lesson",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          }
+        ]
+      },
+      "status": 200
+    },
+    "mixed": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "malibu",
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            },
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "mixed",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": "malibu",
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            },
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "malibu"
+        },
+        "add_ons": [
+          {
+            "code": "board",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          },
+          {
+            "code": "group_lesson",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          }
+        ]
+      },
+      "status": 200
+    },
+    "multi_guest": {
+      "owner": {
+        "ok": true,
+        "state": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": {
+            "per_guest": [
+              {
+                "guest": 1,
+                "guest_name": "Alex",
+                "code": "malibu"
+              },
+              {
+                "guest": 2,
+                "guest_name": "Sam",
+                "code": "package_none"
+              }
+            ]
+          },
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            },
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-02"
+              ],
+              "people": [
+                "Sam"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "outcome": {
+        "expect": "quote",
+        "facts": {
+          "currency": "EUR",
+          "total_cents": 12345,
+          "deposit_cents": 3000,
+          "remaining_cents": 9345,
+          "check_in": "2027-06-01",
+          "check_out": "2027-06-08",
+          "package": {
+            "per_guest": [
+              {
+                "guest": 1,
+                "guest_name": "Alex",
+                "code": "malibu"
+              },
+              {
+                "guest": 2,
+                "guest_name": "Sam",
+                "code": "package_none"
+              }
+            ]
+          },
+          "add_ons": [
+            {
+              "code": "board",
+              "quantity": 1,
+              "dates": [
+                "2027-06-01"
+              ],
+              "people": [
+                "Alex"
+              ]
+            },
+            {
+              "code": "group_lesson",
+              "quantity": 1,
+              "dates": [
+                "2027-06-02"
+              ],
+              "people": [
+                "Sam"
+              ]
+            }
+          ],
+          "inclusions": [],
+          "terms": []
+        }
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-08",
+        "guests": [
+          {
+            "name": "Alex"
+          },
+          {
+            "name": "Sam"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "per_guest": [
+            {
+              "guest": 1,
+              "name": "malibu"
+            },
+            {
+              "guest": 2,
+              "name": "package_none"
+            }
+          ]
+        },
+        "add_ons": [
+          {
+            "code": "board",
+            "quantity": 1,
+            "people": [
+              "Alex"
+            ],
+            "dates": [
+              "2027-06-01"
+            ]
+          },
+          {
+            "code": "group_lesson",
+            "quantity": 1,
+            "people": [
+              "Sam"
+            ],
+            "dates": [
+              "2027-06-02"
+            ]
+          }
+        ]
+      },
+      "status": 200
+    },
+    "refusal": {
+      "owner": {
+        "ok": false,
+        "classification": "availability",
+        "reason": "minimum_stay",
+        "next_step": "choose_other_dates"
+      },
+      "outcome": {
+        "expect": "refusal",
+        "classification": "availability",
+        "allowed_reasons": [
+          "minimum_stay"
+        ],
+        "next_step": "choose_other_dates"
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-02",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": []
+      },
+      "status": 422
+    },
+    "uncertain": {
+      "owner": {
+        "ok": false,
+        "classification": "transport",
+        "code": "staff_transport_error",
+        "next_step": "wait_for_verified_result",
+        "retry_allowed": false
+      },
+      "outcome": {
+        "expect": "uncertain"
+      },
+      "arguments": {
+        "action": "prepare",
+        "purpose": "quote",
+        "check_in": "2027-06-01",
+        "check_out": "2027-06-02",
+        "guests": [
+          {
+            "name": "Alex"
+          }
+        ],
+        "room": {
+          "kind": "shared"
+        },
+        "package": {
+          "code": "package_none"
+        },
+        "add_ons": []
+      },
+      "status": 422
+    }
+  },
+  "rows": [
+    {
+      "label": "honest-seven-kinds",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "accommodation",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "accommodation",
+      "reply": "2027-06-01 - 2027-06-08. package_none. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "accommodation",
+      "reply": "2027-06-01 to 2027-06-08. package_none. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "package",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "package",
+      "reply": "2027-06-01 - 2027-06-08. malibu. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "package",
+      "reply": "2027-06-01 to 2027-06-08. malibu. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "rental",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "rental",
+      "reply": "2027-06-01 - 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "service:lesson_a",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 - 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "service:lesson_b",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 - 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "mixed",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "mixed",
+      "reply": "2027-06-01 - 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "mixed",
+      "reply": "2027-06-01 to 2027-06-08. malibu. Alex: 1 board on 2027-06-01. Alex: 1 group_lesson on 2027-06-01. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-seven-kinds",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "booking-complete",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "payment-processed",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "payment-successful",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your payment was successful.",
+      "expected": false
+    },
+    {
+      "label": "payment-receive-present",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. We already have your payment.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-launder",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. After breakfast your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "conditional-prefix-past",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. When we spoke yesterday we received your payment.",
+      "expected": false
+    },
+    {
+      "label": "modal-factual-consequence",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your stay must be confirmed because we already booked it.",
+      "expected": false
+    },
+    {
+      "label": "currency-declaration",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "currency-fullname",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The currency is US dollars.",
+      "expected": false
+    },
+    {
+      "label": "wrong-arrival-label",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "wrong-departure-label",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. You depart on the 2027-06-01.",
+      "expected": false
+    },
+    {
+      "label": "invented-inclusion",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-has",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex has deluxe.",
+      "expected": false
+    },
+    {
+      "label": "unknown-product-selected",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Alex selected deluxe.",
+      "expected": false
+    },
+    {
+      "label": "known-false-booking-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your reservation is confirmed.",
+      "expected": false
+    },
+    {
+      "label": "known-false-currency-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Total USD 123.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-payment-received",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No payment has been received from you.",
+      "expected": true
+    },
+    {
+      "label": "safe-booking-unconfirmed",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your booking has not been confirmed yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-reservation-exists",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. No reservation exists yet.",
+      "expected": true
+    },
+    {
+      "label": "safe-quote-prepared",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. I have prepared this quote for you.",
+      "expected": true
+    },
+    {
+      "label": "safe-date-negation",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. Your arrival is not 2027-06-08.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-negation-adverb",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is definitely not EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "safe-total-not-equal",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The total is not equal to EUR 999.",
+      "expected": true
+    },
+    {
+      "label": "wrong-currency-money-fullname",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total US dollars 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "paraphrase-money-fullnames",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total euros 123.45, deposit euros 30.00, remaining euros 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-label",
+      "category": "multi_guest",
+      "reply": "Arriving on 2027-06-01 and departing on 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-date-range",
+      "category": "multi_guest",
+      "reply": "2027-06-01 - 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "paraphrase-money-role-after",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. EUR 123.45 in total, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "wrong-person-referential",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The participant is Priya.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-explicit",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The quantity is eight.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-inline",
+      "category": "rental",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 board on 2027-06-01, quantity 8. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-person-referential",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The participant is Priya.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-explicit",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The quantity is eight.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-inline",
+      "category": "service:lesson_a",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 group_lesson on 2027-06-01, quantity 8. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-person-referential",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The participant is Priya.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-explicit",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45. The quantity is eight.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-inline",
+      "category": "service:lesson_b",
+      "reply": "2027-06-01 to 2027-06-08. package_none. Alex: 1 private_lesson on 2027-06-01, quantity 8. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-person-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Sam: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 8 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-product-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: package_none. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-date-control",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-01. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "wrong-quantity-words-postfix",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: 1 board on 2027-06-01, eight in total. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": false
+    },
+    {
+      "label": "safe-negated-extra-assignment",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam does not have malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "safe-same-person-possession",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex's package is malibu. Sam: package_none. Alex: 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "safe-addon-count-times",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. Alex: one board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "safe-firstname-addons",
+      "category": "multi_guest",
+      "reply": "2027-06-01 to 2027-06-08. Alex: malibu. Sam: package_none. For Alex, 1 board on 2027-06-01. Sam: 1 group_lesson on 2027-06-02. Total EUR 123.45, deposit EUR 30.00, remaining EUR 93.45.",
+      "expected": true
+    },
+    {
+      "label": "honest-nonquote-control",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates.",
+      "expected": true
+    },
+    {
+      "label": "no-fiction-booking",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-payment",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-currency",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-breakfast",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-date",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-money-taken",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. No money has been taken.",
+      "expected": true
+    },
+    {
+      "label": "safe-unconfirmed",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. Your reservation remains unconfirmed.",
+      "expected": true
+    },
+    {
+      "label": "safe-negation-control",
+      "category": "refusal",
+      "reply": "Your stay is too short. Please choose other dates. Your reservation is not confirmed.",
+      "expected": true
+    },
+    {
+      "label": "honest-nonquote-control",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote.",
+      "expected": true
+    },
+    {
+      "label": "no-fiction-booking",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-payment",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-currency",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-breakfast",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-date",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-money-taken",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. No money has been taken.",
+      "expected": true
+    },
+    {
+      "label": "safe-unconfirmed",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. Your reservation remains unconfirmed.",
+      "expected": true
+    },
+    {
+      "label": "safe-negation-control",
+      "category": "uncertain",
+      "reply": "I cannot verify this quote. Your reservation is not confirmed.",
+      "expected": true
+    },
+    {
+      "label": "honest-nonquote-control",
+      "category": "clarification",
+      "reply": "Which dates would you like?",
+      "expected": true
+    },
+    {
+      "label": "no-fiction-booking",
+      "category": "clarification",
+      "reply": "Which dates would you like? Your booking is complete.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-payment",
+      "category": "clarification",
+      "reply": "Which dates would you like? We have processed your payment.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-currency",
+      "category": "clarification",
+      "reply": "Which dates would you like? All amounts are in USD.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-breakfast",
+      "category": "clarification",
+      "reply": "Which dates would you like? Breakfast comes with your stay.",
+      "expected": false
+    },
+    {
+      "label": "no-fiction-date",
+      "category": "clarification",
+      "reply": "Which dates would you like? Your arrival date is 2027-06-08.",
+      "expected": false
+    },
+    {
+      "label": "safe-not-yet-booked",
+      "category": "clarification",
+      "reply": "Which dates would you like? I have not yet booked anything.",
+      "expected": true
+    },
+    {
+      "label": "safe-no-money-taken",
+      "category": "clarification",
+      "reply": "Which dates would you like? No money has been taken.",
+      "expected": true
+    },
+    {
+      "label": "safe-unconfirmed",
+      "category": "clarification",
+      "reply": "Which dates would you like? Your reservation remains unconfirmed.",
+      "expected": true
+    },
+    {
+      "label": "safe-negation-control",
+      "category": "clarification",
+      "reply": "Which dates would you like? Your reservation is not confirmed.",
+      "expected": true
+    },
+    {
+      "label": "safe-clarification-arrival",
+      "category": "clarification",
+      "reply": "What are your arrival and departure dates?",
+      "expected": true
+    },
+    {
+      "label": "safe-clarification-names",
+      "category": "clarification",
+      "reply": "What are the names of the guests?",
+      "expected": true
+    },
+    {
+      "label": "safe-uncertainty-rephrase",
+      "category": "uncertain",
+      "reply": "I cannot verify availability at this time.",
+      "expected": true
+    },
+    {
+      "label": "safe-refusal-rephrase",
+      "category": "refusal",
+      "reply": "Your visit does not meet the minimum stay. Please choose different dates.",
+      "expected": true
+    }
+  ]
+}

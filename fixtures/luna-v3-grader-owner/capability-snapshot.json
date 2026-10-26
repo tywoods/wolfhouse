@@ -1,0 +1,152 @@
+{
+  "ok": true,
+  "revision": "7b4d53fd62c6a55fa52b8976",
+  "contract": "luna-v3-booking-capabilities",
+  "choices": [
+    {
+      "kind": "accommodation",
+      "item_type": "package",
+      "code": "package_none",
+      "label": "Accommodation only",
+      "description": "Accommodation without a surf package.",
+      "applicability": "per_guest",
+      "requirements": {
+        "dates": false,
+        "quantity": false,
+        "participants": false,
+        "units": [],
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": true,
+        "package_minimum_nights": false,
+        "date_dependent_eligibility": "unknown_until_prepare"
+      },
+      "configuration": {
+        "active": true,
+        "pricing_ready": true
+      },
+      "includes": [],
+      "active": true
+    },
+    {
+      "kind": "package",
+      "item_type": "package",
+      "code": "malibu",
+      "label": "Malibu",
+      "description": null,
+      "applicability": "per_guest",
+      "requirements": {
+        "dates": false,
+        "quantity": false,
+        "participants": false,
+        "units": [
+          "per_person_per_week"
+        ],
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": true,
+        "package_minimum_nights": true,
+        "date_dependent_eligibility": "unknown_until_prepare"
+      },
+      "configuration": {
+        "active": true,
+        "pricing_ready": true
+      },
+      "includes": [
+        "stay"
+      ],
+      "active": true
+    },
+    {
+      "kind": "rental",
+      "item_type": "rental",
+      "code": "board",
+      "label": "Board",
+      "description": null,
+      "applicability": "party_or_participants",
+      "requirements": {
+        "dates": true,
+        "quantity": true,
+        "participants": true,
+        "units": [
+          "per_day"
+        ],
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": false,
+        "package_minimum_nights": false,
+        "date_dependent_eligibility": "unknown_until_prepare"
+      },
+      "configuration": {
+        "active": true,
+        "pricing_ready": true
+      },
+      "includes": [],
+      "active": true
+    },
+    {
+      "kind": "service",
+      "item_type": "service",
+      "code": "group_lesson",
+      "label": "Group lesson",
+      "description": null,
+      "applicability": "party_or_participants",
+      "requirements": {
+        "dates": false,
+        "quantity": true,
+        "participants": true,
+        "units": [
+          "per_lesson"
+        ],
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": false,
+        "package_minimum_nights": false,
+        "date_dependent_eligibility": "unknown_until_prepare"
+      },
+      "configuration": {
+        "active": true,
+        "pricing_ready": true
+      },
+      "includes": [],
+      "active": true
+    },
+    {
+      "kind": "service",
+      "item_type": "service",
+      "code": "private_lesson",
+      "label": "Private lesson",
+      "description": null,
+      "applicability": "party_or_participants",
+      "requirements": {
+        "dates": false,
+        "quantity": true,
+        "participants": true,
+        "units": [
+          "per_lesson"
+        ],
+        "exact_bed_required": false,
+        "bed_allocation": "staff_allocates_unless_explicit",
+        "guest_count_required": false,
+        "package_minimum_nights": false,
+        "date_dependent_eligibility": "unknown_until_prepare"
+      },
+      "configuration": {
+        "active": true,
+        "pricing_ready": true
+      },
+      "includes": [],
+      "active": true
+    }
+  ],
+  "constraints": {
+    "wire_selection": "code",
+    "one_prepare_per_inbound_event": true,
+    "prepare_purposes": [
+      "quote",
+      "offer"
+    ],
+    "date_dependent_eligibility": "unknown_until_prepare",
+    "prices": "unknown_until_prepare"
+  }
+}
