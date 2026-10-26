@@ -21017,6 +21017,32 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   .portal-admin-bookings-td-total::before{content:'Total'}
   .portal-admin-bookings-td-paid::before{content:'Paid'}
 }
+@media(max-width:768px){
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-table-wrap{overflow-x:visible}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-table{min-width:0;border:none;background:transparent;overflow:visible}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-thead{display:none}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-row-block{border-bottom:none;margin-bottom:10px;background:transparent}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-tr{
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:
+      "guest status"
+      "total paid"
+      "code code"
+      "created type";
+    gap:8px 12px;padding:14px 14px 12px;border:1px solid var(--border-soft);border-radius:14px;background:var(--surface);cursor:pointer;
+  }
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-guest{grid-area:guest;min-width:0}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-status{grid-area:status;justify-content:flex-end;align-items:flex-start;justify-self:end;white-space:nowrap}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-total{grid-area:total;justify-self:start;text-align:left}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-paid{grid-area:paid;justify-self:end;text-align:right}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-code{grid-area:code;min-width:0;padding-top:2px;border-top:1px solid var(--border-soft)}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-created{grid-area:created;white-space:normal;font-size:11px;color:var(--text-2)}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-type{grid-area:type;justify-self:end;text-align:right;color:var(--text-2);white-space:nowrap}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-guest-link{font-size:16px;font-weight:700;line-height:1.25}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-td-guest .portal-admin-bookings-sub{margin-top:3px;font-size:12px;word-break:break-word}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-code-link{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;font-size:11px;font-weight:600}
+  html:not([data-portal-client="sunset"]) .portal-admin-bookings-chip{white-space:nowrap}
+}
 .portal-schedule-toolbar>.portal-schedule-refresh-btn,.portal-schedule-toolbar #ps-refresh{min-width:44px;min-height:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .portal-schedule-toolbar #ps-create-booking{min-height:44px;padding:10px 16px;white-space:nowrap;line-height:1.2;align-self:center}
 @media(max-width:720px){
@@ -22331,9 +22357,12 @@ html[data-portal-client="sunset"] #staff-room-order{display:none!important}
     color:#e7e2d6;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.35);
   }
   .luna-header-ui:not(.luna-hdr-compact).header-collapsed .luna-bamboo-divider{opacity:1}
-  .luna-header-ui #banner .brand{width:min(120px,32vw);height:40px}
+  .luna-header-ui #banner .brand{display:flex!important;align-items:center;width:min(140px,36vw);height:40px;flex:0 0 auto}
+  .luna-header-ui #banner .brand-logo,
+  .luna-header-ui.luna-hdr-compact #banner .brand,
   .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-    height:40px;max-width:min(120px,calc(100vw - 168px));
+    display:block!important;
+    height:40px;max-height:40px;width:auto;max-width:min(140px,calc(100vw - 168px));
   }
   .luna-header-ui .banner-actions{
     margin-right:0;margin-top:0;align-self:center;gap:6px;flex-shrink:0;
@@ -24600,21 +24629,21 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
      Luna Staff / Services / Tour Operator panels are moved in by applyClientPortalProfile. -->
 <div class="portal-admin-wrap" id="admin-wh-shell" hidden>
   <div class="portal-admin-subtabs" id="wh-admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.finance">Finance</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="true" tabindex="0" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-tour-operator" data-wh-admin-tab="tour-operator" aria-controls="wh-admin-panel-tour-operator" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.tourOperator">Tour Operator</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-email" data-wh-admin-tab="email" aria-controls="wh-admin-panel-email" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.email">Email</button>
   </div>
-  <div id="wh-admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="finance" aria-labelledby="wh-admin-tab-finance">
+  <div id="wh-admin-panel-finance" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="finance" aria-labelledby="wh-admin-tab-finance" hidden>
     <div class="portal-admin-sections" id="wh-admin-finance-body"></div>
   </div>
   <div id="wh-admin-panel-bookings" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="bookings" aria-labelledby="wh-admin-tab-bookings" hidden>
     <div class="portal-admin-sections" id="wh-admin-bookings-body"></div>
   </div>
-  <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing" hidden>
+  <div id="wh-admin-panel-pricing" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="pricing" aria-labelledby="wh-admin-tab-pricing">
     <div class="portal-admin-sections" id="wh-admin-pricing-body"></div>
   </div>
   <div id="wh-admin-panel-luna-staff" class="portal-admin-tabpanel" role="tabpanel" data-wh-admin-tab-panel="luna-staff" aria-labelledby="wh-admin-tab-luna-staff" hidden></div>

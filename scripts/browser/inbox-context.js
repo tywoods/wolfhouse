@@ -260,6 +260,14 @@ function inboxContextEsc(value) {
     .replace(/"/g, '&quot;');
 }
 
+function inboxContextIsWolfhouse() {
+  try {
+    return typeof getClient === 'function' && getClient() === 'wolfhouse-somo';
+  } catch (_e) {
+    return false;
+  }
+}
+
 function inboxContextT(key, fallback) {
   if (typeof portalT === 'function') {
     var translated = portalT(key);
@@ -970,7 +978,9 @@ function inboxClientInfoHtml(data, opts) {
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
   html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
   html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(dataForFacts, opts.composite));
-  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForFacts));
+  if (!inboxContextIsWolfhouse()) {
+    html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForFacts));
+  }
   html += inboxContextKv('Language', language);
   html += '</div>';
   html += '<button type="button" class="inbox-client-info-open" id="inbox-client-info-open">' +
@@ -1100,7 +1110,9 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
   html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
   html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(dataForBookings, opts.composite));
-  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForBookings));
+  if (!inboxContextIsWolfhouse()) {
+    html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForBookings));
+  }
   html += '</div>';
   html += inboxCustomerGuestTagsHtml(dataForBookings);
   html += inboxCustomerBookingsListHtml(dataForBookings);
