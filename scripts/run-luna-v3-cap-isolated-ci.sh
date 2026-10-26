@@ -26,6 +26,7 @@ cleanup() {
   done
   docker rm -f "$STAFF" "$HERMES" "$PG" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  docker run --rm -v "$OUT:/proof" --entrypoint chmod "cap-staff:$SHA" -R a+rX /proof >/dev/null 2>&1 || true
   chmod -R u+rwX,go+rX "$OUT" 2>/dev/null || true
   exit "$status"
 }
